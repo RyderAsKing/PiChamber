@@ -2,9 +2,11 @@
   <img src="docs/references/badges/pichamber-logo.svg" width="32" height="32" alt="PiChamber" />
 </p>
 
-## Run agent work. Keep control. Ship from anywhere.
+<h1 align="center">PiChamber</h1>
 
-**PiChamber is an open-source workspace for [Pi Coding Agent](https://pi.dev) that lets you run Pi from desktop or a browser and reach it from anywhere.**
+<p align="center">Run agent work. Keep control. Ship from anywhere.</p>
+
+**PiChamber is an open-source workspace for [Pi Coding Agent](https://pi.dev). Run Pi from a desktop app or browser, then connect trusted devices to the same server.**
 
 ![PiChamber Desktop](docs/references/chat_example.png)
 
@@ -12,68 +14,63 @@
 
 ## Why PiChamber?
 
-I loved [OpenChamber](https://github.com/openchamber/openchamber). But I could not ignore what a stripped and minimal harness like [Pi](https://pi.dev) does for performance and cost.
+PiChamber started as a community fork of [OpenChamber](https://github.com/openchamber/openchamber), but the project has since been substantially rewritten around the Pi SDK. PiChamber owns the workspace, authentication, device connections, and native shells, while Pi owns sessions, providers, prompts, skills, and the session daemon.
 
-Pi is minimal by design. Small system prompt, no baked in sub agents or plan mode. You add what you need via [Extensions, Skills, Prompts and Themes](https://pi.dev). It runs in 4 modes, interactive, print, JSON, RPC and SDK, supports 40+ providers and any custom provider that speaks OpenAI, Anthropic or Google APIs, and stays fast because it does not dictate your workflow. See all the details at [pi.dev](https://pi.dev).
+PiChamber uses the Pi SDK as its agent runtime. It adds the workspace around Pi, including session navigation, live output, project files, authentication, trusted device connections, and native shells. Pi continues to own the agent itself, along with providers, prompts, skills, extensions, and themes.
 
-[Composio](https://x.com/composio) put it to the test. On a 30 task agentic eval with DeepSeek V4 Flash across 4 harnesses, Pi was the most capable and the cheapest.
+An independent [Composio evaluation](https://x.com/composio/status/2086814488162972027) compared Pi with several other agent harnesses. Pi had the highest pass rate, lowest median cost, and lowest median completion time in the cited DeepSeek V4 Flash run.
 
-![DeepSeek V4 Flash benchmark](https://pbs.twimg.com/media/HPXZaY5XUAAmz_p?format=jpg&name=large)
+![DeepSeek V4 Flash benchmark](docs/references/composio-v4-flash.jpg)
 
-DeepSeek V4 Flash, 4 Agent Harnesses
+A second [DeepSeek V4 Pro evaluation](https://x.com/composio/status/2090069397050097864) reported the same ranking for the tested tasks. These are external results, not PiChamber benchmarks.
 
-| Agent Harness | Pass Rate | Median Cost / Task | Median Time / Task |
-|---|---|---|---|
-| Pi Agent | 66.7% | $0.012 | 132s |
-| Prime Agent | 62.5% | $0.045 | 242s |
-| Deep Agents | 53.3% | $0.018 | 187s |
-| Hermes Agent | 50.0% | $0.017 | 176s |
+![DeepSeek V4 Pro benchmark](docs/references/composio-v4-pro.jpg)
 
-Source: [Composio agentic eval](https://x.com/composio/status/2086814488162972027)
+PiChamber stays focused on the parts around the agent:
 
-Rankings
-
-* Pass rate: Pi (66.7%) > Prime (62.5%) > Deep (53.3%) > Hermes (50.0%)
-* Cheapest: Pi ($0.012) > Hermes ($0.017) > Deep ($0.018) > Prime ($0.045)
-* Fastest: Pi (132s) > Hermes (176s) > Deep (187s) > Prime (242s)
-
-The standout is Pi Agent. It has the highest pass rate, lowest cost, and lowest median completion time in this evaluation.
-
-Second eval with DeepSeek V4 Pro was the same story. Pi solved the most tasks across Claude Code, DeepSeek Harness, Hermes, Pi and OpenCode. Details at [x.com/composio/status/2090069397050097864](https://x.com/composio/status/2090069397050097864?s=20).
-
-**This is why I made Pi and PiChamber.**
-
-PiChamber is not a bloated UI filled with features. It follows the footsteps of Pi, minimal, fast and hackable. Existing Pi extensions keep their tools, commands, hooks, and standard UI prompts in PiChamber. Extensions can also render cards, live panels, forms, and sandboxed app views directly in the workspace.
-
-Run it on your PC, or on a server, and connect from your phone or tablet. Same sessions, same daemon, over an authenticated web API with one time pairing links.
-
-## What you can do
-
-- Create, resume, fork, archive, and delete Pi sessions, steer or abort live work
-- Watch reasoning, tools, and token usage stream in real time
-- Configure 40+ providers, any custom provider, skills, `AGENTS.md` and trust, credentials never leave the host
-- Pair desktop, browser and mobile to one PiChamber server
+- Create, resume, fork, archive, and delete Pi sessions
+- Watch reasoning, tools, and token usage as they arrive
+- Use Pi providers, extensions, skills, prompts, `AGENTS.md`, and project trust
+- Pair a desktop, browser, or mobile device with one PiChamber server
+- Run the server on your own machine or a host you control
 
 ## Quick start
 
-**Desktop:** Download from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest), no separate Pi CLI needed.
+**Desktop:** Download the latest app from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). The desktop app starts the PiChamber server and Pi session daemon in-process, so it does not need a separate Pi CLI installation.
 
 **Server:**
+
 ```bash
 bun add -g @pi-chamber/web
-pichamber serve --ui-password be-creative-here
+pichamber serve
 ```
-Not using Bun? See [Install docs](packages/docs/content/docs/install.mdx) for npm, pnpm, yarn and `bunx`/`npx`.
 
-From source: `bun install` then `bun run dev` or `bun run electron:dev`, see [CONTRIBUTING.md](./CONTRIBUTING.md).
+In an interactive terminal, `pichamber serve` walks through access, port,
+authentication, content, and process mode, then shows a review before starting.
+For scripts or non-interactive shells, pass the setup flags explicitly, such as
+`pichamber serve --port 3000 --ui-password "choose-a-strong-password"`.
 
-## Guides
+Not using Bun? See the [install docs](packages/docs/content/docs/install.mdx) for npm, pnpm, yarn, and `bunx`/`npx` options.
 
-[Quick start](packages/docs/content/docs/quickstart.mdx) • [Install](packages/docs/content/docs/install.mdx) • [Connect devices](packages/docs/content/docs/connect-devices.mdx) • [Security](packages/docs/content/docs/security.mdx)
+From source:
+
+```bash
+bun install
+bun run dev
+```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development and release workflow.
+
+## Guides and community
+
+[Quick start](packages/docs/content/docs/quickstart.mdx) · [Install](packages/docs/content/docs/install.mdx) · [Connect devices](packages/docs/content/docs/connect-devices.mdx) · [Security](packages/docs/content/docs/security.mdx) · [Contributing](CONTRIBUTING.md)
+
+- [GitHub Discussions](https://github.com/RyderAsKing/PiChamber/discussions)
+- [Security policy](SECURITY.md)
 
 ## Acknowledgments
 
-PiChamber is a community fork of [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn, now running through its Pi-native session daemon. We retain its required MIT attribution. Thanks to Pi Coding Agent, Pierre, Ghostty-web and every contributor who shaped the project.
+PiChamber retains the required MIT attribution for [OpenChamber](https://github.com/openchamber/openchamber) by Bohdan Triapitsyn. Thanks to Pi Coding Agent, Pierre, xterm.js, and every contributor who has shaped the project.
 
 ## License
 

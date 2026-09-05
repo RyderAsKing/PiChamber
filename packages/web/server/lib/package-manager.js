@@ -814,7 +814,7 @@ export function executeUpdate(pm = detectPackageManager(), options = {}) {
   }
 
   const result = spawnSync(command, {
-    stdio: 'inherit',
+    stdio: options?.silent === true ? 'ignore' : 'inherit',
     shell: true,
     ...getSpawnSyncBaseOptions(),
   });

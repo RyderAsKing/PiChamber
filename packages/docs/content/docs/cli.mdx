@@ -1,0 +1,199 @@
+---
+title: CLI guide
+description: Start, configure, update, and manage a PiChamber server from the terminal.
+---
+
+The PiChamber CLI guides common server tasks in an interactive terminal and
+keeps the same commands usable from scripts. Run `pichamber --help` for the
+current command list.
+
+## Start a server
+
+Run this in a terminal:
+
+```sh
+pichamber serve
+```
+
+When `pichamber serve` has no setup flags and both standard streams are TTYs, it
+asks you to choose:
+
+1. Access: this machine only, local network, or a custom bind address.
+2. Port.
+3. UI authentication. Local-only servers may choose no password; network
+   access requires one.
+4. Browser UI and API, or API only.
+5. Background or foreground process mode.
+
+The CLI shows the choices and asks for confirmation before starting. A generated
+password is printed once. Save it before leaving the terminal.
+
+Use explicit flags for scripts, CI, and non-interactive shells:
+
+```sh
+pichamber serve --port 3000 --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --lan --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --api-only --ui-password "choose-a-strong-password"
+```
+
+The bare `pichamber` command remains a quick start. It uses the default server
+settings without opening the setup wizard. `--foreground` runs the server in
+the current process for systemd or another process manager.
+
+## Update PiChamber
+
+Run:
+
+```sh
+pichamber update
+```
+
+In an interactive terminal, the CLI reviews the current version, target version,
+package manager, and restart plan before it changes the install. Use `--yes` or
+`-y` to skip the confirmation:
+
+```sh
+pichamber update --yes
+```
+
+The update command only replaces a trusted global package-manager install. It
+refuses in-place replacement for Docker deployments, systemd-owned processes,
+and other installs whose package manager cannot be identified. After a package
+update it verifies the installed version and reports instances that could not
+restart.
+
+Use `--json` for a machine-readable result. The result includes the previous,
+installed, and latest versions, the package manager, restart counts, and any
+version-mismatch or partial-restart warnings. `--quiet` prints one concise
+result line without the review. A version mismatch or failed restart also
+returns a non-zero exit code, even when the package manager completed.
+
+## Manage startup and running instances
+
+Enable startup integration with a guided setup:
+
+```sh
+pichamber startup enable
+```
+
+The interactive flow asks for the bind address, port, password, and final
+confirmation. Pass `--host`, `--port`, `--lan`, and `--ui-password` to keep it
+non-interactive. Check or remove the service with:
+
+```sh
+pichamber startup status
+pichamber startup disable
+```
+
+Inspect or control running instances with:
+
+```sh
+pichamber status
+pichamber stop --port 3000
+pichamber restart --port 3000
+```
+
+A broad `pichamber stop` asks for confirmation when it would stop more than one
+instance. Use `--force` to skip that confirmation. `--json` and `--quiet` never
+prompt.
+
+## Read logs
+
+`pichamber logs` follows the latest running instance. Use `--no-follow` for a
+one-time tail:
+
+```sh
+pichamber logs --no-follow
+pichamber logs --port 3000 --lines 100 --no-follow
+pichamber logs --all --no-follow
+```
+
+Use `--quiet` for raw log lines without the interactive frame. Use
+`--json --no-follow` for a JSON response. JSON logs cannot follow a live file
+because the result must be finite.
+
+## Start a tunnel
+
+The tunnel command also has a guided flow:
+
+```sh
+pichamber tunnel start
+```
+
+In an interactive terminal, the CLI can select a saved profile, choose a mode,
+ask for a managed-remote hostname and token, find a managed-local config file,
+select a running instance, and offer to save a reusable profile. It shows a
+final review before starting when the provider and mode were not already
+specified.
+
+Use a profile or explicit mode for repeatable commands:
+
+```sh
+pichamber tunnel start --profile prod-main
+pichamber tunnel start --mode quick
+pichamber tunnel start --mode managed-remote \
+  --token-file ~/.secrets/cloudflare-token \
+  --hostname app.example.com
+pichamber tunnel start --mode managed-local \
+  --config ~/.cloudflared/config.yml
+```
+
+Non-interactive runs must provide every value required by the selected mode.
+Use `--dry-run` to validate the inputs without starting a tunnel. Stop a tunnel
+without stopping its server:
+
+```sh
+pichamber tunnel stop --port 3000
+```
+
+Use `pichamber tunnel stop --all` to target every instance. In an interactive
+terminal, stopping multiple tunnels asks for confirmation unless `--force` is
+provided. Saved managed-remote profiles can be managed with:
+
+```sh
+pichamber tunnel profile list
+pichamber tunnel profile add --provider cloudflare --mode managed-remote \
+  --name prod-main --hostname app.example.com \
+  --token-file ~/.secrets/cloudflare-token
+pichamber tunnel profile remove --name prod-main
+```
+
+## Pair devices and check the version
+
+`connect-url` creates a one-time pairing link. It starts a server on the selected
+port when one is not already running:
+
+```sh
+pichamber connect-url --qr
+pichamber connect-url --server https://pichamber.example.com --qr
+pichamber connect-url --relay --name "Laptop"
+```
+
+Use `--server` when a reverse proxy or tunnel provides the public URL. Use
+`--relay` to include the private relay as a fallback candidate. `--qr` renders
+QR art only in an interactive terminal; non-interactive output remains the
+pairing link or JSON payload.
+
+Print the installed package version with either command:
+
+```sh
+pichamber version
+pichamber --version
+```
+
+Both commands support `--json`.
+
+## Interactive and script modes
+
+The CLI uses the same validation in every mode:
+
+| Mode | Behavior |
+| --- | --- |
+| Interactive TTY | Shows prompts, reviews, and spinners for guided operations. |
+| Non-TTY | Never prompts. Supply required values as flags or receive a clear error. |
+| `--quiet` | Suppresses framing and keeps essential result lines. |
+| `--json` | Emits JSON only. Warnings and partial results are included in the payload. |
+
+Prompt cancellation leaves the associated operation unapplied. Use
+`pichamber tunnel completion bash`, `zsh`, or `fish` to generate shell
+completion for the tunnel command tree.

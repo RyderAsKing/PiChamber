@@ -1,33 +1,41 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Report a vulnerability
 
-If you discover a security vulnerability in PiChamber, please report it responsibly.
+Please report security vulnerabilities privately. Do not open a public GitHub
+issue, discussion, or pull request for a vulnerability.
 
 **Email:** [security@pichamber.dev](mailto:security@pichamber.dev)
-(For upstream OpenChamber vulnerabilities, see the [OpenChamber security policy](https://github.com/openchamber/openchamber/security).)
 
-Please include:
-- Description of the vulnerability
-- Steps to reproduce
-- Affected version(s)
-- Potential impact
+Include:
 
-I'll acknowledge receipt within 48 hours and aim to provide a fix or mitigation as quickly as possible.
+- the affected PiChamber version and runtime
+- a short description of the impact
+- reliable reproduction steps or a proof of concept
+- any relevant configuration details that are safe to share
 
-**Please do not open public GitHub issues for security vulnerabilities.**
+Remove passwords, provider keys, pairing links, client tokens, session content,
+file contents, and personal data before sending a report. If email is not
+available, use GitHub's private vulnerability reporting flow from the
+[Security tab](https://github.com/RyderAsKing/PiChamber/security) when it is
+enabled for the repository.
+
+We will acknowledge a report within 48 hours when possible. The latest release
+is the only supported security-fix line. There is no LTS or backport policy at
+this time.
 
 ## Scope
 
-PiChamber handles sensitive context including:
-- UI authentication (password-protected sessions, JWT tokens)
-- Cloudflare tunnel access (remote connectivity)
-- Terminal access (PTY sessions)
-- Git credentials and SSH keys
-- File system operations
+PiChamber can expose a user's local workspace to any authenticated or paired
+client. Reports are especially useful for issues involving:
 
-Security reports related to any of these areas are especially appreciated.
+- UI password sessions, client tokens, pairing tickets, QR links, and URL-scoped auth tokens
+- the Pi session daemon, `/api/pi/*` routes, Pi configuration, provider credentials, and session data
+- terminal PTYs, file operations, Git credentials, SSH integration, and worktree operations
+- Cloudflare tunnels, private relay traffic, reverse-proxy handling, SSE, and WebSocket authentication
+- Electron preload or main-process privilege boundaries, deep links, auto-update, and packaged startup
+- attachment uploads, speech-to-text handling, and data stored in the PiChamber data directory
 
-## Supported Versions
-
-Security fixes are applied to the latest release. There is no LTS or backport policy at this time.
+A successful login or pairing grants access to the server's sessions and
+filesystem by design. Reports should distinguish an intended authenticated
+operation from an authorization bypass or an unintended disclosure.

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { EXIT_CODE } from './cli-errors.js';
 import { requestServerShutdown } from './cli-http.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
 import {
@@ -274,21 +275,23 @@ function createUpdateCommand({
     }
 
     updateSpin?.clear();
+    const exitCode = messages.length > 0 ? EXIT_CODE.GENERAL_ERROR : EXIT_CODE.SUCCESS;
+    const resultPayload = {
+      status: messages.length > 0 ? 'warning' : 'ok',
+      previousVersion: currentVersion,
+      currentVersion: installedVersion,
+      latestVersion,
+      versionVerified,
+      updated: installedVersion !== currentVersion || versionVerified,
+      packageManager: pm,
+      restartedCount,
+      startupServiceRestarted,
+      restartResults,
+      messages,
+    };
     if (isJsonMode(options)) {
-      printJson({
-        status: messages.length > 0 ? 'warning' : 'ok',
-        previousVersion: currentVersion,
-        currentVersion: installedVersion,
-        latestVersion,
-        versionVerified,
-        updated: installedVersion !== currentVersion || versionVerified,
-        packageManager: pm,
-        restartedCount,
-        startupServiceRestarted,
-        restartResults,
-        messages,
-      });
-      return;
+      printJson(resultPayload);
+      return { exitCode };
     }
     if (showOutput) {
       logStatus(versionVerified ? 'success' : 'warning', `version ${currentVersion} -> ${installedVersion}`);
@@ -299,6 +302,7 @@ function createUpdateCommand({
     } else if (isQuietMode(options)) {
       process.stdout.write(`updated ${currentVersion} -> ${installedVersion} restarted:${restartedCount} failed:${failedRestartCount}\n`);
     }
+    return { exitCode };
   };
 }
 

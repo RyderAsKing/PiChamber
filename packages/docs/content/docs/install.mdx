@@ -25,11 +25,17 @@ pnpm add -g @pi-chamber/web
 yarn global add @pi-chamber/web
 ```
 
-Run `pichamber serve` after installation. The server creates and owns its local Pi session daemon automatically.
+Run `pichamber serve` after installation. In an interactive terminal, the command asks where the server should listen, which port to use, how to protect the UI, whether to serve the browser UI, and whether to run in the background. It shows a review before starting. The server creates and owns its local Pi session daemon automatically.
 
-Use one package manager for install and update. `pichamber update` detects the owning package manager (bun, npm, pnpm, or yarn), upgrades the global package, and safely restarts the systemd service when one is active. It preserves configuration, data ownership, and environment files; Docker deployments must be updated via `docker pull` instead of in-app replacement.
+For scripts, CI, and non-interactive shells, pass the setup flags explicitly:
 
-On a root VPS the installer now creates a system unit at `/etc/systemd/system/pichamber.service` (`systemctl restart pichamber.service`) instead of a user unit, so the server works immediately after `pichamber startup enable` without `loginctl enable-linger`. A normal user still gets a user unit at `~/.config/systemd/user/pichamber.service` (`systemctl --user`). Both scopes store host and UI password in the data directory's `startup.env` (`0600`) and keep that file across upgrades.
+```sh
+pichamber serve --port 3000 --ui-password "choose-a-strong-password"
+```
+
+Use one package manager for install and update. `pichamber update` detects the owning package manager (Bun, npm, pnpm, or Yarn), shows the current version, target version, package manager, and restart plan, then asks for confirmation in an interactive terminal. Use `pichamber update --yes` or `-y` to skip that confirmation. It verifies the installed version and reports any instance that could not restart. Docker deployments must be updated via `docker pull` instead of in-app replacement.
+
+On a root VPS, `pichamber startup enable` creates a system unit at `/etc/systemd/system/pichamber.service` (`systemctl restart pichamber.service`) instead of a user unit, so it works without `loginctl enable-linger`. A normal user gets a user unit at `~/.config/systemd/user/pichamber.service` (`systemctl --user`). In an interactive terminal, `startup enable` guides you through the bind address, port, password, and final confirmation. Pass the setup flags for a non-interactive install. Both scopes store the host and UI password in the data directory's `startup.env` (`0600`) and keep that file across upgrades.
 
 ## Run without installing
 
@@ -46,12 +52,12 @@ This downloads the package into a cache and runs it. It does not install `picham
 You can expose a private PiChamber server without opening inbound ports via Cloudflare Tunnel (`cloudflared`). PiChamber manages the tunnel as a child of the server process and integrates it with the normal auth flow.
 
 1. Install `cloudflared`: `brew install cloudflared` (macOS), `winget install --id Cloudflare.cloudflared` (Windows), or download from https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflared/downloads/ (Linux).
-2. Choose a mode in **Settings → External Tunnel** or via CLI: `pichamber tunnel start --mode quick` for an ephemeral `*.trycloudflare.com` URL, or `pichamber tunnel start --mode managed-remote --tunnel-token <token> --hostname pichamber.example.com` for a persistent hostname. The token is stored at `<dataDir>/cloudflare-tunnel-token.json` (`0600`) and never returned in API responses or logs.
+2. Choose a mode in **Settings → External Tunnel** or run `pichamber tunnel start` in an interactive terminal. The CLI can select a saved profile, choose a mode, collect a managed-remote hostname and token, find a managed-local config, and offer to save a reusable profile. For a non-interactive run, provide the mode and required values explicitly, such as `pichamber tunnel start --mode quick` for an ephemeral `*.trycloudflare.com` URL, or `pichamber tunnel start --mode managed-remote --token-file ~/.secrets/cloudflare-token --hostname pichamber.example.com` for a persistent hostname. The token is stored at `<dataDir>/cloudflare-tunnel-token.json` (`0600`) and never returned in API responses or logs.
 3. When active, the Tunnel Settings page shows the public URL with copy/open actions and the tunnel status (not configured, connected/healthy, reconnecting, degraded, stopped, error). Use **Stop** or **Remove** to shut it down cleanly; the local `cloudflared` child is terminated and the bootstrap token is revoked.
 
-Quick tunnels are best-effort (no SSE SLA); managed remote/local tunnels are the recommended persistent modes. The tunnel proxies to `http://127.0.0.1:<port>` and preserves `Host`/`X-Forwarded-*` headers, WebSocket upgrades (`/api/terminal/ws` and Pi events), and authentication (UI sessions and `oc_client_*` bearer tokens). Only the PiChamber web UI is exposed; localhost-only admin endpoints remain bound to loopback.
+Quick tunnels are best-effort (no SSE SLA); managed remote/local tunnels are the recommended persistent modes. The tunnel proxies to `http://127.0.0.1:<port>` and preserves `Host`/`X-Forwarded-*` headers, the Pi event SSE stream, WebSocket upgrades (`/api/terminal/ws` and `/api/stt/ws`), and authentication (UI sessions and `oc_client_*` bearer tokens). Only the PiChamber web UI is exposed; localhost-only admin endpoints remain bound to loopback.
 
-If you prefer to manage Cloudflare yourself, paste an existing tunnel token in the **Manual token** field. To let PiChamber create a tunnel automatically via the Cloudflare API, create a scoped API token with `Zone:Read`, `DNS:Edit`, and `Account:Cloudflare Tunnel:Edit` on the target zone/account and use the **Guided API-token** flow (the UI explains the required permissions). PiChamber never asks for your Cloudflare account password.
+If you manage Cloudflare yourself, paste an existing tunnel token in the **Manual token** field. PiChamber does not ask for your Cloudflare account password. Managed remote tunnels need a tunnel token and hostname; managed local tunnels use an existing `cloudflared` config file.
 
 ## Run from source
 

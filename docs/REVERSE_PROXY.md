@@ -1,63 +1,66 @@
-# Reverse Proxy Setup
+# Reverse proxy setup
 
-Use this guide when running PiChamber behind Nginx, Nginx Proxy Manager, Caddy, Cloudflare, or another reverse proxy.
+Use this guide when running PiChamber behind Nginx, Nginx Proxy Manager,
+Caddy, Cloudflare, or another HTTPS reverse proxy.
 
 ## Before you proxy it
 
-1. Confirm PiChamber works directly first.
-2. Open `http://<server-ip>:3000` or your custom port from the same network.
-3. Only add the reverse proxy after the direct connection works.
+1. Start PiChamber directly and confirm that the browser UI works.
+2. Bind the server to a private interface and set a UI password before making
+   it reachable from another machine.
+3. Add the reverse proxy only after the direct connection works.
 
-## What the proxy must support
+A reverse proxy provides reachability. It does not replace PiChamber
+authentication.
 
-- WebSockets for live message transport:
-  - `/api/event/ws`
-  - `/api/global/event/ws`
-  - `/api/terminal/ws`
-- SSE without buffering:
-  - `/api/event`
-  - `/api/global/event`
-  - `/api/notifications/stream`
-- Large request bodies for attachments and file operations
-- Long-lived read timeouts for live streams and terminal sessions
+## Routes that need special handling
 
-## Rules that matter
+- `GET /api/pi/events` is the authenticated Server-Sent Events stream. Disable
+  buffering and compression for this route.
+- `/api/terminal/ws` is the authenticated terminal WebSocket.
+- `/api/stt/ws` is the authenticated dictation WebSocket.
+- `/api/pi/*`, `/api/git/*`, `/api/fs/*`, and other API paths need normal
+  authenticated proxying and a request body limit large enough for attachments.
+- Long-lived API and WebSocket requests need a read timeout of at least one hour.
 
-- Enable WebSocket proxying.
-- Disable buffering on SSE routes.
-- Disable gzip on the proxy if PiChamber is already compressing responses.
-- Keep compression enabled in only one layer.
-- Forward normal proxy headers such as `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto`.
-- Increase body size limits if users upload files.
+Do not rewrite API paths or remove query parameters. Browser clients may use a
+short-lived `oc_url_token` when a transport cannot send an authorization header.
 
-## Quick checklist
+## General rules
 
-- PiChamber reachable directly on LAN
-- WebSockets enabled in the proxy
-- SSE routes have buffering off
-- `gzip off` on the proxy host, or proxy compression disabled another way
-- `client_max_body_size` large enough for attachments
-- `proxy_read_timeout` long enough for streams
+- Use HTTP/1.1 for WebSocket locations.
+- Forward `Host`, `X-Forwarded-For`, and `X-Forwarded-Proto`.
+- Disable buffering for the Pi event stream.
+- Disable compression for the event stream. Compress ordinary responses in one
+  layer only.
+- Allow request bodies large enough for the attachment limits you intend to
+  support.
+- Keep the proxy and PiChamber on a private network when possible.
 
-## Example: Nginx
-
-<details>
-<summary>Show example config</summary>
+## Nginx
 
 ```nginx
 client_max_body_size 50M;
-client_body_buffer_size 50M;
-proxy_request_buffering off;
-
 proxy_http_version 1.1;
-proxy_set_header Connection "";
 proxy_set_header Host $host;
 proxy_set_header X-Real-IP $remote_addr;
 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Forwarded-Host $host;
 
-gzip off;
+location = /api/pi/events {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_set_header Connection "";
+    proxy_set_header Accept "text/event-stream";
+    proxy_set_header Cache-Control "no-cache";
+    proxy_buffering off;
+    proxy_cache off;
+    gzip off;
+    add_header X-Accel-Buffering "no" always;
+    add_header Cache-Control "no-cache, no-transform" always;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+}
 
 location = /api/terminal/ws {
     proxy_pass http://127.0.0.1:3000;
@@ -69,35 +72,12 @@ location = /api/terminal/ws {
     proxy_send_timeout 3600s;
 }
 
-location = /api/global/event/ws {
+location = /api/stt/ws {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_buffering off;
     proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-}
-
-location = /api/event/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-}
-
-location ~ ^/api/(event|global/event|notifications/stream)$ {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Accept "text/event-stream";
-    proxy_set_header Cache-Control "no-cache";
-    proxy_buffering off;
-    proxy_cache off;
-    gzip off;
-    add_header X-Accel-Buffering "no" always;
-    add_header Cache-Control "no-cache, no-transform" always;
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
 }
@@ -113,172 +93,23 @@ location / {
 }
 ```
 
-</details>
+For Nginx Proxy Manager, enable **Websockets Support** for the host and add the
+three route-specific locations in the Advanced configuration. Keep the same
+body limit, forwarded headers, buffering, and timeout values.
 
-## Example: Nginx Proxy Manager
+## Caddy
 
-<details>
-<summary>Show Advanced tab example</summary>
-
-```nginx
-client_max_body_size 50M;
-client_body_buffer_size 50M;
-proxy_request_buffering off;
-
-proxy_http_version 1.1;
-proxy_set_header Connection "";
-proxy_set_header Host $host;
-proxy_set_header X-Real-IP $remote_addr;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-proxy_set_header X-Forwarded-Proto $scheme;
-proxy_set_header X-Forwarded-Host $host;
-
-gzip off;
-
-location = /api/terminal/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location = /api/global/event/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location = /api/event/ws {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_buffering off;
-    proxy_cache off;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location = /api/event {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Accept "text/event-stream";
-    proxy_set_header Cache-Control "no-cache";
-    proxy_buffering off;
-    proxy_cache off;
-    gzip off;
-    add_header X-Accel-Buffering "no" always;
-    add_header Cache-Control "no-cache, no-transform" always;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location = /api/global/event {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Accept "text/event-stream";
-    proxy_set_header Cache-Control "no-cache";
-    proxy_buffering off;
-    proxy_cache off;
-    gzip off;
-    add_header X-Accel-Buffering "no" always;
-    add_header Cache-Control "no-cache, no-transform" always;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location = /api/notifications/stream {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Accept "text/event-stream";
-    proxy_set_header Cache-Control "no-cache";
-    proxy_buffering off;
-    proxy_cache off;
-    gzip off;
-    add_header X-Accel-Buffering "no" always;
-    add_header Cache-Control "no-cache, no-transform" always;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-    proxy_pass http://127.0.0.1:3000;
-    proxy_set_header Accept "text/event-stream";
-    proxy_set_header Cache-Control "no-cache";
-    proxy_buffering off;
-    proxy_cache off;
-    gzip off;
-    add_header X-Accel-Buffering "no" always;
-    add_header Cache-Control "no-cache, no-transform" always;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location /api {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_read_timeout 3600s;
-    proxy_send_timeout 3600s;
-    proxy_connect_timeout 30s;
-}
-
-location / {
-    proxy_pass http://127.0.0.1:3000;
-}
-```
-
-</details>
-
-Also enable `Websockets Support` in Nginx Proxy Manager for this host.
-
-## Common failure signs
-
-### Page loads, but sending messages fails
-
-- WebSockets are not enabled in the proxy
-- `/api/event/ws` or `/api/global/event/ws` is not passing through correctly
-
-### Notifications or live status do not update
-
-- one of the SSE routes is buffered or cached
-- `X-Accel-Buffering "no"` is missing
-
-### File uploads fail
-
-- `client_max_body_size` is too small
-
-### Everything works locally, but breaks only behind the proxy
-
-- the proxy is compressing and buffering live traffic
-- the proxy is missing WebSocket support
-
-## Example: Caddy
-
-<details>
-<summary>Show example config</summary>
+Caddy handles WebSocket upgrades automatically. Disable buffering for the
+long-lived stream with `flush_interval -1`:
 
 ```caddy
 reverse_proxy 127.0.0.1:3000 {
-    # WebSocket support is automatic in Caddy
-
-    # Flush SSE responses immediately
     flush_interval -1
-
-    # Pass through Host and proxy headers
     header_up Host {host}
     header_up X-Real-IP {remote_host}
     header_up X-Forwarded-For {remote_host}
     header_up X-Forwarded-Proto {scheme}
 
-    # Increase timeouts for long-lived streams
     transport http {
         read_timeout 3600s
         write_timeout 3600s
@@ -286,22 +117,25 @@ reverse_proxy 127.0.0.1:3000 {
 }
 ```
 
-</details>
+Set a suitable `request_body` limit in the Caddy configuration if your users
+need larger attachments.
 
-Caddy handles WebSocket upgrades automatically — no extra configuration needed. The `flush_interval -1` directive ensures SSE chunks are forwarded immediately without buffering.
+## Cloudflare
 
-## CDN and double-compression warning
+A normal Cloudflare Tunnel can carry the authenticated HTTP, SSE, and
+WebSocket routes above. Quick Tunnels are for testing and have no reliable SSE
+service guarantee. Use a managed tunnel or another proxy for a persistent
+server.
 
-If you place a CDN (such as Cloudflare) in front of your reverse proxy, be aware of double compression:
+## Check the result
 
-- PiChamber compresses HTTP responses with gzip (threshold 1 KB).
-- Cloudflare and other CDNs also compress responses by default.
-- This can cause double-compressed responses or incorrect `Content-Encoding` headers.
+- Open the UI through the public hostname.
+- Start a session and confirm that tokens and tool output continue to arrive.
+- Open the terminal and confirm that input and output work.
+- Test dictation only when microphone access is configured.
+- Watch the browser network panel for an open `/api/pi/events` request. It must
+  not buffer all events until the request closes.
 
-To avoid this, disable compression at **one** layer:
-
-- **Cloudflare:** Rules → Compression → disable (or use "Passthrough" mode).
-- **Nginx:** `gzip off` (already shown in the examples above).
-- **Caddy:** Caddy does not re-compress by default if the upstream already sends compressed content.
-
-SSE streaming routes are excluded from compression by PiChamber, but the CDN may still buffer them. Check your CDN documentation for how to disable buffering on SSE paths.
+If the page loads but live output does not update, check SSE buffering first.
+If terminal or dictation fails, check WebSocket upgrade handling and make sure
+the proxy preserves the `oc_url_token` query parameter.

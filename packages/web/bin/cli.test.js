@@ -323,6 +323,11 @@ describe('cli args', () => {
     expect(parseArgs(['update', '-y']).options.yes).toBe(true);
   });
 
+  it('rejects invalid log line counts instead of silently using the default', () => {
+    expect(() => parseArgs(['logs', '--lines', 'not-a-number'])).toThrow(/Invalid lines value/);
+    expect(() => parseArgs(['logs', '--lines', '0'])).toThrow(/Invalid lines value/);
+  });
+
   it('supports --hostname as top-level bind alias', () => {
     const parsed = parseArgs(['serve', '--hostname', '0.0.0.0']);
 
@@ -485,6 +490,19 @@ describe('startup enable command helper', () => {
 });
 
 describe('version command', () => {
+  it('keeps JSON output strict when argument parsing fails', () => {
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, '--json', '--port'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'error',
+      error: { message: 'Missing value for --port.' },
+    });
+  });
+
   it('prints the installed package version', () => {
     const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'version'], {

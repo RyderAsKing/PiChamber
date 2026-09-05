@@ -48,10 +48,10 @@ let signalsAttached = false;
 
 const isEnvFlagEnabled = (value) => value === true || value === 1 || (typeof value === 'string' && ['1', 'true'].includes(value.trim().toLowerCase()));
 
-// Serve-time tunnel startup was removed with the OpenChamber migration; the
-// standalone `pichamber tunnel` command still manages cloudflared. Options
-// parsed for the removed integration must fail loudly instead of being
-// silently ignored — a user passing --tunnel expects an exposed URL.
+// Serve-time tunnel startup is intentionally separate from server startup; the
+// standalone `pichamber tunnel` command manages cloudflared. Options parsed for
+// the unsupported serve integration must fail loudly instead of being silently
+// ignored. A user passing --tunnel expects an exposed URL.
 const IGNORED_TUNNEL_OPTION_NAMES = ['tryCfTunnel', 'tunnelProvider', 'tunnelMode', 'tunnelConfigPath', 'tunnelToken', 'tunnelHostname'];
 const warnIgnoredTunnelOptions = (options) => {
   const ignored = IGNORED_TUNNEL_OPTION_NAMES.filter((name) => options[name] !== undefined && options[name] !== false && options[name] !== null && options[name] !== '');

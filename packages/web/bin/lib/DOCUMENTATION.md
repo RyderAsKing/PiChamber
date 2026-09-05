@@ -9,10 +9,10 @@ This directory contains non-entrypoint PiChamber CLI implementation. `../cli.js`
 - `commands-status.js`: running-instance and tunnel status presentation.
 - `commands-logs.js`: log discovery, tailing, and follow behavior. Quiet mode emits raw log lines, while multi-instance output retains port prefixes.
 - `commands-startup.js`: native startup service management. Interactive `startup enable` walks through access, port, authentication, and confirmation when no setup flags are supplied. Flag-driven, non-TTY, `--quiet`, and `--json` runs remain non-interactive. The command stores serve flags (`--port`, `--lan`/`--host`, `--ui-password`, `--api-only`) in the native service. Re-running enable rewrites and restarts a systemd unit so the new settings take effect immediately. LAN binds require a UI password, matching `pichamber serve`.
-- `commands-connect-url.js`: authenticated direct/relay pairing links.
+- `commands-connect-url.js`: authenticated direct/relay pairing links. Auto-started servers run silently inside the command; `--json` and non-TTY output contain only the requested machine-readable/link result, and QR art is interactive-terminal-only.
 - `pichamber version` and `pichamber --version`: print the installed package version; `--json` returns the same value as JSON.
-- `commands-update.js`: package update and restart coordination. Interactive updates review the old and target versions and restart impact before installation; `--yes` skips confirmation. Updates only a global install owned by the running CLI. Results distinguish the previous, installed, and latest versions and report partial restart failures. A Linux user systemd unit is restarted in place; the command does not spawn a replacement server on the same port.
-- `commands-tunnel.js`: tunnel lifecycle and profile management. Interactive tunnel setup ends with a review and confirmation; fully specified flag and profile runs remain direct.
+- `commands-update.js`: package update and restart coordination. Interactive updates review the old and target versions and restart impact before installation; `--yes` skips confirmation. Updates only a global install owned by the running CLI. Package-manager output is suppressed for `--quiet`/`--json`; results distinguish the previous, installed, and latest versions and report partial restart failures with a non-zero CLI exit. A Linux user systemd unit is restarted in place; the command does not spawn a replacement server on the same port.
+- `commands-tunnel.js`: tunnel lifecycle and profile management. Interactive tunnel setup ends with a review and confirmation; fully specified flag and profile runs remain direct. Auto-started servers never write nested output into the parent command's `--quiet` or `--json` result.
 
 ## Rules
 
