@@ -25,7 +25,7 @@ Terminal renderer, guided CLI flows, Git header consolidation, and desktop perfo
 
 Prompt-template safety, shortcuts, background worktree tasks, and reliability fixes.
 
-- **Prompt template edits no longer kill sessions.** Creating, updating, or deleting a prompt template no longer calls `runtimeRegistry.disposeAll()` and no longer fails with `SESSION_BUSY` while a runtime is streaming. Idle runtimes pick up the change through Pi `session.reload()` in place (session file, ID, and transcript untouched); busy runtimes defer until `agent_settled`/compaction completion. Global changes fan out to all runtimes, project changes stay scoped to that directory, and committed files return immediately while activation is deferred (`session-daemon`, `extension-bridge`, `prompt-operations`, `docs/research/prompt-template-runtime-reload.md`).
+- **Prompt template edits no longer kill sessions.** Creating, updating, or deleting a prompt template no longer calls `runtimeRegistry.disposeAll()` and no longer fails with `SESSION_BUSY` while a runtime is streaming. Idle runtimes pick up the change through Pi `session.reload()` in place (session file, ID, and transcript untouched); busy runtimes defer until `agent_settled`/compaction completion. Global changes fan out to all runtimes, project changes stay scoped to that directory, and committed files return immediately while activation is deferred (`session-daemon`, `extension-bridge`, `prompt-operations`).
 - **Terminal and dictation WebSockets survive restarts (#92).** `oc_url_token` minted at `/auth/url-token` is now an `EncryptJWT` (`dir`/`A256GCM`) sealed with a key derived from the persisted JWT secret instead of an in-memory map, so a server restart no longer invalidates a token the browser may still use for `/api/terminal/ws` or `/api/stt/ws`. Global sign-out still rotates the secret and invalidates outstanding tokens (`ui-auth`).
 - **Shortcuts pruned, folder cycling added.** Removes dead bindings (`go-to-line`, `terminal-expanded`, `toggle-files`, prompt-navigator toggle, right-sidebar git/files tabs, services-tab cycle) and their Header/FilesView/keyboard/Electron-menu handlers, renames `toggle_right_sidebar` to `open_right_sidebar`, and adds `cycle_session_folder` / `cycle_draft_folder` backed by a new `folderCycle` module with unit tests. `HelpDialog` widens to Settings-window size with a two-column grid (`shortcuts`, `folderCycle`, `useKeyboardShortcuts`, `HelpDialog`, `KeyboardShortcutsSettings`, `main.mjs`).
 - **Model picker ignores key repeat (#82).** Holding `mod+shift+m` no longer re-triggers the model selector on auto-repeat keydowns (`shouldHandleModelSelectorShortcut`).
@@ -235,12 +235,11 @@ settings honest about what PiChamber actually supports.
   routing handles drafts consistently.
 - **Pi provider resilience.** Session daemon now handles the Pi SDK provider
   retry lifecycle correctly so transient provider errors no longer stick
-  sessions in failed state, with daemon tests and `pi-sdk-provider-error-handling`
-  research note.
+  sessions in failed state, with daemon tests.
 - **Docs and housekeeping.** README previews and “why PiChamber” refreshed,
-  `pi-revert-support` and `external-tunnel-support` research added, lint
-  (`prefer-const`, `require-imports`, `exhaustive-deps`) cleaned, and patch
-  releases bundled for provider/skill/snippet polish.
+  revert and external tunnel behavior clarified, lint (`prefer-const`,
+  `require-imports`, `exhaustive-deps`) cleaned, and patch releases bundled for
+  provider/skill/snippet polish.
 
 ## [0.2.2] - 2026-08-20
 
