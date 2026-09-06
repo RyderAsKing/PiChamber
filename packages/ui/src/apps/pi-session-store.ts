@@ -1296,6 +1296,12 @@ export class PiSessionStore {
       return result;
     } catch (error) {
       recordMobileDiagnosticError('prompt-send', error);
+      if (isSessionInUseError(error)) {
+        // Another PiChamber instance owns this session. Record the chrome
+        // signal so the composer locks for this session until a later
+        // successful hydrate clears it; the transcript itself is preserved.
+        this.failSessionLoad(sessionId, error);
+      }
       if (this.promptGenerationById.get(sessionId) === generation) {
         this.pendingPromptById.delete(sessionId);
         const current = this.state.reducer.bySession.get(sessionId);

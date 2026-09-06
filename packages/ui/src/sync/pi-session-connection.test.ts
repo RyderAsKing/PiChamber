@@ -1694,6 +1694,41 @@ describe('PiSessionStore behaviour parity', () => {
     store.dispose();
   });
 
+  test('a prompt rejected as in-use records that chat so the composer can lock', async () => {
+    const stubs = stubDaemons();
+    const originalSendPrompt = piClient.sendPrompt.bind(piClient);
+    piClient.sendPrompt = (async () => {
+      throw new PiRequestError('SESSION_IN_USE', 'Another PiChamber instance is currently using this session.', 409);
+    }) as typeof piClient.sendPrompt;
+    try {
+      const store = new PiSessionStore();
+      const internal = asInternal(store);
+      internal.stream = { dispose: () => {} };
+      const session = reducerSession({ sessionId: 's1', lifecycle: 'idle' });
+      internal.hydratedSessionIds = new Set(['s1']);
+      internal.state = {
+        ...store.getState(),
+        directory: '/repo',
+        connection: 'ready',
+        reducer: { bySession: new Map([['s1', session]]), lastSequence: new Map([['s1', 1]]) },
+        hydratedSessionIds: new Set(['s1']),
+      };
+      let failure: unknown;
+      try {
+        await store.prompt('s1', 'hello', 'prompt');
+      } catch (error) {
+        failure = error;
+      }
+      expect((failure as { code?: string })?.code).toBe('SESSION_IN_USE');
+      expect(store.getState().sessionLoadErrorById.get('s1')?.code).toBe('SESSION_IN_USE');
+      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('error');
+      store.dispose();
+    } finally {
+      piClient.sendPrompt = originalSendPrompt;
+      stubs.restore();
+    }
+  });
+
   test('a missing selected session fails that chat without taking the cluster down', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
