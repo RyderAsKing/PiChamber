@@ -432,7 +432,7 @@ export const useUIStore = create<UIStore>()(
         eventStreamHint: null,
         showReasoningTraces: true,
         collapsibleThinkingBlocks: true,
-        collapseThinkingByDefault: true,
+        collapseThinkingByDefault: false,
         showDeletionDialog: true,
         autoDeleteEnabled: false,
         autoSaveEnabled: true,
