@@ -82,6 +82,8 @@ const AssistantTextPart: React.FC<AssistantTextPartProps> = ({
                 'group/assistant-text relative w-full min-w-0 break-words',
                 withinActivityRail ? 'py-1' : 'pt-3 pb-1',
             )}
+            data-chat-activity-text={withinActivityRail ? 'true' : undefined}
+            data-chat-assistant-text="true"
             key={part.id || `${messageId}-text`}
         >
             <MarkdownRenderer

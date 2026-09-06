@@ -597,7 +597,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
     if (isTodoTool) {
         if (state.status === 'error' && 'error' in state) {
             return (
-                <div className="relative pr-2 pb-2 pt-2 space-y-2 pl-4">
+                <div className="oc-tool-expanded-body relative pr-2 pb-2 pt-2 space-y-2 pl-4">
                     <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
                     <div className="typography-meta p-2 rounded-xl border" style={{
                         backgroundColor: 'var(--status-error-background)',
@@ -619,7 +619,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         }, { unstyled: true });
 
         return (
-            <div className="relative pr-2 pb-2 pt-2 space-y-2 pl-4">
+            <div className="oc-tool-expanded-body relative pr-2 pb-2 pt-2 space-y-2 pl-4">
                 {renderScrollableBlock(
                     todoOutput ?? (
                         <ToolScrollableTextOutput
@@ -638,7 +638,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
     return (
         <div
             className={cn(
-                'relative pr-2 pb-2 pt-2 space-y-2 pl-4'
+                'oc-tool-expanded-body relative pr-2 pb-2 pt-2 space-y-2 pl-4'
             )}
         >
             {part.tool === 'question' ? (

@@ -499,6 +499,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                     'group/tool flex w-full min-w-0 gap-x-1.5 rounded-md pr-2 pl-px py-1 transition-colors hover:bg-[var(--interactive-hover)]',
                     isMultiFileApplyPatch ? 'flex-wrap items-start cursor-pointer' : 'items-center cursor-pointer',
                 )}
+                data-chat-activity-row="true"
                 onClick={isMultiFileApplyPatch ? () => onToggle(part.id) : handleMainClick}
                 onKeyDown={isMultiFileApplyPatch ? (event) => {
                     if (event.target !== event.currentTarget) return;
@@ -692,6 +693,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                     {shouldRenderExpandedContent ? (
                         <div
                             className="relative ml-2 pl-3"
+                            data-chat-tool-indent="true"
                         >
                             <span
                                 aria-hidden="true"
@@ -747,7 +749,7 @@ class ToolPartErrorBoundary extends React.Component<{
 
         const message = this.state.error?.message;
         return (
-            <div className="flex items-center gap-1.5 pr-2 pl-px py-1 min-w-0">
+            <div className="flex items-center gap-1.5 pr-2 pl-px py-1 min-w-0" data-chat-activity-row="true">
                 <div className="h-3.5 w-3.5 flex-shrink-0" style={TOOL_ERROR_ICON_STYLE}>
                     {getToolIcon(this.props.toolName)}
                 </div>

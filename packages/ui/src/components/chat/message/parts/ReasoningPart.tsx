@@ -423,6 +423,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                 className={cn(
                     'group/tool flex items-center gap-1.5 py-1 pr-2 pl-px cursor-pointer',
                 )}
+                data-chat-activity-row="true"
                 onClick={handleToggle}
                 onKeyDown={handleKeyDown}
             >
@@ -462,7 +463,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
                 {!isExpanded && summary ? (
                     <span
-                        className={cn('flex h-5 flex-1 items-center min-w-0 truncate typography-code font-mono text-[length:var(--text-markdown)] leading-none tracking-normal')}
+                        className={cn('flex h-5 flex-1 items-center min-w-0 truncate typography-code font-mono text-[length:var(--text-code)] leading-none tracking-normal')}
                         style={{ color: 'var(--tools-description)', opacity: 0.8 }}
                         title={summary}
                     >
@@ -503,7 +504,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                         <ScrollableOverlay
                             ref={innerScrollRef}
                             as="div"
-                            outerClassName="max-h-80 w-full min-w-0"
+                            outerClassName="oc-reasoning-scroll max-h-80 w-full min-w-0"
                             className="p-0"
                             useScrollShadow
                             scrollShadowSize={36}

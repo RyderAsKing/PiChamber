@@ -162,7 +162,7 @@ const TaskSummaryEntriesList = React.memo(({
 
     return (
         <ToolScrollableSection maxHeightClass={isExpanded ? 'max-h-[40vh]' : 'max-h-[min(17.5rem,45vh)]'} disableHorizontal>
-            <div className="w-full min-w-0 space-y-1">
+            <div className="w-full min-w-0 space-y-1" data-chat-task-entries-list="true">
                 {hiddenCount > 0 ? (
                     <div className="typography-micro text-muted-foreground/70">+{hiddenCount} more…</div>
                 ) : null}
@@ -226,7 +226,7 @@ export const TaskToolSummary: React.FC<{
 
     if (entries.length === 0 && !hasOutput && !sessionId) {
         return (
-            <div className="relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]">
+            <div className="oc-task-tool-summary relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]">
                 <div className="typography-meta text-muted-foreground/70">
                     {isActive ? 'Waiting for subagent activity...' : 'No subagent session id on task metadata.'}
                 </div>
@@ -237,7 +237,7 @@ export const TaskToolSummary: React.FC<{
     return (
         <div
             className={cn(
-                'relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]',
+                'oc-task-tool-summary relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]',
                 'before:absolute before:left-[0.4375rem] before:w-px before:bg-[var(--tools-border)] before:content-[""]',
                 'before:top-[-0.25rem] before:bottom-0'
             )}
