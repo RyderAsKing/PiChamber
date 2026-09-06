@@ -15,7 +15,9 @@ Use a store only for state shared across distant component trees or for a cache 
 
 `useSessionFoldersStore.ts` keeps a runtime-scoped browser snapshot for immediate continuity and reconciles it with the active server's validated `/api/pi/session-folders` sidecar. Missing server state is not authoritative empty state, and in-flight hydration cannot replace newer local mutations.
 
-Model-picker preferences hydrate from the active runtime before autosave starts. Every later change is eligible for persistence, and pending changes flush to their captured runtime before app teardown or a runtime switch.
+Model-picker and appearance preferences hydrate from the active runtime before autosave starts. Every later change is eligible for persistence. Both subscriptions stop during app teardown or a runtime switch so the next runtime captures a fresh baseline, while pending writes drain against their captured runtime. When upgrading a local runtime whose older shared settings omit session-pruning fields, hydration migrates the existing local pruning values before authoritative defaults can replace them. This migration never copies those values into a remote runtime.
+
+Provider discovery also runs in the global config scope when no project exists. A fresh install can therefore choose models and save global session defaults before adding its first folder. Adding a folder activates a separate project scope and leaves the global selection intact.
 
 Caches and async work must be scoped to the active runtime. A failed authoritative request must preserve existing state and remain distinguishable from a successful empty result.
 

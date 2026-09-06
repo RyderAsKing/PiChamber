@@ -18,6 +18,10 @@ let liveAgents: TestAgent[] = [];
 let listAgentsImpl: ((directory?: string | null) => Promise<TestAgent[]>) | null = null;
 let withDirectoryCalls: Array<string | null> = [];
 let currentFetchDirectory: string | null = DIRECTORY;
+let projects = [
+  { id: 'project', path: DIRECTORY, label: 'Project' },
+  { id: 'other', path: OTHER_DIRECTORY, label: 'Other' },
+];
 let configListener: ((event: { scopes: string[]; source?: string; timestamp: number }) => void | Promise<void>) | null = null;
 
 const makeStorage = (): Storage => ({
@@ -152,11 +156,8 @@ mock.module('@/stores/utils/safeStorage', () => ({
 mock.module('@/stores/useProjectsStore', () => ({
   useProjectsStore: {
     getState: () => ({
-      activeProjectId: 'project',
-      projects: [
-        { id: 'project', path: DIRECTORY, label: 'Project' },
-        { id: 'other', path: OTHER_DIRECTORY, label: 'Other' },
-      ],
+      activeProjectId: projects[0]?.id ?? null,
+      projects,
     }),
   },
 }));
@@ -305,6 +306,10 @@ describe('useConfigStore provider persistence', () => {
     listAgentsImpl = null;
     withDirectoryCalls = [];
     currentFetchDirectory = DIRECTORY;
+    projects = [
+      { id: 'project', path: DIRECTORY, label: 'Project' },
+      { id: 'other', path: OTHER_DIRECTORY, label: 'Other' },
+    ];
     // Note: syncConfigListeners intentionally persists across tests — the
     // store subscribes once at module load and must stay subscribed.
     setSyncRefs();
@@ -333,6 +338,26 @@ describe('useConfigStore provider persistence', () => {
       isConnected: true,
       isInitialized: false,
     });
+  });
+
+  test('loads providers into the global scope before the first project is added', async () => {
+    projects = [];
+    useConfigStore.setState({
+      activeDirectoryKey: '__global__',
+      isConnected: false,
+      hasEverConnected: false,
+      isInitialized: false,
+    });
+
+    await useConfigStore.getState().initializeApp();
+
+    const state = useConfigStore.getState();
+    expect(getProvidersCalls).toBe(1);
+    expect(state.isInitialized).toBe(true);
+    expect(state.providers.map((entry) => entry.id)).toEqual(['live']);
+    expect(state.currentProviderId).toBe('live');
+    expect(state.currentModelId).toBe('live-model');
+    expect(state.directoryScoped.__global__?.providers.map((entry) => entry.id)).toEqual(['live']);
   });
 
   test('hydrates persisted provider snapshots for instant paint, then refreshes to live data', async () => {

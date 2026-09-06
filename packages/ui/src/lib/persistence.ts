@@ -230,6 +230,14 @@ export const syncDesktopSettings = async (): Promise<void> => {
       });
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';
+    const shouldMigrateLocalAutoDeleteEnabled =
+      context.runtimeKey === 'local' && typeof settings.autoDeleteEnabled !== 'boolean';
+    const shouldMigrateLocalAutoDeleteAfterDays =
+      context.runtimeKey === 'local' && typeof settings.autoDeleteAfterDays !== 'number';
+    const shouldMigrateLocalSessionRetentionAction =
+      context.runtimeKey === 'local'
+      && settings.sessionRetentionAction !== 'archive'
+      && settings.sessionRetentionAction !== 'delete';
     const authoritativeSettings =
       materializeAuthoritativeUiSettings(settings);
     try {
@@ -239,9 +247,18 @@ export const syncDesktopSettings = async (): Promise<void> => {
     }
     await waitForHydration();
     if (!isSettingsRuntimeContextCurrent(context)) return;
+    const hydratedUiSettings = useUIStore.getState();
     if (shouldSeedAutoSaveEnabled) {
-      authoritativeSettings.autoSaveEnabled =
-        useUIStore.getState().autoSaveEnabled;
+      authoritativeSettings.autoSaveEnabled = hydratedUiSettings.autoSaveEnabled;
+    }
+    if (shouldMigrateLocalAutoDeleteEnabled) {
+      authoritativeSettings.autoDeleteEnabled = hydratedUiSettings.autoDeleteEnabled;
+    }
+    if (shouldMigrateLocalAutoDeleteAfterDays) {
+      authoritativeSettings.autoDeleteAfterDays = hydratedUiSettings.autoDeleteAfterDays;
+    }
+    if (shouldMigrateLocalSessionRetentionAction) {
+      authoritativeSettings.sessionRetentionAction = hydratedUiSettings.sessionRetentionAction;
     }
     if (settings.draftStarters === undefined) {
       useUIStore.setState({ globalDraftStarters: null });
@@ -266,6 +283,15 @@ export const syncDesktopSettings = async (): Promise<void> => {
     }
     if (shouldSeedAutoSaveEnabled) {
       migrationPatch.autoSaveEnabled = authoritativeSettings.autoSaveEnabled;
+    }
+    if (shouldMigrateLocalAutoDeleteEnabled) {
+      migrationPatch.autoDeleteEnabled = authoritativeSettings.autoDeleteEnabled;
+    }
+    if (shouldMigrateLocalAutoDeleteAfterDays) {
+      migrationPatch.autoDeleteAfterDays = authoritativeSettings.autoDeleteAfterDays;
+    }
+    if (shouldMigrateLocalSessionRetentionAction) {
+      migrationPatch.sessionRetentionAction = authoritativeSettings.sessionRetentionAction;
     }
     if (Object.keys(migrationPatch).length > 0) {
       await updateDesktopSettings(migrationPatch);
