@@ -23,11 +23,29 @@ function getSettingsFilePath() {
   return path.join(getDataDir(), 'settings.json');
 }
 
+function getRuntimeStateFilePath() {
+  return path.join(getDataDir(), 'runtime-state.json');
+}
+
+function readLocalSettings() {
+  let runtime = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(getRuntimeStateFilePath(), 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) runtime = parsed;
+  } catch {}
+  try {
+    const legacy = JSON.parse(fs.readFileSync(getSettingsFilePath(), 'utf8'));
+    if (legacy?.__pichamberSettingsScope === 'portable-v1') return runtime;
+    const legacyRecord = legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy : {};
+    return { ...legacyRecord, ...runtime };
+  } catch {
+    return runtime;
+  }
+}
+
 function readDesktopLocalPortFromSettings() {
   try {
-    const raw = fs.readFileSync(getSettingsFilePath(), 'utf8');
-    const parsed = JSON.parse(raw);
-    const value = parsed?.desktopLocalPort;
+    const value = readLocalSettings().desktopLocalPort;
     if (Number.isFinite(value) && value > 0 && value <= 65535) {
       return value;
     }
@@ -39,9 +57,7 @@ function readDesktopLocalPortFromSettings() {
 
 function readDesktopLocalClientTokenFromSettings() {
   try {
-    const raw = fs.readFileSync(getSettingsFilePath(), 'utf8');
-    const parsed = JSON.parse(raw);
-    const value = parsed?.desktopLocalClientToken;
+    const value = readLocalSettings().desktopLocalClientToken;
     return typeof value === 'string' && value.trim().length > 0 ? value.trim() : '';
   } catch {
     return '';

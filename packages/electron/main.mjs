@@ -509,6 +509,10 @@ const settingsFilePath = () => {
   return resolvePiChamberDataPath('settings.json');
 };
 
+const runtimeStateFilePath = () => {
+  return resolvePiChamberDataPath('runtime-state.json');
+};
+
 const readJsonFile = (filePath) => {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -535,30 +539,32 @@ const writeJsonFile = async (filePath, data) => {
   if (process.platform !== 'win32') await fsp.chmod(filePath, 0o600);
 };
 
+const asSettingsRecord = (value) => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+);
+
 const readSettingsRoot = () => {
-  const root = readJsonFile(settingsFilePath());
-  return root && typeof root === 'object' && !Array.isArray(root) ? root : {};
+  const runtimeRoot = asSettingsRecord(readJsonFile(runtimeStateFilePath()));
+  const portableRoot = asSettingsRecord(readJsonFile(settingsFilePath()));
+  if (portableRoot.__pichamberSettingsScope === 'portable-v1') return runtimeRoot;
+  // Before the server performs the one-time split, desktop startup still needs
+  // the old local port and credentials. Runtime state wins if both exist.
+  return { ...portableRoot, ...runtimeRoot };
 };
 
-// Serializes read-modify-write of the settings file within this process.
-// Multiple call sites (spawnLocalServer, writeDesktopHostsConfig, theme
-// preference saves, ssh manager imports, etc.) would otherwise have their
-// RMW pairs interleave across awaits, letting one writer's stale copy
-// overwrite another writer's just-persisted changes.
+// Serializes read-modify-write of local runtime state within this process.
 let settingsMutationChain = Promise.resolve();
 const mutateSettingsRoot = (mutator) => {
   const next = settingsMutationChain.then(async () => {
     const current = readSettingsRoot();
     const result = await mutator(current);
     const nextRoot = result ?? current;
-    await writeJsonFile(settingsFilePath(), nextRoot);
+    await writeJsonFile(runtimeStateFilePath(), nextRoot);
   });
   // Keep the chain alive even if one mutator throws.
   settingsMutationChain = next.catch(() => {});
   return next;
 };
-
-const writeSettingsRoot = async (root) => writeJsonFile(settingsFilePath(), root);
 
 // Stable per-install identifier for this desktop, persisted in settings. Used as
 // the client dedupe key on remote hosts so re-authenticating (e.g. after a login
