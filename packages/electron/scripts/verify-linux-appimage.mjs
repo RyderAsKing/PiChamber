@@ -72,7 +72,20 @@ export const verifyExtractedPayload = ({ root, targetArchitecture }) => {
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
   }
   if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
-  assertElfArchitecture(path.join(root, 'pichamber'), targetArchitecture, 'Electron executable');
+  if (!/^Exec=AppRun\s+--no-sandbox(?:\s|$)/m.test(desktop)) {
+    throw new Error('Desktop identity mismatch: expected the AppImage launcher to pass --no-sandbox');
+  }
+  const packagedIndex = path.join(root, 'resources', 'web-dist', 'index.html');
+  if (!fs.existsSync(packagedIndex) || !fs.statSync(packagedIndex).isFile()) {
+    throw new Error(`Missing packaged UI entrypoint: ${packagedIndex}`);
+  }
+  const executablePath = path.join(root, 'pichamber');
+  if (!fs.statSync(executablePath).isFile()) throw new Error(`Missing AppImage launcher: ${executablePath}`);
+  const launcher = fs.readFileSync(executablePath, 'utf8');
+  if (!launcher.includes('--no-sandbox') || !launcher.includes('pichamber-bin')) {
+    throw new Error('AppImage launcher must pass --no-sandbox to the bundled Electron binary');
+  }
+  assertElfArchitecture(path.join(root, 'pichamber-bin'), targetArchitecture, 'Electron executable');
   const unpackedModules = path.join(root, 'resources', 'app.asar.unpacked', 'node_modules');
   if (!fs.existsSync(unpackedModules)) throw new Error(`Missing unpacked native modules: ${unpackedModules}`);
   const nativeModules = collectFiles(unpackedModules, (name, fullPath) => {

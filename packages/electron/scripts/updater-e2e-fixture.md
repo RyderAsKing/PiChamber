@@ -1,6 +1,6 @@
 # Linux Updater E2E Fixture
 
-This local-only harness verifies AppImage N-to-N+1 replacement without changing the
+This local-only harness verifies safe AppImage N-to-N+1 replacement without changing the
 production GitHub updater provider. It supports native x64 and arm64 hosts.
 
 1. Build both versions on the native target architecture. For N and N+1, set the
@@ -26,8 +26,14 @@ production GitHub updater provider. It supports native x64 and arm64 hosts.
    ```
 
 3. In N, check for updates, download/install, and restart. Verify the restarted app
-   reports N+1 and that the file at `APPIMAGE` was replaced. Repeat with `--arch arm64`
-   and the arm64 AppImages on the arm64 host.
+   reports N+1, the existing `APPIMAGE` path is still present, and the old image is
+   removed only after the new packaged UI loads. Existing desktop shortcuts must still
+   launch N+1. Repeat with `--arch arm64` and the arm64 AppImages on the arm64 host.
+
+The production installer stages the downloaded image beside the current one, validates
+its packaged `resources/web-dist/index.html`, preserves a recovery copy, and replaces
+the current path atomically. A restart that does not reach the packaged UI is rolled
+back on the next launch.
 
 The harness binds only `127.0.0.1`. Runtime override activation additionally requires
 `PICHAMBER_E2E=1`, the loopback URL set by the harness, and the build-time marker.

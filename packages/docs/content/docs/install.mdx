@@ -7,6 +7,14 @@ description: Install the desktop application or the PiChamber server.
 
 Download PiChamber from the [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest) page. The desktop application starts its PiChamber backend in-process.
 
+On Linux, choose the package for your distribution when possible:
+
+- **Ubuntu, Debian, Linux Mint, and other Debian-family distributions:** download the `.deb` package and install it with `sudo apt install ./PiChamber-...-linux-amd64.deb`.
+- **Fedora, RHEL, openSUSE, and other RPM-family distributions:** download the `.rpm` package and install it with `sudo dnf install ./PiChamber-...-linux-x86_64.rpm`.
+- **Other distributions or a portable install:** use the AppImage. Copy it to a writable Linux filesystem, make it executable with `chmod +x`, and launch it from that location. AppImages use Electron's compatibility `--no-sandbox` mode because a user-mounted AppImage cannot provide the root-owned Chromium sandbox helper; use a `.deb` or `.rpm` package when the full Chromium sandbox is required.
+
+AppImage updates keep the existing file path so desktop shortcuts remain valid. The update is validated before replacement, and the previous image is retained until the new version starts successfully.
+
 ## Server
 
 PiChamber server requires Node.js 22 or newer, or Bun. Install the CLI package with a package manager.

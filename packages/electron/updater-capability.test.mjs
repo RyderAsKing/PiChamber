@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { assertUpdaterCapability } from './updater-capability.mjs';
+import { assertUpdaterCapability, resolveLinuxPackageType } from './updater-capability.mjs';
 
 test('preserves updater behavior outside packaged Linux', () => {
   assert.doesNotThrow(() => assertUpdaterCapability({ platform: 'darwin', packaged: true }));
@@ -9,11 +9,24 @@ test('preserves updater behavior outside packaged Linux', () => {
   assert.doesNotThrow(() => assertUpdaterCapability({ platform: 'linux', packaged: false }));
 });
 
-test('rejects packaged Linux execution outside an AppImage', () => {
+test('rejects packaged Linux execution without a recognized package', () => {
   assert.throws(
     () => assertUpdaterCapability({ platform: 'linux', packaged: true, appImagePath: '' }),
-    /Start PiChamber from its \.AppImage file/,
+    /packaged Linux installation.*\.deb\/\.rpm package/,
   );
+});
+
+test('accepts package-manager installations without an AppImage path', () => {
+  assert.doesNotThrow(() => assertUpdaterCapability({
+    platform: 'linux',
+    packaged: true,
+    packageType: 'deb',
+  }));
+  assert.doesNotThrow(() => assertUpdaterCapability({
+    platform: 'linux',
+    packaged: true,
+    packageType: 'rpm',
+  }));
 });
 
 test('rejects missing and non-writable AppImages with actionable errors', () => {
@@ -46,4 +59,33 @@ test('accepts a writable packaged AppImage', () => {
     stat: () => ({ isFile: () => true }),
     access: () => {},
   }));
+});
+
+test('resolves AppImage and package-manager identities', () => {
+  assert.equal(resolveLinuxPackageType({
+    platform: 'linux',
+    packaged: true,
+    appImagePath: '/home/user/PiChamber.AppImage',
+  }), 'AppImage');
+  assert.equal(resolveLinuxPackageType({
+    platform: 'linux',
+    packaged: true,
+    appImagePath: '',
+    resourcesPath: '/resources',
+    readFile: () => 'deb\n',
+  }), 'deb');
+  assert.equal(resolveLinuxPackageType({
+    platform: 'linux',
+    packaged: true,
+    appImagePath: '',
+    resourcesPath: '/resources',
+    readFile: () => 'unknown\n',
+  }), null);
+  assert.equal(resolveLinuxPackageType({
+    platform: 'linux',
+    packaged: true,
+    appImagePath: '/home/user/PiChamber.AppImage',
+    resourcesPath: '/resources',
+    readFile: () => 'deb\n',
+  }), 'deb');
 });
