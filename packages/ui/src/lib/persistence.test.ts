@@ -448,14 +448,14 @@ describe('updateDesktopSettings', () => {
     switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-a.example', runtimeKey: 'thinking-collapse-a' });
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
-        collapseThinkingByDefault: false,
+        collapseThinkingByDefault: true,
         draftStartersScheduleTaskAdded: true,
       },
       source: 'web',
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().collapseThinkingByDefault).toBe(false);
+    expect(useUIStore.getState().collapseThinkingByDefault).toBe(true);
 
     switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-b.example', runtimeKey: 'thinking-collapse-b' });
     registerSettingsApi(async () => ({}), async () => ({
@@ -464,7 +464,7 @@ describe('updateDesktopSettings', () => {
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().collapseThinkingByDefault).toBe(true);
+    expect(useUIStore.getState().collapseThinkingByDefault).toBe(false);
   });
 
   test('drops removed session assistance settings from authoritative snapshots', async () => {
