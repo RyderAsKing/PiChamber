@@ -504,7 +504,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                           borderBottomRightRadius: 'var(--radius-sm)',
                         }}
                         className={cn(
-                          'px-5 py-3 shadow-none border border-primary/5',
+                          'shadow-none border border-primary/5',
+                          isMobile ? 'px-3 py-2' : 'px-5 py-3',
                           !isMobile && 'pb-4',
                         )}
                       >

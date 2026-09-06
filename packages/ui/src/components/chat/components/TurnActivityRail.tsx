@@ -373,7 +373,7 @@ const TurnActivityRail: React.FC<{
                                         Load earlier activity
                                     </Button>
                                 ) : null}
-                                <div className="min-w-0 space-y-1">
+                                <div className="min-w-0 space-y-1" data-chat-activity-list="true">
                                     {visibleActivity.activities.map(renderActivity)}
                                 </div>
                             </div>

@@ -458,12 +458,13 @@ const StaticToolRowInner: React.FC<{
 
     return (
         <div
-            // oc-static-tool-row: on touch devices mobile.css raises this to the
-            // same 36px floor the [role="button"] expandable/reasoning rows get,
-            // so static and expandable rows have identical rhythm.
+            // oc-static-tool-row: on touch devices mobile.css gives this the
+            // same compact 28px floor as the expandable/reasoning rows, so
+            // static and expandable rows keep the same rhythm.
             className={cn(
                 'oc-static-tool-row flex w-full items-center gap-x-1.5 pr-2 pl-px py-1 min-w-0'
             )}
+            data-chat-activity-row="true"
         >
             <div className="inline-flex h-5 items-center flex-shrink-0" style={{ color: 'var(--tools-icon)' }}>
                 {icon}

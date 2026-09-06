@@ -2,54 +2,115 @@
 
 /* General mobile improvements for all mobile devices */
 @media (max-width: 1024px) {
-  /* Override CSS custom properties for mobile */
-  :root.mobile-pointer:not(.desktop-runtime) {
-    --text-markdown: 1rem;
-    --text-code: 0.875rem;
-    --text-ui-header: 0.9375rem;
-    --text-ui-label: 0.875rem;
-    --text-meta: 0.875rem;
-    --text-micro: 0.8125rem;
-    --text-settings-page-title: 1.125rem;
+  /* Keep the feed on the same semantic scale as desktop, with one small step
+     down for phone-width reading. Components consume these variables directly;
+     class-name-based font overrides make tool titles and thinking inherit
+     unrelated sizes and are intentionally avoided. */
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) {
+    --text-markdown: 0.875rem;
+    --text-code: 0.75rem;
+    --text-ui-header: 0.875rem;
+    --text-ui-label: 0.8125rem;
+    --text-meta: 0.8125rem;
+    --text-micro: 0.75rem;
+    --text-settings-page-title: 1.0625rem;
   }
 
-  /* Force override with higher specificity */
-  :root.mobile-pointer:not(.desktop-runtime) * {
-    --text-markdown: 1rem !important;
-    --text-code: 0.875rem !important;
-    --text-ui-header: 0.9375rem !important;
-    --text-ui-label: 0.875rem !important;
-    --text-meta: 0.875rem !important;
-    --text-micro: 0.8125rem !important;
-    --text-settings-page-title: 1.125rem !important;
+  /* Theme updates can write typography variables on descendants, so keep the
+     mobile scale authoritative without changing the explicit 16px input rule. */
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) * {
+    --text-markdown: 0.875rem !important;
+    --text-code: 0.75rem !important;
+    --text-ui-header: 0.875rem !important;
+    --text-ui-label: 0.8125rem !important;
+    --text-meta: 0.8125rem !important;
+    --text-micro: 0.75rem !important;
+    --text-settings-page-title: 1.0625rem !important;
   }
 
-  /* Additional override for elements using typography classes */
-  :root.mobile-pointer:not(.desktop-runtime) .typography-markdown,
-  :root.mobile-pointer:not(.desktop-runtime) .typography-code,
-  :root.mobile-pointer:not(.desktop-runtime) .typography-ui-header,
-  :root.mobile-pointer:not(.desktop-runtime) .typography-ui-label,
-  :root.mobile-pointer:not(.desktop-runtime) .typography-meta,
-  :root.mobile-pointer:not(.desktop-runtime) .typography-micro {
-    font-size: unset !important;
+  /* Phone chat gutters are narrower than the desktop column gutters, while
+     still respecting the user's global padding scale. */
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .chat-message-column {
+    padding-inline: calc(clamp(0.625rem, 2.5vw, 0.75rem) * var(--padding-scale, 1));
   }
 
-  /* Fix font size for tool displays */
-  :root.mobile-pointer:not(.desktop-runtime) [class*="tool"],
-  :root.mobile-pointer:not(.desktop-runtime) [class*="code"] {
-    --text-code: 0.875rem !important;
-    font-size: var(--text-code) !important;
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-activity-list] > :not(:first-child) {
+    margin-block-start: 0;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-task-entries-list] > :not(:first-child) {
+    margin-block-start: 0.0625rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-turn-activity-rail] {
+    padding-left: 0.75rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-turn-activity-panel] > span[aria-hidden="true"] {
+    left: -0.75rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-activity-row] {
+    padding-block: 0.125rem;
+    padding-right: 0.25rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-tool-indent] {
+    margin-left: 0;
+    padding-left: 0.375rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-tool-expanded-body {
+    padding: 0.125rem 0.125rem 0.125rem 0.5rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-task-tool-summary {
+    padding: 0.125rem 0.125rem 0.125rem 0.375rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-task-tool-summary::before {
+    left: 0;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-tool-expanded-body > :not(:first-child),
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-task-tool-summary > :not(:first-child) {
+    margin-block-start: 0.25rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-tool-expanded-body .tool-output-surface[class~="p-2"],
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-task-tool-summary .tool-output-surface[class~="p-2"] {
+    padding: 0.25rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-assistant-text]:not([data-chat-activity-text]) {
+    padding-top: 0.5rem;
+    padding-bottom: 0.125rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .chat-message-column .message-content-text > :not(:first-child) {
+    margin-block-start: 0.375rem;
+  }
+
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) .oc-reasoning-scroll {
+    max-height: min(16rem, 40vh);
   }
 
   /* Improve touch targets for mobile */
   :root.mobile-pointer:not(.desktop-runtime) button:not([role="radio"]):not([role="checkbox"]):not([role="switch"]),
   :root.mobile-pointer:not(.desktop-runtime) .btn,
   :root.mobile-pointer:not(.desktop-runtime) [role="button"],
-  /* Static chat tool rows: not interactive as a whole, but they must share
-     the 36px rhythm of the [role="button"] expandable/reasoning rows. */
+  /* Static chat tool rows: not interactive as a whole, but they still need a
+     touch-sized floor. Activity rows opt into the compact 28px desktop rhythm
+     below without shrinking other mobile controls. */
   :root.mobile-pointer:not(.desktop-runtime) .oc-static-tool-row {
     min-height: 36px;
     min-width: 36px;
+  }
+
+  /* Keep the feed at desktop row height while leaving other mobile controls
+     on their larger touch target floor. */
+  :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-activity-row] {
+    min-height: 1.75rem;
   }
 
   /* Composer footer icon-only actions (attach / settings). Hug the icon so
@@ -215,35 +276,9 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    /* Mobile typography improvements */
-    .typography-markdown {
-      font-size: 1rem !important;
-    }
-
-    .typography-code {
-      font-size: 0.875rem !important;
-    }
-
-    .typography-ui-header {
-      font-size: 0.9375rem !important;
-    }
-
-    .typography-ui-label {
-      font-size: 0.875rem !important;
-    }
-
-    .typography-meta {
-      font-size: 0.875rem !important;
-    }
-
-    .typography-micro {
-      font-size: 0.8125rem !important;
-    }
-
-    /* Fix font size for tool displays */
-    [class*="tool"], [class*="code"] {
-      font-size: 0.875rem !important;
-    }
+    /* Feed typography is controlled by the semantic mobile variables in the
+       phone-width block above. Keep standalone surfaces on that same scale;
+       form controls retain their separate 16px anti-zoom rule. */
   }
 
   /* Fallback for non-iOS standalone mode */
