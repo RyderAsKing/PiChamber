@@ -68,8 +68,17 @@ export const verifyExtractedPayload = ({ root, targetArchitecture }) => {
   const desktopPath = path.join(root, 'pichamber.desktop');
   if (!fs.existsSync(desktopPath)) throw new Error(`Missing desktop entry: ${desktopPath}`);
   const desktop = fs.readFileSync(desktopPath, 'utf8');
-  for (const entry of ['Name=PiChamber', 'Icon=pichamber', 'StartupWMClass=pichamber']) {
+  for (const entry of [
+    'Name=PiChamber',
+    'Comment=Run Pi Coding Agent sessions from the PiChamber desktop app.',
+    'Icon=pichamber',
+    'StartupWMClass=pichamber',
+  ]) {
     if (!desktop.split(/\r?\n/).includes(entry)) throw new Error(`Desktop identity mismatch: missing ${entry}`);
+  }
+  for (const size of ['16x16', '24x24', '32x32', '48x48', '64x64', '128x128', '256x256', '512x512', '1024x1024']) {
+    const iconPath = path.join(root, 'usr', 'share', 'icons', 'hicolor', size, 'apps', 'pichamber.png');
+    if (!fs.existsSync(iconPath)) throw new Error(`Missing branded Linux icon: ${iconPath}`);
   }
   if (!/^Exec=AppRun(?:\s|$)/m.test(desktop)) throw new Error('Desktop identity mismatch: expected AppImage AppRun entrypoint');
   if (!/^Exec=AppRun\s+--no-sandbox(?:\s|$)/m.test(desktop)) {

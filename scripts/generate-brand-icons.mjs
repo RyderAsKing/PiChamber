@@ -99,6 +99,12 @@ write(path.join(electronIcons, 'app-icon.png'), await png(appIconSvg, 512));
 const icoSizes = [16, 24, 32, 48, 64, 128, 256];
 write(path.join(electronIcons, 'icon.ico'), encodeIco(await Promise.all(icoSizes.map((size) => png(winIconSvg, size)))));
 
+const linuxIconDir = path.join(electronIcons, 'linux');
+fs.mkdirSync(linuxIconDir, { recursive: true });
+for (const size of [16, 24, 32, 48, 64, 128, 256, 512, 1024]) {
+  write(path.join(linuxIconDir, `${size}x${size}.png`), await png(appIconSvg, size));
+}
+
 const icnsChunks = [];
 for (const [type, size] of [
   ['icp4', 16], ['icp5', 32], ['icp6', 64],

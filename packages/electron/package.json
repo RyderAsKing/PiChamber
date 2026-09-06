@@ -2,7 +2,7 @@
   "name": "@pichamber/electron",
   "version": "0.9.2",
   "private": true,
-  "description": "Electron desktop runtime for PiChamber",
+  "description": "PiChamber desktop application for Pi Coding Agent",
   "author": {
     "name": "PiChamber",
     "email": "RyderAsKing@users.noreply.github.com"
@@ -121,13 +121,15 @@
         "rpm"
       ],
       "category": "Development",
-      "icon": "resources/icons/icon.png",
+      "synopsis": "PiChamber desktop application",
+      "description": "Run Pi Coding Agent sessions from the PiChamber desktop app.",
+      "icon": "resources/icons/linux",
       "executableName": "pichamber",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
       "desktop": {
         "entry": {
           "Name": "PiChamber",
-          "Comment": "Desktop runtime for PiChamber",
+          "Comment": "Run Pi Coding Agent sessions from the PiChamber desktop app.",
           "Icon": "pichamber",
           "StartupWMClass": "pichamber"
         }

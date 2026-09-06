@@ -33,7 +33,7 @@ Packaging builds web assets, bundles the Electron main process, rebuilds native 
 
 Windows desktop uses the same Pi SDK as the [Pi CLI](https://pi.dev/docs/latest): sessions live under `%USERPROFILE%\.pi\agent`, private IPC is a named pipe, and the bash tool needs Git for Windows (or another `bash.exe` on PATH), matching [Pi's SDK](https://pi.dev/docs/latest/sdk).
 
-Desktop PNG/ICO/ICNS brand assets, web favicons, and mobile launcher/splash PNGs are generated from the PiChamber SVG mark with `bun run icons:brand`. The macOS 26 `Assets.car` catalog still requires `bun run --cwd packages/electron generate:macos-icon` on a Mac with Xcode.
+Desktop PNG/ICO/ICNS brand assets, the Linux hicolor icon set, web favicons, and mobile launcher/splash PNGs are generated from the PiChamber SVG mark with `bun run icons:brand`. The macOS 26 `Assets.car` catalog still requires `bun run --cwd packages/electron generate:macos-icon` on a Mac with Xcode.
 
 GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop artifacts are built on every release. Android artifacts are built for version tags and can be enabled on a manual dispatch; npm publication is opt-in, and iOS TestFlight uses the separate Mobile Release workflow. See `CONTRIBUTING.md` for the version and tag steps.
 
