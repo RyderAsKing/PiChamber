@@ -4,6 +4,7 @@ import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-s
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
+import type { PiErrorCode } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import { mapPiSessionList } from './sync-refs';
@@ -25,7 +26,14 @@ const EMPTY_PERMISSIONS: PermissionRequest[] = [];
 const EMPTY_QUESTIONS: QuestionRequest[] = [];
 const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
-const READY_LOAD_STATE = { loading: false, complete: true, status: 'ready' as const, cursor: undefined, error: null as string | null };
+const READY_LOAD_STATE = {
+  loading: false,
+  complete: true,
+  status: 'ready' as const,
+  cursor: undefined,
+  error: null as string | null,
+  errorCode: null as PiErrorCode | null,
+};
 const EMPTY_PARTS: Part[] = [];
 const liveMappedParts = new WeakMap<PiReducerMessagePart, Part>();
 const TOPIC_CATALOG = 'catalog';
@@ -304,6 +312,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
         status: 'error' as const,
         cursor: undefined,
         error: sessionError.message ?? 'Session load failed',
+        errorCode: sessionError.code as PiErrorCode,
       };
     }
     const isLoading = selectedSessionId === sessionID || connection === 'loading';
@@ -313,6 +322,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
       status: isLoading ? ('loading' as const) : ('ready' as const),
       cursor: undefined,
       error: null,
+      errorCode: null,
     };
   }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById]);
 }

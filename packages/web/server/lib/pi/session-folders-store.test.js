@@ -33,6 +33,23 @@ describe('Pi session folders store', () => {
     expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(snapshot);
   });
 
+  it('rejects stale and conflicting same-revision snapshots', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'pichamber-session-folders-'));
+    directories.push(directory);
+    const store = createPiSessionFoldersStore({ file: join(directory, 'session-folders.json') });
+    await store.write(snapshot);
+
+    await expect(store.write({ ...snapshot, updatedAt: 1 })).rejects.toMatchObject({ code: 'SESSION_FOLDERS_STALE' });
+    await expect(store.write({
+      ...snapshot,
+      foldersMap: {
+        '/workspace': [{ ...snapshot.foldersMap['/workspace'][0], name: 'Conflicting' }],
+      },
+    })).rejects.toMatchObject({ code: 'SESSION_FOLDERS_STALE' });
+    await expect(store.write(snapshot)).resolves.toEqual({ exists: true, ...snapshot });
+    await expect(store.read()).resolves.toEqual({ exists: true, ...snapshot });
+  });
+
   it('rejects malformed snapshots without replacing valid data', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'pichamber-session-folders-'));
     directories.push(directory);

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
 import { DEFAULT_LOCAL_STT_MODEL, isLocalSttModelId } from './local/model-catalog.js';
 
 const DEFAULT_CONFIG = Object.freeze({ enabled: false, providerConfigId: 'local', language: '', localModelId: DEFAULT_LOCAL_STT_MODEL, providers: [] });
@@ -51,7 +52,7 @@ export function createSttConfigStore({ file, fs = { chmod, mkdir, readFile, rena
     catch (error) { if (error?.code === 'ENOENT') return { ...DEFAULT_CONFIG, providers: [] }; throw new Error('STT configuration is invalid'); }
   };
   const write = async (changes) => {
-    const operation = mutation.then(async () => {
+    const operation = mutation.then(() => withCrossProcessLock(`${file}.lock`, async () => {
       const current = await read();
       let providers = current.providers;
       if (changes?.remoteProvider) {
@@ -73,7 +74,7 @@ export function createSttConfigStore({ file, fs = { chmod, mkdir, readFile, rena
         await fs.rm(temporary, { force: true }).catch(() => {});
         throw error;
       }
-    });
+    }));
     mutation = operation.catch(() => {});
     return operation;
   };

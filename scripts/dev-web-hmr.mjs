@@ -112,6 +112,10 @@ function clearViteCache() {
 
 clearViteCache();
 
+// Development launches use their own daemon namespace so stopping a dev
+// server can never terminate the installed server's daemon.
+process.env.PICHAMBER_SERVER_PROFILE_KIND ??= 'dev';
+
 const api = run('api', 'bun', ['run', '--cwd', 'packages/web', 'dev:server:watch'], {
   PICHAMBER_PORT: backendPort,
 });

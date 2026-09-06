@@ -60,6 +60,7 @@ function writeInstanceOptions(instanceFilePath, options, onNotice) {
       uiPassword: typeof options.uiPassword === 'string' ? options.uiPassword : undefined,
       hasUiPassword: typeof options.uiPassword === 'string',
       apiOnly: options.apiOnly === true,
+      ...(typeof options.profileKey === 'string' && options.profileKey.length > 0 ? { profileKey: options.profileKey } : {}),
       startedAt: Number.isFinite(options.startedAt) ? options.startedAt : Date.now(),
     };
     fs.writeFileSync(instanceFilePath, JSON.stringify(toStore, null, 2), { mode: 0o600 });

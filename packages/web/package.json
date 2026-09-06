@@ -17,8 +17,8 @@
   },
   "scripts": {
     "dev": "bun run build:watch",
-    "dev:server": "bun server/index.js --port ${PICHAMBER_PORT:-3001}",
-    "dev:server:watch": "nodemon --watch server --ext js --exec \"bun server/index.js --port ${PICHAMBER_PORT:-3001}\"",
+    "dev:server": "cross-env PICHAMBER_SERVER_PROFILE_KIND=dev bun server/index.js --port ${PICHAMBER_PORT:-3001}",
+    "dev:server:watch": "nodemon --watch server --ext js --exec \"cross-env PICHAMBER_SERVER_PROFILE_KIND=dev bun server/index.js --port ${PICHAMBER_PORT:-3001}\"",
     "build": "vite build",
     "build:watch": "vite build --watch",
     "type-check": "tsc --noEmit",

@@ -4,6 +4,7 @@ import {
   lifecycleFromEvent,
   asError,
   isInvalidSessionError,
+  isSessionInUseError,
   isSessionRuntimeConflictError,
   createRecordFromPiSession,
   mergeHydratedSession,
@@ -51,6 +52,7 @@ describe('pi-session-store-helpers', () => {
 
   test('identifies specific PiRequestError types', () => {
     const invalidSession = new PiRequestError('INVALID_SESSION', 'Not found');
+    const sessionInUse = new PiRequestError('SESSION_IN_USE', 'In use');
     const runtimeConflict = new PiRequestError(
       'SESSION_RUNTIME_CONFLICT',
       'Conflict'
@@ -59,6 +61,9 @@ describe('pi-session-store-helpers', () => {
 
     expect(isInvalidSessionError(invalidSession)).toBe(true);
     expect(isInvalidSessionError(generic)).toBe(false);
+
+    expect(isSessionInUseError(sessionInUse)).toBe(true);
+    expect(isSessionInUseError(generic)).toBe(false);
 
     expect(isSessionRuntimeConflictError(runtimeConflict)).toBe(true);
     expect(isSessionRuntimeConflictError(generic)).toBe(false);

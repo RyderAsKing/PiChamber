@@ -1,11 +1,13 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawn as spawnChildProcess } from 'node:child_process';
-import { chmod, lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { closeSync, openSync } from 'node:fs';
+import { chmod, lstat, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { resolveServerProfile } from '../../server/server-profile.js';
 import { isLocalSessionDaemonEndpoint } from './session-daemon.js';
 import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon } from './ipc-client.js';
 
@@ -55,6 +57,8 @@ const hasValidStateIdentity = (state) => (
   && Number.isInteger(state.pid)
   && state.pid > 0
   && typeof state.endpoint === 'string'
+  && typeof state.profileKey === 'string'
+  && state.profileKey.length > 0
 );
 
 const isValidState = (state) => hasValidStateIdentity(state) && typeof state.startedAt === 'string';
@@ -129,17 +133,35 @@ const resolvePiSessionDaemonPaths = ({
   dataDir = resolvePiChamberDataDir({ env }),
   pathModule = { join, resolve, isAbsolute },
   platform = process.platform,
+  profile,
+  port,
+  runtime,
+  version,
 } = {}) => {
-  const piDataDir = pathModule.join(dataDir, 'pi');
-  const runtimeDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
-    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber')
-    : pathModule.join(dataDir, 'runtime');
+  const resolvedProfile = profile && typeof profile.profileKey === 'string'
+    ? profile
+    : resolveServerProfile({ env, port, runtime, version });
+  const {
+    profileKey,
+    serverInstanceId,
+    runtime: profileRuntime,
+    source: profileSource,
+    development: profileDevelopment,
+    buildId,
+  } = resolvedProfile;
+  const profileDir = pathModule.join(dataDir, 'pi', 'daemons', profileKey);
+  const runtimeBaseDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
+    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber', 'pi-daemons', profileKey)
+    : pathModule.join(dataDir, 'runtime', 'pi-daemons', profileKey);
   const configuredEndpoint = typeof env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
     ? env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
     : '';
+  // An explicit endpoint override keeps per-profile sidecars but shares the
+  // socket path. A profile never adopts, unlinks, or signals an endpoint it
+  // cannot authenticate and identify as its own.
   const endpoint = configuredEndpoint || (platform === 'win32'
-    ? `\\\\.\\pipe\\pichamber-pi-session-daemon-${getWindowsOwnerKey()}`
-    : pathModule.join(runtimeDir, 'pi-session-daemon.sock'));
+    ? `\\\\.\\pipe\\pichamber-pi-session-daemon-${getWindowsOwnerKey()}-${profileKey}`
+    : pathModule.join(runtimeBaseDir, 'daemon.sock'));
 
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new PiSessionDaemonUnavailableError('INVALID_DAEMON_ENDPOINT');
@@ -149,12 +171,44 @@ const resolvePiSessionDaemonPaths = ({
   return {
     endpoint,
     agentDir: configuredAgentDir ? pathModule.resolve(configuredAgentDir) : undefined,
-    piDataDir,
-    runtimeDir,
-    credentialFile: pathModule.join(piDataDir, 'session-daemon.key'),
-    stateFile: pathModule.join(piDataDir, 'session-daemon-state.json'),
-    lockFile: pathModule.join(piDataDir, 'session-daemon.lock'),
+    piDataDir: pathModule.join(dataDir, 'pi'),
+    profileDir,
+    runtimeDir: runtimeBaseDir,
+    credentialFile: pathModule.join(profileDir, 'session-daemon.key'),
+    stateFile: pathModule.join(profileDir, 'daemon-state.json'),
+    lockFile: pathModule.join(profileDir, 'operation.lock'),
+    logFile: pathModule.join(dataDir, 'logs', `pi-daemon-${profileKey}.log`),
+    profileKey,
+    serverInstanceId,
+    profileRuntime,
+    profileSource,
+    profileDevelopment: profileDevelopment === true,
+    buildId,
   };
+};
+
+const LEGACY_DAEMON_FILES = (dataDir) => ({
+  stateFile: join(dataDir, 'pi', 'session-daemon-state.json'),
+});
+
+// Best-effort removal of a dead legacy (pre-profile) daemon record. A live
+// legacy daemon is never signaled or adopted; it keeps running until its own
+// owner stops it.
+const cleanupDeadLegacyDaemonState = async ({ dataDir, processLike }) => {
+  try {
+    const raw = await readFile(LEGACY_DAEMON_FILES(dataDir).stateFile, 'utf8');
+    const state = JSON.parse(raw);
+    if (!Number.isInteger(state?.pid) || state.pid <= 0) return;
+    try {
+      processLike.kill(state.pid, 0);
+      return;
+    } catch (error) {
+      if (error?.code === 'EPERM') return;
+    }
+    await rm(LEGACY_DAEMON_FILES(dataDir).stateFile, { force: true });
+  } catch {
+    // Legacy cleanup must never block profile daemon startup.
+  }
 };
 
 /**
@@ -173,20 +227,26 @@ export const createPiSessionDaemonSupervisor = ({
   wait = delay,
   startupTimeoutMs = OPERATION_TIMEOUT_MS,
   daemonReadyTimeoutMs = DAEMON_READY_TIMEOUT_MS,
+  profile,
+  port,
+  runtime,
+  version,
 } = {}) => {
-  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform });
+  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
+  const serverPid = processLike.pid;
   let startPromise = null;
   let intentionallyStopped = false;
 
   const withOperationLock = async (operation) => {
     const deadline = Date.now() + startupTimeoutMs;
-    await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
-    await chmodIfPossible(paths.piDataDir, 0o700);
+    const nonce = randomUUID();
+    await mkdir(paths.profileDir, { recursive: true, mode: 0o700 });
+    await chmodIfPossible(paths.profileDir, 0o700);
     while (true) {
       try {
         await writeFile(
           paths.lockFile,
-          JSON.stringify({ pid: processLike.pid, claimedAt: new Date().toISOString() }),
+          JSON.stringify({ pid: processLike.pid, nonce, claimedAt: new Date().toISOString() }),
           { flag: 'wx', mode: 0o600 },
         );
         await chmodIfPossible(paths.lockFile, 0o600);
@@ -204,7 +264,7 @@ export const createPiSessionDaemonSupervisor = ({
       } finally {
         try {
           const claim = JSON.parse(await readFile(paths.lockFile, 'utf8'));
-          if (claim?.pid === processLike.pid) await rm(paths.lockFile, { force: true });
+          if (claim?.pid === processLike.pid && claim?.nonce === nonce) await rm(paths.lockFile, { force: true });
         } catch {
           // A missing or already-replaced lock must not remove another owner.
         }
@@ -241,8 +301,8 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const ensureCredential = async () => {
-    await mkdir(paths.piDataDir, { recursive: true, mode: 0o700 });
-    await chmodIfPossible(paths.piDataDir, 0o700);
+    await mkdir(paths.profileDir, { recursive: true, mode: 0o700 });
+    await chmodIfPossible(paths.profileDir, 0o700);
     try {
       const credential = await readCredential();
       await chmodIfPossible(paths.credentialFile, 0o600);
@@ -264,9 +324,11 @@ export const createPiSessionDaemonSupervisor = ({
 
   const probe = async (credential) => {
     const state = await readState();
-    if (!state || state.endpoint !== paths.endpoint) {
+    if (!state || state.endpoint !== paths.endpoint || state.profileKey !== paths.profileKey) {
       const failure = await readFailureState();
-      if (failure?.endpoint === paths.endpoint) throw new PiSessionDaemonUnavailableError(failure.error.code);
+      if (failure?.endpoint === paths.endpoint && failure?.profileKey === paths.profileKey) {
+        throw new PiSessionDaemonUnavailableError(failure.error.code);
+      }
       throw new PiSessionDaemonUnavailableError('DAEMON_UNAVAILABLE');
     }
     try {
@@ -276,7 +338,13 @@ export const createPiSessionDaemonSupervisor = ({
         command: 'runtime.health',
         timeoutMs: startupTimeoutMs,
       }), startupTimeoutMs, 'DAEMON_UNAVAILABLE');
-      if (health?.state !== 'ready' || health.daemonPid !== state.pid) {
+      if (health?.state !== 'ready'
+        || health.daemonPid !== state.pid
+        || health.profileKey !== paths.profileKey
+        || (typeof state.daemonId === 'string' && health.daemonId !== state.daemonId)
+        || (typeof state.serverInstanceId === 'string' && health.serverInstanceId !== state.serverInstanceId)
+        || (Number.isInteger(state.serverPid) && health.serverPid !== state.serverPid)
+        || (typeof state.buildId === 'string' && health.buildId !== state.buildId)) {
         throw new PiSessionDaemonUnavailableError('DAEMON_IDENTITY_MISMATCH');
       }
       return { state, health };
@@ -303,9 +371,36 @@ export const createPiSessionDaemonSupervisor = ({
 
   const removeStaleState = async (state) => {
     const current = await readState() ?? await readFailureState();
-    if (current?.pid === state?.pid && current.endpoint === paths.endpoint) {
+    if (current?.pid === state?.pid
+      && current.endpoint === paths.endpoint
+      && current.profileKey === paths.profileKey) {
       await rm(paths.stateFile, { force: true });
     }
+  };
+
+  // Transfer a same-profile daemon to this server instance only after its
+  // prior server owner has exited. The daemon persists the new owner before
+  // acknowledging the claim, keeping IPC identity and the sidecar in sync.
+  const claimDaemonOwnership = async (credential) => {
+    try {
+      await request({
+        endpoint: paths.endpoint,
+        credential,
+        command: 'runtime.claim',
+        payload: { serverInstanceId: paths.serverInstanceId, serverPid },
+        timeoutMs: startupTimeoutMs,
+      });
+    } catch (error) {
+      if (error instanceof SessionDaemonClientError && error.code === 'UNKNOWN_COMMAND') return false;
+      if (error instanceof SessionDaemonClientError && error.code === 'OWNERSHIP_CONFLICT') {
+        throw new PiSessionDaemonUnavailableError('DAEMON_PROFILE_IN_USE');
+      }
+      if (error instanceof SessionDaemonClientError) {
+        throw new PiSessionDaemonUnavailableError(error.code);
+      }
+      throw error;
+    }
+    return true;
   };
 
   const recoverVerifiedStaleEndpoint = async (state, credential) => {
@@ -319,7 +414,12 @@ export const createPiSessionDaemonSupervisor = ({
     }
 
     try {
-      await request({ endpoint: paths.endpoint, credential, command: 'runtime.health' });
+      await request({
+        endpoint: paths.endpoint,
+        credential,
+        command: 'runtime.health',
+        timeoutMs: startupTimeoutMs,
+      });
       return false;
     } catch (error) {
       // A dead owner plus an owner-only socket that either refuses or never
@@ -332,8 +432,36 @@ export const createPiSessionDaemonSupervisor = ({
     return true;
   };
 
-  const requestDaemonExit = async (state) => {
+  // Authenticated shutdown: prove profile ownership over IPC before
+  // signaling anything. A stale server whose daemon was claimed by a newer
+  // instance receives an ownership error and must not terminate anything.
+  const requestDaemonShutdown = async (state, credential) => {
     if (!state || !Number.isInteger(state.pid) || state.pid <= 0) return;
+    if (state.profileKey !== paths.profileKey) {
+      throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
+    }
+    try {
+      await request({
+        endpoint: paths.endpoint,
+        credential,
+        command: 'runtime.shutdown',
+        payload: { serverInstanceId: paths.serverInstanceId, daemonId: state.daemonId },
+        timeoutMs: startupTimeoutMs,
+      });
+    } catch (error) {
+      if (error instanceof SessionDaemonClientError
+        && (error.code === 'DAEMON_OWNERSHIP_MISMATCH' || error.code === 'OWNERSHIP_MISMATCH')) {
+        throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
+      }
+      if (error instanceof SessionDaemonClientError
+        && !['DAEMON_CONNECTION_REFUSED', 'DAEMON_UNAVAILABLE'].includes(error.code)
+        && error.code !== 'UNKNOWN_COMMAND') {
+        throw new PiSessionDaemonUnavailableError(error.code);
+      }
+      // UNKNOWN_COMMAND (a daemon that predates shutdown) and unreachable
+      // daemons fall through to the PID wait below; only a verified owner
+      // reaches the signal.
+    }
     try {
       processLike.kill(state.pid, 'SIGTERM');
     } catch {
@@ -357,17 +485,25 @@ export const createPiSessionDaemonSupervisor = ({
     if (startPromise) return startPromise;
     startPromise = withOperationLock(async () => {
       const credential = await ensureCredential();
+      await cleanupDeadLegacyDaemonState({ dataDir: dirname(paths.piDataDir), processLike });
       try {
         const existing = await probe(credential);
-        if (daemonEntrypointMatches(existing.state)) {
-          return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: existing.health.capabilities ?? [] };
+        const isCompatibleBuild = daemonEntrypointMatches(existing.state)
+          && existing.state.buildId === paths.buildId
+          && existing.health.buildId === paths.buildId
+          && (!paths.profileDevelopment || existing.state.serverInstanceId === paths.serverInstanceId);
+        const claimed = await claimDaemonOwnership(credential);
+        if (isCompatibleBuild && claimed) {
+          const ready = await probe(credential);
+          return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
         }
-        // A healthy daemon from another install (global npm vs this checkout)
-        // must not keep answering getSession without the live-turn overlay.
-        await requestDaemonExit(existing.state);
+        // Replace an older protocol/build, and always replace a development
+        // daemon so a source restart cannot keep running stale module code.
+        await requestDaemonShutdown(existing.state, credential);
       } catch (error) {
         if (!(error instanceof PiSessionDaemonUnavailableError)) throw error;
-        if (error.code === 'DAEMON_STOP_FAILED' || error.code === 'DAEMON_STOP_TIMEOUT') throw error;
+        if (error.code === 'DAEMON_STOP_FAILED' || error.code === 'DAEMON_STOP_TIMEOUT'
+          || error.code === 'DAEMON_OWNERSHIP_MISMATCH' || error.code === 'DAEMON_PROFILE_IN_USE') throw error;
       }
 
       const staleState = await readState() ?? await readFailureState();
@@ -387,24 +523,46 @@ export const createPiSessionDaemonSupervisor = ({
         await mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 });
         await chmod(paths.runtimeDir, 0o700);
       }
+      await mkdir(dirname(paths.logFile), { recursive: true, mode: 0o700 });
+      await chmodIfPossible(dirname(paths.logFile), 0o700);
 
-      const child = spawn(processLike.execPath, [
-        DAEMON_ENTRYPOINT,
-        '--endpoint', paths.endpoint,
-        '--credential-file', paths.credentialFile,
-        '--state-file', paths.stateFile,
-        '--cwd', cwd,
-        ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
-      ], {
-        cwd,
-        detached: platform !== 'win32',
-        stdio: 'ignore',
-        windowsHide: true,
-        env: buildSessionDaemonChildEnv({
-          env,
-          electronVersion: processLike.versions?.electron,
-        }),
-      });
+      const daemonId = randomUUID();
+      let logFd = null;
+      try {
+        logFd = openSync(paths.logFile, 'a');
+      } catch {
+        logFd = null;
+      }
+      let child;
+      try {
+        child = spawn(processLike.execPath, [
+          DAEMON_ENTRYPOINT,
+          '--endpoint', paths.endpoint,
+          '--credential-file', paths.credentialFile,
+          '--state-file', paths.stateFile,
+          '--cwd', cwd,
+          '--profile-key', paths.profileKey,
+          '--server-instance-id', paths.serverInstanceId,
+          '--server-pid', String(serverPid),
+          '--daemon-id', daemonId,
+          '--runtime', paths.profileRuntime,
+          '--build-id', paths.buildId,
+          ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+        ], {
+          cwd,
+          detached: platform !== 'win32',
+          stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
+          windowsHide: true,
+          env: buildSessionDaemonChildEnv({
+            env,
+            electronVersion: processLike.versions?.electron,
+          }),
+        });
+      } finally {
+        if (logFd !== null) {
+          try { closeSync(logFd); } catch { /* the child holds its own copy */ }
+        }
+      }
       child?.unref?.();
 
       // Loading Pi settings, providers, and a larger local model catalog can
@@ -438,7 +596,10 @@ export const createPiSessionDaemonSupervisor = ({
     let credential = await readCredential();
     try {
       const ready = await probe(credential);
-      if (daemonEntrypointMatches(ready.state)) {
+      if (daemonEntrypointMatches(ready.state)
+        && ready.state.buildId === paths.buildId
+        && ready.health.buildId === paths.buildId
+        && (!paths.profileDevelopment || ready.state.serverInstanceId === paths.serverInstanceId)) {
         return { credential, ready };
       }
     } catch (probeError) {
@@ -467,8 +628,16 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
-    const { credential } = await ensureReady();
-    return subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
+    try {
+      const { credential } = await ensureReady();
+      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
+    } catch (error) {
+      throw new PiSessionDaemonUnavailableError(
+        error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
+          ? error.code
+          : error instanceof PiSessionDaemonUnavailableError ? error.code : 'DAEMON_UNAVAILABLE',
+      );
+    }
   };
 
   const health = async () => {
@@ -485,12 +654,33 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   const stop = async () => {
+    intentionallyStopped = true;
     const pendingStart = startPromise;
     if (pendingStart) await pendingStart.catch(() => {});
     return withOperationLock(async () => {
-      const credential = await readCredential();
+      let credential;
+      try {
+        credential = await readCredential();
+      } catch (error) {
+        if (error?.code !== 'DAEMON_CREDENTIAL_UNAVAILABLE') throw error;
+        intentionallyStopped = true;
+        return { state: 'stopped' };
+      }
+      const recordedState = await readState();
+      if (!recordedState) {
+        const failureState = await readFailureState();
+        if (failureState && !isPidAlive(processLike, failureState.pid)) await removeStaleState(failureState);
+        intentionallyStopped = true;
+        return { state: 'stopped' };
+      }
       const { state } = await probe(credential);
-      await requestDaemonExit(state);
+      // A stale server must never stop a daemon claimed by a newer instance
+      // of the same profile (for example a development server stopping after
+      // the installed server claimed the profile daemon).
+      if (state.serverInstanceId !== paths.serverInstanceId) {
+        throw new PiSessionDaemonUnavailableError('DAEMON_OWNERSHIP_MISMATCH');
+      }
+      await requestDaemonShutdown(state, credential);
       intentionallyStopped = true;
       return { state: 'stopped' };
     });

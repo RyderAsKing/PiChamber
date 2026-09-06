@@ -369,8 +369,15 @@ function getOrCreateJwtSecret() {
   const secret = crypto.randomBytes(32).toString('hex');
   try {
     fs.mkdirSync(PICHAMBER_DATA_DIR, { recursive: true });
-    fs.writeFileSync(JWT_SECRET_FILE, secret, { mode: 0o600 });
-    console.log('[JWT] Generated and persisted new secret to', JWT_SECRET_FILE);
+    // Exclusive create: a concurrent server creating its first secret at the
+    // same instant re-reads the winner instead of overwriting it.
+    try {
+      fs.writeFileSync(JWT_SECRET_FILE, secret, { mode: 0o600, flag: 'wx' });
+      console.log('[JWT] Generated and persisted new secret to', JWT_SECRET_FILE);
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      return new TextEncoder().encode(fs.readFileSync(JWT_SECRET_FILE, 'utf8').trim());
+    }
   } catch (e) {
     console.warn('[JWT] Failed to persist secret:', e.message);
   }

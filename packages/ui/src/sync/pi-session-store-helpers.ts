@@ -67,6 +67,9 @@ export const asError = (error: unknown): PiRequestError =>
 export const isInvalidSessionError = (error: unknown): error is PiRequestError =>
   error instanceof PiRequestError && error.code === 'INVALID_SESSION';
 
+export const isSessionInUseError = (error: unknown): error is PiRequestError =>
+  error instanceof PiRequestError && error.code === 'SESSION_IN_USE';
+
 export const isSessionRuntimeConflictError = (
   error: unknown
 ): error is PiRequestError =>

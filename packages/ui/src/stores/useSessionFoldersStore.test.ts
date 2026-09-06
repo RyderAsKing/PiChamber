@@ -4,6 +4,8 @@ const storage = new Map<string, string>();
 let storageSetCount = 0;
 let runtimeKey = 'runtime-a';
 let diskResponseBody: Record<string, unknown> = { version: 1, exists: false };
+let rejectNextDiskWrite = false;
+let rejectedDiskWrites = 0;
 
 const safeStorage = {
   getItem: (key: string) => storage.get(key) ?? null,
@@ -29,7 +31,17 @@ mock.module('./utils/safeStorage', () => ({
 }));
 
 mock.module('@/lib/runtime-fetch', () => ({
-  runtimeFetch: mock(async () => new Response(JSON.stringify(diskResponseBody), { headers: { 'Content-Type': 'application/json' } })),
+  runtimeFetch: mock(async (_path: string, init?: RequestInit) => {
+    if (init?.method === 'PUT' && rejectNextDiskWrite) {
+      rejectNextDiskWrite = false;
+      rejectedDiskWrites += 1;
+      return new Response(JSON.stringify({ error: { code: 'SESSION_FOLDERS_STALE' } }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify(diskResponseBody), { headers: { 'Content-Type': 'application/json' } });
+  }),
 }));
 mock.module('@/lib/runtime-switch', () => ({ getRuntimeKey: () => runtimeKey }));
 
@@ -43,6 +55,8 @@ describe('useSessionFoldersStore folder assignments', () => {
     storageSetCount = 0;
     runtimeKey = 'runtime-a';
     diskResponseBody = { version: 1, exists: false };
+    rejectNextDiskWrite = false;
+    rejectedDiskWrites = 0;
     useSessionFoldersStore.getState().resetForRuntimeSwitch(runtimeKey);
     useSessionFoldersStore.setState({
       foldersMap: {},
@@ -116,6 +130,37 @@ describe('useSessionFoldersStore folder assignments', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(useSessionFoldersStore.getState().getFoldersForScope('/workspace/project').map((folder) => folder.name)).toEqual(['Browser folder']);
+  });
+
+  test('reconciles to the authoritative disk snapshot after a stale write', async () => {
+    Object.defineProperty(globalThis, 'window', { value: {}, configurable: true });
+    const remoteFolder = {
+      id: 'remote-folder',
+      name: 'Remote folder',
+      sessionIds: ['session-remote'],
+      createdAt: 1,
+      parentId: null,
+    };
+    diskResponseBody = {
+      version: 1,
+      exists: true,
+      foldersMap: { '/workspace/project': [remoteFolder] },
+      collapsedFolderIds: ['remote-folder'],
+      updatedAt: Date.now() + 10_000,
+    };
+    rejectNextDiskWrite = true;
+
+    try {
+      useSessionFoldersStore.getState().createFolder('/workspace/project', 'Local conflict');
+      await waitForPersist();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(rejectedDiskWrites).toBe(1);
+      expect(useSessionFoldersStore.getState().getFoldersForScope('/workspace/project')).toEqual([remoteFolder]);
+      expect(useSessionFoldersStore.getState().collapsedFolderIds).toEqual(new Set(['remote-folder']));
+    } finally {
+      Reflect.deleteProperty(globalThis, 'window');
+    }
   });
 
   test('does not silently evict folder state from older runtimes', () => {

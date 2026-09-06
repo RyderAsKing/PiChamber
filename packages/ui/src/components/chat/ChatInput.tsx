@@ -302,6 +302,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ),
   ).current;
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+  const sessionLoadErrorCode = usePiSessionSnapshot(
+    (state) =>
+      currentSessionId
+        ? (state.sessionLoadErrorById.get(currentSessionId)?.code ?? null)
+        : null,
+    undefined,
+    currentSessionId ? `session:${currentSessionId}` : "chrome",
+  );
+  const isSessionInUse = sessionLoadErrorCode === "SESSION_IN_USE";
   const extensionEditor = usePiSessionSnapshot(
     (state) =>
       currentSessionId
@@ -859,14 +868,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const canSend =
     (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady;
 
-  // Locked while a worktree is being created or a new-session draft send is
-  // in flight. Locking covers send, voice, model, attach, and draft-target
-  // controls so the user cannot spam sends during the slow materialization.
+  // Locked while a worktree is being created, a new-session draft send is
+  // in flight, or the selected session is owned by another PiChamber
+  // instance (SESSION_IN_USE). Locking covers send, voice, model, attach,
+  // and draft-target controls so the user cannot spam sends during the slow
+  // materialization or against a session this runtime cannot write to.
   const isWorktreeBusy = Boolean(
     draftWorktreeCreation.state &&
     draftWorktreeCreation.state.phase !== "failed",
   );
-  const isComposerLocked = isWorktreeBusy || isSendingNewSession;
+  const isComposerLocked = isWorktreeBusy || isSendingNewSession || isSessionInUse;
 
   const canAbort = sessionPhase !== "idle";
 
@@ -2374,7 +2385,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                           onFocus={mobileShell.onEditorFocus}
                           onBlur={mobileShell.onEditorBlur}
                           placeholder={
-                            currentSessionId || newSessionDraftOpen
+                            isSessionInUse
+                              ? "Session is open elsewhere"
+                              : currentSessionId || newSessionDraftOpen
                               ? inputMode === "shell"
                                 ? "Enter shell command..."
                                 : isNewSessionStackedComposer

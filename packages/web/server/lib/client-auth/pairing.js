@@ -1,3 +1,5 @@
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
+
 const STORE_VERSION = 1;
 const PAIRING_ID_PREFIX = 'pair_';
 const SECRET_BYTES = 32;
@@ -114,7 +116,9 @@ export const createClientPairingRuntime = ({
     });
     await previous;
     try {
-      return await fn();
+      // The queue orders one server; the file lock orders every server
+      // sharing this data directory.
+      return await withCrossProcessLock(`${storePath}.lock`, fn);
     } finally {
       release();
     }
@@ -155,7 +159,14 @@ export const createClientPairingRuntime = ({
 
   const writeStore = async (store) => {
     await fsPromises.mkdir(path.dirname(storePath), { recursive: true, mode: 0o700 });
-    await fsPromises.writeFile(storePath, JSON.stringify(normalizeStore(store), null, 2), { mode: 0o600 });
+    const temporary = `${storePath}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
+    try {
+      await fsPromises.writeFile(temporary, JSON.stringify(normalizeStore(store), null, 2), { mode: 0o600 });
+      await fsPromises.rename(temporary, storePath);
+    } catch (error) {
+      await fsPromises.rm?.(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
     if (typeof fsPromises.chmod === 'function') {
       await fsPromises.chmod(storePath, 0o600).catch(() => {});
     }

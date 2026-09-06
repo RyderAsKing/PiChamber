@@ -2368,4 +2368,211 @@ describe('Pi session daemon spike', () => {
     expect(detail.result.messages[0].message.thinkingLevel).toBe('high');
     await client.close();
   });
+
+  it('transfers profile ownership through runtime.claim and enforces it on runtime.shutdown', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ownership-'));
+    const endpoint = testDaemonEndpoint(root);
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+    let shutdownCalls = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      serverPid: 987_654_321,
+      daemonId: 'daemon-a',
+      onShutdown: () => { shutdownCalls += 1; },
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('runtime.health')).resolves.toMatchObject({
+      result: { profileKey: 'web-p3000', daemonId: 'daemon-a', serverInstanceId: 'server-a' },
+    });
+    await expect(client.request('runtime.claim', { serverInstanceId: 'server-b', serverPid: process.pid })).resolves.toMatchObject({
+      result: { claimed: true, serverInstanceId: 'server-b', serverPid: process.pid },
+    });
+    const requestRaw = (requestClient, command, payload) => {
+      const requestId = `request-${Math.random()}`;
+      requestClient.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId, command, payload })}\n`);
+      return requestClient.next((message) => message.kind === 'error');
+    };
+    // The stale previous owner must not shut the daemon down. A rejected
+    // command destroys its connection, so later steps reconnect.
+    await expect(requestRaw(client, 'runtime.shutdown', { serverInstanceId: 'server-a', daemonId: 'daemon-a' }))
+      .resolves.toMatchObject({ error: { code: 'OWNERSHIP_MISMATCH' } });
+    expect(shutdownCalls).toBe(0);
+    // The current owner shuts it down through authenticated IPC.
+    const owner = connectClient(endpoint);
+    await owner.authenticate();
+    owner.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'shutdown-ok', command: 'runtime.shutdown', payload: { serverInstanceId: 'server-b', daemonId: 'daemon-a' } })}\n`);
+    await expect(owner.next((message) => message.kind === 'response' && message.requestId === 'shutdown-ok'))
+      .resolves.toMatchObject({ result: { shutdown: true } });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(shutdownCalls).toBe(1);
+    await owner.close();
+  });
+
+  it('keeps the prior owner when an ownership claim cannot be persisted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-claim-persist-'));
+    const endpoint = testDaemonEndpoint(root);
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      serverPid: 987_654_321,
+      daemonId: 'daemon-a',
+      onOwnershipClaim: async () => {
+        throw Object.assign(new Error('State write failed'), { code: 'STATE_WRITE_FAILED' });
+      },
+    });
+    await daemon.start();
+    const claimant = connectClient(endpoint);
+    await claimant.authenticate();
+    const response = claimant.next((message) => message.kind === 'error');
+    claimant.socket.write(`${JSON.stringify({
+      protocolVersion: 1,
+      kind: 'request',
+      requestId: 'claim-persist-failure',
+      command: 'runtime.claim',
+      payload: { serverInstanceId: 'server-b', serverPid: process.pid },
+    })}\n`);
+    await expect(response).resolves.toMatchObject({ error: { code: 'STATE_WRITE_FAILED' } });
+
+    const observer = connectClient(endpoint);
+    await observer.authenticate();
+    await expect(observer.request('runtime.health')).resolves.toMatchObject({
+      result: { serverInstanceId: 'server-a', serverPid: 987_654_321 },
+    });
+    claimant.socket.destroy();
+    await observer.close();
+  });
+
+  it('refuses to transfer profile ownership while the current server is alive', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-live-owner-'));
+    const endpoint = testDaemonEndpoint(root);
+    const projectDir = join(root, 'project');
+    await mkdir(projectDir, { recursive: true });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      serverPid: process.pid,
+      daemonId: 'daemon-a',
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const requestId = 'claim-live-owner';
+    const response = client.next((message) => message.kind === 'error');
+    client.socket.write(`${JSON.stringify({
+      protocolVersion: 1,
+      kind: 'request',
+      requestId,
+      command: 'runtime.claim',
+      payload: { serverInstanceId: 'server-b', serverPid: process.pid + 1 },
+    })}\n`);
+    await expect(response).resolves.toMatchObject({ error: { code: 'OWNERSHIP_CONFLICT' } });
+    await client.close();
+  });
+
+  it('refuses a cross-profile open of a leased session instead of hiding it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-lease-'));
+    const endpointA = join(root, 'a.sock');
+    const endpointB = join(root, 'b.sock');
+    const agentDir = join(root, 'agent');
+    await mkdir(agentDir, { recursive: true });
+    const file1 = join(root, 'session-1.jsonl');
+    const file2 = join(root, 'session-2.jsonl');
+    await writeFile(file1, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    await writeFile(file2, `{"type":"session","id":"session-2","cwd":"${root}"}\n`);
+    const sessions = new Map();
+    sessions.set('session-1', new FakeSession('session-1', file1));
+    sessions.set('session-2', new FakeSession('session-2', file2));
+    const createRuntime = async ({ sessionFile }) => {
+      const id = sessionFile?.includes('session-2') ? 'session-2' : 'session-1';
+      return new FakeRuntime({ cwd: root, session: sessions.get(id) });
+    };
+    // Non-standard filenames: resolve opens through the mocked list path,
+    // mirroring the concurrent-sessions test above.
+    const listSessions = async () => [
+      { path: file1, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+      { path: file2, id: 'session-2', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+    ];
+    daemon = createSessionDaemon({
+      endpoint: endpointA,
+      credential,
+      cwd: root,
+      agentDir,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      daemonId: 'daemon-a',
+      createRuntime,
+      listSessions,
+    });
+    const daemonB = createSessionDaemonImpl({
+      endpoint: endpointB,
+      credential,
+      cwd: root,
+      agentDir,
+      profileKey: 'web-dev-p3902',
+      serverInstanceId: 'server-b',
+      daemonId: 'daemon-b',
+      createRuntime,
+      listSessions,
+    });
+    const safeClose = async (requestClient) => {
+      try {
+        if (requestClient?.socket.destroyed) return;
+        await Promise.race([
+          requestClient.close(),
+          new Promise((resolve) => setTimeout(resolve, 1_000)),
+        ]);
+      } catch {}
+    };
+    let clientA;
+    let clientB;
+    try {
+      await daemon.start();
+      await daemonB.start();
+      clientA = connectClient(endpointA);
+      await clientA.authenticate();
+      clientB = connectClient(endpointB);
+      await clientB.authenticate();
+      await expect(clientA.request('sessions.open', { sessionId: 'session-1' })).resolves.toMatchObject({
+        result: { session: { id: 'session-1' } },
+      });
+      // A different session stays fully concurrent across profiles.
+      await expect(clientB.request('sessions.open', { sessionId: 'session-2' })).resolves.toMatchObject({
+        result: { session: { id: 'session-2' } },
+      });
+      // The same session reports ownership instead of absent or idle state.
+      // A rejected command destroys its connection, so later steps reconnect.
+      clientB.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'contended', command: 'sessions.open', payload: { sessionId: 'session-1' } })}\n`);
+      await expect(clientB.next((message) => message.kind === 'error'))
+        .resolves.toMatchObject({ error: { code: 'SESSION_IN_USE' } });
+      await safeClose(clientB);
+      // Releasing the lease (here through daemon shutdown) lets the other
+      // profile open the session.
+      await daemon.stop();
+      clientB = connectClient(endpointB);
+      await clientB.authenticate();
+      await expect(clientB.request('sessions.open', { sessionId: 'session-1' })).resolves.toMatchObject({
+        result: { session: { id: 'session-1' } },
+      });
+    } finally {
+      await safeClose(clientA);
+      await safeClose(clientB);
+      await daemonB.stop();
+    }
+  });
 });

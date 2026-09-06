@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
+
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-_]*$/;
 const API_KEY_REFERENCE = /^\{env:[A-Za-z_][A-Za-z0-9_]*\}$/;
 const API_TYPES = new Set(['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai']);
@@ -146,7 +148,9 @@ export const createPiModelConfigStore = ({ file }) => {
 
   const update = async (input) => {
     const nextProvider = normalizeUpdate(input);
-    const operation = writeChain.then(async () => {
+    // models.json lives under the shared Pi agent directory, so concurrent
+    // daemons serialize here rather than in-process only.
+    const operation = writeChain.then(() => withCrossProcessLock(`${file}.lock`, async () => {
       const config = await readConfig();
       const previous = config.providers[nextProvider.providerId];
       const provider = {
@@ -164,7 +168,7 @@ export const createPiModelConfigStore = ({ file }) => {
       await writeFile(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
       await rename(temporary, file);
       return publicProvider(nextProvider.providerId, provider);
-    });
+    }));
     writeChain = operation.catch(() => {});
     return operation;
   };

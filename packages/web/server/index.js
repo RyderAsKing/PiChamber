@@ -126,7 +126,10 @@ export async function startWebUiServer(options = {}) {
   const clientPairingRuntime = createClientPairingRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('client-pairing-sessions.json'), remoteClientAuthRuntime });
   const tunnelAuthController = createTunnelAuth();
   const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}) , clientAuthController: remoteClientAuthRuntime });
-  const piSessionDaemonRuntime = createPiSessionDaemonSupervisor({ dataDir: PICHAMBER_DATA_DIR });
+  // One daemon per server profile. The supervisor is created after HTTP
+  // listen so the profile key uses the bound port; routes observe it through
+  // the getter and report unavailable until it exists.
+  let piSessionDaemonRuntime = null;
   const tunnelService = createTunnelService({
     dataDir: PICHAMBER_DATA_DIR,
     getPort: () => {
@@ -217,7 +220,18 @@ export async function startWebUiServer(options = {}) {
 
   await listen(server, port, host);
   const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
-  if (typeof resolvedPort === 'number') process.send?.({ type: 'pichamber:ready', port: resolvedPort });
+  piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
+    dataDir: PICHAMBER_DATA_DIR,
+    port: typeof resolvedPort === 'number' ? resolvedPort : port,
+    version: PICHAMBER_VERSION,
+  });
+  if (typeof resolvedPort === 'number') {
+    process.send?.({
+      type: 'pichamber:ready',
+      port: resolvedPort,
+      profileKey: piSessionDaemonRuntime.paths.profileKey,
+    });
+  }
   // Warm the detached daemon as soon as HTTP is listening. Requests arriving
   // during cold start share the supervisor's startPromise; server readiness
   // itself never waits for provider/model initialization in the child.
@@ -232,13 +246,18 @@ export async function startWebUiServer(options = {}) {
       return typeof address === 'object' && address ? address.port : null;
     },
     getTunnelUrl: () => null,
+    getDaemonProfileKey: () => piSessionDaemonRuntime?.paths?.profileKey ?? null,
     getQuitRiskStatus: () => ({ tunnel: { active: false } }),
     isReady: () => !stopped,
     stop: async ({ exitProcess = false } = {}) => {
       if (stopped) return;
       stopped = true;
       if (activeController === controller) activeController = null;
-      await Promise.allSettled([workspaceRuntime.shutdown(), piSessionDaemonRuntime.stop(), close(server)]);
+      await Promise.allSettled([
+        workspaceRuntime.shutdown(),
+        piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
+        close(server),
+      ]);
       uiAuthController.dispose?.();
       if (exitProcess) process.exit(0);
     },

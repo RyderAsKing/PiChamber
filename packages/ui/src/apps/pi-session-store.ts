@@ -65,6 +65,7 @@ import {
   lifecycleFromEvent,
   asError,
   isInvalidSessionError,
+  isSessionInUseError,
   isSessionRuntimeConflictError,
   delayBeforeRetry,
   initialSessionStoreState,
@@ -82,6 +83,7 @@ export {
   lifecycleFromEvent,
   asError,
   isInvalidSessionError,
+  isSessionInUseError,
   isSessionRuntimeConflictError,
   delayBeforeRetry,
 };
@@ -1294,6 +1296,12 @@ export class PiSessionStore {
       return result;
     } catch (error) {
       recordMobileDiagnosticError('prompt-send', error);
+      if (isSessionInUseError(error)) {
+        // Another PiChamber instance owns this session. Record the chrome
+        // signal so the composer locks for this session until a later
+        // successful hydrate clears it; the transcript itself is preserved.
+        this.failSessionLoad(sessionId, error);
+      }
       if (this.promptGenerationById.get(sessionId) === generation) {
         this.pendingPromptById.delete(sessionId);
         const current = this.state.reducer.bySession.get(sessionId);
@@ -1685,7 +1693,7 @@ export class PiSessionStore {
           // gone so a stale deep link cannot block the rest of the runtime.
           this.stream = bootstrap.stream;
           ready = true;
-          if (expected === this.runtimeGeneration && isInvalidSessionError(error)) {
+          if (expected === this.runtimeGeneration && (isInvalidSessionError(error) || isSessionInUseError(error))) {
             this.failSessionLoad(sessionId, error);
             return;
           }
@@ -1707,7 +1715,7 @@ export class PiSessionStore {
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
-      if (isInvalidSessionError(error)) {
+      if (isInvalidSessionError(error) || isSessionInUseError(error)) {
         this.failSessionLoad(sessionId, error);
         return;
       }

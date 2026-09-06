@@ -35,6 +35,9 @@ const UNAVAILABLE_CODES = new Set([
   'DAEMON_CREDENTIAL_UNAVAILABLE',
   'DAEMON_LOCK_UNAVAILABLE',
   'DAEMON_LOCK_TIMEOUT',
+  'DAEMON_OWNERSHIP_MISMATCH',
+  'DAEMON_PROFILE_IN_USE',
+  'SESSION_LEASE_UNAVAILABLE',
   'INVALID_DAEMON_ENDPOINT',
   'PROVIDER_UNAVAILABLE',
   'MALFORMED_SESSION_JSONL',
@@ -48,7 +51,9 @@ const writeDaemonError = (res, error) => {
     ? 503
     : code === 'INVALID_SESSION'
       ? 404
-      : code === 'ATTACHMENT_TOO_LARGE'
+      : code === 'SESSION_IN_USE'
+        ? 409
+        : code === 'ATTACHMENT_TOO_LARGE'
         ? 413
         : code === 'ATTACHMENT_LIMIT_REACHED'
           ? 429
@@ -801,7 +806,11 @@ export const registerPiRuntimeRoutes = (app, {
   app.put('/api/pi/session-folders', async (req, res) => {
     try {
       res.json(await sessionFoldersStore.write(req.body));
-    } catch {
+    } catch (error) {
+      if (error?.code === 'SESSION_FOLDERS_STALE') {
+        res.status(409).json({ error: 'Session folders changed on another instance; reload and retry' });
+        return;
+      }
       res.status(400).json({ error: 'Invalid session folders' });
     }
   });

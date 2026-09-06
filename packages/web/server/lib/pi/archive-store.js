@@ -2,6 +2,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
+import { withCrossProcessLock } from '../server/cross-process-lock.js';
 
 const invalidArchive = () => {
   const error = new Error('Pi archive metadata is invalid.');
@@ -34,7 +35,7 @@ export const createPiArchiveStore = ({ file = join(resolvePiChamberDataDir(), 'p
       error.code = 'INVALID_ARGUMENT';
       throw error;
     }
-    const operation = writeChain.then(async () => {
+    const operation = writeChain.then(() => withCrossProcessLock(`${file}.lock`, async () => {
       const current = await read();
       if (archived) current[sessionId] = Date.now();
       else delete current[sessionId];
@@ -43,7 +44,7 @@ export const createPiArchiveStore = ({ file = join(resolvePiChamberDataDir(), 'p
       await writeFile(temporary, JSON.stringify(current), { mode: 0o600 });
       await rename(temporary, file);
       return archived ? current[sessionId] : undefined;
-    });
+    }));
     writeChain = operation.catch(() => {});
     return operation;
   };

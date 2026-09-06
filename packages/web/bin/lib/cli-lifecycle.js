@@ -236,6 +236,9 @@ async function discoverRunningInstances(options = {}) {
         launchMode,
         runtime: liveInfo.runtime,
         source: 'registry+probe',
+        profileKey: typeof storedOptions?.profileKey === 'string' && storedOptions.profileKey.length > 0
+          ? storedOptions.profileKey
+          : undefined,
         host: typeof confirmedHost === 'string' && confirmedHost.length > 0
           ? confirmedHost
           : (typeof storedOptions?.host === 'string' && storedOptions.host.length > 0 ? storedOptions.host : undefined),

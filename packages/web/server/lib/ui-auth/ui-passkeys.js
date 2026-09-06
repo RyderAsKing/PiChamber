@@ -126,7 +126,15 @@ export const createUiPasskeys = ({
 
   const persistStore = (store) => {
     ensureStoreDirectory();
-    fs.writeFileSync(storeFile, JSON.stringify(store, null, 2));
+    // Atomic replace so a concurrent server never reads a torn store.
+    const temporary = `${storeFile}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
+    try {
+      fs.writeFileSync(temporary, JSON.stringify(store, null, 2), { mode: 0o600 });
+      fs.renameSync(temporary, storeFile);
+    } catch (error) {
+      try { fs.rmSync(temporary, { force: true }); } catch {}
+      throw error;
+    }
   };
 
   const createEmptyStore = () => ({

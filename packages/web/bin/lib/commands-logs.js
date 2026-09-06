@@ -1,4 +1,4 @@
-import { getLogFilePath } from './cli-paths.js';
+import { getDaemonLogFilePath, getLogFilePath } from './cli-paths.js';
 import { readTailLines, followFile } from './cli-log-files.js';
 import { discoverRunningInstances, getLatestInstance } from './cli-lifecycle.js';
 import {
@@ -45,10 +45,15 @@ async function logsCommand(options) {
     }
     const entries = targets.map((target) => {
       const logPath = getLogFilePath(target.port);
+      const daemonLogPath = getDaemonLogFilePath(target.profileKey);
       return {
         port: target.port,
         logPath,
         lines: readTailLines(logPath, options.lines),
+        ...(daemonLogPath ? {
+          daemonLogPath,
+          daemonLines: readTailLines(daemonLogPath, options.lines),
+        } : {}),
       };
     });
     printJson({ entries });
@@ -61,9 +66,12 @@ async function logsCommand(options) {
 
   for (const target of targets) {
     const logPath = getLogFilePath(target.port);
+    const daemonLogPath = getDaemonLogFilePath(target.profileKey);
     const lines = readTailLines(logPath, options.lines);
+    const daemonLines = daemonLogPath ? readTailLines(daemonLogPath, options.lines) : [];
     if (showFrames) {
       logStatus('info', `port ${target.port}`, logPath);
+      if (daemonLogPath) logStatus('info', 'Pi daemon', daemonLogPath);
     }
 
     for (const line of lines) {
@@ -72,6 +80,9 @@ async function logsCommand(options) {
       } else {
         console.log(line);
       }
+    }
+    for (const line of daemonLines) {
+      console.log(shouldPrefixLines ? `[${target.port} daemon] ${line}` : `[daemon] ${line}`);
     }
   }
 
@@ -83,15 +94,22 @@ async function logsCommand(options) {
     return;
   }
 
-  const unsubs = targets.map((target) => {
+  const unsubs = targets.flatMap((target) => {
     const logPath = getLogFilePath(target.port);
-    return followFile(logPath, (line) => {
+    const daemonLogPath = getDaemonLogFilePath(target.profileKey);
+    const followers = [followFile(logPath, (line) => {
       if (shouldPrefixLines) {
         console.log(`[${target.port}] ${line}`);
       } else {
         console.log(line);
       }
-    });
+    })];
+    if (daemonLogPath) {
+      followers.push(followFile(daemonLogPath, (line) => {
+        console.log(shouldPrefixLines ? `[${target.port} daemon] ${line}` : `[daemon] ${line}`);
+      }));
+    }
+    return followers;
   });
 
   await new Promise((resolve) => {

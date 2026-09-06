@@ -15,6 +15,13 @@ const credentialFile = argument('--credential-file');
 const stateFile = argument('--state-file');
 const cwd = argument('--cwd');
 const agentDir = argument('--agent-dir');
+const profileKey = argument('--profile-key');
+const serverInstanceId = argument('--server-instance-id');
+const serverPid = Number(argument('--server-pid'));
+const daemonId = argument('--daemon-id');
+const daemonRuntime = argument('--runtime');
+const buildId = argument('--build-id');
+const startedAt = new Date().toISOString();
 
 const exitWithFailure = (code) => {
   // Do not log configuration paths, credentials, or session data from this
@@ -39,12 +46,21 @@ const writeState = async (state) => {
   await chmodIfPossible(stateFile, 0o600);
 };
 
-const writeReadyState = () => writeState({
+const writeReadyState = ({
+  ownerServerInstanceId = serverInstanceId,
+  ownerServerPid = serverPid,
+} = {}) => writeState({
   protocolVersion: 1,
   pid: process.pid,
   endpoint,
   entrypoint: DAEMON_ENTRYPOINT,
-  startedAt: new Date().toISOString(),
+  startedAt,
+  profileKey,
+  serverInstanceId: ownerServerInstanceId,
+  serverPid: ownerServerPid,
+  daemonId,
+  runtime: daemonRuntime || 'web',
+  buildId: buildId || 'unknown',
 });
 
 const writeFailureState = (code) => writeState({
@@ -53,6 +69,12 @@ const writeFailureState = (code) => writeState({
   endpoint,
   state: 'failed',
   error: { code },
+  profileKey,
+  serverInstanceId,
+  serverPid,
+  daemonId,
+  runtime: daemonRuntime || 'web',
+  buildId: buildId || 'unknown',
 });
 
 const removeOwnState = async () => {
@@ -64,11 +86,21 @@ const removeOwnState = async () => {
   }
 };
 
-if (!endpoint || !credentialFile || !stateFile || !cwd) {
+if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !serverInstanceId
+  || !Number.isInteger(serverPid) || serverPid <= 0 || !daemonId) {
   exitWithFailure(64);
 } else {
   let daemon;
   let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    try {
+      await daemon?.stop();
+    } finally {
+      await removeOwnState();
+    }
+  };
   try {
     const credential = (await readFile(credentialFile, 'utf8')).trim();
     daemon = createSessionDaemon({
@@ -76,7 +108,20 @@ if (!endpoint || !credentialFile || !stateFile || !cwd) {
       credential,
       cwd,
       ...(agentDir ? { agentDir } : {}),
+      profileKey,
+      serverInstanceId,
+      serverPid,
+      daemonId,
+      daemonRuntime: daemonRuntime || 'web',
+      buildId: buildId || 'unknown',
       healthMetadata: { daemonPid: process.pid },
+      onOwnershipClaim: ({ serverInstanceId: nextServerInstanceId, serverPid: nextServerPid }) => writeReadyState({
+        ownerServerInstanceId: nextServerInstanceId,
+        ownerServerPid: nextServerPid,
+      }),
+      onShutdown: () => {
+        void stop().finally(() => process.exit(0));
+      },
     });
     await daemon.start();
     await writeReadyState();
@@ -97,16 +142,6 @@ if (!endpoint || !credentialFile || !stateFile || !cwd) {
     }
     exitWithFailure(1);
   }
-
-  const stop = async () => {
-    if (stopping) return;
-    stopping = true;
-    try {
-      await daemon?.stop();
-    } finally {
-      await removeOwnState();
-    }
-  };
 
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.once(signal, () => {

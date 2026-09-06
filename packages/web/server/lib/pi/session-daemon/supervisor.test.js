@@ -104,6 +104,7 @@ describe('Pi session daemon supervisor', () => {
     expect(JSON.stringify(await supervisor.health())).not.toContain(credential.trim());
 
     await expect(supervisor.stop()).resolves.toEqual({ state: 'stopped' });
+    await expect(supervisor.stop()).resolves.toEqual({ state: 'stopped' });
     await expect(supervisor.health()).resolves.toMatchObject({
       state: 'unavailable',
       error: { code: 'DAEMON_UNAVAILABLE' },
@@ -191,13 +192,44 @@ describe('Pi session daemon supervisor', () => {
       cwd: join(tmpdir(), 'pichamber-win-project'),
       platform: 'win32',
     });
-    expect(windowsSupervisor.paths.endpoint).toMatch(/^\\\\\.\\pipe\\pichamber-pi-session-daemon-[0-9a-f]{16}$/);
+    expect(windowsSupervisor.paths.endpoint).toMatch(/^\\\\\.\\pipe\\pichamber-pi-session-daemon-[0-9a-f]{16}-web$/);
+  });
+
+  it('namespaces daemon sidecars per server profile', () => {
+    const root = join(tmpdir(), 'pichamber-pi-supervisor-profiles-');
+    const installed = createPiSessionDaemonSupervisor({
+      env: { PICHAMBER_DATA_DIR: join(root, 'data') },
+      cwd: join(root, 'project'),
+      port: 3000,
+    });
+    const dev = createPiSessionDaemonSupervisor({
+      env: { PICHAMBER_DATA_DIR: join(root, 'data'), PICHAMBER_SERVER_PROFILE_KIND: 'dev' },
+      cwd: join(root, 'project'),
+      port: 3000,
+    });
+    const otherPort = createPiSessionDaemonSupervisor({
+      env: { PICHAMBER_DATA_DIR: join(root, 'data') },
+      cwd: join(root, 'project'),
+      port: 3902,
+    });
+    expect(installed.paths.profileKey).toBe('web-p3000');
+    expect(dev.paths.profileKey).toBe('web-dev-p3000');
+    for (const supervisor of [installed, dev, otherPort]) {
+      expect(supervisor.paths.credentialFile).toContain(supervisor.paths.profileKey);
+      expect(supervisor.paths.stateFile).toContain(supervisor.paths.profileKey);
+      expect(supervisor.paths.lockFile).toContain(supervisor.paths.profileKey);
+      expect(supervisor.paths.logFile).toContain(supervisor.paths.profileKey);
+    }
+    const paths = [installed, dev, otherPort].map((item) => item.paths.stateFile);
+    expect(new Set(paths).size).toBe(3);
+    expect(installed.paths.endpoint).not.toBe(dev.paths.endpoint);
+    expect(installed.paths.credentialFile).not.toBe(otherPort.paths.credentialFile);
   });
 
   it('bounds an unresponsive Windows daemon probe by the supervisor operation timeout', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-hung-win-'));
     const dataDir = join(root, 'data');
-    const piDataDir = join(dataDir, 'pi');
+    const piDataDir = join(dataDir, 'pi', 'daemons', 'web');
     await mkdir(piDataDir, { recursive: true });
     const daemonPid = 7_331;
     const processLike = {
@@ -226,6 +258,9 @@ describe('Pi session daemon supervisor', () => {
       protocolVersion: 1,
       pid: daemonPid,
       endpoint: windowsSupervisor.paths.endpoint,
+      profileKey: windowsSupervisor.paths.profileKey,
+      daemonId: 'daemon-hung',
+      serverInstanceId: windowsSupervisor.paths.serverInstanceId,
       startedAt: new Date().toISOString(),
     }));
 
@@ -242,8 +277,8 @@ describe('Pi session daemon supervisor', () => {
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
     const dataDir = join(root, 'data');
-    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi'), { recursive: true })]);
-    const lockFile = join(dataDir, 'pi', 'session-daemon.lock');
+    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi', 'daemons', 'web'), { recursive: true })]);
+    const lockFile = join(dataDir, 'pi', 'daemons', 'web', 'operation.lock');
     await writeFile(lockFile, '');
     const past = new Date(Date.now() - 1_000);
     await utimes(lockFile, past, past);
@@ -264,8 +299,8 @@ describe('Pi session daemon supervisor', () => {
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
     const dataDir = join(root, 'data');
-    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi'), { recursive: true })]);
-    const lockFile = join(dataDir, 'pi', 'session-daemon.lock');
+    await Promise.all([mkdir(cwd), mkdir(agentDir), mkdir(join(dataDir, 'pi', 'daemons', 'web'), { recursive: true })]);
+    const lockFile = join(dataDir, 'pi', 'daemons', 'web', 'operation.lock');
     await writeFile(lockFile, '{');
     const past = new Date(Date.now() - 1_000);
     await utimes(lockFile, past, past);
@@ -280,4 +315,165 @@ describe('Pi session daemon supervisor', () => {
     supervisor = createPiSessionDaemonSupervisor({ env, cwd });
     await expect(supervisor.start()).resolves.toMatchObject({ state: 'ready', reused: false });
   }, 20_000);
+
+  it('keeps per-profile daemons independent across one data directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-profiles-run-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const baseEnv = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    const installed = createPiSessionDaemonSupervisor({ env: baseEnv, cwd, port: 3000 });
+    const dev = createPiSessionDaemonSupervisor({
+      env: { ...baseEnv, PICHAMBER_SERVER_PROFILE_KIND: 'dev' },
+      cwd,
+      port: 3000,
+    });
+    try {
+      await installed.start();
+      await dev.start();
+      const installedState = JSON.parse(await readFile(installed.paths.stateFile, 'utf8'));
+      const devState = JSON.parse(await readFile(dev.paths.stateFile, 'utf8'));
+      expect(installedState.pid).not.toBe(devState.pid);
+      expect(installedState.profileKey).toBe('web-p3000');
+      expect(devState.profileKey).toBe('web-dev-p3000');
+
+      const created = await installed.request('sessions.create', { cwd });
+      const sessionDirectory = getPiSessionDirectory({ cwd, agentDir });
+      await mkdir(sessionDirectory, { recursive: true });
+      await writeFile(join(sessionDirectory, `lease_${created.session.id}.jsonl`), `${JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: created.session.id,
+        timestamp: new Date().toISOString(),
+        cwd,
+      })}\n`);
+      await expect(dev.request('sessions.open', { sessionId: created.session.id, directory: cwd }))
+        .rejects.toMatchObject({ code: 'SESSION_IN_USE' });
+      await expect(dev.request('sessions.delete', { sessionId: created.session.id, directory: cwd }))
+        .rejects.toMatchObject({ code: 'SESSION_IN_USE' });
+
+      // Stopping one profile must release only its own leases and leave the
+      // other daemon running.
+      await installed.stop();
+      await expect(dev.health()).resolves.toMatchObject({ state: 'ready' });
+      await expect(dev.request('sessions.open', { sessionId: created.session.id, directory: cwd }))
+        .resolves.toMatchObject({ session: { id: created.session.id } });
+      await dev.stop();
+      await expect(dev.health()).resolves.toMatchObject({ state: 'unavailable' });
+    } finally {
+      await installed.stop().catch(() => {});
+      await dev.stop().catch(() => {});
+    }
+  }, 60_000);
+
+  it('refuses to claim a same-profile daemon while its server owner is alive', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-live-owner-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    const first = createPiSessionDaemonSupervisor({ env, cwd, port: 3000 });
+    const peer = createPiSessionDaemonSupervisor({ env, cwd, port: 3000 });
+    try {
+      await first.start();
+      await expect(peer.start()).rejects.toMatchObject({ code: 'DAEMON_PROFILE_IN_USE' });
+      await expect(first.health()).resolves.toMatchObject({ state: 'ready' });
+    } finally {
+      await first.stop().catch(() => {});
+      await peer.stop().catch(() => {});
+    }
+  }, 30_000);
+
+  it('replaces a same-profile daemon when the PiChamber build changes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-build-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+    const departedServerProcess = {
+      pid: 987_654_321,
+      execPath: process.execPath,
+      versions: process.versions,
+      kill(pid, signal) {
+        return process.kill(pid, signal);
+      },
+    };
+    const first = createPiSessionDaemonSupervisor({ env, cwd, port: 3000, version: '1.0.0', processLike: departedServerProcess });
+    const upgraded = createPiSessionDaemonSupervisor({ env, cwd, port: 3000, version: '2.0.0' });
+    try {
+      await first.start();
+      const firstState = JSON.parse(await readFile(first.paths.stateFile, 'utf8'));
+      await expect(upgraded.start()).resolves.toMatchObject({ state: 'ready', reused: false });
+      await waitForExit(firstState.pid);
+      const upgradedState = JSON.parse(await readFile(upgraded.paths.stateFile, 'utf8'));
+      expect(upgradedState.pid).not.toBe(firstState.pid);
+      expect(upgradedState.buildId).toBe('2.0.0');
+    } finally {
+      await first.stop().catch(() => {});
+      await upgraded.stop().catch(() => {});
+    }
+  }, 60_000);
+
+  it('refuses a stale same-profile server stop after a newer instance claims the daemon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-claim-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+
+    const departedServerProcess = {
+      pid: 987_654_321,
+      execPath: process.execPath,
+      versions: process.versions,
+      kill(pid, signal) {
+        return process.kill(pid, signal);
+      },
+    };
+    const first = createPiSessionDaemonSupervisor({ env, cwd, port: 3000, processLike: departedServerProcess });
+    const second = createPiSessionDaemonSupervisor({ env, cwd, port: 3000 });
+    try {
+      await first.start();
+      const firstState = JSON.parse(await readFile(first.paths.stateFile, 'utf8'));
+
+      // A restarted server on the same profile claims the live daemon.
+      await expect(second.start()).resolves.toMatchObject({ state: 'ready', reused: true });
+      const claimedState = JSON.parse(await readFile(second.paths.stateFile, 'utf8'));
+      expect(claimedState.pid).toBe(firstState.pid);
+      expect(claimedState.serverInstanceId).toBe(second.paths.serverInstanceId);
+
+      // The stale first server must not terminate the claimed daemon.
+      await expect(first.stop()).rejects.toMatchObject({ code: 'DAEMON_OWNERSHIP_MISMATCH' });
+      await expect(second.health()).resolves.toMatchObject({ state: 'ready' });
+      await expect(second.stop()).resolves.toEqual({ state: 'stopped' });
+    } finally {
+      await first.stop().catch(() => {});
+      await second.stop().catch(() => {});
+    }
+  }, 60_000);
 });
