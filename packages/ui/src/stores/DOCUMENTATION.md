@@ -15,6 +15,8 @@ Use a store only for state shared across distant component trees or for a cache 
 
 `useSessionFoldersStore.ts` keeps a runtime-scoped browser snapshot for immediate continuity and reconciles it with the active server's validated `/api/pi/session-folders` sidecar. Missing server state is not authoritative empty state, and in-flight hydration cannot replace newer local mutations.
 
+Model-picker preferences hydrate from the active runtime before autosave starts. Every later change is eligible for persistence, and pending changes flush to their captured runtime before app teardown or a runtime switch.
+
 Caches and async work must be scoped to the active runtime. A failed authoritative request must preserve existing state and remain distinguishable from a successful empty result.
 
 `useWorktreeStore.refreshProject()` coalesces discovery by runtime and project, rejects stale runtime completions, and keeps linked-worktree arrays reference-stable when topology is unchanged. `WorktreeDiscovery` refreshes with bounded concurrency while the app is visible; hidden UI does no polling.

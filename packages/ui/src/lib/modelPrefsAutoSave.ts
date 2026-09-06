@@ -74,11 +74,10 @@ export const startModelPrefsAutoSave = () => {
   }
 
   let timer: number | null = null;
-  let lastSent: ModelPrefsPayload | null = null;
-  let didSkipInitial = false;
+  let lastSent: ModelPrefsPayload | null = cloneModelPrefs(snapshotModelPrefs());
   let scheduledRuntimeKey: string | null = null;
 
-  const flush = () => {
+  const flush = (immediate = false) => {
     timer = null;
     const runtimeKey = scheduledRuntimeKey;
     scheduledRuntimeKey = null;
@@ -91,14 +90,10 @@ export const startModelPrefsAutoSave = () => {
 
     lastSent = cloneModelPrefs(payload);
 
-    void updateDesktopSettings(payload).catch(() => {});
+    void updateDesktopSettings(payload, { immediate }).catch(() => {});
   };
 
   const schedule = () => {
-    if (!didSkipInitial) {
-      didSkipInitial = true;
-      return;
-    }
     if (timer !== null) {
       window.clearTimeout(timer);
     }
@@ -106,10 +101,10 @@ export const startModelPrefsAutoSave = () => {
     timer = window.setTimeout(flush, 1200);
   };
 
-  const unsubscribeRuntime = subscribeRuntimeEndpointWillChange(() => {
+  const unsubscribeRuntime = subscribeRuntimeEndpointWillChange((detail) => {
+    if (detail.runtimeKey === detail.previousRuntimeKey) return;
     if (timer !== null) window.clearTimeout(timer);
-    timer = null;
-    scheduledRuntimeKey = null;
+    flush(true);
     lastSent = null;
   });
 
@@ -142,5 +137,6 @@ export const startModelPrefsAutoSave = () => {
     if (timer !== null) {
       window.clearTimeout(timer);
     }
+    flush(true);
   };
 };

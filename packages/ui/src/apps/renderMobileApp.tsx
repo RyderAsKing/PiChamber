@@ -21,13 +21,15 @@ import { MobileApp } from './MobileApp';
 
 const initializeSharedPreferences = () => {
 
-  void initializeAppearancePreferences().then(() => {
-    void Promise.all([
-      syncDesktopSettings(),
-      applyPersistedDirectoryPreferences(),
-    ]).catch((err) => {
+  void initializeAppearancePreferences().then(async () => {
+    try {
+      await Promise.all([
+        syncDesktopSettings(),
+        applyPersistedDirectoryPreferences(),
+      ]);
+    } catch (err) {
       console.error('[mobile-main] settings init failed:', err);
-    });
+    }
 
     startAppearanceAutoSave();
     startModelPrefsAutoSave();
