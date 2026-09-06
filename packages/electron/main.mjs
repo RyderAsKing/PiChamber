@@ -19,7 +19,12 @@ import {
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { resolveElectronUpdaterVersion } from './app-version.mjs';
 import { createProcessPerformanceRecorder } from './process-performance-recorder.mjs';
-import { assertUpdaterCapability } from './updater-capability.mjs';
+import { assertUpdaterCapability, resolveLinuxPackageType } from './updater-capability.mjs';
+import {
+  confirmLinuxAppImageUpdate,
+  installLinuxAppImageUpdate,
+  recoverLinuxAppImageUpdate,
+} from './linux-appimage-update.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { resolveUpdaterFeed } from './updater-feed.mjs';
@@ -93,6 +98,9 @@ if (isDev) {
   app.setPath('userData', path.join(app.getPath('appData'), 'PiChamber Dev'));
 }
 app.setAppUserModelId(APP_USER_MODEL_ID);
+// The Linux AppImage AppRun wrapper adds --no-sandbox before launching
+// Electron. Installed .deb/.rpm packages use the native executable directly,
+// so their package managers can retain Electron's normal sandbox setup.
 app.commandLine.appendSwitch('proxy-bypass-list', '<-loopback>');
 // Lift Chromium's per-host cap only for bundled UI. Applying this to Vite HMR
 // lets the renderer request most of the module graph at once, overwhelming the
@@ -1076,6 +1084,12 @@ const detectLanIPv4Address = async () => {
 const buildLocalUrl = (port) => `http://127.0.0.1:${port}`;
 
 const resourceRoot = () => isDev ? path.join(__dirname, 'resources') : process.resourcesPath;
+const currentLinuxPackageType = () => resolveLinuxPackageType({
+  platform: process.platform,
+  packaged: app.isPackaged,
+  appImagePath: process.env.APPIMAGE,
+  resourcesPath: resourceRoot(),
+});
 const resolveWebDistDir = () => path.join(resourceRoot(), 'web-dist');
 const shouldUsePackagedUi = () => {
   if (process.env.PICHAMBER_ELECTRON_LOAD_SERVER_UI === '1') return false;
@@ -1092,6 +1106,42 @@ const injectRuntimeConfigIntoHtml = (html) => {
   if (html.includes('<head>')) return html.replace('<head>', `<head>${initScript}`);
   if (html.includes('</head>')) return html.replace('</head>', `${initScript}</head>`);
   return `${initScript}${html}`;
+};
+
+const escapeHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;');
+
+const buildPackagedUiFailureHtml = ({ reason = 'The packaged UI files could not be loaded.' } = {}) => {
+  const logPath = (() => {
+    try {
+      return log.transports.file.getFile().path;
+    } catch {
+      return 'the PiChamber log directory';
+    }
+  })();
+  const packageType = currentLinuxPackageType() || process.platform;
+  const appImagePath = process.env.APPIMAGE || 'not running from an AppImage';
+  const recovery = packageType === 'AppImage'
+    ? 'Move the AppImage to a writable location, make it executable with chmod +x, and try again. If it still fails, install the .deb or .rpm package instead.'
+    : 'Reinstall PiChamber from the current release and include the log path below when reporting the issue.';
+  return `<!doctype html><html><head><meta charset="utf-8"><title>PiChamber could not start</title><style>body{font-family:system-ui,sans-serif;background:#151313;color:#f5f5f4;margin:0;padding:48px;line-height:1.5}main{max-width:720px;margin:auto}h1{font-size:24px}p{color:#d6d3d1}code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;background:#292524;border-radius:8px;padding:12px;color:#fafaf9}</style></head><body><main><h1>PiChamber could not load its desktop UI</h1><p>${escapeHtml(reason)}</p><p>${escapeHtml(recovery)}</p><p>Include these diagnostics when reporting the issue:</p><code>Version: ${escapeHtml(APP_VERSION)}\nPackage: ${escapeHtml(packageType)}\nAppImage: ${escapeHtml(appImagePath)}\nLog: ${escapeHtml(logPath)}</code></main></body></html>`;
+};
+
+const inspectPackagedUi = () => {
+  const indexPath = path.join(resolveWebDistDir(), 'index.html');
+  try {
+    const info = fs.statSync(indexPath);
+    if (!info.isFile() || info.size === 0) {
+      return { ok: false, indexPath, reason: 'The packaged index.html file is empty.' };
+    }
+    return { ok: true, indexPath };
+  } catch {
+    return { ok: false, indexPath, reason: `The packaged UI is missing: ${indexPath}` };
+  }
 };
 
 const registerPackagedUiProtocol = () => {
@@ -1123,9 +1173,18 @@ const registerPackagedUiProtocol = () => {
     } catch {
     }
     const indexPath = path.join(distPath, 'index.html');
-    const html = await fsp.readFile(indexPath, 'utf8');
-    const body = injectRuntimeConfigIntoHtml(html);
-    return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    try {
+      const html = await fsp.readFile(indexPath, 'utf8');
+      const body = injectRuntimeConfigIntoHtml(html);
+      return new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    } catch (error) {
+      const reason = `The packaged UI could not be read from ${indexPath}. ${error instanceof Error ? error.message : ''}`.trim();
+      log.error('[electron] packaged UI request failed', { reason, distPath });
+      return new Response(buildPackagedUiFailureHtml({ reason }), {
+        status: 503,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      });
+    }
   });
 };
 
@@ -2436,12 +2495,42 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
       recordElectronStartupPerformance('electron.renderer.loaded', {
         documentClass: classifyStartupDocument(browserWindow.webContents.getURL()),
       });
+      if (process.platform === 'linux' && currentLinuxPackageType() === 'AppImage' && shouldUsePackagedUi() && inspectPackagedUi().ok && browserWindow.webContents.getURL().startsWith(`${UI_PROTOCOL}:`)) {
+        void confirmLinuxAppImageUpdate({
+          appImagePath: process.env.APPIMAGE,
+          appDataDirectory: app.getPath('userData'),
+        }).catch((error) => {
+          log.warn('[electron] failed to confirm Linux AppImage update', error);
+        });
+      }
     }
     browserWindow.webContents.setZoomFactor(1);
     if (state.mainWindow && browserWindow.id === state.mainWindow.id && pendingDeepLinks.length > 0) {
       const timer = setTimeout(flushPendingDeepLinks, 400);
       if (typeof timer?.unref === 'function') timer.unref();
     }
+  });
+
+  browserWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3) return;
+    log.error('[electron] renderer failed to load', {
+      label: browserWindow.__ocLabel,
+      errorCode,
+      errorDescription,
+      validatedURL,
+      packagedUi: shouldUsePackagedUi(),
+      packagedUiDiagnostics: shouldUsePackagedUi() ? inspectPackagedUi() : null,
+    });
+  });
+
+  browserWindow.webContents.on('render-process-gone', (_event, details) => {
+    log.error('[electron] renderer process exited', {
+      label: browserWindow.__ocLabel,
+      reason: details?.reason,
+      exitCode: details?.exitCode,
+      packagedUi: shouldUsePackagedUi(),
+      packagedUiDiagnostics: shouldUsePackagedUi() ? inspectPackagedUi() : null,
+    });
   });
 
   browserWindow.once('ready-to-show', () => {
@@ -4029,7 +4118,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     }
 
     case 'desktop_check_for_updates': {
-      assertUpdaterCapability({ packaged: app.isPackaged });
+      const packageType = currentLinuxPackageType();
+      assertUpdaterCapability({ packaged: app.isPackaged, packageType });
       const currentVersion = APP_VERSION;
       const { available, updateInfo, updateResult, nextVersion, pendingUpdate } = await checkForDesktopUpdate({
         autoUpdater,
@@ -4053,7 +4143,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     }
 
     case 'desktop_download_and_install_update':
-      assertUpdaterCapability({ packaged: app.isPackaged });
+      assertUpdaterCapability({ packaged: app.isPackaged, packageType: currentLinuxPackageType() });
       if (!state.pendingUpdate) {
         throw new Error('No pending update');
       }
@@ -4099,7 +4189,8 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
 
     case 'desktop_restart': {
       const applyUpdate = Boolean(state.pendingUpdate?.downloaded && app.isPackaged);
-      if (applyUpdate) assertUpdaterCapability({ packaged: app.isPackaged });
+      const packageType = currentLinuxPackageType();
+      if (applyUpdate) assertUpdaterCapability({ packaged: app.isPackaged, packageType });
       log.info(`[electron] desktop_restart applyUpdate=${applyUpdate} packaged=${app.isPackaged}`);
       if (applyUpdate && process.platform === 'darwin' && typeof app.isInApplicationsFolder === 'function') {
         try {
@@ -4128,9 +4219,32 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       // Defer so the IPC reply flushes before the app starts shutting down.
       // Without this, quitAndInstall() can race with the renderer's pending
       // invoke and the restart appears to do nothing from the UI side.
-      setImmediate(() => {
+      setImmediate(async () => {
         try {
           if (applyUpdate) {
+            if (process.platform === 'linux' && packageType === 'AppImage') {
+              const currentPath = process.env.APPIMAGE;
+              const downloadedPath = autoUpdater.installerPath;
+              if (typeof currentPath !== 'string' || typeof downloadedPath !== 'string') {
+                throw new Error('The downloaded Linux update file is no longer available. Download it again.');
+              }
+
+              const installed = await installLinuxAppImageUpdate({
+                currentPath,
+                downloadedPath,
+                appDataDirectory: app.getPath('userData'),
+                version: state.pendingUpdate?.version || '',
+              });
+              log.info('[electron] staged Linux AppImage update', {
+                version: installed.version,
+                currentPath: installed.currentPath,
+              });
+              killSidecar();
+              app.relaunch({ execPath: installed.currentPath, args: [] });
+              app.exit(0);
+              return;
+            }
+
             killSidecar();
             autoUpdater.quitAndInstall();
           } else {
@@ -4139,7 +4253,16 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
             app.exit(0);
           }
         } catch (err) {
+          state.installingUpdate = false;
+          state.quitRequested = false;
+          state.quitConfirmed = false;
           log.error('[electron] desktop_restart failed', err);
+          void dialog.showMessageBox({
+            type: 'error',
+            title: 'Update failed',
+            message: 'PiChamber kept the current version.',
+            detail: err instanceof Error ? err.message : String(err),
+          }).catch(() => {});
         }
       });
       return null;
@@ -4986,7 +5109,24 @@ app.whenReady().then(async () => {
     argv: process.argv,
     isBackgroundStart,
     loginItemSettings,
+    linuxPackageType: currentLinuxPackageType(),
+    packagedUi: app.isPackaged ? inspectPackagedUi() : null,
   });
+
+  if (process.platform === 'linux' && currentLinuxPackageType() === 'AppImage') {
+    try {
+      const recovery = await recoverLinuxAppImageUpdate({
+        appImagePath: process.env.APPIMAGE,
+        appDataDirectory: app.getPath('userData'),
+      });
+      if (recovery.pending || recovery.recovered) {
+        log.info('[electron] Linux AppImage update recovery state', recovery);
+      }
+    } catch (error) {
+      log.warn('[electron] failed to inspect Linux AppImage update recovery state', error);
+    }
+  }
+
   if (readSettingsRoot().desktopProcessPerformanceRecordingEnabled === true) {
     await processPerformanceRecorder.start();
   }
@@ -5027,6 +5167,12 @@ app.whenReady().then(async () => {
 
   if (isBackgroundStart) {
     const { localOrigin, bootOutcome, apiBaseUrl, clientToken, requestHeaders } = await resolveInitialUrl();
+    if (process.platform === 'linux' && currentLinuxPackageType() === 'AppImage' && inspectPackagedUi().ok) {
+      await confirmLinuxAppImageUpdate({
+        appImagePath: process.env.APPIMAGE,
+        appDataDirectory: app.getPath('userData'),
+      }).catch((error) => log.warn('[electron] failed to confirm background Linux AppImage update', error));
+    }
     state.localOrigin = localOrigin;
     state.apiBaseUrl = apiBaseUrl;
     state.clientToken = clientToken;

@@ -37,6 +37,14 @@ Desktop PNG/ICO/ICNS brand assets, web favicons, and mobile launcher/splash PNGs
 
 GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop artifacts are built on every release. Android artifacts are built for version tags and can be enabled on a manual dispatch; npm publication is opt-in, and iOS TestFlight uses the separate Mobile Release workflow. See `CONTRIBUTING.md` for the version and tag steps.
 
+### Linux distribution
+
+Linux releases include `.deb`, `.rpm`, and AppImage artifacts for x64 and arm64. The `.deb` package is the recommended choice for Debian-family distributions and `.rpm` is recommended for Fedora-family distributions. Package-manager installations retain Electron's normal Chromium sandbox and use the package-specific updater.
+
+AppImages are portable and do not require installation, but the AppImage format cannot provide Electron's root-owned `chrome-sandbox` helper from a user-mounted filesystem. PiChamber therefore launches AppImages with Chromium's `--no-sandbox` compatibility mode; installed `.deb`/`.rpm` packages should be preferred when the full Chromium sandbox is required. AppImages should be copied to a writable Linux filesystem, such as `~/.local/opt/pichamber`, and kept at a stable filename if a desktop shortcut is created.
+
+Linux AppImage updates are staged and validated before the existing file is replaced. The previous image is retained until the restarted packaged UI confirms a successful launch; a failed restart is recovered on the next launch. The updater preserves the current AppImage path so existing desktop shortcuts do not become stale.
+
 macOS notarized builds need `APPLE_CERTIFICATE` as base64 of a Developer ID Application `.p12`. Missing or unreadable certificates produce unsigned `.dmg`/`.zip` files instead of failing the job.
 
 ## Platform rules

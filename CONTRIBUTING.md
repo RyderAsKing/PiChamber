@@ -70,9 +70,9 @@ bun run electron:build
 `packages/electron/dist`.
 
 Desktop targets are macOS, Windows, and Linux. macOS produces DMG and ZIP
-artifacts, Windows produces an NSIS installer, and Linux produces an AppImage
-for the native x64 or arm64 host. Unsigned local installers are expected when
-signing credentials are not configured.
+artifacts, Windows produces an NSIS installer, and Linux produces AppImage,
+`.deb`, and `.rpm` artifacts for the native x64 or arm64 host. Unsigned local
+installers are expected when signing credentials are not configured.
 
 ### Shared UI
 

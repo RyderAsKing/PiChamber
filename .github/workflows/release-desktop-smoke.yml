@@ -24,7 +24,7 @@ on:
         default: true
         type: boolean
       build_linux:
-        description: Build Linux Electron AppImage artifacts
+        description: Build Linux Electron installable artifacts
         required: false
         default: true
         type: boolean
@@ -289,7 +289,10 @@ jobs:
           bun run test:architecture
           bun run test:updater
 
-      - name: Build and package Linux AppImage
+      - name: Install Linux packaging tools
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y rpm
+
+      - name: Build and package Linux desktop artifacts
         working-directory: packages/electron
         env:
           PICHAMBER_TARGET_ARCH: ${{ matrix.arch }}
@@ -311,6 +314,9 @@ jobs:
           set -euo pipefail
           APPIMAGE="dist/PiChamber-${VERSION}-linux-${ARTIFACT_ARCH}.AppImage"
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
+          for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm; do
+            node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$artifact" "$VERSION"
+          done
 
       - name: Upload Linux installable artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -318,6 +324,8 @@ jobs:
           name: desktop-release-smoke-linux-${{ matrix.arch }}
           path: |
             packages/electron/dist/PiChamber-${{ steps.versions.outputs.app }}-linux-${{ matrix.artifact_arch }}.AppImage
+            packages/electron/dist/*.deb
+            packages/electron/dist/*.rpm
             packages/electron/dist/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: ${{ fromJSON(inputs.retention_days) }}
