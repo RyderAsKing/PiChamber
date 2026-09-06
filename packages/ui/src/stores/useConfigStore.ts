@@ -96,7 +96,8 @@ export const useConfigStore = create<ConfigStore>()(
 
                 activateDirectory: async (directory) => {
                     const configDirectory = resolveConfigDirectory(directory);
-                    if (!configDirectory) {
+                    const hasRequestedDirectory = typeof directory === 'string' && directory.trim().length > 0;
+                    if (!configDirectory && hasRequestedDirectory) {
                         markStartupTrace('activateDirectory:skippedUnknownDirectory', { directory });
                         return;
                     }
@@ -223,11 +224,12 @@ export const useConfigStore = create<ConfigStore>()(
                 loadProviders: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
-                    if (!configDirectory) {
+                    const hasRequestedDirectory = typeof requestedDirectory === 'string' && requestedDirectory.trim().length > 0;
+                    if (!configDirectory && hasRequestedDirectory) {
                         markStartupTrace('loadProviders:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
                         return;
                     }
-                    const effectiveDirectory = configDirectory ?? useDirectoryStore.getState().currentDirectory ?? null;
+                    const effectiveDirectory = configDirectory ?? null;
                     const directoryKey = toDirectoryKey(configDirectory);
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadProviders:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -617,11 +619,12 @@ export const useConfigStore = create<ConfigStore>()(
                 loadAgents: async (options) => {
                     const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
                     const configDirectory = resolveConfigDirectory(requestedDirectory);
-                    if (!configDirectory) {
+                    const hasRequestedDirectory = typeof requestedDirectory === 'string' && requestedDirectory.trim().length > 0;
+                    if (!configDirectory && hasRequestedDirectory) {
                         markStartupTrace('loadAgents:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
                         return false;
                     }
-                    const effectiveDirectory = configDirectory ?? useDirectoryStore.getState().currentDirectory ?? null;
+                    const effectiveDirectory = configDirectory ?? null;
                     const directoryKey = toDirectoryKey(configDirectory);
                     const source = options?.source ?? 'unknown';
                     markStartupTrace('loadAgents:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
@@ -1367,11 +1370,9 @@ export const useConfigStore = create<ConfigStore>()(
                             const resolvedInitialDirectory = resolveConfigDirectory(resolvedProject?.path ?? initialDirectory ?? null);
                             const configDirectory = resolvedInitialDirectory ?? getFallbackProjectDirectory();
                             if (!configDirectory) {
-                                markStartupTrace('initializeApp:noProjectConfigDirectory');
-                                set({ isInitialized: true, isConnected: true, hasEverConnected: true, connectionPhase: "connected" });
-                                return;
+                                markStartupTrace('initializeApp:globalConfigScope');
                             }
-                            if (!resolvedInitialDirectory && initialDirectory !== configDirectory) {
+                            if (configDirectory && !resolvedInitialDirectory && initialDirectory !== configDirectory) {
                                 markStartupTrace('initializeApp:normalizedUnknownDirectoryToProject', {
                                     initialDirectory,
                                     configDirectory,

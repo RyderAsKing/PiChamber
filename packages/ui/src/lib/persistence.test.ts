@@ -400,6 +400,9 @@ describe('updateDesktopSettings', () => {
       settings: {
         showReasoningTraces: false,
         terminalShell: 'fish',
+        autoDeleteEnabled: true,
+        autoDeleteAfterDays: 45,
+        sessionRetentionAction: 'delete',
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4' }],
         followUpBehavior: 'steer',
         // Legacy command starters are parsed defensively but removed on
@@ -414,6 +417,9 @@ describe('updateDesktopSettings', () => {
 
     expect(useUIStore.getState().showReasoningTraces).toBe(false);
     expect(useUIStore.getState().terminalShell).toBe('fish');
+    expect(useUIStore.getState().autoDeleteEnabled).toBe(true);
+    expect(useUIStore.getState().autoDeleteAfterDays).toBe(45);
+    expect(useUIStore.getState().sessionRetentionAction).toBe('delete');
     expect(useUIStore.getState().favoriteModels).toHaveLength(1);
     expect(useUIStore.getState().globalDraftStarters).toEqual([]);
     expect(useUIStore.getState().draftStartersVisible).toBe(false);
@@ -428,6 +434,9 @@ describe('updateDesktopSettings', () => {
 
     expect(useUIStore.getState().showReasoningTraces).toBe(true);
     expect(useUIStore.getState().terminalShell).toBe('auto');
+    expect(useUIStore.getState().autoDeleteEnabled).toBe(false);
+    expect(useUIStore.getState().autoDeleteAfterDays).toBe(30);
+    expect(useUIStore.getState().sessionRetentionAction).toBe('archive');
     expect(useUIStore.getState().favoriteModels).toEqual([]);
     expect(useUIStore.getState().globalDraftStarters).toBeNull();
     expect(useUIStore.getState().draftStartersVisible).toBe(true);
@@ -638,6 +647,98 @@ describe('updateDesktopSettings', () => {
     } finally {
       stop();
     }
+  });
+
+  test('restores session pruning settings from shared settings', async () => {
+    getWindow();
+    invalidateSettingsCache();
+    useUIStore.setState({
+      autoDeleteEnabled: false,
+      autoDeleteAfterDays: 30,
+      sessionRetentionAction: 'archive',
+    });
+    registerSettingsApi(async () => ({}), async () => ({
+      settings: {
+        autoDeleteEnabled: true,
+        autoDeleteAfterDays: 45,
+        sessionRetentionAction: 'delete',
+        draftStartersScheduleTaskAdded: true,
+      },
+      source: 'web',
+    }));
+
+    await syncDesktopSettings();
+
+    expect(useUIStore.getState().autoDeleteEnabled).toBe(true);
+    expect(useUIStore.getState().autoDeleteAfterDays).toBe(45);
+    expect(useUIStore.getState().sessionRetentionAction).toBe('delete');
+  });
+
+  test('migrates local session pruning settings when an older shared settings file omits them', async () => {
+    getWindow();
+    switchRuntimeEndpoint({ apiBaseUrl: 'http://localhost', runtimeKey: 'local' });
+    invalidateSettingsCache();
+    useUIStore.setState({
+      autoDeleteEnabled: true,
+      autoDeleteAfterDays: 45,
+      sessionRetentionAction: 'delete',
+    });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    }, async () => ({
+      settings: { autoSaveEnabled: true, draftStartersScheduleTaskAdded: true },
+      source: 'web',
+    }));
+
+    await syncDesktopSettings();
+
+    expect(useUIStore.getState().autoDeleteEnabled).toBe(true);
+    expect(useUIStore.getState().autoDeleteAfterDays).toBe(45);
+    expect(useUIStore.getState().sessionRetentionAction).toBe('delete');
+    expect(saveCalls.find((changes) => changes.autoDeleteEnabled === true)).toEqual({
+      autoDeleteEnabled: true,
+      autoDeleteAfterDays: 45,
+      sessionRetentionAction: 'delete',
+    });
+  });
+
+  test('autosaves session pruning settings to shared settings', async () => {
+    getWindow();
+    useUIStore.setState({
+      autoDeleteEnabled: false,
+      autoDeleteAfterDays: 30,
+      sessionRetentionAction: 'archive',
+    });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    const stopAutoSave = startAppearanceAutoSave();
+
+    useUIStore.getState().setAutoDeleteEnabled(true);
+    useUIStore.getState().setAutoDeleteAfterDays(45);
+    useUIStore.getState().setSessionRetentionAction('delete');
+    await delay(500);
+
+    expect(saveCalls.some((changes) => (
+      changes.autoDeleteEnabled === true
+      && changes.autoDeleteAfterDays === 45
+      && changes.sessionRetentionAction === 'delete'
+    ))).toBe(true);
+
+    stopAutoSave();
+    const saveCountAfterStop = saveCalls.length;
+    useUIStore.getState().setAutoDeleteAfterDays(60);
+    await delay(300);
+    expect(saveCalls).toHaveLength(saveCountAfterStop);
+
+    startAppearanceAutoSave();
+    useUIStore.getState().setAutoDeleteAfterDays(75);
+    await delay(500);
+    expect(saveCalls.some((changes) => changes.autoDeleteAfterDays === 75)).toBe(true);
   });
 
   test('autosaves reasoning preference changes to shared settings', async () => {

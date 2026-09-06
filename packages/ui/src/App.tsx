@@ -15,6 +15,7 @@ import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationTo
 import { useRouter } from '@/hooks/useRouter';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { syncDesktopSettings } from '@/lib/persistence';
+import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
@@ -54,16 +55,19 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
   // not fetched against a runtime that has not been unlocked yet.
   React.useEffect(() => {
     let active = true;
+    let stopAppearanceAutoSave: (() => void) | null = null;
     let stopModelPrefsAutoSave: (() => void) | null = null;
 
     void syncDesktopSettings().then(() => {
       if (active) {
+        stopAppearanceAutoSave = startAppearanceAutoSave();
         stopModelPrefsAutoSave = startModelPrefsAutoSave();
       }
     });
 
     return () => {
       active = false;
+      stopAppearanceAutoSave?.();
       stopModelPrefsAutoSave?.();
     };
   }, [runtimeEndpointEpoch]);

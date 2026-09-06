@@ -45,14 +45,12 @@ type AppearanceSlice = {
   gitChangesViewMode: 'flat' | 'tree';
 };
 
-let initialized = false;
+let activeStop: (() => void) | null = null;
 
-export const startAppearanceAutoSave = (): void => {
-  if (initialized || typeof window === 'undefined') {
-    return;
+export const startAppearanceAutoSave = (): (() => void) => {
+  if (typeof window === 'undefined' || activeStop) {
+    return () => undefined;
   }
-
-  initialized = true;
 
   let previous: AppearanceSlice = {
     showReasoningTraces: useUIStore.getState().showReasoningTraces,
@@ -89,7 +87,7 @@ export const startAppearanceAutoSave = (): void => {
     gitChangesViewMode: useUIStore.getState().gitChangesViewMode,
   };
 
-  useUIStore.subscribe((state) => {
+  const unsubscribe = useUIStore.subscribe((state) => {
     const current: AppearanceSlice = {
       showReasoningTraces: state.showReasoningTraces,
       collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
@@ -230,4 +228,13 @@ export const startAppearanceAutoSave = (): void => {
     }
   });
 
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    unsubscribe();
+    if (activeStop === stop) activeStop = null;
+  };
+  activeStop = stop;
+  return stop;
 };
