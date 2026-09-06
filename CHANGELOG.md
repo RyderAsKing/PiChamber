@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-06
+
+Linux distribution and desktop update reliability release.
+
+- **Native Linux packages.** Releases now include `.deb` and `.rpm` packages alongside portable AppImages for x64 and arm64. Package-manager installs retain Electron's normal Chromium sandbox and use the native package updater.
+- **AppImage startup compatibility.** AppImages launch through a compatibility wrapper that passes `--no-sandbox` before Electron starts, avoiding the SUID sandbox failure on user-mounted filesystems. Installed `.deb` and `.rpm` packages keep the normal sandbox setup.
+- **Safe AppImage updates.** Downloads are validated before replacement, the current image path is preserved for desktop shortcuts, and the previous image remains available until the restarted packaged UI confirms a successful launch. Failed restarts roll back on the next launch.
+- **Startup diagnostics.** Missing packaged UI assets now show version, package, AppImage, and log diagnostics with recovery guidance instead of leaving a blank desktop window.
+
 ## [0.9.1] - 2026-09-06
 
 Server-profile daemon isolation, first-run settings persistence, and public-launch cleanup release.
