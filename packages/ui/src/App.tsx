@@ -15,6 +15,7 @@ import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationTo
 import { useRouter } from '@/hooks/useRouter';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { syncDesktopSettings } from '@/lib/persistence';
+import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 
@@ -52,7 +53,19 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
   // switch, an auth failure unmounts App before this reruns, so settings are
   // not fetched against a runtime that has not been unlocked yet.
   React.useEffect(() => {
-    void syncDesktopSettings();
+    let active = true;
+    let stopModelPrefsAutoSave: (() => void) | null = null;
+
+    void syncDesktopSettings().then(() => {
+      if (active) {
+        stopModelPrefsAutoSave = startModelPrefsAutoSave();
+      }
+    });
+
+    return () => {
+      active = false;
+      stopModelPrefsAutoSave?.();
+    };
   }, [runtimeEndpointEpoch]);
 
   React.useEffect(() => {

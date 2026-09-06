@@ -589,6 +589,57 @@ describe('updateDesktopSettings', () => {
     }
   });
 
+  test('flushes replaced favorites when the app lifecycle stops', async () => {
+    getWindow();
+    useUIStore.setState({
+      favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
+    });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    const stop = startModelPrefsAutoSave();
+
+    useUIStore.getState().toggleFavoriteModel('anthropic', 'claude-haiku-4');
+    useUIStore.getState().toggleFavoriteModel('openai', 'gpt-5');
+    stop();
+    await delay(20);
+
+    expect(saveCalls).toHaveLength(1);
+    expect(saveCalls[0]?.favoriteModels).toEqual([
+      { providerID: 'openai', modelID: 'gpt-5' },
+    ]);
+  });
+
+  test('flushes replaced favorites to the old runtime before switching', async () => {
+    getWindow();
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://favorites-a.example', runtimeKey: 'favorites-a' });
+    useUIStore.setState({
+      favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
+    });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    const stop = startModelPrefsAutoSave();
+
+    try {
+      useUIStore.getState().toggleFavoriteModel('anthropic', 'claude-haiku-4');
+      useUIStore.getState().toggleFavoriteModel('openai', 'gpt-5');
+      switchRuntimeEndpoint({ apiBaseUrl: 'https://favorites-b.example', runtimeKey: 'favorites-b' });
+      await delay(20);
+
+      expect(saveCalls).toHaveLength(1);
+      expect(saveCalls[0]?.favoriteModels).toEqual([
+        { providerID: 'openai', modelID: 'gpt-5' },
+      ]);
+    } finally {
+      stop();
+    }
+  });
+
   test('autosaves reasoning preference changes to shared settings', async () => {
     getWindow();
     useUIStore.getState().setShowReasoningTraces(false);

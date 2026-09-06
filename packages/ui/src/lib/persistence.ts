@@ -376,7 +376,8 @@ async function _flushSettingsUpdate(): Promise<void> {
 }
 
 export const updateDesktopSettings = async (
-  changes: Partial<DesktopSettings>
+  changes: Partial<DesktopSettings>,
+  options: { immediate?: boolean } = {},
 ): Promise<void> => {
   if (typeof window === 'undefined') {
     return;
@@ -402,10 +403,14 @@ export const updateDesktopSettings = async (
   const flushed = new Promise<void>((resolve) => {
     _settingsFlushWaiters.push(resolve);
   });
-  _settingsFlushTimer = setTimeout(
-    () => void _flushSettingsUpdate(),
-    SETTINGS_DEBOUNCE_MS
-  );
+  if (options.immediate) {
+    void _flushSettingsUpdate();
+  } else {
+    _settingsFlushTimer = setTimeout(
+      () => void _flushSettingsUpdate(),
+      SETTINGS_DEBOUNCE_MS
+    );
+  }
   return flushed;
 };
 
