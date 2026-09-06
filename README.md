@@ -66,6 +66,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development and release workflo
 [Quick start](packages/docs/content/docs/quickstart.mdx) · [Install](packages/docs/content/docs/install.mdx) · [Connect devices](packages/docs/content/docs/connect-devices.mdx) · [Security](packages/docs/content/docs/security.mdx) · [Contributing](CONTRIBUTING.md)
 
 - [GitHub Discussions](https://github.com/RyderAsKing/PiChamber/discussions)
+- [Discord community](https://discord.gg/MQgt2YMtw6)
 - [Security policy](SECURITY.md)
 
 ## Acknowledgments
