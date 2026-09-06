@@ -102,6 +102,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     }, [currentModelId, currentProviderId, isReady, providers.length]);
 
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+    const isNewSessionDraftOpen = useSessionUIStore((s) => s.newSessionDraft.open);
     const getDirectoryForSession = useSessionUIStore((s) => s.getDirectoryForSession);
     const sync = useSync();
 
@@ -158,6 +159,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const keyboardOwnsModelSelectionRef = React.useRef(false);
     const lastModelPointerPositionRef = React.useRef<{ x: number; y: number } | null>(null);
     const activeModelPickerEntryRef = React.useRef<ModelPickerEntry | undefined>(undefined);
+    const lastModelPickerKeyRef = React.useRef<{ category: 'printable' | 'navigation' | 'other'; modifiers: boolean } | null>(null);
     const [pendingThinkingVariants, setPendingThinkingVariants] = React.useState<Map<string, string | undefined>>(new Map());
     const [adjustedThinkingModels, setAdjustedThinkingModels] = React.useState<Set<string>>(new Set());
     const [modelPickerRenderVersion, setModelPickerRenderVersion] = React.useState(0);
@@ -1087,11 +1089,32 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                 : undefined);
         };
 
-        const handleModelShortcutKeyDownCapture = (_e: React.KeyboardEvent) => {
-            void _e;
+        const handleModelShortcutKeyDownCapture = (event: React.KeyboardEvent) => {
+            lastModelPickerKeyRef.current = {
+                category: event.key.length === 1
+                    ? 'printable'
+                    : event.key.startsWith('Arrow') || event.key === 'Escape' || event.key === 'Enter'
+                        ? 'navigation'
+                        : 'other',
+                modifiers: event.altKey || event.ctrlKey || event.metaKey || event.shiftKey,
+            };
         };
 
-        const handleModelMenuOpenChange = (nextOpen: boolean) => {
+        const handleModelMenuOpenChange = (
+            nextOpen: boolean,
+            eventDetails: { reason?: string; event?: Event },
+        ) => {
+            if (!nextOpen) {
+                const activeElement = document.activeElement;
+                console.info('[DEBUG-model-picker-close]', {
+                    reason: eventDetails.reason ?? 'unknown',
+                    eventType: eventDetails.event?.type ?? 'none',
+                    draftOpen: isNewSessionDraftOpen,
+                    focusInsidePicker: activeElement instanceof Element
+                        && Boolean(activeElement.closest('[data-model-picker-popup="true"]')),
+                    precedingKey: lastModelPickerKeyRef.current,
+                });
+            }
             setModelSelectorOpen(nextOpen);
         };
 
@@ -1188,6 +1211,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                             </DropdownMenuTrigger>
                         </TooltipTrigger>
                         <DropdownMenuContent
+                            data-model-picker-popup="true"
                             className="w-[min(380px,calc(100vw-2rem))] p-0 flex flex-col"
                             align="end"
                             alignOffset={-40}
