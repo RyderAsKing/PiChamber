@@ -10,10 +10,19 @@ const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
 const PORTABLE_SETTINGS_VERSION = 'portable-v1';
 
 // Keep this list explicit. settings.json is intended to be copied between hosts.
+// Retired keys are intentionally absent so saved values cannot restore retired
+// behavior: showReasoningTraces, collapsibleThinkingBlocks,
+// collapseThinkingByDefault, defaultFileViewerPreview, inputSpellcheckEnabled,
+// showToolFileIcons, codeBlockLineWrap, showTurnChangedFiles,
+// showExpandedBashTools, showExpandedEditTools, mermaidRenderingMode,
+// userMessageRenderingMode, collapsibleUserMessages, stickyUserHeader,
+// promptNavigatorEnabled, wideChatLayoutEnabled,
+// showSplitAssistantMessageActions, directoryShowHidden,
+// desktopWindowControlsPosition/Style (local). persistChatDraft was local-only
+// UI state and was never part of the server allowlists.
 const PORTABLE_FIELDS = new Set([
   'themeId', 'useSystemTheme', 'themeVariant', 'lightThemeId', 'darkThemeId',
   'splashBgLight', 'splashFgLight', 'splashBgDark', 'splashFgDark',
-  'showReasoningTraces', 'collapsibleThinkingBlocks', 'collapseThinkingByDefault',
   'showDeletionDialog', 'nativeNotificationsEnabled', 'notificationMode',
   'notifyOnSubtasks', 'notifyOnCompletion', 'notifyOnError', 'notifyOnQuestion',
   'notificationTemplates', 'summarizeLastMessage', 'summaryThreshold', 'summaryLength',
@@ -23,17 +32,15 @@ const PORTABLE_FIELDS = new Set([
   'autoDeleteEnabled', 'autoSaveEnabled', 'autoDeleteAfterDays', 'sessionRetentionAction',
   'defaultModel', 'defaultVariant', 'smallModelUseDefault', 'smallModelOverride',
   'walkthroughModelOverride', 'followUpBehavior', 'queueModeEnabled', 'gitmojiEnabled',
-  'defaultFileViewerPreview', 'zenModel', 'gitProviderId', 'gitModelId',
-  'inputSpellcheckEnabled', 'showToolFileIcons', 'codeBlockLineWrap', 'showTurnChangedFiles',
-  'showExpandedBashTools', 'showExpandedEditTools', 'timeFormatPreference',
-  'weekStartPreference', 'mermaidRenderingMode', 'userMessageRenderingMode',
-  'collapsibleUserMessages', 'stickyUserHeader', 'promptNavigatorEnabled',
-  'expandedEditorToolbar', 'wideChatLayoutEnabled', 'showSplitAssistantMessageActions',
+  'zenModel', 'gitProviderId', 'gitModelId',
+  'timeFormatPreference',
+  'weekStartPreference',
+  'expandedEditorToolbar',
   'fontSize', 'terminalFontSize', 'editorFontSize', 'uiFont', 'monoFont', 'padding',
   'cornerRadius', 'inputBarOffset', 'shortcutOverrides', 'commandTriggers',
   'favoriteModels', 'hiddenModels', 'collapsedModelProviders', 'recentModels',
   'recentAgents', 'recentEfforts', 'diffLayoutPreference', 'gitChangesViewMode',
-  'directoryShowHidden', 'filesViewShowGitignored', 'messageLimit',
+  'filesViewShowGitignored', 'messageLimit',
   'responseStyleEnabled', 'responseStylePreset', 'responseStyleCustomInstructions',
   'draftStarters', 'draftStartersVisible', 'draftStartersScheduleTaskAdded',
   'autoCreateWorktree', 'globalBehaviorPrompt', 'skillCatalogs', 'messageStreamTransport',
@@ -48,7 +55,6 @@ const LOCAL_FIELDS = new Set([
   'terminalShell', 'terminalLoginShells', 'desktopLanAccessEnabled',
   'desktopKeepAwakeEnabled', 'desktopProcessPerformanceRecordingEnabled',
   'desktopMinimizeToTrayEnabled', 'desktopMacMenuBarEnabled',
-  'desktopWindowControlsPosition', 'desktopWindowControlsStyle',
   'desktopWindowState', 'desktopLocalPort', 'desktopInstallId', 'desktopHosts',
   'desktopDefaultHostId', 'desktopInitialHostChoiceCompleted',
   'pwaAppName', 'pwaOrientation', 'mobileKeyboardMode',

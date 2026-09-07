@@ -41,7 +41,6 @@ export interface ConfigStore {
   settingsDefaultThinkingByModel: Record<string, string>;
   settingsAutoCreateWorktree: boolean;
   settingsGitmojiEnabled: boolean;
-  settingsDefaultFileViewerPreview: boolean;
   settingsZenModel: string | undefined;
 
   activateDirectory: (directory: string | null | undefined) => Promise<void>;
@@ -64,7 +63,6 @@ export interface ConfigStore {
   setSettingsDefaultThinkingByModel: (map: Record<string, string>) => void;
   setSettingsAutoCreateWorktree: (enabled: boolean) => void;
   setSettingsGitmojiEnabled: (enabled: boolean) => void;
-  setSettingsDefaultFileViewerPreview: (enabled: boolean) => void;
   setSettingsZenModel: (model: string | undefined) => void;
   getResolvedGitGenerationModel: () => {
     providerId: string;
@@ -117,6 +115,8 @@ export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
   delete sanitized.agentModelSelections;
   delete sanitized.runtimeDefaultAgent;
   delete sanitized.runtimeDefaultModel;
+  delete sanitized.settingsDefaultFileViewerPreview;
+  delete sanitized.defaultFileViewerPreview;
   const directoryScoped = merged.directoryScoped;
   if (directoryScoped && typeof directoryScoped === 'object') {
     const cleaned: Record<string, DirectoryScopedConfig> = {};
@@ -131,6 +131,8 @@ export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
       delete copy.agentModelSelections;
       delete copy.runtimeDefaultAgent;
       delete copy.runtimeDefaultModel;
+      delete copy.settingsDefaultFileViewerPreview;
+      delete copy.defaultFileViewerPreview;
       cleaned[key] = copy as unknown as DirectoryScopedConfig;
     }
     sanitized.directoryScoped = cleaned;

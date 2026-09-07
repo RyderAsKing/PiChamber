@@ -1,6 +1,6 @@
 import React from 'react';
 import morphdom from 'morphdom';
-import { renderMermaidASCII, renderMermaidSVG } from 'beautiful-mermaid';
+import { renderMermaidSVG } from 'beautiful-mermaid';
 import type { Part } from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
 import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
@@ -93,8 +93,6 @@ const useDecorateContext = (
   const labels: DecorateLabels = React.useMemo(() => ({
     copy: "Copy code",
     copied: "Copied",
-    enableCodeWrap: "Enable line wrap",
-    disableCodeWrap: "Disable line wrap",
     copyTable: "Copy table",
     downloadTable: "Download table",
     copyDiagram: "Copy source",
@@ -106,27 +104,19 @@ const useDecorateContext = (
     previewTitle: "Open preview pane",
   }), []);
 
-  const codeBlockLineWrap = useUIStore((state) => state.codeBlockLineWrap);
-  const setCodeBlockLineWrap = useUIStore((state) => state.setCodeBlockLineWrap);
-  const toggleCodeBlockLineWrap = React.useCallback(() => {
-    setCodeBlockLineWrap(!useUIStore.getState().codeBlockLineWrap);
-  }, [setCodeBlockLineWrap]);
-
   return React.useMemo<DecorateContext>(() => {
     const colors = mermaidColorsFromTheme(currentTheme);
-    const mode = useUIStore.getState().mermaidRenderingMode;
     const themeId = currentTheme.metadata?.id ?? 'theme';
     const renderMermaid = (source: string): MermaidRender =>
-      cachedMermaidRender(`${themeId}:${mode}:${source}`, () => {
+      cachedMermaidRender(`${themeId}:svg:${source}`, () => {
         try {
-          if (mode === 'ascii') return { ascii: renderMermaidASCII(source) };
           return { svg: renderMermaidSVG(source, colors) };
         } catch {
           return {};
         }
       });
-    return { labels, mermaidControls, codeBlockLineWrap, deferCodeLineNumberSync, onToggleCodeBlockLineWrap: toggleCodeBlockLineWrap, renderMermaid, onPreviewLoopback };
-  }, [currentTheme, labels, mermaidControls, codeBlockLineWrap, deferCodeLineNumberSync, toggleCodeBlockLineWrap, onPreviewLoopback]);
+    return { labels, mermaidControls, deferCodeLineNumberSync, renderMermaid, onPreviewLoopback };
+  }, [currentTheme, labels, mermaidControls, deferCodeLineNumberSync, onPreviewLoopback]);
 };
 
 const resetMarkdownBlockLayout = (el: HTMLElement): void => {
@@ -363,8 +353,8 @@ const useMorphdomMarkdown = ({
     const target = container?.querySelector<HTMLElement>('[data-markdown-content]') ?? container;
     if (!target) return;
     if (ctx.deferCodeLineNumberSync) return;
-    applyMarkdownCodeBlockWrapState(target, ctx.codeBlockLineWrap, ctx.labels);
-  }, [containerRef, ctx.codeBlockLineWrap, ctx.deferCodeLineNumberSync, ctx.labels]);
+    applyMarkdownCodeBlockWrapState(target);
+  }, [containerRef, ctx.deferCodeLineNumberSync]);
 
 };
 

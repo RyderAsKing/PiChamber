@@ -3,10 +3,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
-import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
-import { invokeDesktop } from '@/lib/desktop';
-import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
+import { invokeDesktop, usesFramelessElectronChrome } from '@/lib/desktop';
 import { useTabletLayout } from '@/lib/device';
 
 const ICON_BUTTON_CLASS =
@@ -18,10 +16,14 @@ const TABLET_TOGGLE_BUTTON_CLASS =
   'app-region-no-drag flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50';
 
 /**
- * Persistent top-left titlebar controls (window chrome + collapsed-sidebar toggle).
+ * Persistent top-left titlebar controls (app menu + collapsed-sidebar toggle).
+ *
+ * Window chrome is fixed: classic minimize/maximize/close on the right for
+ * frameless Windows/Linux windows (see WindowsWindowControls), native
+ * OS-owned traffic lights on macOS. This overlay never renders window chrome.
  *
  * Rendered exactly once as an absolutely-positioned overlay above both the
- * sidebar and the header, so window chrome never remounts while the sidebar
+ * sidebar and the header, so the controls never remount while the sidebar
  * animates. When the sidebar is closed, the sessions toggle lives here so it
  * remains reachable; when the sidebar is open, that toggle sits next to
  * New session instead. Its height tracks `--oc-header-height` and its left
@@ -40,19 +42,18 @@ export const TitlebarLeftControls: React.FC = () => {
   const clusterRef = React.useRef<HTMLDivElement | null>(null);
 
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
-  const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
+  const usesFramelessChrome = usesFramelessElectronChrome();
   const { enabled: isTabletLayoutEnabled } = useTabletLayout();
 
   const showToggle = !isSidebarOpen;
-  const showWindowControls = usesFramelessChrome && windowControlsSide === 'left';
   const showAppMenu = usesFramelessChrome;
-  const showOverlay = showToggle || showWindowControls || showAppMenu;
+  const showOverlay = showToggle || showAppMenu;
   // A toggle-only cluster is always a 2rem button on desktop. On tablet the
   // toggle grows to size-10 (40px) to match the context-usage chart button — see
   // TABLET_TOGGLE_BUTTON_CLASS. Measuring it on every sidebar toggle flushes
-  // the just-invalidated layout tree; only native window chrome can make this
-  // cluster's width variable.
-  const hasVariableWidthControls = showWindowControls || showAppMenu;
+  // the just-invalidated layout tree; only the frameless app-menu cluster is
+  // measured, so web/mobile toggle-only headers perform no geometry reads.
+  const hasVariableWidthControls = showAppMenu;
 
   const handleOpenWindowsAppMenu = React.useCallback(() => {
     void invokeDesktop('desktop_show_app_menu').catch((error) => {
@@ -129,10 +130,6 @@ export const TitlebarLeftControls: React.FC = () => {
       }}
     >
       <div ref={clusterRef} className="flex items-center gap-2">
-        {showWindowControls ? (
-          <WindowsWindowControls visible position="left" />
-        ) : null}
-
         {showAppMenu ? (
           <Tooltip>
             <TooltipTrigger asChild>

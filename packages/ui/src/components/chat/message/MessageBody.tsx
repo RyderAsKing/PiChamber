@@ -22,7 +22,6 @@ const MessageBody = React.memo(({ isUser, ...props }: MessageBodyProps) => {
         onShowPopup={props.onShowPopup}
         agentMention={props.agentMention}
         userActionsMode={props.userActionsMode}
-        stickyUserHeaderEnabled={props.stickyUserHeaderEnabled}
       />
     );
   }

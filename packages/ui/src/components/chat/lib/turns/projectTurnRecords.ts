@@ -1,7 +1,7 @@
 import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
 import { projectTurnActivity } from './projectTurnActivity';
 import { projectTurnIndexes } from './projectTurnIndexes';
-import { projectTurnChangedFiles, projectTurnDiffStats, projectTurnSummary } from './projectTurnSummary';
+import { projectTurnDiffStats, projectTurnSummary } from './projectTurnSummary';
 import type {
     ChatMessageEntry,
     TurnMessageRecord,
@@ -84,7 +84,6 @@ const buildTurnStreamState = (userMessage: ChatMessageEntry, assistantMessages: 
 interface ProjectTurnRecordsOptions {
     previousProjection?: TurnProjectionResult | null;
     showTextJustificationActivity: boolean;
-    showTurnChangedFiles: boolean;
     /**
      * When set, a turn whose user message is hidden (no visible display parts,
      * e.g. synthetic subagent-completion nudges) is merged into the previous
@@ -96,7 +95,6 @@ interface ProjectTurnRecordsOptions {
 const DEFAULT_OPTIONS: ProjectTurnRecordsOptions = {
     previousProjection: null,
     showTextJustificationActivity: false,
-    showTurnChangedFiles: false,
     mergeHiddenUserTurns: undefined,
 };
 
@@ -130,9 +128,7 @@ const hydrateTurnRecord = (
     turn.summary = projectTurnSummary(turn.assistantMessages);
     turn.summaryText = turn.summary.text ?? getUserSummaryBody(turn.userMessage);
     turn.diffStats = projectTurnDiffStats(turn.userMessage);
-    turn.changedFiles = effectiveOptions.showTurnChangedFiles
-        ? projectTurnChangedFiles(turn.userMessage)
-        : undefined;
+    turn.changedFiles = undefined;
 
     const activity = projectTurnActivity({
         turnId: turn.turnId,

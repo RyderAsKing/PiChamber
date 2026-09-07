@@ -239,7 +239,6 @@ mock.module('@/lib/desktop', () => ({
 }));
 
 mock.module('@/lib/persistence', () => ({
-  initializeAppearancePreferences: mock(() => Promise.resolve()),
   syncDesktopSettings: mock(() => Promise.resolve()),
 }));
 

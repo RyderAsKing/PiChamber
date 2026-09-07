@@ -75,7 +75,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsDefaultThinkingByModel: {},
                 settingsAutoCreateWorktree: false,
                 settingsGitmojiEnabled: false,
-                settingsDefaultFileViewerPreview: false,
                 settingsZenModel: undefined,
 
                 activateDirectory: async (directory) => {
@@ -546,10 +545,6 @@ export const useConfigStore = create<ConfigStore>()(
                     set({ settingsGitmojiEnabled: enabled });
                 },
 
-                setSettingsDefaultFileViewerPreview: (enabled: boolean) => {
-                    set({ settingsDefaultFileViewerPreview: enabled });
-                },
-
                 setSettingsZenModel: (model: string | undefined) => {
                     set({ settingsZenModel: model });
                 },
@@ -853,7 +848,6 @@ export const useConfigStore = create<ConfigStore>()(
                     settingsDefaultThinkingByModel: state.settingsDefaultThinkingByModel,
                     settingsAutoCreateWorktree: state.settingsAutoCreateWorktree,
                     settingsGitmojiEnabled: state.settingsGitmojiEnabled,
-                    settingsDefaultFileViewerPreview: state.settingsDefaultFileViewerPreview,
                     settingsZenModel: state.settingsZenModel,
                 }),
              },

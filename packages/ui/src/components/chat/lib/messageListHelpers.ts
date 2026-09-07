@@ -76,25 +76,6 @@ export const isUserSubtaskMessage = (message: ChatMessageEntry | undefined): boo
   return message.parts.some((part) => part?.type === 'subtask');
 };
 
-export const isInsideStuckSticky = (
-  node: HTMLElement,
-  container: HTMLElement,
-  containerTop: number,
-): boolean => {
-  if (typeof window === 'undefined') return false;
-
-  let current: HTMLElement | null = node;
-  while (current && current !== container) {
-    const computed = window.getComputedStyle(current);
-    if (computed.position === 'sticky' && current.getBoundingClientRect().top <= containerTop + 1) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-
-  return false;
-};
-
 export const readTaskSessionId = (toolPart: Part): string | null => {
   const partRecord = toolPart as unknown as {
     state?: {

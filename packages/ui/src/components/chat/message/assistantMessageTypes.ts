@@ -34,13 +34,11 @@ export interface MessageBodyProps {
   onCopyMessage?: () => void | boolean | Promise<void | boolean>;
   copiedMessage?: boolean;
   onAuxiliaryContentComplete?: () => void;
-  showReasoningTraces?: boolean;
   agentMention?: AgentMentionInfo;
   turnGroupingContext?: TurnGroupingContext;
   errorMessage?: string;
   errorVariant?: 'error' | 'info';
   userActionsMode?: 'inline' | 'external-content' | 'external-actions';
-  stickyUserHeaderEnabled?: boolean;
   footerProviderID?: string | null;
   footerModelName?: string;
   footerAgentName?: string;

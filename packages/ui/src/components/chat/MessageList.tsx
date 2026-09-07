@@ -14,7 +14,6 @@ import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
 import { revealTurnAssistantMessage } from './lib/turns/turnAssistantReveal';
 import { getNormalizedMessageForDisplay, hasCompactionPart } from './lib/messageDisplayNormalization';
-import { useUIStore } from '@/stores/useUIStore';
 import { FadeInDisabledProvider } from './message/FadeInOnReveal';
 import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/lib/userSendAnimation';
 import { streamPerfCount, streamPerfMark, streamPerfMeasure } from '@/stores/utils/streamDebug';
@@ -30,7 +29,6 @@ import { isMeasurableScrollElement } from './lib/scroll/readyScrollElement';
 import {
     getMessageId,
     getPartText,
-    isInsideStuckSticky,
     isSyntheticSubtaskBridgeAssistant,
     isUserSubtaskMessage,
     normalizeCompactionSummaryMessage,
@@ -211,7 +209,6 @@ interface MessageListEntryProps {
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
     scrollToBottom?: () => void;
-    stickyUserHeader?: boolean;
     sessionIsWorking: boolean;
     shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
     onUserAnimationConsumed: (messageId: string) => void;
@@ -226,7 +223,6 @@ const MessageListEntry = React.memo(({
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
-    stickyUserHeader,
     sessionIsWorking,
     shouldAnimateUserMessage,
     onUserAnimationConsumed,
@@ -276,7 +272,6 @@ const MessageListEntry = React.memo(({
             onMessageContentChange={onMessageContentChange}
             getAnimationHandlers={getAnimationHandlers}
             scrollToBottom={scrollToBottom}
-            stickyUserHeader={stickyUserHeader}
         />
     );
 });
@@ -294,7 +289,6 @@ type StaticHistoryListProps = {
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
     scrollToBottom?: () => void;
-    stickyUserHeader: boolean;
     shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
     onUserAnimationConsumed: (messageId: string) => void;
     onLoadOlderHistory: (foldedCount: number) => void;
@@ -310,7 +304,7 @@ type RevealViewportSnapshot = {
     } | null;
 };
 
-const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, registerTanstackVirtualizer, virtualizerKey, onMessageContentChange, getAnimationHandlers, scrollToBottom, stickyUserHeader, shouldAnimateUserMessage, onUserAnimationConsumed, onLoadOlderHistory, onLoadAllHistory, }: StaticHistoryListProps) => {
+const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, registerTanstackVirtualizer, virtualizerKey, onMessageContentChange, getAnimationHandlers, scrollToBottom, shouldAnimateUserMessage, onUserAnimationConsumed, onLoadOlderHistory, onLoadAllHistory, }: StaticHistoryListProps) => {
     const isTanstack = engine === 'tanstack';
 
     // --- Quiet-window prepend (mobile) --------------------------------------
@@ -520,7 +514,6 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
                 onMessageContentChange={onMessageContentChange}
                 getAnimationHandlers={getAnimationHandlers}
                 scrollToBottom={scrollToBottom}
-                stickyUserHeader={stickyUserHeader}
                 sessionIsWorking={false}
                 shouldAnimateUserMessage={shouldAnimateUserMessage}
                 onUserAnimationConsumed={onUserAnimationConsumed}
@@ -530,7 +523,7 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
                 onLoadAllHistory={onLoadAllHistory}
                 />
         );
-    }, [getAnimationHandlers, onLoadAllHistory, onLoadOlderHistory, onMessageContentChange, onUserAnimationConsumed, scrollToBottom, shouldAnimateUserMessage, stickyUserHeader]);
+    }, [getAnimationHandlers, onLoadAllHistory, onLoadOlderHistory, onMessageContentChange, onUserAnimationConsumed, scrollToBottom, shouldAnimateUserMessage]);
 
     if (engine === 'none' || (engine === 'tanstack' && !virtualizerReady)) {
         // At most one pre-paint frame while the forwarded scroller is still
@@ -554,13 +547,10 @@ const StaticHistoryList = React.memo(({ entries, engine, contentRef, scrollRef, 
         const virtualItems = tanstackVirtualizer.getVirtualItems();
         const startOffset = virtualItems[0]?.start ?? 0;
         // Rendered rows stay in normal flow inside a single offset wrapper (not
-        // per-row absolute positioning) so per-turn sticky user headers keep
-        // working against the scroll container. The offset MUST be padding, not
-        // transform: a transformed ancestor becomes the sticky containing block,
-        // so headers would stick to the wrapper's (arbitrary, overscan-dependent)
-        // top edge mid-list and float over the previous turn. Padding only
-        // changes when the virtual window shifts — not per scroll frame — so the
-        // layout cost is negligible.
+        // per-row absolute positioning). The offset MUST be padding, not
+        // transform: a transformed ancestor would become the containing block
+        // for positioned descendants. Padding only changes when the virtual
+        // window shifts — not per scroll frame — so the layout cost is negligible.
         return (
             <div ref={sizeContainerRef} className="relative w-full" style={{ height: tanstackVirtualizer.getTotalSize() }}>
                 <div style={{ paddingTop: `${startOffset}px` }}>
@@ -595,9 +585,7 @@ const StreamingTailContent: React.FC<{
     onMessageContentChange: (reason?: ContentChangeReason) => void;
     getAnimationHandlers: (messageId: string) => AnimationHandlers;
     scrollToBottom?: () => void;
-    stickyUserHeader: boolean;
     sessionIsWorking: boolean;
-    showTurnChangedFiles: boolean;
     shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
     onUserAnimationConsumed: (messageId: string) => void;
     activeStreamingMessageId?: string | null;
@@ -609,9 +597,7 @@ const StreamingTailContent: React.FC<{
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
-    stickyUserHeader,
     sessionIsWorking,
-    showTurnChangedFiles,
     shouldAnimateUserMessage,
     onUserAnimationConsumed,
     activeStreamingMessageId,
@@ -622,9 +608,8 @@ const StreamingTailContent: React.FC<{
         activeStreamingMessageId,
         liveParts,
         showTextJustificationActivity: true,
-        showTurnChangedFiles,
         mergeHiddenUserTurns: true,
-    }), [activeStreamingMessageId, entry, liveParts, showTurnChangedFiles]);
+    }), [activeStreamingMessageId, entry, liveParts]);
 
     return (
         <MessageListEntry
@@ -632,7 +617,6 @@ const StreamingTailContent: React.FC<{
             onMessageContentChange={onMessageContentChange}
             getAnimationHandlers={getAnimationHandlers}
             scrollToBottom={scrollToBottom}
-            stickyUserHeader={stickyUserHeader}
             sessionIsWorking={sessionIsWorking}
             shouldAnimateUserMessage={shouldAnimateUserMessage}
             onUserAnimationConsumed={onUserAnimationConsumed}
@@ -660,8 +644,6 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 }, ref) => {
     streamPerfMark('react.message_list_render');
     streamPerfCount('ui.message_list.render');
-    const stickyUserHeader = useUIStore(state => state.stickyUserHeader);
-    const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
     const { hasMoreBefore, beforeCursor, loadOlder } = useSessionHistoryPagination(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
@@ -676,8 +658,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         const visibleMessage = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
             .find((node) => {
                 const rect = node.getBoundingClientRect();
-                return rect.bottom > containerRect.top + 1
-                    && !isInsideStuckSticky(node, container, containerRect.top);
+                return rect.bottom > containerRect.top + 1;
             });
 
         return {
@@ -826,7 +807,6 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,
         showTextJustificationActivity: true,
-        showTurnChangedFiles,
     });
     const hasUngroupedStaticEntries = projection.ungroupedMessageIds.size > 0;
     const staticEntryMessages = hasUngroupedStaticEntries ? displayMessages : EMPTY_STATIC_ENTRY_MESSAGES;
@@ -1297,18 +1277,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 
                 const containerRect = container.getBoundingClientRect();
                 const nodes: HTMLElement[] = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
-                const firstVisible = nodes.find((node) => {
-                    const rect = node.getBoundingClientRect();
-                    if (rect.bottom <= containerRect.top + 1) {
-                        return false;
-                    }
-
-                    if (typeof window === 'undefined') {
-                        return true;
-                    }
-
-                    return !isInsideStuckSticky(node, container, containerRect.top);
-                }) ?? nodes.find((node) => node.getBoundingClientRect().bottom > containerRect.top + 1);
+                const firstVisible = nodes.find((node) => node.getBoundingClientRect().bottom > containerRect.top + 1);
                 if (!firstVisible) {
                     return null;
                 }
@@ -1407,7 +1376,6 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                                 onMessageContentChange={stableHistoryContentChange}
                                 getAnimationHandlers={stableGetAnimationHandlers}
                                 scrollToBottom={stableScrollToBottom}
-                                stickyUserHeader={stickyUserHeader}
                                 shouldAnimateUserMessage={shouldAnimateUserMessage}
                                 onUserAnimationConsumed={onUserAnimationConsumed}
                                 onLoadOlderHistory={loadOlderHistory}
@@ -1422,9 +1390,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
                                 onMessageContentChange={stableTailContentChange}
                                 getAnimationHandlers={stableGetAnimationHandlers}
                                 scrollToBottom={stableScrollToBottom}
-                                stickyUserHeader={stickyUserHeader}
                                 sessionIsWorking={sessionIsWorking}
-                                showTurnChangedFiles={showTurnChangedFiles}
                                 shouldAnimateUserMessage={shouldAnimateUserMessage}
                                 onUserAnimationConsumed={onUserAnimationConsumed}
                                 activeStreamingMessageId={activeStreamingMessageId}

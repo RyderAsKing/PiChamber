@@ -1,8 +1,6 @@
 import React from 'react';
 import type { Message, Part } from '@/lib/chat/types';
-import { useShallow } from 'zustand/react/shallow';
 
-import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { cn } from '@/lib/utils';
@@ -87,22 +85,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     streamPerfCount('ui.chat_message.render.streaming');
   }
 
-  const { showReasoningTraces, stickyUserHeader, showExpandedBashTools, showExpandedEditTools } = useUIStore(
-    useShallow((state) => ({
-      showReasoningTraces: state.showReasoningTraces,
-      stickyUserHeader: state.stickyUserHeader,
-      showExpandedBashTools: state.showExpandedBashTools,
-      showExpandedEditTools: state.showExpandedEditTools,
-    })),
-  );
-
   const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = React.useState(false);
 
   const messageRole = React.useMemo(() => deriveMessageRole(message.info), [message.info]);
   const isUser = messageRole.isUser;
-  const useExternalUserActionsRow = isUser && (isMobile || !stickyUserHeader);
-  const showStickyInlineHoverRow = isUser && !isMobile && stickyUserHeader && !useExternalUserActionsRow;
 
   const sessionId = message.info.sessionID;
 
@@ -147,9 +134,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const visibleParts = React.useMemo(
     () =>
       filterVisibleParts(normalizedParts, {
-        includeReasoning: showReasoningTraces,
+        includeReasoning: true,
       }),
-    [normalizedParts, showReasoningTraces],
+    [normalizedParts],
   );
 
   const activityPartIds = React.useMemo(() => {
@@ -208,8 +195,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     message,
     toolParts: hideAssistantActivity ? [] : toolParts,
     turnActivityToolParts: hideAssistantActivity ? [] : turnActivityToolParts,
-    showExpandedBashTools,
-    showExpandedEditTools,
   });
 
   const agentMention = React.useMemo(() => {
@@ -268,11 +253,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const hasTurnGrouping = Boolean(turnGroupingContext);
   const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
-
-  const previousIsHiddenUserMessage = React.useMemo(
-    () => !isUser && isHiddenUserMessage(previousMessage),
-    [isUser, previousMessage],
-  );
 
   const nextIsHiddenUserMessage = React.useMemo(
     () => !isUser && isHiddenUserMessage(nextMessage),
@@ -432,14 +412,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return null;
   }
 
-  const assistantTopPaddingClass =
-    !isUser && shouldShowHeader && !hideAssistantActivity && !previousIsHiddenUserMessage
-      ? stickyUserHeader
-        ? isMobile
-          ? 'pt-4'
-          : 'pt-6'
-        : 'pt-0'
-      : 'pt-0';
+  const assistantTopPaddingClass = 'pt-0';
   const userMessageRadius = 'var(--radius-xl)';
   const userMessageBodyProps = {
     sessionId: message.info.sessionID,
@@ -464,13 +437,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     hasTextContent,
     onCopyMessage: handleCopyMessage,
     copiedMessage,
-    showReasoningTraces,
     onAuxiliaryContentComplete: handleAuxiliaryContentComplete,
     agentMention,
     errorMessage: assistantErrorText,
     errorVariant: assistantErrorVariant,
     isLatestMessage: !nextMessage,
-    stickyUserHeaderEnabled: stickyUserHeader,
   };
 
   return (
@@ -495,7 +466,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 respectReducedMotion
               >
                 <div className={cn('relative flex justify-end', !isMobile ? 'group/user-shell' : undefined)}>
-                  <div className={cn('max-w-[85%]', showStickyInlineHoverRow && hasUserBubbleContent ? 'pb-5' : undefined)}>
+                  <div className="max-w-[85%]">
                     {hasUserBubbleContent ? (
                       <div
                         style={{
@@ -511,15 +482,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                       >
                         <MessageBody
                           {...userMessageBodyProps}
-                          userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
+                          userActionsMode="external-content"
                         />
                       </div>
-                    ) : useExternalUserActionsRow ? null : (
-                      <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
-                    )}
-                    {useExternalUserActionsRow ? (
-                      <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
                     ) : null}
+                    <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
                   </div>
                 </div>
               </FadeInOnReveal>
@@ -553,7 +520,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 onCopyMessage={handleCopyMessage}
                 copiedMessage={copiedMessage}
                 onAuxiliaryContentComplete={handleAuxiliaryContentComplete}
-                showReasoningTraces={showReasoningTraces}
                 agentMention={agentMention}
                 turnGroupingContext={turnGroupingContext}
                 errorMessage={assistantErrorText}

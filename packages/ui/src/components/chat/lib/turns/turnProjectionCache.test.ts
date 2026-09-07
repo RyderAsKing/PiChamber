@@ -12,8 +12,8 @@ describe('turnProjectionCache', () => {
   test('keeps the cache key stable for unchanged message and part references', () => {
     const messages = [createEntry('hello')];
 
-    const first = buildProjectionCacheKey('session_1', messages, false, false, 'merge');
-    const second = buildProjectionCacheKey('session_1', messages, false, false, 'merge');
+    const first = buildProjectionCacheKey('session_1', messages, false, 'merge');
+    const second = buildProjectionCacheKey('session_1', messages, false, 'merge');
 
     expect(second).toBe(first);
   });
@@ -27,8 +27,8 @@ describe('turnProjectionCache', () => {
       },
     ];
 
-    const beforeKey = buildProjectionCacheKey('session_1', before, false, false, 'merge');
-    const afterKey = buildProjectionCacheKey('session_1', after, false, false, 'merge');
+    const beforeKey = buildProjectionCacheKey('session_1', before, false, 'merge');
+    const afterKey = buildProjectionCacheKey('session_1', after, false, 'merge');
 
     expect(afterKey).not.toBe(beforeKey);
   });

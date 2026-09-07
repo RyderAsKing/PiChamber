@@ -8,7 +8,6 @@ type FilesViewSearchOptions = {
   directory: string;
   query: string;
   chrome: 'desktop' | 'mobile';
-  showHidden: boolean;
   showGitignored: boolean;
 };
 
@@ -20,16 +19,14 @@ type FilesViewSearchResult = {
 /**
  * Owns Files search request policy and stale-completion rejection.
  *
- * Mobile intentionally searches hidden and ignored files because its browser
- * has no visibility filters. Desktop follows the active Files preferences.
- * A failed search is local presentation failure and does not replace directory
- * tree state.
+ * Hidden files are always searched. Desktop follows the active Files
+ * gitignored preference. A failed search is local presentation failure
+ * and does not replace directory tree state.
  */
 export function useFilesViewSearch({
   directory,
   query,
   chrome,
-  showHidden,
   showGitignored,
 }: FilesViewSearchOptions): FilesViewSearchResult {
   const searchFiles = useFileSearchStore((state) => state.searchFiles);
@@ -49,7 +46,7 @@ export function useFilesViewSearch({
     setSearching(true);
 
     void searchFiles(directory, trimmedQuery, chrome === 'mobile' ? 40 : 150, {
-      includeHidden: chrome === 'mobile' || showHidden,
+      includeHidden: true,
       respectGitignore: chrome === 'desktop' && !showGitignored,
       type: 'file',
     })
@@ -75,7 +72,7 @@ export function useFilesViewSearch({
     return () => {
       cancelled = true;
     };
-  }, [chrome, debouncedQuery, directory, searchFiles, showHidden, showGitignored]);
+  }, [chrome, debouncedQuery, directory, searchFiles, showGitignored]);
 
   return { results, searching };
 }

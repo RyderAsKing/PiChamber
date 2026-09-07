@@ -3,7 +3,6 @@ import React from 'react';
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import { isTurnAssistantWorking, resolveTurnStreamingAssistantId } from '../lib/turns/assistantWorkingState';
 import type { ChatMessageEntry, TurnGroupingContext, TurnRecord } from '../lib/turns/types';
-import { isHiddenUserMessage } from '../message/hiddenUserMessage';
 import type { StreamPhase } from '../message/types';
 import {
   isSessionRetryMessage,
@@ -22,7 +21,6 @@ export interface TurnBlockProps {
   onMessageContentChange: (reason?: ContentChangeReason) => void;
   getAnimationHandlers: (messageId: string) => AnimationHandlers;
   scrollToBottom?: () => void;
-  stickyUserHeader?: boolean;
   shouldAnimateUserMessage: (message: ChatMessageEntry) => boolean;
   onUserAnimationConsumed: (messageId: string) => void;
   activeStreamingMessageId?: string | null;
@@ -38,17 +36,11 @@ export const TurnBlock = React.memo(
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
-    stickyUserHeader = true,
     shouldAnimateUserMessage,
     onUserAnimationConsumed,
     activeStreamingMessageId,
     activeStreamingPhase,
   }: TurnBlockProps) => {
-    const userMessageHidden = React.useMemo(
-      () => isHiddenUserMessage(turn.userMessage),
-      [turn.userMessage],
-    );
-
     const messageOrder = React.useMemo(() => {
       const ordered = [turn.userMessage, ...turn.assistantMessages];
       const lookup = new Map<string, number>();
@@ -252,7 +244,6 @@ export const TurnBlock = React.memo(
     return (
       <TurnItem
         turn={turn}
-        stickyUserHeader={stickyUserHeader && !userMessageHidden}
         renderMessage={renderMessage}
         deferEarlierAssistantMessages={deferEarlierAssistantMessages}
         showWorkingStatus={isLastTurn && (sessionIsWorking || turnIsInActiveStream)}

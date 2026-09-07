@@ -1,6 +1,5 @@
 import React from 'react';
 
-import { useUIStore } from '@/stores/useUIStore';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { StreamPhase } from '../message/types';
 import type { ChatMessageEntry, TurnRecord } from '../lib/turns/types';
@@ -11,7 +10,6 @@ import { resolveTurnActivityDisclosure } from './turnActivityDisclosure';
 
 interface TurnItemProps {
     turn: TurnRecord;
-    stickyUserHeader?: boolean;
     renderMessage: (message: ChatMessageEntry) => React.ReactNode;
     deferEarlierAssistantMessages: boolean;
     /** True while this turn is the authoritative live turn. */
@@ -28,32 +26,14 @@ interface TurnItemProps {
  */
 const TurnUserSlot = React.memo(function TurnUserSlot({
     userMessage,
-    stickyUserHeader,
     renderMessage,
 }: {
     userMessage: ChatMessageEntry;
-    stickyUserHeader: boolean;
     renderMessage: (message: ChatMessageEntry) => React.ReactNode;
 }) {
-    const body = renderMessage(userMessage);
-    if (!stickyUserHeader) {
-        return body;
-    }
-
-    return (
-        <div className="sticky top-0 z-20 relative bg-[var(--surface-background)] [overflow-anchor:none]">
-            <div className="relative z-10">
-                {body}
-            </div>
-            <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-x-0 top-full z-0 h-4 bg-gradient-to-b from-[var(--surface-background)] to-transparent sm:h-8"
-            />
-        </div>
-    );
+    return renderMessage(userMessage);
 }, (previous, next) => (
     previous.userMessage === next.userMessage
-    && previous.stickyUserHeader === next.stickyUserHeader
 ));
 
 const hasFinalAnswerText = (turn: TurnRecord): boolean => {
@@ -72,7 +52,6 @@ const hasFinalAnswerText = (turn: TurnRecord): boolean => {
 
 const TurnItem: React.FC<TurnItemProps> = ({
     turn,
-    stickyUserHeader = true,
     renderMessage,
     deferEarlierAssistantMessages,
     showWorkingStatus = false,
@@ -80,12 +59,9 @@ const TurnItem: React.FC<TurnItemProps> = ({
     activeStreamingPhase = null,
     onActivityContentChange,
 }) => {
-    const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
     const hasActivity = React.useMemo(
-        () => turn.activityParts.some(
-            (activity) => activity.kind !== 'reasoning' || showReasoningTraces,
-        ),
-        [showReasoningTraces, turn.activityParts],
+        () => turn.activityParts.length > 0,
+        [turn.activityParts],
     );
     const hasFinalText = React.useMemo(() => hasFinalAnswerText(turn), [turn]);
     const [isActivityExpanded, setIsActivityExpanded] = React.useState(
@@ -148,7 +124,6 @@ const TurnItem: React.FC<TurnItemProps> = ({
         >
             <TurnUserSlot
                 userMessage={turn.userMessage}
-                stickyUserHeader={stickyUserHeader}
                 renderMessage={renderMessage}
             />
 

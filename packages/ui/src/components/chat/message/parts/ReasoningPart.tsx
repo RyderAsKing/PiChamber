@@ -122,17 +122,8 @@ type ReasoningTimelineBlockProps = {
     showDuration?: boolean;
     isStreaming?: boolean;
     actions?: React.ReactNode;
-    /** Override the initial expanded state. Defaults to collapsed, or open while streaming. */
-    defaultExpanded?: boolean;
-    /** When true (default), live thinking auto-opens then folds when the part settles. When false, stays a one-line header unless the user expands it. */
-    collapseByDefault?: boolean;
     /** The turn rail already supplies the shared vertical line and indent. */
     withinActivityRail?: boolean;
-};
-
-type ExpansionState = {
-    expanded: boolean;
-    source: 'auto' | 'user';
 };
 
 export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
@@ -142,23 +133,14 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     blockId,
     isStreaming = false,
     actions,
-    defaultExpanded,
     withinActivityRail = false,
-    collapseByDefault = true,
 }) => {
-    const canAutoExpand = Boolean(collapseByDefault && isStreaming);
-    const [expansion, setExpansion] = React.useState<ExpansionState>(() => {
-        if (defaultExpanded === true) {
-            return { expanded: true, source: 'user' };
-        }
-        return { expanded: canAutoExpand, source: 'auto' };
-    });
-    const isExpanded = expansion.source === 'auto'
-        ? canAutoExpand && expansion.expanded
-        : expansion.expanded;
-    const [shouldRenderExpandedContent, setShouldRenderExpandedContent] = React.useState(
-        defaultExpanded === true || canAutoExpand,
-    );
+    // Reasoning is always shown, collapsible, and initially collapsed for both
+    // live and history mounts. The block never automatically opens or closes;
+    // only click/keyboard toggles change disclosure, and that explicit choice
+    // survives streaming-to-settled updates of the mounted block.
+    const [isExpanded, setIsExpanded] = React.useState(false);
+    const [shouldRenderExpandedContent, setShouldRenderExpandedContent] = React.useState(false);
     const innerScrollRef = React.useRef<HTMLElement | null>(null);
     const followingInnerRef = React.useRef(true);
     const contentId = React.useId();
@@ -174,15 +156,6 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     // would risk re-running — and thus restarting — the animation on re-render).
     const onContentChangeRef = React.useRef(onContentChange);
     onContentChangeRef.current = onContentChange;
-    // Read by the height effect to tell user toggles (animated) apart from
-    // streaming-driven transitions (instant — a 200ms glide on every auto
-    // fold would lurch the footer between tool calls).
-    const expansionRef = React.useRef(expansion);
-    expansionRef.current = expansion;
-    // First-mount height setup reads streaming state once; later expand/collapse
-    // must not restart when `isStreaming` flips.
-    const isStreamingRef = React.useRef(isStreaming);
-    isStreamingRef.current = isStreaming;
 
     const summary = React.useMemo(
         () => (isStreaming ? getLatestReasoningLine(text) : getReasoningSummary(text)),
@@ -194,9 +167,9 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
     const handleToggle = React.useCallback(() => {
         setShouldRenderExpandedContent(true);
-        setExpansion({ expanded: !isExpanded, source: 'user' });
+        setIsExpanded((previous) => !previous);
         onContentChange?.('structural');
-    }, [isExpanded, onContentChange]);
+    }, [onContentChange]);
 
     const handleKeyDown = React.useCallback((event: React.KeyboardEvent) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -215,18 +188,6 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         const element = event.currentTarget;
         followingInnerRef.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
     }, []);
-
-    React.useLayoutEffect(() => {
-        setExpansion((prev) => {
-            if (prev.source === 'user') {
-                return prev;
-            }
-            if (prev.expanded === canAutoExpand) {
-                return prev;
-            }
-            return { expanded: canAutoExpand, source: 'auto' };
-        });
-    }, [canAutoExpand]);
 
     React.useLayoutEffect(() => {
         if (!isStreaming || !isExpanded) {
@@ -272,60 +233,14 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
 
         contentAnimationRef.current?.stop();
 
-        // Streaming-driven transitions land instantly: the arrival fade
-        // (`oc-step-in`) carries the motion, and a height glide on every
-        // auto fold would lurch the footer between tool calls. User toggles
-        // keep the height animation below.
-        const isAutoTransition = expansionRef.current.source === 'auto';
-
         if (!contentMountedRef.current) {
             contentMountedRef.current = true;
-            if (!isExpanded) {
-                element.style.height = '0px';
-                element.style.overflow = 'hidden';
-                return;
-            }
-
-            element.style.height = 'auto';
-            element.style.overflow = 'visible';
-            if (!isStreamingRef.current || isAutoTransition) {
-                return;
-            }
-
-            element.style.height = '0px';
-            element.style.overflow = 'hidden';
-
-            const animation = animate(
-                element,
-                { height: 'auto' },
-                EXPANDED_CONTENT_TRANSITION,
-            );
-            contentAnimationRef.current = animation;
-
-            void animation.finished.then(() => {
-                if (contentAnimationRef.current !== animation) {
-                    return;
-                }
-                contentAnimationRef.current = null;
-                element.style.overflow = 'visible';
-                element.style.height = 'auto';
-            }).catch(() => undefined);
-
-            return () => {
-                animation.stop();
-                if (contentAnimationRef.current === animation) {
-                    contentAnimationRef.current = null;
-                }
-            };
-        }
-
-        if (isAutoTransition) {
+            // First body mount lands statically after the user expands: live and
+            // history both start collapsed with no body mounted, and the live
+            // arrival fade (`oc-step-in`) carries the header motion. Later user
+            // toggles animate below.
             element.style.height = isExpanded ? 'auto' : '0px';
             element.style.overflow = isExpanded ? 'visible' : 'hidden';
-            if (!isExpanded) {
-                // Same scroll-away guard as the animated collapse below.
-                onContentChangeRef.current?.('animation');
-            }
             return;
         }
 
@@ -526,7 +441,6 @@ type ReasoningPartProps = {
     onContentChange?: (reason?: ContentChangeReason) => void;
     messageId: string;
     streamPhase?: StreamPhase;
-    collapseByDefault?: boolean;
     withinActivityRail?: boolean;
 };
 
@@ -535,7 +449,6 @@ const ReasoningPart = React.memo(({
     onContentChange,
     messageId,
     streamPhase,
-    collapseByDefault = true,
     withinActivityRail = false,
 }: ReasoningPartProps) => {
     const partWithText = part as PartWithText;
@@ -566,7 +479,6 @@ const ReasoningPart = React.memo(({
             blockId={part.id || `${messageId}-reasoning`}
             time={time}
             isStreaming={isStreaming}
-            collapseByDefault={collapseByDefault}
             withinActivityRail={withinActivityRail}
         />
     );

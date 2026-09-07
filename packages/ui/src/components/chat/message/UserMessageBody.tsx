@@ -32,7 +32,6 @@ export interface UserMessageBodyProps {
   onShowPopup: (content: ToolPopupContent) => void;
   agentMention?: AgentMentionInfo;
   userActionsMode?: 'inline' | 'external-content' | 'external-actions';
-  stickyUserHeaderEnabled?: boolean;
 }
 
 export const UserMessageBody = React.memo(function UserMessageBody({
@@ -50,7 +49,6 @@ export const UserMessageBody = React.memo(function UserMessageBody({
   onShowPopup,
   agentMention,
   userActionsMode = 'inline',
-  stickyUserHeaderEnabled = true,
 }: UserMessageBodyProps) {
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [copyHintVisible, setCopyHintVisible] = React.useState(false);
@@ -80,8 +78,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
   const hasCopyableText = Boolean(hasTextContent);
   const showUserContent = userActionsMode !== 'external-actions';
   const showUserActions = userActionsMode !== 'external-content';
-  const useStickyScrollableUserContent =
-    stickyUserHeaderEnabled && userActionsMode === 'inline';
+  const useStickyScrollableUserContent = false;
 
   const clearCopyHintTimeout = React.useCallback(() => {
     if (copyHintTimeoutRef.current !== null && typeof window !== 'undefined') {
@@ -152,8 +149,6 @@ export const UserMessageBody = React.memo(function UserMessageBody({
         useInFlowUserActions
           ? userActionsMode === 'inline'
             ? 'mt-2 mb-1 flex items-center justify-end'
-            : stickyUserHeaderEnabled
-            ? 'flex min-h-9 items-start justify-end pt-0'
             : 'flex min-h-11 items-start justify-end pt-0'
           : userActionsMode === 'inline'
           ? 'absolute top-full left-0 right-0 z-10 pt-5'

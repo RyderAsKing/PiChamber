@@ -370,7 +370,7 @@ describe('updateDesktopSettings', () => {
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
         themeId: 'theme-a',
-        directoryShowHidden: true,
+        filesViewShowGitignored: true,
         draftStartersScheduleTaskAdded: true,
       },
       source: 'web',
@@ -385,10 +385,10 @@ describe('updateDesktopSettings', () => {
     await syncDesktopSettings();
 
     expect(localStorage.getItem('selectedThemeId')).toBeNull();
-    expect(localStorage.getItem('directoryTreeShowHidden')).toBeNull();
+    expect(localStorage.getItem('filesViewShowGitignored')).toBeNull();
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-a')) ?? '{}')).toEqual({
       themeId: 'theme-a',
-      directoryShowHidden: true,
+      filesViewShowGitignored: true,
     });
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-b')) ?? '{}')).toEqual({});
   });
@@ -398,13 +398,13 @@ describe('updateDesktopSettings', () => {
     switchRuntimeEndpoint({ apiBaseUrl: 'https://preferences-a.example', runtimeKey: 'preferences-a' });
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
-        showReasoningTraces: false,
         terminalShell: 'fish',
         autoDeleteEnabled: true,
         autoDeleteAfterDays: 45,
         sessionRetentionAction: 'delete',
         favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-sonnet-4' }],
         followUpBehavior: 'steer',
+        diffLayoutPreference: 'side-by-side',
         // Legacy command starters are parsed defensively but removed on
         // sanitize (never converted to prompts).
         draftStarters: [{ type: 'command', name: 'runtime-a' }] as unknown as SettingsPayload['draftStarters'],
@@ -415,7 +415,6 @@ describe('updateDesktopSettings', () => {
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().showReasoningTraces).toBe(false);
     expect(useUIStore.getState().terminalShell).toBe('fish');
     expect(useUIStore.getState().autoDeleteEnabled).toBe(true);
     expect(useUIStore.getState().autoDeleteAfterDays).toBe(45);
@@ -423,6 +422,7 @@ describe('updateDesktopSettings', () => {
     expect(useUIStore.getState().favoriteModels).toHaveLength(1);
     expect(useUIStore.getState().globalDraftStarters).toEqual([]);
     expect(useUIStore.getState().draftStartersVisible).toBe(false);
+    expect(useUIStore.getState().diffLayoutPreference).toBe('side-by-side');
     expect(useMessageQueueStore.getState().followUpBehavior).toBe('steer');
 
     switchRuntimeEndpoint({ apiBaseUrl: 'https://preferences-b.example', runtimeKey: 'preferences-b' });
@@ -432,7 +432,6 @@ describe('updateDesktopSettings', () => {
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().showReasoningTraces).toBe(true);
     expect(useUIStore.getState().terminalShell).toBe('auto');
     expect(useUIStore.getState().autoDeleteEnabled).toBe(false);
     expect(useUIStore.getState().autoDeleteAfterDays).toBe(30);
@@ -440,31 +439,89 @@ describe('updateDesktopSettings', () => {
     expect(useUIStore.getState().favoriteModels).toEqual([]);
     expect(useUIStore.getState().globalDraftStarters).toBeNull();
     expect(useUIStore.getState().draftStartersVisible).toBe(true);
+    expect(useUIStore.getState().diffLayoutPreference).toBe('inline');
     expect(useMessageQueueStore.getState().followUpBehavior).toBe('queue');
   });
 
-  test('applies and resets collapseThinkingByDefault from authoritative snapshots', async () => {
+  test('ignores retired presentation preferences from authoritative snapshots', async () => {
     getWindow();
-    switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-a.example', runtimeKey: 'thinking-collapse-a' });
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://retired-prefs-a.example', runtimeKey: 'retired-prefs-a' });
+    useUIStore.setState({
+      diffLayoutPreference: 'inline',
+      draftStartersVisible: true,
+    });
     registerSettingsApi(async () => ({}), async () => ({
       settings: {
+        // Every key below is retired. Sanitizers must strip them so saved
+        // values cannot restore retired behavior, while unrelated data still
+        // applies.
+        showReasoningTraces: false,
+        collapsibleThinkingBlocks: false,
         collapseThinkingByDefault: true,
+        persistChatDraft: false,
+        inputSpellcheckEnabled: true,
+        wideChatLayoutEnabled: true,
+        codeBlockLineWrap: false,
+        showToolFileIcons: false,
+        showTurnChangedFiles: true,
+        showExpandedBashTools: true,
+        showExpandedEditTools: true,
+        desktopWindowControlsPosition: 'left',
+        desktopWindowControlsStyle: 'traffic-lights',
+        mermaidRenderingMode: 'ascii',
+        userMessageRenderingMode: 'plain',
+        collapsibleUserMessages: false,
+        stickyUserHeader: true,
+        promptNavigatorEnabled: false,
+        showSplitAssistantMessageActions: true,
+        directoryShowHidden: false,
+        defaultFileViewerPreview: true,
+        diffLayoutPreference: 'side-by-side',
+        draftStartersVisible: false,
         draftStartersScheduleTaskAdded: true,
-      },
+      } as unknown as SettingsPayload,
       source: 'web',
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().collapseThinkingByDefault).toBe(true);
+    // Retired keys never become observable store state.
+    const retiredState = useUIStore.getState() as unknown as Record<string, unknown>;
+    for (const key of [
+      'showReasoningTraces', 'collapsibleThinkingBlocks', 'collapseThinkingByDefault',
+      'persistChatDraft', 'inputSpellcheckEnabled', 'wideChatLayoutEnabled',
+      'codeBlockLineWrap', 'showToolFileIcons', 'showTurnChangedFiles',
+      'showExpandedBashTools', 'showExpandedEditTools',
+      'desktopWindowControlsPosition', 'desktopWindowControlsStyle',
+      'mermaidRenderingMode', 'userMessageRenderingMode', 'collapsibleUserMessages',
+      'stickyUserHeader', 'promptNavigatorEnabled', 'showSplitAssistantMessageActions',
+    ]) {
+      expect(retiredState[key]).toBe(undefined);
+    }
+    // Unrelated settings still apply.
+    expect(useUIStore.getState().diffLayoutPreference).toBe('side-by-side');
+    expect(useUIStore.getState().draftStartersVisible).toBe(false);
+    // Retired keys never enter the local mirror.
+    const mirror = JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('retired-prefs-a')) ?? '{}');
+    for (const key of [
+      'showReasoningTraces', 'collapsibleThinkingBlocks', 'collapseThinkingByDefault',
+      'directoryShowHidden',
+    ]) {
+      expect(mirror[key]).toBe(undefined);
+    }
 
-    switchRuntimeEndpoint({ apiBaseUrl: 'https://thinking-collapse-b.example', runtimeKey: 'thinking-collapse-b' });
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://retired-prefs-b.example', runtimeKey: 'retired-prefs-b' });
     registerSettingsApi(async () => ({}), async () => ({
       settings: { draftStartersScheduleTaskAdded: true },
       source: 'web',
     }));
     await syncDesktopSettings();
 
-    expect(useUIStore.getState().collapseThinkingByDefault).toBe(false);
+    // Unrelated settings reset to authoritative defaults; retired keys stay absent.
+    expect(useUIStore.getState().diffLayoutPreference).toBe('inline');
+    expect(useUIStore.getState().draftStartersVisible).toBe(true);
+    const retiredAfter = useUIStore.getState() as unknown as Record<string, unknown>;
+    expect(retiredAfter['collapseThinkingByDefault']).toBe(undefined);
+    expect(retiredAfter['showReasoningTraces']).toBe(undefined);
   });
 
   test('drops removed session assistance settings from authoritative snapshots', async () => {
@@ -513,11 +570,11 @@ describe('updateDesktopSettings', () => {
     getWindow();
     localStorage.setItem('selectedThemeId', 'existing-theme');
     useUIStore.getState().setTerminalShell('fish');
-    registerSettingsSave(async () => ({ showReasoningTraces: false }));
+    registerSettingsSave(async () => ({ diffLayoutPreference: 'side-by-side' }));
 
-    await updateDesktopSettings({ showReasoningTraces: false });
+    await updateDesktopSettings({ diffLayoutPreference: 'side-by-side' });
 
-    expect(useUIStore.getState().showReasoningTraces).toBe(false);
+    expect(useUIStore.getState().diffLayoutPreference).toBe('side-by-side');
     expect(useUIStore.getState().terminalShell).toBe('fish');
     expect(localStorage.getItem('selectedThemeId')).toBe('existing-theme');
   });
@@ -741,24 +798,38 @@ describe('updateDesktopSettings', () => {
     expect(saveCalls.some((changes) => changes.autoDeleteAfterDays === 75)).toBe(true);
   });
 
-  test('autosaves reasoning preference changes to shared settings', async () => {
+  test('does not autosave retired presentation preferences', async () => {
     getWindow();
-    useUIStore.getState().setShowReasoningTraces(false);
-    useUIStore.getState().setCollapsibleThinkingBlocks(true);
-    useUIStore.getState().setCollapseThinkingByDefault(true);
     const saveCalls: Array<Partial<SettingsPayload>> = [];
     registerSettingsSave(async (changes) => {
       saveCalls.push(changes);
       return changes as SettingsPayload;
     });
-    startAppearanceAutoSave();
+    const stop = startAppearanceAutoSave();
 
-    useUIStore.getState().setShowReasoningTraces(true);
-    useUIStore.getState().setCollapseThinkingByDefault(false);
-    await delay(500);
+    try {
+      // Settle any pending autosave from earlier tests so retired writes are isolated.
+      useUIStore.getState().setAutoDeleteEnabled(false);
+      await delay(600);
+      saveCalls.length = 0;
 
-    expect(saveCalls.some((changes) => changes.showReasoningTraces === true)).toBe(true);
-    expect(saveCalls.some((changes) => changes.collapseThinkingByDefault === false)).toBe(true);
+      // Retired keys have no setters and are not part of the autosave slice,
+      // so direct writes of obsolete keys must never produce a save payload.
+      useUIStore.setState({
+        showReasoningTraces: false,
+        collapseThinkingByDefault: true,
+      } as unknown as Partial<ReturnType<typeof useUIStore.getState>>);
+      await delay(500);
+      expect(saveCalls).toHaveLength(0);
+
+      // Unrelated kept preferences still autosave without retired keys.
+      useUIStore.getState().setAutoDeleteEnabled(true);
+      await delay(500);
+      expect(saveCalls.some((changes) => (changes as Record<string, unknown>).autoDeleteEnabled === true)).toBe(true);
+      expect(saveCalls.every((changes) => !('showReasoningTraces' in changes) && !('collapseThinkingByDefault' in changes))).toBe(true);
+    } finally {
+      stop();
+    }
   });
 
   test('autosaves terminal shell changes to shared settings', async () => {

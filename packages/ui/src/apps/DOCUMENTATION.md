@@ -46,7 +46,7 @@
 
 - Both sides and both directions are covered; `usePanelSlide` still drives the non-drag open/close `transform` for the left sidebar's inner surface.
 
-- **Toggle-only titlebar controls** have a fixed `2.5rem` header reservation. Do not measure and publish their width through root CSS variables on each sidebar toggle: those geometry reads synchronously resolve the invalidated layout tree. Electron frameless controls remain measured because their native-control footprint is variable.
+- **Toggle-only titlebar controls** have a fixed `2.5rem` header reservation. Do not measure and publish their width through root CSS variables on each sidebar toggle: those geometry reads synchronously resolve the invalidated layout tree. Window chrome is fixed (classic minimize/maximize/close on the right for frameless Windows/Linux; native OS-owned traffic lights on macOS), so the left overlay only holds the frameless app menu plus the sidebar toggle. Only the frameless app-menu cluster is measured, to preserve the existing `--oc-titlebar-controls-width` / `--oc-titlebar-overlay-width` reservation contract with the header and sidebar strip.
 
 ## Horizontal-Scroll Exclusions
 

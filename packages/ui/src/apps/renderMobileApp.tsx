@@ -12,7 +12,7 @@ import { getDeviceInfo } from '@/lib/device';
 import { markAppBootReady } from './appBootReady';
 import { installMobileWidgetSnapshotBridge } from './mobileWidgetSnapshot';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
+import { syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { preloadMarkdownRenderer } from '@/components/chat/markdownRendererLoader';
@@ -20,8 +20,7 @@ import { SessionAuthGate } from '@/components/auth/SessionAuthGate';
 import { MobileApp } from './MobileApp';
 
 const initializeSharedPreferences = () => {
-
-  void initializeAppearancePreferences().then(async () => {
+  void (async () => {
     try {
       await Promise.all([
         syncDesktopSettings(),
@@ -34,9 +33,7 @@ const initializeSharedPreferences = () => {
     startAppearanceAutoSave();
     startModelPrefsAutoSave();
     startTypographyWatcher();
-  }).catch((err) => {
-    console.error('[mobile-main] appearance init failed:', err);
-  }).finally(() => {
+  })().finally(() => {
     // Persisted typography/appearance is now applied — release the splash gate so the
     // first UI paint is already at its final sizes.
     markAppBootReady();

@@ -18,7 +18,6 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitStatus } from '@/stores/useGitStore';
-import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { cn } from '@/lib/utils';
 import { listLocalDirectory } from '@/lib/fsApi';
@@ -52,7 +51,6 @@ export const SidebarFilesTree: React.FC = () => {
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
   const root = normalizeDirectoryPathKey(currentDirectory.trim());
-  const showHidden = useDirectoryShowHidden();
   const showGitignored = useFilesViewShowGitignored();
   const openContextFile = useUIStore((state) => state.openContextFile);
   const gitStatus = useGitStatus(currentDirectory);
@@ -63,7 +61,6 @@ export const SidebarFilesTree: React.FC = () => {
     directory: currentDirectory,
     query: searchQuery,
     chrome: 'desktop',
-    showHidden,
     showGitignored,
   });
 
@@ -165,7 +162,6 @@ export const SidebarFilesTree: React.FC = () => {
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes = entries
       .filter((entry) => entry && typeof entry.name === 'string' && entry.name.length > 0)
-      .filter((entry) => showHidden || !entry.name.startsWith('.'))
       .filter((entry) => showGitignored || !shouldIgnoreEntryName(entry.name))
       .map<FileNode>((entry) => {
         const name = entry.name;
@@ -181,7 +177,7 @@ export const SidebarFilesTree: React.FC = () => {
       });
 
     return sortNodes(nodes);
-  }, [showGitignored, showHidden]);
+  }, [showGitignored]);
 
   const loadDirectory = React.useCallback(async (dirPath: string, isCancelled?: () => boolean) => {
     const normalizedDir = normalizeDirectoryPathKey(dirPath.trim());
@@ -341,14 +337,14 @@ export const SidebarFilesTree: React.FC = () => {
     if (!root) return;
 
     // Cancel any pending refresh so stale directory listings don't land after
-    // the user switches projects or toggles showHidden / showGitignored.
+    // the user switches projects or toggles showGitignored.
     refreshAbortRef.current?.abort();
     loadedDirsRef.current = new Set();
     inFlightDirsRef.current = new Set();
     setLoadErrorsByDir({});
     setChildrenByDir((prev) => (Object.keys(prev).length === 0 ? prev : {}));
     void loadDirectory(root);
-  }, [loadDirectory, root, showHidden, showGitignored]);
+  }, [loadDirectory, root, showGitignored]);
 
   React.useEffect(() => {
     if (!root || expandedPaths.length === 0) return;

@@ -4,25 +4,14 @@ import { useUIStore } from '@/stores/useUIStore';
 import type { TurnActivityRecord } from '../lib/turns/types';
 import type { ToolPopupContent } from './types';
 import {
-  BASH_TOOL_NAMES,
-  EDIT_TOOL_NAMES,
-  normalizeToolName,
-  readCollapsedToolsCache,
   readExpandedToolsCache,
-  writeCollapsedToolsCache,
   writeExpandedToolsCache,
 } from './chatToolExpansion';
 
 type ToolActivity = TurnActivityRecord & { kind: 'tool'; part: Part & { type: 'tool' } };
 
-type ToolCacheState = {
-  expanded: Set<string>;
-  collapsed: Set<string>;
-};
-
-const readTurnToolCache = (activities: ToolActivity[]): ToolCacheState => {
+const readTurnToolCache = (activities: ToolActivity[]): Set<string> => {
   const expanded = new Set<string>();
-  const collapsed = new Set<string>();
   const toolIdsByMessage = new Map<string, Set<string>>();
 
   for (const activity of activities) {
@@ -33,14 +22,12 @@ const readTurnToolCache = (activities: ToolActivity[]): ToolCacheState => {
 
   for (const [messageId, toolIds] of toolIdsByMessage) {
     const cachedExpanded = readExpandedToolsCache(messageId);
-    const cachedCollapsed = readCollapsedToolsCache(messageId);
     for (const toolId of toolIds) {
       if (cachedExpanded.has(toolId)) expanded.add(toolId);
-      if (cachedCollapsed.has(toolId)) collapsed.add(toolId);
     }
   }
 
-  return { expanded, collapsed };
+  return expanded;
 };
 
 const updateOwnerCache = ({
@@ -70,14 +57,15 @@ const updateOwnerCache = ({
   write(messageId, cached);
 };
 
+/**
+ * Tool disclosure is manual-only: bash/edit tools never auto-open.
+ * Manual expansion, execution, and results are preserved through the
+ * per-message expanded cache.
+ */
 export function useTurnToolsState({
   activities,
-  showExpandedBashTools,
-  showExpandedEditTools,
 }: {
   activities: TurnActivityRecord[];
-  showExpandedBashTools: boolean;
-  showExpandedEditTools: boolean;
 }) {
   const setImagePreviewOpen = useUIStore((state) => state.setImagePreviewOpen);
   const toolActivities = React.useMemo<ToolActivity[]>(() => {
@@ -105,10 +93,7 @@ export function useTurnToolsState({
   }, [toolActivities]);
 
   const [expandedTools, setExpandedTools] = React.useState<Set<string>>(() =>
-    readTurnToolCache(toolActivities).expanded,
-  );
-  const [collapsedTools, setCollapsedTools] = React.useState<Set<string>>(() =>
-    readTurnToolCache(toolActivities).collapsed,
+    readTurnToolCache(toolActivities),
   );
   const [popupContent, setPopupContent] = React.useState<ToolPopupContent>({
     open: false,
@@ -116,52 +101,16 @@ export function useTurnToolsState({
     content: '',
   });
 
-  const defaultOpenToolIds = React.useMemo(() => {
-    if (!showExpandedBashTools && !showExpandedEditTools) {
-      return new Set<string>();
-    }
-
-    const next = new Set<string>();
-    for (const activity of toolActivities) {
-      const toolName = normalizeToolName(activity.part.tool);
-      if (!toolName) continue;
-
-      if (showExpandedBashTools && BASH_TOOL_NAMES.has(toolName)) {
-        next.add(activity.id);
-        continue;
-      }
-      if (showExpandedEditTools && EDIT_TOOL_NAMES.has(toolName)) {
-        next.add(activity.id);
-      }
-    }
-    return next;
-  }, [showExpandedBashTools, showExpandedEditTools, toolActivities]);
-
-  const effectiveExpandedTools = React.useMemo(() => {
-    if (defaultOpenToolIds.size === 0 && collapsedTools.size === 0) {
-      return expandedTools;
-    }
-
-    const next = new Set(expandedTools);
-    defaultOpenToolIds.forEach((toolId) => {
-      if (!collapsedTools.has(toolId)) {
-        next.add(toolId);
-      }
-    });
-    collapsedTools.forEach((toolId) => next.delete(toolId));
-    return next;
-  }, [collapsedTools, defaultOpenToolIds, expandedTools]);
+  const effectiveExpandedTools = expandedTools;
 
   const toggleStateRef = React.useRef({
     ownerByToolId,
     toolIdsByOwner,
-    defaultOpenToolIds,
     effectiveExpandedTools,
   });
   toggleStateRef.current = {
     ownerByToolId,
     toolIdsByOwner,
-    defaultOpenToolIds,
     effectiveExpandedTools,
   };
 
@@ -172,43 +121,6 @@ export function useTurnToolsState({
       if (!ownerId) return;
 
       const ownerToolIds = current.toolIdsByOwner.get(ownerId) ?? new Set<string>();
-      const isDefaultOpen = current.defaultOpenToolIds.has(toolId);
-      const isCurrentlyExpanded = current.effectiveExpandedTools.has(toolId);
-
-      if (isDefaultOpen) {
-        setCollapsedTools((previous) => {
-          const next = new Set(previous);
-          if (isCurrentlyExpanded) {
-            next.add(toolId);
-          } else {
-            next.delete(toolId);
-          }
-          updateOwnerCache({
-            messageId: ownerId,
-            ownerToolIds,
-            nextValue: next,
-            read: readCollapsedToolsCache,
-            write: writeCollapsedToolsCache,
-          });
-          return next;
-        });
-
-        if (!isCurrentlyExpanded) {
-          setExpandedTools((previous) => {
-            const next = new Set(previous);
-            next.delete(toolId);
-            updateOwnerCache({
-              messageId: ownerId,
-              ownerToolIds,
-              nextValue: next,
-              read: readExpandedToolsCache,
-              write: writeExpandedToolsCache,
-            });
-            return next;
-          });
-        }
-        return;
-      }
 
       setExpandedTools((previous) => {
         const next = new Set(previous);
@@ -223,20 +135,6 @@ export function useTurnToolsState({
           nextValue: next,
           read: readExpandedToolsCache,
           write: writeExpandedToolsCache,
-        });
-        return next;
-      });
-
-      setCollapsedTools((previous) => {
-        if (!previous.has(toolId)) return previous;
-        const next = new Set(previous);
-        next.delete(toolId);
-        updateOwnerCache({
-          messageId: ownerId,
-          ownerToolIds,
-          nextValue: next,
-          read: readCollapsedToolsCache,
-          write: writeCollapsedToolsCache,
         });
         return next;
       });
@@ -269,4 +167,3 @@ export function useTurnToolsState({
     handlePopupChange,
   };
 }
-

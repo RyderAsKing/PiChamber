@@ -25,7 +25,6 @@ export type ChatViewportProps = {
   currentSessionKey: string;
   isDesktopExpandedInput: boolean;
   isMobile: boolean;
-  stickyUserHeader: boolean;
   directory?: string;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   messageListRef: React.RefObject<MessageListHandle | null>;
@@ -67,7 +66,6 @@ export const ChatViewport = React.memo(
     currentSessionKey,
     isDesktopExpandedInput,
     isMobile,
-    stickyUserHeader,
     directory,
     scrollRef,
     messageListRef,
@@ -211,7 +209,7 @@ export const ChatViewport = React.memo(
             ref={scrollRef}
             style={CHAT_SCROLL_STYLE}
             observeMutations={false}
-            hideTopShadow={isMobile && stickyUserHeader}
+            hideTopShadow={false}
             tabIndex={0}
             onClick={focusScrollContainer}
             onScroll={handleHistoryScroll}
@@ -301,7 +299,6 @@ export const ChatViewport = React.memo(
       prev.currentSessionKey === next.currentSessionKey &&
       prev.isDesktopExpandedInput === next.isDesktopExpandedInput &&
       prev.isMobile === next.isMobile &&
-      prev.stickyUserHeader === next.stickyUserHeader &&
       prev.directory === next.directory &&
       prev.scrollRef === next.scrollRef &&
       prev.messageListRef === next.messageListRef &&

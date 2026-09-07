@@ -6,7 +6,6 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { getToolMetadata } from '@/lib/toolHelpers';
 import { cn } from '@/lib/utils';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useUIStore } from '@/stores/useUIStore';
 import { SimpleMarkdownRenderer } from '../../MarkdownRenderer';
 import type { ToolPopupContent } from '../types';
 import { ToolRevealOnMount } from './ToolRevealOnMount';
@@ -78,12 +77,10 @@ const TaskSummaryEntryRow = React.memo(({
     entry,
     isMobile,
     animateTailText,
-    showToolFileIcons,
 }: {
     entry: TaskToolSummaryEntry;
     isMobile: boolean;
     animateTailText: boolean;
-    showToolFileIcons: boolean;
 }) => {
     const normalizedToolName = normalizeToolName(entry.tool);
     const toolName = normalizedToolName.length > 0 ? normalizedToolName : 'tool';
@@ -109,7 +106,7 @@ const TaskSummaryEntryRow = React.memo(({
                 </span>
                 {hasLabel ? (
                     status !== 'error' && shouldRenderGitPathLabel(toolName, label) ? (
-                        <AnimatedToolPath path={label} animate={animateTailText} showFileIcons={showToolFileIcons} />
+                        <AnimatedToolPath path={label} animate={animateTailText} showFileIcons />
                     ) : (
                         status === 'error' ? (
                             <span className={cn(
@@ -137,7 +134,6 @@ const TaskSummaryEntryRow = React.memo(({
 }, (prev, next) => {
     return prev.isMobile === next.isMobile
         && prev.animateTailText === next.animateTailText
-        && prev.showToolFileIcons === next.showToolFileIcons
         && getTaskSummaryEntryRenderSignature(prev.entry) === getTaskSummaryEntryRenderSignature(next.entry);
 });
 
@@ -148,13 +144,11 @@ const TaskSummaryEntriesList = React.memo(({
     isExpanded,
     isMobile,
     animateTailText,
-    showToolFileIcons,
 }: {
     entries: TaskToolSummaryEntry[];
     isExpanded: boolean;
     isMobile: boolean;
     animateTailText: boolean;
-    showToolFileIcons: boolean;
 }) => {
     const visibleEntries = isExpanded ? entries : entries.slice(-6);
     const hiddenCount = Math.max(0, entries.length - visibleEntries.length);
@@ -176,7 +170,6 @@ const TaskSummaryEntriesList = React.memo(({
                             entry={entry}
                             isMobile={isMobile}
                             animateTailText={animateTailText}
-                            showToolFileIcons={showToolFileIcons}
                         />
                     );
                 })}
@@ -187,7 +180,6 @@ const TaskSummaryEntriesList = React.memo(({
     return prev.isExpanded === next.isExpanded
         && prev.isMobile === next.isMobile
         && prev.animateTailText === next.animateTailText
-        && prev.showToolFileIcons === next.showToolFileIcons
         && areTaskSummaryEntriesRenderEqual(prev.entries, next.entries);
 });
 
@@ -206,7 +198,6 @@ export const TaskToolSummary: React.FC<{
 }> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false }) => {
     const currentDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
-    const showToolFileIcons = useUIStore((state) => state.showToolFileIcons);
     const trimmedOutput = typeof output === 'string'
         ? stripTaskMetadataFromOutput(output)
         : '';
@@ -248,7 +239,6 @@ export const TaskToolSummary: React.FC<{
                     isExpanded={isExpanded}
                     isMobile={isMobile}
                     animateTailText={animateTailText}
-                    showToolFileIcons={showToolFileIcons}
                 />
             ) : null}
 

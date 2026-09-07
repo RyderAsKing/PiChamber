@@ -27,11 +27,6 @@ export type UpdateProgress = {
   total?: number;
 };
 
-export type DesktopWindowControlsPosition = 'left' | 'right';
-export type DesktopWindowControlsSide = 'left' | 'right';
-export type DesktopWindowControlAction = 'close' | 'minimize' | 'maximize';
-export type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
-
 export type DesktopSettings = {
   themeId?: string;
   useSystemTheme?: boolean;
@@ -54,9 +49,6 @@ export type DesktopSettings = {
   activeProjectId?: string;
   securityScopedBookmarks?: string[];
   pinnedDirectories?: string[];
-  showReasoningTraces?: boolean;
-  collapsibleThinkingBlocks?: boolean;
-  collapseThinkingByDefault?: boolean;
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
   notificationMode?: 'always' | 'hidden-only';
@@ -116,31 +108,15 @@ export type DesktopSettings = {
   followUpBehavior?: 'steer' | 'queue';
   queueModeEnabled?: boolean;
   gitmojiEnabled?: boolean;
-  defaultFileViewerPreview?: boolean;
   zenModel?: string;
   gitProviderId?: string;
   gitModelId?: string;
   pwaAppName?: string;
   pwaOrientation?: 'system' | 'portrait' | 'landscape';
   mobileKeyboardMode?: MobileKeyboardMode;
-  desktopWindowControlsPosition?: DesktopWindowControlsPosition;
-  desktopWindowControlsStyle?: DesktopWindowControlsStyle;
-  inputSpellcheckEnabled?: boolean;
-  showToolFileIcons?: boolean;
-  codeBlockLineWrap?: boolean;
-  showTurnChangedFiles?: boolean;
-  showExpandedBashTools?: boolean;
-  showExpandedEditTools?: boolean;
   timeFormatPreference?: 'auto' | '12h' | '24h';
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
-  mermaidRenderingMode?: 'svg' | 'ascii';
-  userMessageRenderingMode?: 'markdown' | 'plain';
-  collapsibleUserMessages?: boolean;
-  stickyUserHeader?: boolean;
-  promptNavigatorEnabled?: boolean;
   expandedEditorToolbar?: boolean;
-  wideChatLayoutEnabled?: boolean;
-  showSplitAssistantMessageActions?: boolean;
   fontSize?: number;
   terminalFontSize?: number;
   terminalShell?: TerminalShell;
@@ -162,7 +138,6 @@ export type DesktopSettings = {
   recentEfforts?: Record<string, string[]>;
   diffLayoutPreference?: 'dynamic' | 'inline' | 'side-by-side';
   gitChangesViewMode?: 'flat' | 'tree';
-  directoryShowHidden?: boolean;
   filesViewShowGitignored?: boolean;
 
   messageLimit?: number;

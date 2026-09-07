@@ -16,7 +16,6 @@ type FilesTreeOptions = {
   activeDirectory?: string;
   expandedPaths: string[];
   chrome: 'desktop' | 'mobile';
-  showHidden: boolean;
   showGitignored: boolean;
   removeExpandedPathsByPrefix: (root: string, prefix: string) => void;
 };
@@ -43,7 +42,6 @@ export function useFilesTree({
   activeDirectory,
   expandedPaths,
   chrome,
-  showHidden,
   showGitignored,
   removeExpandedPathsByPrefix,
 }: FilesTreeOptions): FilesTree {
@@ -58,7 +56,6 @@ export function useFilesTree({
     const nodes: FileNode[] = [];
     for (const entry of entries) {
       if (!entry?.name) continue;
-      if (chrome === 'desktop' && !showHidden && entry.name.startsWith('.')) continue;
       if (chrome === 'desktop' && !showGitignored && shouldIgnoreEntryName(entry.name)) continue;
 
       const normalizedEntryPath = normalizePath(entry.path || '');
@@ -79,7 +76,7 @@ export function useFilesTree({
       });
     }
     return sortNodes(nodes);
-  }, [chrome, showGitignored, showHidden]);
+  }, [chrome, showGitignored]);
 
   const loadDirectory = React.useCallback(async (path: string) => {
     const directory = normalizePath(path.trim());
@@ -166,7 +163,7 @@ export function useFilesTree({
     await loadDirectory(directory);
   }, [loadDirectory, refreshRoot]);
 
-  const treeKey = `${root}|h${showHidden ? '1' : '0'}|g${showGitignored ? '1' : '0'}|${chrome}`;
+  const treeKey = `${root}|g${showGitignored ? '1' : '0'}|${chrome}`;
   const previousTreeKeyRef = React.useRef('');
   React.useEffect(() => {
     if (!root || previousTreeKeyRef.current === treeKey) return;

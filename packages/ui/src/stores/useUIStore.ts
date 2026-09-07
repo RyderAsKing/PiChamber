@@ -42,13 +42,9 @@ export type {
 };
 export { normalizeContextPanelDirectoryKey };
 
-type MermaidRenderingMode = 'svg' | 'ascii';
-type UserMessageRenderingMode = 'markdown' | 'plain';
 type SessionRetentionAction = 'archive' | 'delete';
 export type TimeFormatPreference = 'auto' | '12h' | '24h';
 type WeekStartPreference = 'auto' | 'sunday' | 'monday';
-type DesktopWindowControlsPosition = 'left' | 'right';
-type DesktopWindowControlsStyle = 'classic' | 'traffic-lights';
 type FileEditorKeymap = 'default' | 'vim';
 
 function normalizeFileEditorKeymap(value: unknown): FileEditorKeymap {
@@ -151,9 +147,6 @@ interface UIStore {
   settingsRemoteInstancesSelectedId: string | null;
   eventStreamStatus: EventStreamStatus;
   eventStreamHint: string | null;
-  showReasoningTraces: boolean;
-  collapsibleThinkingBlocks: boolean;
-  collapseThinkingByDefault: boolean;
   showDeletionDialog: boolean;
   autoDeleteEnabled: boolean;
   /** Global file-editor autosave. Default true for backward compatibility. */
@@ -219,25 +212,9 @@ interface UIStore {
   maxLastMessageLength: number; // chars — truncate {last_message} when summarization is off
 
   showTerminalQuickKeysOnDesktop: boolean;
-  persistChatDraft: boolean;
-  inputSpellcheckEnabled: boolean;
-  wideChatLayoutEnabled: boolean;
-  codeBlockLineWrap: boolean;
-  showToolFileIcons: boolean;
-  showTurnChangedFiles: boolean;
-  showExpandedBashTools: boolean;
-  showExpandedEditTools: boolean;
   timeFormatPreference: TimeFormatPreference;
   weekStartPreference: WeekStartPreference;
-  desktopWindowControlsPosition: DesktopWindowControlsPosition;
-  desktopWindowControlsStyle: DesktopWindowControlsStyle;
-  mermaidRenderingMode: MermaidRenderingMode;
-  userMessageRenderingMode: UserMessageRenderingMode;
-  collapsibleUserMessages: boolean;
-  stickyUserHeader: boolean;
-  promptNavigatorEnabled: boolean;
   expandedEditorToolbar: boolean;
-  showSplitAssistantMessageActions: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
   commandTriggers: CommandTrigger[];
@@ -296,9 +273,6 @@ interface UIStore {
   setSettingsProjectsSelectedId: (projectId: string | null) => void;
   setSettingsRemoteInstancesSelectedId: (instanceId: string | null) => void;
   setEventStreamStatus: (status: EventStreamStatus, hint?: string | null) => void;
-  setShowReasoningTraces: (value: boolean) => void;
-  setCollapsibleThinkingBlocks: (value: boolean) => void;
-  setCollapseThinkingByDefault: (value: boolean) => void;
   setShowDeletionDialog: (value: boolean) => void;
   setAutoDeleteEnabled: (value: boolean) => void;
   setAutoSaveEnabled: (value: boolean) => void;
@@ -362,25 +336,9 @@ interface UIStore {
   setSummaryThreshold: (value: number) => void;
   setSummaryLength: (value: number) => void;
   setMaxLastMessageLength: (value: number) => void;
-  setPersistChatDraft: (value: boolean) => void;
-  setInputSpellcheckEnabled: (value: boolean) => void;
-  setWideChatLayoutEnabled: (value: boolean) => void;
-  setCodeBlockLineWrap: (value: boolean) => void;
-  setShowToolFileIcons: (value: boolean) => void;
-  setShowTurnChangedFiles: (value: boolean) => void;
-  setShowExpandedBashTools: (value: boolean) => void;
-  setShowExpandedEditTools: (value: boolean) => void;
   setTimeFormatPreference: (value: TimeFormatPreference) => void;
   setWeekStartPreference: (value: WeekStartPreference) => void;
-  setDesktopWindowControlsPosition: (value: DesktopWindowControlsPosition) => void;
-  setDesktopWindowControlsStyle: (value: DesktopWindowControlsStyle) => void;
-  setMermaidRenderingMode: (value: MermaidRenderingMode) => void;
-  setUserMessageRenderingMode: (value: UserMessageRenderingMode) => void;
-  setCollapsibleUserMessages: (value: boolean) => void;
-  setStickyUserHeader: (value: boolean) => void;
-  setPromptNavigatorEnabled: (value: boolean) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
-  setShowSplitAssistantMessageActions: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
   toggleExpandedInput: () => void;
@@ -430,9 +388,6 @@ export const useUIStore = create<UIStore>()(
         settingsRemoteInstancesSelectedId: null,
         eventStreamStatus: 'idle',
         eventStreamHint: null,
-        showReasoningTraces: true,
-        collapsibleThinkingBlocks: true,
-        collapseThinkingByDefault: false,
         showDeletionDialog: true,
         autoDeleteEnabled: false,
         autoSaveEnabled: true,
@@ -489,25 +444,9 @@ export const useUIStore = create<UIStore>()(
         maxLastMessageLength: 250,
 
         showTerminalQuickKeysOnDesktop: false,
-        persistChatDraft: true,
-        inputSpellcheckEnabled: false,
-        wideChatLayoutEnabled: false,
-        codeBlockLineWrap: true,
-        showToolFileIcons: true,
-        showTurnChangedFiles: false,
-        showExpandedBashTools: false,
-        showExpandedEditTools: false,
         timeFormatPreference: 'auto',
         weekStartPreference: 'auto',
-        desktopWindowControlsPosition: 'right',
-        desktopWindowControlsStyle: 'classic',
-        mermaidRenderingMode: 'svg',
-        userMessageRenderingMode: 'markdown',
-        collapsibleUserMessages: true,
-        stickyUserHeader: false,
-        promptNavigatorEnabled: true,
         expandedEditorToolbar: false,
-        showSplitAssistantMessageActions: false,
         draftStartersVisible: true,
         isExpandedInput: false,
         shortcutOverrides: {},
@@ -1070,18 +1009,6 @@ export const useUIStore = create<UIStore>()(
           });
         },
 
-        setShowReasoningTraces: (value) => {
-          set({ showReasoningTraces: value });
-        },
-
-        setCollapsibleThinkingBlocks: (value) => {
-          set({ collapsibleThinkingBlocks: value });
-        },
-
-        setCollapseThinkingByDefault: (value) => {
-          set({ collapseThinkingByDefault: value });
-        },
-
         setShowDeletionDialog: (value) => {
           set({ showDeletionDialog: value });
         },
@@ -1514,31 +1441,6 @@ export const useUIStore = create<UIStore>()(
         setSummaryThreshold: (value) => { set({ summaryThreshold: value }); },
         setSummaryLength: (value) => { set({ summaryLength: value }); },
         setMaxLastMessageLength: (value) => { set({ maxLastMessageLength: value }); },
-        setPersistChatDraft: (value) => {
-          set({ persistChatDraft: value });
-        },
-        setInputSpellcheckEnabled: (value) => {
-          set({ inputSpellcheckEnabled: value });
-        },
-        setWideChatLayoutEnabled: (value) => {
-          set({ wideChatLayoutEnabled: value });
-        },
-        setCodeBlockLineWrap: (value) => {
-          set({ codeBlockLineWrap: value });
-        },
-        setShowToolFileIcons: (value) => {
-          set({ showToolFileIcons: value });
-        },
-        setShowTurnChangedFiles: (value) => {
-          set({ showTurnChangedFiles: value });
-        },
-        setShowExpandedBashTools: (value) => {
-          set({ showExpandedBashTools: value });
-        },
-        setShowExpandedEditTools: (value) => {
-          set({ showExpandedEditTools: value });
-        },
-
         setTimeFormatPreference: (value) => {
           set({ timeFormatPreference: value });
         },
@@ -1546,32 +1448,8 @@ export const useUIStore = create<UIStore>()(
         setWeekStartPreference: (value) => {
           set({ weekStartPreference: value });
         },
-        setDesktopWindowControlsPosition: (value) => {
-          set({ desktopWindowControlsPosition: value === 'left' ? 'left' : 'right' });
-        },
-        setDesktopWindowControlsStyle: (value) => {
-          set({ desktopWindowControlsStyle: value === 'traffic-lights' ? 'traffic-lights' : 'classic' });
-        },
-        setMermaidRenderingMode: (value) => {
-          set({ mermaidRenderingMode: value });
-        },
-        setUserMessageRenderingMode: (value) => {
-          set({ userMessageRenderingMode: value });
-        },
-        setCollapsibleUserMessages: (value) => {
-          set({ collapsibleUserMessages: value });
-        },
-        setStickyUserHeader: (value) => {
-          set({ stickyUserHeader: value });
-        },
-        setPromptNavigatorEnabled: (value) => {
-          set({ promptNavigatorEnabled: value });
-        },
         setExpandedEditorToolbar: (value: boolean) => {
           set({ expandedEditorToolbar: value });
-        },
-        setShowSplitAssistantMessageActions: (value) => {
-          set({ showSplitAssistantMessageActions: value });
         },
         viewPagerPage: 'center',
         setViewPagerPage: (page: 'left' | 'center' | 'right') => {
@@ -1615,12 +1493,36 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 18,
+        version: 19,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v18 -> v19: retire obsolete presentation/chat preferences. Saved
+          // values are stripped so they cannot restore retired behavior.
+          if (version < 19) {
+            delete state.showReasoningTraces;
+            delete state.collapsibleThinkingBlocks;
+            delete state.collapseThinkingByDefault;
+            delete state.persistChatDraft;
+            delete state.inputSpellcheckEnabled;
+            delete state.wideChatLayoutEnabled;
+            delete state.codeBlockLineWrap;
+            delete state.showToolFileIcons;
+            delete state.showTurnChangedFiles;
+            delete state.showExpandedBashTools;
+            delete state.showExpandedEditTools;
+            delete state.desktopWindowControlsPosition;
+            delete state.desktopWindowControlsStyle;
+            delete state.mermaidRenderingMode;
+            delete state.userMessageRenderingMode;
+            delete state.collapsibleUserMessages;
+            delete state.stickyUserHeader;
+            delete state.promptNavigatorEnabled;
+            delete state.showSplitAssistantMessageActions;
+          }
 
           // v17 -> v18: drop the removed notes surface, notes tabs, and legacy notes/todo heights.
           if (version < 18) {
@@ -1689,11 +1591,10 @@ export const useUIStore = create<UIStore>()(
             }
           }
 
-          // v11 -> v12: drop legacy window-controls "auto" (always meant right).
+          // v11 -> v12: retired window-controls preference; strip any legacy value.
           if (version < 12) {
-            if (state.desktopWindowControlsPosition === 'auto' || state.desktopWindowControlsPosition == null) {
-              state.desktopWindowControlsPosition = 'right';
-            }
+            delete state.desktopWindowControlsPosition;
+            delete state.desktopWindowControlsStyle;
           }
 
           // v10 -> v11: move the previous terminal font default forward.
@@ -1758,6 +1659,26 @@ export const useUIStore = create<UIStore>()(
           delete state.workStatusScrollTop;
           delete state.workStatusPanelEnabled;
           delete state.workStatusHiddenSections;
+          // Retired presentation/chat preferences never restore behavior.
+          delete state.showReasoningTraces;
+          delete state.collapsibleThinkingBlocks;
+          delete state.collapseThinkingByDefault;
+          delete state.persistChatDraft;
+          delete state.inputSpellcheckEnabled;
+          delete state.wideChatLayoutEnabled;
+          delete state.codeBlockLineWrap;
+          delete state.showToolFileIcons;
+          delete state.showTurnChangedFiles;
+          delete state.showExpandedBashTools;
+          delete state.showExpandedEditTools;
+          delete state.desktopWindowControlsPosition;
+          delete state.desktopWindowControlsStyle;
+          delete state.mermaidRenderingMode;
+          delete state.userMessageRenderingMode;
+          delete state.collapsibleUserMessages;
+          delete state.stickyUserHeader;
+          delete state.promptNavigatorEnabled;
+          delete state.showSplitAssistantMessageActions;
 
           state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
 
@@ -1819,9 +1740,6 @@ export const useUIStore = create<UIStore>()(
           settingsRemoteInstancesSelectedId: state.settingsRemoteInstancesSelectedId,
           isSessionCreateDialogOpen: state.isSessionCreateDialogOpen,
           // Note: isSettingsDialogOpen intentionally NOT persisted
-          showReasoningTraces: state.showReasoningTraces,
-          collapsibleThinkingBlocks: state.collapsibleThinkingBlocks,
-          collapseThinkingByDefault: state.collapseThinkingByDefault,
           showDeletionDialog: state.showDeletionDialog,
           autoDeleteEnabled: state.autoDeleteEnabled,
           autoSaveEnabled: state.autoSaveEnabled,
@@ -1862,25 +1780,9 @@ export const useUIStore = create<UIStore>()(
           summaryThreshold: state.summaryThreshold,
           summaryLength: state.summaryLength,
           maxLastMessageLength: state.maxLastMessageLength,
-          persistChatDraft: state.persistChatDraft,
-          inputSpellcheckEnabled: state.inputSpellcheckEnabled,
-          wideChatLayoutEnabled: state.wideChatLayoutEnabled,
-          codeBlockLineWrap: state.codeBlockLineWrap,
-          showToolFileIcons: state.showToolFileIcons,
-          showTurnChangedFiles: state.showTurnChangedFiles,
-          showExpandedBashTools: state.showExpandedBashTools,
-          showExpandedEditTools: state.showExpandedEditTools,
           timeFormatPreference: state.timeFormatPreference,
           weekStartPreference: state.weekStartPreference,
-          desktopWindowControlsPosition: state.desktopWindowControlsPosition,
-          desktopWindowControlsStyle: state.desktopWindowControlsStyle,
-          mermaidRenderingMode: state.mermaidRenderingMode,
-          userMessageRenderingMode: state.userMessageRenderingMode,
-          collapsibleUserMessages: state.collapsibleUserMessages,
-          stickyUserHeader: state.stickyUserHeader,
-          promptNavigatorEnabled: state.promptNavigatorEnabled,
           expandedEditorToolbar: state.expandedEditorToolbar,
-          showSplitAssistantMessageActions: state.showSplitAssistantMessageActions,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,
           fileEditorKeymap: state.fileEditorKeymap,

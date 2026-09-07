@@ -3,13 +3,12 @@ import { cn } from '@/lib/utils';
 import type { Part } from '@/lib/chat/types';
 import type { AgentMentionInfo } from '../types';
 import { SimpleMarkdownRenderer } from '../../MarkdownRenderer';
-import { useUIStore } from '@/stores/useUIStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { Icon } from "@/components/icon/Icon";
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { openSkillSettings } from '@/lib/skills/openSkillSettings';
 import { parseSkillHref } from '@/lib/messages/inlineMessageLinks';
-import { prepareUserMarkdownContent, SKILL_TOKEN_PATTERN } from './userTextPartContent';
+import { prepareUserMarkdownContent } from './userTextPartContent';
 
 type PartWithText = Part & { text?: string; content?: string; value?: string };
 
@@ -20,10 +19,6 @@ type UserTextPartProps = {
     agentMention?: AgentMentionInfo;
 };
 
-const normalizeUserMessageRenderingMode = (mode: unknown): 'markdown' | 'plain' => {
-    return mode === 'markdown' ? 'markdown' : 'plain';
-};
-
 const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMention }) => {
     const partWithText = part as PartWithText;
     const rawText = partWithText.text;
@@ -32,13 +27,10 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
 
     const [isExpanded, setIsExpanded] = React.useState(false);
     const [isTruncated, setIsTruncated] = React.useState(false);
-    const userMessageRenderingMode = useUIStore((state) => state.userMessageRenderingMode);
-    const collapsibleUserMessages = useUIStore((state) => state.collapsibleUserMessages);
     const skills = useSkillsStore((state) => state.skills);
     const mobileActions = useMobileAppActions();
-    
-    const normalizedRenderingMode = normalizeUserMessageRenderingMode(userMessageRenderingMode);
-    const isCollapsed = collapsibleUserMessages && !isExpanded;
+
+    const isCollapsed = !isExpanded;
     const textRef = React.useRef<HTMLDivElement>(null);
     const skillByName = React.useMemo(() => new Map(skills.map((skill) => [skill.name, skill])), [skills]);
 
@@ -66,7 +58,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
         if (!el) return;
 
         const checkTruncation = () => {
-            if (collapsibleUserMessages && !isExpanded) {
+            if (!isExpanded) {
                 setIsTruncated(el.scrollHeight > el.clientHeight);
             }
         };
@@ -77,14 +69,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
         resizeObserver.observe(el);
 
         return () => resizeObserver.disconnect();
-    }, [collapsibleUserMessages, textContent, isExpanded]);
-
-    React.useEffect(() => {
-        if (!collapsibleUserMessages) {
-            setIsExpanded(false);
-            setIsTruncated(false);
-        }
-    }, [collapsibleUserMessages]);
+    }, [textContent, isExpanded]);
 
     const handleClick = React.useCallback((event: React.MouseEvent<HTMLDivElement>) => {
         const target = event.target as HTMLElement | null;
@@ -107,10 +92,10 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
             return;
         }
 
-        if (collapsibleUserMessages && !isExpanded && isTruncated) {
+        if (!isExpanded && isTruncated) {
             setIsExpanded(true);
         }
-    }, [collapsibleUserMessages, hasActiveSelectionInElement, isExpanded, isTruncated, openSkill]);
+    }, [hasActiveSelectionInElement, isExpanded, isTruncated, openSkill]);
 
     const handleCollapse = React.useCallback((event: React.MouseEvent) => {
         event.stopPropagation();
@@ -125,66 +110,13 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
         });
     }, [agentMention, skillByName, textContent]);
 
-    const plainTextContent = React.useMemo(() => {
-        const nodes: React.ReactNode[] = [];
-        let cursor = 0;
-        let agentMentionUsed = false;
-        let match: RegExpExecArray | null;
-        SKILL_TOKEN_PATTERN.lastIndex = 0;
-
-        while ((match = SKILL_TOKEN_PATTERN.exec(textContent)) !== null) {
-            const prefix = match[1] || '';
-            const skillName = match[2];
-            const slashIndex = match.index + prefix.length;
-            if (!skillByName.has(skillName)) continue;
-
-            if (match.index > cursor) nodes.push(textContent.slice(cursor, match.index));
-            if (prefix) nodes.push(prefix);
-            nodes.push(
-                <button
-                    key={`skill-${slashIndex}-${skillName}`}
-                    type="button"
-                    className="text-primary hover:underline"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        openSkill(skillName);
-                    }}
-                >
-                    /skill:{skillName}
-                </button>
-            );
-            cursor = slashIndex + 'skill:'.length + skillName.length + 1;
-        }
-
-        if (cursor < textContent.length) nodes.push(textContent.slice(cursor));
-
-        const withSkills = nodes.length > 0 ? nodes : [textContent];
-        if (!agentMention?.token || !textContent.includes(agentMention.token)) {
-            return withSkills;
-        }
-
-        return withSkills.flatMap((node, index) => {
-            if (agentMentionUsed || typeof node !== 'string') return node;
-            const idx = node.indexOf(agentMention.token);
-            if (idx === -1) return node;
-            agentMentionUsed = true;
-            return [
-                node.slice(0, idx),
-                <span key={`agent-${index}`} className="text-primary">
-                    {agentMention.token}
-                </span>,
-                node.slice(idx + agentMention.token.length),
-            ];
-        });
-    }, [agentMention, openSkill, skillByName, textContent]);
-
     if (!textContent || textContent.trim().length === 0) {
         return null;
     }
 
     return (
         <div className="relative" key={part.id || `${messageId}-user-text`}>
-            {collapsibleUserMessages && isExpanded && (
+            {isExpanded && (
                 <button
                     type="button"
                     onClick={handleCollapse}
@@ -198,40 +130,35 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                 className={cn(
                     "break-words font-sans typography-markdown-body",
                     isExpanded && "pb-3",
-                    normalizedRenderingMode === 'plain' && 'whitespace-pre-wrap',
                     isCollapsed && "line-clamp-2",
-                    collapsibleUserMessages && isTruncated && !isExpanded && "cursor-pointer"
+                    isTruncated && !isExpanded && "cursor-pointer"
                 )}
                 ref={textRef}
                 onClick={handleClick}
             >
-                {normalizedRenderingMode === 'markdown' ? (
-                    <SimpleMarkdownRenderer
-                        content={processedMarkdownContent}
-                        className={cn(
-                            "[&_.markdown-content>*:first-child]:mt-0 [&_.markdown-content>*:last-child]:mb-0",
-                            isCollapsed && [
-                                "[&_.markdown-content>*]:my-0",
-                                "[&_[data-component='markdown-code']]:my-0",
-                                "[&_[data-component='markdown-code']]:inline",
-                                "[&_[data-component='markdown-code']]:border-0",
-                                "[&_[data-component='markdown-code']]:bg-transparent",
-                                "[&_[data-component='markdown-code']>*:first-child]:hidden",
-                                "[&_[data-component='markdown-code']>div]:inline",
-                                 "[&_[data-component='markdown-code']>div]:p-0",
-                                 "[&_[data-component='markdown-code']_pre]:inline",
-                                 "[&_[data-component='markdown-code']_code]:inline",
-                                 "[&_[data-md-code-line]]:!inline",
-                                 "[&_[data-md-code-line-number]]:hidden",
-                                 "[&_[data-md-code-line-break]]:!inline",
-                             ]
-                        )}
-                        disableLinkSafety
-                        enableFileReferences={false}
-                    />
-                ) : (
-                    plainTextContent
-                )}
+                <SimpleMarkdownRenderer
+                    content={processedMarkdownContent}
+                    className={cn(
+                        "[&_.markdown-content>*:first-child]:mt-0 [&_.markdown-content>*:last-child]:mb-0",
+                        isCollapsed && [
+                            "[&_.markdown-content>*]:my-0",
+                            "[&_[data-component='markdown-code']]:my-0",
+                            "[&_[data-component='markdown-code']]:inline",
+                            "[&_[data-component='markdown-code']]:border-0",
+                            "[&_[data-component='markdown-code']]:bg-transparent",
+                            "[&_[data-component='markdown-code']>*:first-child]:hidden",
+                            "[&_[data-component='markdown-code']>div]:inline",
+                             "[&_[data-component='markdown-code']>div]:p-0",
+                             "[&_[data-component='markdown-code']_pre]:inline",
+                             "[&_[data-component='markdown-code']_code]:inline",
+                             "[&_[data-md-code-line]]:!inline",
+                             "[&_[data-md-code-line-number]]:hidden",
+                             "[&_[data-md-code-line-break]]:!inline",
+                         ]
+                    )}
+                    disableLinkSafety
+                    enableFileReferences={false}
+                />
             </div>
         </div>
     );

@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useDeviceInfo } from '@/lib/device';
 import { lazyWithChunkRecovery } from '@/lib/chunkLoadRecovery';
-import { useUIStore } from '@/stores/useUIStore';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { ToolPart as ToolPartType } from '@/lib/chat/types';
 import type { ToolPopupContent } from '../message/types';
@@ -165,11 +164,6 @@ const TurnActivityRail: React.FC<{
     onContentChange,
 }) => {
     const { isMobile } = useDeviceInfo();
-    const showReasoningTraces = useUIStore((state) => state.showReasoningTraces);
-    const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
-    const collapseThinkingByDefault = useUIStore((state) => state.collapseThinkingByDefault);
-    const showExpandedBashTools = useUIStore((state) => state.showExpandedBashTools);
-    const showExpandedEditTools = useUIStore((state) => state.showExpandedEditTools);
     const [visibleToolCount, setVisibleToolCount] = React.useState(INITIAL_VISIBLE_TOOL_COUNT);
     const activityPanel = useActivityPanelPresence(isExpanded);
     const onContentChangeRef = React.useRef(onContentChange);
@@ -199,8 +193,6 @@ const TurnActivityRail: React.FC<{
         handlePopupChange,
     } = useTurnToolsState({
         activities: activityParts,
-        showExpandedBashTools,
-        showExpandedEditTools,
     });
 
     const toolIds = React.useMemo(
@@ -261,23 +253,6 @@ const TurnActivityRail: React.FC<{
         const animate = arrivalStateRef.current.animatedToolIds.has(activity.id);
 
         if (activity.kind === 'reasoning') {
-            if (!showReasoningTraces) {
-                return null;
-            }
-
-            if (!collapsibleThinkingBlocks) {
-                return (
-                    <AssistantTextPart
-                        key={activity.id}
-                        part={activity.part}
-                        messageId={activity.messageId}
-                        streamPhase={streamPhase}
-                        onContentChange={notifyContentChange}
-                        withinActivityRail
-                    />
-                );
-            }
-
             return (
                 <ReasoningPart
                     key={activity.id}
@@ -285,7 +260,6 @@ const TurnActivityRail: React.FC<{
                     messageId={activity.messageId}
                     streamPhase={streamPhase}
                     onContentChange={notifyContentChange}
-                    collapseByDefault={collapseThinkingByDefault}
                     withinActivityRail
                 />
             );
@@ -323,15 +297,12 @@ const TurnActivityRail: React.FC<{
     }, [
         activeStreamingMessageId,
         activeStreamingPhase,
-        collapseThinkingByDefault,
-        collapsibleThinkingBlocks,
         effectiveExpandedTools,
         handleShowPopup,
         handleToggleTool,
         isLiveTurn,
         isMobile,
         notifyContentChange,
-        showReasoningTraces,
     ]);
 
     return (

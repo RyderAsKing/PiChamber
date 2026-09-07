@@ -53,8 +53,11 @@ describe('mobile drawer lifecycle', () => {
   });
 
   test('toggle-only titlebar controls do not measure layout', () => {
-    expect(titlebarControlsSource).toContain('const hasVariableWidthControls = showWindowControls || showAppMenu;');
+    expect(titlebarControlsSource).toContain('const hasVariableWidthControls = showAppMenu;');
     expect(titlebarControlsSource).toContain('if (!hasVariableWidthControls) {\n      return;\n    }');
+    expect(titlebarControlsSource).not.toContain("from '@/components/desktop/WindowsWindowControls'");
+    expect(titlebarControlsSource).not.toContain('<WindowsWindowControls');
+    expect(titlebarControlsSource).not.toContain('showWindowControls');
   });
 
   test('close handlers clear focus before hiding the drawer', () => {

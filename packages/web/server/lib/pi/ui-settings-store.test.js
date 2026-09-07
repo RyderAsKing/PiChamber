@@ -88,4 +88,88 @@ describe('Pi UI settings store', () => {
     const changes = JSON.parse('{"__proto__":{"polluted":true}}');
     await expect(store.write(changes)).rejects.toThrow('UI_SETTINGS_INVALID');
   });
+
+  it('ignores retired preferences while preserving unrelated data', async () => {
+    const { file, runtimeFile, store } = await makeStore();
+    const retiredPortable = {
+      showReasoningTraces: false,
+      collapsibleThinkingBlocks: false,
+      collapseThinkingByDefault: true,
+      defaultFileViewerPreview: true,
+      inputSpellcheckEnabled: true,
+      showToolFileIcons: false,
+      codeBlockLineWrap: false,
+      showTurnChangedFiles: true,
+      showExpandedBashTools: true,
+      showExpandedEditTools: true,
+      mermaidRenderingMode: 'ascii',
+      userMessageRenderingMode: 'plain',
+      collapsibleUserMessages: false,
+      stickyUserHeader: true,
+      promptNavigatorEnabled: false,
+      wideChatLayoutEnabled: true,
+      showSplitAssistantMessageActions: true,
+      directoryShowHidden: false,
+    };
+    const retiredLocal = {
+      desktopWindowControlsPosition: 'left',
+      desktopWindowControlsStyle: 'traffic-lights',
+    };
+
+    // Writes accept unrelated fields and drop retired keys without failing.
+    await expect(store.write({
+      themeId: 'nord',
+      diffLayoutPreference: 'side-by-side',
+      draftStartersVisible: false,
+      ...retiredPortable,
+      ...retiredLocal,
+    })).resolves.toMatchObject({
+      themeId: 'nord',
+      diffLayoutPreference: 'side-by-side',
+      draftStartersVisible: false,
+    });
+    const readBack = await store.read();
+    for (const key of [...Object.keys(retiredPortable), ...Object.keys(retiredLocal)]) {
+      expect(readBack[key]).toBe(undefined);
+    }
+    expect(readBack.themeId).toBe('nord');
+    expect(readBack.diffLayoutPreference).toBe('side-by-side');
+    expect(readBack.draftStartersVisible).toBe(false);
+    // Retired keys never reach either backing file.
+    const portable = await readJson(file);
+    const runtime = await readJson(runtimeFile);
+    for (const key of Object.keys(retiredPortable)) {
+      expect(portable[key]).toBe(undefined);
+    }
+    for (const key of Object.keys(retiredLocal)) {
+      expect(runtime[key]).toBe(undefined);
+    }
+    expect(portable.themeId).toBe('nord');
+
+    // A legacy flat file carrying retired keys migrates only allowlisted data.
+    const legacy = await makeStore();
+    await writeFile(legacy.file, JSON.stringify({
+      themeId: 'legacy',
+      diffLayoutPreference: 'inline',
+      ...retiredPortable,
+      ...retiredLocal,
+      unknownField: 'drop-me',
+    }));
+    await expect(legacy.store.read()).resolves.toMatchObject({
+      themeId: 'legacy',
+      diffLayoutPreference: 'inline',
+    });
+    const legacyRead = await legacy.store.read();
+    for (const key of [...Object.keys(retiredPortable), ...Object.keys(retiredLocal)]) {
+      expect(legacyRead[key]).toBe(undefined);
+    }
+  });
+
+  it('preserves failure behavior for malformed and oversized payloads', async () => {
+    const { file, store } = await makeStore();
+    await writeFile(file, '{broken');
+    await expect(store.read()).rejects.toThrow('UI_SETTINGS_INVALID');
+    const changes = JSON.parse('{"constructor":{"polluted":true}}');
+    await expect(store.write(changes)).rejects.toThrow('UI_SETTINGS_INVALID');
+  });
 });

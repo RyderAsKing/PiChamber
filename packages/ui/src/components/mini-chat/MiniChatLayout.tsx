@@ -9,8 +9,7 @@ const SessionSwitcherDropdown = React.lazy(() =>
   import('@/components/session/SessionSwitcherDropdown').then((module) => ({ default: module.SessionSwitcherDropdown })),
 );
 import { cn } from '@/lib/utils';
-import { invokeDesktop, isElectronShell } from '@/lib/desktop';
-import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
+import { invokeDesktop, isElectronShell, usesFramelessElectronChrome } from '@/lib/desktop';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessages, useSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -68,7 +67,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
   const [pinned, setPinned] = React.useState(false);
   const macosMajor = typeof window !== 'undefined' ? window.__PICHAMBER_MACOS_MAJOR__ ?? 0 : 0;
   const hasMacTrafficLights = Number.isFinite(macosMajor) && macosMajor > 0;
-  const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
+  const usesFramelessChrome = usesFramelessElectronChrome();
   const macosHeaderSizeClass = hasMacTrafficLights
     ? macosMajor >= 26
       ? 'h-12'
@@ -245,9 +244,6 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
       )}
       style={dragRegionStyle}
     >
-      {usesFramelessChrome && windowControlsSide === 'left' ? (
-        <WindowsWindowControls visible position="left" />
-      ) : null}
       <Suspense
         fallback={
           <button
@@ -326,7 +322,7 @@ const MiniChatHeader: React.FC<{ mode: MiniChatMode }> = ({ mode }) => {
       >
         <Icon name="external-link" className="h-4 w-4" />
       </Button>
-      <WindowsWindowControls visible={usesFramelessChrome && windowControlsSide === 'right'} position="right" />
+      <WindowsWindowControls visible={usesFramelessChrome} />
     </header>
   );
 };

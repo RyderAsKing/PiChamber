@@ -144,27 +144,6 @@ describe('working footer stability between tools', () => {
 });
 
 describe('footer stability across sends', () => {
-  const files = [
-    { file: 'src/a.ts', additions: 3, deletions: 1 },
-    { file: 'src/b.ts', additions: 10, deletions: 0 },
-  ] as never;
-
-  test('file pills keep button DOM when the turn stops being latest', async () => {
-    const { TurnChangedFilePills } = await import('../TurnChangedFilesPills');
-    const latest = renderToStaticMarkup(
-      <TurnChangedFilePills files={files} isInteractive={true} />,
-    );
-    const old = renderToStaticMarkup(
-      <TurnChangedFilePills files={files} isInteractive={false} />,
-    );
-    // Same element types (no button<->span swap that drops focus and
-    // repaints every chip); only the disabled state flips.
-    expect(latest.match(/<button/g)?.length).toBe(2);
-    expect(old.match(/<button/g)?.length).toBe(2);
-    expect(latest).not.toContain('disabled=""');
-    expect(old).toContain('disabled=""');
-  });
-
   test('latest message omits revert without reserving an empty slot', async () => {
     const { AssistantMessageActionButtons } = await import('../AssistantMessageActionButtons');
     const buttons = (isLatestMessage: boolean) => renderToStaticMarkup(
@@ -212,7 +191,6 @@ describe('assistant turn activity rows', () => {
     allowAnimation: false,
     streamPhase: 'streaming',
     hasTextContent: false,
-    showReasoningTraces: false,
   } as const;
 
   const ctxWorking = {

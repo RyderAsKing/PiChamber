@@ -4,7 +4,6 @@ import ToolPart from './parts/ToolPart';
 import AssistantTextPart from './parts/AssistantTextPart';
 import ReasoningPart from './parts/ReasoningPart';
 import { MessageFilesDisplay } from '../FileAttachment';
-import { TurnChangedFilesDropdown } from '../TurnChangedFilesDropdown';
 import { cn } from '@/lib/utils';
 import { filterRenderableAssistantParts } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
@@ -23,7 +22,6 @@ import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
 import { AssistantMessageActionButtons } from './AssistantMessageActionButtons';
-import { TurnChangedFilePills } from './TurnChangedFilesPills';
 import type { StreamPhase } from './types';
 import type { AssistantMessageBodyProps } from './assistantMessageTypes';
 import { shareMessageAsImage } from './shareMessageAsImage';
@@ -34,7 +32,6 @@ const MESSAGE_FOOTER_CONTAINER_STYLE = {
   containerType: 'inline-size' as const,
   containerName: 'message-footer',
 };
-const INLINE_MESSAGE_ACTIONS_CLASS_NAME = 'mt-2 mb-1 flex items-center justify-start gap-1.5';
 
 export const AssistantMessageBody = React.memo(
   ({
@@ -60,7 +57,6 @@ export const AssistantMessageBody = React.memo(
     hasTextContent = false,
     onCopyMessage,
     onAuxiliaryContentComplete,
-    showReasoningTraces = false,
     turnGroupingContext,
     hideAssistantActivity = false,
     errorMessage,
@@ -102,11 +98,6 @@ export const AssistantMessageBody = React.memo(
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const getDirectoryForSession = useSessionUIStore((state) => state.getDirectoryForSession);
     const effectiveDirectory = useEffectiveDirectory();
-    const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
-    const collapseThinkingByDefault = useUIStore((state) => state.collapseThinkingByDefault);
-    const showSplitAssistantMessageActions = useUIStore(
-      (state) => state.showSplitAssistantMessageActions,
-    );
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
     const openContextPreview = useUIStore((state) => state.openContextPreview);
 
@@ -151,11 +142,8 @@ export const AssistantMessageBody = React.memo(
 
     const showErrorMessage = Boolean(errorMessage);
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
-    const shouldShowMessageActions = hasCopyableText;
     const shouldShowTurnFooter =
       isLastAssistantInTurn && (hasTextContent || Boolean(errorMessage)) && !isTurnWorking;
-    const shouldShowStandaloneMessageActions =
-      showSplitAssistantMessageActions && shouldShowMessageActions && !shouldShowTurnFooter;
 
     const messageActionButtons = React.useMemo(
       () => (
@@ -179,30 +167,6 @@ export const AssistantMessageBody = React.memo(
         sessionId,
       ],
     );
-
-    const lastRenderableTextPartIndex = React.useMemo(() => {
-      if (!shouldShowStandaloneMessageActions) {
-        return -1;
-      }
-
-      let lastIndex = -1;
-      for (let index = 0; index < visibleParts.length; index += 1) {
-        const part = visibleParts[index];
-        if (!part || part.type !== 'text') {
-          continue;
-        }
-        const partId = part.id ?? `${messageId}-part-${index}-${part.type}`;
-        if (hideAssistantActivity && activityTextPartIds.has(partId)) {
-          continue;
-        }
-        lastIndex = index;
-      }
-
-      return lastIndex;
-    }, [activityTextPartIds, hideAssistantActivity, messageId, shouldShowStandaloneMessageActions, visibleParts]);
-
-    const shouldRenderStandaloneActionsAfterContent =
-      shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
 
     const renderedParts = React.useMemo(() => {
       const rendered: React.ReactNode[] = [];
@@ -233,19 +197,6 @@ export const AssistantMessageBody = React.memo(
               />
             </div>,
           );
-          if (shouldShowStandaloneMessageActions && i === lastRenderableTextPartIndex) {
-            rendered.push(
-              <div
-                key={`message-actions-${messageId}`}
-                className={INLINE_MESSAGE_ACTIONS_CLASS_NAME}
-                data-message-actions="true"
-              >
-                <div className="flex items-center gap-1.5" data-message-action-group="true">
-                  {messageActionButtons}
-                </div>
-              </div>,
-            );
-          }
           i++;
           continue;
         }
@@ -255,32 +206,15 @@ export const AssistantMessageBody = React.memo(
             i++;
             continue;
           }
-          if (showReasoningTraces) {
-            if (!collapsibleThinkingBlocks) {
-              rendered.push(
-                <AssistantTextPart
-                  key={`reasoning-${messageId}-${i}`}
-                  part={part}
-                  sessionId={sessionId}
-                  messageId={messageId}
-                  streamPhase={effectiveStreamPhase}
-                  onContentChange={onContentChange}
-                  onShowPopup={onShowPopup}
-                />,
-              );
-            } else {
-              rendered.push(
-                <ReasoningPart
-                  key={`reasoning-${messageId}-${i}`}
-                  part={part}
-                  messageId={messageId}
-                  streamPhase={effectiveStreamPhase}
-                  onContentChange={onContentChange}
-                  collapseByDefault={collapseThinkingByDefault}
-                />,
-              );
-            }
-          }
+          rendered.push(
+            <ReasoningPart
+              key={`reasoning-${messageId}-${i}`}
+              part={part}
+              messageId={messageId}
+              streamPhase={effectiveStreamPhase}
+              onContentChange={onContentChange}
+            />,
+          );
           i++;
           continue;
         }
@@ -357,22 +291,16 @@ export const AssistantMessageBody = React.memo(
     }, [
       alwaysShowMessageActions,
       animatedToolIdsLookup,
-      collapsibleThinkingBlocks,
-      collapseThinkingByDefault,
       expandedTools,
       activityTextPartIds,
       hideAssistantActivity,
       isMobile,
-      lastRenderableTextPartIndex,
       messageId,
-      messageActionButtons,
       sessionId,
       onContentChange,
       onShowPopup,
       onToggleTool,
-      shouldShowStandaloneMessageActions,
       effectiveStreamPhase,
-      showReasoningTraces,
       visibleParts,
     ]);
 
@@ -456,19 +384,6 @@ export const AssistantMessageBody = React.memo(
             )}
           </div>
           <MessageFilesDisplay files={parts} onShowPopup={onShowPopup} />
-          {shouldRenderStandaloneActionsAfterContent && (
-            <div
-              className={INLINE_MESSAGE_ACTIONS_CLASS_NAME}
-              data-message-actions="true"
-            >
-              <div
-                className="flex items-center gap-1.5"
-                data-message-action-group="true"
-              >
-                {messageActionButtons}
-              </div>
-            </div>
-          )}
           {shouldShowTurnFooter && (
             <div
               className={cn(
@@ -540,15 +455,6 @@ export const AssistantMessageBody = React.memo(
                     </TooltipTrigger>
                     <TooltipContent>{footerTimestamp}</TooltipContent>
                   </Tooltip>
-                ) : null}
-                {!isMiniChatSurface && isLastAssistantInTurn && hasStopFinish ? (
-                  <TurnChangedFilesDropdown activityParts={turnGroupingContext?.activityParts} />
-                ) : null}
-                {!isMiniChatSurface && isLastAssistantInTurn && hasStopFinish ? (
-                  <TurnChangedFilePills
-                    files={turnGroupingContext?.changedFiles}
-                    isInteractive={turnGroupingContext?.isLatestTurn === true}
-                  />
                 ) : null}
               </div>
               <div

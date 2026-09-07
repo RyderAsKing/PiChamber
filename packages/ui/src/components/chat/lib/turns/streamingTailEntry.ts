@@ -18,7 +18,6 @@ type BuildLiveStreamingEntryOptions = {
     activeStreamingMessageId: string | null | undefined;
     liveParts: Part[];
     showTextJustificationActivity: boolean;
-    showTurnChangedFiles: boolean;
     mergeHiddenUserTurns?: boolean;
 };
 
@@ -135,7 +134,6 @@ export const buildLiveStreamingEntry = <TEntry extends StreamingTailEntry>(
 
     const projection = projectTurnRecords(sourceMessages, {
         showTextJustificationActivity: options.showTextJustificationActivity,
-        showTurnChangedFiles: options.showTurnChangedFiles,
         mergeHiddenUserTurns: options.mergeHiddenUserTurns,
     });
     const turn = projection.turns[0] ?? {

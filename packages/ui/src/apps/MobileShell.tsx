@@ -95,7 +95,6 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
   const isArchivePageOpen = useUIStore((state) => state.isArchivePageOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
-  const wideChatLayoutEnabled = useUIStore((state) => state.wideChatLayoutEnabled);
   const updateAvailable = useUpdateStore((state) => state.available);
   const updateRuntimeType = useUpdateStore((state) => state.runtimeType);
   const showCapacitorOnlyFeatures = React.useMemo(() => isCapacitorMobileApp(), []);
@@ -209,17 +208,8 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
     };
   }, [sidebarWidth, workspacePanelWidth]);
 
-  // Wide chat layout: the shared chat columns key off this root class, but only
-  // the desktop App set it — so on a tablet, where the chat column is finally
-  // wide enough for the setting to mean something, it did nothing. Applied for
-  // every mobile surface; on a phone the viewport is narrower than even the
-  // normal clamp, so it is a no-op there.
-  React.useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const root = document.documentElement;
-    root.classList.toggle('wide-chat-layout', wideChatLayoutEnabled);
-    return () => root.classList.remove('wide-chat-layout');
-  }, [wideChatLayoutEnabled]);
+  // Wide chat layout is fixed off: the shared chat columns always use the
+  // normal clamp, so no root class is ever applied.
 
   // The draft screen keeps its starter chips while the keyboard is up when
   // there is room for both: a tablet in portrait, or any tablet orientation

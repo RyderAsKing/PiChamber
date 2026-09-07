@@ -9,14 +9,13 @@ import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
-import { initializeAppearancePreferences, syncDesktopSettings } from '@/lib/persistence';
+import { syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { ElectronMiniChatApp } from './ElectronMiniChatApp';
 
 const initializeSharedPreferences = () => {
-
-  void initializeAppearancePreferences().then(async () => {
+  void (async () => {
     try {
       await Promise.all([
         syncDesktopSettings(),
@@ -29,9 +28,7 @@ const initializeSharedPreferences = () => {
     startAppearanceAutoSave();
     startModelPrefsAutoSave();
     startTypographyWatcher();
-  }).catch((err) => {
-    console.error('[mini-chat-main] appearance init failed:', err);
-  });
+  })();
 };
 
 export function renderElectronMiniChatApp(apis?: RuntimeAPIs) {
