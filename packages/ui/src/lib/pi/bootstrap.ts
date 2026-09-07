@@ -30,7 +30,7 @@ import {
   hydrateSessionFromDetail,
   type PiReducerState,
 } from './event-reducer';
-import type { PiSessionId } from './types';
+import type { PiSessionId, PiSessionLifecycleState } from './types';
 import type { PiSessionEvent, PiSessionListItem } from './protocol';
 
 export type PiBootstrapPhase =
@@ -42,12 +42,26 @@ export type PiBootstrapPhase =
   | 'ready'
   | 'failed';
 
+interface PiBootstrapSessionTiming {
+  sessionId: PiSessionId;
+  isStreaming: boolean;
+  lifecycle: PiSessionLifecycleState;
+  runStartedAt?: number;
+  serverNow?: number;
+}
+
 export interface PiBootstrapResult {
   phase: PiBootstrapPhase;
   /** Reducer state at the end of bootstrap (empty map if anything failed). */
   reducerState: PiReducerState;
   /** Last sequence per session id from the hydrating call. */
   lastSequence: Map<PiSessionId, number>;
+  /**
+   * Timing authority from the selected session detail. The reducer projection
+   * intentionally does not carry transport metadata, so keep this alongside
+   * it for the first-attach path.
+   */
+  selectedSessionTiming?: PiBootstrapSessionTiming;
   /** Stream handle, when bootstrap reached `stream-attach`. */
   stream: PiStreamHandle | null;
   /** Errors captured during bootstrap; recoverable list/hydrate failures may coexist with `ready`. */
@@ -198,6 +212,13 @@ export const bootstrapPiDirectory = async (
         directory: options.directory,
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
       }));
+      result.selectedSessionTiming = {
+        sessionId: detail.session.id,
+        isStreaming: detail.isStreaming,
+        lifecycle: detail.lifecycle,
+        ...(Number.isFinite(detail.runStartedAt) ? { runStartedAt: detail.runStartedAt } : {}),
+        ...(Number.isFinite(detail.serverNow) ? { serverNow: detail.serverNow } : {}),
+      };
       const { state } = hydrateSessionFromDetail(detail);
       result.reducerState = state;
       result.lastSequence.set(detail.session.id, detail.lastSequence);

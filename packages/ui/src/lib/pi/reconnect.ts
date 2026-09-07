@@ -52,6 +52,9 @@ export interface PiReconnectResult {
   stream: PiStreamHandle | null;
   /** Last sequence the snapshot covered. `-1` if no snapshot was applied. */
   lastSequence: number;
+  /** Server timing for the selected active turn, when available. */
+  runStartedAt?: number;
+  serverNow?: number;
   /** Error captured during reconnect, when phase is `failed`. */
   error?: { code: string; message?: string; status?: number };
 }
@@ -138,6 +141,13 @@ export const reconnectPiSession = async (
     }));
     const hydrated = hydrateSessionFromDetail(detail);
     result.reducerState = hydrated.state;
+    if (
+      (detail.lifecycle === 'busy' || detail.lifecycle === 'retry')
+      && Number.isFinite(detail.runStartedAt)
+    ) {
+      result.runStartedAt = detail.runStartedAt;
+      if (Number.isFinite(detail.serverNow)) result.serverNow = detail.serverNow;
+    }
     // Synthesize a snapshot event from the detail response. We use the
     // event reducer's snapshot path so the reconnect logic stays in one
     // place.
@@ -158,6 +168,8 @@ export const reconnectPiSession = async (
           lifecycle: detail.lifecycle ?? (detail.isStreaming ? 'busy' : 'idle'),
           ...(detail.retry ? { retry: detail.retry } : {}),
           ...(detail.compaction ? { compaction: detail.compaction } : {}),
+          ...(Number.isFinite(detail.runStartedAt) ? { runStartedAt: detail.runStartedAt } : {}),
+          ...(Number.isFinite(detail.serverNow) ? { serverNow: detail.serverNow } : {}),
           ...(detail.session.model ? { model: detail.session.model } : {}),
           ...(detail.session.thinking ? { thinking: detail.session.thinking } : {}),
         },

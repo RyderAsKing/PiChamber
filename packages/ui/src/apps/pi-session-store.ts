@@ -16,7 +16,7 @@ import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
-import type { PiSession, PiSessionId, PiThinkingLevel } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -1349,6 +1349,12 @@ export class PiSessionStore {
         ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
         ?? -1;
       if (currentSequence > detail.lastSequence) return false;
+      if (
+        (detail.lifecycle === 'busy' || detail.lifecycle === 'retry')
+        && typeof detail.runStartedAt === 'number'
+      ) {
+        adoptServerRunTiming(detail.session.id, detail.runStartedAt, detail.serverNow);
+      }
       const settled = detail.lifecycle !== 'busy'
         && detail.lifecycle !== 'retry'
         && detail.isStreaming !== true;
@@ -1729,6 +1735,19 @@ export class PiSessionStore {
         bootstrap.stream?.dispose();
         return;
       }
+      const bootstrapTiming = bootstrap.selectedSessionTiming;
+      if (
+        bootstrapTiming
+        && bootstrapTiming.sessionId === sessionId
+        && (bootstrapTiming.lifecycle === 'busy' || bootstrapTiming.lifecycle === 'retry')
+        && typeof bootstrapTiming.runStartedAt === 'number'
+      ) {
+        adoptServerRunTiming(
+          bootstrapTiming.sessionId,
+          bootstrapTiming.runStartedAt,
+          bootstrapTiming.serverNow,
+        );
+      }
       let hydratedSession = known
         ? this.sessionFromDetail(known)
         : bootstrap.reducerState.bySession.get(sessionId);
@@ -1837,6 +1856,9 @@ export class PiSessionStore {
         return;
       }
       if (result.phase === 'ready') {
+        if (typeof result.runStartedAt === 'number') {
+          adoptServerRunTiming(sessionId, result.runStartedAt, result.serverNow);
+        }
         disconnectedStream?.dispose();
         this.streamGeneration = replacementStreamGeneration;
         this.stream = result.stream;
@@ -1880,6 +1902,14 @@ export class PiSessionStore {
           void piClient.getSession(sId, { directory: this.directory(), runtimeKey })
             .then((detail) => {
               if (expected !== this.runtimeGeneration) return;
+              const current = this.state.reducer.bySession.get(sId);
+              if (
+                (!current || current.lastSequence <= detail.lastSequence)
+                && (detail.lifecycle === 'busy' || detail.lifecycle === 'retry')
+                && typeof detail.runStartedAt === 'number'
+              ) {
+                adoptServerRunTiming(detail.session.id, detail.runStartedAt, detail.serverNow);
+              }
               const refreshed = this.sessionFromDetail(detail);
               this.commitHydratedSession(refreshed);
             })
@@ -1908,8 +1938,15 @@ export class PiSessionStore {
       }
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled', { notifyIfSettled: true });
     } else if (event.name === 'session.snapshot') {
-      const snapshot = event.payload.snapshot as { isStreaming?: boolean; runStartedAt?: number; serverNow?: number };
-      const isRunning = Boolean(snapshot.isStreaming);
+      const snapshot = event.payload.snapshot as {
+        isStreaming?: boolean;
+        lifecycle?: PiSessionLifecycleState;
+        runStartedAt?: number;
+        serverNow?: number;
+      };
+      const isRunning = snapshot.lifecycle === 'busy'
+        || snapshot.lifecycle === 'retry'
+        || snapshot.isStreaming === true;
       if (isRunning && typeof snapshot.runStartedAt === 'number') {
         adoptServerRunTiming(event.sessionId, snapshot.runStartedAt, snapshot.serverNow);
       }

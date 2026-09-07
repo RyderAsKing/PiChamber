@@ -1130,6 +1130,49 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     store.dispose();
   });
 
+  test('keeps retry snapshot timing active when streaming is temporarily false', () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const serverNow = Date.now();
+    const runStartedAt = serverNow - 45_000;
+    internal.hydratedSessionIds.add('s1');
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      selectedSessionId: 's1',
+      reducer: {
+        bySession: new Map([['s1', reducerSession({ sessionId: 's1', lifecycle: 'retry', lastSequence: 4 })]]),
+        lastSequence: new Map([['s1', 4]]),
+      },
+    };
+
+    internal.commitEvents([{
+      protocolVersion: 1,
+      kind: 'event',
+      name: 'session.snapshot',
+      sequence: 5,
+      sessionId: 's1',
+      directory: '/repo',
+      payload: {
+        snapshot: {
+          sessionId: 's1',
+          directory: '/repo',
+          isStreaming: false,
+          lifecycle: 'retry',
+          queue: { steering: 0, followUp: 0 },
+          lastSequence: 5,
+          runStartedAt,
+          serverNow,
+        },
+      },
+    }]);
+
+    const startedAt = useSessionActivityTimingStore.getState().startedAt.get('s1');
+    expect(typeof startedAt).toBe('number');
+    expect(Date.now() - (startedAt ?? Date.now())).toBeGreaterThanOrEqual(45_000);
+    store.dispose();
+  });
+
   test('notifies unread complete only for a background session that was active', () => {
     resetSessionOrdering();
     useNotificationStore.setState({

@@ -136,6 +136,8 @@ describe("reconnectPiSession", () => {
           lastSequence: 12,
           isStreaming: true,
           lifecycle: "busy",
+          runStartedAt: 1_000,
+          serverNow: 2_000,
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -152,6 +154,8 @@ describe("reconnectPiSession", () => {
     expect(result.snapshotState.bySession.get("s1")?.lifecycle).toBe("busy")
     const session = result.reducerState.bySession.get("s1")
     expect(session?.lifecycle).toBe("busy")
+    expect(result.runStartedAt).toBe(1_000)
+    expect(result.serverNow).toBe(2_000)
     expect(session?.streamingMessages.has("m1")).toBe(true)
     expect(session?.parts.get("p1")?.tool?.state).toBe("running")
   })
