@@ -170,6 +170,8 @@ export class PiSessionStore {
    *  ChatContainer `ensureHydrated`, and Strict Mode remounts share one
    *  request so overlapping opens cannot race the daemon runtime registry. */
   private hydrateInflightById = new Map<PiSessionId, Promise<void>>();
+  /** Older-message page requests share one in-flight request per session. */
+  private historyInflightById = new Map<PiSessionId, Promise<void>>();
   /** Per-session navigation generation. Bumped on every `navigate` so a stale
    *  `hydrate` that started before the navigation cannot restore the old tail
    *  after the authoritative truncation. */
@@ -237,6 +239,7 @@ export class PiSessionStore {
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
+    this.historyInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose();
     this.stream = null;
@@ -822,6 +825,7 @@ export class PiSessionStore {
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
+    this.historyInflightById.clear();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
     this.state = {
@@ -1089,6 +1093,7 @@ export class PiSessionStore {
     removeSessionOrdering(sessionId);
     clearRevertNavigation(sessionId);
     this.navigationGenerationById.delete(sessionId);
+    this.historyInflightById.delete(sessionId);
     const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
     const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId;
     const nextBySession = new Map(this.state.reducer.bySession);
@@ -1154,6 +1159,7 @@ export class PiSessionStore {
     // Invalidate any in-flight hydrate for this session — its fetched
     // transcript is now stale (it was the pre-revert branch).
     this.hydrateInflightById.delete(sessionId);
+    this.historyInflightById.delete(sessionId);
     try {
       const detail = await piClient.navigateSession(sessionId, messageId, this.scope());
       // If another navigate raced and bumped the generation, or the
@@ -1164,7 +1170,7 @@ export class PiSessionStore {
       const hydrated = this.sessionFromDetail(detail);
       this.commitNavigationSession(hydrated);
       const navigation = (detail as unknown as { navigation?: { targetEntryId: string; previousLeafId: string | null; newLeafId: string | null; editorText?: string } }).navigation;
-      if (navigation && typeof navigation.targetEntryId === 'string') {
+      if (navigation && typeof navigation.targetEntryId === 'string' && detail.hasMoreBefore !== true) {
         const newIds = new Set(detail.messages.map((entry) => entry.message.id));
         const currentAbandoned = previousMessages
           .filter((msg) => !newIds.has(msg.id))
@@ -1429,6 +1435,59 @@ export class PiSessionStore {
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
     return hydrateSessionFromDetail(detail).session;
+  }
+
+  async loadOlderMessages(sessionId: PiSessionId): Promise<void> {
+    const inFlight = this.historyInflightById.get(sessionId);
+    if (inFlight) return inFlight;
+    const resident = this.state.reducer.bySession.get(sessionId);
+    if (!resident?.hasMoreBefore || !resident.beforeCursor) return;
+    const expectedRuntime = this.runtimeGeneration;
+    const expectedNavigation = this.navigationGenerationById.get(sessionId) ?? 0;
+    const expectedCursor = resident.beforeCursor;
+    const runtimeKey = getRuntimeKey();
+    const task = piClient.getSessionMessages(sessionId, { before: expectedCursor }, {
+      directory: resident.directory,
+      runtimeKey,
+    }).then((detail) => {
+      if (expectedRuntime !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+      if ((this.navigationGenerationById.get(sessionId) ?? 0) !== expectedNavigation) return;
+      const current = this.state.reducer.bySession.get(sessionId);
+      if (!current || current.beforeCursor !== expectedCursor || detail.session.id !== sessionId) return;
+      const page = hydrateSessionFromDetail(detail).session;
+      const messages = new Map(page.messages);
+      for (const [id, message] of current.messages) messages.set(id, message);
+      const partOrder = new Map(page.partOrder);
+      for (const [id, order] of current.partOrder) partOrder.set(id, order);
+      const parts = createReducerPartMap(page.parts);
+      for (const [id, part] of current.parts) parts.set(id, part);
+      const toolsByCallId = new Map(page.toolsByCallId);
+      for (const [callId, messageId] of current.toolsByCallId) toolsByCallId.set(callId, messageId);
+      const merged: PiReducerSessionState = {
+        ...current,
+        messages,
+        partOrder,
+        parts,
+        toolsByCallId,
+        hasMoreBefore: page.hasMoreBefore === true,
+        beforeCursor: page.beforeCursor,
+        // Historical pages do not claim coverage of intervening live events.
+        lastSequence: current.lastSequence,
+      };
+      const reducer = {
+        bySession: new Map(this.state.reducer.bySession),
+        lastSequence: new Map(this.state.reducer.lastSequence),
+      };
+      reducer.bySession.set(sessionId, merged);
+      reducer.lastSequence.set(sessionId, merged.lastSequence);
+      this.state = { ...this.state, reducer };
+      this.touchLastAccess(sessionId);
+      this.emit([`session:${sessionId}`]);
+    }).finally(() => {
+      if (this.historyInflightById.get(sessionId) === task) this.historyInflightById.delete(sessionId);
+    });
+    this.historyInflightById.set(sessionId, task);
+    return task;
   }
 
   private recordFromPiSession(session: PiSession, options?: { now?: number }): LiveSessionRecord {

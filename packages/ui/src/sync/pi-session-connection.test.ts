@@ -109,6 +109,7 @@ interface StubOptions {
   listProjects?: () => Promise<unknown>;
   listSessions?: (scope: { directory?: string }) => Promise<{ sessions: SessionListEntry[] }>;
   getSession?: (id: string) => Promise<unknown>;
+  getSessionMessages?: (id: string, input: { before?: string; limit?: number }) => Promise<unknown>;
   health?: () => Promise<unknown>;
   navigateSession?: (sessionId: string, messageId: string) => Promise<unknown>;
 }
@@ -119,10 +120,11 @@ const stubDaemons = (options: StubOptions = {}) => {
     listProjects: piClient.listProjects.bind(piClient),
     listSessions: piClient.listSessions.bind(piClient),
     getSession: piClient.getSession.bind(piClient),
+    getSessionMessages: piClient.getSessionMessages.bind(piClient),
     health: piClient.health.bind(piClient),
     navigateSession: piClient.navigateSession.bind(piClient),
   };
-  const calls = { selectProject: 0, listSessions: 0, getSession: 0, navigateSession: 0 };
+  const calls = { selectProject: 0, listSessions: 0, getSession: 0, getSessionMessages: 0, navigateSession: 0 };
   piClient.selectProject = (async (dir: string) => {
     calls.selectProject += 1;
     if (options.selectProject) return options.selectProject(dir);
@@ -146,6 +148,11 @@ const stubDaemons = (options: StubOptions = {}) => {
       messages: [],
     } as never;
   }) as typeof piClient.getSession;
+  piClient.getSessionMessages = (async (id: string, input: { before?: string; limit?: number }) => {
+    calls.getSessionMessages += 1;
+    if (options.getSessionMessages) return options.getSessionMessages(id, input) as never;
+    throw new Error('Unexpected getSessionMessages call');
+  }) as typeof piClient.getSessionMessages;
   piClient.health = (async () => {
     if (options.health) return options.health() as never;
     return { state: 'ready', protocolVersion: 1, capabilities: [] } as never;
@@ -162,6 +169,7 @@ const stubDaemons = (options: StubOptions = {}) => {
       piClient.listProjects = originals.listProjects;
       piClient.listSessions = originals.listSessions;
       piClient.getSession = originals.getSession;
+      piClient.getSessionMessages = originals.getSessionMessages;
       piClient.health = originals.health;
       piClient.navigateSession = originals.navigateSession;
     },
@@ -269,6 +277,91 @@ describe('PiSessionStore runtime-scoped sessions', () => {
       stubs.restore();
     }
     store.dispose();
+  });
+
+  test('loads and prepends one older transcript page without duplicating concurrent demand', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const current = reducerSession({
+      sessionId: 's1',
+      directory: '/repo',
+      hasMoreBefore: true,
+      beforeCursor: 'new',
+      messages: new Map([['new', reducerMessage({ id: 'new', role: 'user', createdAt: 2, text: 'new' })]]),
+      partOrder: new Map([['new', []]]),
+    });
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      selectedSessionId: 's1',
+      reducer: { bySession: new Map([['s1', current]]), lastSequence: new Map([['s1', 1]]) },
+    };
+    let resolvePage!: (value: unknown) => void;
+    const pagePromise = new Promise<unknown>((resolve) => { resolvePage = resolve; });
+    const stubs = stubDaemons({ getSessionMessages: async () => pagePromise });
+    try {
+      const first = store.loadOlderMessages('s1');
+      const second = store.loadOlderMessages('s1');
+      expect(stubs.calls.getSessionMessages).toBe(1);
+      resolvePage({
+        session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 2 },
+        messages: [{
+          message: { id: 'old', sessionId: 's1', directory: '/repo', role: 'user', createdAt: 1, text: 'old' },
+          parts: [],
+        }],
+        hasMoreBefore: false,
+        lastSequence: 1,
+        isStreaming: false,
+        lifecycle: 'idle',
+      });
+      await Promise.all([first, second]);
+
+      const loaded = store.getState().reducer.bySession.get('s1');
+      expect([...loaded!.messages.keys()]).toEqual(['old', 'new']);
+      expect(loaded!.hasMoreBefore).toBe(false);
+      expect(loaded!.beforeCursor).toBe(undefined);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('preserves resident history and cursor when an older page fails', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const resident = reducerSession({
+      sessionId: 's1',
+      hasMoreBefore: true,
+      beforeCursor: 'cursor-1',
+      messages: new Map([['new', reducerMessage({ id: 'new', role: 'user' })]]),
+    });
+    internal.state = {
+      ...store.getState(),
+      reducer: { bySession: new Map([['s1', resident]]), lastSequence: new Map([['s1', 1]]) },
+    };
+    const stubs = stubDaemons({
+      getSessionMessages: async () => { throw new PiRequestError('DAEMON_UNAVAILABLE'); },
+    });
+    try {
+      const failures: unknown[] = [];
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await store.loadOlderMessages('s1');
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      expect(failures).toHaveLength(2);
+      expect(failures[0] instanceof PiRequestError).toBe(true);
+      expect(failures[1] instanceof PiRequestError).toBe(true);
+      expect(stubs.calls.getSessionMessages).toBe(2);
+      expect(store.getState().reducer.bySession.get('s1')).toBe(resident);
+      expect(resident.beforeCursor).toBe('cursor-1');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
   });
 
   test('cold cross-folder focus hydrates only the new id and preserves folder A', async () => {

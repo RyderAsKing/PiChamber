@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
-import { useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
@@ -497,6 +497,20 @@ export function useSessionMessageCount(sessionID: string, _directory?: string): 
     undefined,
     sessionID ? sessionTopic(sessionID) : '*',
   );
+}
+
+export function useSessionHistoryPagination(sessionID: string | null | undefined) {
+  const store = usePiSessionStore();
+  const hasMoreBefore = usePiSessionSnapshot(
+    (state) => Boolean(sessionID && state.reducer.bySession.get(sessionID)?.hasMoreBefore),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+  const loadOlder = useCallback(() => {
+    if (!sessionID) return Promise.resolve();
+    return store.loadOlderMessages(sessionID);
+  }, [sessionID, store]);
+  return { hasMoreBefore, loadOlder };
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {

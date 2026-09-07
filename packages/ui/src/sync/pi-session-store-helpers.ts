@@ -144,10 +144,17 @@ export const mergeHydratedSession = (
     existing.lifecycle === 'busy' || existing.lifecycle === 'retry';
   const preserveExisting =
     liveTurn || existing.lastSequence > fetched.lastSequence;
+  const preservePagedHistory = fetched.hasMoreBefore === true && existing.messages.size > 0;
   if (existing.messages.size === 0 && !preserveExisting) return fetched;
 
   const session: PiReducerSessionState = {
     ...fetched,
+    ...(preservePagedHistory && existing.hasMoreBefore !== undefined
+      ? {
+          hasMoreBefore: existing.hasMoreBefore,
+          beforeCursor: existing.beforeCursor,
+        }
+      : {}),
     lifecycle: preserveExisting ? existing.lifecycle : fetched.lifecycle,
     lastSequence: Math.max(fetched.lastSequence, existing.lastSequence),
     messages: new Map(fetched.messages),
@@ -168,19 +175,25 @@ export const mergeHydratedSession = (
       ? { thinking: existing.thinking }
       : {}),
   };
-  if (preserveExisting) {
+  if (preserveExisting || preservePagedHistory) {
     for (const [id, message] of existing.messages) {
-      aliasSyntheticUserIfPersisted(session, id, message);
+      if (preserveExisting || !session.messages.has(id)) {
+        aliasSyntheticUserIfPersisted(session, id, message);
+      }
     }
     for (const [id, order] of existing.partOrder) {
+      if (!preserveExisting && session.partOrder.has(id)) continue;
       session.partOrder.set(id, order);
       for (const partId of order) {
         const part = existing.parts.get(partId);
         if (part) session.parts.set(partId, part);
       }
     }
-    for (const [callId, messageId] of existing.toolsByCallId)
-      session.toolsByCallId.set(callId, messageId);
+    for (const [callId, messageId] of existing.toolsByCallId) {
+      if (preserveExisting || !session.toolsByCallId.has(callId)) {
+        session.toolsByCallId.set(callId, messageId);
+      }
+    }
   }
   return session;
 };

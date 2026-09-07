@@ -89,6 +89,64 @@ describe('pi-session-store-helpers', () => {
     expect(record.lifecycle).toBe('idle');
   });
 
+  test('preserves loaded older pages when a reconnect refreshes a bounded tail', () => {
+    const detail = (id: string, createdAt: number, hasMoreBefore: boolean, beforeCursor?: string) => ({
+      session: { id: 'session-1', directory: '/dir', createdAt: 1, updatedAt: 1 },
+      lastSequence: 5,
+      hasMoreBefore,
+      ...(beforeCursor ? { beforeCursor } : {}),
+      messages: [{
+        message: { id, sessionId: 'session-1', directory: '/dir', role: 'user' as const, text: id, createdAt },
+        parts: [{ id: `${id}:text`, index: 0, type: 'text' as const, text: id }],
+      }],
+    });
+    const existing = hydrateSessionFromDetail(detail('old', 1, false)).session;
+    const fetched = hydrateSessionFromDetail(detail('new', 2, true, 'new')).session;
+
+    const merged = mergeHydratedSession(fetched, existing);
+
+    expect([...merged.messages.keys()]).toEqual(['new', 'old']);
+    expect(merged.hasMoreBefore).toBe(false);
+    expect(merged.beforeCursor).toBe(undefined);
+  });
+
+  test('preserves an older paged tool result across reconnect tail hydration', () => {
+    const baseSession = { id: 'session-1', directory: '/dir', createdAt: 1, updatedAt: 1 };
+    const existing = hydrateSessionFromDetail({
+      session: baseSession,
+      lastSequence: 4,
+      hasMoreBefore: false,
+      messages: [{
+        message: {
+          id: 'assistant-old', sessionId: 'session-1', directory: '/dir', role: 'assistant' as const,
+          text: '', thinking: '', createdAt: 1,
+        },
+        parts: [{
+          id: 'assistant-old:tool:call-1', index: 0, type: 'tool' as const,
+          toolCallId: 'call-1', name: 'read', output: 'complete output', state: 'completed' as const,
+        }],
+      }],
+    }).session;
+    const fetched = hydrateSessionFromDetail({
+      session: baseSession,
+      lastSequence: 5,
+      hasMoreBefore: true,
+      beforeCursor: 'user-new',
+      messages: [{
+        message: {
+          id: 'user-new', sessionId: 'session-1', directory: '/dir', role: 'user' as const,
+          text: 'new', createdAt: 2,
+        },
+        parts: [],
+      }],
+    }).session;
+
+    const merged = mergeHydratedSession(fetched, existing);
+
+    expect(merged.parts.get('assistant-old:tool:call-1')?.tool?.output).toBe('complete output');
+    expect(merged.hasMoreBefore).toBe(false);
+  });
+
   test('merges hydrated session preserving live turn state', () => {
     const fetchedDetail = {
       session: {

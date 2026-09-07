@@ -68,7 +68,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | Layer / Store | Owns | Scope |
 |---|---|---|
 | `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
-| `SessionMessageLoader` | Initial message loading, pagination, prefetch, retries, load state, and optimistic reconciliation | One runtime, directory, and session ID |
+| `PiSessionStore` transcript paging | Bounded initial hydration, older-page deduplication, stale-result rejection, and prepend reconciliation | One runtime, directory, and session ID |
 | `pi-session-catalog.ts` | Live runtime-scoped metadata catalog (`byId`, `byDirectory`, `listStatusByDirectory`); the at-most-2-in-flight directory refresh scheduler | All known directories in the active runtime |
 | `pi-session-catalog-cache.ts` | Best-effort runtime-scoped browser snapshot of stable catalog metadata for warm first paint; never persists lifecycle/retry/hydration authority | Up to four recently used runtimes and 2,000 session rows |
 | `PiSessionStore` (`pi-session-store.ts`) | Live event stream, reducer `bySession` (LRU-capped transcripts), `hydratedSessionIds`, `lastAccessById`, the live catalog, and per-directory refresh generation | One runtime-wide cluster |
@@ -267,26 +267,25 @@ Live activity/status indicators must not depend on this cache. They must use the
 
 ## Session message loading
 
-`SessionMessageLoader` is the shared authority for session message requests. Navigation, reactive chat loading, sidebar prefetch, pagination, reconnect/recovery, and optimistic reconciliation must delegate to it rather than issuing parallel initial requests.
+`PiSessionStore` is the shared authority for Pi-native session message requests. `getSession` returns a bounded tail page. The mounted timeline calls `loadOlderMessages` when the viewport is underfilled or approaches the top, and the store prepends pages returned by `piClient.getSessionMessages`.
 
 Rules:
 
-1. Request identity is runtime key + normalized directory + session ID. Session IDs alone are not globally unique across runtimes or directories.
-2. One in-flight request is shared by all callers. Foreground demand may promote the visible load kind of an existing prefetch without starting another request.
-3. Load state is explicit per session: `idle`, `loading`, `ready`, or `error`. Fetch failure preserves prior materialized records and exposes retry; it never becomes authoritative empty success.
-4. Async commits are generation-checked. Runtime switches, forced refreshes, eviction, and disposal must reject stale completion.
-5. Prefetch coverage and persisted directory data are runtime-scoped. Legacy persisted directory entries may seed startup continuity, but they are not live truth.
-6. Message and part materialization preserves references for unchanged records and maintains direct message-to-parts lookup. Consumers subscribe to the selected session's records rather than broad message/part containers.
-7. Pagination demand must carry the selected session's effective directory. It must not fall back to the sync provider directory because the visible session may belong to another worktree.
-8. The ref-stable loader is disposed only after the current task when its provider unmounts. This lets React Strict Mode's development setup → cleanup → setup probe retain a usable loader for child effects, while real disposal still invalidates the preceding lifecycle's work.
+1. Request identity includes runtime key, authoritative session directory, session ID, navigation generation, and the opaque before-cursor. Session IDs alone are not globally unique across runtimes or directories.
+2. One older-page request is shared by all callers for a session. Scroll and underfill demand cannot fetch the same cursor twice.
+3. Fetch failure preserves the resident transcript and cursor. Later demand can retry; failure never becomes authoritative empty history.
+4. Runtime switches, navigation, deletion, eviction, and cursor changes reject stale page completions.
+5. Page merging deduplicates overlapping anchor messages and lets resident live records win over historical copies.
+6. A reconnect `getSession` refresh replaces the bounded tail but preserves older pages already loaded. An older-page response does not advance `lastSequence` because it does not claim coverage of intervening live events.
+7. Pagination uses the resident session's server-confirmed directory. It never falls back to the focused directory when the visible session belongs to another worktree.
 
-Initial loads use smaller pages on constrained mobile surfaces. Prefetch resolves only the initial renderable page; it does not eagerly download older history. The mounted chat timeline requests older pages when its viewport is underfilled or the user scrolls toward history, while mobile uses its explicit load-older action. Timeline caches, pending work, prepend snapshots, and stale checks use runtime + directory + session identity so equal session IDs in different worktrees cannot share lifecycle state. Older pages are fetched through the same loader and merged with optimistic records before publication.
+Initial hydration resolves after the bounded tail is renderable. The timeline fetches older pages only on underfill or near-top demand, preserving the viewport anchor while records are prepended.
 
 ## Loading diagnostics
 
 Session loading instrumentation is disabled by default. Set `localStorage.pichamber_session_load_perf` to `"1"`, reproduce the interaction, then inspect `window.__pichamberSessionLoadPerformance.events`. The in-app Performance overlay (Settings → General → Diagnostics, or `?perf=1`) also enables these events for the current browser only.
 
-The bounded event buffer records only controlled bootstrap, message, and global-list operation/caller labels with queue/duration, outcome, retry count, and downloaded record count where applicable. Message-page events also record the requested limit and whether a cursor was present. When diagnostics are enabled, the selected chat records its first painted renderable message snapshot once per recent session identity and immediately clears the corresponding browser performance entry after emitting the trace mark. Canceled frames retain no measured identity, so returning to that session can schedule a replacement measurement; completed identity tracking uses the same 1,000-entry ceiling as the event buffer. Exported events never retain runtime keys, directories, session IDs, credentials, or message content. Initial-message expansion counts every downloaded page, not only the accepted page. The browser profiler independently validates the known labels and finite numeric fields before export. Instrumentation is diagnostic only; unit/type/lint checks do not replace production runtime profiling at representative project/session scale.
+The bounded event buffer records only controlled bootstrap, message, and global-list operation/caller labels with queue/duration, outcome, retry count, and downloaded record count where applicable. When diagnostics are enabled, the selected chat records its first painted renderable message snapshot once per recent session identity and immediately clears the corresponding browser performance entry after emitting the trace mark. Canceled frames retain no measured identity, so returning to that session can schedule a replacement measurement; completed identity tracking uses the same 1,000-entry ceiling as the event buffer. Exported events never retain runtime keys, directories, session IDs, credentials, or message content. Initial-message expansion counts every downloaded page, not only the accepted page. The browser profiler independently validates the known labels and finite numeric fields before export. Instrumentation is diagnostic only; unit/type/lint checks do not replace production runtime profiling at representative project/session scale.
 
 High-frequency sync diagnostics are separately disabled by default. Set `localStorage.pichamber_sync_perf` to `"1"` before reload to enable fixed numeric counters for pipeline traffic, reducer publications, streaming reconciliations, entries/messages visited, targeted heartbeat work, and persistence serialization/write volume. The Performance overlay uses the same counters without writing that key. The hot path performs only a boolean check while disabled; counters never retain IDs, payloads, or user content.
 
