@@ -315,7 +315,7 @@ describe('PiSessionStore runtime-scoped sessions', () => {
         isStreaming: false,
         lifecycle: 'idle',
       });
-      await Promise.all([first, second]);
+      expect(await Promise.all([first, second])).toEqual([false, false]);
 
       const loaded = store.getState().reducer.bySession.get('s1');
       expect([...loaded!.messages.keys()]).toEqual(['old', 'new']);

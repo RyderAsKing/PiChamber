@@ -279,7 +279,7 @@ Rules:
 6. A reconnect `getSession` refresh replaces the bounded tail but preserves older pages already loaded. An older-page response does not advance `lastSequence` because it does not claim coverage of intervening live events.
 7. Pagination uses the resident session's server-confirmed directory. It never falls back to the focused directory when the visible session belongs to another worktree.
 
-Initial hydration resolves after the bounded tail is renderable. The timeline fetches older pages only on underfill or near-top demand, preserving the viewport anchor while records are prepended.
+Initial hydration resolves after the bounded tail is renderable. The timeline fetches older pages only on underfill or near-top demand, preserving the viewport anchor while records are prepended. While that demand remains active, each accepted before-cursor rechecks it so a page hidden inside an existing folded or response-gated turn cannot stall pagination without changing the scroll geometry.
 
 ## Loading diagnostics
 

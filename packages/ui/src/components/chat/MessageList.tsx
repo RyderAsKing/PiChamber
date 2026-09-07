@@ -8,6 +8,7 @@ import { HISTORY_GATE_ESTIMATED_SIZE, nextRevealedOlderCount, revealedCountForTu
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { ChatMessageEntry, TurnRecord } from './lib/turns/types';
 import { useTurnRecords } from './hooks/useTurnRecords';
+import { useOlderHistoryDemand } from './hooks/useOlderHistoryDemand';
 import { applyCompactionOverlay } from './lib/turns/applyCompactionOverlay';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
@@ -661,7 +662,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     streamPerfCount('ui.message_list.render');
     const stickyUserHeader = useUIStore(state => state.stickyUserHeader);
     const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
-    const { hasMoreBefore, loadOlder } = useSessionHistoryPagination(sessionKey);
+    const { hasMoreBefore, beforeCursor, loadOlder } = useSessionHistoryPagination(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
     );
@@ -793,28 +794,20 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         return document.querySelector<HTMLDivElement>('[data-scrollbar="chat"]');
     }, [scrollRef]);
 
-    React.useEffect(() => {
-        if (!hasMoreBefore) return;
-        const container = resolveScrollContainer();
-        if (!container) return;
-        let requested = false;
-        const requestIfNeeded = () => {
-            if (requested || !hasMoreBefore) return;
-            const nearTop = container.scrollTop < container.clientHeight * HISTORY_PREPEND_NEAR_TOP_VIEWPORTS;
-            const underfilled = container.scrollHeight <= container.clientHeight + 1;
-            if (!nearTop && !underfilled) return;
-            requested = true;
-            pendingRevealViewportRef.current = captureRevealViewport();
-            void loadOlder().catch(() => {
-                pendingRevealViewportRef.current = null;
-            }).finally(() => {
-                requested = false;
-            });
-        };
-        container.addEventListener('scroll', requestIfNeeded, { passive: true });
-        requestIfNeeded();
-        return () => container.removeEventListener('scroll', requestIfNeeded);
-    }, [captureRevealViewport, hasMoreBefore, loadOlder, resolveScrollContainer]);
+    const prepareOlderHistoryLoad = React.useCallback(() => {
+        pendingRevealViewportRef.current = captureRevealViewport();
+    }, [captureRevealViewport]);
+    const handleOlderHistoryLoadError = React.useCallback(() => {
+        pendingRevealViewportRef.current = null;
+    }, []);
+    useOlderHistoryDemand({
+        hasMoreBefore,
+        beforeCursor,
+        resolveScrollContainer,
+        loadOlder,
+        onBeforeLoad: prepareOlderHistoryLoad,
+        onLoadError: handleOlderHistoryLoadError,
+    });
 
     const displayMessages = React.useMemo(() => streamPerfMeasure('ui.message_list.retry_overlay_ms', () => {
         const withRetry = applyRetryOverlay(baseDisplayMessages, {

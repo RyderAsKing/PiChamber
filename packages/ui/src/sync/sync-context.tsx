@@ -506,11 +506,16 @@ export function useSessionHistoryPagination(sessionID: string | null | undefined
     undefined,
     sessionID ? sessionTopic(sessionID) : '*',
   );
+  const beforeCursor = usePiSessionSnapshot(
+    (state) => sessionID ? state.reducer.bySession.get(sessionID)?.beforeCursor : undefined,
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
   const loadOlder = useCallback(() => {
-    if (!sessionID) return Promise.resolve();
+    if (!sessionID) return Promise.resolve(false);
     return store.loadOlderMessages(sessionID);
   }, [sessionID, store]);
-  return { hasMoreBefore, loadOlder };
+  return { hasMoreBefore, beforeCursor, loadOlder };
 }
 
 export function useEnsureSessionMessages(sessionID: string, _directory?: string, enabled = true) {

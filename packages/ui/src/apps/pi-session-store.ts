@@ -171,7 +171,7 @@ export class PiSessionStore {
    *  request so overlapping opens cannot race the daemon runtime registry. */
   private hydrateInflightById = new Map<PiSessionId, Promise<void>>();
   /** Older-message page requests share one in-flight request per session. */
-  private historyInflightById = new Map<PiSessionId, Promise<void>>();
+  private historyInflightById = new Map<PiSessionId, Promise<boolean>>();
   /** Per-session navigation generation. Bumped on every `navigate` so a stale
    *  `hydrate` that started before the navigation cannot restore the old tail
    *  after the authoritative truncation. */
@@ -1443,11 +1443,11 @@ export class PiSessionStore {
     return hydrateSessionFromDetail(detail).session;
   }
 
-  async loadOlderMessages(sessionId: PiSessionId): Promise<void> {
+  async loadOlderMessages(sessionId: PiSessionId): Promise<boolean> {
     const inFlight = this.historyInflightById.get(sessionId);
     if (inFlight) return inFlight;
     const resident = this.state.reducer.bySession.get(sessionId);
-    if (!resident?.hasMoreBefore || !resident.beforeCursor) return;
+    if (!resident?.hasMoreBefore || !resident.beforeCursor) return false;
     const expectedRuntime = this.runtimeGeneration;
     const expectedNavigation = this.navigationGenerationById.get(sessionId) ?? 0;
     const expectedCursor = resident.beforeCursor;
@@ -1456,10 +1456,10 @@ export class PiSessionStore {
       directory: resident.directory,
       runtimeKey,
     }).then((detail) => {
-      if (expectedRuntime !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
-      if ((this.navigationGenerationById.get(sessionId) ?? 0) !== expectedNavigation) return;
+      if (expectedRuntime !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return false;
+      if ((this.navigationGenerationById.get(sessionId) ?? 0) !== expectedNavigation) return false;
       const current = this.state.reducer.bySession.get(sessionId);
-      if (!current || current.beforeCursor !== expectedCursor || detail.session.id !== sessionId) return;
+      if (!current || current.beforeCursor !== expectedCursor || detail.session.id !== sessionId) return false;
       const page = hydrateSessionFromDetail(detail).session;
       const messages = new Map(page.messages);
       for (const [id, message] of current.messages) messages.set(id, message);
@@ -1489,6 +1489,7 @@ export class PiSessionStore {
       this.state = { ...this.state, reducer };
       this.touchLastAccess(sessionId);
       this.emit([`session:${sessionId}`]);
+      return merged.hasMoreBefore === true;
     }).finally(() => {
       if (this.historyInflightById.get(sessionId) === task) this.historyInflightById.delete(sessionId);
     });
