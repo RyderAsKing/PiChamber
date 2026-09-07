@@ -49,7 +49,7 @@ describe('terminal clipboard shortcuts', () => {
     ).toBe('ignore');
   });
 
-  test('uses Ctrl+Shift+C and Ctrl+Shift+V on Windows and Linux', () => {
+  test('uses Ctrl+Shift+C and native paste on Windows and Linux', () => {
     expect(
       resolveTerminalClipboardShortcut(
         { ...base, key: 'C', ctrlKey: true, shiftKey: true, metaKey: false },
@@ -63,7 +63,7 @@ describe('terminal clipboard shortcuts', () => {
         'other',
         false,
       ),
-    ).toBe('paste');
+    ).toBeNull();
     expect(
       resolveTerminalClipboardShortcut(
         { ...base, key: 'c', ctrlKey: true, shiftKey: false, metaKey: false },
@@ -80,14 +80,14 @@ describe('terminal clipboard shortcuts', () => {
     ).toBeNull();
   });
 
-  test('supports Insert shortcuts and ignores Alt combinations', () => {
+  test('uses native Shift+Insert paste and ignores Alt combinations', () => {
     expect(
       resolveTerminalClipboardShortcut(
         { ...base, key: 'Insert', code: 'Insert', ctrlKey: false, shiftKey: true, metaKey: false },
         'other',
         false,
       ),
-    ).toBe('paste');
+    ).toBeNull();
     expect(
       resolveTerminalClipboardShortcut(
         { ...base, key: 'c', ctrlKey: true, shiftKey: true, metaKey: false, altKey: true },

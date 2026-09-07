@@ -1,7 +1,7 @@
 import { copyTextToClipboard } from '@/lib/clipboard';
 
 export type TerminalClipboardPlatform = 'mac' | 'other';
-export type TerminalClipboardShortcut = 'copy' | 'paste' | 'ignore' | null;
+export type TerminalClipboardShortcut = 'copy' | 'ignore' | null;
 
 type ShortcutEvent = {
   key: string;
@@ -30,10 +30,11 @@ const normalizeKey = (event: ShortcutEvent): string => {
 
 /**
  * Decide whether a key event is a terminal clipboard shortcut.
- * Returns `copy`/`paste` when the terminal should handle it, `ignore` when the
- * event must be consumed without PTY input (for example copy with no
- * selection), and `null` when the event belongs to the terminal.
- * Ctrl+C is never a copy shortcut so SIGINT keeps working.
+ * Returns `copy` when the terminal should copy its selection, `ignore` when
+ * the event must be consumed without PTY input (for example copy with no
+ * selection), and `null` when the event belongs to xterm or the browser.
+ * Paste always uses xterm's native paste event so one gesture has one input
+ * path. Ctrl+C is never a copy shortcut so SIGINT keeps working.
  */
 export const resolveTerminalClipboardShortcut = (
   event: ShortcutEvent,
@@ -46,19 +47,15 @@ export const resolveTerminalClipboardShortcut = (
   if (platform === 'mac') {
     if (!event.metaKey || event.ctrlKey) return null;
     if (key === 'c' && !event.shiftKey) return hasSelection ? 'copy' : 'ignore';
-    // Cmd+V relies on the native paste event so xterm.js can apply
-    // bracketed paste and IME handling without a second manual paste.
     return null;
   }
 
   if (event.metaKey) return null;
-  if (event.shiftKey && !event.ctrlKey && key === 'insert') return 'paste';
   if (event.ctrlKey && !event.shiftKey && key === 'insert') {
     return hasSelection ? 'copy' : 'ignore';
   }
   if (!event.ctrlKey || !event.shiftKey) return null;
   if (key === 'c') return hasSelection ? 'copy' : 'ignore';
-  if (key === 'v') return 'paste';
   return null;
 };
 

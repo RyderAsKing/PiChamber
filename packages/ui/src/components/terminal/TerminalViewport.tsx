@@ -345,12 +345,6 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
             void copyTerminalSelection(selection);
             return false;
           }
-          if (outcome === 'paste') {
-            void readClipboardText().then((text) => {
-              if (text && terminalRef.current === attachedTerminal) attachedTerminal.paste(text);
-            });
-            return false;
-          }
           if (outcome === 'ignore') return false;
           return true;
         });
