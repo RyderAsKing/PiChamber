@@ -246,18 +246,16 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     }, [time?.end, time?.start]);
 
     const effectiveTimeStart = React.useMemo(() => {
-        // Once we captured a local start (during pending, before server sends time.start),
-        // always prefer it so the timer never jumps when server start arrives later.
-        if (typeof localStartAt === 'number') {
-            return localStartAt;
-        }
+        // A server start is authoritative when it arrives after a local
+        // pending fallback. Use the local origin only when no server timestamp
+        // exists, so hydration cannot reset or undercount the tool.
         const candidates = [pinnedTime.start, time?.start].filter(
             (value): value is number => typeof value === 'number'
         );
-        if (candidates.length === 0) {
-            return undefined;
+        if (candidates.length > 0) {
+            return Math.min(...candidates);
         }
-        return Math.min(...candidates);
+        return localStartAt;
     }, [localStartAt, pinnedTime.start, time?.start]);
 
     const taskOutputString = React.useMemo(() => {

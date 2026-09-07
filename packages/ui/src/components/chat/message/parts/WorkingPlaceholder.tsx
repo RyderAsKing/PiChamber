@@ -12,7 +12,7 @@ interface WorkingPlaceholderProps {
   agentName?: string;
   modelName?: string | null;
   providerId?: string | null;
-  /** Authoritative turn start (unix ms) — pins the elapsed counter. */
+  /** Authoritative turn start (unix ms); null keeps the elapsed readout hidden until it arrives. */
   startedAt?: number | null;
 }
 

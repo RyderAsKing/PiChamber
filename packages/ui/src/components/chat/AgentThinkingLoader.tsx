@@ -56,7 +56,7 @@ function LoaderGrid({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function useElapsed(enabled: boolean, startedAt?: number | null) {
+function useElapsed(enabled: boolean, startedAt?: number | null): string | null {
   const [tick, setTick] = React.useState(0);
   // Pinned origin: the authoritative turn start when provided, so remounts
   // (and background-throttled intervals) never reset or undercount — the
@@ -64,11 +64,16 @@ function useElapsed(enabled: boolean, startedAt?: number | null) {
   // preserves every existing caller that omits `startedAt`.
   const [mountAt] = React.useState(() => Date.now());
   React.useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || startedAt === null) return;
     const t = setInterval(() => setTick((d) => d + 1), 100);
     return () => clearInterval(t);
-  }, [enabled]);
+  }, [enabled, startedAt]);
   void tick;
+  // `null` means the caller has a live turn but has not received its
+  // authoritative start yet. Do not display a made-up zero while that
+  // bootstrap finishes. `undefined` remains the legacy mount-relative mode for
+  // callers that do not have session timing at all.
+  if (!enabled || startedAt === null) return null;
   const origin = startedAt ?? mountAt;
   const total = Math.max(0, (Date.now() - origin) / 1000);
   if (total < 60) return `${total.toFixed(1)}s`;
@@ -91,7 +96,8 @@ export interface AgentThinkingLoaderProps {
   /**
    * Authoritative turn start (unix ms, local clock — see
    * `useSessionActivityStartedAt`). Pins the elapsed counter so remounts
-   * continue it instead of restarting. Omitted callers keep mount-relative
+   * continue it instead of restarting. `null` hides elapsed time until the
+   * caller has an authoritative start; omitted callers keep mount-relative
    * timing exactly as before.
    */
   startedAt?: number | null;
@@ -104,7 +110,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   showText = true,
   showElapsed = true,
   animateText = false,
-  startedAt = null,
+  startedAt,
 }) => {
   const hasText = showText && text != null && text !== '';
   const elapsed = useElapsed(hasText && showElapsed, startedAt);
@@ -129,7 +135,7 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
     </span>
   ) : null;
   const elapsedEl =
-    hasText && showElapsed ? (
+    hasText && showElapsed && elapsed !== null ? (
       <span className="shrink-0 whitespace-nowrap font-mono typography-code text-muted-foreground tabular-nums">{elapsed}</span>
     ) : null;
 
