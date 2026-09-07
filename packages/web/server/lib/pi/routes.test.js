@@ -582,6 +582,59 @@ describe('Pi runtime route', () => {
     ]);
   });
 
+  it('maps malformed and oversized daemon responses to distinct gateway errors', async () => {
+    for (const code of ['MALFORMED_DAEMON_RESPONSE', 'DAEMON_RESPONSE_TOO_LARGE']) {
+      const runtime = {
+        request: async () => {
+          const error = new Error(code);
+          error.code = code;
+          throw error;
+        },
+      };
+      const app = express();
+      registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+      server = await listen(app);
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/session-1`);
+      expect(response.status).toBe(502);
+      await expect(response.json()).resolves.toEqual({ error: { code } });
+      await close(server);
+      server = undefined;
+    }
+  });
+
+  it('validates and forwards older transcript page requests', async () => {
+    const calls = [];
+    const detail = {
+      session: { id: 'pi-session-pages', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      messages: [],
+      hasMoreBefore: false,
+      lastSequence: 5,
+      isStreaming: false,
+      lifecycle: 'idle',
+    };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return detail;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-pages/messages`;
+
+    const response = await fetch(`${base}?directory=${encodeURIComponent('/workspace')}&before=entry-5&limit=25`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ hasMoreBefore: false, messages: [] });
+    expect(calls).toEqual([{
+      command: 'sessions.messages',
+      payload: { sessionId: 'pi-session-pages', directory: '/workspace', before: 'entry-5', limit: 25 },
+    }]);
+    expect((await fetch(`${base}?limit=0`)).status).toBe(400);
+    expect((await fetch(`${base}?limit=101`)).status).toBe(400);
+  });
+
   it('adapts every path-selected session operation and archives without selecting a Pi runtime', async () => {
     const calls = [];
     const detail = { session: { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 }, messages: [], lastSequence: 5 };
