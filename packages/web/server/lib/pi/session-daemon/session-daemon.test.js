@@ -1467,6 +1467,80 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('persists project trust while streaming and refreshes after settlement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-busy-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    const runtimeState = { createCount: 0, disposeCount: 0 };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => {
+        runtimeState.createCount += 1;
+        return {
+          cwd: root,
+          session,
+          async dispose() { runtimeState.disposeCount += 1; },
+        };
+      },
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    session.isStreaming = true;
+    const result = await client.request('settings.set', { scope: 'project', trust: true });
+    expect(result.result).toMatchObject({ project: { trusted: true }, deferred: true });
+    expect(runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => runtimeState.disposeCount).toBe(1);
+    expect(runtimeState.createCount).toBe(2);
+    await client.close();
+  });
+
+  it('reports deferred activation when an idle runtime cannot be recreated after trust commits', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-recreate-failure-'));
+    const endpoint = testDaemonEndpoint(root);
+    let createCount = 0;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => {
+        createCount += 1;
+        if (createCount === 2) throw new Error('runtime recreation failed');
+        return {
+          cwd: root,
+          session: new FakeSession(),
+          services: {
+            resourceLoader: {
+              getSkills: () => ({ skills: [] }),
+              getPrompts: () => ({ prompts: [] }),
+              getAgentsFiles: () => ({ agentsFiles: [] }),
+            },
+          },
+          async dispose() {},
+        };
+      },
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const result = await client.request('settings.set', { scope: 'project', trust: true });
+    expect(result.result).toMatchObject({ project: { trusted: true }, deferred: true });
+    expect(createCount).toBe(2);
+
+    await expect(client.request('resources.list')).resolves.toMatchObject({ result: { agents: expect.any(Array) } });
+    expect(createCount).toBe(3);
+    await client.close();
+  });
+
   it('lists and edits only opaque Pi resource identifiers without disclosing server paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-resources-'));
     const cwd = join(root, 'project');
@@ -1568,6 +1642,58 @@ describe('Pi session daemon spike', () => {
       models: [{ id: 'model', providerId: 'custom', label: 'Model' }], apiKeyReference: '{env:CUSTOM_KEY}',
     }]);
     expect(JSON.stringify(result.result)).not.toContain('CUSTOM_KEY');
+    await client.close();
+  });
+
+  it('persists provider model changes while streaming and refreshes after settlement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-busy-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    const runtimeState = { createCount: 0, disposeCount: 0 };
+    const updates = [];
+    const modelConfigStore = {
+      get: async () => null,
+      update: async (input) => {
+        updates.push(input);
+        return { providerId: input.providerId, label: input.label, baseUrl: input.baseUrl, api: input.api, models: input.models };
+      },
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      modelConfigStore,
+      createRuntime: async () => {
+        runtimeState.createCount += 1;
+        return {
+          cwd: root,
+          session,
+          async dispose() { runtimeState.disposeCount += 1; },
+        };
+      },
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    await client.request('sessions.create', { cwd: root });
+    session.isStreaming = true;
+    const result = await client.request('providers.models.set', {
+      providerId: 'custom',
+      label: 'Custom',
+      baseUrl: 'https://api.example.test/v1',
+      api: 'openai-completions',
+      models: [{ id: 'model', providerId: 'custom', label: 'Model' }],
+    });
+
+    expect(result.result).toMatchObject({ config: { providerId: 'custom' }, deferred: true });
+    expect(updates).toHaveLength(1);
+    expect(runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => runtimeState.disposeCount).toBe(1);
+    expect(runtimeState.createCount).toBe(2);
     await client.close();
   });
 

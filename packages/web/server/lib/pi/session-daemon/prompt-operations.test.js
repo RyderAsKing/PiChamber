@@ -310,6 +310,7 @@ describe('prompt template daemon operations', () => {
       name: 'during-run', description: 'During run', content: 'x', location: 'global', directory: ctx.cwd,
     });
     expect(created.prompts.some((prompt) => prompt.name === 'during-run')).toBe(true);
+    expect(created.deferred).toBe(true);
     expect(session.reloadCount).toBe(0);
     expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
 
@@ -327,6 +328,56 @@ describe('prompt template daemon operations', () => {
     });
     expect(ctx.session.reloadCount).toBe(1);
     expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+  });
+
+  it('commits generic resource changes while streaming and refreshes after settlement', async () => {
+    const session = new FakeSession();
+    const ctx = await startDaemon({ session });
+    const listed = await ctx.request('resources.list', { directory: ctx.cwd });
+    const agents = listed.agents.find((agent) => agent.location === 'global');
+    expect(agents).toBeDefined();
+
+    session.isStreaming = true;
+    const updated = await ctx.request('resources.update', {
+      resourceId: agents.id,
+      content: '# Updated while running\\n',
+      directory: ctx.cwd,
+    });
+
+    expect(updated.deferred).toBe(true);
+    expect(updated.agents.find((agent) => agent.id === agents.id)).toMatchObject({
+      id: agents.id,
+      content: '# Updated while running\\n',
+    });
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+    await expect(readFile(join(ctx.agentDir, 'AGENTS.md'), 'utf8')).resolves.toBe('# Updated while running\\n');
+
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => ctx.runtimeState.disposeCount).toBe(1);
+    expect(ctx.runtimeState.createCount).toBe(2);
+  });
+
+  it('waits for an accepted prompt to finish before recreating the runtime', async () => {
+    const session = new FakeSession();
+    let finishPrompt;
+    session.promptImpl = () => new Promise((resolve) => { finishPrompt = resolve; });
+    const ctx = await startDaemon({ session });
+    await ctx.request('resources.list', { directory: ctx.cwd });
+    await expect(ctx.request('sessions.prompt', { sessionId: session.sessionId, text: '/hold', directory: ctx.cwd })).resolves.toMatchObject({ accepted: true });
+
+    const listed = await ctx.request('resources.list', { directory: ctx.cwd });
+    const agents = listed.agents.find((agent) => agent.location === 'global');
+    const updated = await ctx.request('resources.update', {
+      resourceId: agents.id,
+      content: '# Updated after prompt acceptance\\n',
+      directory: ctx.cwd,
+    });
+    expect(updated.deferred).toBe(true);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+
+    finishPrompt();
+    await expect.poll(() => ctx.runtimeState.disposeCount).toBe(1);
   });
 
   it('defers reload while a non-streaming slash command is still executing', async () => {

@@ -3,6 +3,7 @@ import { devtools } from "zustand/middleware";
 
 import { piClient } from "@/lib/pi/client";
 import { getRuntimeKey } from "@/lib/runtime-switch";
+import { isSessionBusyError } from "@/lib/pi/mutation-status";
 import { invalidateCommandCatalogCache } from "@/lib/pi/commandCatalog";
 
 export type PromptTemplateLocation = "global" | "project" | "package" | "path";
@@ -25,6 +26,8 @@ interface PromptTemplateDraft {
   description?: string;
 }
 
+type PromptMutationResult = boolean | 'deferred' | 'busy';
+
 interface PromptTemplatesStore {
   prompts: PromptTemplate[];
   isLoading: boolean;
@@ -43,7 +46,7 @@ interface PromptTemplatesStore {
       location: PromptTemplateScopeFilter;
       directory?: string;
     },
-  ) => Promise<boolean>;
+  ) => Promise<PromptMutationResult>;
   updatePrompt: (
     id: string,
     updates: {
@@ -53,8 +56,8 @@ interface PromptTemplatesStore {
       location?: PromptTemplateScopeFilter;
     },
     directory?: string,
-  ) => Promise<boolean>;
-  deletePrompt: (id: string, directory?: string) => Promise<boolean>;
+  ) => Promise<PromptMutationResult>;
+  deletePrompt: (id: string, directory?: string) => Promise<PromptMutationResult>;
   getPromptById: (id: string) => PromptTemplate | undefined;
 }
 
@@ -232,7 +235,7 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
             directory,
             { runtimeKey },
           );
-          if (getRuntimeKey() !== runtimeKey) return false;
+          if (getRuntimeKey() !== runtimeKey) return response.deferred === true ? "deferred" : true;
           const cacheKey = promptTemplatesCacheKey(runtimeKey, directory);
           const prompts = toPrompts(response);
           bumpRevision(cacheKey);
@@ -255,9 +258,9 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
           invalidateCommandCatalogCache(
             options.location === "global" ? null : directory,
           );
-          return true;
-        } catch {
-          return false;
+          return response.deferred === true ? "deferred" : true;
+        } catch (error) {
+          return isSessionBusyError(error) ? 'busy' : false;
         }
       },
       updatePrompt: async (id, updates, directory?: string) => {
@@ -288,7 +291,7 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
             wantedDirectory,
             { runtimeKey },
           );
-          if (getRuntimeKey() !== runtimeKey) return false;
+          if (getRuntimeKey() !== runtimeKey) return response.deferred === true ? "deferred" : true;
           const cacheKey = promptTemplatesCacheKey(runtimeKey, wantedDirectory);
           const prompts = toPrompts(response);
           bumpRevision(cacheKey);
@@ -308,9 +311,9 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
               ? null
               : wantedDirectory,
           );
-          return true;
-        } catch {
-          return false;
+          return response.deferred === true ? "deferred" : true;
+        } catch (error) {
+          return isSessionBusyError(error) ? 'busy' : false;
         }
       },
       deletePrompt: async (id, directory?: string) => {
@@ -328,7 +331,7 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
             wantedDirectory,
             { runtimeKey },
           );
-          if (getRuntimeKey() !== runtimeKey) return false;
+          if (getRuntimeKey() !== runtimeKey) return response.deferred === true ? "deferred" : true;
           const cacheKey = promptTemplatesCacheKey(runtimeKey, wantedDirectory);
           const prompts = toPrompts(response);
           bumpRevision(cacheKey);
@@ -343,9 +346,9 @@ export const usePromptTemplatesStore = create<PromptTemplatesStore>()(
           invalidateCommandCatalogCache(
             prompt.location === "global" ? null : wantedDirectory,
           );
-          return true;
-        } catch {
-          return false;
+          return response.deferred === true ? "deferred" : true;
+        } catch (error) {
+          return isSessionBusyError(error) ? 'busy' : false;
         }
       },
       getPromptById: (id) =>

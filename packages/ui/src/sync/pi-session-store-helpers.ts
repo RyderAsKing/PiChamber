@@ -144,6 +144,10 @@ export const mergeHydratedSession = (
     existing.lifecycle === 'busy' || existing.lifecycle === 'retry';
   const preserveExisting =
     liveTurn || existing.lastSequence > fetched.lastSequence;
+  // A fetch can finish behind an already accepted live extension event. The
+  // detail response has no way to represent that newer event, so do not let
+  // stale hydration erase the status that the user is looking at.
+  const preserveExistingExtensionState = existing.lastSequence > fetched.lastSequence;
   const preservePagedHistory = fetched.hasMoreBefore === true && existing.messages.size > 0;
   if (existing.messages.size === 0 && !preserveExisting) return fetched;
 
@@ -174,6 +178,23 @@ export const mergeHydratedSession = (
     ...(existing.thinking && (preserveExisting || !fetched.thinking)
       ? { thinking: existing.thinking }
       : {}),
+    ...(preserveExistingExtensionState
+      ? {
+          extensionStatuses: existing.extensionStatuses,
+          extensionWidgets: existing.extensionWidgets,
+          extensionDialogs: existing.extensionDialogs,
+          extensionPanels: existing.extensionPanels,
+          extensionApps: existing.extensionApps,
+          extensionTitle: existing.extensionTitle,
+        }
+      : {}),
+    // These fields are local live state rather than part of the session detail
+    // response. Hydration must not reset them, regardless of fetched sequence.
+    extensionNotices: existing.extensionNotices,
+    extensionErrors: existing.extensionErrors,
+    extensionCatalogRevision: existing.extensionCatalogRevision,
+    sessionTreeRevision: existing.sessionTreeRevision,
+    extensionEditor: existing.extensionEditor,
   };
   if (preserveExisting || preservePagedHistory) {
     for (const [id, message] of existing.messages) {

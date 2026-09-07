@@ -322,7 +322,7 @@ const projectProviders = (value) => {
 
 const projectProviderConfig = (value) => {
   const config = value?.config;
-  if (config === null) return { config: null };
+  if (config === null) return { config: null, ...(value?.deferred === true ? { deferred: true } : {}) };
   if (!config || typeof config !== 'object' || typeof config.providerId !== 'string' || typeof config.label !== 'string'
     || typeof config.baseUrl !== 'string' || typeof config.api !== 'string' || !Array.isArray(config.models)) throw protocolMismatch();
   return {
@@ -342,6 +342,7 @@ const projectProviderConfig = (value) => {
         };
       }),
     },
+    ...(value?.deferred === true ? { deferred: true } : {}),
   };
 };
 
@@ -390,7 +391,10 @@ const projectPiSettings = (value) => {
     ...(typeof settings.defaultThinking === 'string' ? { defaultThinking: settings.defaultThinking } : {}),
     ...(typeof settings.defaultProjectTrust === 'string' ? { defaultProjectTrust: settings.defaultProjectTrust } : {}),
   });
-  return { pi: { global: copy(value.global), project: { trusted: project.trusted, ...(project.denied === true ? { denied: true } : {}), ...(project.requiresTrust === true ? { requiresTrust: true } : {}), ...copy(project) } } };
+  return {
+    pi: { global: copy(value.global), project: { trusted: project.trusted, ...(project.denied === true ? { denied: true } : {}), ...(project.requiresTrust === true ? { requiresTrust: true } : {}), ...copy(project) } },
+    ...(value.deferred === true ? { deferred: true } : {}),
+  };
 };
 
 const projectResources = (value) => {
@@ -411,7 +415,12 @@ const projectResources = (value) => {
       };
     });
   };
-  return { skills: project(value.skills, 'skill'), prompts: project(value.prompts, 'prompt'), agents: project(value.agents, 'agents') };
+  return {
+    skills: project(value.skills, 'skill'),
+    prompts: project(value.prompts, 'prompt'),
+    agents: project(value.agents, 'agents'),
+    ...(value.deferred === true ? { deferred: true } : {}),
+  };
 };
 
 const projectSessionTree = (value) => {

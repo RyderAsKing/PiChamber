@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { hydrateSessionFromDetail } from '@/lib/pi/event-reducer';
 import {
   draftBranchCheckoutReceiptMatches,
   materializeOpenDraftSession,
@@ -183,6 +184,50 @@ describe('routeMessage', () => {
     });
 
     expect(calls).toEqual(['setModel', 'setThinking', 'prompt']);
+  });
+
+  test('reapplies the selected thinking level after changing models', async () => {
+    const sessionId = 'session-direct-mode';
+    const originalState = store.getState();
+    const existing = hydrateSessionFromDetail({
+      session: {
+        id: sessionId,
+        directory: '/workspace',
+        model: { providerId: 'opencode-go', modelId: 'previous-model' },
+        thinking: 'max',
+      },
+      lastSequence: 1,
+      messages: [],
+    }).session;
+    (store as unknown as { state: typeof originalState }).state = {
+      ...originalState,
+      reducer: {
+        ...originalState.reducer,
+        bySession: new Map([[sessionId, existing]]),
+      },
+    };
+
+    const calls: string[] = [];
+    store.setModel = async () => { calls.push('setModel'); };
+    store.setThinking = async () => { calls.push('setThinking'); };
+    store.prompt = async () => {
+      calls.push('prompt');
+      return { accepted: true, messageId: 'message-direct-mode' };
+    };
+
+    try {
+      await routeMessage({
+        sessionId,
+        directory: '/workspace',
+        content: 'hello',
+        providerID: 'openai-codex',
+        modelID: 'gpt-5.6-luna',
+        variant: 'max',
+      });
+      expect(calls).toEqual(['setModel', 'setThinking', 'prompt']);
+    } finally {
+      (store as unknown as { state: typeof originalState }).state = originalState;
+    }
   });
 
   test('does not prompt when setThinking fails', async () => {

@@ -296,11 +296,19 @@ export function createSessionDaemon({
   const settledSendGenerationBySession = new Map();
   // Pi's reload() is identity-preserving but is not safe during a turn,
   // compaction, or an extension command. Prompt writes mark affected busy
-  // runtimes dirty and reload them at the next safe lifecycle edge.
+  // runtimes dirty and reload them at the next safe lifecycle edge. Other
+  // Pi configuration writes queue resident-runtime recreation at that edge.
   const activeSessionInputs = new Map();
   const pendingResourceReloads = new Set();
   const resourceReloadsByRuntime = new Map();
   let resourceReloadQueue = Promise.resolve();
+  // File-backed Pi configuration can be committed while a session is busy,
+  // but replacing all resident runtimes must wait until every active runtime
+  // is idle. The revision lets a second write that arrives during a rebuild
+  // trigger one more rebuild instead of being lost behind the first one.
+  let pendingRuntimeRecreation = false;
+  let runtimeRecreationRevision = 0;
+  let runtimeRecreationTask = null;
   // Pi emits each user message start before its persisted entry is readable.
   // Keep prompt metadata in send order so queued follow-ups cannot attach the
   // next prompt's files to an earlier user message.
@@ -688,6 +696,60 @@ export function createSessionDaemon({
     );
   };
 
+  const activeRuntimes = () => {
+    const runtimes = new Set(runtimeRegistry?.listAll?.() ?? []);
+    if (runtime) runtimes.add(runtime);
+    return [...runtimes];
+  };
+
+  const hasUnsafeRuntime = () => activeRuntimes().some((targetRuntime) => !isRuntimeReloadSafe(targetRuntime));
+
+  const flushPendingRuntimeRecreation = () => {
+    if (!pendingRuntimeRecreation || hasUnsafeRuntime()) return Promise.resolve(false);
+    if (runtimeRecreationTask) return runtimeRecreationTask;
+
+    const task = (async () => {
+      let recreated = false;
+      while (pendingRuntimeRecreation && !hasUnsafeRuntime()) {
+        const revision = runtimeRecreationRevision;
+        servicesCache.clear();
+        await disposeRuntime();
+        if (!pendingRuntimeRecreation) break;
+        await ensureRuntime();
+        recreated = true;
+        if (revision === runtimeRecreationRevision) pendingRuntimeRecreation = false;
+      }
+      return recreated;
+    })();
+    const tracked = task.finally(() => {
+      if (runtimeRecreationTask === tracked) runtimeRecreationTask = null;
+    });
+    runtimeRecreationTask = tracked;
+    return tracked;
+  };
+
+  const scheduleRuntimeRecreation = async () => {
+    const deferred = hasUnsafeRuntime();
+    pendingRuntimeRecreation = true;
+    runtimeRecreationRevision += 1;
+    if (deferred) {
+      void flushPendingRuntimeRecreation().catch(() => {});
+      return true;
+    }
+    try {
+      await flushPendingRuntimeRecreation();
+      while (pendingRuntimeRecreation && !hasUnsafeRuntime()) {
+        await flushPendingRuntimeRecreation();
+      }
+    } catch {
+      // The file write has already committed. Keep the recreation pending so a
+      // later lifecycle edge can retry, and report delayed activation instead
+      // of misreporting the mutation itself as failed.
+      return true;
+    }
+    return pendingRuntimeRecreation;
+  };
+
   const reloadRuntimeResources = (targetRuntime) => {
     const existing = resourceReloadsByRuntime.get(targetRuntime);
     if (existing) return existing;
@@ -737,6 +799,7 @@ export function createSessionDaemon({
       pendingResourceReloads.add(targetRuntime);
       await flushPendingResourceReload(targetRuntime);
     }));
+    return [...candidates].some((targetRuntime) => pendingResourceReloads.has(targetRuntime));
   };
 
   const disposeIdleSessionRuntime = async (sessionId) => {
@@ -1407,6 +1470,13 @@ export function createSessionDaemon({
       || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are invalid.');
     }
+    try {
+      await flushPendingRuntimeRecreation();
+    } catch {
+      // A committed write already queued recreation for a later edge. A
+      // failed rebuild must not fail session creation; creation below
+      // retries runtime startup directly.
+    }
     const targetCwd = await resolveDirectory(payload.cwd);
     await validatePiSessionJsonlDirectory({ cwd: targetCwd, agentDir });
     const parent = payload.parentId === undefined ? undefined : (await findPersistedSession(payload.parentId, targetCwd)).target;
@@ -1482,6 +1552,11 @@ export function createSessionDaemon({
   };
 
   const listProviders = async (requestedDirectory) => {
+    try {
+      await flushPendingRuntimeRecreation();
+    } catch {
+      // A failed rebuild stays queued for a later edge; the ensure below retries startup.
+    }
     const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
     const activeRuntime = await ensureRuntime(targetDir);
     const modelRuntime = activeRuntime.session?.modelRuntime;
@@ -1512,6 +1587,11 @@ export function createSessionDaemon({
 
   let refreshProvidersInflight = null;
   const refreshProviders = async (requestedDirectory) => {
+    try {
+      await flushPendingRuntimeRecreation();
+    } catch {
+      // A failed rebuild stays queued for a later edge; the catalog refresh below retries startup.
+    }
     if (refreshProvidersInflight) return refreshProvidersInflight;
     const task = (async () => {
       const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15_000) : undefined;
@@ -1608,9 +1688,6 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider configuration is invalid.');
     }
     const activeRuntime = await ensureRuntime();
-    if (activeRuntime?.session?.isStreaming) {
-      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Provider configuration cannot change while a session is streaming.');
-    }
     if (typeof activeRuntime?.session?.modelRuntime?.getError?.() === 'string') {
       throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
     }
@@ -1623,15 +1700,10 @@ export function createSessionDaemon({
       }
       throw error;
     }
-    // ModelRuntime snapshots models.json at construction. Rehydrate only while
-    // idle so catalog changes are authoritative immediately and never race a turn.
-    servicesCache.clear();
-    if (activeRuntime) {
-      rememberRuntimeSession();
-      await disposeRuntime();
-      await ensureRuntime();
-    }
-    return { config };
+    // ModelRuntime snapshots models.json at construction. Persist the new
+    // catalog now, then recreate resident runtimes only at a safe edge.
+    const deferred = await scheduleRuntimeRecreation();
+    return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
   const providerStatus = async (providerId) => {
@@ -1821,15 +1893,6 @@ export function createSessionDaemon({
     if (hasTrust && payload.trust !== null && typeof payload.trust !== 'boolean') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The project trust decision is invalid.');
     }
-    if (hasTrust) {
-      const targetRuntimes = runtimeRegistry?.listByDirectory?.(targetDir) ?? [];
-      const inheritsActive = runtime && runtime.cwd === targetDir ? [runtime] : [];
-      const allTarget = targetRuntimes.length > 0 ? targetRuntimes : inheritsActive;
-      const isTargetStreaming = allTarget.some((r) => r.session?.isStreaming);
-      if (isTargetStreaming) {
-        throw new SessionDaemonProtocolError('SESSION_BUSY', 'Project trust cannot change during an active session.');
-      }
-    }
     // Pi settings and trust live under the shared agent directory: read the
     // current files and commit inside the shared lock so concurrent daemons
     // cannot interleave read-modify-write cycles.
@@ -1866,11 +1929,13 @@ export function createSessionDaemon({
       }
       return isTrusted;
     });
-    if (hasTrust && runtime) {
-      await disposeRuntime();
-      await ensureRuntime();
-    }
-    return readPiSettings(targetDir);
+    const deferred = hasTrust && activeRuntimes().length > 0
+      ? await scheduleRuntimeRecreation()
+      : false;
+    return {
+      ...readPiSettings(targetDir),
+      ...(deferred ? { deferred: true } : {}),
+    };
   };
 
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
@@ -1897,6 +1962,14 @@ export function createSessionDaemon({
 
   const resourceCatalog = async (requestedDirectory) => {
     const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    // A settings page may be the first caller after a turn settles without a
+    // lifecycle event reaching this daemon, so give queued configuration a
+    // chance to activate before reading the catalog.
+    try {
+      await flushPendingRuntimeRecreation();
+    } catch {
+      // A failed rebuild stays queued for a later edge; ensureRuntime below retries startup.
+    }
     const activeRuntime = await ensureRuntime(targetDir);
     const loader = activeRuntime?.services?.resourceLoader;
     if (!loader || typeof loader.getSkills !== 'function' || typeof loader.getPrompts !== 'function' || typeof loader.getAgentsFiles !== 'function') {
@@ -1960,14 +2033,19 @@ export function createSessionDaemon({
 
   const finishPromptMutation = async (locations, targetDir) => {
     servicesCache.delete(targetDir);
-    await refreshAffectedPromptRuntimes([...new Set(locations)], targetDir);
-    return resourcesAfterPromptMutation(targetDir);
+    const deferred = await refreshAffectedPromptRuntimes([...new Set(locations)], targetDir);
+    const resources = await resourcesAfterPromptMutation(targetDir);
+    return { ...resources, ...(deferred ? { deferred: true } : {}) };
   };
 
-  const requireIdleResourceMutation = () => {
-    if (runtime?.session?.isStreaming || runtime?.session?.isCompacting) {
-      throw new SessionDaemonProtocolError('SESSION_BUSY', 'Resources cannot change during an active session.');
-    }
+  const resourcesWithUpdatedContent = (catalog, resource, content) => {
+    const resources = publicResources(catalog);
+    const key = resource.kind === 'agents' ? 'agents' : 'prompts';
+    return {
+      ...resources,
+      [key]: resources[key].map((item) => item.id === resource.id ? { ...item, content } : item),
+      deferred: true,
+    };
   };
 
   let resourceMutation = Promise.resolve();
@@ -2014,16 +2092,7 @@ export function createSessionDaemon({
     await rm(temporary, { force: true }).catch(() => {});
   });
 
-  const refreshResources = async (targetDir) => {
-    servicesCache.delete(targetDir || activeDirectory || cwd);
-    if (runtime) {
-      await disposeRuntime();
-      await ensureRuntime();
-    }
-    return publicResources(await resourceCatalog(targetDir));
-  };
-
-  const updateResource = async (payload) => {
+  const updateResource = (payload) => transactResourceMutation(async () => {
     if (!payload || typeof payload.resourceId !== 'string' || typeof payload.content !== 'string' || payload.content.length > 200_000) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
     }
@@ -2031,7 +2100,6 @@ export function createSessionDaemon({
     const catalog = await resourceCatalog(targetDir);
     const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
-    if (resource.kind !== 'prompt') requireIdleResourceMutation();
     let content = payload.content;
     if (resource.kind === 'prompt') {
       const previous = await readFile(resource.filePath, 'utf8').catch((error) => error?.code === 'ENOENT' ? '' : Promise.reject(error));
@@ -2040,8 +2108,11 @@ export function createSessionDaemon({
     }
     await writeResourceFile(resource.filePath, content);
     if (resource.kind === 'prompt') return finishPromptMutation([resource.location], targetDir);
-    return refreshResources(targetDir);
-  };
+
+    const deferred = await scheduleRuntimeRecreation();
+    if (deferred) return resourcesWithUpdatedContent(catalog, resource, content);
+    return publicResources(await resourceCatalog(targetDir));
+  });
 
   const createPrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || !['global', 'project'].includes(payload.location) || typeof payload.name !== 'string' || typeof payload.content !== 'string'
@@ -2484,7 +2555,16 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
-    const activeRuntime = await activateSession(payload.sessionId, payload.directory);
+    let activeRuntime = await activateSession(payload.sessionId, payload.directory);
+    let recreated = false;
+    try {
+      recreated = await flushPendingRuntimeRecreation();
+    } catch {
+      // A failed rebuild stays queued for a later edge. Re-resolve the session so a
+      // disposed runtime is retried instead of prompting on a stale handle.
+      activeRuntime = await activateSession(payload.sessionId, payload.directory);
+    }
+    if (recreated) activeRuntime = await activateSession(payload.sessionId, payload.directory);
     await flushPendingResourceReload(activeRuntime);
     // After a provider stream dies, Pi can report idle while the UI still
     // retries as steer/follow-up. Start a new turn instead of rejecting.
@@ -2608,11 +2688,13 @@ export function createSessionDaemon({
           scheduleIdleDisposal(payload.sessionId);
         }
       });
+      void flushPendingRuntimeRecreation().catch(() => {});
     });
     return { accepted: true, messageId };
     } catch (error) {
       endSessionInput(activeRuntime);
       void flushPendingResourceReload(activeRuntime);
+      void flushPendingRuntimeRecreation().catch(() => {});
       throw error;
     }
   };
@@ -2916,6 +2998,7 @@ export function createSessionDaemon({
             if (!shutdownRequestedBySession.has(sessionId)) scheduleIdleDisposal(sessionId);
           });
         }
+        void flushPendingRuntimeRecreation().catch(() => {});
         break;
       case 'session_info_changed': {
         const title = typeof event.name === 'string' ? event.name.trim() : '';
@@ -2985,6 +3068,7 @@ export function createSessionDaemon({
         if (!event.willRetry) {
           void flushPendingResourceReload(owningRuntime).then(() => scheduleIdleDisposal(sessionId));
         }
+        void flushPendingRuntimeRecreation().catch(() => {});
         break;
       }
       default:
@@ -3524,6 +3608,8 @@ export function createSessionDaemon({
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
+      pendingRuntimeRecreation = false;
+      runtimeRecreationRevision += 1;
       await disposeRuntime();
       server = undefined;
       started = false;

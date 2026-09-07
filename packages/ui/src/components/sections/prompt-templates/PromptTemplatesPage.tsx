@@ -28,6 +28,7 @@ import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
 import { useUIStore } from "@/stores/useUIStore";
 import { useProjectsStore } from "@/stores/useProjectsStore";
 import { updateDesktopSettings } from "@/lib/persistence";
+import { busySettingsMessage, deferredSettingsMessage } from "@/lib/pi/mutation-status";
 import {
   getProjectDraftStarters,
   saveProjectDraftStarters,
@@ -196,7 +197,11 @@ export const PromptTemplatesPage: React.FC = () => {
       directory: effectiveDirectory,
     });
     setSaving(false);
-    if (success) {
+    if (success === 'busy') {
+      toast.info(busySettingsMessage(`Prompt /${normalizedName}`));
+    } else if (success === 'deferred') {
+      toast.info(deferredSettingsMessage(`Prompt /${normalizedName}`));
+    } else if (success) {
       toast.success(`Prompt /${normalizedName} created`);
     } else {
       toast.error("Failed to create prompt template");
@@ -236,7 +241,9 @@ export const PromptTemplatesPage: React.FC = () => {
       effectiveDirectory,
     );
     setSaving(false);
-    if (success) {
+    if (success === 'busy') {
+      toast.info(busySettingsMessage(`Prompt /${normalizedName}`));
+    } else if (success) {
       let startersUpdated = true;
       if (
         previousName &&
@@ -253,7 +260,11 @@ export const PromptTemplatesPage: React.FC = () => {
           startersUpdated = false;
         }
       }
-      toast.success(`Prompt /${normalizedName} updated`);
+      if (success === 'deferred') {
+        toast.info(deferredSettingsMessage(`Prompt /${normalizedName}`));
+      } else {
+        toast.success(`Prompt /${normalizedName} updated`);
+      }
       if (!startersUpdated) {
         toast.warning("The prompt was updated, but one or more pinned starters could not be updated.");
       }
@@ -267,7 +278,12 @@ export const PromptTemplatesPage: React.FC = () => {
     setDeleting(true);
     const success = await deletePrompt(selected.id, effectiveDirectory);
     setDeleting(false);
-    if (success) {
+    if (success === 'busy') {
+      toast.info(busySettingsMessage('Prompt template'));
+    } else if (success === 'deferred') {
+      toast.info(deferredSettingsMessage('Prompt template'));
+      setConfirmDeleteOpen(false);
+    } else if (success) {
       toast.success("Prompt template deleted");
       setConfirmDeleteOpen(false);
     } else {
