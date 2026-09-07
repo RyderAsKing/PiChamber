@@ -88,6 +88,25 @@ describe("PiService", () => {
     expect(JSON.parse(call.init?.body as string)).toEqual({ directory: "/chosen" })
   })
 
+  test("getSessionMessages forwards the page cursor, limit, and owning directory", async () => {
+    installFetchMock(() => jsonResponse({
+      session: { id: "s1", directory: "/other", createdAt: 1, updatedAt: 2 },
+      messages: [],
+      hasMoreBefore: false,
+      lastSequence: 3,
+      isStreaming: false,
+      lifecycle: "idle",
+    }))
+    const result = await new PiService().getSessionMessages(
+      "s1",
+      { before: "entry-5", limit: 25 },
+      { directory: "/other" },
+    )
+    expect(result.hasMoreBefore).toBe(false)
+    expect(recordedCalls()[0].url).toBe("/api/pi/sessions/s1/messages?directory=%2Fother&before=entry-5&limit=25")
+    expect(recordedCalls()[0].init?.method).toBe("GET")
+  })
+
   test("compactSession acknowledges asynchronous compaction and forwards instructions", async () => {
     const client = new PiService()
     await client.compactSession({ sessionId: "s1", customInstructions: "Keep open test failures" })

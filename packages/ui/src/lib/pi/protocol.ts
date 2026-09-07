@@ -70,6 +70,8 @@ export type PiErrorCode =
   | 'DAEMON_PROFILE_IN_USE'
   | 'DAEMON_LOCK_UNAVAILABLE'
   | 'DAEMON_LOCK_TIMEOUT'
+  | 'MALFORMED_DAEMON_RESPONSE'
+  | 'DAEMON_RESPONSE_TOO_LARGE'
   | 'MALFORMED_SESSION_JSONL'
   | 'SESSION_JSONL_UNREADABLE'
   | 'SESSION_IN_USE'
@@ -152,6 +154,10 @@ export interface PiSessionDetailResponse extends Pick<
 > {
   session: PiSession;
   messages: PiMessageView[];
+  /** True when older projected messages remain before this response page. */
+  hasMoreBefore?: boolean;
+  /** Opaque cursor accepted by the older-message endpoint. */
+  beforeCursor?: string;
   /** Last sequence number the daemon has published for this session. */
   lastSequence: number;
   /** True while the daemon still has an in-flight assistant turn. */
@@ -178,6 +184,15 @@ export interface PiNavigationMeta {
 
 export interface PiSessionNavigateResponse extends PiSessionDetailResponse {
   navigation: PiNavigationMeta;
+}
+
+export interface PiSessionMessagesResponse {
+  session: PiSession;
+  messages: PiMessageView[];
+  hasMoreBefore: boolean;
+  beforeCursor?: string;
+  /** Observation time only. A history page does not cover intervening events. */
+  lastSequence: number;
 }
 
 /** A message view returned by the API, including part data. */

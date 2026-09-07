@@ -254,6 +254,8 @@ export const hydrateSessionFromDetail = (
       thinking?: PiThinkingLevel;
     };
     lastSequence: number;
+    hasMoreBefore?: boolean;
+    beforeCursor?: string;
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
     retry?: PiRetryInfo;
@@ -301,6 +303,10 @@ export const hydrateSessionFromDetail = (
   const state = createReducerState();
   const session = getOrCreateSession(state, detail.session.id, detail.session.directory);
   session.lastSequence = detail.lastSequence;
+  session.hasMoreBefore = detail.hasMoreBefore === true;
+  session.beforeCursor = detail.hasMoreBefore === true && typeof detail.beforeCursor === 'string'
+    ? detail.beforeCursor
+    : undefined;
   if (Array.isArray(detail.extensionStatuses)) {
     session.extensionStatuses = new Map(detail.extensionStatuses.map((entry) => [entry.key, entry.text]));
   }
