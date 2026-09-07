@@ -346,12 +346,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['changes', 'flat list', 'tree view'],
   },
   {
-    id: 'git.gitmoji',
-    page: 'git',
-    title: "Enable Gitmoji Picker",
-    keywords: ['commit', 'emoji'],
-  },
-  {
     id: 'git.gitignored-files',
     page: 'git',
     title: "Display Gitignored Files",

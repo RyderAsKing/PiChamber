@@ -280,8 +280,6 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
               }}
               commitAction={commitAction}
               hasPendingIndexMutation={hasPendingIndexMutation}
-              gitmojiEnabled={false}
-              onOpenGitmojiPicker={() => {}}
             />
           </div>
         </div>

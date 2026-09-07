@@ -152,7 +152,7 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   // showExpandedEditTools, desktopWindowControlsPosition/Style,
   // mermaidRenderingMode, userMessageRenderingMode, collapsibleUserMessages,
   // stickyUserHeader, promptNavigatorEnabled, showSplitAssistantMessageActions,
-  // directoryShowHidden, defaultFileViewerPreview.
+  // directoryShowHidden, defaultFileViewerPreview, gitmojiEnabled.
   if (typeof candidate.autoDeleteEnabled === 'boolean') {
     result.autoDeleteEnabled = candidate.autoDeleteEnabled;
   }
@@ -264,9 +264,6 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (typeof candidate.autoCreateWorktree === 'boolean') {
     result.autoCreateWorktree = candidate.autoCreateWorktree;
-  }
-  if (typeof candidate.gitmojiEnabled === 'boolean') {
-    result.gitmojiEnabled = candidate.gitmojiEnabled;
   }
   if (isFollowUpBehavior(candidate.followUpBehavior)) {
     result.followUpBehavior = candidate.followUpBehavior;

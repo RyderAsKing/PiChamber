@@ -107,7 +107,6 @@ export type DesktopSettings = {
   openInAppId?: string;
   followUpBehavior?: 'steer' | 'queue';
   queueModeEnabled?: boolean;
-  gitmojiEnabled?: boolean;
   zenModel?: string;
   gitProviderId?: string;
   gitModelId?: string;

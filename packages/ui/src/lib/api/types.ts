@@ -596,7 +596,6 @@ export interface SettingsPayload {
   sessionRetentionAction?: 'archive' | 'delete';
   followUpBehavior?: 'steer' | 'queue';
   queueModeEnabled?: boolean;
-  gitmojiEnabled?: boolean;
   fontSize?: number;
   terminalFontSize?: number;
   terminalShell?: TerminalShell;

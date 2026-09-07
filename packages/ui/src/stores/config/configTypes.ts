@@ -40,7 +40,6 @@ export interface ConfigStore {
   settingsDefaultThinking: string | undefined;
   settingsDefaultThinkingByModel: Record<string, string>;
   settingsAutoCreateWorktree: boolean;
-  settingsGitmojiEnabled: boolean;
   settingsZenModel: string | undefined;
 
   activateDirectory: (directory: string | null | undefined) => Promise<void>;
@@ -62,7 +61,6 @@ export interface ConfigStore {
   setSettingsDefaultThinking: (thinking: string | undefined) => void;
   setSettingsDefaultThinkingByModel: (map: Record<string, string>) => void;
   setSettingsAutoCreateWorktree: (enabled: boolean) => void;
-  setSettingsGitmojiEnabled: (enabled: boolean) => void;
   setSettingsZenModel: (model: string | undefined) => void;
   getResolvedGitGenerationModel: () => {
     providerId: string;
@@ -96,7 +94,8 @@ declare global {
  * older builds persisted are stripped from both the root state and every
  * directory snapshot and never restored: the config-level agent registry is
  * retired (the daemon exposes no agent list endpoint), so those values are
- * discarded even when older blobs hold non-empty data. Per-session
+ * discarded even when older blobs hold non-empty data. The retired Gitmoji
+ * preference (`settingsGitmojiEnabled`) is stripped the same way. Per-session
  * agent/model/variant maps in `selection-store`/`contextStore` are retained
  * untouched.
  */
@@ -117,6 +116,8 @@ export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
   delete sanitized.runtimeDefaultModel;
   delete sanitized.settingsDefaultFileViewerPreview;
   delete sanitized.defaultFileViewerPreview;
+  delete sanitized.settingsGitmojiEnabled;
+  delete sanitized.gitmojiEnabled;
   const directoryScoped = merged.directoryScoped;
   if (directoryScoped && typeof directoryScoped === 'object') {
     const cleaned: Record<string, DirectoryScopedConfig> = {};

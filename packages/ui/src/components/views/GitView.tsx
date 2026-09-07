@@ -1,13 +1,11 @@
 /* eslint-disable */
 import React from 'react';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { useFireworksCelebration } from '@/contexts/FireworksContext';
 import type { GitIdentityProfile, CommitFileEntry, GitStatus } from '@/lib/api/types';
 import { useGitIdentitiesStore } from '@/stores/useGitIdentitiesStore';
 import { useShallow } from 'zustand/react/shallow';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
-import { useGitmojiList } from '@/hooks/useGitmojiList';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import {
   useGitStore,
@@ -243,13 +241,9 @@ export const GitView: React.FC<GitViewProps> = ({
     return getGitViewSnapshot(currentDirectory);
   }, [currentDirectory]);
 
-  const settingsGitmojiEnabled = useConfigStore((state) => state.settingsGitmojiEnabled);
-  const { gitmojis: gitmojiEmojis } = useGitmojiList(settingsGitmojiEnabled);
-
   const [commitMessage, setCommitMessage] = React.useState(
     initialSnapshot?.commitMessage ?? ''
   );
-  const [isGitmojiPickerOpen, setIsGitmojiPickerOpen] = React.useState(false);
   const actionPanelScrollRef = React.useRef<HTMLDivElement | null>(null);
   const [syncAction, setSyncAction] = React.useState<SyncAction>(null);
   const [isStashesDialogOpen, setIsStashesDialogOpen] = React.useState(false);
@@ -1106,21 +1100,6 @@ export const GitView: React.FC<GitViewProps> = ({
 
   const openStashes = React.useCallback(() => setIsStashesDialogOpen(true), []);
 
-  const handleSelectGitmoji = React.useCallback((emoji: string, code: string) => {
-    const token = code || emoji;
-    setCommitMessage((current) => {
-      const trimmed = current.trimStart();
-      if (trimmed.startsWith(emoji) || (code && trimmed.startsWith(code))) {
-        return current;
-      }
-      const prefix = token.endsWith(' ') ? token : `${token} `;
-      return `${prefix}${current}`.trimStart();
-    });
-    setIsGitmojiPickerOpen(false);
-  }, []);
-
-
-
   const isUncommittedChangesError = React.useCallback((error: unknown): boolean => {
     const message = error instanceof Error ? error.message.toLowerCase() : '';
     return (
@@ -1730,8 +1709,6 @@ export const GitView: React.FC<GitViewProps> = ({
                     onCommitAndPush={() => handleCommit({ pushAfter: true })}
                     commitAction={commitAction}
                     hasPendingIndexMutation={hasPendingIndexMutation}
-                    gitmojiEnabled={settingsGitmojiEnabled}
-                    onOpenGitmojiPicker={() => setIsGitmojiPickerOpen(true)}
                   />
                 </div>
               ) : null}
@@ -1793,10 +1770,6 @@ export const GitView: React.FC<GitViewProps> = ({
           await refreshStatusAndBranches(false);
           await refreshLog();
         }}
-        isGitmojiPickerOpen={isGitmojiPickerOpen}
-        setIsGitmojiPickerOpen={setIsGitmojiPickerOpen}
-        gitmojiEmojis={gitmojiEmojis}
-        onSelectGitmoji={handleSelectGitmoji}
         conflictDialogOpen={conflictDialogOpen}
         setConflictDialogOpen={setConflictDialogOpen}
         conflictFiles={conflictFiles}

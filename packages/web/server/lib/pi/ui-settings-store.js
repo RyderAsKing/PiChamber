@@ -17,7 +17,7 @@ const PORTABLE_SETTINGS_VERSION = 'portable-v1';
 // showExpandedBashTools, showExpandedEditTools, mermaidRenderingMode,
 // userMessageRenderingMode, collapsibleUserMessages, stickyUserHeader,
 // promptNavigatorEnabled, wideChatLayoutEnabled,
-// showSplitAssistantMessageActions, directoryShowHidden,
+// showSplitAssistantMessageActions, directoryShowHidden, gitmojiEnabled,
 // desktopWindowControlsPosition/Style (local). persistChatDraft was local-only
 // UI state and was never part of the server allowlists.
 const PORTABLE_FIELDS = new Set([
@@ -31,7 +31,7 @@ const PORTABLE_FIELDS = new Set([
   'usageSelectedModels', 'usageCollapsedFamilies', 'usageExpandedFamilies', 'usageModelGroups',
   'autoDeleteEnabled', 'autoSaveEnabled', 'autoDeleteAfterDays', 'sessionRetentionAction',
   'defaultModel', 'defaultVariant', 'smallModelUseDefault', 'smallModelOverride',
-  'walkthroughModelOverride', 'followUpBehavior', 'queueModeEnabled', 'gitmojiEnabled',
+  'walkthroughModelOverride', 'followUpBehavior', 'queueModeEnabled',
   'zenModel', 'gitProviderId', 'gitModelId',
   'timeFormatPreference',
   'weekStartPreference',

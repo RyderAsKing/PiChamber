@@ -959,7 +959,9 @@ describe('chat fixed defaults: retired settings cannot override through UIStore'
       mermaidRenderingMode: 'ascii',
       userMessageRenderingMode: 'plain',
       codeBlockLineWrap: false,
+      gitmojiEnabled: true,
       diffLayoutPreference: 'side-by-side',
+      gitChangesViewMode: 'tree',
     }) as unknown as Record<string, unknown> | null;
     expect(sanitized).not.toBe(null);
     for (const key of [
@@ -971,9 +973,11 @@ describe('chat fixed defaults: retired settings cannot override through UIStore'
       'mermaidRenderingMode',
       'userMessageRenderingMode',
       'codeBlockLineWrap',
+      'gitmojiEnabled',
     ]) {
       expect(sanitized?.[key]).toBe(undefined);
     }
     expect(sanitized?.['diffLayoutPreference']).toBe('side-by-side');
+    expect(sanitized?.['gitChangesViewMode']).toBe('tree');
   });
 });

@@ -74,7 +74,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsDefaultThinking: undefined,
                 settingsDefaultThinkingByModel: {},
                 settingsAutoCreateWorktree: false,
-                settingsGitmojiEnabled: false,
                 settingsZenModel: undefined,
 
                 activateDirectory: async (directory) => {
@@ -541,10 +540,6 @@ export const useConfigStore = create<ConfigStore>()(
                     set({ settingsAutoCreateWorktree: enabled });
                 },
 
-                setSettingsGitmojiEnabled: (enabled: boolean) => {
-                    set({ settingsGitmojiEnabled: enabled });
-                },
-
                 setSettingsZenModel: (model: string | undefined) => {
                     set({ settingsZenModel: model });
                 },
@@ -710,7 +705,6 @@ export const useConfigStore = create<ConfigStore>()(
                                 settingsDefaultThinking: openChamberDefaults.defaultThinking,
                                 settingsDefaultThinkingByModel: openChamberDefaults.defaultThinkingByModel ?? {},
                                 settingsAutoCreateWorktree: openChamberDefaults.autoCreateWorktree ?? false,
-                                settingsGitmojiEnabled: openChamberDefaults.gitmojiEnabled ?? false,
                                 settingsZenModel: resolvedZenModel,
                             });
                             if (resolvedZenModel && resolvedZenModel !== defaultZenModel) {
@@ -847,7 +841,6 @@ export const useConfigStore = create<ConfigStore>()(
                     settingsDefaultThinking: state.settingsDefaultThinking,
                     settingsDefaultThinkingByModel: state.settingsDefaultThinkingByModel,
                     settingsAutoCreateWorktree: state.settingsAutoCreateWorktree,
-                    settingsGitmojiEnabled: state.settingsGitmojiEnabled,
                     settingsZenModel: state.settingsZenModel,
                 }),
              },

@@ -110,6 +110,7 @@ describe('Pi UI settings store', () => {
       wideChatLayoutEnabled: true,
       showSplitAssistantMessageActions: true,
       directoryShowHidden: false,
+      gitmojiEnabled: true,
     };
     const retiredLocal = {
       desktopWindowControlsPosition: 'left',
@@ -121,12 +122,16 @@ describe('Pi UI settings store', () => {
       themeId: 'nord',
       diffLayoutPreference: 'side-by-side',
       draftStartersVisible: false,
+      gitChangesViewMode: 'tree',
+      autoCreateWorktree: true,
       ...retiredPortable,
       ...retiredLocal,
     })).resolves.toMatchObject({
       themeId: 'nord',
       diffLayoutPreference: 'side-by-side',
       draftStartersVisible: false,
+      gitChangesViewMode: 'tree',
+      autoCreateWorktree: true,
     });
     const readBack = await store.read();
     for (const key of [...Object.keys(retiredPortable), ...Object.keys(retiredLocal)]) {
@@ -135,6 +140,8 @@ describe('Pi UI settings store', () => {
     expect(readBack.themeId).toBe('nord');
     expect(readBack.diffLayoutPreference).toBe('side-by-side');
     expect(readBack.draftStartersVisible).toBe(false);
+    expect(readBack.gitChangesViewMode).toBe('tree');
+    expect(readBack.autoCreateWorktree).toBe(true);
     // Retired keys never reach either backing file.
     const portable = await readJson(file);
     const runtime = await readJson(runtimeFile);
