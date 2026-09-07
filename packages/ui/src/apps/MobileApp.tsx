@@ -54,9 +54,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   const isConnected = useConfigStore((state) => state.isConnected);
   const connectionPhase = useConfigStore((state) => state.connectionPhase);
   const providersCount = useConfigStore((state) => state.providers.length);
-  const agentsCount = useConfigStore((state) => state.agents.length);
   const loadProviders = useConfigStore((state) => state.loadProviders);
-  const loadAgents = useConfigStore((state) => state.loadAgents);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const error = useSessionUIStore((state) => state.error);
   const clearError = useSessionUIStore((state) => state.clearError);
@@ -105,7 +103,6 @@ export function MobileApp({ apis }: MobileAppProps) {
     const refreshInPlace = () => {
       void initializeApp();
       if (providersCount === 0) void loadProviders({ source: 'mobileApp:nativeResume' });
-      if (agentsCount === 0) void loadAgents({ source: 'mobileApp:nativeResume' });
     };
     const disconnect = () => {
       switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
@@ -157,7 +154,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       lastNativeResumeSyncEventAtRef.current = now;
       window.dispatchEvent(new Event('pichamber:system-resume'));
     }
-  }, [agentsCount, initializeApp, loadAgents, loadProviders, providersCount]);
+  }, [initializeApp, loadProviders, providersCount]);
 
   useNativeMobileChrome();
   useNativeMobileLifecycle(handleNativeResume);
@@ -328,8 +325,7 @@ export function MobileApp({ apis }: MobileAppProps) {
   React.useEffect(() => {
     if (!isConnected) return;
     if (providersCount === 0) void loadProviders({ source: 'mobileApp:recovery' });
-    if (agentsCount === 0) void loadAgents({ source: 'mobileApp:recovery' });
-  }, [agentsCount, isConnected, loadAgents, loadProviders, providersCount]);
+  }, [isConnected, loadProviders, providersCount]);
 
   // Cold-launch continuity: after the launch instance connects, reopen the
   // session that was open on this instance last time — but only after an

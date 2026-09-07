@@ -1,13 +1,10 @@
 import React from 'react';
-import type { SessionStatus } from '@/lib/chat/types';
 import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useContextStore } from '@/stores/contextStore';
-import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { getDirectoryState } from '@/sync/sync-refs';
-import { useDirectorySync } from '@/sync/sync-context';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 
@@ -82,14 +79,13 @@ export const buildQueuedAutoSendPayload = (queue: QueuedMessage[]) => {
     return null;
   }
 
-  const agents = useConfigStore.getState().getVisibleAgents();
-  const { sanitizedText, mention } = parseAgentMentions(queued.content, agents);
-
+  // No generic-agent registry exists (the Pi daemon exposes no agent list
+  // endpoint), so queued content carries no agent mention to parse.
   return {
     queuedMessageId: queued.id,
-    primaryText: sanitizedText,
+    primaryText: queued.content,
     primaryAttachments: queued.attachments ?? [],
-    agentMentionName: mention?.name,
+    agentMentionName: undefined,
     sendConfig: queued.sendConfig,
   };
 };
@@ -129,7 +125,6 @@ const resolveSessionSendConfig = (sessionId: string) => {
   const selectedAgent =
     context.getSessionAgentSelection(sessionId)
     ?? context.getCurrentAgent(sessionId)
-    ?? config.currentAgentName
     ?? undefined;
 
   const sessionModel = context.getSessionModelSelection(sessionId);
@@ -210,11 +205,6 @@ export const resolveQueuedSessionStatusType = (
 export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?: boolean }) {
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (enabledOrOptions?.enabled ?? true);
   const queuedMessages = useMessageQueueStore((state) => state.queuedMessages);
-  const sessionStatusRecord = useDirectorySync<Record<string, SessionStatus>>((state) => state.session_status);
-  // Message completion clears the in-flight fallback in
-  // resolveQueuedSessionStatusType; subscribe so the queue drains the moment
-  // the trailing assistant message completes even if status events were missed.
-  const sessionMessages = useDirectorySync((state) => state.message);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
 
   const inFlightSessionsRef = React.useRef<Set<string>>(new Set());
@@ -312,13 +302,7 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       }
     };
 
-    const statusRecord = sessionStatusRecord ?? {};
     const nextStatusMap = new Map(previousStatusRef.current);
-    for (const [sessionId, status] of Object.entries(statusRecord)) {
-      if (status) {
-        nextStatusMap.set(sessionId, status.type as SessionStatusType);
-      }
-    }
 
     const queueEntries = Object.entries(queuedMessages);
     queueEntries.forEach(([key, queue]) => {
@@ -339,5 +323,5 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
     });
 
     previousStatusRef.current = nextStatusMap;
-  }, [enabled, queuedMessages, sessionStatusRecord, sessionMessages, currentDirectory, retryTick, retryScheduler]);
+  }, [enabled, queuedMessages, currentDirectory, retryTick, retryScheduler]);
 }

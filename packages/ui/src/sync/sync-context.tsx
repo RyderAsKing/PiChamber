@@ -1,29 +1,24 @@
-/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useCallback, useMemo, useRef } from 'react';
-import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
-import type { Message, Part, PermissionRequest, QuestionRequest, Session, SessionStatus } from '@/lib/chat/types';
+import type { Message, Part, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import type { PiErrorCode } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
-import { mapPiSessionList } from './sync-refs';
 import {
-  catalogLiveSessionIdsKey,
   listUiSessionsFromCatalog,
   liveSessionRecordToUiSession,
   uiSessionListEqual,
   type LiveSessionLifecycle,
 } from './pi-session-catalog';
 import { selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
-import { INITIAL_STATE, type State } from './types';
 
 const IDLE: SessionStatus = { type: 'idle' };
 const BUSY: SessionStatus = { type: 'busy' };
 const RETRY: SessionStatus = { type: 'retry' };
 const retryStatusByInfo = new WeakMap<PiRetryInfo, SessionStatus>();
-const EMPTY_PERMISSIONS: PermissionRequest[] = [];
-const EMPTY_QUESTIONS: QuestionRequest[] = [];
 const EMPTY_USER_HISTORY: string[] = [];
 const EMPTY_MESSAGE_RECORDS: ReturnType<typeof piProjectedToRecords> = [];
 const READY_LOAD_STATE = {
@@ -40,13 +35,6 @@ const TOPIC_CATALOG = 'catalog';
 const TOPIC_CHROME = 'chrome';
 /** Build the per-session topic key for `usePiSessionSnapshot`. */
 const sessionTopic = (sessionId: string) => `session:${sessionId}` as const;
-
-const directoryStateFromPi = (state: PiSessionStoreState): State => ({
-  ...INITIAL_STATE,
-  status: 'complete',
-  session: mapPiSessionList(state.sessions),
-  sessionTotal: state.sessions.length,
-});
 
 const sessionStatusFromLifecycle = (
   lifecycle: LiveSessionLifecycle | undefined,
@@ -75,63 +63,16 @@ export function useCatalogUiSessions(options?: { archived?: boolean; directory?:
 export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
   return useSessionStatus(sessionID, directory);
 }
-export function useAllSessionStatuses(): Record<string, SessionStatus> {
-  const signature = usePiSessionSnapshot((state) => catalogLiveSessionIdsKey(state.catalog), undefined, TOPIC_CATALOG);
-  const catalog = usePiSessionSnapshot((state) => state.catalog, undefined, TOPIC_CATALOG);
-  return useMemo(() => {
-    if (!signature) return {};
-    const statuses: Record<string, SessionStatus> = {};
-    for (const part of signature.split('|')) {
-      const record = catalog.byId.get(part);
-      statuses[part] = sessionStatusFromLifecycle(record?.lifecycle);
-    }
-    return statuses;
-  }, [catalog, signature]);
-}
-export function useAllLiveSessions(): Session[] {
-  return useCatalogUiSessions({ archived: false });
-}
 export function setActiveSession(directory: string, sessionId: string) {
   // Cross-folder select is a runtime-cluster focus change, never a
   // teardown. `select` itself focuses the new directory without disposing
   // the stream or dropping other folders' hydrated transcripts.
   void getPiSessionStore().select(sessionId, directory || undefined);
 }
-export function setExternallyViewedSession(_directory: string, _sessionId: string, _viewed: boolean) {}
-
-const buildPiDirectoryState = (): State => directoryStateFromPi(getPiSessionStore().getState());
-
-const piDirectoryChildStore = {
-  // Topic-scoped subscribe: legacy callers that consume this child store
-  // (e.g. `useDirectorySync`) only need chrome — directory focus,
-  // session list status, connection, error. Token deltas on background
-  // sessions should not wake that path.
-  subscribe: (listener: () => void) => getPiSessionStore().subscribe(listener, TOPIC_CHROME),
-  getState: buildPiDirectoryState,
-};
-
-export function useDirectoryStore(_directory?: string, _options?: { bootstrap?: boolean }) {
-  return piDirectoryChildStore;
-}
-
-export function useDirectorySync<T>(
-  selector: (state: any) => T,
-  _directory?: string,
-  isEqual?: (a: T, b: T) => boolean,
-): T {
-  // The child-store path subscribes on `chrome` only — directory focus,
-  // session list status, connection. Token deltas on background sessions
-  // must not wake callers of this hook.
-  return usePiSessionSnapshot((state) => selector(directoryStateFromPi(state)), isEqual, TOPIC_CHROME);
-}
 
 export function useSessionMessages(sessionID: string, _directory?: string) {
   const records = useSessionMessageRecords(sessionID);
   return useMemo(() => records.map((record) => record.info), [records]);
-}
-
-export function useSessionMessagesResolved(_sessionID: string, _directory?: string): boolean {
-  return true;
 }
 
 /**
@@ -232,13 +173,6 @@ export function useSessionCompaction(sessionID: string): PiCompactionInfo | null
   );
 }
 
-export function useSessionPermissions(_sessionID: string, _directory?: string): PermissionRequest[] {
-  return EMPTY_PERMISSIONS;
-}
-export function useSessionQuestions(_sessionID: string, _directory?: string): QuestionRequest[] {
-  return EMPTY_QUESTIONS;
-}
-export function useSessionQuestionCount(_scopes?: unknown) { return 0; }
 export function useSessions(): Session[] {
   // Directory pointer lives on `chrome`; the catalog-driven list comes
   // from `useCatalogUiSessions` on `catalog`. Both are needed because
@@ -246,15 +180,6 @@ export function useSessions(): Session[] {
   // would miss list/title/membership updates.
   const directory = usePiSessionSnapshot((state) => state.directory, undefined, TOPIC_CHROME);
   return useCatalogUiSessions({ archived: false, directory: directory || null });
-}
-export function useScopedBlockingPermissions(): PermissionRequest[] {
-  return EMPTY_PERMISSIONS;
-}
-export function useScopedBlockingQuestions(): QuestionRequest[] {
-  return EMPTY_QUESTIONS;
-}
-export function useParentSession(): Session | null {
-  return null;
 }
 export function useSession(sessionID?: string | null, _directory?: string): Session | undefined {
   // Subscribe to the collection, then look the id up in the hook body.
@@ -277,19 +202,6 @@ export function useSessionDirectory(sessionID?: string | null): string | undefin
 export function useSyncDirectory(): string {
   return usePiSessionSnapshot((state) => state.directory ?? '', undefined, TOPIC_CHROME);
 }
-const noopUnsubscribe = () => undefined;
-const piChildStoreManager = {
-  children: new Map<string, unknown>(),
-  getState: () => undefined,
-  setBootstrapDemand: (_owner?: string, _demand?: unknown) => undefined,
-  clearBootstrapDemand: (_owner?: string) => undefined,
-  subscribeBootstrap: (_notify: () => void) => noopUnsubscribe,
-  getBootstrapState: (_directory?: string) => 'ready' as const,
-  getBootstrapFailure: (_directory?: string) => undefined as string | undefined,
-  requestBootstrap: (_options?: unknown) => undefined,
-  ensureChild: (_directory?: string, _options?: unknown) => piDirectoryChildStore,
-};
-
 export function useSessionMessageLoadState(sessionID: string, _directory?: string) {
   // Load state is a chrome signal — it depends on `hydratedSessionIds`,
   // `selectedSessionId`, `connection`, and `error`. Token deltas on
@@ -326,12 +238,6 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
     };
   }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById]);
 }
-
-export function useChildStoreManager() {
-  return piChildStoreManager;
-}
-
-export function buildSessionMessageRecordsSnapshot(_state?: any, _sessionId?: any) { return { list: [] as any[] }; }
 
 export function useSessionRenderable(sessionID: string, _directory?: string): boolean {
   const hydratedSessionIds = usePiSessionSnapshot((state) => state.hydratedSessionIds, undefined, TOPIC_CHROME);

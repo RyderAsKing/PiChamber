@@ -8,7 +8,6 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
-import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 
 export const useMiniChatKeyboardShortcuts = () => {
@@ -64,16 +63,7 @@ export const useMiniChatKeyboardShortcuts = () => {
         }
 
         event.preventDefault();
-        void cycleComposerThinking(1).then((nextVariant) => {
-          const sessionId = useSessionUIStore.getState().currentSessionId;
-          const agentName = useConfigStore.getState().currentAgentName;
-          const providerId = useConfigStore.getState().currentProviderId;
-          const modelId = useConfigStore.getState().currentModelId;
-
-          if (sessionId && agentName && providerId && modelId) {
-            useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
-          }
-        }).catch(() => {
+        void cycleComposerThinking(1).catch(() => {
           toast.error("Couldn't update thinking");
         });
         return;

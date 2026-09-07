@@ -1,21 +1,16 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
-import type { Agent, Message } from '@/lib/chat/types';
+import type { Message } from '@/lib/chat/types';
 import type { QueuedMessage } from '../stores/messageQueueStore';
 
-let visibleAgents: Agent[] = [];
 const sendMessageCalls: unknown[][] = [];
 
 // Directory-scoped state backing `getDirectoryState` — the seam the queue
 // gate reads session activity from.
 let directoryState: Record<string, unknown> | undefined;
 
-const getVisibleAgentsMock = mock(() => visibleAgents);
-
 mock.module('@/stores/useConfigStore', () => ({
   useConfigStore: {
-    getState: () => ({
-      getVisibleAgents: getVisibleAgentsMock,
-    }),
+    getState: () => ({}),
   },
 }));
 
@@ -173,7 +168,6 @@ describe('resolveQueuedSessionStatusType', () => {
 
 describe('buildQueuedAutoSendPayload', () => {
   beforeEach(() => {
-    visibleAgents = [];
     sendMessageCalls.length = 0;
   });
 
@@ -199,16 +193,7 @@ describe('buildQueuedAutoSendPayload', () => {
     expect(payload?.primaryAttachments).toEqual([]);
   });
 
-  test('uses the configured visible agents when parsing queued mentions', () => {
-    visibleAgents = [
-      {
-        name: 'Builder',
-        mode: 'subagent',
-        permission: [],
-        options: {},
-      } as Agent,
-    ];
-
+  test('passes queued content through with no agent mention', () => {
     const queue: QueuedMessage[] = [
       {
         id: 'queued-mention',
@@ -220,7 +205,7 @@ describe('buildQueuedAutoSendPayload', () => {
     const payload = buildQueuedAutoSendPayload(queue);
 
     expect(payload).not.toBeNull();
-    expect(payload?.agentMentionName).toBe('Builder');
+    expect(payload?.agentMentionName).toBe(undefined);
     expect(payload?.primaryText).toBe('@Builder please take this');
   });
 

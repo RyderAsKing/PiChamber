@@ -91,15 +91,10 @@ export type DirState = {
 }
 
 /**
- * Directories touched within this window are never overflow-eviction victims.
- *
- * Sidebar rows call `ensureChild` during render but only take their pin in an
- * effect after commit. Without a grace window, expanding a project with more
- * worktrees than `MAX_DIR_STORES` evicted directories that were actively
- * rendering, which recreated them, which issued another bootstrap request, in
- * an endless loop (issue #1472). The limit is therefore a soft target: a burst
- * of live directories overflows briefly rather than thrashing, and the cache is
- * bounded by idle-time eviction instead.
+ * Retired per-directory child-store pin/eviction window (`ensureChild`,
+ * `MAX_DIR_STORES`) was removed with `ChildStoreManager`. The Pi cluster caps
+ * transcripts via LRU (see `sync/DOCUMENTATION.md`); folder focus never
+ * disposes the shared stream.
  */
 
 export const INITIAL_STATE: State = {

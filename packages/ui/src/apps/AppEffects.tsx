@@ -4,10 +4,7 @@ import { usePwaManifestSync } from '@/hooks/usePwaManifestSync';
 import { useQueuedMessageAutoSend } from '@/hooks/useQueuedMessageAutoSend';
 import { useSessionAutoCleanup } from '@/hooks/useSessionAutoCleanup';
 import { useWindowControlsOverlayLayout } from '@/hooks/useWindowControlsOverlayLayout';
-import { setOptimisticRefs } from '@/sync/session-actions';
 import { markSessionViewed } from '@/sync/notification-store';
-import { setExternallyViewedSession } from '@/sync/sync-context';
-import { useSync } from '@/sync/use-sync';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -26,26 +23,6 @@ type MiniChatPresenceMessage = {
   viewed?: boolean;
 };
 
-const SyncOptimisticBridge: React.FC = () => {
-  const sync = useSync();
-  const addRef = React.useRef(sync.optimistic.add);
-  const removeRef = React.useRef(sync.optimistic.remove);
-  const confirmRef = React.useRef(sync.optimistic.confirm);
-  addRef.current = sync.optimistic.add;
-  removeRef.current = sync.optimistic.remove;
-  confirmRef.current = sync.optimistic.confirm;
-
-  React.useEffect(() => {
-    setOptimisticRefs(
-      (input) => addRef.current(input),
-      (input) => removeRef.current(input),
-      (input) => confirmRef.current(input),
-    );
-  }, []);
-
-  return null;
-};
-
 const MiniChatPresenceBridge: React.FC = () => {
   React.useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
@@ -58,7 +35,6 @@ const MiniChatPresenceBridge: React.FC = () => {
       }
 
       const viewed = data.viewed !== false;
-      setExternallyViewedSession(data.directory, data.sessionId, viewed);
       if (viewed) {
         markSessionViewed(data.sessionId);
       }
@@ -76,7 +52,7 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
   useSessionAutoCleanup(embeddedBackgroundWorkEnabled);
   useQueuedMessageAutoSend(embeddedBackgroundWorkEnabled);
 
-  return <SyncOptimisticBridge />;
+  return null;
 }
 
 /**

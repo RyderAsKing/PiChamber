@@ -2,8 +2,6 @@ import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 import type { ModelMetadata } from "@/types";
 import { createDeferredSafeJSONStorage } from "./utils/safeStorage";
-import { useSessionUIStore } from "@/sync/session-ui-store";
-import { useSelectionStore } from "@/sync/selection-store";
 import { updateDesktopSettings } from "@/lib/persistence";
 import { useDirectoryStore } from "@/stores/useDirectoryStore";
 import { useProjectsStore } from "@/stores/useProjectsStore";
@@ -22,25 +20,18 @@ import {
 } from "./config/directoryScope";
 import {
     ADD_PROVIDER_SENTINEL,
-    asConfigAgent,
-    hasProviderModel,
     normalizeOptionalString,
     parseModelString,
-    preserveAddProviderSelection,
-    resolveDefaultAgentModelSelection,
     resolveGitGenerationModelSelection,
     resolveProviderModelSelection,
-    resolveSelectionWithManualGuard,
     resolveThinkingVariant,
     sanitizePersistedSelectedProviderId,
 } from "./config/selection";
 import {
     type ConfigStore,
     type DirectoryScopedConfig,
-    createEmptyDirectoryScopedConfig,
     hydrateActiveDirectorySnapshot,
     _providersLoadedAt,
-    _agentsLoadedAt,
     isConfigFresh,
     PROJECT_CONFIG_PREWARM_DELAY_MS,
 } from "./config/configTypes";
@@ -48,15 +39,13 @@ import { checkPiHealth, probePiHealth } from "./config/configConnection";
 import { setupConfigStoreSubscribers } from "./config/configSubscribers";
 import { fetchAndProcessProviders } from "./config/configLoaders";
 import { markStartupTrace, measureStartupTrace } from "@/lib/startupTrace";
-import { getSyncConfig } from "@/sync/sync-refs";
 
 export type { ConfigStore, DirectoryScopedConfig };
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// In-flight dedup: prevent concurrent duplicate loadProviders/loadAgents calls for the same directory
+// In-flight dedup: prevent concurrent duplicate loadProviders calls for the same directory
 const _inFlightProviders = new Map<string, Promise<void>>();
-const _inFlightAgents = new Map<string, Promise<boolean>>();
 let _initializeAppInFlight: Promise<void> | null = null;
 
 export const useConfigStore = create<ConfigStore>()(
@@ -68,13 +57,10 @@ export const useConfigStore = create<ConfigStore>()(
                 directoryScoped: {},
 
                 providers: [],
-                agents: [],
                 currentProviderId: "",
                 currentModelId: "",
                 currentVariant: undefined,
-                currentAgentName: undefined,
                 selectedProviderId: "",
-                agentModelSelections: {},
                 defaultProviders: {},
                 selectionSource: "auto",
                 isConnected: false,
@@ -87,8 +73,6 @@ export const useConfigStore = create<ConfigStore>()(
                 settingsDefaultVariant: undefined,
                 settingsDefaultThinking: undefined,
                 settingsDefaultThinkingByModel: {},
-                runtimeDefaultAgent: undefined,
-                runtimeDefaultModel: undefined,
                 settingsAutoCreateWorktree: false,
                 settingsGitmojiEnabled: false,
                 settingsDefaultFileViewerPreview: false,
@@ -103,26 +87,19 @@ export const useConfigStore = create<ConfigStore>()(
                     }
                     const directoryKey = toDirectoryKey(configDirectory);
                     let snapshotHadProviders = false;
-                    let snapshotHadAgents = false;
 
                     set((state) => {
                         const snapshot = state.directoryScoped[directoryKey];
                         if (snapshot) {
                             snapshotHadProviders = snapshot.providers.length > 0;
-                            snapshotHadAgents = snapshot.agents.length > 0;
                             return {
                                 activeDirectoryKey: directoryKey,
                                 providers: snapshot.providers,
-                                agents: snapshot.agents,
                                 currentProviderId: snapshot.currentProviderId,
                                 currentModelId: snapshot.currentModelId,
                                 currentVariant: snapshot.currentVariant,
-                                currentAgentName: snapshot.currentAgentName,
                                 selectedProviderId: snapshot.selectedProviderId,
-                                agentModelSelections: snapshot.agentModelSelections,
                                 defaultProviders: snapshot.defaultProviders,
-                                runtimeDefaultAgent: snapshot.runtimeDefaultAgent,
-                                runtimeDefaultModel: snapshot.runtimeDefaultModel,
                                 selectionSource: snapshot.selectionSource ?? "auto",
                             };
                         }
@@ -130,15 +107,10 @@ export const useConfigStore = create<ConfigStore>()(
                         return {
                             activeDirectoryKey: directoryKey,
                             providers: [],
-                            agents: [],
                             currentProviderId: "",
                             currentModelId: "",
-                            currentAgentName: undefined,
                             selectedProviderId: "",
-                            agentModelSelections: {},
                             defaultProviders: {},
-                            runtimeDefaultAgent: undefined,
-                            runtimeDefaultModel: undefined,
                             selectionSource: "auto",
                         };
                     });
@@ -156,17 +128,6 @@ export const useConfigStore = create<ConfigStore>()(
                         }
                     } else {
                         await get().loadProviders({ directory: fromDirectoryKey(directoryKey), source: 'activateDirectory' });
-                    }
-
-                    if (snapshotHadAgents) {
-                        if (isConfigFresh(_agentsLoadedAt, directoryKey)) {
-                            markStartupTrace('activateDirectory:agentsFresh', { directoryKey });
-                        } else {
-                            markStartupTrace('activateDirectory:refreshAgentsBackground', { directoryKey });
-                            void get().loadAgents({ directory: fromDirectoryKey(directoryKey), source: 'activateDirectory:refresh' });
-                        }
-                    } else {
-                        await get().loadAgents({ directory: fromDirectoryKey(directoryKey), source: 'activateDirectory' });
                     }
                 },
 
@@ -265,12 +226,9 @@ export const useConfigStore = create<ConfigStore>()(
                             set((state) => {
                                 const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                                     providers: [],
-                                    agents: [],
                                     currentProviderId: "",
                                     currentModelId: "",
-                                    currentAgentName: undefined,
                                     selectedProviderId: "",
-                                    agentModelSelections: {},
                                     defaultProviders: {},
                                 };
 
@@ -367,12 +325,9 @@ export const useConfigStore = create<ConfigStore>()(
                     set((state) => {
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                             providers: [],
-                            agents: [],
                             currentProviderId: "",
                             currentModelId: "",
-                            currentAgentName: undefined,
                             selectedProviderId: "",
-                            agentModelSelections: {},
                             defaultProviders: {},
                         };
 
@@ -438,13 +393,10 @@ export const useConfigStore = create<ConfigStore>()(
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                             providers: state.providers,
-                            agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
                             currentVariant: state.currentVariant,
-                            currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
 
@@ -474,13 +426,10 @@ export const useConfigStore = create<ConfigStore>()(
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                             providers: state.providers,
-                            agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
                             currentVariant: state.currentVariant,
-                            currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
 
@@ -510,13 +459,10 @@ export const useConfigStore = create<ConfigStore>()(
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                             providers: state.providers,
-                            agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
                             currentVariant: state.currentVariant,
-                            currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
 
@@ -549,12 +495,9 @@ export const useConfigStore = create<ConfigStore>()(
                         const directoryKey = state.activeDirectoryKey;
                         const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
                             providers: state.providers,
-                            agents: state.agents,
                             currentProviderId: state.currentProviderId,
                             currentModelId: state.currentModelId,
-                            currentAgentName: state.currentAgentName,
                             selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
                             defaultProviders: state.defaultProviders,
                         };
 
@@ -573,649 +516,12 @@ export const useConfigStore = create<ConfigStore>()(
                             },
                         };
                     });
-                },
-
-                saveAgentModelSelection: (agentName: string, providerId: string, modelId: string) => {
-                    set((state) => {
-                        const directoryKey = state.activeDirectoryKey;
-                        const nextSelections = {
-                            ...state.agentModelSelections,
-                            [agentName]: { providerId, modelId },
-                        };
-
-                        const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                            providers: state.providers,
-                            agents: state.agents,
-                            currentProviderId: state.currentProviderId,
-                            currentModelId: state.currentModelId,
-                            currentAgentName: state.currentAgentName,
-                            selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
-                            defaultProviders: state.defaultProviders,
-                        };
-
-                        const nextSnapshot: DirectoryScopedConfig = {
-                            ...baseSnapshot,
-                            agentModelSelections: nextSelections,
-                            selectionSource: "manual",
-                        };
-
-                        return {
-                            agentModelSelections: nextSelections,
-                            selectionSource: "manual",
-                            directoryScoped: {
-                                ...state.directoryScoped,
-                                [directoryKey]: nextSnapshot,
-                            },
-                        };
-                    });
-                },
-
-                getAgentModelSelection: (agentName: string) => {
-                    const { agentModelSelections } = get();
-                    return agentModelSelections[agentName] || null;
-                },
-
-                loadAgents: async (options) => {
-                    const requestedDirectory = options?.directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    const configDirectory = resolveConfigDirectory(requestedDirectory);
-                    const hasRequestedDirectory = typeof requestedDirectory === 'string' && requestedDirectory.trim().length > 0;
-                    if (!configDirectory && hasRequestedDirectory) {
-                        markStartupTrace('loadAgents:skippedUnknownDirectory', { requestedDirectory, source: options?.source ?? 'unknown' });
-                        return false;
-                    }
-                    const effectiveDirectory = configDirectory ?? null;
-                    const directoryKey = toDirectoryKey(configDirectory);
-                    const source = options?.source ?? 'unknown';
-                    markStartupTrace('loadAgents:called', { directoryKey, source, requestedDirectory, effectiveDirectory });
-
-                    const existing = _inFlightAgents.get(directoryKey);
-                    if (existing) {
-                        markStartupTrace('loadAgents:deduped', { directoryKey, source, requestedDirectory, effectiveDirectory });
-                        return existing;
-                    }
-
-                    const promise = (async (): Promise<boolean> => {
-                    const loaderStarted = typeof performance !== 'undefined' ? performance.now() : Date.now();
-                    markStartupTrace('loadAgents:start', { directoryKey, source, requestedDirectory, effectiveDirectory });
-                    const existingSnapshot = get().directoryScoped[directoryKey];
-                    const previousAgents = existingSnapshot?.agents ?? (get().activeDirectoryKey === directoryKey ? get().agents : []);
-                    let lastError: unknown = null;
-
-                    for (let attempt = 0; attempt < 3; attempt++) {
-                        try {
-                            const configDirectoryPath = fromDirectoryKey(directoryKey);
-                            const initialSyncedRuntimeConfig = getSyncConfig(requestedDirectory ?? undefined)
-                                ?? getSyncConfig(configDirectoryPath ?? undefined);
-                            if (initialSyncedRuntimeConfig) {
-                                markStartupTrace('loadAgents:syncConfigHit', { directoryKey, source });
-                            }
-                            const openChamberDefaults = await fetchPiChamberDefaults();
-
-                            const providerLoad = _inFlightProviders.get(directoryKey);
-                            if (providerLoad) {
-                                markStartupTrace('loadAgents:awaitProviders', { directoryKey, source });
-                                await providerLoad;
-                            }
-
-                            const latestSyncedRuntimeConfig = getSyncConfig(requestedDirectory ?? undefined)
-                                ?? getSyncConfig(configDirectoryPath ?? undefined);
-                            const hasLatestSyncedRuntimeConfig = latestSyncedRuntimeConfig !== undefined;
-                            const latestSyncedRuntimeDefaultAgent = hasLatestSyncedRuntimeConfig
-                                ? normalizeOptionalString(latestSyncedRuntimeConfig.default_agent)
-                                : undefined;
-                            const latestSyncedRuntimeDefaultModel = hasLatestSyncedRuntimeConfig
-                                ? normalizeOptionalString(latestSyncedRuntimeConfig.model)
-                                : undefined;
-
-                            const providers = get().activeDirectoryKey === directoryKey
-                                ? get().providers
-                                : (get().directoryScoped[directoryKey]?.providers ?? []);
-                            const existingZenModel = normalizeOptionalString(get().settingsZenModel);
-                            const defaultZenModel = normalizeOptionalString(openChamberDefaults.zenModel);
-                            const resolvedGitSelection = resolveGitGenerationModelSelection({
-                                providers,
-                                settingsZenModel: existingZenModel,
-                            }) ?? resolveGitGenerationModelSelection({
-                                providers,
-                                settingsZenModel: defaultZenModel,
-                            });
-                            const resolvedZenModel = resolvedGitSelection?.modelId || defaultZenModel || existingZenModel;
-
-                            set((state) => {
-                                const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                                    providers,
-                                    agents: previousAgents,
-                                    currentProviderId: "",
-                                    currentModelId: "",
-                                    currentAgentName: undefined,
-                                    selectedProviderId: "",
-                                    agentModelSelections: {},
-                                    defaultProviders: {},
-                                };
-                                const runtimeDefaultAgent = hasLatestSyncedRuntimeConfig
-                                    ? latestSyncedRuntimeDefaultAgent
-                                    : baseSnapshot.runtimeDefaultAgent ?? (state.activeDirectoryKey === directoryKey ? state.runtimeDefaultAgent : undefined);
-                                const runtimeDefaultModel = hasLatestSyncedRuntimeConfig
-                                    ? latestSyncedRuntimeDefaultModel
-                                    : baseSnapshot.runtimeDefaultModel ?? (state.activeDirectoryKey === directoryKey ? state.runtimeDefaultModel : undefined);
-                                const nextSnapshot: DirectoryScopedConfig = {
-                                    ...baseSnapshot,
-                                    providers,
-                                    agents: [],
-                                    currentAgentName: undefined,
-                                    runtimeDefaultAgent,
-                                    runtimeDefaultModel,
-                                };
-                                const nextState: Partial<ConfigStore> = {
-                                    settingsDefaultModel: openChamberDefaults.defaultModel,
-                                    settingsDefaultVariant: openChamberDefaults.defaultVariant,
-                                    settingsDefaultThinking: openChamberDefaults.defaultThinking,
-                                    settingsDefaultThinkingByModel: openChamberDefaults.defaultThinkingByModel ?? {},
-                                    settingsAutoCreateWorktree: openChamberDefaults.autoCreateWorktree ?? false,
-                                    settingsGitmojiEnabled: openChamberDefaults.gitmojiEnabled ?? false,
-                                    settingsDefaultFileViewerPreview: openChamberDefaults.defaultFileViewerPreview ?? false,
-                                    settingsZenModel: resolvedZenModel,
-                                    directoryScoped: {
-                                        ...state.directoryScoped,
-                                        [directoryKey]: nextSnapshot,
-                                    },
-                                };
-                                if (state.activeDirectoryKey === directoryKey) {
-                                    nextState.agents = [];
-                                    nextState.currentAgentName = undefined;
-                                    nextState.runtimeDefaultAgent = runtimeDefaultAgent;
-                                    nextState.runtimeDefaultModel = runtimeDefaultModel;
-                                }
-                                return nextState;
-                            });
-
-                            if (resolvedZenModel && resolvedZenModel !== defaultZenModel) {
-                                updateDesktopSettings({
-                                    zenModel: resolvedZenModel,
-                                    gitProviderId: '',
-                                    gitModelId: '',
-                                }).catch(() => {});
-                            }
-
-                            const loaderEnded = typeof performance !== 'undefined' ? performance.now() : Date.now();
-                            markStartupTrace('loadAgents:end', {
-                                directoryKey,
-                                source,
-                                requestedDirectory,
-                                effectiveDirectory,
-                                durationMs: Math.round(loaderEnded - loaderStarted),
-                                agents: 0,
-                            });
-                            _agentsLoadedAt.set(directoryKey, Date.now());
-                            return true;
-                        } catch (error) {
-                            lastError = error;
-                            markStartupTrace('loadAgents:attemptError', {
-                                directoryKey,
-                                source,
-                                requestedDirectory,
-                                effectiveDirectory,
-                                attempt: attempt + 1,
-                                error: error instanceof Error ? error.message : String(error),
-                            });
-                            const waitMs = 200 * (attempt + 1);
-                            await new Promise((resolve) => setTimeout(resolve, waitMs));
-                        }
-                    }
-
-                    console.error("Failed to load agents:", lastError);
-                    markStartupTrace('loadAgents:error', {
-                        directoryKey,
-                        source,
-                        requestedDirectory,
-                        effectiveDirectory,
-                        error: lastError instanceof Error ? lastError.message : String(lastError),
-                    });
-
-                    set((state) => {
-                        const providers = state.activeDirectoryKey === directoryKey
-                            ? state.providers
-                            : (state.directoryScoped[directoryKey]?.providers ?? []);
-
-                        const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                            providers,
-                            agents: [],
-                            currentProviderId: "",
-                            currentModelId: "",
-                            currentAgentName: undefined,
-                            selectedProviderId: "",
-                            agentModelSelections: {},
-                            defaultProviders: {},
-                        };
-
-                        const nextSnapshot: DirectoryScopedConfig = {
-                            ...baseSnapshot,
-                            providers,
-                            agents: previousAgents,
-                        };
-
-                        const nextState: Partial<ConfigStore> = {
-                            directoryScoped: {
-                                ...state.directoryScoped,
-                                [directoryKey]: nextSnapshot,
-                            },
-                        };
-
-                        if (state.activeDirectoryKey === directoryKey) {
-                            nextState.agents = previousAgents;
-                        }
-
-                        return nextState;
-                    });
-
-                    return false;
-                    })().finally(() => _inFlightAgents.delete(directoryKey));
-
-                    _inFlightAgents.set(directoryKey, promise);
-                    return promise;
                 },
 
                 invalidateModelMetadataCache: () => {
                     invalidateModelMetadataLoad();
                     set({ modelsMetadata: new Map<string, ModelMetadata>() });
                 },
-
-                setAgent: (agentName: string | undefined) => {
-                    const {
-                        agents,
-                        providers,
-                        settingsDefaultModel,
-                        settingsDefaultVariant,
-                        currentProviderId,
-                        currentModelId,
-                    } = get();
-
-                    set((state) => {
-                        const directoryKey = state.activeDirectoryKey;
-                        const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                            providers: state.providers,
-                            agents: state.agents,
-                            currentProviderId: state.currentProviderId,
-                            currentModelId: state.currentModelId,
-                            currentVariant: state.currentVariant,
-                            currentAgentName: state.currentAgentName,
-                            selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
-                            defaultProviders: state.defaultProviders,
-                        };
-
-                        const nextSnapshot: DirectoryScopedConfig = {
-                            ...baseSnapshot,
-                            currentAgentName: agentName,
-                            selectionSource: "manual",
-                        };
-
-                        return {
-                            currentAgentName: agentName,
-                            selectionSource: "manual",
-                            directoryScoped: {
-                                ...state.directoryScoped,
-                                [directoryKey]: nextSnapshot,
-                            },
-                        };
-                    });
-
-                    if (agentName) {
-                        const { currentSessionId } = useSessionUIStore.getState();
-                        const selState = useSelectionStore.getState();
-
-                        if (currentSessionId) {
-                            selState.saveSessionAgentSelection(currentSessionId, agentName);
-                        }
-
-                        if (currentSessionId && useSessionUIStore.getState().isPiChamberCreatedSession(currentSessionId)) {
-                            const existingAgentModel = selState.getAgentModelForSession(currentSessionId, agentName);
-                            if (!existingAgentModel) {
-                                useSessionUIStore.getState().initializeNewPiChamberSession(currentSessionId, agents);
-                            }
-                        }
-                    }
-
-                    if (agentName) {
-                        const { currentSessionId } = useSessionUIStore.getState();
-
-                        const applyResolvedModelSelection = (providerId: string, modelId: string, variant?: string) => {
-                            set((state) => {
-                                const directoryKey = state.activeDirectoryKey;
-                                const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                                    providers: state.providers,
-                                    agents: state.agents,
-                                    currentProviderId: state.currentProviderId,
-                                    currentModelId: state.currentModelId,
-                                    currentVariant: state.currentVariant,
-                                    currentAgentName: state.currentAgentName,
-                                    selectedProviderId: state.selectedProviderId,
-                                    agentModelSelections: state.agentModelSelections,
-                                    defaultProviders: state.defaultProviders,
-                                };
-
-                                const nextSnapshot: DirectoryScopedConfig = {
-                                    ...baseSnapshot,
-                                    currentProviderId: providerId,
-                                    currentModelId: modelId,
-                                    currentVariant: variant,
-                                    selectedProviderId: preserveAddProviderSelection(state.selectedProviderId, providerId),
-                                    selectionSource: "manual",
-                                };
-
-                                return {
-                                    currentProviderId: providerId,
-                                    currentModelId: modelId,
-                                    currentVariant: variant,
-                                    selectedProviderId: preserveAddProviderSelection(state.selectedProviderId, providerId),
-                                    selectionSource: "manual",
-                                    directoryScoped: {
-                                        ...state.directoryScoped,
-                                        [directoryKey]: nextSnapshot,
-                                    },
-                                };
-                            });
-                        };
-
-                        const resolveVariantForModel = (
-                            providerId: string,
-                            modelId: string,
-                            agentVariant?: string,
-                        ): string | undefined => {
-                            const model = providers
-                                .find((provider) => provider.id === providerId)
-                                ?.models.find((candidate) => candidate.id === modelId);
-                            const thinkingLevels = configurableThinkingLevels(model);
-                            if (thinkingLevels.length === 0) return undefined;
-
-                            const savedVariant = currentSessionId
-                                ? useSelectionStore.getState().getAgentModelVariantForSession(
-                                    currentSessionId,
-                                    agentName,
-                                    providerId,
-                                    modelId,
-                                )
-                                : undefined;
-
-                            for (const candidate of [savedVariant, agentVariant, settingsDefaultVariant]) {
-                                const resolved = resolveThinkingVariant(model, candidate);
-                                if (resolved) return resolved;
-                            }
-
-                            return undefined;
-                        };
-
-                        const agent = asConfigAgent(agents.find((candidate) => candidate.name === agentName));
-
-                        if (currentSessionId) {
-                            const existingAgentModel = useSelectionStore.getState().getAgentModelForSession(currentSessionId, agentName);
-                            if (existingAgentModel && hasProviderModel(providers, existingAgentModel.providerId, existingAgentModel.modelId)) {
-                                const resolvedVariant = resolveVariantForModel(existingAgentModel.providerId, existingAgentModel.modelId, agent?.variant);
-                                if (
-                                    currentProviderId !== existingAgentModel.providerId
-                                    || currentModelId !== existingAgentModel.modelId
-                                    || get().currentVariant !== resolvedVariant
-                                ) {
-                                    applyResolvedModelSelection(existingAgentModel.providerId, existingAgentModel.modelId, resolvedVariant);
-                                }
-                                return;
-                            }
-                        }
-
-                        const agentModelSelection = agent?.model;
-                        if (agentModelSelection?.providerID && agentModelSelection?.modelID) {
-                            const { providerID, modelID } = agentModelSelection;
-                            const agentProvider = providers.find((provider) => provider.id === providerID);
-                            const agentModel = agentProvider?.models.find((model) => model.id === modelID);
-
-                            if (agentModel) {
-                                applyResolvedModelSelection(providerID, modelID, resolveVariantForModel(providerID, modelID, agent?.variant));
-                                return;
-                            }
-                        }
-
-                        if (settingsDefaultModel) {
-                            const parsed = parseModelString(settingsDefaultModel);
-                            if (parsed) {
-                                const settingsProvider = providers.find((p) => p.id === parsed.providerId);
-                                if (settingsProvider?.models.some((m) => m.id === parsed.modelId)) {
-                                    applyResolvedModelSelection(parsed.providerId, parsed.modelId, resolveVariantForModel(parsed.providerId, parsed.modelId, agent?.variant));
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                },
-
-                applyDefaultModelAgentSelection: (options) => {
-                    const {
-                        agents,
-                        providers,
-                        settingsDefaultModel,
-                        settingsDefaultVariant,
-                        runtimeDefaultAgent,
-                        runtimeDefaultModel,
-                    } = get();
-
-                    if (agents.length === 0 || providers.length === 0) {
-                        return;
-                    }
-
-                    const {
-                        agentName: resolvedAgentName,
-                        providerId: resolvedProviderId,
-                        modelId: resolvedModelId,
-                        variant: resolvedVariant,
-                    } = resolveDefaultAgentModelSelection({
-                        agents,
-                        providers,
-                        projectDefaultModel: options?.projectDefaultModel,
-                        settingsDefaultModel,
-                        settingsDefaultVariant,
-                        runtimeDefaultAgent,
-                        runtimeDefaultModel,
-                    });
-
-                    if (!resolvedAgentName) {
-                        return;
-                    }
-
-                    set((state) => {
-                        const directoryKey = state.activeDirectoryKey;
-                        const baseSnapshot: DirectoryScopedConfig = state.directoryScoped[directoryKey] ?? {
-                            providers: state.providers,
-                            agents: state.agents,
-                            currentProviderId: state.currentProviderId,
-                            currentModelId: state.currentModelId,
-                            currentVariant: state.currentVariant,
-                            currentAgentName: state.currentAgentName,
-                            selectedProviderId: state.selectedProviderId,
-                            agentModelSelections: state.agentModelSelections,
-                            defaultProviders: state.defaultProviders,
-                        };
-
-                        const nextSnapshot: DirectoryScopedConfig = {
-                            ...baseSnapshot,
-                            currentAgentName: resolvedAgentName,
-                            ...(resolvedProviderId && resolvedModelId
-                                ? {
-                                    currentProviderId: resolvedProviderId,
-                                    currentModelId: resolvedModelId,
-                                    currentVariant: resolvedVariant,
-                                    selectedProviderId: preserveAddProviderSelection(state.selectedProviderId, resolvedProviderId),
-                                }
-                                : {}),
-                            selectionSource: "auto",
-                        };
-
-                        const nextState: Partial<ConfigStore> = {
-                            currentAgentName: resolvedAgentName,
-                            selectionSource: "auto",
-                            directoryScoped: {
-                                ...state.directoryScoped,
-                                [directoryKey]: nextSnapshot,
-                            },
-                        };
-
-                        if (resolvedProviderId && resolvedModelId) {
-                            nextState.currentProviderId = resolvedProviderId;
-                            nextState.currentModelId = resolvedModelId;
-                            nextState.currentVariant = resolvedVariant;
-                            nextState.selectedProviderId = preserveAddProviderSelection(state.selectedProviderId, resolvedProviderId);
-                        }
-
-                        return nextState;
-                    });
-                },
-
-                applyRuntimeConfigDefaults: (directory, source = "syncConfig", config) => {
-                    const eventDirectory = directory ?? fromDirectoryKey(get().activeDirectoryKey);
-                    const directoryKey = toConfigDirectoryKey(eventDirectory);
-                    const configDirectory = fromDirectoryKey(directoryKey);
-                    const syncedConfig = config
-                        ?? getSyncConfig(eventDirectory ?? undefined)
-                        ?? getSyncConfig(configDirectory ?? undefined);
-                    if (!syncedConfig) {
-                        return;
-                    }
-
-                    const runtimeDefaultAgent = normalizeOptionalString(syncedConfig.default_agent);
-                    const runtimeDefaultModel = normalizeOptionalString(syncedConfig.model);
-
-                    set((state) => {
-                        const snapshot = state.directoryScoped[directoryKey];
-                        const isActive = state.activeDirectoryKey === directoryKey;
-                        const providers = isActive ? state.providers : (snapshot?.providers ?? []);
-                        const agents = isActive ? state.agents : (snapshot?.agents ?? []);
-                        const baseSnapshot: DirectoryScopedConfig = snapshot ?? createEmptyDirectoryScopedConfig(providers, agents);
-                        const defaultsChanged = baseSnapshot.runtimeDefaultAgent !== runtimeDefaultAgent
-                            || baseSnapshot.runtimeDefaultModel !== runtimeDefaultModel
-                            || (isActive && (
-                                state.runtimeDefaultAgent !== runtimeDefaultAgent
-                                || state.runtimeDefaultModel !== runtimeDefaultModel
-                            ));
-                        const defaultsSnapshot: DirectoryScopedConfig = {
-                            ...baseSnapshot,
-                            providers,
-                            agents,
-                            runtimeDefaultAgent,
-                            runtimeDefaultModel,
-                        };
-                        const nextState: Partial<ConfigStore> = {
-                            directoryScoped: {
-                                ...state.directoryScoped,
-                                [directoryKey]: defaultsSnapshot,
-                            },
-                        };
-
-                        if (isActive) {
-                            nextState.runtimeDefaultAgent = runtimeDefaultAgent;
-                            nextState.runtimeDefaultModel = runtimeDefaultModel;
-                        }
-
-                        const selectionSource = isActive ? state.selectionSource : (snapshot?.selectionSource ?? "auto");
-
-                        if (providers.length === 0 || agents.length === 0) {
-                            if (!defaultsChanged) {
-                                return state;
-                            }
-                            return nextState;
-                        }
-
-                        const resolved = resolveDefaultAgentModelSelection({
-                            agents,
-                            providers,
-                            settingsDefaultModel: state.settingsDefaultModel,
-                            settingsDefaultVariant: state.settingsDefaultVariant,
-                            runtimeDefaultAgent,
-                            runtimeDefaultModel,
-                        });
-
-                        if (!resolved.agentName) {
-                            if (!defaultsChanged) {
-                                return state;
-                            }
-                            return nextState;
-                        }
-
-                        const currentAgentName = isActive ? state.currentAgentName : baseSnapshot.currentAgentName;
-                        const currentProviderId = isActive ? state.currentProviderId : baseSnapshot.currentProviderId;
-                        const currentModelId = isActive ? state.currentModelId : baseSnapshot.currentModelId;
-                        const currentVariant = isActive ? state.currentVariant : baseSnapshot.currentVariant;
-                        const currentSelectedProviderId = isActive ? state.selectedProviderId : baseSnapshot.selectedProviderId;
-                        const nextSelection = resolveSelectionWithManualGuard({
-                            agents,
-                            providers,
-                            currentAgentName,
-                            currentProviderId,
-                            currentModelId,
-                            currentVariant,
-                            selectionSource,
-                            resolvedAgentName: resolved.agentName,
-                            resolvedProviderId: resolved.providerId,
-                            resolvedModelId: resolved.modelId,
-                            resolvedVariant: resolved.variant,
-                        });
-
-                        const nextSnapshot: DirectoryScopedConfig = {
-                            ...defaultsSnapshot,
-                            providers,
-                            agents,
-                            currentAgentName: nextSelection.agentName,
-                            ...(nextSelection.providerId && nextSelection.modelId
-                                ? {
-                                    currentProviderId: nextSelection.providerId,
-                                    currentModelId: nextSelection.modelId,
-                                    currentVariant: nextSelection.variant,
-                                    selectedProviderId: preserveAddProviderSelection(currentSelectedProviderId, nextSelection.providerId),
-                                }
-                                : {}),
-                            selectionSource: nextSelection.selectionSource,
-                        };
-
-                        const selectionChanged = baseSnapshot.currentAgentName !== nextSnapshot.currentAgentName
-                            || baseSnapshot.currentProviderId !== nextSnapshot.currentProviderId
-                            || baseSnapshot.currentModelId !== nextSnapshot.currentModelId
-                            || baseSnapshot.currentVariant !== nextSnapshot.currentVariant
-                            || baseSnapshot.selectedProviderId !== nextSnapshot.selectedProviderId
-                            || (baseSnapshot.selectionSource ?? "auto") !== nextSnapshot.selectionSource
-                            || (isActive && (
-                                state.currentAgentName !== nextSelection.agentName
-                                || state.selectionSource !== nextSelection.selectionSource
-                                || (nextSelection.providerId !== undefined && nextSelection.modelId !== undefined && (
-                                    state.currentProviderId !== nextSelection.providerId
-                                    || state.currentModelId !== nextSelection.modelId
-                                    || state.currentVariant !== nextSelection.variant
-                                    || state.selectedProviderId !== preserveAddProviderSelection(currentSelectedProviderId, nextSelection.providerId)
-                                ))
-                            ));
-
-                        if (!defaultsChanged && !selectionChanged) {
-                            return state;
-                        }
-
-                        nextState.directoryScoped = {
-                            ...state.directoryScoped,
-                            [directoryKey]: nextSnapshot,
-                        };
-
-                        if (isActive) {
-                            nextState.currentAgentName = nextSelection.agentName;
-                            nextState.selectionSource = nextSelection.selectionSource;
-                            if (nextSelection.providerId && nextSelection.modelId) {
-                                nextState.currentProviderId = nextSelection.providerId;
-                                nextState.currentModelId = nextSelection.modelId;
-                                nextState.currentVariant = nextSelection.variant;
-                                nextState.selectedProviderId = preserveAddProviderSelection(currentSelectedProviderId, nextSelection.providerId);
-                            }
-                        }
-
-                        markStartupTrace('loadAgents:runtimeConfigDefaultsApplied', { directoryKey, eventDirectory, source });
-                        return nextState;
-                    });
-                },
-
                  setSettingsDefaultModel: (model: string | undefined) => {
                      set({ settingsDefaultModel: model });
                  },
@@ -1384,11 +690,41 @@ export const useConfigStore = create<ConfigStore>()(
                                 set({ activeDirectoryKey: configDirectoryKey });
                             }
 
-                            if (debug) console.log("Loading providers and agents...");
-                            await Promise.all([
-                                get().loadProviders({ directory: configDirectory, source: 'initializeApp' }),
-                                get().loadAgents({ directory: configDirectory, source: 'initializeApp' }),
-                            ]);
+                            if (debug) console.log("Loading providers...");
+                            await get().loadProviders({ directory: configDirectory, source: 'initializeApp' });
+
+                            // PiChamber settings defaults (global sidecar) were previously
+                            // applied inside the removed generic-agent loader. They are
+                            // provider/model preferences, not agent state: apply them here
+                            // once providers are known so model selection is unchanged.
+                            const openChamberDefaults = await fetchPiChamberDefaults();
+                            const providers = get().providers;
+                            const existingZenModel = normalizeOptionalString(get().settingsZenModel);
+                            const defaultZenModel = normalizeOptionalString(openChamberDefaults.zenModel);
+                            const resolvedGitSelection = resolveGitGenerationModelSelection({
+                                providers,
+                                settingsZenModel: existingZenModel,
+                            }) ?? resolveGitGenerationModelSelection({
+                                providers,
+                                settingsZenModel: defaultZenModel,
+                            });
+                            const resolvedZenModel = resolvedGitSelection?.modelId || defaultZenModel || existingZenModel;
+                            set({
+                                settingsDefaultModel: openChamberDefaults.defaultModel,
+                                settingsDefaultVariant: openChamberDefaults.defaultVariant,
+                                settingsDefaultThinking: openChamberDefaults.defaultThinking,
+                                settingsDefaultThinkingByModel: openChamberDefaults.defaultThinkingByModel ?? {},
+                                settingsAutoCreateWorktree: openChamberDefaults.autoCreateWorktree ?? false,
+                                settingsGitmojiEnabled: openChamberDefaults.gitmojiEnabled ?? false,
+                                settingsZenModel: resolvedZenModel,
+                            });
+                            if (resolvedZenModel && resolvedZenModel !== defaultZenModel) {
+                                updateDesktopSettings({
+                                    zenModel: resolvedZenModel,
+                                    gitProviderId: '',
+                                    gitModelId: '',
+                                }).catch(() => {});
+                            }
 
                             set({ isInitialized: true, isConnected: true, hasEverConnected: true, connectionPhase: "connected" });
                             void get().prewarmProjectConfigs(configDirectory);
@@ -1396,7 +732,6 @@ export const useConfigStore = create<ConfigStore>()(
                             markStartupTrace('initializeApp:end', {
                                 durationMs: Math.round(initEnded - initStarted),
                                 providers: get().providers.length,
-                                agents: get().agents.length,
                             });
                             if (debug) console.log("App initialized successfully");
                         } catch (error) {
@@ -1437,7 +772,7 @@ export const useConfigStore = create<ConfigStore>()(
                         seen.add(directoryKey);
 
                         const snapshot = get().directoryScoped[directoryKey];
-                        if (snapshot?.providers.length && snapshot.agents.length) {
+                        if (snapshot?.providers.length) {
                             continue;
                         }
                         const scopedDirectory = fromDirectoryKey(directoryKey);
@@ -1456,9 +791,6 @@ export const useConfigStore = create<ConfigStore>()(
                         const tasks: Promise<unknown>[] = [];
                         if (!snapshot?.providers.length) {
                             tasks.push(get().loadProviders({ directory, source: 'projectConfigPrewarm' }));
-                        }
-                        if (!snapshot?.agents.length) {
-                            tasks.push(get().loadAgents({ directory, source: 'projectConfigPrewarm' }));
                         }
                         if (tasks.length > 0) {
                             await Promise.allSettled(tasks);
@@ -1480,21 +812,12 @@ export const useConfigStore = create<ConfigStore>()(
                     return provider.models.find((model) => model.id === currentModelId);
                 },
 
-                getCurrentAgent: () => {
-                    const { agents, currentAgentName } = get();
-                    if (!currentAgentName) return undefined;
-                    return agents.find((a) => a.name === currentAgentName);
-                },
                 getModelMetadata: (providerId: string, modelId: string) => {
                     const { modelsMetadata, providers } = get();
                     const model = providers
                         .find((provider) => provider.id === providerId)
                         ?.models.find((candidate) => candidate.id === modelId);
                     return resolveModelMetadata(modelsMetadata, providerId, modelId, model);
-                },
-                getVisibleAgents: () => {
-                    const { agents } = get();
-                    return agents;
                 },
             }),
             {
@@ -1519,13 +842,10 @@ export const useConfigStore = create<ConfigStore>()(
                         ]),
                     ),
                     providers: state.providers,
-                    agents: state.agents,
                     currentProviderId: state.currentProviderId,
                     currentModelId: state.currentModelId,
                     currentVariant: state.currentVariant,
-                    currentAgentName: state.currentAgentName,
                     selectedProviderId: sanitizePersistedSelectedProviderId(state.selectedProviderId),
-                    agentModelSelections: state.agentModelSelections,
                     defaultProviders: state.defaultProviders,
                     settingsDefaultModel: state.settingsDefaultModel,
                     settingsDefaultVariant: state.settingsDefaultVariant,

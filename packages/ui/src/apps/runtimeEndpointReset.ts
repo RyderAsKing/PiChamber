@@ -55,7 +55,6 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   useSkillsStore.getState().resetForRuntimeSwitch();
   useConfigStore.setState({
     providers: [],
-    agents: [],
     isConnected: false,
     isInitialized: false,
     connectionPhase: 'connecting',

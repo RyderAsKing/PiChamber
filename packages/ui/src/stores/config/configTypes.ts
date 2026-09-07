@@ -1,5 +1,4 @@
 import type { StoreApi, UseBoundStore } from 'zustand';
-import type { Agent, Config } from '@/lib/chat/types';
 import type { ModelMetadata } from '@/types';
 import type { ProviderModel, ProviderWithModelList } from './selection';
 
@@ -10,18 +9,11 @@ export const PROJECT_CONFIG_PREWARM_DELAY_MS = 1_000;
 
 export interface DirectoryScopedConfig {
   providers: ProviderWithModelList[];
-  agents: Agent[];
   currentProviderId: string;
   currentModelId: string;
   currentVariant?: string | undefined;
-  currentAgentName: string | undefined;
   selectedProviderId: string;
-  agentModelSelections: {
-    [agentName: string]: { providerId: string; modelId: string };
-  };
   defaultProviders: { [key: string]: string };
-  runtimeDefaultAgent?: string;
-  runtimeDefaultModel?: string;
   selectionSource?: 'auto' | 'manual';
 }
 
@@ -30,15 +22,10 @@ export interface ConfigStore {
   directoryScoped: Record<string, DirectoryScopedConfig>;
 
   providers: ProviderWithModelList[];
-  agents: Agent[];
   currentProviderId: string;
   currentModelId: string;
   currentVariant: string | undefined;
-  currentAgentName: string | undefined;
   selectedProviderId: string;
-  agentModelSelections: {
-    [agentName: string]: { providerId: string; modelId: string };
-  };
   defaultProviders: { [key: string]: string };
   selectionSource: 'auto' | 'manual';
   isConnected: boolean;
@@ -47,17 +34,11 @@ export interface ConfigStore {
   lastDisconnectReason: string | null;
   isInitialized: boolean;
   modelsMetadata: Map<string, ModelMetadata>;
-  // PiChamber settings-based defaults (take precedence over agent preferences)
+  // PiChamber settings-based defaults (fallback when no explicit provider/model selection)
   settingsDefaultModel: string | undefined; // format: "provider/model"
   settingsDefaultVariant: string | undefined;
   settingsDefaultThinking: string | undefined;
   settingsDefaultThinkingByModel: Record<string, string>;
-  // Pi server's own `default_agent` config field (name of a primary agent), used as a
-  // fallback when our own settingsDefaultAgent is unset. Sourced from sync config.
-  runtimeDefaultAgent: string | undefined;
-  // Pi server's own global `model` config field ("provider/model"), used as a fallback
-  // when neither our settingsDefaultModel nor the resolved agent pins a model.
-  runtimeDefaultModel: string | undefined;
   settingsAutoCreateWorktree: boolean;
   settingsGitmojiEnabled: boolean;
   settingsDefaultFileViewerPreview: boolean;
@@ -69,10 +50,6 @@ export interface ConfigStore {
     directory?: string | null;
     source?: string;
   }) => Promise<void>;
-  loadAgents: (options?: {
-    directory?: string | null;
-    source?: string;
-  }) => Promise<boolean>;
   invalidateModelMetadataCache: () => void;
   invalidateProviderCache: (directory?: string | null) => void;
   setProvider: (providerId: string) => void;
@@ -80,15 +57,6 @@ export interface ConfigStore {
   setCurrentVariant: (variant: string | undefined) => void;
   cycleCurrentVariant: () => void;
   getCurrentModelVariants: () => string[];
-  setAgent: (agentName: string | undefined) => void;
-  applyDefaultModelAgentSelection: (options?: {
-    projectDefaultModel?: string;
-  }) => void;
-  applyRuntimeConfigDefaults: (
-    directory?: string | null,
-    source?: string,
-    config?: Config
-  ) => void;
   setSelectedProvider: (providerId: string) => void;
   setSettingsDefaultModel: (model: string | undefined) => void;
   setSettingsDefaultVariant: (variant: string | undefined) => void;
@@ -102,26 +70,16 @@ export interface ConfigStore {
     providerId: string;
     modelId: string;
   } | null;
-  saveAgentModelSelection: (
-    agentName: string,
-    providerId: string,
-    modelId: string
-  ) => void;
-  getAgentModelSelection: (
-    agentName: string
-  ) => { providerId: string; modelId: string } | null;
   probeConnection: (options?: { timeoutMs?: number }) => Promise<boolean>;
   checkConnection: () => Promise<boolean>;
   initializeApp: () => Promise<void>;
   prewarmProjectConfigs: (initialDirectory?: string | null) => Promise<void>;
   getCurrentProvider: () => ProviderWithModelList | undefined;
   getCurrentModel: () => ProviderModel | undefined;
-  getCurrentAgent: () => Agent | undefined;
   getModelMetadata: (
     providerId: string,
     modelId: string
   ) => ModelMetadata | undefined;
-  getVisibleAgents: () => Agent[];
 }
 
 declare global {
@@ -130,52 +88,71 @@ declare global {
   }
 }
 
-export const createEmptyDirectoryScopedConfig = (
-  providers: ProviderWithModelList[] = [],
-  agents: Agent[] = []
-): DirectoryScopedConfig => ({
-  providers,
-  agents,
-  currentProviderId: '',
-  currentModelId: '',
-  currentVariant: undefined,
-  currentAgentName: undefined,
-  selectedProviderId: '',
-  agentModelSelections: {},
-  defaultProviders: {},
-  runtimeDefaultAgent: undefined,
-  runtimeDefaultModel: undefined,
-  selectionSource: 'auto',
-});
-
 /**
- * Lift the active directory's cached provider/agent snapshot into the top-level
- * fields the pickers read (`providers`, `agents`, selections), so a cold start
+ * Lift the active directory's cached provider snapshot into the top-level
+ * fields the pickers read (`providers`, selections), so a cold start
  * paints instantly from persisted data. Falls back to whatever top-level data
  * was persisted; handles legacy persisted blobs that only stored directoryScoped.
+ * Legacy generic-agent fields (`agents`, `currentAgentName`,
+ * `agentModelSelections`, `runtimeDefaultAgent`, `runtimeDefaultModel`) that
+ * older builds persisted are stripped from both the root state and every
+ * directory snapshot and never restored: the config-level agent registry is
+ * retired (the daemon exposes no agent list endpoint), so those values are
+ * discarded even when older blobs hold non-empty data. Per-session
+ * agent/model/variant maps in `selection-store`/`contextStore` are retained
+ * untouched.
  */
 export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
   merged: T
 ): T => {
+  // Strip obsolete generic-agent fields from the root state and every persisted
+  // snapshot so they can never repopulate live state or be written back out.
+  // Older builds stored `agents`, `currentAgentName`, `agentModelSelections`,
+  // `runtimeDefaultAgent`, and `runtimeDefaultModel`; the config-level agent
+  // registry is retired, so those values are discarded even when older blobs
+  // hold non-empty data. Work on copies so caller-owned objects are not mutated.
+  const sanitized = { ...merged } as unknown as Record<string, unknown>;
+  delete sanitized.agents;
+  delete sanitized.currentAgentName;
+  delete sanitized.agentModelSelections;
+  delete sanitized.runtimeDefaultAgent;
+  delete sanitized.runtimeDefaultModel;
   const directoryScoped = merged.directoryScoped;
-  const activeKey = merged.activeDirectoryKey;
-  if (!directoryScoped || !activeKey) return merged;
-  const snapshot = directoryScoped[activeKey];
-  if (!snapshot) return merged;
+  if (directoryScoped && typeof directoryScoped === 'object') {
+    const cleaned: Record<string, DirectoryScopedConfig> = {};
+    for (const [key, snapshot] of Object.entries(directoryScoped)) {
+      if (!snapshot || typeof snapshot !== 'object') {
+        cleaned[key] = snapshot as DirectoryScopedConfig;
+        continue;
+      }
+      const copy = { ...(snapshot as unknown as Record<string, unknown>) };
+      delete copy.agents;
+      delete copy.currentAgentName;
+      delete copy.agentModelSelections;
+      delete copy.runtimeDefaultAgent;
+      delete copy.runtimeDefaultModel;
+      cleaned[key] = copy as unknown as DirectoryScopedConfig;
+    }
+    sanitized.directoryScoped = cleaned;
+  }
+  const cleanedScoped = sanitized.directoryScoped as
+    | Record<string, DirectoryScopedConfig>
+    | undefined;
+  const activeKey = sanitized.activeDirectoryKey as string | undefined;
+  if (!cleanedScoped || !activeKey) return sanitized as unknown as T;
+  const snapshot = cleanedScoped[activeKey];
+  if (!snapshot) return sanitized as unknown as T;
 
-  const next: Partial<ConfigStore> = { ...merged };
+  const next = { ...sanitized } as unknown as Partial<ConfigStore>;
   if (
-    (!merged.providers || merged.providers.length === 0) &&
+    (!next.providers || next.providers.length === 0) &&
     snapshot.providers?.length
   ) {
     next.providers = snapshot.providers;
   }
-  if ((!merged.agents || merged.agents.length === 0) && snapshot.agents?.length) {
-    next.agents = snapshot.agents;
-  }
   if (
-    !merged.defaultProviders ||
-    Object.keys(merged.defaultProviders).length === 0
+    !next.defaultProviders ||
+    Object.keys(next.defaultProviders).length === 0
   ) {
     if (
       snapshot.defaultProviders &&
@@ -184,20 +161,13 @@ export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
       next.defaultProviders = snapshot.defaultProviders;
     }
   }
-  if (snapshot.runtimeDefaultAgent !== undefined) {
-    next.runtimeDefaultAgent = snapshot.runtimeDefaultAgent;
-  }
-  if (snapshot.runtimeDefaultModel !== undefined) {
-    next.runtimeDefaultModel = snapshot.runtimeDefaultModel;
-  }
   if (snapshot.selectionSource) {
     next.selectionSource = snapshot.selectionSource;
   }
-  return next as T;
+  return next as unknown as T;
 };
 
 export const _providersLoadedAt = new Map<string, number>();
-export const _agentsLoadedAt = new Map<string, number>();
 
 export const isConfigFresh = (
   loadedAt: Map<string, number>,

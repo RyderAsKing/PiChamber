@@ -13,7 +13,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { catalogLiveSessionIdsKey } from '@/sync/pi-session-catalog';
 import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
-import { useCatalogUiSessions, useChildStoreManager } from '@/sync/sync-context';
+import { useCatalogUiSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSync } from '@/sync/use-sync';
 import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
@@ -59,7 +59,6 @@ import type {
 } from './sidebar/ConfirmDialogs';
 import { SidebarDialogs } from './sidebar/SidebarDialogs';
 import { ProjectAggregateStatusIndicator } from './sidebar/ProjectAggregateStatusIndicator';
-import { SidebarBootstrapDemandEffect } from './sidebar/SidebarBootstrapDemandEffect';
 import { useSidebarProjectMetadata } from './sidebar/hooks/useSidebarProjectMetadata';
 import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
@@ -291,7 +290,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const sync = useSync();
   const { git } = useRuntimeAPIs();
-  const childStores = useChildStoreManager();
   const piConnection = usePiSessionSnapshot((state) => state.connection, undefined, 'chrome');
   const catalogReady = usePiSessionSnapshot((state) => {
     for (const status of state.catalog.listStatusByDirectory.values()) {
@@ -301,7 +299,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   }, undefined, 'catalog');
   const catalogSessions = useCatalogUiSessions({ archived: false });
   const archivedSessions = useCatalogUiSessions({ archived: true });
-  const bootstrapDemandOwner = `session-sidebar:${React.useId()}`;
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
   const shareSession = useSessionUIStore((state) => state.shareSession);
@@ -1309,15 +1306,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         mobileVariant ? '' : 'bg-transparent',
       )}
     >
-      <SidebarBootstrapDemandEffect
-        owner={bootstrapDemandOwner}
-        childStores={childStores}
-        projectSections={projectSections}
-        activeProjectId={activeProjectId}
-        collapsedProjects={collapsedProjects}
-        collapsedGroups={collapsedGroups}
-        currentDirectory={currentDirectory}
-      />
       <ProjectSessionSelectionEffect
         projectSections={projectSections}
         activeProjectId={activeProjectId}

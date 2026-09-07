@@ -228,10 +228,7 @@ export async function materializeOpenDraftSession(
           closeDraft?: boolean;
         }
       ) => Promise<Session | null>;
-      initializeNewPiChamberSession: (
-        sessionId: string,
-        agents: unknown[]
-      ) => void;
+      initializeNewPiChamberSession: (sessionId: string) => void;
       setCurrentSession: (id: string | null, directoryHint?: string | null) => void;
     };
   }
@@ -342,7 +339,6 @@ export async function materializeOpenDraftSession(
   }
 
   const draftSyntheticParts = draft.syntheticParts;
-  const configState = useConfigStore.getState();
   if (shouldActivateCreatedSession) {
     void activateConfigForDirectory(createdDirectory).catch((error) => {
       console.warn(
@@ -352,7 +348,7 @@ export async function materializeOpenDraftSession(
     });
   }
 
-  const effectiveDraftAgent = trimmedAgent ?? configState.currentAgentName;
+  const effectiveDraftAgent = trimmedAgent;
 
   useSelectionStore
     .getState()
@@ -385,7 +381,7 @@ export async function materializeOpenDraftSession(
       );
   }
 
-  store.initializeNewPiChamberSession(created.id, configState.agents ?? []);
+  store.initializeNewPiChamberSession(created.id);
 
   if (shouldActivateCreatedSession) {
     store.setCurrentSession(created.id, createdDirectory);

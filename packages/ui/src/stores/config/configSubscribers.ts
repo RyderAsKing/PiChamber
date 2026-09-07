@@ -1,6 +1,5 @@
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { scopeMatches, subscribeToConfigChanges } from '@/lib/configSync';
-import { subscribeToSyncConfigChanges } from '@/sync/sync-refs';
 import { markStartupTrace } from '@/lib/startupTrace';
 import { fromDirectoryKey, toDirectoryKey } from './directoryScope';
 import { PROVIDER_CONFIG_REFRESH_CONCURRENCY, type ConfigStore } from './configTypes';
@@ -38,7 +37,6 @@ export const refreshKnownProviderDirectories = async (
 
 let unsubscribeConfigStoreChanges: (() => void) | null = null;
 let unsubscribeConfigStoreDirectoryChanges: (() => void) | null = null;
-let unsubscribeConfigStoreSyncConfigChanges: (() => void) | null = null;
 
 export const setupConfigStoreSubscribers = (
   store: UseBoundStore<StoreApi<ConfigStore>>
@@ -49,31 +47,11 @@ export const setupConfigStoreSubscribers = (
 
   if (!unsubscribeConfigStoreChanges) {
     unsubscribeConfigStoreChanges = subscribeToConfigChanges(async (event) => {
-      const tasks: Promise<void>[] = [];
-
-      if (scopeMatches(event, 'agents')) {
-        const { loadAgents } = store.getState();
-        tasks.push(loadAgents({ source: 'configChange:agents' }).then(() => {}));
+      if (!scopeMatches(event, 'providers')) {
+        return;
       }
-
-      if (scopeMatches(event, 'providers')) {
-        tasks.push(refreshKnownProviderDirectories(store, 'configChange:providers'));
-      }
-
-      if (tasks.length > 0) {
-        await Promise.all(tasks);
-      }
+      await refreshKnownProviderDirectories(store, 'configChange:providers');
     });
-  }
-
-  if (!unsubscribeConfigStoreSyncConfigChanges) {
-    unsubscribeConfigStoreSyncConfigChanges = subscribeToSyncConfigChanges(
-      (directory, config) => {
-        store
-          .getState()
-          .applyRuntimeConfigDefaults(directory, 'syncConfig', config);
-      }
-    );
   }
 
   if (typeof window !== 'undefined' && !unsubscribeConfigStoreDirectoryChanges) {

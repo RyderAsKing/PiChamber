@@ -4,7 +4,7 @@ import type { PiReducerMessagePart } from '@/lib/pi/event-reducer';
 
 import type { MessageStreamPhase } from '@/stores/types/sessionTypes';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSessionMessages, useSessionPermissions, useSessionQuestions, useSessionStatus } from '@/sync/sync-context';
+import { useSessionMessages, useSessionStatus } from '@/sync/sync-context';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { selectStreamingAssistantMessageId } from '@/sync/suspend-live-tail-records';
 import { isFullySyntheticMessage } from '@/lib/messages/synthetic';
@@ -428,9 +428,6 @@ export function useAssistantStatus(): AssistantStatusSnapshot {
         currentSessionId ? `session:${currentSessionId}` : 'chrome',
     );
 
-    const sessionPermissionRequests = useSessionPermissions(currentSessionId ?? '', currentSessionDirectory ?? undefined);
-    const sessionQuestionRequests = useSessionQuestions(currentSessionId ?? '', currentSessionDirectory ?? undefined);
-
     const sessionAbortRecord = useSessionUIStore(
         React.useCallback((state) => {
             if (!currentSessionId) {
@@ -525,40 +522,7 @@ export function useAssistantStatus(): AssistantStatusSnapshot {
         return { isActive, characterCount: 0 };
     }, [isPhaseWorking, parsedStatus.activePartType]);
 
-    const working = React.useMemo<WorkingSummary>(() => {
-        if (baseWorking.wasAborted || baseWorking.abortActive) {
-            return baseWorking;
-        }
-
-        const hasPendingPermission = sessionPermissionRequests.length > 0;
-        const hasPendingQuestion = sessionQuestionRequests.length > 0;
-
-        if (!hasPendingPermission && !hasPendingQuestion) {
-            return baseWorking;
-        }
-
-        if (hasPendingQuestion) {
-            return {
-                ...baseWorking,
-                statusText: null,
-                isWorking: false,
-                hasWorkingContext: false,
-                hasActiveTools: false,
-                canAbort: false,
-                activePartType: undefined,
-                activeToolName: undefined,
-                retryInfo: null,
-            };
-        }
-
-        return {
-            ...baseWorking,
-            statusText: 'waiting for permission',
-            isWaitingForPermission: true,
-            canAbort: false,
-            retryInfo: null,
-        };
-    }, [baseWorking, sessionPermissionRequests, sessionQuestionRequests]);
+    const working = baseWorking;
 
     return {
         activeModel: activeAssistant.model,

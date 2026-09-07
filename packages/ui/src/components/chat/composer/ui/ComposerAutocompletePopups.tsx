@@ -2,7 +2,7 @@
  * The composer's autocomplete popups.
  *
  * Four pickers, one at a time: the command palette, the inline skill picker,
- * the snippet picker and the file/agent mention picker. Which one is open is
+ * the snippet picker and the file mention picker. Which one is open is
  * decided by the prompt language, not here.
  *
  * They are positioned differently depending on the composer's shape. In the
@@ -69,7 +69,6 @@ export interface ComposerAutocompletePopupsProps {
     onSkillSelect: (skillName: string) => void;
     onSnippetSelect: (snippet: unknown, trigger: string) => void;
     onFileSelect: (file: { name: string; path: string; relativePath?: string }) => void;
-    onAgentSelect: (agentName: string) => void;
     onClose: () => void;
 }
 
@@ -116,7 +115,6 @@ export function ComposerAutocompletePopups(props: ComposerAutocompletePopupsProp
                     ref={props.mentionRef}
                     searchQuery={query}
                     onFileSelect={props.onFileSelect}
-                    onAgentSelect={props.onAgentSelect}
                     onClose={onClose}
                     style={style}
                 />

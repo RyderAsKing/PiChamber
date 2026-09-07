@@ -79,8 +79,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const currentVariant = useConfigStore((state) => state.currentVariant);
     const settingsDefaultThinking = useConfigStore((state) => state.settingsDefaultThinking);
     const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
-    const currentAgentName = useConfigStore((state) => state.currentAgentName);
-    const setAgent = useConfigStore((state) => state.setAgent);
     const setProvider = useConfigStore((state) => state.setProvider);
     const setSelectedProvider = useConfigStore((state) => state.setSelectedProvider);
     const setModel = useConfigStore((state) => state.setModel);
@@ -134,7 +132,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const usingExternalMobilePanel = mobilePanel !== undefined && typeof onMobilePanelChange === 'function';
     const activeMobilePanel = usingExternalMobilePanel ? mobilePanel : localMobilePanel;
     const setActiveMobilePanel = usingExternalMobilePanel ? onMobilePanelChange : setLocalMobilePanel;
-    const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState<'model' | 'agent' | null>(null);
+    const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState<'model' | null>(null);
     const [mobileModelQuery, setMobileModelQuery] = React.useState('');
     const [expandedMobileModelKey, setExpandedMobileModelKey] = React.useState<string | null>(null);
     const manualVariantSelectionRef = React.useRef(false);
@@ -194,7 +192,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
     }, [activeMobilePanel]);
 
-    // Handle model selector close behavior (separate from agent selector)
+    // Handle model selector close behavior
     const prevModelSelectorOpenRef = React.useRef(isModelSelectorOpen);
     React.useEffect(() => {
         const wasOpen = prevModelSelectorOpenRef.current;
@@ -582,9 +580,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
 
         if (latestLoadedUserChoice?.providerID && latestLoadedUserChoice.modelID) {
-            if (latestLoadedUserChoice.agent && currentAgentName !== latestLoadedUserChoice.agent) {
-                setAgent(latestLoadedUserChoice.agent);
-            }
             const historicalVariant = latestLoadedUserChoice.variant
                 && isPiThinkingLevel(latestLoadedUserChoice.variant)
                 && getModelVariantOptions(latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID).includes(latestLoadedUserChoice.variant)
@@ -618,7 +613,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     }, [
         applyLockedSessionComposerSelection,
         contextHydrated,
-        currentAgentName,
         currentModelId,
         currentProviderId,
         currentSessionId,
@@ -628,7 +622,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         hasRenderableCurrentSessionSnapshot,
         latestLoadedUserChoice,
         providers.length,
-        setAgent,
         setCurrentVariant,
         sync,
     ]);

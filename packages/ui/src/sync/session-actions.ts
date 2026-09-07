@@ -134,16 +134,6 @@ export function rememberRuntimeLiveStatus(_args?: unknown): void {
   void _args;
 }
 
-export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> {
-  void _sessionId;
-  return false;
-}
-
-export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> {
-  void _sessionId;
-  return false;
-}
-
 export async function waitForConnectionOrThrow(): Promise<void> {
   const snapshot = store().getState();
   if (snapshot.connection === 'ready') return;
@@ -165,14 +155,4 @@ export function abortCurrentOperation(sessionId?: string): void {
 export function getSessionLastAssistantModel(..._args: unknown[]): null {
   void _args;
   return null;
-}
-
-export function setOptimisticRefs(
-  _add?: (input: unknown) => unknown,
-  _remove?: (input: unknown) => unknown,
-  _confirm?: (input: unknown) => unknown,
-): void {
-  void _add;
-  void _remove;
-  void _confirm;
 }

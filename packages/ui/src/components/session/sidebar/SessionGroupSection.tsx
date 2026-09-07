@@ -1,7 +1,5 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
-import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SessionFolderItem } from '../SessionFolderItem';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
@@ -25,7 +23,6 @@ import {
 import { SessionGroupHeader } from './SessionGroupHeader';
 import type { SessionGroupSectionProps } from './sessionGroupTypes';
 import { areGroupPropsEqual } from './sessionGroupComparators';
-import { useSessionGroupBootstrap } from './useSessionGroupBootstrap';
 import { useSessionGroupFolders } from './useSessionGroupFolders';
 
 export type { SessionGroupSectionProps } from './sessionGroupTypes';
@@ -103,16 +100,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   }, [group.branch, group.directory, group.isArchivedBucket, group.isMain, hideGroupLabel]);
   const groupPrSummary = usePrVisualSummary(groupPrKey);
   const groupPrColor = groupPrSummary ? `var(--pr-${groupPrSummary.visualState})` : undefined;
-
-  const {
-    bootstrapLoading,
-    failedBootstrapDirectory,
-    bootstrapFailure,
-    canGrantBootstrapAccess,
-    isRequestingBootstrapAccess,
-    retryFailedBootstrap,
-    grantFailedBootstrapAccess,
-  } = useSessionGroupBootstrap({ group, isCollapsed });
 
   const maxVisible = hideDirectoryControls ? 10 : 5;
   const nonArchivedVisibleCount = Math.max(maxVisible, visibleSessionCount ?? maxVisible);
@@ -389,26 +376,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     ? 'pr-7'
     : 'pr-2 group-hover/gh:pr-7 group-focus-within/gh:pr-7';
 
-  const bootstrapFailureNotice = failedBootstrapDirectory ? (
-    <span className="inline-flex flex-wrap items-center gap-1.5">
-      {bootstrapFailure === 'os-permission' ? 'Folder access is required.' : 'Could not refresh sessions.'}
-      {canGrantBootstrapAccess ? (
-        <Button
-          variant="link"
-          size="xs"
-          className="h-auto p-0 typography-micro"
-          disabled={isRequestingBootstrapAccess}
-          onClick={() => void grantFailedBootstrapAccess()}
-        >
-          {'Grant access'}
-        </Button>
-      ) : null}
-      <Button variant="link" size="xs" className="h-auto p-0 typography-micro" onClick={retryFailedBootstrap}>
-        {'Try again'}
-      </Button>
-    </span>
-  ) : null;
-
   const body = (
     <SessionFolderDndScope
       scopeKey={folderScopes[0]?.scopeKey ?? folderScopeKey}
@@ -461,17 +428,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
             {'No archived sessions yet.'}
           </div>
-        ) : bootstrapLoading ? (
-          <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <Icon name="loader-4" className="size-4 animate-spin" />
-              {'Loading sessions…'}
-            </span>
-          </div>
-        ) : bootstrapFailureNotice ? (
-          <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
-            {bootstrapFailureNotice}
-          </div>
         ) : (
           <SidebarSessionLikeButton
             icon="chat-new"
@@ -485,11 +441,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
             {'New session'}
           </SidebarSessionLikeButton>
         )
-      ) : null}
-      {totalSessions > 0 && bootstrapFailureNotice ? (
-        <div className="py-1 px-3 text-left typography-micro text-status-error">
-          {bootstrapFailureNotice}
-        </div>
       ) : null}
       {remainingCount > 0 ? (
         <SidebarSessionLikeButton

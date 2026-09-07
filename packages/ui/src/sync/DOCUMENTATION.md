@@ -37,7 +37,7 @@ So:
 
 - Use the **Pi runtime-scoped store** for live session/message state on the connected runtime, including background busy sessions the focused folder does not own
 - Use the **global sessions store** for cold/global session coverage (especially archived pages and unopened directories)
-- Use **aggregated child-store sessions and the global live status index** for live truth across initialized directories
+- Use the **Pi live catalog and the global live status index** for live truth across known directories
 
 ### Runtime-scoped sessions
 
@@ -67,7 +67,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 
 | Layer / Store | Owns | Scope |
 |---|---|---|
-| `ChildStoreManager` and child directory stores | Priority-scheduled directory bootstrap plus `session`, `message`, `part`, `permission`, `question`, etc. | One runtime and one store per directory |
+| `ChildStoreManager` and child directory stores (retired) | Former priority-scheduled bootstrap; removed. Live lists come from `PiSessionStore` + `PiSessionCatalogFeeder` below. | — |
 | `PiSessionStore` transcript paging | Bounded initial hydration, older-page deduplication, stale-result rejection, and prepend reconciliation | One runtime, directory, and session ID |
 | `pi-session-catalog.ts` | Live runtime-scoped metadata catalog (`byId`, `byDirectory`, `listStatusByDirectory`); the at-most-2-in-flight directory refresh scheduler | All known directories in the active runtime |
 | `pi-session-catalog-cache.ts` | Best-effort runtime-scoped browser snapshot of stable catalog metadata for warm first paint; never persists lifecycle/retry/hydration authority | Up to four recently used runtimes and 2,000 session rows |
@@ -134,7 +134,7 @@ On browser startup, `PiSessionStore` reads `pi-session-catalog-cache.ts` before 
 
 ### Wrapper contract (until retire-duplicates)
 
-`useGlobalSessionsStore` remains a thin wrapper for retention/pin metadata and mini-chat fill. Sidebar, header, command palette, archive, and mobile session lists read `catalog.byId` / `catalog.byDirectory` through `useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is the focused directory slice; `useAllLiveSessions()` / `getSyncSessions()` are the runtime-wide active catalog.
+`useGlobalSessionsStore` remains a thin wrapper for retention/pin metadata and mini-chat fill. Sidebar, header, command palette, archive, and mobile session lists read `catalog.byId` / `catalog.byDirectory` through `useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is the focused directory slice; `getSyncSessions()` is the runtime-wide active catalog.
 
 `listUiSessionsFromCatalog` treats an omitted or `undefined` `directory` as runtime-wide. `null` or `''` is an empty focused slice (`useSessions()` when the cluster has no directory). A non-empty string is that directory's membership; only a home-directory focus merges the literal `~` and expanded-home aliases. The React hook always passes `{ archived, directory }`, so `undefined` must not be treated as empty.
 
@@ -152,9 +152,9 @@ Ctrl+R reload keeps the active runtime and its last session: the active endpoint
 
 ## Session list rules
 
-### Directory bootstrap scheduling
+### Directory bootstrap scheduling (retired)
 
-`ChildStoreManager` is the single owner of directory bootstrap scheduling. Consumers publish demand; they must not start bootstrap from row mount effects.
+`ChildStoreManager` demand plumbing (`useChildStoreManager`, `useDirectoryStore`/`useDirectorySync` shims, `SidebarBootstrapDemandEffect`, `useSessionGroupBootstrap`) was removed. `PiSessionCatalogFeeder` + `refreshAllDirectoryCatalogs` is the single fill path (see Live session catalog). The bullets below describe the retired scheduler.
 
 - The scheduler runs at most two directory bootstraps concurrently.
 - Selected session/current directory demand outranks active-project, expanded, visible, and background demand.
@@ -215,9 +215,9 @@ Current consumers:
 - `SessionSidebar.tsx`
 - `SessionNodeItem.tsx`
 - `Header.tsx`
-- agent/session activity surfaces using `useGlobalSessionStatus()` / `useAllSessionStatuses()`
+- agent/session activity surfaces using `useGlobalSessionStatus()`
 
-Cross-directory selectors subscribe to the narrow child-store field they aggregate. Session aggregation listens to `state.session`. Live busy/retry state is also maintained in `global-session-status.ts`, where each row subscribes to one session ID instead of scanning every child store. Events update the index incrementally; authoritative per-directory status snapshots seed it, clear sessions omitted as idle, and reconcile missed events. Unrelated streaming events such as `message.part.delta` must not trigger global session/status scans.
+Cross-directory selectors subscribe to the narrow catalog field they aggregate. Sidebar lists read `catalog.byId` / `catalog.byDirectory` via `useCatalogUiSessions`. Live busy/retry state is also maintained in `global-session-status.ts`, where each row subscribes to one session ID instead of scanning every directory. Events update the index incrementally; authoritative per-directory status snapshots seed it, clear sessions omitted as idle, and reconcile missed events. Unrelated streaming events such as `message.part.delta` must not trigger global session/status scans.
 
 Session display order is last-prompt recency, not last turn stage. `session-ordering.ts` promotes a session only when `observeSessionActivityEvent` sees a new `active` phase (the send path). Settled/idle, hydrate replay, reconnect snapshots, and list `time.updated` stamps do not promote. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
@@ -239,9 +239,9 @@ Reconciliation walks the running turns and asks the snapshot whether it covers e
 
 The active-session watchdog in `sync-context.tsx` (per-directory status polls and child-session discovery lists) runs its network calls through the shared background-network gate in `@/lib/background-network`, alongside poll-shaped git reads, global session pages, and command/skill discovery. Background fan-out must stay under that gate so the browser's per-origin connection pool keeps free sockets for interactive traffic — an uncapped startup burst previously queued the first session-open message fetch for seconds.
 
-Imperative cross-directory session lookups use the cached ID index from `getAllSyncSessionMap()`. The index is rebuilt only when a child store's `state.session` reference changes; permission lineage checks must reuse it instead of rebuilding a full session map per call.
+Imperative cross-directory session lookups use the cached ID index from `getAllSyncSessionMap()`. The index is rebuilt only when the catalog session set changes.
 
-Permission handling is server-owned. Pi follows its normal no-permission-popup default, so the shared permission store remains a stable no-op rather than an auto-accept policy. Pending questions and permission records still use the session's server-confirmed directory for replies. If a reply returns not-found, the stale request is removed locally and the settled-running-tool recovery path reconciles the session tail. A disconnected client does not invent a reply or claim that a request was resolved.
+Permission handling is server-owned. Pi follows its normal no-permission-popup default. The former no-op permission/question sync hooks (`useSessionPermissions`, `useSessionQuestions`, `useSessionQuestionCount`, `useScopedBlockingPermissions`, `useScopedBlockingQuestions`, `useParentSession`), dismissal helpers, optimistic bridge, and constant `global-sync-store` were removed without replacement; blocking user prompts remain served by Pi extension dialogs. A disconnected client does not invent a reply or claim that a request was resolved.
 
 ### Mutation responsibility
 
@@ -295,7 +295,7 @@ The profiler also emits a user-timing mark when pending global-session recency i
 
 Pi streaming `contentIndex` identifies a content block, not an individual delta. Repeated text or thinking deltas for the same block share an index and append in event-sequence order; sequence rejection, rather than `contentIndex`, owns replay protection.
 
-Streaming assistant text and live tool output are cadence-batched once per animation frame before reaching React. Adjacent cumulative updates for the same tool collapse to the newest snapshot at that frame boundary, while interleaved tools, sessions, and lifecycle boundaries retain order. The live tail overlays those parts onto the streaming message only: when part membership is unchanged (same ids/types, and non-text parts keep reducer identity), `buildLiveStreamingEntry` patches that assistant record and leaves `userMessage`, `activityParts`, and sibling assistants at their previous identities so `ChatMessage` memo can skip them. The live turn's user header and settled sibling assistants also skip when those record identities are unchanged, even if `renderMessage` is recreated for the patched assistant. Neighbor `previousMessage` / `nextMessage` compares use message info, not live part text. A new tool/reasoning part, or a replaced tool object, re-projects the turn. The renderer freezes settled leading markdown blocks and re-lexes only the source tail. While the live tail is still the last block, append-only token updates write that text node directly and skip the async block/HTML pipeline. While the message is still streaming, Shiki and KaTeX stay off for every block, and the unstable live tail is a growing text node in a full-width paragraph (normal wrapping, matching CommonMark `breaks: false`) rather than marked/morphdom HTML. Unfinished code fences, lists, and quotes keep pre-wrap. Highlighting and math land on the settle pass. Live thinking auto-expands into a max-height plain-text pane that scrolls internally, then collapses as soon as that thinking part settles (the next text or tool part starts). **Collapsed by Default** off keeps a one-line header during stream and after unless the user expands it. It does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
+Streaming assistant text and live tool output are cadence-batched once per animation frame before reaching React. Adjacent cumulative updates for the same tool collapse to the newest snapshot at that frame boundary, while interleaved tools, sessions, and lifecycle boundaries retain order. The live tail overlays those parts onto the streaming message only: when part membership is unchanged (same ids/types, and non-text parts keep reducer identity), `buildLiveStreamingEntry` patches that assistant record and leaves `userMessage`, `activityParts`, and sibling assistants at their previous identities so `ChatMessage` memo can skip them. The live turn's user header and settled sibling assistants also skip when those record identities are unchanged, even if `renderMessage` is recreated for the patched assistant. Neighbor `previousMessage` / `nextMessage` compares use message info, not live part text. A new tool/reasoning part, or a replaced tool object, re-projects the turn. The renderer freezes settled leading markdown blocks and re-lexes only the source tail. While the live tail is still the last block, append-only token updates write that text node directly and skip the async block/HTML pipeline. While the message is still streaming, Shiki and KaTeX stay off for every block, and the unstable live tail is a growing text node in a full-width paragraph (normal wrapping, matching CommonMark `breaks: false`) rather than marked/morphdom HTML. Unfinished code fences, lists, and quotes keep pre-wrap. Highlighting and math land on the settle pass. Live thinking starts collapsed with only its header preview mounted, and stays collapsed when that thinking part settles (the next text or tool part starts) unless the user explicitly expanded it. The block never automatically opens or closes; an explicit user open or closed choice survives streaming-to-settled updates of the mounted block. An expanded live block keeps the bounded max-height plain-text pane that scrolls internally. It does not add a second character-pacing timer, which would multiply parse/morph work while catching up on large streamed chunks.
 
 Chat turn `isWorking` (assistant footer visibility) follows `selectStreamingAssistantMessageId` / reducer `streamingMessages`, not catalog `busy`. A session can remain catalog-busy after the live stream id clears; that must not keep the last-turn footer unmounted. When the runtime connection is `error` or `unavailable`, chat suppresses the retained working and streaming presentation without mutating the transcript cursor; authoritative replay or snapshot state can restore it after reconnect. An explicit `SessionRetry` notice is the narrow exception: it remains working and hides the terminal footer while Pi prepares another attempt. Pi publishes a preparatory `busy` frame before the retried provider produces output, so the reducer preserves the prior `retry` lifecycle and metadata through that frame and through the next `assistant.message.start`; the first accepted text, thinking, or tool event clears retry. An errored `assistant.message.end` stays the active assistant until the following retry or terminal lifecycle frame, preventing a completed footer from flashing between adjacent events. Retry attempt, next-attempt time, and redacted provider text survive the public route, reducer, status hook, reconnect snapshot, and `getSession` hydration. Compaction progress is a separate session-topic leaf: manual, threshold, and overflow compactions carry running/retrying/completed/failed/aborted state through events and hydration. The chat renders the notice on the turn at the compaction timestamp, preserving unrelated turn records and avoiding a broad transcript rebuild on token events.
 
@@ -366,10 +366,6 @@ Examples of global-store updates performed in `session-actions.ts`:
 - `unarchiveSession()` / `unarchiveSessions()` -> wait for server confirmation, then upsert each restored session
 - `deleteSession()` / `deleteSessions()` -> wait for server confirmation or `404`, then remove the session and its persisted state
 - `moveSessionToDirectory()` -> move the session between directory stores and update the global directory index
-
-### Blocking-request (question/permission) reply routing
-
-`respondToQuestion`, `rejectQuestion`, `respondToPermission`, and `dismissPermission` route the reply through `resolveDirectoryForBlockingRequest`. The directory chosen decides which Pi runtime instance resolves the pending request, so it must be the **session record's own server-confirmed directory** (ownership), never the containing child-store key (containment): a project store legitimately holds its worktree sessions, and a reply addressed to the parent instance makes the server answer `QuestionNotFoundError` while the question stays pending in the worktree instance. The session would otherwise remain stuck on the running question tool with no recovery. When a reply/reject comes back not-found, the stale request is removed locally and a `settled-running-tool` tail materialization is enqueued so the trailing tool part converges to the server's actual state instead of leaving the UI on "asking question" forever.
 
 ### Restore (unarchive) contract
 
@@ -488,10 +484,10 @@ Select leaf values, not containers:
 
 ```typescript
 // WRONG — returns entire Map/object, new reference on any mutation
-useDirectorySync((s) => s.permission)
+usePiSessionSnapshot((s) => s.catalog.byId)
 
 // RIGHT — returns the value for one key, stable unless that key changes
-useDirectorySync((s) => s.permission[sessionID] ?? EMPTY)
+usePiSessionSnapshot((s) => s.catalog.byId.get(sessionID) ?? null, undefined, sessionID ? `session:${sessionID}` : 'catalog')
 ```
 
 Same applies to `useStreamingStore` — select `.get(key)` not the Map itself. Chat live-tail freeze does not use that store; `useSessionStreamingMessageId` reads the Pi reducer instead.
@@ -510,8 +506,8 @@ Same applies to `useStreamingStore` — select `.get(key)` not the Map itself. C
 Hook migration rules:
 
 - Chat transcript hooks (`useSessionMessageRecords`, `useSessionParts` narrow, `useSessionMessageCount`, `useUserMessageHistory`, `useSessionReducerPart`, `useSessionStreamingMessageId`) subscribe on `session:{id}`.
-- Sidebar / list hooks (`useCatalogUiSessions`, `useSession`, `useSessionStatus`, `useAllSessionStatuses`, sidebar `hasBusySession` / `catalogLiveKey` / `catalogReady`) subscribe on `catalog`.
-- Loader / chrome hooks (`useSessionMessageLoadState`, `useSessionRenderable`, `useSyncDirectory`, sidebar `connection`, `piDirectoryChildStore.subscribe`) subscribe on `chrome`.
+- Sidebar / list hooks (`useCatalogUiSessions`, `useSession`, `useSessionStatus`, sidebar `hasBusySession` / `catalogLiveKey` / `catalogReady`) subscribe on `catalog`.
+- Loader / chrome hooks (`useSessionMessageLoadState`, `useSessionRenderable`, `useSyncDirectory`, sidebar `connection`) subscribe on `chrome`.
 - `useSessions` is two subscriptions: `directory` on `chrome`, list on `catalog` (via `useCatalogUiSessions`).
 - `useSessionParts` legacy scan (no sessionId known to the caller) subscribes on `*` — that path has no id to narrow on.
 

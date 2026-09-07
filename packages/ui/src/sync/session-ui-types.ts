@@ -136,7 +136,7 @@ export type SessionUIState = {
     contextLimit: number,
     outputLimit: number
   ) => SessionContextUsage | null;
-  initializeNewPiChamberSession: (sessionId: string, agents: unknown[]) => void;
+  initializeNewPiChamberSession: (sessionId: string) => void;
   overrideNewSessionDraftTarget: (options: Record<string, unknown>) => void;
 
   // Actions — Pi API operations (read domain data from sync-refs)

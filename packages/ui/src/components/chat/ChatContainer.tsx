@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Message, Session } from '@/lib/chat/types';
+import type { Message } from '@/lib/chat/types';
 
 import { ChatInput } from './ChatInput';
 import { ExtensionDialogOverlay } from './ExtensionDialogOverlay';
@@ -35,16 +35,12 @@ import {
     useSessionRenderable,
     useSessionStatus,
     useSessionCompaction,
-    useScopedBlockingPermissions,
-    useScopedBlockingQuestions,
-    useParentSession,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
 import { isSessionAssistantWorking } from './lib/turns/assistantWorkingState';
-import { useGlobalSyncStore } from '@/sync/global-sync-store';
 import { parseRoute } from '@/lib/router';
 import {
     EMPTY_MESSAGES,
@@ -70,7 +66,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
     const currentSessionDirectory = useSessionUIStore((s) => s.currentSessionDirectory);
     const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
-    const setCurrentSession = useSessionUIStore((s) => s.setCurrentSession);
     const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
     const sendingNewSessionDraftId = useSessionUIStore((s) => s.sendingNewSessionDraftId);
     const isSendingNewSession = isNewSessionDraftSendPending(
@@ -90,15 +85,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         (sessionId: string) => sync.ensureSessionRenderable(sessionId),
         [sync],
     );
-    const loadMoreMessages = React.useCallback(
-        () => sync.loadMore(),
-        [sync],
-    );
+    const loadMoreMessages = React.useCallback(async () => undefined, []);
 
     // UI store
     const isExpandedInput = useUIStore((state) => state.isExpandedInput);
-    const stickyUserHeader = useUIStore((state) => state.stickyUserHeader);
-    const promptNavigatorEnabled = useUIStore((state) => state.promptNavigatorEnabled);
     const isTimelineDialogOpen = useUIStore((s) => s.isTimelineDialogOpen);
     const setTimelineDialogOpen = useUIStore((s) => s.setTimelineDialogOpen);
 
@@ -130,14 +120,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // Session status from sync system
     const sessionStatusForCurrent = useSessionStatus(currentSessionId ?? '', effectiveSessionDirectory) ?? IDLE_SESSION_STATUS;
 
-    // Scoped blocking requests — only subscribe to permissions/questions for
-    // the current session + descendant subagent sessions, not all sessions in
-    // the directory.
-    const sessionPermissions = useScopedBlockingPermissions();
-    const sessionQuestions = useScopedBlockingQuestions();
-
     const sessionIsWorking = React.useMemo(() => {
-        if (!currentSessionId || sessionPermissions.length > 0 || sessionQuestions.length > 0) {
+        if (!currentSessionId) {
             return false;
         }
 
@@ -158,7 +142,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             authoritativeWorking: statusType === 'busy' || statusType === 'retry',
             hasPendingAssistant,
         });
-    }, [connection, currentSessionId, sessionMessages, sessionPermissions.length, sessionQuestions.length, sessionStatusForCurrent.type]);
+    }, [connection, currentSessionId, sessionMessages, sessionStatusForCurrent.type]);
     const activeRetryStatus = React.useMemo(() => {
         if (!currentSessionId || sessionStatusForCurrent.type !== 'retry') {
             return null;
@@ -218,37 +202,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const { isMobile } = useDeviceInfo();
     const chatSurfaceMode = useChatSurfaceMode();
     const draftOpen = Boolean(newSessionDraft?.open);
-    const initError = useGlobalSyncStore((s) => s.error);
     // Despite the historical name, this now covers mobile fullscreen composer
     // (drag-handle swipe-up). Desktop focus mode is gone.
     const isDesktopExpandedInput = isMobile && isExpandedInput;
     const useCompactDraftLayout = isMobile || chatSurfaceMode === 'mini-chat';
 
     const messageListRef = React.useRef<MessageListHandle | null>(null);
-    const parentSession = useParentSession();
-
-    const handleReturnToParentSession = React.useCallback(() => {
-        if (!parentSession) return;
-        const parentDirectory = (parentSession as Session & { directory?: string | null }).directory ?? null;
-        setCurrentSession(parentSession.id, parentDirectory);
-    }, [parentSession, setCurrentSession]);
-
-    const returnToParentButton = parentSession ? (
-        <Button
-            type="button"
-            variant="outline"
-            size="xs"
-            onClick={handleReturnToParentSession}
-            className="absolute left-3 top-3 z-20 !font-normal bg-[var(--surface-background)]/95"
-            aria-label={"Return to parent session"}
-            title={parentSession.title?.trim()
-                ? `Return to: ${parentSession.title}`
-                : "Return to parent session"}
-        >
-            <Icon name="arrow-left" className="h-4 w-4" />
-            {"Parent"}
-        </Button>
-    ) : null;
 
     React.useEffect(() => {
         const route = parseRoute();
@@ -316,13 +275,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         activeTurnChangeRef.current = timelineController.handleActiveTurnChange;
     }, [timelineController.handleActiveTurnChange]);
 
-    React.useEffect(() => {
-        if (sessionPermissions.length === 0 && sessionQuestions.length === 0) {
-            return;
-        }
-        handleMessageContentChange('permission');
-    }, [handleMessageContentChange, sessionPermissions, sessionQuestions]);
-
     const navigation = useChatTurnNavigation({
         sessionId: currentSessionId,
         turnIds: timelineController.turnIds,
@@ -337,7 +289,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const canLoadEarlierPrompts = timelineController.historySignals.canLoadEarlier;
     const showPromptNavigator = !isMobile
         && !isDesktopExpandedInput
-        && promptNavigatorEnabled
         && timelineController.turnIds.length >= 2;
 
     React.useEffect(() => {
@@ -485,8 +436,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		// With auto-open, the draft welcome opens on the next tick (effect below),
 		// so the empty state is only ever transient here — render a neutral
 		// background instead of flashing the logo / "start a new chat" on refresh.
-		// Keep the empty state when there's nothing to auto-open or an init error to show.
-		if (autoOpenDraft && !initError) {
+		// Keep the empty state when there's nothing to auto-open.
+		if (autoOpenDraft) {
 			return <div className="flex h-full flex-col bg-background" />;
 		}
 		return (
@@ -527,7 +478,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		if (sessionMessageLoadState.status === 'error') {
 			return (
 			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-				{returnToParentButton}
 				<div className="flex min-h-0 flex-1 items-center justify-center px-6">
 						<div className="max-w-sm text-center">
 							<div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] text-[var(--status-error)]">
@@ -554,7 +504,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 		}
 		return (
 			<div data-composer-bound className="relative flex flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-				{returnToParentButton}
 				<div
 					className={cn(
 						'relative min-h-0 flex items-center justify-center',
@@ -584,7 +533,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 			// not started the conversation. Keep the materialized session selected
 			// while presenting the same composer-first surface as a new draft.
 			<div data-composer-bound className="relative flex h-full flex-col bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-				{returnToParentButton}
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
@@ -607,13 +555,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
 	return (
 		<div data-composer-bound className="relative flex min-w-0 flex-1 flex-col h-full bg-background animate-in fade-in-0 duration-200 motion-reduce:animate-none">
-			{returnToParentButton}
 			<ChatViewport
 				currentSessionId={currentSessionId}
                 currentSessionKey={currentSessionKey ?? currentSessionId}
                 isDesktopExpandedInput={isDesktopExpandedInput}
                 isMobile={isMobile}
-                stickyUserHeader={stickyUserHeader}
                 directory={effectiveSessionDirectory}
                 scrollRef={scrollRef}
                 messageListRef={messageListRef}

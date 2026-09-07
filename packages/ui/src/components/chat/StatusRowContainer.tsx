@@ -27,7 +27,6 @@ export const StatusRowContainer: React.FC = React.memo(() => {
     // origin (same contract as the tool-call timers) instead of the row's
     // mount time. Leaf subscription — changes once per turn, never per tick.
     const turnStartedAt = useSessionActivityStartedAt(currentSessionId ?? '');
-    const currentAgentName = useConfigStore((state) => state.currentAgentName);
     const providers = useConfigStore((state) => state.providers);
 
     const modelDisplayName = React.useMemo(() => {
@@ -53,7 +52,6 @@ export const StatusRowContainer: React.FC = React.memo(() => {
             retryInfo={working.retryInfo}
             showAssistantStatus
             showTodos={false}
-            agentName={currentAgentName}
             modelName={modelDisplayName}
             providerId={activeModel?.providerId ?? null}
             turnStartedAt={turnStartedAt}

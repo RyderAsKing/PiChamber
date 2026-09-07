@@ -19,7 +19,6 @@ import type { SessionContextUsage } from "@/stores/types/sessionTypes"
 import { getPiSessionStore } from "@/apps/pi-session-store"
 import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
-import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
 import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore"
 import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
@@ -401,18 +400,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       useInputStore.getState().setPendingInputText(options.initialPrompt)
     }
 
-    // Config (providers/agents/default model+agent) lives at the PROJECT level. When the user
+    // Config (providers/default model) lives at the PROJECT level. When the user
     // came from a worktree session, `directory` is the worktree path, whose provider list does
     // not include every runtime-scoped provider
     // — resolving defaults against it could pick the wrong fallback model. Activate
-    // the project's config instead so the default cascade matches app startup, then re-apply it
-    // (a fresh draft must start from defaults, not inherit the previous session's selection).
+    // the project's config instead so the default cascade matches app startup.
     const configDirectory = normalizePath(selectedProject?.path ?? null) ?? directory
-    void activateConfigForDirectory(configDirectory).then(() => {
-      useConfigStore.getState().applyDefaultModelAgentSelection({
-        projectDefaultModel: selectedProject?.defaultModel,
-      })
-    })
+    void activateConfigForDirectory(configDirectory)
 
     if (directory && directory !== useDirectoryStore.getState().currentDirectory) {
       useDirectoryStore.getState().setDirectory(directory)
@@ -732,8 +726,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const sessionAgentSelection = targetSessionId
       ? useSelectionStore.getState().getSessionAgentSelection(targetSessionId)
       : null
-    const configAgentName = useConfigStore.getState().currentAgentName
-    const effectiveAgent = trimmedAgent || sessionAgentSelection || configAgentName || undefined
+    const effectiveAgent = trimmedAgent || sessionAgentSelection || undefined
 
     if (targetSessionId) {
       useSelectionStore.getState().saveSessionModelSelection(targetSessionId, providerID, modelID)

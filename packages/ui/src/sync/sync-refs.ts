@@ -1,8 +1,6 @@
 /* eslint-disable */
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import { piListItemToUiSession } from '@/lib/chat/pi-to-renderable';
-import type { Config, Message, Session } from '@/lib/chat/types';
-import type { PiSessionListItem } from '@/lib/pi/protocol';
+import type { Message, Session } from '@/lib/chat/types';
 import { listLiveSessionRecordsFromCatalog, listUiSessionsFromCatalog } from './pi-session-catalog';
 import type { State } from './types';
 
@@ -10,26 +8,6 @@ export function setSyncRefs() {}
 export function getDirectoryState(...args: unknown[]): Pick<State, 'session_status' | 'message'> | undefined {
   void args;
   return undefined;
-}
-export function getSyncConfig(_directory?: string): Config | undefined {
-  void _directory;
-  return undefined;
-}
-type SyncConfigListener = (directory: string, config: Config) => void;
-export function subscribeToSyncConfigChanges(_listener?: SyncConfigListener) {
-  void _listener;
-  return () => {};
-}
-export function emitSyncConfigChanged() {}
-let mappedSessionListCache: { source: readonly PiSessionListItem[]; mapped: Session[] } | null = null;
-
-export function mapPiSessionList(sessions: readonly PiSessionListItem[]): Session[] {
-  if (mappedSessionListCache && mappedSessionListCache.source === sessions) {
-    return mappedSessionListCache.mapped;
-  }
-  const mapped = sessions.map(piListItemToUiSession);
-  mappedSessionListCache = { source: sessions, mapped };
-  return mapped;
 }
 
 export function getSyncSessions(): Session[] {

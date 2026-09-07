@@ -47,20 +47,7 @@ mock.module('@/hooks/usePwaManifestSync', () => ({ usePwaManifestSync: () => und
 mock.module('@/hooks/useQueuedMessageAutoSend', () => ({ useQueuedMessageAutoSend: () => undefined }));
 mock.module('@/hooks/useSessionAutoCleanup', () => ({ useSessionAutoCleanup: () => undefined }));
 mock.module('@/hooks/useWindowControlsOverlayLayout', () => ({ useWindowControlsOverlayLayout: () => undefined }));
-mock.module('@/sync/session-actions', () => ({ setOptimisticRefs: () => undefined }));
 mock.module('@/sync/notification-store', () => ({ markSessionViewed: () => undefined }));
-mock.module('@/sync/sync-context', () => ({
-  setExternallyViewedSession: () => undefined,
-}));
-mock.module('@/sync/use-sync', () => ({
-  useSync: () => ({
-    optimistic: {
-      add: () => undefined,
-      remove: () => undefined,
-      confirm: () => undefined,
-    },
-  }),
-}));
 mock.module('@/apps/pi-session-store', () => ({ getPiSessionStore: () => piStore }));
 mock.module('@/sync/session-ui-store', () => ({
   useSessionUIStore: {
