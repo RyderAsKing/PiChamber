@@ -193,6 +193,8 @@ export interface PiSessionMessagesResponse {
   beforeCursor?: string;
   /** Observation time only. A history page does not cover intervening events. */
   lastSequence: number;
+  /** Server wall clock sampled for the timestamps in this page. */
+  serverNow?: number;
 }
 
 /** A message view returned by the API, including part data. */
@@ -697,8 +699,12 @@ export interface PiToolUpdatePayload {
   /** Renderer metadata (edit diffs, truncation notes) without temp paths. */
   metadata?: Record<string, unknown>;
   isError?: boolean;
+  /** Server epoch when the tool started. */
   startedAt?: number;
+  /** Server epoch when the tool ended. */
   endedAt?: number;
+  /** Server epoch sampled with the timestamps, for client clock correction. */
+  serverNow?: number;
 }
 
 export type PiSessionToolStartEvent = PiEventEnvelope<

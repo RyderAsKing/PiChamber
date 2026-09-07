@@ -288,6 +288,21 @@ describe("applyPiEvent", () => {
     expect(part?.streaming).toBe(false)
   })
 
+  test("normalizes live tool timestamps against the server clock", () => {
+    const originalNow = Date.now
+    Date.now = () => 50_000
+    try {
+      let state = applyPiEvent(createReducerState(), assistantStart()).state
+      state = applyPiEvent(state, baseEvent("session.tool.start", 2, {
+        toolCallId: "t1", partId: "p-tool", messageId: "m1", name: "bash", state: "running",
+        startedAt: 10_000, serverNow: 20_000,
+      })).state
+      expect(state.bySession.get("sess-1")?.parts.get("p-tool")?.tool?.startedAt).toBe(40_000)
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
   test("tracks tool execution started after assistant.message.end", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
@@ -529,6 +544,33 @@ describe("hydrateSessionFromDetail", () => {
     expect(session.messages.get("m1")?.streaming).toBe(true)
     expect(session.parts.get("p1")?.streaming).toBe(true)
     expect(session.parts.get("p1")?.tool?.state).toBe("running")
+  })
+
+  test("normalizes hydrated tool timestamps against the detail server clock", () => {
+    const originalNow = Date.now
+    Date.now = () => 50_000
+    try {
+      const { session } = hydrateSessionFromDetail({
+        session: { id: "sess-1", directory: "/work" },
+        lastSequence: 12,
+        serverNow: 20_000,
+        isStreaming: true,
+        lifecycle: "busy",
+        messages: [{
+          message: {
+            id: "m1", sessionId: "sess-1", directory: "/work", role: "assistant",
+            text: "", thinking: "", createdAt: 1_100,
+          },
+          parts: [{
+            id: "p1", index: 0, type: "tool", toolCallId: "tc-1", name: "bash",
+            state: "running", startedAt: 10_000,
+          }],
+        }],
+      })
+      expect(session.parts.get("p1")?.tool?.startedAt).toBe(40_000)
+    } finally {
+      Date.now = originalNow
+    }
   })
 
   test("marks a live turn busy when getSession has no assistant yet", () => {
