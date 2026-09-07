@@ -160,6 +160,26 @@ describe("usePromptTemplatesStore", () => {
     expect(usePromptTemplatesStore.getState().selectedPromptId).toBe("new");
   });
 
+  test("reports a deferred prompt mutation without treating it as a failure", async () => {
+    resourcesImpl = async () => ({
+      skills: [],
+      prompts: [{ id: "p1", kind: "prompt", name: "review", location: "global", editable: true }],
+      agents: [],
+    });
+    await usePromptTemplatesStore.getState().loadPrompts("/work");
+    createImpl = async () => ({
+      skills: [],
+      prompts: [{ id: "p2", kind: "prompt", name: "review", location: "global", editable: true }],
+      agents: [],
+      deferred: true,
+    });
+    expect(await usePromptTemplatesStore.getState().createPrompt("review", "Body", {
+      description: "Review",
+      location: "global",
+      directory: "/work",
+    })).toBe("deferred");
+  });
+
   test("an in-flight load cannot overwrite a newer mutation for the same directory", async () => {
     let resolveLoad!: (value: Awaited<ReturnType<typeof resourcesImpl>>) => void;
     resourcesImpl = () => new Promise((resolve) => { resolveLoad = resolve; });
@@ -194,6 +214,22 @@ describe("usePromptTemplatesStore", () => {
     resolveUpdate({ skills: [], prompts: [{ id: "a", kind: "prompt", name: "a", location: "global", editable: true }], agents: [] });
     expect(await pending).toBe(true);
     expect(usePromptTemplatesStore.getState().prompts.map((prompt) => prompt.id)).toEqual(["b"]);
+  });
+
+  test("a committed mutation is not reported as failed after a runtime switch", async () => {
+    resourcesImpl = async () => ({
+      skills: [],
+      prompts: [{ id: "a", kind: "prompt", name: "a", location: "global", editable: true }],
+      agents: [],
+    });
+    await usePromptTemplatesStore.getState().loadPrompts("/a");
+    let resolveUpdate!: (value: unknown) => void;
+    updateImpl = () => new Promise((resolve) => { resolveUpdate = resolve; });
+    const pending = usePromptTemplatesStore.getState().updatePrompt("a", { content: "updated" }, "/a");
+    runtimeKey = "runtime-2";
+    resolveUpdate({ skills: [], prompts: [], agents: [], deferred: true });
+    expect(await pending).toBe("deferred");
+    expect(usePromptTemplatesStore.getState().prompts.map((prompt) => prompt.id)).toEqual(["a"]);
   });
 
   test("create carries explicit directory and selects the new prompt", async () => {
