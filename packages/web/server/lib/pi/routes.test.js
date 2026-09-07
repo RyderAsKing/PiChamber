@@ -258,6 +258,59 @@ describe('Pi runtime route', () => {
     ]);
   });
 
+  it('preserves deferred status for accepted Pi mutations', async () => {
+    const runtime = {
+      request: async (command) => {
+        if (command === 'settings.set') return { global: {}, project: { trusted: false }, deferred: true };
+        if (command === 'resources.update') return { skills: [], prompts: [], agents: [], deferred: true };
+        if (command === 'providers.models.set') return {
+          config: {
+            providerId: 'custom',
+            label: 'Custom',
+            baseUrl: 'https://api.example.test/v1',
+            api: 'openai-completions',
+            models: [],
+          },
+          deferred: true,
+        };
+        throw new Error(`Unexpected command ${command}`);
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    await expect((await fetch(`${base}/settings/pi`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: 'global', defaultThinking: 'high' }),
+    })).json()).resolves.toEqual({
+      pi: { global: {}, project: { trusted: false } },
+      deferred: true,
+    });
+    await expect((await fetch(`${base}/resources/resource-1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'Updated' }),
+    })).json()).resolves.toEqual({ skills: [], prompts: [], agents: [], deferred: true });
+    await expect((await fetch(`${base}/providers/custom/models`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'Custom', baseUrl: 'https://api.example.test/v1', models: [] }),
+    })).json()).resolves.toEqual({
+      config: {
+        providerId: 'custom',
+        label: 'Custom',
+        baseUrl: 'https://api.example.test/v1',
+        api: 'openai-completions',
+        models: [],
+      },
+      deferred: true,
+    });
+  });
+
   it('forwards provider login without returning API keys and projects only interactive login state', async () => {
     const calls = [];
     const runtime = {
