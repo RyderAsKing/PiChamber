@@ -52,6 +52,10 @@ export async function routeMessage(params: {
       ? params.delivery
       : 'prompt';
   const sessionStore = getPiSessionStore();
+  // Pi resets thinking to the model default during setModel. The reducer may
+  // still report the old level when the model request resolves, so a model
+  // change always invalidates the cached thinking value for this send.
+  let modelChanged = false;
   if (params.sessionId && params.providerID && params.modelID) {
     const currentModel = committedSessionSelection(params.sessionId).model;
     if (
@@ -64,11 +68,12 @@ export async function routeMessage(params: {
         params.providerID,
         params.modelID
       );
+      modelChanged = true;
     }
   }
   if (params.sessionId && isPiThinkingLevel(params.variant)) {
     const currentThinking = committedSessionSelection(params.sessionId).thinking;
-    if (currentThinking !== params.variant) {
+    if (modelChanged || currentThinking !== params.variant) {
       await sessionStore.setThinking(params.sessionId, params.variant);
     }
   }
