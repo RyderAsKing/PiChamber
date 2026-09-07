@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { StringDecoder } from 'node:string_decoder';
 
-const PROTOCOL_VERSION = 1;
-const MAX_FRAME_BYTES = 16 * 1024 * 1024;
+import {
+  SESSION_DAEMON_MAX_FRAME_BYTES as MAX_FRAME_BYTES,
+  SESSION_DAEMON_PROTOCOL_VERSION as PROTOCOL_VERSION,
+} from './ipc-protocol.js';
 
 export class SessionDaemonClientError extends Error {
   constructor(code, message = 'The Pi session daemon is unavailable.') {
@@ -41,17 +43,20 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
   });
   socket.on('data', (chunk) => {
     buffer += decoder.write(chunk);
-    if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) {
-      fail('MALFORMED_DAEMON_RESPONSE');
-      return;
-    }
 
     while (true) {
       const newline = buffer.indexOf('\n');
-      if (newline === -1) return;
+      if (newline === -1) {
+        if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) fail('DAEMON_RESPONSE_TOO_LARGE');
+        return;
+      }
       const line = buffer.slice(0, newline).replace(/\r$/, '');
       buffer = buffer.slice(newline + 1);
       if (!line) continue;
+      if (Buffer.byteLength(line) > MAX_FRAME_BYTES) {
+        fail('DAEMON_RESPONSE_TOO_LARGE');
+        return;
+      }
 
       let message;
       try {
@@ -113,13 +118,19 @@ export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSe
   });
   socket.on('data', (chunk) => {
     buffer += decoder.write(chunk);
-    if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) return fail(new SessionDaemonClientError('MALFORMED_DAEMON_RESPONSE'));
     while (true) {
       const newline = buffer.indexOf('\n');
-      if (newline === -1) return;
+      if (newline === -1) {
+        if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) fail(new SessionDaemonClientError('DAEMON_RESPONSE_TOO_LARGE'));
+        return;
+      }
       const line = buffer.slice(0, newline).replace(/\r$/, '');
       buffer = buffer.slice(newline + 1);
       if (!line) continue;
+      if (Buffer.byteLength(line) > MAX_FRAME_BYTES) {
+        fail(new SessionDaemonClientError('DAEMON_RESPONSE_TOO_LARGE'));
+        return;
+      }
       let message;
       try { message = JSON.parse(line); } catch { fail(new SessionDaemonClientError('MALFORMED_DAEMON_RESPONSE')); return; }
       if (message.protocolVersion !== PROTOCOL_VERSION) { fail(new SessionDaemonClientError('UNSUPPORTED_DAEMON_PROTOCOL')); return; }
