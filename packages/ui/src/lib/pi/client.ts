@@ -28,6 +28,7 @@ import {
   type PiProviderLogoutInput,
   type PiSettingsSnapshot,
   type PiSettingsUpdateInput,
+  type PiSettingsUpdateResponse,
   type PiChamberDefaultsUpdateInput,
   type PiProviderSetModelsInput,
   type PiProviderConfigResponse,
@@ -543,9 +544,9 @@ export class PiService {
     });
   }
 
-  async setPiSettings(input: PiSettingsUpdateInput, scope?: PiClientScope): Promise<Pick<PiSettingsSnapshot, 'pi'>> {
+  async setPiSettings(input: PiSettingsUpdateInput, scope?: PiClientScope): Promise<PiSettingsUpdateResponse> {
     assertRuntimeUnchanged(scope);
-    return jsonRequest<PiSettingsUpdateInput, Pick<PiSettingsSnapshot, 'pi'>>('/api/pi/settings/pi', {
+    return jsonRequest<PiSettingsUpdateInput, PiSettingsUpdateResponse>('/api/pi/settings/pi', {
       method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }

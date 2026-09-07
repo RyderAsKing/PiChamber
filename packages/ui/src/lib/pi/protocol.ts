@@ -390,6 +390,8 @@ export interface PiProviderModelsConfig {
 
 export interface PiProviderConfigResponse {
   config: PiProviderModelsConfig | null;
+  /** True when the file is saved but active Pi runtimes await an idle edge. */
+  deferred?: boolean;
 }
 
 export interface PiProviderSetModelsInput extends PiProviderModelsConfig {
@@ -428,6 +430,11 @@ export interface PiSettingsUpdateInput {
   trust?: boolean | null;
 }
 
+export interface PiSettingsUpdateResponse extends Pick<PiSettingsSnapshot, 'pi'> {
+  /** True when the file is saved but active Pi runtimes await an idle edge. */
+  deferred?: boolean;
+}
+
 export interface PiChamberDefaultsUpdateInput {
   defaultModel?: PiModelRef | null;
   defaultThinking?: PiThinkingLevel | null;
@@ -446,6 +453,8 @@ export interface PiResourceListResponse {
   skills: PiResource[];
   prompts: PiResource[];
   agents: PiResource[];
+  /** True when the file is saved but active Pi runtimes await an idle edge. */
+  deferred?: boolean;
 }
 
 export interface PiResourceUpdateInput {

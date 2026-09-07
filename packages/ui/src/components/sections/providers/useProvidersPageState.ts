@@ -8,6 +8,11 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { reportSettingsSaveState } from '@/lib/persistence';
+import {
+  busySettingsMessage,
+  isDeferredPiMutation,
+  isSessionBusyError,
+} from '@/lib/pi/mutation-status';
 import { thinkingModelKey } from '@/lib/pi/thinking';
 import { providerScope, sortProviders } from './providerModelHelpers';
 import type { CustomProviderPersistPlan } from './custom-provider-form';
@@ -266,7 +271,7 @@ export function useProvidersPageState() {
   const saveCustomProvider = async (plan: CustomProviderPersistPlan) => {
     setBusy(true);
     try {
-      await piClient.setProviderModels(
+      const result = await piClient.setProviderModels(
         {
           providerId: plan.providerID,
           label: plan.name,
@@ -282,6 +287,13 @@ export function useProvidersPageState() {
         },
         providerScope(),
       );
+      if (isDeferredPiMutation(result)) {
+        // Do not submit an API key to a runtime that cannot see the newly
+        // saved provider yet. The form stays open so the user can connect it
+        // once the active sessions are idle.
+        toast.info('Provider configuration saved. Connect it after active sessions are idle.');
+        return;
+      }
       if (plan.apiKey)
         setLogin(
           (
@@ -294,8 +306,12 @@ export function useProvidersPageState() {
       setSelectedProviderId(plan.providerID);
       setCustomEditing(false);
       await refresh();
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      if (isSessionBusyError(error)) {
+        toast.info(busySettingsMessage('Provider configuration'));
+      } else {
+        setFailed(true);
+      }
     } finally {
       setBusy(false);
     }
