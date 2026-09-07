@@ -8,6 +8,7 @@ import {
   confirmLinuxAppImageUpdate,
   installLinuxAppImageUpdate,
   recoverLinuxAppImageUpdate,
+  validateLinuxAppImage,
 } from './linux-appimage-update.mjs';
 
 const createFixture = async () => {
@@ -27,6 +28,32 @@ const validateFixtureAppImage = async ({ appImagePath }) => {
   const info = await fs.stat(appImagePath);
   assert.equal(info.isFile(), true);
 };
+
+test('validates an AppImage without blocking the event loop during extraction', async () => {
+  const fixture = await createFixture();
+  await fs.writeFile(fixture.downloadedPath, `#!/bin/sh
+if [ "$1" = "--appimage-extract" ]; then
+  mkdir -p squashfs-root/resources/web-dist
+  printf '<!doctype html>' > squashfs-root/resources/web-dist/index.html
+  printf '#!/bin/sh\\nexec pichamber-bin --no-sandbox "$@"\\n' > squashfs-root/pichamber
+  printf 'binary' > squashfs-root/pichamber-bin
+  chmod +x squashfs-root/pichamber-bin
+  sleep 0.025
+fi
+`, { mode: 0o755 });
+
+  let heartbeat = false;
+  try {
+    const validation = validateLinuxAppImage({ appImagePath: fixture.downloadedPath });
+    setTimeout(() => {
+      heartbeat = true;
+    }, 5);
+    await validation;
+    assert.equal(heartbeat, true);
+  } finally {
+    await fs.rm(fixture.root, { recursive: true, force: true });
+  }
+});
 
 test('installs an AppImage over the existing path and preserves a backup', async () => {
   const fixture = await createFixture();

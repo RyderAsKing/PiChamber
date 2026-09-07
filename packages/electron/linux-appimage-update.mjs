@@ -1,7 +1,7 @@
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 const TRANSACTION_FILE_NAME = 'linux-appimage-update.json';
 const BACKUP_SUFFIX = '.previous';
@@ -17,17 +17,47 @@ const assertAbsolutePath = (value, label) => {
   return path.normalize(value);
 };
 
+const extractAppImage = (appImagePath, temporaryDirectory) => new Promise((resolve, reject) => {
+  let child;
+  try {
+    child = spawn(appImagePath, ['--appimage-extract'], {
+      cwd: temporaryDirectory,
+      stdio: 'ignore',
+    });
+  } catch (error) {
+    reject(error);
+    return;
+  }
+
+  let settled = false;
+  const timer = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    child.kill('SIGKILL');
+    reject(new Error(`The downloaded AppImage could not be extracted within ${MAX_EXTRACT_MS}ms`));
+  }, MAX_EXTRACT_MS);
+
+  const finish = (callback, value) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    callback(value);
+  };
+  child.once('error', (error) => finish(reject, error));
+  child.once('exit', (code, signal) => {
+    if (code === 0) {
+      finish(resolve);
+      return;
+    }
+    const detail = signal ? ` (signal ${signal})` : '';
+    finish(reject, new Error(`The downloaded AppImage could not be extracted${detail}`));
+  });
+});
+
 const defaultExtract = async (appImagePath) => {
   const temporaryDirectory = await fsp.mkdtemp(path.join(os.tmpdir(), 'pichamber-appimage-'));
   try {
-    const result = spawnSync(appImagePath, ['--appimage-extract'], {
-      cwd: temporaryDirectory,
-      stdio: 'ignore',
-      timeout: MAX_EXTRACT_MS,
-    });
-    if (result.error || result.status !== 0) {
-      throw new Error(`The downloaded AppImage could not be extracted${result.error ? `: ${result.error.message}` : ''}`);
-    }
+    await extractAppImage(appImagePath, temporaryDirectory);
 
     const extractedRoot = path.join(temporaryDirectory, 'squashfs-root');
     const indexPath = path.join(extractedRoot, 'resources', 'web-dist', 'index.html');
