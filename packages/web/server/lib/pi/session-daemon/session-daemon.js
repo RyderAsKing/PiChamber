@@ -258,6 +258,35 @@ export function createSessionDaemon({
   const latestAssistantMessageIds = new Map();
   const messageStartedAt = new Map();
   const toolStartedAt = new Map();
+  // Keep recent starts long enough for a second client or a browser reload to
+  // hydrate a just-finished tool, but do not let a long-lived daemon grow with
+  // every tool call.
+  const completedToolTimings = new Map();
+  const MAX_COMPLETED_TOOL_TIMINGS = 2048;
+  const toolTimingKey = (sessionId, toolCallId) => `${sessionId}\u0000${toolCallId}`;
+  const clearToolTimingsForSession = (sessionId, { keepCompleted = false } = {}) => {
+    const prefix = `${sessionId}\u0000`;
+    for (const key of toolStartedAt.keys()) {
+      if (key.startsWith(prefix)) toolStartedAt.delete(key);
+    }
+    if (!keepCompleted) {
+      for (const key of completedToolTimings.keys()) {
+        if (key.startsWith(prefix)) completedToolTimings.delete(key);
+      }
+    }
+  };
+  const rememberCompletedToolTiming = (sessionId, toolCallId, startedAt, endedAt) => {
+    if (!Number.isFinite(startedAt)) return;
+    completedToolTimings.set(toolTimingKey(sessionId, toolCallId), {
+      startedAt,
+      ...(Number.isFinite(endedAt) ? { endedAt } : {}),
+    });
+    while (completedToolTimings.size > MAX_COMPLETED_TOOL_TIMINGS) {
+      const oldest = completedToolTimings.keys().next();
+      if (oldest.done) break;
+      completedToolTimings.delete(oldest.value);
+    }
+  };
   const toolInputBySession = new Map();
   const latestUserMessageIds = new Map();
   const retryStateBySession = new Map();
@@ -1205,6 +1234,10 @@ export function createSessionDaemon({
         if (part?.type === 'thinking') return [{ type: 'thinking', id: `${entry.id}:thinking:${index}`, index, text: redactAttachmentPaths(part.thinking) }];
         if (part?.type === 'toolCall') {
           const result = toolResults.get(part.id);
+          const timingKey = toolTimingKey(session.sessionId, part.id);
+          const activeStartedAt = toolStartedAt.get(timingKey);
+          const completedTiming = completedToolTimings.get(timingKey);
+          const startedAt = activeStartedAt ?? completedTiming?.startedAt;
           const running = streaming && !result;
           const interrupted = !running && !result;
           const metadata = mergeToolPresentationMetadata(result?.metadata, activeRuntime, targetDir, part.name, part.arguments);
@@ -1224,11 +1257,14 @@ export function createSessionDaemon({
                 : {}),
             ...(result?.isError || interrupted ? { isError: true } : {}),
             ...(metadata ? { metadata } : {}),
+            ...(Number.isFinite(startedAt) ? { startedAt } : {}),
             ...(Number.isFinite(result?.endedAt)
               ? { endedAt: result.endedAt }
-              : interrupted
-                ? { endedAt: createdAt }
-                : {}),
+              : Number.isFinite(completedTiming?.endedAt)
+                ? { endedAt: completedTiming.endedAt }
+                : interrupted
+                  ? { endedAt: createdAt }
+                  : {}),
           }];
         }
         return [];
@@ -2631,6 +2667,7 @@ export function createSessionDaemon({
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
+    clearToolTimingsForSession(sessionId);
     publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
   };
 
@@ -2766,7 +2803,7 @@ export function createSessionDaemon({
         const startedAt = Date.now();
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const metadata = mergeToolPresentationMetadata(undefined, activeRuntime, directory, event.toolName, event.args);
-        toolStartedAt.set(event.toolCallId, startedAt);
+        toolStartedAt.set(toolTimingKey(sessionId, event.toolCallId), startedAt);
         rememberToolInput(sessionId, event.toolCallId, event.args);
         publish('session.tool.start', {
           toolCallId: event.toolCallId,
@@ -2778,11 +2815,14 @@ export function createSessionDaemon({
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
           ...(metadata ? { metadata } : {}),
           startedAt,
+          serverNow: startedAt,
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_update': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
+        const startedAt = toolStartedAt.get(toolTimingKey(sessionId, event.toolCallId));
+        const serverNow = Date.now();
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         const projected = projectToolResult(event.partialResult, false);
@@ -2797,14 +2837,19 @@ export function createSessionDaemon({
           ...(event.args !== undefined ? { input: redactAttachmentValues(event.args) } : {}),
           ...projected,
           ...(metadata ? { metadata } : {}),
+          ...(Number.isFinite(startedAt) ? { startedAt } : {}),
+          serverNow,
         }, sessionId, directory);
         break;
       }
       case 'tool_execution_end': {
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
-        const startedAt = toolStartedAt.get(event.toolCallId);
+        const timingKey = toolTimingKey(sessionId, event.toolCallId);
+        const startedAt = toolStartedAt.get(timingKey);
+        const endedAt = Date.now();
         const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
-        toolStartedAt.delete(event.toolCallId);
+        rememberCompletedToolTiming(sessionId, event.toolCallId, startedAt, endedAt);
+        toolStartedAt.delete(timingKey);
         forgetToolInput(sessionId, event.toolCallId);
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const projected = projectToolResult(event.result, event.isError === true);
@@ -2820,7 +2865,8 @@ export function createSessionDaemon({
           ...projected,
           ...(metadata ? { metadata } : {}),
           ...(Number.isFinite(startedAt) ? { startedAt } : {}),
-          endedAt: Date.now(),
+          endedAt,
+          serverNow: endedAt,
         }, sessionId, directory);
         break;
       }
@@ -2863,6 +2909,7 @@ export function createSessionDaemon({
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
+        clearToolTimingsForSession(sessionId, { keepCompleted: true });
         publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
         if (!completeRequestedShutdown(sessionId)) {
           void flushPendingResourceReload(owningRuntime).then(() => {
@@ -3462,6 +3509,8 @@ export function createSessionDaemon({
       retryStateBySession.clear();
       compactionStateBySession.clear();
       activeRunStartedAt.clear();
+      toolStartedAt.clear();
+      completedToolTimings.clear();
       shutdownRequestedBySession.clear();
       disposingSessionIds.clear();
       sendGenerationBySession.clear();

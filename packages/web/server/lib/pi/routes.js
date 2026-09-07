@@ -623,6 +623,7 @@ export const projectEventFrame = (frame) => {
         ...(frame.payload.isError === true ? { isError: true } : {}),
         ...(Number.isFinite(frame.payload.startedAt) ? { startedAt: frame.payload.startedAt } : {}),
         ...(Number.isFinite(frame.payload.endedAt) ? { endedAt: frame.payload.endedAt } : {}),
+        ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: frame.payload.serverNow } : {}),
       },
     };
     case 'extension.entry': {

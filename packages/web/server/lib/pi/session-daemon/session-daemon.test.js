@@ -297,6 +297,66 @@ describe('Pi session daemon spike', () => {
     await reconnectingClient.close();
   });
 
+  it('projects the authoritative tool start through session hydration for active and completed calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    session.isStreaming = true;
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-entry',
+      timestamp: '2026-01-01T00:00:01.000Z',
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [{ type: 'toolCall', id: 'tool-1', name: 'read', arguments: { path: 'file.txt' } }],
+      },
+    }];
+
+    const toolStartPromise = client.next((message) => message.event === 'session.tool.start');
+    session.emit({ type: 'tool_execution_start', toolCallId: 'tool-1', toolName: 'read', args: { path: 'file.txt' } });
+    const toolStart = await toolStartPromise;
+    const activeDetail = await client.request('sessions.open', { sessionId: session.sessionId, directory: root });
+    const activeTool = activeDetail.result.messages[0].parts[0];
+    expect(activeTool).toMatchObject({
+      toolCallId: 'tool-1',
+      state: 'running',
+      startedAt: toolStart.payload.startedAt,
+    });
+
+    session.entries.push({
+      type: 'message',
+      id: 'tool-result-entry',
+      timestamp: new Date(Date.now()).toISOString(),
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tool-1',
+        isError: false,
+        content: [{ type: 'text', text: 'file contents' }],
+      },
+    });
+    const toolEndPromise = client.next((message) => message.event === 'session.tool.end');
+    session.emit({ type: 'tool_execution_end', toolCallId: 'tool-1', toolName: 'read', result: { content: [{ type: 'text', text: 'file contents' }] }, isError: false });
+    const toolEnd = await toolEndPromise;
+    const completedDetail = await client.request('sessions.open', { sessionId: session.sessionId, directory: root });
+    const completedTool = completedDetail.result.messages[0].parts[0];
+    expect(completedTool).toMatchObject({
+      toolCallId: 'tool-1',
+      state: 'completed',
+      startedAt: toolStart.payload.startedAt,
+      endedAt: expect.any(Number),
+    });
+    expect(toolEnd.payload.startedAt).toBe(toolStart.payload.startedAt);
+    await client.close();
+  });
+
   it('replays a contiguous reconnect gap and sends a snapshot when the cursor predates retained events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
