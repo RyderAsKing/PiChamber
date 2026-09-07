@@ -168,4 +168,23 @@ describe('pi-session-store-helpers', () => {
     expect(merged.lifecycle).toBe('busy');
     expect(merged.lastSequence).toBe(7);
   });
+
+  test('keeps a live mode status when stale hydration catches the first prompt', () => {
+    const existing = hydrateSessionFromDetail({
+      session: { id: 'session-1', directory: '/dir' },
+      lastSequence: 7,
+      lifecycle: 'busy',
+      extensionStatuses: [{ key: 'mode', text: 'mode:balance/max' }],
+      messages: [],
+    }).session;
+    const fetched = hydrateSessionFromDetail({
+      session: { id: 'session-1', directory: '/dir' },
+      lastSequence: 5,
+      messages: [],
+    }).session;
+
+    const merged = mergeHydratedSession(fetched, existing);
+
+    expect(merged.extensionStatuses.get('mode')).toBe('mode:balance/max');
+  });
 });
