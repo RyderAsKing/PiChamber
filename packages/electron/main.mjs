@@ -25,6 +25,7 @@ import {
   installLinuxAppImageUpdate,
   recoverLinuxAppImageUpdate,
 } from './linux-appimage-update.mjs';
+import { installLinuxPackageUpdate, unescapeUpdaterInstallerPath } from './linux-package-update.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
 import { resolveUpdaterChannel } from './updater-channel.mjs';
 import { resolveUpdaterFeed } from './updater-feed.mjs';
@@ -271,6 +272,7 @@ const state = {
   quitConfirmationPending: false,
   backgroundShutdownComplete: false,
   installingUpdate: false,
+  linuxUpdateInProgress: false,
   pendingUpdate: null,
   unreachableHosts: new Set(),
   windowCounter: 1,
@@ -4188,6 +4190,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       }
 
     case 'desktop_restart': {
+      if (state.installingUpdate) return null;
       const applyUpdate = Boolean(state.pendingUpdate?.downloaded && app.isPackaged);
       const packageType = currentLinuxPackageType();
       if (applyUpdate) assertUpdaterCapability({ packaged: app.isPackaged, packageType });
@@ -4203,11 +4206,11 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         }
       }
       if (applyUpdate) {
-        // Match the working updater pattern closely: only bypass the macOS
-        // hide-on-close / quit-confirmation guards, leave the rest of the
-        // updater-driven quit/install sequence alone.
+        // Bypass the macOS hide-on-close and quit-confirmation guards while
+        // the update installer owns the shutdown sequence.
         state.quitRequested = true;
         state.installingUpdate = true;
+        state.linuxUpdateInProgress = process.platform === 'linux';
         state.quitConfirmationPending = false;
         if (state.mainWindow && !state.mainWindow.isDestroyed()) {
           try {
@@ -4239,8 +4242,26 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
                 version: installed.version,
                 currentPath: installed.currentPath,
               });
+              state.linuxUpdateInProgress = false;
               killSidecar();
               app.relaunch({ execPath: installed.currentPath, args: [] });
+              app.exit(0);
+              return;
+            }
+
+            if (process.platform === 'linux' && packageType) {
+              const downloadedPath = autoUpdater.installerPath;
+              if (typeof downloadedPath !== 'string') {
+                throw new Error('The downloaded Linux update file is no longer available. Download it again.');
+              }
+
+              await installLinuxPackageUpdate({
+                packageType,
+                installerPath: unescapeUpdaterInstallerPath(downloadedPath),
+              });
+              state.linuxUpdateInProgress = false;
+              killSidecar();
+              app.relaunch();
               app.exit(0);
               return;
             }
@@ -4254,6 +4275,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
           }
         } catch (err) {
           state.installingUpdate = false;
+          state.linuxUpdateInProgress = false;
           state.quitRequested = false;
           state.quitConfirmed = false;
           log.error('[electron] desktop_restart failed', err);
@@ -5029,6 +5051,9 @@ app.on('window-all-closed', () => {
   }
 
   if (process.platform !== 'darwin') {
+    if (state.linuxUpdateInProgress) {
+      return;
+    }
     if (state.installingUpdate) {
       app.quit();
     } else {
@@ -5039,6 +5064,11 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', (event) => {
   state.quitRequested = true;
+
+  if (state.linuxUpdateInProgress) {
+    event.preventDefault();
+    return;
+  }
 
   if (state.installingUpdate) {
     return;

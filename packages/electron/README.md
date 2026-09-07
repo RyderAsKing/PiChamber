@@ -45,6 +45,8 @@ AppImages are portable and do not require installation, but the AppImage format 
 
 Linux AppImage updates are staged and validated before the existing file is replaced. The previous image is retained until the restarted packaged UI confirms a successful launch; a failed restart is recovered on the next launch. The updater preserves the current AppImage path so existing desktop shortcuts do not become stale.
 
+Native Linux package installs run their privileged package command asynchronously. Polkit or sudo authentication does not block the Electron window.
+
 macOS notarized builds need `APPLE_CERTIFICATE` as base64 of a Developer ID Application `.p12`. Missing or unreadable certificates produce unsigned `.dmg`/`.zip` files instead of failing the job.
 
 ## Platform rules
