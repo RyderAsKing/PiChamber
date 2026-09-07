@@ -26,6 +26,13 @@ import {
 import { createPiModelConfigStore } from '../model-config-store.js';
 import { clampThinkingLevel, getSupportedThinkingLevels, isPiThinkingLevel } from '../thinking-levels.js';
 import { createExtensionBridge } from './extension-bridge.js';
+import {
+  SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
+  SESSION_DAEMON_MAX_FRAME_BYTES as MAX_FRAME_BYTES,
+  SESSION_DAEMON_MAX_MESSAGE_PAGE_LIMIT,
+  SESSION_DAEMON_MESSAGE_PAGE_TARGET_BYTES,
+  SESSION_DAEMON_PROTOCOL_VERSION as PROTOCOL_VERSION,
+} from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
@@ -40,8 +47,6 @@ import {
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
-
-const PROTOCOL_VERSION = 1;
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -86,8 +91,6 @@ try {
     }
   }
 } catch {}
-
-const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 
 class SessionDaemonProtocolError extends Error {
   constructor(code, message) {
@@ -506,8 +509,7 @@ export function createSessionDaemon({
     const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
     const compaction = compactionStateFor(activeSession);
     const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
-    const messages = activeSession ? projectMessageEntries(targetRuntime || runtime, targetDirectory) : [];
-    const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
+    const lastAssistant = activeSession ? projectLatestAssistantMessage(targetRuntime || runtime) : undefined;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
     // Snapshot must carry enough extension live state for a reconnect that
@@ -1072,6 +1074,24 @@ export function createSessionDaemon({
     return entries;
   };
 
+  const projectLatestAssistantMessage = (activeRuntime) => {
+    const session = activeRuntime?.session;
+    const persisted = session?.sessionManager?.getBranch?.() ?? session?.sessionManager?.getEntries?.();
+    const entries = liveProjectionEntries(session, Array.isArray(persisted) ? persisted : []);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const message = entries[index]?.message;
+      if (message?.role !== 'assistant' || !Array.isArray(message.content)) continue;
+      return {
+        text: redactAttachmentPaths(textFromContent(message.content)),
+        thinking: redactAttachmentPaths(message.content
+          .filter((part) => part?.type === 'thinking')
+          .map((part) => part.thinking)
+          .join('')),
+      };
+    }
+    return undefined;
+  };
+
   const projectMessageEntries = (activeRuntime, targetDir = activeDirectory || cwd) => {
     const session = activeRuntime?.session;
     // Use the active branch, not the full file. `getEntries()` returns every
@@ -1227,7 +1247,67 @@ export function createSessionDaemon({
     });
   };
 
-  const projectActiveSession = (activeRuntime = runtime, targetDir = activeRuntime?.cwd || activeDirectory || cwd) => {
+  const projectMessagePage = (messages, options = {}) => {
+    const requestedLimit = options.limit ?? SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT;
+    if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > SESSION_DAEMON_MAX_MESSAGE_PAGE_LIMIT) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', `The message page limit must be between 1 and ${SESSION_DAEMON_MAX_MESSAGE_PAGE_LIMIT}.`);
+    }
+    let end = messages.length;
+    if (options.before !== undefined) {
+      if (typeof options.before !== 'string' || options.before.length === 0) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The message page cursor is invalid.');
+      }
+      end = messages.findIndex((entry) => entry?.message?.id === options.before);
+      if (end < 0) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The message page cursor is stale.');
+    }
+
+    let start = end;
+    let pageBytes = 2;
+    while (start > 0 && end - start < requestedLimit) {
+      const candidate = messages[start - 1];
+      const candidateBytes = Buffer.byteLength(JSON.stringify(candidate));
+      if (start < end && pageBytes + candidateBytes + 1 > SESSION_DAEMON_MESSAGE_PAGE_TARGET_BYTES) break;
+      start -= 1;
+      pageBytes += candidateBytes + (start + 1 < end ? 1 : 0);
+    }
+    const selected = messages.slice(start, end);
+    let anchorIndex = -1;
+    const firstMessage = selected[0]?.message;
+    if (firstMessage?.role === 'assistant' && typeof firstMessage.parentId === 'string') {
+      anchorIndex = messages.findIndex((entry, index) => index < start && entry?.message?.id === firstMessage.parentId);
+      if (anchorIndex >= 0) selected.unshift(messages[anchorIndex]);
+    }
+    const beginsAtAdjacentAnchor = anchorIndex === start - 1;
+    const cursorIndex = beginsAtAdjacentAnchor ? anchorIndex : start;
+    const hasMoreBefore = cursorIndex > 0;
+    return {
+      messages: selected,
+      hasMoreBefore,
+      ...(hasMoreBefore ? { beforeCursor: messages[cursorIndex]?.message?.id } : {}),
+    };
+  };
+
+  const writeDetailResponse = (socket, requestId, detail) => {
+    const frame = {
+      protocolVersion: PROTOCOL_VERSION,
+      kind: 'response',
+      requestId,
+      result: detail,
+    };
+    if (Buffer.byteLength(JSON.stringify(frame)) > MAX_FRAME_BYTES) {
+      throw new SessionDaemonProtocolError(
+        'DAEMON_RESPONSE_TOO_LARGE',
+        'The daemon response exceeds the IPC frame limit.',
+      );
+    }
+    writeFrame(socket, frame);
+  };
+
+  const projectActiveSession = (
+    activeRuntime = runtime,
+    targetDir = activeRuntime?.cwd || activeDirectory || cwd,
+    pageOptions = {},
+  ) => {
     const session = activeRuntime?.session;
     const manager = session?.sessionManager;
     const header = manager?.getHeader?.();
@@ -1236,8 +1316,16 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
     }
     const model = session.model;
-    const messages = projectMessageEntries(activeRuntime, targetDir);
-    const lastAssistant = [...messages].reverse().find((entry) => entry.message.role === 'assistant')?.message;
+    const allMessages = projectMessageEntries(activeRuntime, targetDir);
+    const page = projectMessagePage(allMessages, pageOptions);
+    let lastAssistant;
+    for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+      const candidate = allMessages[index]?.message;
+      if (candidate?.role === 'assistant') {
+        lastAssistant = candidate;
+        break;
+      }
+    }
     const sessionModel = lastAssistant?.model
       ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
     const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
@@ -1251,9 +1339,10 @@ export function createSessionDaemon({
         ...(session.sessionName ? { title: session.sessionName } : {}),
         ...(sessionModel ? { model: sessionModel } : {}),
         ...(sessionThinking ? { thinking: sessionThinking } : {}),
-        messageCount: messages.length,
+        messageCount: allMessages.length,
       },
-      messages,
+      messages: page.messages,
+      ...(page.hasMoreBefore ? { hasMoreBefore: true, beforeCursor: page.beforeCursor } : {}),
       lastSequence: sequence,
       isStreaming,
       lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
@@ -2873,7 +2962,7 @@ export function createSessionDaemon({
             lastSequence: sequence,
             capabilities: [
               'runtime.claim', 'runtime.shutdown',
-              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete',
+              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
@@ -3098,7 +3187,19 @@ export function createSessionDaemon({
       }
       case 'sessions.open': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
+        writeDetailResponse(socket, message.requestId, projectActiveSession(activeRuntime, activeRuntime.cwd, { limit: message.payload?.limit }));
+        return;
+      }
+      case 'sessions.messages': {
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        const detail = projectActiveSession(activeRuntime, activeRuntime.cwd, {
+          before: message.payload?.before,
+          limit: message.payload?.limit,
+        });
+        writeDetailResponse(socket, message.requestId, {
+          ...detail,
+          hasMoreBefore: detail.hasMoreBefore === true,
+        });
         return;
       }
       case 'sessions.rename': {
@@ -3136,7 +3237,7 @@ export function createSessionDaemon({
           newLeafId: typeof newLeafId === 'string' ? newLeafId : null,
           ...(typeof result?.editorText === 'string' && result.editorText.length > 0 ? { editorText: result.editorText } : {}),
         };
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { ...projectActiveSession(activeRuntime, activeRuntime.cwd), navigation } });
+        writeDetailResponse(socket, message.requestId, { ...projectActiveSession(activeRuntime, activeRuntime.cwd), navigation });
         return;
       }
       case 'sessions.fork':
@@ -3158,17 +3259,12 @@ export function createSessionDaemon({
           await acquireResidentLease({ cwd: activeRuntime.cwd, sessionId: activeRuntime.session.sessionId });
         }
         rememberRuntimeSession();
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: projectActiveSession(activeRuntime, activeRuntime.cwd) });
+        writeDetailResponse(socket, message.requestId, projectActiveSession(activeRuntime, activeRuntime.cwd));
         return;
       }
       case 'sessions.create': {
         const result = await createSession(message.payload);
-        writeFrame(socket, {
-          protocolVersion: PROTOCOL_VERSION,
-          kind: 'response',
-          requestId: message.requestId,
-          result,
-        });
+        writeDetailResponse(socket, message.requestId, result);
         return;
       }
       case 'sessions.prompt':
@@ -3260,17 +3356,22 @@ export function createSessionDaemon({
 
     socket.on('data', (chunk) => {
       buffer += decoder.write(chunk);
-      if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) {
-        reject(new SessionDaemonProtocolError('FRAME_TOO_LARGE', 'The daemon frame is too large.'));
-        return;
-      }
 
       while (true) {
         const newline = buffer.indexOf('\n');
-        if (newline === -1) break;
+        if (newline === -1) {
+          if (Buffer.byteLength(buffer) > MAX_FRAME_BYTES) {
+            reject(new SessionDaemonProtocolError('FRAME_TOO_LARGE', 'The daemon frame is too large.'));
+          }
+          break;
+        }
         const line = buffer.slice(0, newline).replace(/\r$/, '');
         buffer = buffer.slice(newline + 1);
         if (line.length === 0) continue;
+        if (Buffer.byteLength(line) > MAX_FRAME_BYTES) {
+          reject(new SessionDaemonProtocolError('FRAME_TOO_LARGE', 'The daemon frame is too large.'));
+          return;
+        }
 
         try {
           const message = JSON.parse(line);

@@ -19,7 +19,7 @@ import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/
 import { streamPerfCount, streamPerfMark, streamPerfMeasure } from '@/stores/utils/streamDebug';
 import type { StreamPhase } from './message/types';
 import type { PiCompactionInfo } from '@/lib/pi/types';
-import { useSessionParts } from '@/sync/sync-context';
+import { useSessionHistoryPagination, useSessionParts } from '@/sync/sync-context';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import {
     isUserShellMarkerMessage,
@@ -661,6 +661,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     streamPerfCount('ui.message_list.render');
     const stickyUserHeader = useUIStore(state => state.stickyUserHeader);
     const showTurnChangedFiles = useUIStore((state) => state.showTurnChangedFiles);
+    const { hasMoreBefore, loadOlder } = useSessionHistoryPagination(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
     );
@@ -791,6 +792,29 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
         }
         return document.querySelector<HTMLDivElement>('[data-scrollbar="chat"]');
     }, [scrollRef]);
+
+    React.useEffect(() => {
+        if (!hasMoreBefore) return;
+        const container = resolveScrollContainer();
+        if (!container) return;
+        let requested = false;
+        const requestIfNeeded = () => {
+            if (requested || !hasMoreBefore) return;
+            const nearTop = container.scrollTop < container.clientHeight * HISTORY_PREPEND_NEAR_TOP_VIEWPORTS;
+            const underfilled = container.scrollHeight <= container.clientHeight + 1;
+            if (!nearTop && !underfilled) return;
+            requested = true;
+            pendingRevealViewportRef.current = captureRevealViewport();
+            void loadOlder().catch(() => {
+                pendingRevealViewportRef.current = null;
+            }).finally(() => {
+                requested = false;
+            });
+        };
+        container.addEventListener('scroll', requestIfNeeded, { passive: true });
+        requestIfNeeded();
+        return () => container.removeEventListener('scroll', requestIfNeeded);
+    }, [captureRevealViewport, hasMoreBefore, loadOlder, resolveScrollContainer]);
 
     const displayMessages = React.useMemo(() => streamPerfMeasure('ui.message_list.retry_overlay_ms', () => {
         const withRetry = applyRetryOverlay(baseDisplayMessages, {

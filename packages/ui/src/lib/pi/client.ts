@@ -45,6 +45,7 @@ import {
   type PiProjectSelectResponse,
   type PiSessionCreateInput,
   type PiSessionDetailResponse,
+  type PiSessionMessagesResponse,
   type PiSessionNavigateResponse,
   type PiSessionListResponse,
   type PiSessionTreeResponse,
@@ -286,6 +287,27 @@ export class PiService {
       {
         method: 'GET',
         ...(directory ? { query: { directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+  }
+
+  async getSessionMessages(
+    sessionId: PiSessionId,
+    input: { before?: string; limit?: number },
+    scope?: PiClientScope,
+  ): Promise<PiSessionMessagesResponse> {
+    assertRuntimeUnchanged(scope);
+    const directory = scope?.directory ?? this.currentDirectory;
+    return jsonRequest<undefined, PiSessionMessagesResponse>(
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/messages`,
+      {
+        method: 'GET',
+        query: {
+          ...(directory ? { directory } : {}),
+          ...(input.before ? { before: input.before } : {}),
+          ...(input.limit !== undefined ? { limit: input.limit } : {}),
+        },
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );

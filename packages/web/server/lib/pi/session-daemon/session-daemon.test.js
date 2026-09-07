@@ -6,6 +6,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { requestSessionDaemon } from './ipc-client.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionDaemon as createSessionDaemonImpl, isLocalSessionDaemonEndpoint } from './session-daemon.js';
 
@@ -1240,6 +1241,146 @@ describe('Pi session daemon spike', () => {
     expect(JSON.stringify(opened.result)).not.toContain('pi-clipboard-');
     await client.close();
   }, 2_000);
+
+  it('opens a transcript whose complete projection exceeds the IPC frame limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-paged-transcript-'));
+    const endpoint = testDaemonEndpoint(root);
+    const persistedSessionFile = join(root, 'persisted.jsonl');
+    await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-paged","cwd":"${root}"}\n`);
+    const session = new FakeSession('pi-session-paged', persistedSessionFile);
+    const largeOutput = 'A'.repeat(1_100_000);
+    session.entries = [{
+      type: 'message',
+      id: 'user-0',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      message: { role: 'user', content: 'Inspect the large fixture.' },
+    }, ...Array.from({ length: 17 }, (_, index) => [{
+      type: 'message',
+      id: `assistant-${index}`,
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, index * 2)).toISOString(),
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [{ type: 'toolCall', id: `tool-${index}`, name: 'read', arguments: { index } }],
+      },
+    }, {
+      type: 'message',
+      id: `result-${index}`,
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, index * 2 + 1)).toISOString(),
+      message: {
+        role: 'toolResult',
+        toolCallId: `tool-${index}`,
+        toolName: 'read',
+        content: [{ type: 'text', text: largeOutput }],
+        isError: false,
+      },
+    }]).flat()];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{
+        path: persistedSessionFile,
+        id: 'pi-session-paged',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: session.entries.length,
+      }],
+    });
+    await daemon.start();
+
+    const opened = await requestSessionDaemon({
+      endpoint,
+      credential,
+      command: 'sessions.open',
+      payload: { sessionId: 'pi-session-paged', directory: root },
+    });
+
+    expect(opened.messages.length).toBeLessThan(17);
+    expect(opened.hasMoreBefore).toBe(true);
+    expect(typeof opened.beforeCursor).toBe('string');
+    expect(Buffer.byteLength(JSON.stringify(opened))).toBeLessThan(16 * 1024 * 1024);
+
+    const pages = [opened.messages];
+    let before = opened.beforeCursor;
+    while (before) {
+      const page = await requestSessionDaemon({
+        endpoint,
+        credential,
+        command: 'sessions.messages',
+        payload: { sessionId: 'pi-session-paged', directory: root, before },
+      });
+      pages.unshift(page.messages);
+      before = page.beforeCursor;
+    }
+    const messages = pages.flat();
+    const uniqueMessages = [...new Map(messages.map((entry) => [entry.message.id, entry])).values()];
+    expect(uniqueMessages.map((entry) => entry.message.id)).toEqual([
+      'user-0',
+      ...Array.from({ length: 17 }, (_, index) => `assistant-${index}`),
+    ]);
+    expect(uniqueMessages.filter((entry) => entry.message.role === 'assistant')
+      .every((entry) => entry.parts[0].output === largeOutput)).toBe(true);
+    expect(opened.messages.some((entry) => entry.message.id === 'user-0')).toBe(true);
+  }, 30_000);
+
+  it('reports a single unpageable message as too large instead of malformed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-oversized-'));
+    const endpoint = testDaemonEndpoint(root);
+    const persistedSessionFile = join(root, 'persisted.jsonl');
+    await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-oversized","cwd":"${root}"}\n`);
+    const session = new FakeSession('pi-session-oversized', persistedSessionFile);
+    const hugeOutput = 'B'.repeat(17 * 1024 * 1024);
+    session.entries = [{
+      type: 'message',
+      id: 'assistant-huge',
+      timestamp: '2026-01-01T00:00:02.000Z',
+      message: {
+        role: 'assistant',
+        provider: 'test',
+        model: 'model',
+        content: [{ type: 'toolCall', id: 'huge-tool', name: 'read', arguments: {} }],
+      },
+    }, {
+      type: 'message',
+      id: 'result-huge',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'huge-tool',
+        toolName: 'read',
+        content: [{ type: 'text', text: hugeOutput }],
+        isError: false,
+      },
+    }];
+    const runtime = new FakeRuntime({ cwd: root, session });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => runtime,
+      listSessions: async () => [{
+        path: persistedSessionFile,
+        id: 'pi-session-oversized',
+        cwd: root,
+        created: new Date('2026-01-01T00:00:00.000Z'),
+        modified: new Date('2026-01-01T00:00:01.000Z'),
+        messageCount: 1,
+      }],
+    });
+    await daemon.start();
+
+    await expect(requestSessionDaemon({
+      endpoint,
+      credential,
+      command: 'sessions.open',
+      payload: { sessionId: 'pi-session-oversized', directory: root },
+    })).rejects.toMatchObject({ code: 'DAEMON_RESPONSE_TOO_LARGE' });
+  }, 30_000);
 
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));

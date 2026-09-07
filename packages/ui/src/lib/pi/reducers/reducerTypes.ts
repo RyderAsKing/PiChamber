@@ -99,6 +99,10 @@ export interface PiReducerSessionState {
   /** Active model/thinking the session is using. */
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Whether the server has older projected messages before this resident page. */
+  hasMoreBefore?: boolean;
+  /** Opaque cursor for the next older page. */
+  beforeCursor?: string;
   /** Messages keyed by message id, ordered by `createdAt`. */
   messages: Map<string, PiReducerMessage>;
   /** Part order per message id. */

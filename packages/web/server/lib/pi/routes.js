@@ -45,10 +45,17 @@ const UNAVAILABLE_CODES = new Set([
   'ARCHIVE_METADATA_INVALID',
 ]);
 
+const BAD_GATEWAY_CODES = new Set([
+  'MALFORMED_DAEMON_RESPONSE',
+  'DAEMON_RESPONSE_TOO_LARGE',
+]);
+
 const writeDaemonError = (res, error) => {
   const code = typeof error?.code === 'string' ? error.code : 'DAEMON_REQUEST_FAILED';
   const status = UNAVAILABLE_CODES.has(code)
     ? 503
+    : BAD_GATEWAY_CODES.has(code)
+      ? 502
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE'
@@ -212,7 +219,8 @@ const projectFilePart = (part) => {
 };
 
 const projectSessionDetail = (value) => {
-  if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)) throw protocolMismatch();
+  if (!value || typeof value !== 'object' || !Array.isArray(value.messages) || !Number.isSafeInteger(value.lastSequence)
+    || (value.hasMoreBefore === true && (typeof value.beforeCursor !== 'string' || value.beforeCursor.length === 0))) throw protocolMismatch();
   const messages = value.messages.map((item) => {
     if (!item || typeof item !== 'object' || !item.message || !Array.isArray(item.parts)) throw protocolMismatch();
     const message = item.message;
@@ -270,6 +278,11 @@ const projectSessionDetail = (value) => {
   return {
     session: projectSession(value.session),
     messages,
+    ...(value.hasMoreBefore === true && typeof value.beforeCursor === 'string' && value.beforeCursor.length > 0
+      ? { hasMoreBefore: true, beforeCursor: value.beforeCursor }
+      : value.hasMoreBefore === false
+        ? { hasMoreBefore: false }
+        : {}),
     lastSequence: value.lastSequence,
     isStreaming,
     lifecycle,
@@ -1485,6 +1498,27 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/sessions/:sessionId', sendSessionDetail);
   app.get('/api/pi/sessions/:sessionId/snapshot', sendSessionDetail);
+
+  app.get('/api/pi/sessions/:sessionId/messages', async (req, res) => {
+    const before = req.query?.before;
+    const rawLimit = req.query?.limit;
+    const limit = rawLimit === undefined ? undefined : Number(rawLimit);
+    if ((before !== undefined && (typeof before !== 'string' || before.length === 0))
+      || (rawLimit !== undefined && (typeof rawLimit !== 'string' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100))) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.messages', {
+      ...(typeof before === 'string' ? { before } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    });
+    if (result === undefined) return;
+    try {
+      res.json(projectSessionDetail(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.delete');
