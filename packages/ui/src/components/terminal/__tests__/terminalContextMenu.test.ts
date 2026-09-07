@@ -48,6 +48,16 @@ describe('terminal right-click copy/paste menu', () => {
     expect(viewportSource).toContain("{'Select All'}");
   });
 
+  test('leaves keyboard paste to the native xterm paste event', () => {
+    const start = viewportSource.indexOf('terminal.attachCustomKeyEventHandler(');
+    expect(start).toBeGreaterThan(-1);
+    const end = viewportSource.indexOf('// OSC 52 clipboard writes stay disabled', start);
+    expect(end).toBeGreaterThan(start);
+    const handler = viewportSource.slice(start, end);
+    expect(handler).not.toContain("outcome === 'paste'");
+    expect(handler).not.toContain('attachedTerminal.paste(text)');
+  });
+
   test('keeps Electron out of shared UI code', () => {
     expect(viewportSource).not.toContain("from 'electron'");
     expect(viewportSource).not.toContain('__PICHAMBER_DESKTOP__');
