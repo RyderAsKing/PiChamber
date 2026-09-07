@@ -14,7 +14,6 @@ import { useDeviceInfo, useTabletLayout } from '@/lib/device';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
 import { cn } from '@/lib/utils';
-import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
@@ -107,7 +106,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const getSessionModelSelection = useSelectionStore((state) => state.getSessionModelSelection);
     const saveSessionModelSelection = useSelectionStore((state) => state.saveSessionModelSelection);
 
-    const contextHydrated = useContextStore((state) => state.hasHydrated);
+    const contextHydrated = useSelectionStore((state) => state.hasHydrated);
 
     const toggleFavoriteModel = useUIStore((state) => state.toggleFavoriteModel);
     const reorderFavoriteModel = useUIStore((state) => state.reorderFavoriteModel);

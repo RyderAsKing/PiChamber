@@ -32,8 +32,6 @@ export const hasFailedAttachmentUploads = (files: readonly AttachedFile[]): bool
 export const areAttachmentsReadyToSend = (files: readonly AttachedFile[], now = Date.now()): boolean =>
     files.every((file) => file.source === "server" || (file.uploadState?.status === "ready" && file.uploadState.expiresAt > now));
 
-export type EditPermissionMode = 'allow' | 'ask' | 'deny' | 'full';
-
 export type MessageStreamPhase = 'streaming' | 'cooldown' | 'completed';
 
 export interface SessionHistoryMeta {

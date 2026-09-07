@@ -1,7 +1,6 @@
 import React from 'react';
 import type { Message } from '@/lib/chat/types';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useContextStore } from '@/stores/contextStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useShallow } from 'zustand/react/shallow';
 import { getProviderModelDisplayName } from '@/lib/modelDisplay';
@@ -32,11 +31,11 @@ export function useChatMessageModelMetadata({
   const getAgentModelForSession = useSelectionStore((s) => s.getAgentModelForSession);
   const getSessionModelSelection = useSelectionStore((s) => s.getSessionModelSelection);
 
-  const { currentContextAgent, savedSessionAgentSelection } = useContextStore(
-    useShallow((state) => ({
-      currentContextAgent: isInActiveTurn && sessionId ? state.currentAgentContext.get(sessionId) : undefined,
-      savedSessionAgentSelection: isInActiveTurn && sessionId ? state.sessionAgentSelections.get(sessionId) : undefined,
-    })),
+  // Canonical per-session agent preference. The retired context store kept a
+  // duplicate `currentAgentContext` map; its entries were folded into
+  // `sessionAgentSelections` by the one-time migration, so one read suffices.
+  const savedSessionAgentSelection = useSelectionStore(
+    useShallow((state) => (isInActiveTurn && sessionId ? (state.sessionAgentSelections.get(sessionId) ?? null) : null)),
   );
 
   const previousUserMetadata = React.useMemo(() => {
@@ -98,12 +97,8 @@ export function useChatMessageModelMetadata({
       return undefined;
     }
 
-    if (currentContextAgent) {
-      return currentContextAgent;
-    }
-
     return savedSessionAgentSelection ?? undefined;
-  }, [isUser, message.info, previousUserMetadata, sessionId, currentContextAgent, savedSessionAgentSelection]);
+  }, [isUser, message.info, previousUserMetadata, sessionId, savedSessionAgentSelection]);
 
   const messageModel = !isUser ? getMessageModelRef(message.info) : { providerId: undefined, modelId: undefined };
   const messageProviderID = messageModel.providerId ?? null;

@@ -96,8 +96,8 @@ declare global {
  * retired (the daemon exposes no agent list endpoint), so those values are
  * discarded even when older blobs hold non-empty data. The retired Gitmoji
  * preference (`settingsGitmojiEnabled`) is stripped the same way. Per-session
- * agent/model/variant maps in `selection-store`/`contextStore` are retained
- * untouched.
+ * agent/model/variant preferences live canonically in `sync/selection-store.ts`
+ * (the legacy `stores/contextStore.ts` was retired and migrated once there).
  */
 export const hydrateActiveDirectorySnapshot = <T extends Partial<ConfigStore>>(
   merged: T

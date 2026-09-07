@@ -3,7 +3,6 @@ import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type Me
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { useContextStore } from '@/stores/contextStore';
 import { getDirectoryState } from '@/sync/sync-refs';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -117,19 +116,20 @@ export const sendQueuedAutoSendPayload = (
   );
 };
 
-const resolveSessionSendConfig = (sessionId: string) => {
-  const context = useContextStore.getState();
+export const resolveSessionSendConfig = (sessionId: string) => {
   const config = useConfigStore.getState();
   const selection = useSelectionStore.getState();
 
+  // Canonical per-session preferences own agent/model/variant resolution.
+  // Legacy `currentAgentContext` was folded into `sessionAgentSelections`
+  // during the one-time context-store migration, so there is no second map.
   const selectedAgent =
-    context.getSessionAgentSelection(sessionId)
-    ?? context.getCurrentAgent(sessionId)
+    selection.getSessionAgentSelection(sessionId)
     ?? undefined;
 
-  const sessionModel = context.getSessionModelSelection(sessionId);
+  const sessionModel = selection.getSessionModelSelection(sessionId);
   const agentModel = selectedAgent
-    ? context.getAgentModelForSession(sessionId, selectedAgent)
+    ? selection.getAgentModelForSession(sessionId, selectedAgent)
     : null;
 
   const providerID =
@@ -145,8 +145,7 @@ const resolveSessionSendConfig = (sessionId: string) => {
 
   const variant =
     selectedAgent && providerID && modelID
-      ? (selection.getAgentModelVariantForSession(sessionId, selectedAgent, providerID, modelID)
-        ?? context.getAgentModelVariantForSession(sessionId, selectedAgent, providerID, modelID))
+      ? selection.getAgentModelVariantForSession(sessionId, selectedAgent, providerID, modelID)
       : undefined;
 
   return {
