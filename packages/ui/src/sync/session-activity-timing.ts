@@ -1,15 +1,17 @@
 import { useCallback } from 'react';
 import { create } from 'zustand';
+import { toClientTimestamp } from '@/lib/pi/server-clock';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
 
 // Per-session turn timing behind the sidebar activity readout.
 //
-// The Pi lifecycle contract carries no timestamps — `SessionStatus` is a
-// bare `busy | retry | idle` union — so how long the current turn has been
-// running has to be measured on the client. This module owns that measurement
-// and is driven from the same two write paths as `global-session-status`, the
-// index rows actually render their live state from, so a row can never count a
-// turn that index calls idle.
+// Pi's lifecycle status remains a bare `busy | retry | idle` union, so a status
+// update alone cannot establish a turn boundary. PiChamber session details and
+// lifecycle snapshots may additionally carry `runStartedAt`; this module
+// adopts that origin when available and otherwise measures the turn on the
+// client. It is driven from the same two write paths as
+// `global-session-status`, the index rows actually render their live state
+// from, so a row can never count a turn that index calls idle.
 //
 // Two maps with deliberately different lifetimes:
 //
@@ -19,20 +21,22 @@ import { getSafeStorage } from '@/stores/utils/safeStorage';
 //   rows show it while the session is unread, and unread state itself does not
 //   survive a reload, so persisting it would outlive its only consumer.
 //
-// A persisted start is a lookup table, never a claim of activity. Nothing in
-// the protocol marks where a turn begins: the server calls `SessionStatus.set`
+// A persisted start is a lookup table, never a claim of activity. The daemon
+// may provide `runStartedAt` on an active detail or lifecycle/snapshot event;
+// first attach and reconnect adopt that authoritative origin. The lifecycle
+// status itself still has no boundary: the server calls `SessionStatus.set`
 // with `busy` at every step of the agent loop and publishes an event each time,
-// so a busy event means "still running", not "just started" — it cannot be read
-// as a turn boundary, and reading it that way reset every counter on reload,
+// so a busy event without `runStartedAt` means "still running", not "just
+// started". Reading it as a turn boundary resets every counter on reload,
 // because after a refresh one of those repeats almost always beats the first
 // status snapshot.
 //
 // Turn *ends* are marked: `session.idle` and `session.error` events fire once,
 // live, and retire the persisted record.
 //
-// That leaves the case with no observable answer at all: a turn that ended, and
-// another that began, entirely while the tab was gone. Two bounds stand in for
-// the evidence the client cannot have:
+// When the daemon cannot provide that origin, a turn may end and another may
+// begin entirely while the tab is gone. Two bounds stand in for the evidence
+// the client cannot have:
 //
 // - a liveness stamp beside the start, refreshed while the session is observed
 //   active and stamped precisely as the page hides, compared against this page's
@@ -375,8 +379,8 @@ export const adoptServerRunTiming = (
 ): void => {
   if (!Number.isFinite(runStartedAt)) return;
   const now = Date.now();
-  const offset = Number.isFinite(serverNow) ? (serverNow as number) - now : 0;
-  const clientStartedAt = runStartedAt - offset;
+  const clientStartedAt = toClientTimestamp(runStartedAt, serverNow, now);
+  if (clientStartedAt === undefined) return;
   // Adopt only if the adjusted start is recent enough to be a live turn.
   if (now - clientStartedAt > MAX_TURN_AGE_MS || clientStartedAt > now + 60_000) return;
   const state = useSessionActivityTimingStore.getState();

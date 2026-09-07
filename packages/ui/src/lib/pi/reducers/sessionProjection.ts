@@ -4,6 +4,7 @@ import type {
   PiExtensionPanelPayload,
 } from '../protocol';
 import { resolveExistingSessionComposerSelection } from '../thinking';
+import { toClientTimestamp } from '../server-clock';
 import type {
   PiAssistantMessage,
   PiAttachment,
@@ -259,6 +260,8 @@ export const hydrateSessionFromDetail = (
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
     retry?: PiRetryInfo;
+    /** Server wall clock sampled for the timestamps in this detail. */
+    serverNow?: number;
     compaction?: PiCompactionInfo;
     extensionStatuses?: Array<{ key: string; text: string }>;
     extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
@@ -301,6 +304,7 @@ export const hydrateSessionFromDetail = (
   },
 ): { state: PiReducerState; session: PiReducerSessionState } => {
   const state = createReducerState();
+  const clientNow = Date.now();
   const session = getOrCreateSession(state, detail.session.id, detail.session.directory);
   session.lastSequence = detail.lastSequence;
   session.hasMoreBefore = detail.hasMoreBefore === true;
@@ -361,6 +365,12 @@ export const hydrateSessionFromDetail = (
     session.messages.set(message.id, reducerMessage);
     const partOrder: string[] = [];
     for (const part of parts) {
+      const clientStartedAt = part.type === 'tool'
+        ? toClientTimestamp(part.startedAt, detail.serverNow, clientNow)
+        : undefined;
+      const clientEndedAt = part.type === 'tool'
+        ? toClientTimestamp(part.endedAt, detail.serverNow, clientNow)
+        : undefined;
       const reducerPart: PiReducerMessagePart = {
         id: part.id,
         index: part.index,
@@ -378,8 +388,8 @@ export const hydrateSessionFromDetail = (
                 ...(part.metadata !== undefined ? { metadata: part.metadata } : {}),
                 ...(part.isError !== undefined ? { isError: part.isError } : {}),
                 state: part.state ?? 'completed',
-                ...(part.startedAt !== undefined ? { startedAt: part.startedAt } : {}),
-                ...(part.endedAt !== undefined ? { endedAt: part.endedAt } : {}),
+                ...(clientStartedAt !== undefined ? { startedAt: clientStartedAt } : {}),
+                ...(clientEndedAt !== undefined ? { endedAt: clientEndedAt } : {}),
               },
             }
           : {}),

@@ -6,6 +6,7 @@ import type {
   PiToolUpdatePayload,
 } from '../protocol';
 import { applyAssistantTextDelta } from '../text-delta';
+import { toClientTimestamp } from '../server-clock';
 import type { PiRetryInfo, PiSessionLifecycleState } from '../types';
 import type { PiReducerSessionState } from './reducerTypes';
 import {
@@ -147,6 +148,9 @@ export const reduceTool = (
   const message = resolveAssistantMessage(session, rawMessageId);
   if (!message) return false;
   settleThinkingParts(session, message.id);
+  const clientNow = Date.now();
+  const startedAt = toClientTimestamp(payload.startedAt, payload.serverNow, clientNow);
+  const endedAt = toClientTimestamp(payload.endedAt, payload.serverNow, clientNow);
   if (phase !== 'end') {
     message.streaming = true;
     session.streamingMessages.add(message.id);
@@ -169,7 +173,7 @@ export const reduceTool = (
         name: payload.name,
         ...(payload.input !== undefined ? { input: payload.input } : {}),
         state: payload.state,
-        ...(payload.startedAt !== undefined ? { startedAt: payload.startedAt } : {}),
+        ...(startedAt !== undefined ? { startedAt } : {}),
       },
     };
     session.parts.set(synthetic.id, synthetic);
@@ -211,13 +215,13 @@ export const reduceTool = (
         ? { isError: previous.isError }
         : {}),
     state: payload.state,
-    ...(payload.startedAt !== undefined
-      ? { startedAt: payload.startedAt }
+    ...(startedAt !== undefined
+      ? { startedAt }
       : previous?.startedAt !== undefined
         ? { startedAt: previous.startedAt }
         : {}),
-    ...(payload.endedAt !== undefined
-      ? { endedAt: payload.endedAt }
+    ...(endedAt !== undefined
+      ? { endedAt }
       : previous?.endedAt !== undefined
         ? { endedAt: previous.endedAt }
         : {}),

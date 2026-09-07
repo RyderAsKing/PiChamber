@@ -84,6 +84,8 @@ describe("bootstrapPiDirectory", () => {
       reconnect: () => undefined,
       eventsUrl: "ws://test/events",
     } as never)
+    const runStartedAt = Date.now() - 120_000
+    const serverNow = Date.now()
     installFetchMock((call) => {
       const url = new URL(call.url, "http://localhost")
       if (url.pathname === "/api/pi/sessions" && call.init?.method === "GET") {
@@ -109,6 +111,10 @@ describe("bootstrapPiDirectory", () => {
             },
           ],
           lastSequence: 3,
+          isStreaming: true,
+          lifecycle: "busy",
+          runStartedAt,
+          serverNow,
         })
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
@@ -124,6 +130,13 @@ describe("bootstrapPiDirectory", () => {
     expect(result.health.state).toBe("ready")
     expect(result.reducerState.bySession.get("s1")?.messages.get("m1")?.text).toBe("Hi")
     expect(result.lastSequence.get("s1")).toBe(3)
+    expect(result.selectedSessionTiming).toEqual({
+      sessionId: "s1",
+      isStreaming: true,
+      lifecycle: "busy",
+      runStartedAt,
+      serverNow,
+    })
     expect(result.stream).not.toBeNull()
     expect(result.errors).toHaveLength(0)
   })

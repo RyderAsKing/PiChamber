@@ -232,7 +232,9 @@ export interface PiToolPart extends PiPartBase {
   isError?: boolean;
   /** Tool execution state from Pi. */
   state: 'pending' | 'running' | 'completed' | 'error' | 'cancelled';
+  /** Client-clock-normalized server timestamp for the tool start. */
   startedAt?: number;
+  /** Client-clock-normalized server timestamp for the tool end. */
   endedAt?: number;
 }
 

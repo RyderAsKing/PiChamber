@@ -14,6 +14,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The event reducer helpers (`event-reducer.ts`). `projectSession` is incremental: pass the previous session and projection so unchanged historical messages and parts keep their object identity, and a no-op live-tail remap returns the previous projection object. Ordered message lists are cached on the reducer `messages` Map; projected parts are cached on reducer part identity. `parts` is a copy-on-write map (`CowMap`): token/tool deltas `fork()` a snapshot-private overlay instead of cloning every historical part, and flatten after a bounded depth. Each applied event records `lastMutatedMessageId` / `lastMutationKind` so live-tail freeze can skip an O(session) part walk. Extension events append extension-role transcript items, maintain live status/widget maps and the blocking-dialog queue, and keep bounded notice/error feeds. The selected session's footer statuses render as a single horizontal, touch-scrollable strip rather than wrapping into stacked rows. Standard Pi RPC editor updates replace only the owning visible session's composer; background-session events stay resident until that session is selected. Session-scoped extension titles flow through the shared window-title owner on web, desktop, mini-chat, hosted mobile, and Capacitor. Extension catalog invalidations refresh provider/resource data without clearing the previous authoritative snapshot on failure, while command autocomplete keys its refetch to a low-frequency per-session revision. `extension.dialog.dismiss` removes answered, timed-out, aborted, or disposed requests on every client; authoritative `getSession` hydration and stream snapshots restore extension statuses, widgets, dialogs, panels, apps, and titles through the same sequence watermark instead of preserving requests the daemon omitted or skipping one-time startup state. `dismissExtensionDialog` removes a successfully answered request locally without touching sequence bookkeeping.
 - The bootstrap owner (`bootstrap.ts`).
 - The reconnect owner (`reconnect.ts`).
+- The server timestamp helper (`server-clock.ts`), which normalizes server event/detail timestamps to the local clock for elapsed timers.
 - The attachment helpers (`attachments.ts`).
 - The configured-provider helper for selection catalogs (`configured-providers.ts`).
 - Hidden-model selection filtering (`hidden-models.ts`).
@@ -70,7 +71,11 @@ event is itself live-turn evidence, so the reducer marks the session busy even
 when its lifecycle frame was missed or arrives later. The daemon projects that
 in-flight turn into
 `getSession` while `isStreaming` is true (live `session.messages` plus running
-tools, plus `lifecycle: 'busy'`), and `hydrateSessionFromDetail` restores
+tools, plus `lifecycle: 'busy'`). Running tool parts carry their server start
+stamp through the same detail, and tool events include a `serverNow` sample so
+clients normalize elapsed time before rendering it. First-attach bootstrap keeps the detail's
+`runStartedAt`/`serverNow` beside the reducer result so the store can adopt the
+authoritative turn origin before the working UI mounts. `hydrateSessionFromDetail` restores
 `streamingMessages` and part streaming flags from that payload so a restarted
 chat shows the working/tooling state immediately. When resumed events use the
 daemon's synthetic live id for an assistant already hydrated under its Pi entry
@@ -263,9 +268,10 @@ recovery stream solely to reuse the transport's online/visibility-aware
 backoff. Once that endpoint connects, the store disposes it and reruns the
 authoritative bootstrap.
 
-A successful explicit reconnect merges the snapshot into the existing cluster
-and then iterates any hydrated resident whose `lastSequence` is behind the
-resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
+A successful explicit reconnect adopts `runStartedAt`/`serverNow` from the
+selected session detail before it merges the snapshot into the existing
+cluster. It then iterates any hydrated resident whose `lastSequence` is behind
+the resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
 A quiet background turn does not lose the disconnect gap. Accepted
 `session.snapshot` events also force-hydrate that session, because a snapshot
 means the bounded event log could not replay the disconnect gap.

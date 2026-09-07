@@ -29,6 +29,11 @@ describe('AgentThinkingLoader elapsed origin', () => {
     expect(markup).toContain('0.0s');
   });
 
+  test('does not claim a fresh start while authoritative timing is pending', () => {
+    const markup = renderToStaticMarkup(<AgentThinkingLoader text="Working" startedAt={null} />);
+    expect(markup).not.toContain('0.0s');
+  });
+
   test('keeps changing status labels on one line', () => {
     const markup = renderToStaticMarkup(
       <AgentThinkingLoader text="A long model name is searching content" />,
