@@ -155,4 +155,48 @@ describe('remote client auth runtime', () => {
       await fs.rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('validates client principals for URL-token establishment after revocation or expiry', async () => {
+    const { dir, runtime } = await createRuntime();
+    try {
+      const created = await runtime.createClient({ label: 'Phone' });
+      expect(await runtime.isClientValid(created.client.id)).toBe(true);
+
+      // Revoked principals are denied even though a URL token minted before
+      // revocation still decrypts (the mint/open race).
+      await runtime.revokeClient(created.client.id);
+      expect(await runtime.isClientValid(created.client.id)).toBe(false);
+
+      // Expired principals are establishment-denied as well.
+      const expired = await runtime.createClient({ label: 'Old', expiresAt: '2000-01-01T00:00:00.000Z' });
+      expect(await runtime.isClientValid(expired.client.id)).toBe(false);
+
+      expect(await runtime.isClientValid('missing-id')).toBe(false);
+      expect(await runtime.isClientValid('')).toBe(false);
+      expect(await runtime.isClientValid(undefined)).toBe(false);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists revoked client ids for cross-process revocation propagation', async () => {
+    const { dir, runtime } = await createRuntime();
+    try {
+      const first = await runtime.createClient({ label: 'Phone' });
+      const second = await runtime.createClient({ label: 'Tablet' });
+      expect(await runtime.listRevokedClientIds()).toEqual([]);
+
+      await runtime.revokeClient(first.client.id);
+      expect(await runtime.listRevokedClientIds()).toEqual([first.client.id]);
+
+      await runtime.revokeClient(second.client.id);
+      expect((await runtime.listRevokedClientIds()).sort()).toEqual([first.client.id, second.client.id].sort());
+
+      // Purge removes the entries; the list stays bounded by the store.
+      await runtime.purgeRevokedClients();
+      expect(await runtime.listRevokedClientIds()).toEqual([]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });

@@ -438,6 +438,79 @@ describe('Pi runtime route', () => {
     expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
   });
 
+  it('forwards the send operation id and reports a deduplicated receipt with consumed attachments', async () => {
+    const calls = [];
+    const consumed = [];
+    const attachmentStore = {
+      resolve: async (ids) => ids.map((id) => ({ id, name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' })),
+      consume: async (ids) => consumed.push(...ids),
+    };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        // The daemon deduplicates: the second identical send returns the
+        // original receipt with deduplicated: true and never executes.
+        return { accepted: true, messageId: 'message-1', ...(calls.length > 1 ? { deduplicated: true } : {}) };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, attachmentStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    const send = () => fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'one intent', operationId: 'op-1', attachments: [{ id: 'attachment-1' }] }),
+    });
+    const first = await send();
+    expect(first.status).toBe(202);
+    await expect(first.json()).resolves.toEqual({ accepted: true, messageId: 'message-1' });
+    const duplicate = await send();
+    expect(duplicate.status).toBe(202);
+    await expect(duplicate.json()).resolves.toEqual({ accepted: true, messageId: 'message-1', deduplicated: true });
+    // Attachments resolve on both sends (retired entries resolve the receipt)
+    // and consumption stays idempotent.
+    expect(consumed).toEqual(['attachment-1', 'attachment-1']);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].payload.operationId).toBe('op-1');
+  });
+
+  it('rejects an invalid send operation id and maps a payload mismatch to 409', async () => {
+    const runtime = {
+      request: async (command, payload) => {
+        if (payload.operationId === 'op-mismatch') {
+          const error = new Error('mismatch');
+          error.code = 'OPERATION_PAYLOAD_MISMATCH';
+          throw error;
+        }
+        return { accepted: true, messageId: 'message-1' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    const invalid = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'bad id with spaces' }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
+
+    const mismatch = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'op-mismatch' }),
+    });
+    expect(mismatch.status).toBe(409);
+    await expect(mismatch.json()).resolves.toEqual({ error: { code: 'OPERATION_PAYLOAD_MISMATCH' } });
+  });
+
   it('streams binary attachments with bounded metadata and deletes unused uploads', async () => {
     const calls = [];
     const attachmentStore = {
@@ -850,7 +923,7 @@ describe('Pi runtime route', () => {
     const app = express();
     registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
     server = await listen(app);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
@@ -901,6 +974,30 @@ describe('Pi runtime route', () => {
     expect(text).toContain('event: heartbeat\ndata: {}\n\n');
   });
 
+  it('carries the streamEpoch subscribe marker end-to-end and rejects malformed values', async () => {
+    const seen = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['events.streamEpoch'] }),
+      subscribe: async (options) => {
+        seen.push({ streamEpoch: options.streamEpoch, fromSequence: options.fromSequence });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/events`;
+    const ok = await fetch(`${base}?sessionId=pi-session-5&fromSequence=7&streamEpoch=epoch-abc123&capabilities=events.streamEpoch`);
+    await ok.body.cancel();
+    expect(ok.status).toBe(200);
+    expect(seen[0]).toEqual({ streamEpoch: 'epoch-abc123', fromSequence: 7 });
+
+    const malformed = await fetch(`${base}?streamEpoch=${'x'.repeat(129)}`);
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json()).error?.code).toBe('INVALID_ARGUMENT');
+  });
+
   it('projects session.updated titles onto the public event stream', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
@@ -918,7 +1015,7 @@ describe('Pi runtime route', () => {
     const app = express();
     registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
     server = await listen(app);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=7`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=7&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
@@ -975,7 +1072,7 @@ describe('Pi runtime route', () => {
     const detailBody = await detail.json();
     expect(detailBody.messages[0].message.usage).toEqual(sampleUsage);
 
-    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage&fromSequence=0`);
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage&fromSequence=0&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = events.body.getReader();
     const first = await reader.read();
     const text = new TextDecoder().decode(first.value);
@@ -1036,7 +1133,7 @@ describe('Pi runtime route', () => {
     expect(detailBody.messages[0].message.usage).toBeUndefined();
     expect(detailBody.messages[1].message.usage).toBeUndefined();
 
-    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage-malformed&fromSequence=0`);
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage-malformed&fromSequence=0&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = events.body.getReader();
     const first = await reader.read();
     const text = new TextDecoder().decode(first.value);

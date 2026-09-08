@@ -627,10 +627,10 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
-  const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
+  const subscribe = async ({ sessionId, fromSequence, streamEpoch, onEvent, onError }) => {
     try {
       const { credential } = await ensureReady();
-      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
+      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
@@ -643,7 +643,16 @@ export const createPiSessionDaemonSupervisor = ({
   const health = async () => {
     try {
       const { ready } = await ensureReady();
-      return { state: 'ready', protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
+      return {
+        state: 'ready',
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: ready.health.capabilities ?? [],
+        // Opaque stream-lifetime id of the live daemon process. Regenerated on
+        // every daemon start; clients compare it to detect sequence resets.
+        ...(typeof ready.health.streamEpoch === 'string' && ready.health.streamEpoch
+          ? { streamEpoch: ready.health.streamEpoch }
+          : {}),
+      };
     } catch (error) {
       return {
         state: 'unavailable',
