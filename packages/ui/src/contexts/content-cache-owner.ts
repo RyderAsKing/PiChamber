@@ -1,9 +1,9 @@
-import type { FilesAPI } from '@/lib/api/types';
+import type { FileContentRevision, FilesAPI } from '@/lib/api/types';
 import { subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
 
 const MAX_ENTRIES = 40;
 const MAX_BYTES = 20 * 1024 * 1024;
-type Entry = { content: string; path: string; sourcePath: string; size: number; mtimeMs: number; bytes: number };
+type Entry = { content: string; path: string; sourcePath: string; size: number; mtimeMs: number; bytes: number; revision?: FileContentRevision };
 
 /**
  * Content-cached `FilesAPI.readFile` wrapper.
@@ -47,7 +47,7 @@ export function createContentCachedFiles(files: FilesAPI): { files: FilesAPI; di
   const cacheResult = (
     key: string,
     sourcePath: string,
-    result: { content: string; path: string },
+    result: { content: string; path: string; revision?: FileContentRevision },
     stat: { isFile: boolean; size: number; mtimeMs?: number },
   ) => {
     if (!active || !stat.isFile || stat.mtimeMs === undefined) return result;
@@ -69,7 +69,7 @@ export function createContentCachedFiles(files: FilesAPI): { files: FilesAPI; di
     path: string,
     options: Parameters<NonNullable<FilesAPI['readFile']>>[1] | undefined,
     capturedGeneration: number,
-  ): Promise<{ content: string; path: string }> => {
+  ): Promise<{ content: string; path: string; revision?: FileContentRevision }> => {
     const before = await files.statFile?.(path, options).catch(() => null);
     const result = await files.readFile!(path, options);
     const after = await files.statFile?.(path, options).catch(() => null);
@@ -99,7 +99,9 @@ export function createContentCachedFiles(files: FilesAPI): { files: FilesAPI; di
         }
         cache.delete(key);
         cache.set(key, hit);
-        return { content: hit.content, path: hit.path };
+        // Serve the cached bytes with their exact captured revision so a
+        // cached read can still authorize a guarded save for those bytes.
+        return { content: hit.content, path: hit.path, revision: hit.revision };
       }
     : undefined;
 
@@ -122,7 +124,12 @@ export function createContentCachedFiles(files: FilesAPI): { files: FilesAPI; di
   const cachedFiles: FilesAPI = {
     ...files,
     readFile: cachedReadFile,
-    writeFile: files.writeFile ? (path, content) => mutate([path], () => files.writeFile!(path, content)) : undefined,
+    // Guarded saves must reach the underlying API with their write options
+    // intact; dropping them would silently degrade every guarded save made
+    // through this cache into a legacy unconditional write.
+    writeFile: files.writeFile
+      ? (path, content, options) => mutate([path], () => files.writeFile!(path, content, options))
+      : undefined,
     delete: files.delete ? (path) => mutate([path], () => files.delete!(path)) : undefined,
     rename: files.rename ? (oldPath, newPath) => mutate([oldPath, newPath], () => files.rename!(oldPath, newPath)) : undefined,
   };

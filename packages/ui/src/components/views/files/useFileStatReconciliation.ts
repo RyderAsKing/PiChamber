@@ -3,6 +3,10 @@ import * as React from 'react';
 import type { FileStatSnapshot } from './filesViewModel';
 
 export function didFileStatChange(previous: FileStatSnapshot, latest: FileStatSnapshot): boolean {
+  // Opaque revision mismatch is authoritative when both sides carry one.
+  if (typeof previous.revision === 'string' && typeof latest.revision === 'string') {
+    if (previous.revision !== latest.revision) return true;
+  }
   const mtimeChanged = latest.mtimeMs !== undefined
     && previous.mtimeMs !== undefined
     && latest.mtimeMs !== previous.mtimeMs;
@@ -13,7 +17,7 @@ type UseFileStatReconciliationOptions = {
   selectedPath: string | null;
   loadedPath: string | null;
   isDirty: boolean;
-  readStat: (path: string) => Promise<FileStatSnapshot | null>;
+  readStat: (path: string, options?: { knownRevision?: string | null }) => Promise<FileStatSnapshot | null>;
   onExternalChange: () => void;
   pollIntervalMs?: number;
 };
@@ -46,16 +50,22 @@ export function useFileStatReconciliation({
     const interval = window.setInterval(() => {
       if (document.hidden) return;
 
-      void readStat(selectedPath)
+      // Send the revision we already hold so the server can skip its
+      // read+hash when metadata is unchanged (the steady-state poll case).
+      const previous = lastStatRef.current;
+      const knownRevision = previous && previous.path === selectedPath && typeof previous.revision === 'string'
+        ? previous.revision
+        : null;
+      void readStat(selectedPath, { knownRevision })
         .then((latest) => {
           if (cancelled || !latest) return;
 
-          const previous = lastStatRef.current;
-          if (!previous || previous.path !== selectedPath) {
+          const prior = lastStatRef.current;
+          if (!prior || prior.path !== selectedPath) {
             lastStatRef.current = latest;
             return;
           }
-          if (!didFileStatChange(previous, latest) || isDirtyRef.current) return;
+          if (!didFileStatChange(prior, latest) || isDirtyRef.current) return;
 
           lastStatRef.current = latest;
           onExternalChange();

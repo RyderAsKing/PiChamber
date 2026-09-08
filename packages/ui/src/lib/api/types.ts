@@ -540,16 +540,68 @@ interface FileReadOptions {
   outsideFileGrant?: string;
   optional?: boolean;
   directory?: string;
+  /**
+   * Stat-only optimization: the exact revision the client already holds for
+   * this file. When size+mtime still match, the server skips the read+hash
+   * and echoes the revision unchanged. Opaque: never modified or reinterpreted.
+   */
+  knownRevision?: string | null;
+}
+
+/**
+ * Opaque read-content revision for file-save conflict detection (finding #8).
+ * Clients retain the exact string with buffer/runtime/path/generation and
+ * send it back as `expectedRevision`. `null` means the file was missing at
+ * read time (create-only expectation). `undefined` means the server did not
+ * supply a revision (legacy) and must not be used for guarded saves.
+ */
+export type FileContentRevision = string | null | undefined;
+
+export interface FileReadResult {
+  content: string;
+  path: string;
+  /** Opaque revision; `null` when the optional read found no file. */
+  revision?: FileContentRevision;
+  /** False when an optional read found no file. */
+  exists?: boolean;
+}
+
+export interface FileStatResult {
+  path: string;
+  isFile: boolean;
+  size: number;
+  mtimeMs?: number;
+  /** Opaque revision matching `readFile` for the same bytes. */
+  revision?: FileContentRevision;
+  exists?: boolean;
+}
+
+export interface FileWriteOptions {
+  /**
+   * Guarded-save expectation: exact revision from the base read, `null` to
+   * require a missing file (create-only), or omitted for legacy
+   * unconditional writes. `overwrite: true` forces explicit overwrite.
+   */
+  expectedRevision?: string | null;
+  overwrite?: boolean;
+}
+
+export interface FileWriteResult {
+  success: boolean;
+  path: string;
+  /** New current revision after write (or the existing revision for no-ops). */
+  revision?: string | null;
+  noop?: boolean;
 }
 
 export interface FilesAPI {
   listDirectory(path: string, options?: ListDirectoryOptions): Promise<DirectoryListResult>;
   search(payload: FileSearchQuery): Promise<FileSearchResult[]>;
   createDirectory(path: string): Promise<{ success: boolean; path: string }>;
-  statFile?(path: string, options?: FileReadOptions): Promise<{ path: string; isFile: boolean; size: number; mtimeMs?: number }>;
-  readFile?(path: string, options?: FileReadOptions): Promise<{ content: string; path: string }>;
+  statFile?(path: string, options?: FileReadOptions): Promise<FileStatResult>;
+  readFile?(path: string, options?: FileReadOptions): Promise<FileReadResult>;
   readFileBinary?(path: string, options?: FileReadOptions): Promise<{ dataUrl: string; path: string }>;
-  writeFile?(path: string, content: string): Promise<{ success: boolean; path: string }>;
+  writeFile?(path: string, content: string, options?: FileWriteOptions): Promise<FileWriteResult>;
   delete?(path: string): Promise<{ success: boolean }>;
   rename?(oldPath: string, newPath: string): Promise<{ success: boolean; path: string }>;
   revealPath?(path: string): Promise<{ success: boolean }>;

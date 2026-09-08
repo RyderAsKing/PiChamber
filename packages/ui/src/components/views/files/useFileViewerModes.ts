@@ -1,10 +1,13 @@
 import * as React from 'react';
 
 import { toast } from '@/components/ui';
-import type { FilesAPI } from '@/lib/api/types';
+import type { FileContentRevision, FilesAPI } from '@/lib/api/types';
+import { isFileRevisionConflict } from '@/lib/api/files-errors';
 import { isDrawioFile } from '@/lib/toolHelpers';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
-import { isHtmlFile, isMarkdownFile, type FileStatSnapshot } from './filesViewModel';
+import { buildGuardedWriteOptions, isSaveScopeCurrent, type FileRevisionScope } from './fileRevisionCache';
+import { isHtmlFile, isMarkdownFile } from './filesViewModel';
+import type { FileEditorConflict } from './useFileEditorSave';
 
 export type TextViewMode = 'view' | 'edit';
 export type PreviewViewMode = 'preview' | 'edit';
@@ -34,6 +37,11 @@ function storeMode(key: string, mode: string) {
   }
 }
 
+export type DiagramSaveConflict = FileEditorConflict & {
+  /** The diagram XML that failed to write; never cleared by the conflict. */
+  xml: string;
+};
+
 type UseFileViewerModesOptions = {
   root: string;
   openPaths: string[];
@@ -44,8 +52,16 @@ type UseFileViewerModesOptions = {
   setDraftContent: (content: string) => void;
   autoSaveEnabled: boolean;
   writeFile: FilesAPI['writeFile'];
-  readStat: (path: string) => Promise<FileStatSnapshot | null>;
-  recordStat: (stat: FileStatSnapshot | null) => void;
+  /** Opaque base revision for guarded diagram writes; undefined = legacy. */
+  expectedRevision?: FileContentRevision;
+  /** Captures the runtime/root/path/generation authority for a save started now. */
+  captureSaveScope?: () => FileRevisionScope | null;
+  /** Resolves the current authority for stale-completion checks at commit time. */
+  currentSaveScope?: () => FileRevisionScope | null;
+  /** Same contract as the text editor save: revision/scope bookkeeping. */
+  onSaved?: (path: string, content: string, revision?: string | null, scope?: FileRevisionScope | null) => void;
+  /** Typed revision conflict; the owner surfaces the shared conflict dialog. */
+  onConflict?: (conflict: DiagramSaveConflict) => void;
 };
 
 /** Owns per-file viewer choices and the Draw.io preview document lifecycle. */
@@ -59,8 +75,11 @@ export function useFileViewerModes({
   setDraftContent,
   autoSaveEnabled,
   writeFile,
-  readStat,
-  recordStat,
+  expectedRevision,
+  captureSaveScope,
+  currentSaveScope,
+  onSaved,
+  onConflict,
 }: UseFileViewerModesOptions) {
   const [textViewMode, setTextViewMode] = React.useState<TextViewMode>('edit');
   const [mdViewMode, setMdViewMode] = React.useState<PreviewViewMode>('edit');
@@ -78,6 +97,18 @@ export function useFileViewerModes({
   const diagramAutoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const diagramSavedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPreviewFrameRef = React.useRef<number | null>(null);
+  // Authority callbacks are read through refs so an in-flight diagram save
+  // verifies against the latest render's scope, not the closure it started in.
+  const expectedRevisionRef = React.useRef(expectedRevision);
+  expectedRevisionRef.current = expectedRevision;
+  const captureSaveScopeRef = React.useRef(captureSaveScope);
+  captureSaveScopeRef.current = captureSaveScope;
+  const currentSaveScopeRef = React.useRef(currentSaveScope);
+  currentSaveScopeRef.current = currentSaveScope;
+  const onSavedRef = React.useRef(onSaved);
+  onSavedRef.current = onSaved;
+  const onConflictRef = React.useRef(onConflict);
+  onConflictRef.current = onConflict;
 
   const cancelDiagramTransitions = React.useCallback(() => {
     if (diagramAutoSaveTimerRef.current) {
@@ -154,20 +185,54 @@ export function useFileViewerModes({
     });
   }, [cancelDiagramTransitions, draftContent, fileContent, root, selectedPath, setDraftContent]);
 
-  const saveDiagramXml = React.useCallback(async (path: string, xml: string) => {
+  const isDiagramSaveCurrent = React.useCallback((saveScope: FileRevisionScope | null) => {
+    if (!saveScope) return true; // No authority provider: legacy behavior.
+    return isSaveScopeCurrent(saveScope, currentSaveScopeRef.current?.() ?? null);
+  }, []);
+
+  const saveDiagramXml = React.useCallback(async (path: string, xml: string, options?: { overwrite?: boolean }) => {
     if (!writeFile || xml === diagramSavedXmlRef.current) return false;
-    const result = await writeFile(path, xml);
-    if (!result?.success) {
-      toast.error('Failed to write file');
+    // Capture the save authority before awaiting so the completion can be
+    // verified against it; selection/reload/runtime switches invalidate it.
+    const saveScope = captureSaveScopeRef.current?.() ?? null;
+    if (saveScope && saveScope.path !== path) {
+      // The diagram being written is no longer the selected document.
       return false;
     }
-
-    recordDiagramContent(xml);
-    setDraftContent(xml);
-    const stat = await readStat(path).catch(() => null);
-    if (stat) recordStat(stat);
-    return true;
-  }, [readStat, recordDiagramContent, recordStat, setDraftContent, writeFile]);
+    try {
+      const result = await writeFile(path, xml, buildGuardedWriteOptions(expectedRevisionRef.current, options?.overwrite));
+      if (!result?.success) {
+        toast.error('Failed to write file');
+        return false;
+      }
+      if (!isDiagramSaveCurrent(saveScope)) {
+        // Stale completion: the bytes are on disk, but the buffer no longer
+        // owns the document. Dropping the completion keeps the newly selected
+        // document's draft and stat baseline from being clobbered by the old
+        // diagram.
+        return false;
+      }
+      recordDiagramContent(xml);
+      setDraftContent(xml);
+      onSavedRef.current?.(path, xml, result?.revision, saveScope);
+      return true;
+    } catch (error) {
+      if (isFileRevisionConflict(error)) {
+        // Preserve the diagram edits (refs stay untouched) and surface the
+        // typed conflict through the shared reload/overwrite/compare dialog.
+        if (!isDiagramSaveCurrent(saveScope)) return false;
+        onConflictRef.current?.({
+          path,
+          currentRevision: error.currentRevision ?? null,
+          exists: error.exists,
+          xml,
+        });
+        return false;
+      }
+      toast.error(error instanceof Error ? error.message : 'Save failed');
+      return false;
+    }
+  }, [isDiagramSaveCurrent, recordDiagramContent, setDraftContent, writeFile]);
 
   const showDiagramSaved = React.useCallback(() => {
     setDiagramSaved(true);
@@ -175,12 +240,12 @@ export function useFileViewerModes({
     diagramSavedTimerRef.current = setTimeout(() => setDiagramSaved(false), DIAGRAM_SAVED_STATUS_MS);
   }, []);
 
-  const saveDiagramNow = React.useCallback(async (path: string, xml: string) => {
+  const saveDiagramNow = React.useCallback(async (path: string, xml: string, options?: { overwrite?: boolean }) => {
     if (diagramAutoSaveTimerRef.current) {
       clearTimeout(diagramAutoSaveTimerRef.current);
       diagramAutoSaveTimerRef.current = null;
     }
-    const saved = await saveDiagramXml(path, xml);
+    const saved = await saveDiagramXml(path, xml, options);
     if (saved) showDiagramSaved();
     return saved;
   }, [saveDiagramXml, showDiagramSaved]);
@@ -192,11 +257,10 @@ export function useFileViewerModes({
 
     diagramAutoSaveTimerRef.current = setTimeout(() => {
       diagramAutoSaveTimerRef.current = null;
+      // saveDiagramXml owns error surfacing and stale-completion drops.
       void saveDiagramXml(selectedPath, xml).then((saved) => {
         if (!saved) return;
         showDiagramSaved();
-      }).catch((error) => {
-        toast.error(error instanceof Error ? error.message : 'Save failed');
       });
     }, DIAGRAM_AUTO_SAVE_DELAY_MS);
   }, [autoSaveEnabled, drawioViewMode, saveDiagramXml, selectedPath, showDiagramSaved, writeFile]);
