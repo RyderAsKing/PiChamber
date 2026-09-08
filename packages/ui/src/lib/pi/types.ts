@@ -313,6 +313,12 @@ export interface PiSessionSnapshot {
   runStartedAt?: number;
   /** Server wall clock at snapshot time. */
   serverNow?: number;
+  /** True when the daemon published this snapshot because the client's
+   *  requested replay cursor was unavailable (replay window expired or a
+   *  daemon restart reset the sequence). A resync snapshot is a recovery
+   *  baseline: the client must reconcile catalogs and affected residents
+   *  instead of assuming the replay covers the disconnect gap. */
+  resync?: boolean;
 }
 
 export type PiSessionLifecycleState =

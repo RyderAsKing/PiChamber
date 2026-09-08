@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 const mockFetchPiRuntimeHealth: any = mock(async () => ({
   state: "ready",
   protocolVersion: 1,
-  capabilities: [],
+  capabilities: ["events.streamEpoch"],
+  streamEpoch: "epoch-test-1",
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,7 +58,8 @@ describe("reconnectPiSession", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "unavailable",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
       error: { code: "DAEMON_UNAVAILABLE" },
     })
     const { reconnectPiSession } = await import("./reconnect")
@@ -75,7 +77,8 @@ describe("reconnectPiSession", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,
@@ -111,7 +114,8 @@ describe("reconnectPiSession", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,
@@ -164,7 +168,8 @@ describe("reconnectPiSession", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,
@@ -199,7 +204,8 @@ describe("reconnectPiSession", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     installFetchMock(() =>
       jsonResponse({ error: { code: "INVALID_SESSION" } }, { status: 404 }),
@@ -212,5 +218,130 @@ describe("reconnectPiSession", () => {
     }, dependencies)
     expect(result.phase).toBe("failed")
     expect(result.error?.code).toBe("INVALID_SESSION")
+  })
+
+  test("fails visibly when the runtime does not advertise the stream-epoch capability", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: [],
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("failed")
+    expect(result.error?.code).toBe("PROTOCOL_MISMATCH")
+    expect(result.stream).toBeNull()
+  })
+
+  test("a new daemon epoch uses the snapshot baseline even when the old cursor is numerically higher", async () => {
+    // The restarted daemon's sequence space is unrelated: once its sequence
+    // overtakes the old cursor, a blind max() would skip the head of the new
+    // sequence space. The new baseline must be used verbatim.
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-new",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 40,
+      streamEpoch: "epoch-old",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.epoch).toBe("epoch-new")
+    expect(result.epochChanged).toBe(true)
+    expect(result.lastSequence).toBe(12)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.fromSequence).toBe(12)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.streamEpoch).toBe("epoch-new")
+  })
+
+  test("the same epoch keeps the client cursor when it is ahead of the snapshot", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 40,
+      streamEpoch: "epoch-test-1",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.epochChanged).toBeUndefined()
+    expect(result.lastSequence).toBe(40)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.streamEpoch).toBe("epoch-test-1")
+  })
+
+  test("a session detail stamped with a retired epoch is rejected", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-new",
+    })
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+          streamEpoch: "epoch-old",
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("failed")
+    expect(result.stream).toBeNull()
   })
 })

@@ -50,6 +50,11 @@ afterEach(() => {
   clearAllRevertNavigations();
 });
 
+// bun's typed expect in this project has no asymmetric matcher typings, so
+// prompt-option assertions extract the options object explicitly.
+const promptOptionsOf = (args: unknown[] | undefined) =>
+  args?.[4] as { operationId?: string; messageId?: string; streamEpoch?: string; model?: { providerId: string; modelId: string }; thinking?: string; knownEmptyTranscript?: boolean } | undefined;
+
 describe('routeMessage', () => {
   test('uploads attached files and forwards their opaque ids with the prompt', async () => {
     const uploads: Array<{ filename: string; mime: string; base64: string }> = [];
@@ -75,10 +80,15 @@ describe('routeMessage', () => {
     });
 
     expect(uploads).toEqual([{ filename: '__screen.png', mime: 'image/png', base64: 'AQID' }]);
-    expect(prompts).toEqual([['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }]]]);
+    expect(prompts).toHaveLength(1);
+    const [promptArgs] = prompts as unknown as [unknown[]];
+    expect(promptArgs?.slice(0, 4)).toEqual(['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }]]);
+    const promptOptions = promptOptionsOf(promptArgs);
+    expect(typeof promptOptions?.operationId).toBe('string');
+    expect(promptOptions?.model).toEqual({ providerId: 'provider', modelId: 'model' });
   });
 
-  test('deletes compatibility refreshes when prompt dispatch fails', async () => {
+  test('deletes refreshed uploads only when the operation id will never be retried', async () => {
     const deleted: string[] = [];
     store.setModel = async () => undefined;
     store.setThinking = async () => undefined;
@@ -86,13 +96,38 @@ describe('routeMessage', () => {
       id: 'refreshed-1', name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000,
     });
     store.deleteUpload = async (id) => { deleted.push(id); };
-    store.prompt = async () => { throw new Error('prompt failed'); };
-
+    try {
+      const { clearSendIntentsForTests } = await import('@/lib/pi/send-intent');
+      clearSendIntentsForTests();
+    } catch { /* test-only cache clear */ }
+    // A definite rejection that requires a new id frees the refreshed upload.
+    const definite = Object.assign(new Error('bad prompt'), { code: 'INVALID_PROMPT', status: 400 });
+    store.prompt = async () => { throw definite; };
     await expect(routeMessage({
       sessionId: 'session-legacy', directory: '/workspace', content: 'hello', providerID: 'provider', modelID: 'model',
       files: [{ type: 'file', mime: 'text/plain', filename: 'legacy.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
-    })).rejects.toThrow('prompt failed');
+      operationId: 'op-definite-cleanup',
+    })).rejects.toThrow('bad prompt');
     expect(deleted).toEqual(['refreshed-1']);
+  });
+
+  test('keeps refreshed uploads for uncertain outcomes so a same-id retry reuses them', async () => {
+    const deleted: string[] = [];
+    store.uploadFile = async (file, input) => ({
+      id: 'refreshed-uncertain', name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000,
+    });
+    store.deleteUpload = async (id) => { deleted.push(id); };
+    try {
+      const { clearSendIntentsForTests } = await import('@/lib/pi/send-intent');
+      clearSendIntentsForTests();
+    } catch { /* test-only cache clear */ }
+    store.prompt = async () => { throw new Error('prompt failed'); };
+    await expect(routeMessage({
+      sessionId: 'session-legacy-uncertain', directory: '/workspace', content: 'hello', providerID: 'provider', modelID: 'model',
+      files: [{ type: 'file', mime: 'text/plain', filename: 'legacy.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
+      operationId: 'op-uncertain-cleanup',
+    })).rejects.toThrow('prompt failed');
+    expect(deleted).toEqual([]);
   });
 
   test('forwards ready attachment ids without uploading again', async () => {
@@ -117,7 +152,12 @@ describe('routeMessage', () => {
       }],
     });
 
-    expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }]]]);
+    expect(prompts).toHaveLength(1);
+    const readyArgs = (prompts as unknown as unknown[][])[0];
+    expect(readyArgs?.slice(0, 4)).toEqual(['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }]]);
+    const readyOptions = promptOptionsOf(readyArgs);
+    expect(typeof readyOptions?.operationId).toBe('string');
+    expect(readyOptions?.model).toEqual({ providerId: 'provider', modelId: 'model' });
   });
 
   test('rejects pending and failed attachments before prompt dispatch', async () => {
@@ -161,16 +201,23 @@ describe('routeMessage', () => {
     });
 
     expect(uploads).toEqual([]);
-    expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
+    expect(prompts).toHaveLength(1);
+    const filteredArgs = (prompts as unknown as unknown[][])[0];
+    expect(filteredArgs?.slice(0, 4)).toEqual(['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]);
+    const filteredOptions = promptOptionsOf(filteredArgs);
+    expect(typeof filteredOptions?.operationId).toBe('string');
+    expect(filteredOptions?.model).toEqual({ providerId: 'provider', modelId: 'model' });
   });
 
-  test('commits model then thinking before prompting', async () => {
+  test('carries the captured model and thinking inline with the send intent', async () => {
     const calls: string[] = [];
     store.setModel = async () => { calls.push('setModel'); };
     store.setThinking = async () => { calls.push('setThinking'); };
     store.upload = async () => ({ id: 'attachment-1', name: 'x', mime: 'text/plain', size: 1 });
-    store.prompt = async () => {
+    const promptArgs: unknown[][] = [];
+    store.prompt = async (...args) => {
       calls.push('prompt');
+      promptArgs.push(args);
       return { accepted: true, messageId: 'message-3' };
     };
 
@@ -183,10 +230,17 @@ describe('routeMessage', () => {
       variant: 'xhigh',
     });
 
-    expect(calls).toEqual(['setModel', 'setThinking', 'prompt']);
+    // Inline atomic intent (finding #4): no standalone config writes — the
+    // daemon applies model+thinking atomically with acceptance.
+    expect(calls).toEqual(['prompt']);
+    expect(promptArgs[0]?.slice(0, 4)).toEqual(['session-3', 'hello', 'prompt', undefined]);
+    const inlineOptions = promptOptionsOf(promptArgs[0]);
+    expect(typeof inlineOptions?.operationId).toBe('string');
+    expect(inlineOptions?.model).toEqual({ providerId: 'opencode-go', modelId: 'muse-spark-1.2-contributor' });
+    expect(inlineOptions?.thinking).toBe('xhigh');
   });
 
-  test('reapplies the selected thinking level after changing models', async () => {
+  test('carries the captured thinking inline even when the session had a previous model and level', async () => {
     const sessionId = 'session-direct-mode';
     const originalState = store.getState();
     const existing = hydrateSessionFromDetail({
@@ -207,11 +261,9 @@ describe('routeMessage', () => {
       },
     };
 
-    const calls: string[] = [];
-    store.setModel = async () => { calls.push('setModel'); };
-    store.setThinking = async () => { calls.push('setThinking'); };
-    store.prompt = async () => {
-      calls.push('prompt');
+    const promptArgs: unknown[][] = [];
+    store.prompt = async (...args) => {
+      promptArgs.push(args);
       return { accepted: true, messageId: 'message-direct-mode' };
     };
 
@@ -224,58 +276,112 @@ describe('routeMessage', () => {
         modelID: 'gpt-5.6-luna',
         variant: 'max',
       });
-      expect(calls).toEqual(['setModel', 'setThinking', 'prompt']);
+      expect(promptArgs[0]?.slice(0, 4)).toEqual([sessionId, 'hello', 'prompt', undefined]);
+      const carriedOptions = promptOptionsOf(promptArgs[0]);
+      expect(typeof carriedOptions?.operationId).toBe('string');
+      expect(carriedOptions?.model).toEqual({ providerId: 'openai-codex', modelId: 'gpt-5.6-luna' });
+      expect(carriedOptions?.thinking).toBe('max');
     } finally {
       (store as unknown as { state: typeof originalState }).state = originalState;
     }
   });
 
-  test('does not prompt when setThinking fails', async () => {
+  test('sends without a thinking override leave the level to the daemon while still capturing the model', async () => {
     const prompts: unknown[][] = [];
-    store.setModel = async () => undefined;
-    store.setThinking = async () => {
-      throw new Error('thinking rejected');
-    };
     store.prompt = async (...args) => {
       prompts.push(args);
       return { accepted: true, messageId: 'message-4' };
     };
 
-    await expect(routeMessage({
+    await routeMessage({
       sessionId: 'session-4',
       directory: '/workspace',
       content: 'hello',
       providerID: 'provider',
       modelID: 'model',
-      variant: 'high',
-    })).rejects.toThrow('thinking rejected');
-    expect(prompts).toEqual([]);
+      variant: undefined,
+    });
+    expect(prompts).toHaveLength(1);
+    const plainArgs = (prompts as unknown as unknown[][])[0];
+    expect(plainArgs?.slice(0, 4)).toEqual(['session-4', 'hello', 'prompt', undefined]);
+    const plainOptions = promptOptionsOf(plainArgs);
+    expect(typeof plainOptions?.operationId).toBe('string');
+    expect(plainOptions?.model).toEqual({ providerId: 'provider', modelId: 'model' });
+    expect(plainOptions?.thinking).toBeUndefined();
   });
 
-  test('does not prompt when setModel fails', async () => {
+  test('same operation id reuses message id, epoch, config, and uploads across manual retries', async () => {
     const prompts: unknown[][] = [];
-    const thinkingCalls: unknown[][] = [];
-    store.setModel = async () => {
-      throw new Error('model rejected');
-    };
-    store.setThinking = async (...args) => {
-      thinkingCalls.push(args);
+    let uploads = 0;
+    store.uploadFile = async (_file, input) => {
+      uploads += 1;
+      return { id: `attachment-${uploads}`, name: input.filename, mime: input.mime, size: 4, expiresAt: Date.now() + 60_000 };
     };
     store.prompt = async (...args) => {
       prompts.push(args);
-      return { accepted: true, messageId: 'message-5' };
+      return { accepted: true, messageId: 'message-stable' };
     };
+    try {
+      const { clearSendIntentsForTests } = await import('@/lib/pi/send-intent');
+      clearSendIntentsForTests();
+    } catch { /* test-only cache clear */ }
 
-    await expect(routeMessage({
-      sessionId: 'session-5',
-      directory: '/workspace',
-      content: 'hello',
-      providerID: 'provider',
-      modelID: 'model',
-      variant: 'high',
-    })).rejects.toThrow('model rejected');
-    expect(thinkingCalls).toEqual([]);
-    expect(prompts).toEqual([]);
+    const base = {
+      sessionId: 'session-stable', directory: '/workspace', content: 'hello',
+      providerID: 'provider', modelID: 'model', variant: 'high' as const,
+      files: [{ type: 'file' as const, mime: 'text/plain', filename: 'a.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
+      operationId: 'op-stable-1',
+    };
+    await routeMessage({ ...base });
+    await routeMessage({ ...base });
+    expect(uploads).toBe(1);
+    expect(prompts).toHaveLength(2);
+    const firstOptions = promptOptionsOf((prompts as unknown as unknown[][])[0]);
+    const secondOptions = promptOptionsOf((prompts as unknown as unknown[][])[1]);
+    expect(firstOptions?.operationId).toBe('op-stable-1');
+    expect(secondOptions?.operationId).toBe('op-stable-1');
+    expect(secondOptions).toMatchObject({
+      messageId: (firstOptions as unknown as { messageId: string }).messageId,
+      model: { providerId: 'provider', modelId: 'model' },
+      thinking: 'high',
+    });
+    expect((prompts as unknown as unknown[][])[0]?.[3]).toEqual((prompts as unknown as unknown[][])[1]?.[3]);
+  });
+
+  test('same operation id with a different payload is a caller bug', async () => {
+    store.prompt = async () => ({ accepted: true, messageId: 'm' });
+    try {
+      const { clearSendIntentsForTests } = await import('@/lib/pi/send-intent');
+      clearSendIntentsForTests();
+    } catch { /* test-only cache clear */ }
+    const base = {
+      sessionId: 'session-mismatch', directory: '/workspace', content: 'hello',
+      providerID: 'provider', modelID: 'model', operationId: 'op-mismatch-1',
+    };
+    await routeMessage({ ...base });
+    await expect(routeMessage({ ...base, content: 'different' })).rejects.toThrow('different payload');
+    await expect(routeMessage({ ...base, sessionId: 'session-other' })).rejects.toThrow('different payload');
+  });
+
+  test('distinct operation ids are distinct intents with distinct message ids', async () => {
+    const prompts: unknown[][] = [];
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'm' };
+    };
+    try {
+      const { clearSendIntentsForTests } = await import('@/lib/pi/send-intent');
+      clearSendIntentsForTests();
+    } catch { /* test-only cache clear */ }
+    const base = {
+      sessionId: 'session-distinct', directory: '/workspace', content: 'hello',
+      providerID: 'provider', modelID: 'model',
+    };
+    await routeMessage({ ...base, operationId: 'op-a' });
+    await routeMessage({ ...base, operationId: 'op-b' });
+    const a = promptOptionsOf((prompts as unknown as unknown[][])[0]) as unknown as { messageId: string };
+    const b = promptOptionsOf((prompts as unknown as unknown[][])[1]) as unknown as { messageId: string };
+    expect(a.messageId).not.toBe(b.messageId);
   });
 
   test('forkFromMessage calls the backend even when the session catalog has no row and waits for it to resolve', async () => {
@@ -480,13 +586,13 @@ describe('routeMessage', () => {
       thinking: undefined,
       select: false,
     }]);
-    expect(prompts).toEqual([[
-      'session-worktree',
-      'initial worktree prompt',
-      'prompt',
-      undefined,
-      { knownEmptyTranscript: true },
-    ]]);
+    expect(prompts).toHaveLength(1);
+    const worktreeArgs = (prompts as unknown as unknown[][])[0];
+    expect(worktreeArgs?.slice(0, 4)).toEqual(['session-worktree', 'initial worktree prompt', 'prompt', undefined]);
+    const worktreeOptions = promptOptionsOf(worktreeArgs);
+    expect(worktreeOptions?.knownEmptyTranscript).toBe(true);
+    expect(typeof worktreeOptions?.operationId).toBe('string');
+    expect(worktreeOptions?.model).toEqual({ providerId: 'provider', modelId: 'model' });
     expect(useSessionUIStore.getState().currentSessionId).toBe('session-other');
   });
 

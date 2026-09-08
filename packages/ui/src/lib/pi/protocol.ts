@@ -39,6 +39,13 @@ import type {
 /** Public PiChamber protocol version. Bumped in lockstep with the daemon. */
 export const PI_PUBLIC_PROTOCOL_VERSION = 1 as const;
 
+/** Capability advertised by runtimes whose event stream carries a
+ *  restart-safe `streamEpoch` (an opaque random stream-lifetime id that
+ *  regenerates on every daemon process start). Clients must verify this
+ *  capability and fail visibly when it is absent: without it a daemon
+ *  restart silently resets the sequence space under live cursors. */
+export const PI_STREAM_EPOCH_CAPABILITY = 'events.streamEpoch' as const;
+
 /** Stable, non-secret error codes returned by the Pi runtime. */
 export type PiErrorCode =
   | 'DAEMON_UNAVAILABLE'
@@ -46,12 +53,14 @@ export type PiErrorCode =
   | 'DAEMON_REQUEST_FAILED'
   | 'DAEMON_TIMEOUT'
   | 'DAEMON_PROTOCOL_MISMATCH'
+  | 'PROTOCOL_MISMATCH'
   | 'INVALID_ARGUMENT'
   | 'INVALID_SESSION'
   | 'SESSION_CREATE_CANCELLED'
   | 'INVALID_PROMPT'
   | 'SESSION_BUSY'
   | 'SESSION_NOT_RUNNING'
+  | 'SESSION_ABORTED'
   | 'INVALID_MODEL'
   | 'SESSION_INTERRUPTED'
   | 'SESSION_TREE_NOT_FOUND'
@@ -78,6 +87,9 @@ export type PiErrorCode =
   | 'SESSION_LEASE_UNAVAILABLE'
   | 'RUNTIME_DISPOSAL_FAILED'
   | 'ARCHIVE_METADATA_INVALID'
+  | 'OPERATION_PAYLOAD_MISMATCH'
+  | 'OPERATION_EXPIRED'
+  | 'STALE_STREAM_EPOCH'
   | 'ASSISTANT_ERROR';
 
 /** A stable error object returned in response and event payloads. */
@@ -96,6 +108,9 @@ export interface PiRuntimeHealth {
   state: 'ready' | 'unavailable';
   /** Capability names the daemon currently advertises. */
   capabilities: string[];
+  /** Opaque stream-lifetime id of the live daemon process. Present when the
+   *  daemon advertises `events.streamEpoch`; regenerates on every restart. */
+  streamEpoch?: string;
   /** Set when `state === 'unavailable'`. */
   error?: PiError;
 }
@@ -133,6 +148,10 @@ export interface PiSessionListResponse {
   sessions: PiSessionListItem[];
   /** Optional cursor for paginated loading. */
   nextCursor?: string | null;
+  /** Opaque stream-lifetime id of the daemon that produced this response.
+   *  A value different from the client's established epoch means the
+   *  response predates a daemon restart and must not be committed. */
+  streamEpoch?: string;
 }
 
 export interface PiSessionCreateInput {
@@ -172,6 +191,10 @@ export interface PiSessionDetailResponse extends Pick<
   runStartedAt?: number;
   /** Server wall clock at the time the response was generated. */
   serverNow?: number;
+  /** Opaque stream-lifetime id of the daemon that produced this response.
+   *  A value different from the client's established epoch means the
+   *  response predates a daemon restart and must not be committed. */
+  streamEpoch?: string;
 }
 
 /** Metadata returned after a successful tree navigation. */
@@ -195,6 +218,8 @@ export interface PiSessionMessagesResponse {
   lastSequence: number;
   /** Server wall clock sampled for the timestamps in this page. */
   serverNow?: number;
+  /** Opaque stream-lifetime id of the daemon that produced this page. */
+  streamEpoch?: string;
 }
 
 /** A message view returned by the API, including part data. */
@@ -251,8 +276,22 @@ export type PiSessionMessagePart =
 export interface PiPromptInput {
   sessionId: PiSessionId;
   text: string;
-  /** Optional client-generated message id so SSE can reconcile in place. */
+  /** Optional client-generated message id so SSE can reconcile in place.
+   *  Stable per `operationId`: retries of the same intent must reuse the
+   *  same id, otherwise the daemon rejects as `OPERATION_PAYLOAD_MISMATCH`. */
   messageId?: string;
+  /**
+   * Stable id for one send intent, retained across transport retries and
+   * manual confirmations. The daemon deduplicates at its execution boundary:
+   * a duplicate returns the original receipt instead of invoking Pi again,
+   * and a payload mismatch is rejected.
+   */
+  operationId?: string;
+  /** Stream-lifetime id the send was captured under. Stamped once per intent
+   *  and held through auto retries; a stale epoch is rejected as
+   *  `STALE_STREAM_EPOCH` (unknown outcome, never replayed on the fresh
+   *  daemon with the same id). */
+  streamEpoch?: string;
   /** Model override for the new turn. */
   model?: PiModelRef;
   /** Thinking override for the new turn. */
@@ -265,6 +304,25 @@ export interface PiPromptResult {
   accepted: true;
   /** The id the daemon assigned to the user message. */
   messageId: string;
+  /** True when a duplicate of an already-accepted operation id returned the original receipt. */
+  deduplicated?: boolean;
+}
+
+/** Exact receipt lookup for an uncertain send. */
+export interface PiSendReceiptInput {
+  kind: 'prompt' | 'steer' | 'followUp';
+  sessionId: PiSessionId;
+  operationId: string;
+  /** Captured epoch the send was stamped with; a stale epoch returns `unknown`. */
+  streamEpoch?: string;
+}
+
+export type PiSendReceiptStatus = 'accepted' | 'pending' | 'expired' | 'unknown';
+
+export interface PiSendReceiptResult {
+  status: PiSendReceiptStatus;
+  streamEpoch: string;
+  receipt?: PiPromptResult;
 }
 
 export interface PiAbortInput {
@@ -560,6 +618,7 @@ export interface PiAttachmentCreateResponse {
 export type PiEventName =
   | 'session.snapshot'
   | 'session.lifecycle'
+  | 'session.deleted'
   | 'session.updated'
   | 'session.tree.updated'
   | 'assistant.message.start'
@@ -598,6 +657,11 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
   sessionId: PiSessionId;
   directory: string;
   payload: TPayload;
+  /** Opaque stream-lifetime id of the emitting daemon process. Present on
+   *  every event from a runtime advertising `events.streamEpoch`. A value
+   *  different from the client's established epoch means the daemon
+   *  restarted: only a snapshot may establish the new baseline. */
+  streamEpoch?: string;
 }
 
 export type PiSessionSnapshotEvent = PiEventEnvelope<
@@ -622,6 +686,13 @@ export type PiSessionUpdatedEvent = PiEventEnvelope<
 
 /** A Pi label/bookmark changed; mounted tree consumers should refetch. */
 export type PiSessionTreeUpdatedEvent = PiEventEnvelope<'session.tree.updated', Record<string, never>>;
+
+/** Authoritative session deletion. Every connected and replaying client must
+ *  drop the catalog row, transcript, live activity, and caches for this
+ *  session. Archive and directory moves keep the session id and never emit
+ *  this event. Empty payload keeps the wire shape stable and idempotent:
+ *  applying the same deletion twice is a no-op. */
+export type PiSessionDeletedEvent = PiEventEnvelope<'session.deleted', Record<string, never>>;
 
 export interface PiMessageStartPayload {
   messageId: string;
@@ -950,6 +1021,7 @@ export type PiExtensionErrorEvent = PiEventEnvelope<
 export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
+  | PiSessionDeletedEvent
   | PiSessionUpdatedEvent
   | PiSessionTreeUpdatedEvent
   | PiAssistantMessageStartEvent
@@ -987,6 +1059,7 @@ export type PiSessionEvent =
 export const PI_EVENT_KINDS = [
   'session.snapshot',
   'session.lifecycle',
+  'session.deleted',
   'session.updated',
   'session.tree.updated',
   'assistant.message.start',

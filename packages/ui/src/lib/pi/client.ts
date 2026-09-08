@@ -54,6 +54,8 @@ import {
   type PiAttachmentCreateResponse,
   type PiPromptInput,
   type PiPromptResult,
+  type PiSendReceiptInput,
+  type PiSendReceiptResult,
   type PiSetModelInput,
   type PiSetThinkingInput,
   type PiCompactInput,
@@ -86,6 +88,13 @@ interface JsonRequestInit<TBody> {
   query?: Record<string, string | number | boolean>;
   signal?: AbortSignal;
   runtimeKey?: string;
+  /**
+   * Stable operation id that makes a mutation safe to retry: the server
+   * deduplicates the intent, so a transient retry cannot execute it twice.
+   * Without it, only reads (GET) retry — mutations are never blanket-retried
+   * because a dispatched-but-lost request may already have executed.
+   */
+  idempotencyKey?: string;
 }
 
 const jsonRequest = async <TBody, TResponse>(
@@ -105,6 +114,10 @@ const jsonRequest = async <TBody, TResponse>(
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
 
   let lastError: unknown;
+  // Safe-retry contract: reads retry on transient failures; a mutation only
+  // retries when the caller supplied a stable idempotency key (send operation
+  // id) so the authoritative boundary deduplicates the intent.
+  const mayRetry = init.method === 'GET' || init.idempotencyKey !== undefined;
   for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
     if (attempt > 0) {
       if (init.signal?.aborted) break;
@@ -138,7 +151,7 @@ const jsonRequest = async <TBody, TResponse>(
         const errorBody = (await response.json().catch(() => null)) as { error?: PiError } | null;
         const error: PiError = errorBody?.error ?? { code: 'DAEMON_REQUEST_FAILED' };
         const isTransient = response.status === 503 && (error.code === 'DAEMON_UNAVAILABLE' || error.code === 'DAEMON_TIMEOUT');
-        if (isTransient && attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+        if (isTransient && mayRetry && attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
           lastError = new PiRequestError(error.code, error.message, response.status);
           continue;
         }
@@ -160,11 +173,19 @@ const jsonRequest = async <TBody, TResponse>(
       if (err instanceof PiRequestError) {
         throw err;
       }
-      const isAbort = externalSignal?.aborted || (err instanceof DOMException && err.name === 'AbortError');
+      const externallyAborted = externalSignal?.aborted === true;
+      const isAbort = externallyAborted || (err instanceof DOMException && err.name === 'AbortError');
       if (isAbort) {
-        throw err;
+        if (externallyAborted) {
+          // Caller-requested cancellation: a distinct class from a timeout.
+          throw err;
+        }
+        // The internal request timeout fired: the request was dispatched but
+        // the response never arrived. This is uncertain, not a definite
+        // failure, and it is never retried for mutations.
+        throw new PiRequestError('DAEMON_TIMEOUT', 'The Pi request timed out before a response arrived.');
       }
-      if (attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+      if (mayRetry && attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
         continue;
       }
       throw err;
@@ -230,6 +251,7 @@ export class PiService {
         protocolVersion: health.protocolVersion,
         state: 'ready',
         capabilities: health.capabilities,
+        ...(health.streamEpoch ? { streamEpoch: health.streamEpoch } : {}),
       };
     }
     return {
@@ -410,7 +432,7 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     return jsonRequest<PiPromptInput, PiPromptResult>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/prompt`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      { method: 'POST', body: input, idempotencyKey: input.operationId, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }
 
@@ -418,7 +440,7 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     return jsonRequest<PiPromptInput, PiPromptResult>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/steer`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      { method: 'POST', body: input, idempotencyKey: input.operationId, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }
 
@@ -426,6 +448,15 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     return jsonRequest<PiPromptInput, PiPromptResult>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/follow-up`,
+      { method: 'POST', body: input, idempotencyKey: input.operationId, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  /** Exact receipt lookup for an uncertain send. Read-only; never re-executes. */
+  async getSendReceipt(input: PiSendReceiptInput, scope?: PiClientScope): Promise<PiSendReceiptResult> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiSendReceiptInput, PiSendReceiptResult>(
+      `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/send-receipt`,
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }

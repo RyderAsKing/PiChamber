@@ -22,6 +22,12 @@ const RUNTIME_ENDPOINT_WILL_CHANGE_EVENT = 'pichamber:runtime-endpoint-will-chan
 
 let activeApiBaseUrl = '';
 let activeRuntimeKey = '';
+let runtimeEndpointGeneration = 0;
+
+export const getRuntimeEndpointGeneration = (): number => {
+  hydratePersistedRuntime();
+  return runtimeEndpointGeneration;
+};
 
 const LAST_RUNTIME_STORAGE_KEY = 'pichamber:lastRuntimeEndpoint.v1';
 
@@ -193,6 +199,11 @@ export const switchRuntimeEndpoint = (options: { apiBaseUrl: string; clientToken
   const previousApiBaseUrl = getRuntimeApiBaseUrl();
   const previousRuntimeKey = getRuntimeKey();
   const runtimeKey = options.runtimeKey?.trim() || normalizeRuntimeUrlKey(apiBaseUrl);
+  // Selection generation: every explicit endpoint change (including explicit
+  // disconnect to `mobile-disconnected` and same-key reconnects) invalidates
+  // in-flight background probes. Runtime identity alone cannot catch a
+  // disconnect/reconnect flap back to the same key — the generation can.
+  runtimeEndpointGeneration += 1;
   persistLastRuntimeEndpoint(apiBaseUrl, runtimeKey);
   const detail = { apiBaseUrl, previousApiBaseUrl, runtimeKey, previousRuntimeKey };
   if (typeof window !== 'undefined') {

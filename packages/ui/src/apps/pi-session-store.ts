@@ -4,27 +4,34 @@ import {
   hydrateSessionFromDetail,
   projectSession,
   createReducerPartMap,
+  createReducerState,
   type PiProjectedSession,
   type PiReducerSessionState,
   type PiReducerState,
 } from '@/lib/pi/event-reducer';
+import { mapWithConcurrency } from '@/lib/concurrency';
 import { bootstrapPiDirectory, type PiBootstrapHealth } from '@/lib/pi/bootstrap';
 import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
+import { classifySendFailure } from '@/lib/pi/send-failure-classification';
+import { deriveStableMessageId } from '@/lib/pi/send-intent';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
+import { PI_STREAM_EPOCH_CAPABILITY } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { notifyRuntimeAuthExpired } from '@/lib/runtime-auth';
 import { getPiSessionCatalogCache, type PiSessionCatalogCache } from '@/sync/pi-session-catalog-cache';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
+import { cleanupPersistedSessionState } from '@/sync/session-deletion-cleanup';
 import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
@@ -53,12 +60,17 @@ import {
   TOPIC_DIALOGS,
   TOPIC_CHROME,
   type PiConnectionState,
+  type PiSendRecord,
+  type PiSendStatus,
   type PiSessionsListStatus,
   type PiSessionStoreState,
+  type PiSyncReadiness,
   type Listener,
   PI_TRANSCRIPT_EVICTION_SOFT_CAP,
   RECOVERABLE_CONNECTION_CODES,
   type PendingFocus,
+  PI_SYNC_RECOVERY_CONCURRENCY,
+  PI_SYNC_RECOVERY_MAX_ATTEMPTS,
 } from '@/sync/pi-session-store-types';
 import {
   catalogLifecycleFromReducer,
@@ -91,6 +103,8 @@ export {
 export type {
   PiSessionTopic,
   PiConnectionState,
+  PiSendRecord,
+  PiSendStatus,
   PiSessionsListStatus,
   PiSessionStoreState,
 };
@@ -143,6 +157,19 @@ export class PiSessionStore {
   private activityPhaseById = new Map<PiSessionId, 'active' | 'settled'>();
   private pendingPromptById = new Set<PiSessionId>();
   private promptGenerationById = new Map<PiSessionId, number>();
+  /**
+   * Stable send-intent identity for uncertain sends (finding #3). Keyed by
+   * session; the entry is captured at dispatch (kind + operationId + message
+   * id + stamped streamEpoch + runtime key) and held until the exact receipt
+   * settles acceptance. The uncertain path confirms through the exact
+   * authenticated `sessions.sendReceipt` lookup — never through an unrelated
+   * lifecycle read — and a retry must reuse the same operation id so the
+   * daemon's execution boundary deduplicates. Cleared on settle, delete, and
+   * runtime reset alongside `pendingPromptById`. `sendStateById` mirrors the
+   * user-visible acceptance (`confirming`/`accepted`/`outcome-unknown` /
+   * `rejected`) independently of turn liveness.
+   */
+  private pendingSendIntentById = new Map<PiSessionId, { operationId: string; kind: 'prompt' | 'steer' | 'followUp'; messageId?: string; streamEpoch?: string; runtimeKey: string; generation: number }>();
   /** Monotonic clock of last access per resident session. Updated on
    *  `select`, successful `commitHydratedSession`, accepted events, and
    *  explicit `touchLastAccess`. Eviction walks ascending order so the
@@ -177,6 +204,335 @@ export class PiSessionStore {
    *  after the authoritative truncation. */
   private navigationGenerationById = new Map<PiSessionId, number>();
   private navigationCounter = 0;
+  /** Committed deletions for the active runtime. A tombstone survives its
+   *  echo so an in-flight list, detail, or history response started before
+   *  the deletion cannot resurrect the session. Archive and directory moves
+   *  keep the session id and never enter this set. Cleared on runtime
+   *  switch, clear, and dispose alongside every other runtime-scoped map. */
+  private deletedSessionIds = new Set<PiSessionId>();
+  /** True when the session was authoritatively deleted on this runtime. */
+  isDeleted = (sessionId: PiSessionId): boolean => this.deletedSessionIds.has(sessionId);
+  /** Test seam: observe committed tombstones without reaching into privates. */
+  deletedSessionCountForTests = (): number => this.deletedSessionIds.size;
+  /** Stream lifetime of the connected daemon. `null` until the first verified
+   *  source (health, event, or stamped response) establishes it. A different
+   *  value means the daemon restarted and the sequence space reset. */
+  private streamEpoch: string | null = null;
+  /** Epochs retired by a verified transition. Snapshots, events, and stamped
+   *  responses from a retired lifetime are rejected — epochs are opaque, so
+   *  retirement (not ordering) is what prevents a stale frame from
+   *  downgrading an established baseline. */
+  private retiredStreamEpochs = new Set<string>();
+  /** Reconnect-recovery obligations (replay miss / epoch change): known
+   *  directory catalogs to re-list and affected residents to re-hydrate.
+   *  Mirrored into `state.syncRecovery`; a failed scope stays listed so
+   *  partial success is never reported as complete. */
+  private recoveryDirectories = new Set<string>();
+  private recoveryResidents = new Set<PiSessionId>();
+  private recoveryRunning = false;
+  private recoveryAttempt = 0;
+  private recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Adopt the stream epoch from a verified source. Returns `true` when the
+   *  value is new information (first contact or a change). The displaced
+   *  epoch is recorded as retired so late frames or responses stamped with
+   *  it can never downgrade the baseline. */
+  private adoptStreamEpoch(epoch: string | undefined | null): boolean {
+    if (typeof epoch !== 'string' || epoch.length === 0) return false;
+    if (this.streamEpoch === epoch) return false;
+    if (this.streamEpoch !== null) this.retiredStreamEpochs.add(this.streamEpoch);
+    this.streamEpoch = epoch;
+    return true;
+  }
+  /** True when a stamped response may be committed. A response whose
+   *  `streamEpoch` differs from the established epoch — or that was retired
+   *  by a verified transition — was generated by a previous daemon process
+   *  (stale sequence space) and must be rejected; an unstamped response
+   *  cannot be verified and is accepted as today. */
+  private isResponseEpochCurrent(response: { streamEpoch?: string } | null | undefined): boolean {
+    const epoch = typeof response?.streamEpoch === 'string' && response.streamEpoch.length > 0 ? response.streamEpoch : undefined;
+    if (!epoch) return true;
+    if (this.retiredStreamEpochs.has(epoch)) return false;
+    if (this.streamEpoch === null) {
+      this.streamEpoch = epoch;
+      return true;
+    }
+    return epoch === this.streamEpoch;
+  }
+  /**
+   * A verified stream-epoch change (daemon restart) invalidates every
+   * resident transcript and per-session cursor in one cluster-level reset:
+   * the new daemon's sequence space is unrelated to the old one, so old
+   * cursors and live transcript rows are incompatible. Optimistic UI state
+   * (pending prompts, drafts, attachments, navigation intent) is owned by
+   * dedicated stores and preserved; catalog metadata survives and is
+   * re-validated by the recovery pass. Tombstones survive: session ids
+   * persist in JSONL across daemon restarts. Returns the ids that were
+   * hydrated before the reset so recovery can re-fetch them.
+   */
+  private resetForEpochChange(): Set<PiSessionId> {
+    const previouslyHydrated = new Set(this.hydratedSessionIds);
+    this.hydratedSessionIds.clear();
+    this.restoringTranscriptById.clear();
+    this.hydrateInflightById.clear();
+    this.historyInflightById.clear();
+    // Stale history completions reject through navigation generation too.
+    for (const [id, gen] of this.navigationGenerationById) this.navigationGenerationById.set(id, gen + 1);
+    return previouslyHydrated;
+  }
+  /**
+   * Queue reconnect-recovery obligations. `directories: 'all-known'` re-lists
+   * every directory the catalog knows (a replay miss or epoch change can
+   * hide creates and deletions in any of them); explicit scopes add targeted
+   * work. Additive and idempotent; starts a bounded recovery pass.
+   */
+  private queueSyncRecovery(scope: { directories?: 'all-known' | Iterable<string>; residents?: Iterable<PiSessionId> }): void {
+    let added = false;
+    if (scope.directories === 'all-known') {
+      for (const directory of this.state.catalog.listStatusByDirectory.keys()) {
+        if (directory && !this.recoveryDirectories.has(directory)) {
+          this.recoveryDirectories.add(directory);
+          added = true;
+        }
+      }
+    } else if (scope.directories) {
+      for (const directory of scope.directories) {
+        const normalized = normalizePath(directory);
+        if (normalized && !this.recoveryDirectories.has(normalized)) {
+          this.recoveryDirectories.add(normalized);
+          added = true;
+        }
+      }
+    }
+    if (scope.residents) {
+      for (const resident of scope.residents) {
+        if (resident && !this.recoveryResidents.has(resident)) {
+          this.recoveryResidents.add(resident);
+          added = true;
+        }
+      }
+    }
+    if (!added) return;
+    this.recoveryAttempt = 0;
+    this.publishSyncRecoveryState();
+    void this.runSyncRecovery();
+  }
+  /** Mirror the obligation sets into state. `syncReadiness` is `'recovering'`
+   *  while obligations (or an active retry cycle) exist. */
+  private publishSyncRecoveryState(): void {
+    const directories = [...this.recoveryDirectories];
+    const residents = [...this.recoveryResidents];
+    const readiness: PiSyncReadiness = directories.length === 0 && residents.length === 0 ? 'ready' : 'recovering';
+    const previous = this.state.syncRecovery;
+    const unchanged = readiness === this.state.syncReadiness
+      && previous.directories.length === directories.length
+      && previous.residents.length === residents.length
+      && directories.every((directory, index) => previous.directories[index] === directory)
+      && residents.every((resident, index) => previous.residents[index] === resident);
+    if (unchanged) return;
+    this.state = {
+      ...this.state,
+      syncReadiness: readiness,
+      syncRecovery: { directories, residents },
+    };
+    this.emitChrome();
+  }
+  /** Reset all recovery state (runtime switch, clear, dispose). */
+  private clearSyncRecovery(): void {
+    if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+    this.recoveryTimer = null;
+    this.recoveryDirectories.clear();
+    this.recoveryResidents.clear();
+    this.recoveryRunning = false;
+    this.recoveryAttempt = 0;
+    this.publishSyncRecoveryState();
+  }
+  /**
+   * Run one bounded recovery pass: affected residents first (the selected
+   * session outranks the rest), then known directory catalogs — each under
+   * bounded concurrency with full generation/runtime/epoch guards. A failed
+   * scope keeps its obligation (partial success is never complete), and a
+   * bounded backoff retry cycle re-runs remaining scopes; once the cycle's
+   * attempts are exhausted the obligations stay parked and visible until
+   * the next stream-health signal or reconnect re-queues them.
+   */
+  private async runSyncRecovery(): Promise<void> {
+    if (this.recoveryRunning) return;
+    if (this.recoveryDirectories.size === 0 && this.recoveryResidents.size === 0) {
+      this.publishSyncRecoveryState();
+      return;
+    }
+    this.recoveryRunning = true;
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
+    try {
+      // 1. Affected residents. The selected session recovers first; every
+      //    other resident follows under bounded concurrency. Live events
+      //    and user mutations keep overlaying: fetched details commit
+      //    through `commitHydratedSession`, which preserves newer resident
+      //    content and already loaded older history pages.
+      const selected = this.state.selectedSessionId;
+      const orderedResidents = [...this.recoveryResidents].sort((a, b) => (a === selected ? -1 : b === selected ? 1 : 0));
+      await mapWithConcurrency(orderedResidents, PI_SYNC_RECOVERY_CONCURRENCY, async (sessionId) => {
+        if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+        if (!this.recoveryResidents.has(sessionId)) return;
+        if (this.isDeleted(sessionId)) {
+          this.recoveryResidents.delete(sessionId);
+          return;
+        }
+        const directory = this.resolveSessionDirectory(sessionId) ?? this.state.directory ?? undefined;
+        if (!directory) return; // obligation retained until the session's directory is known
+        try {
+          const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
+          if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+          if (detail.session.id !== sessionId) return;
+          if (this.isDeleted(sessionId)) {
+            this.recoveryResidents.delete(sessionId);
+            return;
+          }
+          // A stale-epoch response predates the daemon restart; keep the
+          // obligation so the next pass re-reads from the current daemon.
+          if (!this.isResponseEpochCurrent(detail)) return;
+          const current = this.state.reducer.bySession.get(sessionId);
+          if (!current || current.lastSequence <= detail.lastSequence) {
+            if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof detail.runStartedAt === 'number') {
+              adoptServerRunTiming(detail.session.id, detail.runStartedAt, detail.serverNow);
+            }
+            this.commitHydratedSession(this.sessionFromDetail(detail));
+          }
+          this.recoveryResidents.delete(sessionId);
+        } catch {
+          // Failure keeps the retry obligation; partial success is not empty.
+        }
+        this.publishSyncRecoveryState();
+      });
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+      // 2. Known directory catalogs. `refreshDirectoryCatalog` preserves
+      //    prior rows on failure and marks the directory `'failed'` —
+      //    failure stays scoped, never an empty success.
+      const focusedDirectory = this.state.directory ? normalizePath(this.state.directory) : null;
+      const orderedDirectories = [...this.recoveryDirectories].sort((a, b) => (a === focusedDirectory ? -1 : b === focusedDirectory ? 1 : 0));
+      await mapWithConcurrency(orderedDirectories, PI_SYNC_RECOVERY_CONCURRENCY, async (directory) => {
+        if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+        if (!this.recoveryDirectories.has(directory)) return;
+        try {
+          const result = await this.refreshDirectoryCatalog(directory);
+          // A failed listing keeps its obligation (partial success is not
+          // complete); only a successful refresh drains the scope.
+          if (result.ok) this.recoveryDirectories.delete(directory);
+        } catch {
+          // Failure keeps the retry obligation.
+        }
+        this.publishSyncRecoveryState();
+      });
+    } finally {
+      this.recoveryRunning = false;
+    }
+    if (expected !== this.runtimeGeneration) return;
+    this.publishSyncRecoveryState();
+    if (this.recoveryDirectories.size > 0 || this.recoveryResidents.size > 0) {
+      // Bounded backoff retry for the failed scopes.
+      this.recoveryAttempt += 1;
+      if (this.recoveryAttempt <= PI_SYNC_RECOVERY_MAX_ATTEMPTS) {
+        const delayMs = Math.min(16_000, 1_000 * 2 ** (this.recoveryAttempt - 1));
+        if (this.recoveryTimer) clearTimeout(this.recoveryTimer);
+        this.recoveryTimer = setTimeout(() => {
+          this.recoveryTimer = null;
+          void this.runSyncRecovery();
+        }, delayMs);
+      }
+      // Attempts exhausted: obligations stay parked until the next
+      // stream-health signal or reconnect re-queues them.
+    }
+  }
+  /** Missed-deletion baseline entry point (see
+   *  `useAuthoritativeSessionCleanup`): a session present in an established
+   *  complete authoritative catalog baseline but omitted from a later
+   *  complete snapshot was deleted while no replay window covered it.
+   *  Funneling through the shared commit adds a tombstone so an in-flight
+   *  list, detail, or history response started before the daemon-side
+   *  deletion cannot resurrect the row. Idempotent for duplicates. */
+  commitMissedDeletion = (sessionId: PiSessionId, directory: string): boolean =>
+    this.commitDeletion(sessionId, directory);
+  /**
+   * Shared deletion commit. Every deletion path (local `remove()`, accepted
+   * `404` on hydrate, explicit `session.deleted` event, missed-deletion
+   * baseline) funnels through here so catalog, transcript, selection, live
+   * activity, and persisted drafts stay consistent. The tombstone is added
+   * first so late completions that started before the deletion cannot
+   * resurrect the row. Persisted cleanup is runtime+directory+session
+   * scoped; stale-runtime or global identities are ignored by the helper.
+   * The accepted-404 hydrate path passes `keepSelection` so the failed id
+   * stays selected and the chat keeps showing its load error while the
+   * tombstone still blocks resurrection.
+   */
+  private commitDeletion(
+    sessionId: PiSessionId,
+    directory?: string,
+    options?: { keepSelection?: boolean },
+  ): boolean {
+    if (!sessionId) return false;
+    const wasDeleted = this.deletedSessionIds.has(sessionId);
+    this.deletedSessionIds.add(sessionId);
+    const recordDirectory = directory
+      ?? this.state.catalog.byId.get(sessionId)?.directory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+      ?? this.state.reducer.bySession.get(sessionId)?.directory;
+    if (recordDirectory && recordDirectory !== 'global') {
+      try {
+        cleanupPersistedSessionState({ runtimeKey: getRuntimeKey(), directory: recordDirectory, sessionId });
+      } catch {
+        // Persisted cleanup is best-effort; the in-memory tombstone still guards resurrection.
+      }
+    }
+    removeSessionActivityTiming(sessionId);
+    removeSessionOrdering(sessionId);
+    clearRevertNavigation(sessionId);
+    this.navigationGenerationById.delete(sessionId);
+    this.historyInflightById.delete(sessionId);
+    this.hydrateInflightById.delete(sessionId);
+    this.restoringTranscriptById.delete(sessionId);
+    const hadResident = this.state.reducer.bySession.has(sessionId)
+      || this.hydratedSessionIds.has(sessionId)
+      || this.state.catalog.byId.has(sessionId)
+      || this.state.sessions.some((item) => item.session.id === sessionId);
+    const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
+    const selectedSessionId = !options?.keepSelection && this.state.selectedSessionId === sessionId
+      ? (sessions.find((item) => !item.session.archived)?.session.id ?? sessions[0]?.session.id ?? null)
+      : this.state.selectedSessionId;
+    const nextBySession = new Map(this.state.reducer.bySession);
+    nextBySession.delete(sessionId);
+    const nextLastSequence = new Map(this.state.reducer.lastSequence);
+    // Preserve the deletion cursor when the event already advanced it; otherwise keep the prior cursor.
+    const eventCursor = this.state.reducer.lastSequence.get(sessionId);
+    if (eventCursor !== undefined) nextLastSequence.set(sessionId, eventCursor);
+    else nextLastSequence.delete(sessionId);
+    this.hydratedSessionIds.delete(sessionId);
+    this.activityPhaseById.delete(sessionId);
+    this.pendingPromptById.delete(sessionId);
+    this.promptGenerationById.delete(sessionId);
+    this.pendingSendIntentById.delete(sessionId);
+    this.lastAccessById.delete(sessionId);
+    const nextSendState = new Map(this.state.sendStateById);
+    nextSendState.delete(sessionId);
+    const sendStateChanged = nextSendState.size !== this.state.sendStateById.size;
+    const nextCatalog = removeRecord(this.state.catalog, sessionId);
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    const selectionChanged = selectedSessionId !== this.state.selectedSessionId;
+    if (!hadResident && wasDeleted && !catalogChanged && !selectionChanged && !sendStateChanged) return false;
+    this.state = {
+      ...this.state,
+      sessions,
+      selectedSessionId,
+      hydratedSessionIds: new Set(this.hydratedSessionIds),
+      reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+      catalog: nextCatalog,
+      sendStateById: nextSendState,
+    };
+    const topics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
+    return true;
+  }
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private readonly catalogCache: PiSessionCatalogCache;
   private unsubscribeRuntime: () => void;
@@ -195,6 +551,64 @@ export class PiSessionStore {
 
   /** Runtime generation. Stale after `clear()`/`dispose()`/`resetForRuntime()`/reconnect. */
   getRuntimeGeneration = (): number => this.runtimeGeneration;
+  /** Current verified stream lifetime (`null` until health/event establishes it).
+   *  Send intents stamp this value once and hold it through retries; the
+   *  daemon rejects a stale epoch pre-side-effect as `STALE_STREAM_EPOCH`.
+   */
+  getStreamEpoch = (): string | null => this.streamEpoch;
+  /** Explicit user-visible send acceptance for one session, if tracked. */
+  getSendState = (sessionId: PiSessionId): PiSendRecord | undefined =>
+    this.state.sendStateById.get(sessionId);
+  /**
+   * Start an explicit new intent after an `outcome-unknown` send. Never called
+   * automatically: the caller must have shown the unknown warning and kept
+   * drafts intact. Mints a fresh operation id so the old uncertain intent can
+   * never be re-executed. Returns the new operation id.
+   */
+  beginNewSendIntentAfterUnknown = (sessionId: PiSessionId): string => {
+    const previous = this.state.sendStateById.get(sessionId);
+    if (previous && previous.status !== 'outcome-unknown') {
+      console.warn(
+        '[send] starting a new intent while the previous send is not outcome-unknown; the previous operation id will not be reused.',
+      );
+    }
+    const nextOperationId = `send_${crypto.randomUUID()}`;
+    this.clearSendState(sessionId);
+    return nextOperationId;
+  };
+  /**
+   * Safe exact-id status check for a `confirming` send. Reads the
+   * authoritative `sessions.sendReceipt` for the tracked operation id —
+   * never sends, never mints a new intent, never replays. Returns true when
+   * the read settled the record (accepted or outcome-unknown). Only runs
+   * while the stored intent is still current on this runtime; a runtime
+   * switch or newer send leaves the record untouched.
+   */
+  refreshSendConfirmation = async (sessionId: PiSessionId): Promise<boolean> => {
+    const record = this.state.sendStateById.get(sessionId);
+    if (!record || record.status !== 'confirming') return false;
+    const intent = this.pendingSendIntentById.get(sessionId);
+    if (!intent) return false;
+    if (intent.runtimeKey !== getRuntimeKey()) return false;
+    return this.confirmUncertainSendViaReceipt(sessionId, intent.generation, this.runtimeGeneration, intent.runtimeKey);
+  };
+  /** Dismiss a settled `accepted`/`rejected`/`outcome-unknown` notice (for example after
+   *  the user acknowledged the safe next action). Never clears `confirming`:
+   *  an uncertain send settles only through the exact receipt path. */
+  clearSendState = (sessionId: PiSessionId): void => {
+    const existing = this.state.sendStateById.get(sessionId);
+    if (!existing || existing.status === 'confirming') return;
+    const next = new Map(this.state.sendStateById);
+    next.delete(sessionId);
+    this.state = { ...this.state, sendStateById: next };
+    this.emitChrome();
+  };
+  private setSendState = (sessionId: PiSessionId, record: PiSendRecord): void => {
+    const next = new Map(this.state.sendStateById);
+    next.set(sessionId, record);
+    this.state = { ...this.state, sendStateById: next };
+    this.emit([`session:${sessionId}`, TOPIC_CHROME]);
+  };
   /** Directory-focus generation. Stale after a newer focusProject call replaces it. */
   getFocusGeneration = (): number => this.focusGeneration;
   /** True once the runtime-wide cluster is attached: either the stream
@@ -232,10 +646,17 @@ export class PiSessionStore {
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.pendingSendIntentById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
+    this.deletedSessionIds.clear();
+    // The outgoing runtime's daemon (and its stream lifetime) no longer
+    // applies; the incoming runtime establishes a fresh epoch.
+    this.streamEpoch = null;
+    this.retiredStreamEpochs.clear();
+    this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
@@ -292,6 +713,7 @@ export class PiSessionStore {
     let recoveryStream: PiStreamHandle | null = null;
     recoveryStream = createPiEventStream({
       onEvent: () => {},
+      onAuthRequired: () => this.handleStreamAuthRequired(),
       onReconnect: () => {
         if (
           expected !== this.runtimeGeneration
@@ -311,9 +733,18 @@ export class PiSessionStore {
       },
     }, {
       ...(fromSequence !== undefined ? { fromSequence } : {}),
+      ...(this.streamEpoch ? { streamEpoch: this.streamEpoch } : {}),
       runtimeKey,
     });
     this.stream = recoveryStream;
+  }
+  /** A known authorization failure (401/403) stopped the stream's retry
+   *  loop. Surface the existing auth flow (the mounted gate re-checks the
+   *  session and shows its unlock screen) without clearing any local work:
+   *  transcripts, drafts, and optimistic state all survive the report. */
+  private handleStreamAuthRequired(): void {
+    this.reportError(new PiRequestError('DAEMON_AUTH_FAILED', 'The Pi runtime rejected the client authorization.'));
+    notifyRuntimeAuthExpired();
   }
   /**
    * A single session could not be hydrated. The cluster stays `ready` so
@@ -392,7 +823,14 @@ export class PiSessionStore {
       if (this.directoryRefreshGenerationByDirectory.get(normalized) !== generation) return { ok: true };
       if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
       if (runtimeKey !== getRuntimeKey()) return { ok: true };
-      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, result.sessions, Date.now());
+      // A response generated by a previous daemon process predates the
+      // current stream epoch; treat it like a transient list failure so
+      // prior rows survive and the directory keeps its retry path.
+      if (!this.isResponseEpochCurrent(result)) {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
+      }
+      const listedSessions = this.filterDeletedListItems(result.sessions);
+      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, listedSessions, Date.now());
       if (nextCatalog !== this.state.catalog) {
         this.state = { ...this.state, catalog: nextCatalog };
         this.emit([TOPIC_CATALOG]);
@@ -631,12 +1069,12 @@ export class PiSessionStore {
         this.failFocus(expected, result.error);
         return;
       }
-      const listPayload = result.payload;
+      const listPayload = { sessions: this.filterDeletedListItems(result.payload.sessions) };
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
       let matchedSession = desiredSessionId
         ? listPayload.sessions.find((item) => item.session.id === desiredSessionId)
         : undefined;
-      if (desiredSessionId && !matchedSession) {
+      if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory: resolvedDirectory, runtimeKey });
           if (detail?.session?.id) {
@@ -758,6 +1196,11 @@ export class PiSessionStore {
     try {
       const result = await piClient.listSessions({ directory: resolvedDirectory, runtimeKey });
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return { kind: 'stale' };
+      // A stale-epoch list predates the daemon restart; retry once, then
+      // surface a scoped failure rather than committing old membership.
+      if (!this.isResponseEpochCurrent(result)) {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
+      }
       return { kind: 'ok', payload: result };
     } catch (error) {
       if (!this.shouldRetryFocusError(error)) {
@@ -768,6 +1211,9 @@ export class PiSessionStore {
       try {
         const result = await piClient.listSessions({ directory: resolvedDirectory, runtimeKey });
         if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return { kind: 'stale' };
+        if (!this.isResponseEpochCurrent(result)) {
+          throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
+        }
         return { kind: 'ok', payload: result };
       } catch (retryError) {
         return { kind: 'failed', error: asError(retryError) };
@@ -818,10 +1264,15 @@ export class PiSessionStore {
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.pendingSendIntentById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
+    this.deletedSessionIds.clear();
+    this.streamEpoch = null;
+    this.retiredStreamEpochs.clear();
+    this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
@@ -834,6 +1285,7 @@ export class PiSessionStore {
       selectedSessionId: preferredSessionId ?? null,
       connection: 'loading',
       hydratedSessionIds: new Set(),
+      sendStateById: new Map(),
       reducer: {
         bySession: new Map(this.state.reducer.bySession),
         lastSequence: new Map(this.state.reducer.lastSequence),
@@ -852,15 +1304,34 @@ export class PiSessionStore {
       const health = await piClient.health(scope);
       if (expected !== this.runtimeGeneration) return;
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
+      // Fail-visible compatibility: first attach requires a runtime with a
+      // restart-safe stream; without it cursors cannot survive a daemon
+      // restart and the mismatch must be visible instead of silent.
+      if (
+        !health.capabilities.includes(PI_STREAM_EPOCH_CAPABILITY)
+        || typeof health.streamEpoch !== 'string'
+        || health.streamEpoch.length === 0
+      ) {
+        throw new PiRequestError('PROTOCOL_MISMATCH', 'The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.');
+      }
+      this.adoptStreamEpoch(health.streamEpoch);
       const initialHealth: Extract<PiBootstrapHealth, { state: 'ready' }> = {
         state: 'ready',
         protocolVersion: health.protocolVersion,
         capabilities: [...health.capabilities],
+        streamEpoch: health.streamEpoch,
       };
       const result = await piClient.listSessions(scope);
       if (expected !== this.runtimeGeneration) return;
+      // A stale-epoch first-attach list predates the daemon restart.
+      if (!this.isResponseEpochCurrent(result)) {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
+      }
+      // Filter tombstones once, before matched-session lookup, so a deleted
+      // session can neither be matched, selected, nor re-entered the catalog.
+      const listedSessions = this.filterDeletedListItems(result.sessions);
       const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
-      let matchedSession = desiredSessionId ? result.sessions.find((item) => item.session.id === desiredSessionId) : undefined;
+      let matchedSession = desiredSessionId ? listedSessions.find((item) => item.session.id === desiredSessionId) : undefined;
       if (desiredSessionId && !matchedSession) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory, runtimeKey });
@@ -870,7 +1341,7 @@ export class PiSessionStore {
             return;
           }
           if (detail?.session?.id) {
-            result.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
+            listedSessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch {
@@ -880,8 +1351,8 @@ export class PiSessionStore {
       }
       const selectedSessionId = matchedSession?.session.id
         ?? (desiredSessionId ? desiredSessionId : (
-          result.sessions.find((item) => !item.session.archived)?.session.id
-          ?? result.sessions[0]?.session.id
+          listedSessions.find((item) => !item.session.archived)?.session.id
+          ?? listedSessions[0]?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
@@ -890,11 +1361,11 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
-      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, selected.directory, result.sessions, Date.now());
+      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, selected.directory, listedSessions, Date.now());
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
-        sessions: result.sessions,
+        sessions: listedSessions,
         selectedSessionId,
         connection: 'ready',
         catalog: nextCatalog,
@@ -1064,6 +1535,15 @@ export class PiSessionStore {
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
   }
+  /** Drop tombstoned sessions from an authoritative list response so a
+   *  request that started before a committed deletion cannot resurrect the
+   *  catalog row or re-enter the focused list. Tombstones are runtime-scoped
+   *  and cleared on runtime switch, so a same-ID session on another runtime
+   *  is unaffected. */
+  private filterDeletedListItems(sessions: PiSessionListItem[]): PiSessionListItem[] {
+    if (this.deletedSessionIds.size === 0) return sessions;
+    return sessions.filter((item) => !this.deletedSessionIds.has(item.session.id));
+  }
   private resolveSessionDirectory(sessionId: string, explicitDirectory?: string): string | undefined {
     return explicitDirectory
       ?? this.state.catalog.byId.get(sessionId)?.directory
@@ -1087,38 +1567,13 @@ export class PiSessionStore {
   async remove(sessionId: string, directory?: string) {
     const expected = this.runtimeGeneration;
     const sessionDir = this.resolveSessionDirectory(sessionId, directory);
+    // `deleteSession` treats 404 as success, so an already-deleted session still commits locally.
     await piClient.deleteSession({ sessionId, ignoreMissing: true }, sessionDir ? this.scope(sessionDir) : this.scope());
     if (expected !== this.runtimeGeneration) return;
-    removeSessionActivityTiming(sessionId);
-    removeSessionOrdering(sessionId);
-    clearRevertNavigation(sessionId);
-    this.navigationGenerationById.delete(sessionId);
-    this.historyInflightById.delete(sessionId);
-    const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
-    const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId;
-    const nextBySession = new Map(this.state.reducer.bySession);
-    nextBySession.delete(sessionId);
-    const nextLastSequence = new Map(this.state.reducer.lastSequence);
-    nextLastSequence.delete(sessionId);
-    this.hydratedSessionIds.delete(sessionId);
-    this.activityPhaseById.delete(sessionId);
-    this.pendingPromptById.delete(sessionId);
-    this.promptGenerationById.delete(sessionId);
-    this.lastAccessById.delete(sessionId);
-    const nextCatalog = removeRecord(this.state.catalog, sessionId);
-    const catalogChanged = nextCatalog !== this.state.catalog;
-    this.state = {
-      ...this.state,
-      sessions,
-      selectedSessionId,
-      hydratedSessionIds: new Set(this.hydratedSessionIds),
-      reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
-      catalog: nextCatalog,
-    };
-    const removeTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
-    if (catalogChanged) removeTopics.push(TOPIC_CATALOG);
-    this.emit(removeTopics);
-    if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
+    const selectedBefore = this.state.selectedSessionId;
+    this.commitDeletion(sessionId, sessionDir);
+    const selectedAfter = this.state.selectedSessionId;
+    if (selectedAfter && selectedAfter !== selectedBefore) await this.hydrate(selectedAfter, expected);
   }
   async fork(sessionId: string, messageId?: string) {
     // Capture original title before fork so we can label the new branch.
@@ -1166,6 +1621,7 @@ export class PiSessionStore {
       // runtime switched, this result is stale — discard it.
       if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGen) return detail;
       if (expected !== this.runtimeGeneration) return detail;
+      if (!this.isResponseEpochCurrent(detail)) return detail;
       // Authoritative truncated commit — do not merge the old tail back in.
       const hydrated = this.sessionFromDetail(detail);
       this.commitNavigationSession(hydrated);
@@ -1218,7 +1674,32 @@ export class PiSessionStore {
     text: string,
     delivery: 'prompt' | 'steer' | 'followUp',
     attachments?: Array<{ id: string }>,
-    options?: { knownEmptyTranscript?: boolean },
+    options?: {
+      knownEmptyTranscript?: boolean;
+      /**
+       * Stable id for this send intent. Retried across transport retries and
+       * manual confirmations so the daemon's execution boundary deduplicates;
+       * generated here when the caller does not own the intent.
+       */
+      operationId?: string;
+      /**
+       * Stable client message id for this intent. Retries of the same
+       * `operationId` must reuse the same id or the daemon rejects as
+       * `OPERATION_PAYLOAD_MISMATCH`; derived from the operation id when
+       * the caller does not own the intent.
+       */
+      messageId?: string;
+      /**
+       * Stream lifetime the intent was captured under. Stamped once per
+       * intent and held through retries; the daemon enforces it
+       * pre-side-effect as `STALE_STREAM_EPOCH`. Defaults to the store's
+       * current verified epoch when present.
+       */
+      streamEpoch?: string;
+      /** Send config captured with the intent; applied inline by the daemon. */
+      model?: { providerId: string; modelId: string };
+      thinking?: PiThinkingLevel;
+    },
   ) {
     const expected = this.runtimeGeneration;
     let existing = this.state.reducer.bySession.get(sessionId);
@@ -1235,35 +1716,72 @@ export class PiSessionStore {
       if (expected !== this.runtimeGeneration) return;
       existing = this.state.reducer.bySession.get(sessionId);
     }
-    const nextSession: PiReducerSessionState = existing
-      ? { ...existing, lifecycle: 'busy' }
-      : {
-          sessionId,
-          directory: this.state.directory
-            ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
-            ?? '',
-          lastSequence: this.state.reducer.lastSequence.get(sessionId) ?? -1,
-          lifecycle: 'busy',
-          messages: new Map(),
-          partOrder: new Map(),
-          parts: createReducerPartMap(),
-          toolsByCallId: new Map(),
-          streamingMessages: new Set(),
-          queue: { steering: 0, followUp: 0 },
-          extensionStatuses: new Map(),
-          extensionWidgets: new Map(),
-          extensionDialogs: [],
-          extensionNotices: [],
-          extensionErrors: [],
-          extensionPanels: new Map(),
-          extensionApps: new Map(),
-        };
+    const modelOverride = options?.model;
+    const thinkingOverride = options?.thinking;
+    const nextSession: PiReducerSessionState = {
+      ...(existing
+        ? existing
+        : {
+            sessionId,
+            directory: this.state.directory
+              ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+              ?? '',
+            lastSequence: this.state.reducer.lastSequence.get(sessionId) ?? -1,
+            messages: new Map(),
+            partOrder: new Map(),
+            parts: createReducerPartMap(),
+            toolsByCallId: new Map(),
+            streamingMessages: new Set(),
+            queue: { steering: 0, followUp: 0 },
+            extensionStatuses: new Map(),
+            extensionWidgets: new Map(),
+            extensionDialogs: [],
+            extensionNotices: [],
+            extensionErrors: [],
+            extensionPanels: new Map(),
+            extensionApps: new Map(),
+          }),
+      lifecycle: 'busy',
+      // The send intent carries its captured config inline; the daemon applies
+      // it atomically with acceptance and reconciles via session.model /
+      // session.thinking events. Optimistically reflect it here so a second
+      // committed read does not flash the previous selection.
+      ...(modelOverride ? { model: { providerId: modelOverride.providerId, modelId: modelOverride.modelId } } : {}),
+      ...(thinkingOverride ? { thinking: thinkingOverride } : {}),
+    };
     const nextBySession = new Map(this.state.reducer.bySession);
     nextBySession.set(sessionId, nextSession);
     this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: nextBySession } };
     const generation = (this.promptGenerationById.get(sessionId) ?? 0) + 1;
     this.promptGenerationById.set(sessionId, generation);
     this.pendingPromptById.add(sessionId);
+    // Capture the stable full intent once: operation id, message id, and
+    // stream epoch are held verbatim through every retry of this generation
+    // so the daemon fingerprint never mismatches. The runtime key is captured
+    // with the intent so a runtime switch can never replay it elsewhere.
+    const operationId = options?.operationId ?? `send_${crypto.randomUUID()}`;
+    const messageId = options?.messageId ?? deriveStableMessageId(operationId);
+    const stampedEpoch = options?.streamEpoch ?? this.streamEpoch ?? undefined;
+    const dispatchRuntimeKey = getRuntimeKey();
+    this.pendingSendIntentById.set(sessionId, {
+      operationId,
+      kind: delivery,
+      ...(messageId ? { messageId } : {}),
+      ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+      runtimeKey: dispatchRuntimeKey,
+      generation,
+    });
+    this.setSendState(sessionId, {
+      status: 'confirming',
+      operationId,
+      kind: delivery,
+      ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+      runtimeKey: dispatchRuntimeKey,
+      ...(messageId ? { messageId } : {}),
+      updatedAt: Date.now(),
+      title: 'Confirming send',
+      action: 'Waiting for the server to confirm. Do not resend yet.',
+    });
     this.promoteSession(sessionId, 'active', { reorder: true });
     this.touchSessionList(sessionId);
     const promptedAt = Date.now();
@@ -1281,12 +1799,39 @@ export class PiSessionStore {
     const promptTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) promptTopics.push(TOPIC_CATALOG);
     this.emit(promptTopics);
-    const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
+    const input = {
+      sessionId,
+      text,
+      messageId,
+      operationId,
+      ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+      ...(options?.model ? { model: { providerId: options.model.providerId, modelId: options.model.modelId } } : {}),
+      ...(options?.thinking ? { thinking: options.thinking } : {}),
+      ...(attachments?.length ? { attachments } : {}),
+    };
     try {
       let result;
       if (delivery === 'steer') result = await piClient.sendSteer(input, this.scope());
       else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, this.scope());
       else result = await piClient.sendPrompt(input, this.scope());
+      // Direct acceptance settles send acceptance independently of turn
+      // progress: the receipt proves the daemon owns the intent, while the
+      // live event stream still owns the turn. Keep the optimistic turn
+      // pending; lifecycle events for an accepted send may clear it.
+      if (expected === this.runtimeGeneration && this.promptGenerationById.get(sessionId) === generation) {
+        this.pendingSendIntentById.delete(sessionId);
+        this.setSendState(sessionId, {
+          status: 'accepted',
+          operationId,
+          kind: delivery,
+          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+          runtimeKey: dispatchRuntimeKey,
+          ...(messageId ? { messageId } : {}),
+          updatedAt: Date.now(),
+          title: 'Send accepted',
+          action: 'The assistant is working. No action needed.',
+        });
+      }
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
       clearRevertNavigation(sessionId);
@@ -1308,8 +1853,86 @@ export class PiSessionStore {
         // successful hydrate clears it; the transcript itself is preserved.
         this.failSessionLoad(sessionId, error);
       }
-      if (this.promptGenerationById.get(sessionId) === generation) {
+      const failureCode = (error as { code?: unknown })?.code as string | undefined;
+      const isNewIdRequiredCode = failureCode === 'OPERATION_EXPIRED'
+        || failureCode === 'STALE_STREAM_EPOCH'
+        || failureCode === 'OPERATION_PAYLOAD_MISMATCH';
+      // A generic AbortError after dispatch proves nothing about execution:
+      // without an explicit caller abort signal the request may already be
+      // running, so it stays uncertain and confirms via receipt. Runtime
+      // guards (`DAEMON_UNAVAILABLE`) and `SESSION_ABORTED` during acceptance
+      // remain local cancellations (nothing executed, id freed).
+      const isGenericAbort = error instanceof Error && error.name === 'AbortError';
+      const classified = (() => {
+        try { return classifySendFailure(error); } catch { return 'rejected' as const; }
+      })();
+      const effectiveKind = isGenericAbort && classified === 'aborted' ? 'uncertain' as const : classified;
+      const isCurrent = this.promptGenerationById.get(sessionId) === generation
+        && expected === this.runtimeGeneration
+        && dispatchRuntimeKey === getRuntimeKey();
+      if (isNewIdRequiredCode && isCurrent) {
+        // The old id can never auto-replay (expired, stale, or caller bug).
+        // Surface an actionable outcome-unknown: clear the stuck busy, keep
+        // drafts, and require an explicit new intent. Never auto-mint one.
         this.pendingPromptById.delete(sessionId);
+        this.pendingSendIntentById.delete(sessionId);
+        this.clearOptimisticBusyToIdle(sessionId);
+        const copy = failureCode === 'OPERATION_PAYLOAD_MISMATCH'
+          ? {
+              title: 'Send needs a new intent',
+              action: 'The same send id was used with different content. Check history, then send again as a new message.',
+            }
+          : failureCode === 'STALE_STREAM_EPOCH'
+            ? {
+                title: 'Send outcome unknown',
+                action: 'The server restarted before confirming. Check history for your message, then send again as a new message.',
+              }
+            : {
+                title: 'Send expired',
+                action: 'The server no longer remembers this send. Check history, then send again as a new message.',
+              };
+        this.setSendState(sessionId, {
+          status: 'outcome-unknown',
+          operationId,
+          kind: delivery,
+          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+          runtimeKey: dispatchRuntimeKey,
+          ...(messageId ? { messageId } : {}),
+          updatedAt: Date.now(),
+          ...copy,
+        });
+        throw error;
+      }
+      if (effectiveKind === 'uncertain' && isCurrent) {
+        // The request was dispatched but its outcome is unknown — NOT a
+        // definite failure. Keep the send pending (no false-failure roll back)
+        // and confirm through the exact authenticated `sessions.sendReceipt`
+        // lookup — never through an unrelated lifecycle read. The confirm
+        // guards the captured runtime generation and runtime key, so a runtime
+        // switch never replays this uncertain intent into the new runtime, and
+        // a verified epoch change never auto-replays: the daemon rejects a
+        // stale epoch as unknown and the caller must use a new operation id.
+        // A manual retry must reuse the same operation id so the daemon's
+        // execution boundary deduplicates.
+        void this.confirmUncertainSendViaReceipt(sessionId, generation, expected, dispatchRuntimeKey);
+        throw error;
+      }
+      if (isCurrent) {
+        this.pendingPromptById.delete(sessionId);
+        this.pendingSendIntentById.delete(sessionId);
+        this.setSendState(sessionId, {
+          status: 'rejected',
+          operationId,
+          kind: delivery,
+          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+          runtimeKey: dispatchRuntimeKey,
+          ...(messageId ? { messageId } : {}),
+          updatedAt: Date.now(),
+          title: effectiveKind === 'aborted' ? 'Send cancelled' : 'Send rejected',
+          action: effectiveKind === 'aborted'
+            ? 'The send was cancelled before the server accepted it. You can send again as a new message.'
+            : 'The server declined this send before running it. Check the message, then send again as a new message.',
+        });
         const current = this.state.reducer.bySession.get(sessionId);
         if (current?.lifecycle === 'busy' && current.streamingMessages.size === 0) {
           const reverted = new Map(this.state.reducer.bySession);
@@ -1322,6 +1945,146 @@ export class PiSessionStore {
         }
       }
       throw error;
+    }
+  }
+  /** Clear an optimistic busy row back to idle without implying the turn
+   *  settled normally. Used when an uncertain send becomes `outcome-unknown`:
+   *  the chat must not stay working forever, and the explicit send record
+   *  carries the user-visible next action. Drafts and history are preserved. */
+  private clearOptimisticBusyToIdle(sessionId: PiSessionId): void {
+    const current = this.state.reducer.bySession.get(sessionId);
+    if (!current) return;
+    if (current.lifecycle !== 'busy' && current.lifecycle !== 'retry') return;
+    if (current.streamingMessages.size > 0) return;
+    const bySession = new Map(this.state.reducer.bySession);
+    bySession.set(sessionId, { ...current, lifecycle: 'idle' });
+    this.state = { ...this.state, reducer: { ...this.state.reducer, bySession } };
+    this.promoteSession(sessionId, 'settled');
+    this.emit([`session:${sessionId}`, TOPIC_CHROME]);
+  }
+  /**
+   * Confirm an uncertain send through the exact authenticated receipt.
+   *
+   * The daemon's `sessions.sendReceipt` lookup is the only authority for
+   * whether the intent executed. `accepted` settles send acceptance
+   * independently of turn progress (the event stream still owns the turn);
+   * `pending` keeps `confirming`; `expired`/`unknown` becomes an explicit
+   * user-visible `outcome-unknown` that clears the stuck busy and never
+   * auto-replays. This path never reads `getSession` lifecycle and never
+   * hydrates: inferring success from an unrelated busy/idle snapshot would
+   * confirm the wrong turn. Guards the captured runtime generation, runtime
+   * key, and prompt generation so a runtime switch or newer send never
+   * commits stale confirmation.
+   */
+  private async confirmUncertainSendViaReceipt(
+    sessionId: PiSessionId,
+    generation: number,
+    expectedRuntimeGeneration: number,
+    dispatchRuntimeKey: string,
+  ): Promise<boolean> {
+    const intent = this.pendingSendIntentById.get(sessionId);
+    if (!intent || intent.generation !== generation) return false;
+    if (intent.runtimeKey !== dispatchRuntimeKey || dispatchRuntimeKey !== getRuntimeKey()) return false;
+    const resident = this.state.reducer.bySession.get(sessionId);
+    const directory = resident?.directory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+      ?? this.directory();
+    try {
+      const receipt = await piClient.getSendReceipt({
+        kind: intent.kind,
+        sessionId,
+        operationId: intent.operationId,
+        ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+      }, {
+        directory,
+        runtimeKey: getRuntimeKey(),
+      });
+      if (
+        expectedRuntimeGeneration !== this.runtimeGeneration
+        || this.promptGenerationById.get(sessionId) !== generation
+        || intent.runtimeKey !== dispatchRuntimeKey
+        || dispatchRuntimeKey !== getRuntimeKey()
+      ) {
+        return false;
+      }
+      // A receipt stamped by a retired daemon lifetime cannot confirm this
+      // intent. It becomes an explicit outcome-unknown (never a silent
+      // pending-forever): the daemon restarted, the old sequence space is
+      // gone, and the same id must never auto-replay on the fresh daemon.
+      if (typeof receipt.streamEpoch === 'string' && receipt.streamEpoch.length > 0) {
+        if (this.retiredStreamEpochs.has(receipt.streamEpoch)
+          || (this.streamEpoch !== null && receipt.streamEpoch !== this.streamEpoch)) {
+          this.pendingPromptById.delete(sessionId);
+          this.pendingSendIntentById.delete(sessionId);
+          this.clearOptimisticBusyToIdle(sessionId);
+          this.setSendState(sessionId, {
+            status: 'outcome-unknown',
+            operationId: intent.operationId,
+            kind: intent.kind,
+            ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+            runtimeKey: intent.runtimeKey,
+            ...(intent.messageId ? { messageId: intent.messageId } : {}),
+            updatedAt: Date.now(),
+            title: 'Send outcome unknown',
+            action: 'The server restarted before confirming. Check history for your message, then send again as a new message.',
+          });
+          return true;
+        }
+      }
+      if (receipt.status === 'accepted') {
+        // Exact acceptance settles send acceptance independently of turn
+        // state: the daemon owns the intent, the event stream owns progress.
+        // Keep the optimistic turn pending; never infer turn progress here.
+        this.pendingSendIntentById.delete(sessionId);
+        this.setSendState(sessionId, {
+          status: 'accepted',
+          operationId: intent.operationId,
+          kind: intent.kind,
+          ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+          runtimeKey: intent.runtimeKey,
+          ...(intent.messageId ? { messageId: intent.messageId } : {}),
+          updatedAt: Date.now(),
+          title: 'Send accepted',
+          action: 'The assistant is working. No action needed.',
+        });
+        return true;
+      }
+      if (receipt.status === 'pending') {
+        // Still accepting: keep confirming, keep the optimistic turn. No
+        // automatic replay; the live stream will settle the turn.
+        return false;
+      }
+      // `expired` / `unknown`: retention is gone or the id was never seen.
+      // The outcome is unknowable — never assume success, never auto-replay
+      // with the same id. Clear the stuck busy so the chat is not working
+      // forever and surface an explicit safe next action.
+      this.pendingPromptById.delete(sessionId);
+      this.pendingSendIntentById.delete(sessionId);
+      this.clearOptimisticBusyToIdle(sessionId);
+      const copy = receipt.status === 'expired'
+        ? {
+            title: 'Send expired',
+            action: 'The server no longer remembers this send. Check history, then send again as a new message.',
+          }
+        : {
+            title: 'Send outcome unknown',
+            action: 'The server has no record of this send. Check history for your message, then send again as a new message.',
+          };
+      this.setSendState(sessionId, {
+        status: 'outcome-unknown',
+        operationId: intent.operationId,
+        kind: intent.kind,
+        ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+        runtimeKey: intent.runtimeKey,
+        ...(intent.messageId ? { messageId: intent.messageId } : {}),
+        updatedAt: Date.now(),
+        ...copy,
+      });
+      return true;
+    } catch {
+      // The event stream remains primary. A failed confirmation must preserve
+      // the optimistic/live state rather than turning failure into idle.
+      return false;
     }
   }
   private async reconcilePendingPromptSnapshot(
@@ -1448,6 +2211,9 @@ export class PiSessionStore {
     if (inFlight) return inFlight;
     const resident = this.state.reducer.bySession.get(sessionId);
     if (!resident?.hasMoreBefore || !resident.beforeCursor) return false;
+    // A committed deletion is authoritative; never start (or continue) a
+    // history page for a tombstoned session.
+    if (this.isDeleted(sessionId)) return false;
     const expectedRuntime = this.runtimeGeneration;
     const expectedNavigation = this.navigationGenerationById.get(sessionId) ?? 0;
     const expectedCursor = resident.beforeCursor;
@@ -1460,6 +2226,12 @@ export class PiSessionStore {
       if ((this.navigationGenerationById.get(sessionId) ?? 0) !== expectedNavigation) return false;
       const current = this.state.reducer.bySession.get(sessionId);
       if (!current || current.beforeCursor !== expectedCursor || detail.session.id !== sessionId) return false;
+      // A deletion committed while the page request was in flight wins over
+      // the response; merging here would resurrect the transcript row.
+      if (this.isDeleted(sessionId)) return false;
+      // A page generated by a previous daemon process predates the current
+      // stream epoch; its sequence space and cursor are incompatible.
+      if (!this.isResponseEpochCurrent(detail)) return false;
       const page = hydrateSessionFromDetail(detail).session;
       const messages = new Map(page.messages);
       for (const [id, message] of current.messages) messages.set(id, message);
@@ -1660,6 +2432,9 @@ export class PiSessionStore {
     },
   ) {
     if (expected !== this.runtimeGeneration) return;
+    // A committed deletion is authoritative: never start (or re-share) a
+    // detail fetch for a tombstoned session.
+    if (this.isDeleted(sessionId)) return;
     const inflight = this.hydrateInflightById.get(sessionId);
     if (inflight) return inflight;
     const pending = this.hydrateUnshared(sessionId, expected, known, options).finally(() => {
@@ -1680,6 +2455,9 @@ export class PiSessionStore {
     },
   ) {
     if (expected !== this.runtimeGeneration) return;
+    // A deletion committed while this hydrate was queued is authoritative;
+    // fetching would only serve a response the commit below must reject.
+    if (this.isDeleted(sessionId)) return;
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
     const directory = sessionDir || this.directory();
     const runtimeKey = getRuntimeKey();
@@ -1706,6 +2484,12 @@ export class PiSessionStore {
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
+        // A detail generated by a previous daemon process predates the
+        // current stream epoch; committing it would write a foreign cursor.
+        if (!this.isResponseEpochCurrent(detail)) return;
+        // A deletion committed while the detail request was in flight wins
+        // over the response; committing here would resurrect the row.
+        if (this.isDeleted(sessionId)) return;
         if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
         if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
           adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
@@ -1731,6 +2515,7 @@ export class PiSessionStore {
         onEvent,
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
+        onAuthRequired: () => this.handleStreamAuthRequired(),
       });
       if (expected !== this.runtimeGeneration) {
         bootstrap.stream?.dispose();
@@ -1763,6 +2548,16 @@ export class PiSessionStore {
             bootstrap.stream?.dispose();
             return;
           }
+          if (this.isDeleted(sessionId)) {
+            // The deletion landed while this detail fetch was in flight.
+            bootstrap.stream?.dispose();
+            return;
+          }
+          if (!this.isResponseEpochCurrent(detail)) {
+            // The detail predates the current stream epoch.
+            bootstrap.stream?.dispose();
+            return;
+          }
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
           }
@@ -1773,6 +2568,12 @@ export class PiSessionStore {
           this.stream = bootstrap.stream;
           ready = true;
           if (expected === this.runtimeGeneration && (isInvalidSessionError(error) || isSessionInUseError(error))) {
+            // An accepted 404 means the daemon no longer has the session:
+            // commit the deletion (tombstone + persisted cleanup) directly
+            // instead of depending on an event echo that may already have
+            // been replayed or missed. The failed id stays selected so the
+            // chat surfaces its load error.
+            if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
             this.failSessionLoad(sessionId, error);
             return;
           }
@@ -1782,6 +2583,10 @@ export class PiSessionStore {
         }
       }
       if (hydratedSession.sessionId !== sessionId) {
+        bootstrap.stream?.dispose();
+        return;
+      }
+      if (this.isDeleted(sessionId)) {
         bootstrap.stream?.dispose();
         return;
       }
@@ -1795,6 +2600,12 @@ export class PiSessionStore {
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
       if (isInvalidSessionError(error) || isSessionInUseError(error)) {
+        // An accepted 404 means the daemon no longer has the session:
+        // commit the deletion (tombstone + persisted cleanup) directly
+        // instead of depending on an event echo that may already have
+        // been replayed or missed. The failed id stays selected so the
+        // chat surfaces its load error.
+        if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
         this.failSessionLoad(sessionId, error);
         return;
       }
@@ -1803,6 +2614,8 @@ export class PiSessionStore {
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
+          if (this.isDeleted(sessionId)) return;
+          if (!this.isResponseEpochCurrent(detail)) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
@@ -1825,7 +2638,17 @@ export class PiSessionStore {
       || streamGeneration !== this.streamGeneration
     ) return;
     this.streamReadyRevision += 1;
-    if (this.state.connection === 'ready' && !this.state.error) return;
+    if (this.state.connection === 'ready' && !this.state.error) {
+      // Stream health is NOT baseline proof. If reconnect-recovery
+      // obligations are parked (failed scopes after exhausting the retry
+      // cycle), a healthy stream re-queues them — it never clears or
+      // supersedes them.
+      if (this.recoveryDirectories.size > 0 || this.recoveryResidents.size > 0) {
+        this.recoveryAttempt = 0;
+        void this.runSyncRecovery();
+      }
+      return;
+    }
     this.state = { ...this.state, connection: 'ready', error: null };
     this.emitChrome();
   }
@@ -1839,14 +2662,44 @@ export class PiSessionStore {
     const replacementStreamGeneration = this.streamGeneration + 1;
     const cursorAtReconnect = this.streamCursor();
     try {
+      // The daemon marks a snapshot with `resync: true` exactly when the
+      // requested replay cursor could not be served (window expired or a
+      // daemon restart reset the sequence). Observing it means the replay
+      // does NOT cover the disconnect gap and recovery is required.
+      let resyncObserved = false;
       const result = await reconnectPiSession({
         directory: this.directory(),
         sessionId,
         runtimeKey,
         lastKnownSequence: cursorAtReconnect,
-        onEvent: (event) => this.apply(event),
+        streamEpoch: this.streamEpoch ?? undefined,
+        onEvent: (event) => {
+          if (
+            !resyncObserved
+            && event.name === 'session.snapshot'
+            && event.payload?.snapshot?.resync === true
+          ) {
+            resyncObserved = true;
+            // Replay miss: reconcile every known directory catalog and the
+            // residents hydrated at this point. Selected session first,
+            // bounded concurrency; failed scopes keep a retry obligation.
+            this.queueSyncRecovery({ directories: 'all-known', residents: this.hydratedSessionIds });
+          }
+          this.apply(event);
+        },
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, replacementStreamGeneration),
+        onEpochChange: (epoch) => {
+          // The transport only reports a stream-lifetime change after an
+          // authoritative health probe verified it against the live daemon.
+          // Adopt it (the displaced epoch becomes retired) and queue
+          // recovery; the next snapshot (or the merged baseline below)
+          // re-establishes state.
+          if (this.adoptStreamEpoch(epoch)) {
+            this.queueSyncRecovery({ directories: 'all-known', residents: this.hydratedSessionIds });
+          }
+        },
+        onAuthRequired: () => this.handleStreamAuthRequired(),
       });
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
         result.stream?.dispose();
@@ -1859,6 +2712,25 @@ export class PiSessionStore {
       if (result.phase === 'ready') {
         if (typeof result.runStartedAt === 'number') {
           adoptServerRunTiming(sessionId, result.runStartedAt, result.serverNow);
+        }
+        // Verified epoch change via health: the new daemon's sequence space
+        // is unrelated to the old one. Reset residents and cursors BEFORE
+        // merging the lower snapshot baseline so it is accepted, and queue
+        // full recovery (catalogs + former residents). Optimistic UI state
+        // (pending prompts, drafts, attachments, navigation) is preserved.
+        let epochChanged = false;
+        if (typeof result.epoch === 'string' && result.epoch.length > 0 && this.streamEpoch !== result.epoch) {
+          epochChanged = this.streamEpoch !== null;
+          this.adoptStreamEpoch(result.epoch);
+          if (epochChanged) {
+            const previousResidents = this.resetForEpochChange();
+            this.state = {
+              ...this.state,
+              reducer: createReducerState(),
+              hydratedSessionIds: new Set(this.hydratedSessionIds),
+            };
+            this.queueSyncRecovery({ directories: 'all-known', residents: previousResidents });
+          }
         }
         disconnectedStream?.dispose();
         this.streamGeneration = replacementStreamGeneration;
@@ -1890,36 +2762,13 @@ export class PiSessionStore {
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
         if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
-        // Catch up: reconnect resumes the stream from the max cursor, so
-        // any resident session whose `lastSequence` is behind that
-        // cursor missed events while disconnected. Hydrate those sessions
-        // again so their `lastSequence` advances; we never tear down
-        // resident transcripts, only fetch fresh data for them.
-        const resumedCursor = Math.max(cursorAtReconnect ?? -1, result.lastSequence);
-        for (const [sId, sState] of this.state.reducer.bySession.entries()) {
-          if (sId === sessionId) continue;
-          if (sState.lastSequence >= resumedCursor) continue;
-          if (!this.hydratedSessionIds.has(sId)) continue;
-          void piClient.getSession(sId, { directory: this.directory(), runtimeKey })
-            .then((detail) => {
-              if (expected !== this.runtimeGeneration) return;
-              const current = this.state.reducer.bySession.get(sId);
-              if (
-                (!current || current.lastSequence <= detail.lastSequence)
-                && (detail.lifecycle === 'busy' || detail.lifecycle === 'retry')
-                && typeof detail.runStartedAt === 'number'
-              ) {
-                adoptServerRunTiming(detail.session.id, detail.runStartedAt, detail.serverNow);
-              }
-              const refreshed = this.sessionFromDetail(detail);
-              this.commitHydratedSession(refreshed);
-            })
-            .catch(() => {
-              /* a single session's catch-up is best-effort; the cluster
-                 survives and the stream resumes anyway */
-            });
-        }
+        // Catch-up policy is replay-driven, not unconditional. A contiguous
+        // same-epoch replay from this client's own cursor covers every event
+        // it missed, so residents and catalogs need no reload. A replay miss
+        // (`resync` snapshot) or epoch change already queued a bounded
+        // recovery of known directory catalogs and affected residents above.
         this.scheduleIdleEviction();
+        if (epochChanged) this.publishSyncRecoveryState();
       } else this.reportError(new PiRequestError(result.error?.code ?? 'DAEMON_UNAVAILABLE', result.error?.message));
     } finally { this.recovering = false; }
   }
@@ -1960,11 +2809,26 @@ export class PiSessionStore {
   }
 
   private notePromptProgress(event: PiSessionEvent) {
+    // Uncertain sends settle only through the exact receipt, never through
+    // unrelated live activity. Without operation correlation a busy/idle from
+    // another turn, another device, or a replay would falsely clear the
+    // uncertain intent. `confirming` and `outcome-unknown` therefore ignore
+    // lifecycle/message progress entirely; only an `accepted` (or untracked)
+    // send may be settled by its own turn events.
+    const sendState = this.state.sendStateById.get(event.sessionId);
+    if (sendState && (sendState.status === 'confirming' || sendState.status === 'outcome-unknown')) {
+      return;
+    }
     if (
       event.name === 'assistant.message.start'
       || (event.name === 'session.lifecycle' && (event.payload.state === 'busy' || event.payload.state === 'retry'))
     ) {
+      // The accepted turn is authoritatively live on this session's own event
+      // channel. This clears the optimistic turn only, never send acceptance:
+      // acceptance was already settled via the direct response or the exact
+      // receipt and lives in `sendStateById` independently of turn liveness.
       this.pendingPromptById.delete(event.sessionId);
+      this.pendingSendIntentById.delete(event.sessionId);
       return;
     }
     if (
@@ -1973,11 +2837,17 @@ export class PiSessionStore {
       || (event.name === 'session.lifecycle' && event.payload.state !== 'busy' && event.payload.state !== 'retry')
     ) {
       this.pendingPromptById.delete(event.sessionId);
+      this.pendingSendIntentById.delete(event.sessionId);
     }
   }
 
   private retainPendingPrompt(working: PiReducerState, sessionId: PiSessionId): PiReducerState {
     if (!this.pendingPromptById.has(sessionId)) return working;
+    // An explicit outcome-unknown must never stay busy forever: the stuck
+    // working indicator is cleared when the receipt settles, so a late
+    // idle snapshot must not resurrect it here.
+    const sendState = this.state.sendStateById.get(sessionId);
+    if (sendState?.status === 'outcome-unknown' || sendState?.status === 'rejected') return working;
     const session = working.bySession.get(sessionId);
     if (!session || session.lifecycle === 'busy' || session.lifecycle === 'retry') return working;
     const bySession = new Map(working.bySession);
@@ -2077,13 +2947,74 @@ export class PiSessionStore {
     let touched = false;
     const restoreIds = new Set<PiSessionId>();
     const touchedSessionIds = new Set<PiSessionId>();
+    const deletedIds = new Map<PiSessionId, string>();
     const extensionCatalogChanges = new Map<string, { providers: boolean; resources: boolean; commands: boolean }>();
+    // Events accepted this batch mirror into the catalog; rejected, skipped,
+    // and tombstoned events must not (see applyCatalogFromEvents).
+    const acceptedEvents: PiSessionEvent[] = [];
+    const deletedInBatch = new Set<PiSessionId>();
     for (const event of events) {
+      if (event.name === 'session.deleted') deletedInBatch.add(event.sessionId);
+    }
+    let epochChangedResidents: Set<PiSessionId> | null = null;
+    for (const event of events) {
+      // Tombstone filter. Once a deletion is committed — by the local
+      // initiator without an echo, by an earlier echo, or earlier in this
+      // same batch — every other event for that session is stale: the shared
+      // deletion commit owns the session's state. Skipping here (not only in
+      // the catalog mirror) keeps a late live event from resurrecting the
+      // transcript row, the catalog stub, or activity records.
+      if (this.deletedSessionIds.has(event.sessionId)) continue;
+      // Verified stream-epoch handling. Events stamped with a retired epoch
+      // were emitted by a displaced daemon lifetime — rejected wholesale,
+      // snapshots included, so a stale frame can never downgrade the
+      // baseline. Events stamped with a new unseen epoch are emitted by a
+      // restarted daemon: only a snapshot may establish the new epoch
+      // baseline; any other old/new-epoch event is rejected.
+      const eventEpoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0 ? event.streamEpoch : undefined;
+      if (eventEpoch && this.retiredStreamEpochs.has(eventEpoch)) continue;
+      if (eventEpoch && this.streamEpoch !== null && eventEpoch !== this.streamEpoch) {
+        if (event.name !== 'session.snapshot') continue;
+        this.adoptStreamEpoch(eventEpoch);
+        const previousResidents = this.resetForEpochChange();
+        // The reset discards the batch's old-epoch work: cursors and rows
+        // from the previous lifetime are incompatible with the new one.
+        working = createReducerState();
+        restoreIds.clear();
+        epochChangedResidents = previousResidents;
+        touchedSessionIds.clear();
+        acceptedEvents.length = 0;
+      }
+      if (eventEpoch) this.adoptStreamEpoch(eventEpoch);
+      // Authoritative deletion bypasses transcript restore and activity promotion. The reducer
+      // already tombstones the row and advances the cursor; the catalog/session cleanup below
+      // reuses the shared deletion commit so late completions cannot resurrect it.
+      if (event.name === 'session.deleted') {
+        const result = applyPiEvent(working, event);
+        working = result.state;
+        if (!result.didApply) continue;
+        applied = true;
+        touchedSessionIds.add(event.sessionId);
+        acceptedEvents.push(event);
+        // Track directory for scoped persisted cleanup; do not restore or promote.
+        deletedIds.set(event.sessionId, event.directory);
+        // Drop any pending restore for this session; a hydrate started before the deletion
+        // must not repopulate the transcript after the tombstone lands.
+        restoreIds.delete(event.sessionId);
+        this.restoringTranscriptById.delete(event.sessionId);
+        continue;
+      }
+      // A later event in this same batch deletes this session; the batch's
+      // end state is deletion, so pre-deletion events must not apply into
+      // the reducer (where they would briefly resurrect the row) or mirror
+      // catalog state that the deletion commit is about to remove.
+      if (deletedInBatch.has(event.sessionId)) continue;
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
       const result = applyPiEvent(working, event);
       working = result.state;
       if (!result.didApply) continue;
+      acceptedEvents.push(event);
       if (missingBefore && hadCursor) restoreIds.add(event.sessionId);
       if (event.name === 'session.snapshot') restoreIds.add(event.sessionId);
       applied = true;
@@ -2101,6 +3032,24 @@ export class PiSessionStore {
         });
       }
       this.notePromptProgress(event);
+      // While a send is `confirming`, unrelated lifecycle/idle activity must
+      // not flip the optimistic busy to idle: without operation correlation
+      // an idle from another turn or device would falsely settle the
+      // uncertain intent. Retain busy until the exact receipt settles
+      // acceptance (`accepted` keeps the turn pending; `outcome-unknown`
+      // clears it explicitly with user-visible copy). `rejected` and
+      // `outcome-unknown` never retain here (see `retainPendingPrompt`).
+      if (
+        this.pendingPromptById.has(event.sessionId)
+        && this.state.sendStateById.get(event.sessionId)?.status === 'confirming'
+      ) {
+        const confirmingSession = working.bySession.get(event.sessionId);
+        if (confirmingSession && confirmingSession.lifecycle !== 'busy' && confirmingSession.lifecycle !== 'retry') {
+          const bySession = new Map(working.bySession);
+          bySession.set(event.sessionId, { ...confirmingSession, lifecycle: 'busy' });
+          working = { ...working, bySession };
+        }
+      }
       if (
         this.pendingPromptById.has(event.sessionId)
         && event.name === 'session.snapshot'
@@ -2121,11 +3070,27 @@ export class PiSessionStore {
     }
     if (!applied) return;
     this.state = { ...this.state, reducer: working };
+    // Commit authoritative deletions through the shared path so catalog, sessions, selection,
+    // and persisted drafts stay consistent and the tombstone guards late completions. The reducer
+    // cursor already carries the deletion sequence; `commitDeletion` preserves it.
+    for (const [deletedId, deletedDirectory] of deletedIds) {
+      // Sync the reducer cursor into state before the shared commit reads it.
+      // (`commitDeletion` preserves the current cursor when present.)
+      const cursor = working.lastSequence.get(deletedId);
+      if (cursor !== undefined) {
+        const nextLast = new Map(this.state.reducer.lastSequence);
+        nextLast.set(deletedId, cursor);
+        this.state = { ...this.state, reducer: { bySession: this.state.reducer.bySession, lastSequence: nextLast } };
+      }
+      this.commitDeletion(deletedId, deletedDirectory);
+    }
     // Mirror accepted events into the catalog. Lifecycle transitions flip
     // a row's `lifecycle`; `session.updated` and the first remote user
     // message fill title. Last-prompt recency is owned by `prompt()` locally
-    // and by user-message starts from other devices.
-    const nextCatalog = this.applyCatalogFromEvents(events, working);
+    // and by user-message starts from other devices. Only events accepted
+    // this batch mirror — a tombstoned or same-batch-deleted session, or a
+    // stale-epoch event, must not resurrect a catalog row here.
+    const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
     if (catalogChanged) {
       this.state = { ...this.state, catalog: nextCatalog };
@@ -2139,6 +3104,13 @@ export class PiSessionStore {
     if (topics.length > 0) this.emit(topics);
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
+    if (epochChangedResidents) {
+      // Verified epoch change: reconcile every known directory catalog and
+      // re-fetch the residents that were hydrated before the reset. Selected
+      // session first, bounded concurrency; failed scopes keep a retry
+      // obligation.
+      this.queueSyncRecovery({ directories: 'all-known', residents: epochChangedResidents });
+    }
     for (const [directory, change] of extensionCatalogChanges) {
       if (change.providers) this.requestProviderCatalogRefresh(directory);
       if (change.commands) invalidateCommandCatalogCache(directory);
@@ -2178,6 +3150,10 @@ export class PiSessionStore {
   ): PiSessionCatalogState {
     let catalog = this.state.catalog;
     for (const event of events) {
+      // Defensive tombstone filter (commitEvents already filters accepted
+      // events): a committed deletion owns the catalog row, so no buffered
+      // or late event may stub or touch it again.
+      if (this.deletedSessionIds.has(event.sessionId)) continue;
       const reducerSession = working.bySession.get(event.sessionId);
       const reducerLifecycle = reducerSession?.lifecycle;
       const stubLifecycle = lifecycleFromEvent(event);

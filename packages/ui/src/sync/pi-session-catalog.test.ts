@@ -139,7 +139,12 @@ const stubDaemons = (options: StubOptions = {}) => {
     };
   }) as typeof piClient.getSession;
   piClient.health = (async () =>
-    options.health ? options.health() : { state: 'ready', protocolVersion: 1, capabilities: [] }) as typeof piClient.health;
+    options.health ? options.health() : {
+      state: 'ready',
+      protocolVersion: 1,
+      capabilities: ['events.streamEpoch'],
+      streamEpoch: 'epoch-catalog-test',
+    }) as typeof piClient.health;
   piClient.getSettings = (async () =>
     options.getSettings ? options.getSettings() : {
       pi: { global: {}, project: { trusted: true } },

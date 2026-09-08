@@ -26,6 +26,7 @@ import {
   type PiClientScope,
   PiRequestError,
 } from './client';
+import { PI_STREAM_EPOCH_CAPABILITY } from './protocol';
 import {
   hydrateSessionFromDetail,
   type PiReducerState,
@@ -64,6 +65,9 @@ export interface PiBootstrapResult {
   selectedSessionTiming?: PiBootstrapSessionTiming;
   /** Stream handle, when bootstrap reached `stream-attach`. */
   stream: PiStreamHandle | null;
+  /** Opaque stream-lifetime id of the verified daemon, when it advertises
+   *  `events.streamEpoch`. The owning store adopts this as its epoch. */
+  streamEpoch?: string;
   /** Errors captured during bootstrap; recoverable list/hydrate failures may coexist with `ready`. */
   errors: Array<{ phase: PiBootstrapPhase; error: PiBootstrapError }>;
   /** Daemon health response; `null` if the probe never completed. */
@@ -72,7 +76,7 @@ export interface PiBootstrapResult {
 
 export type PiBootstrapHealth =
   | { state: 'pending' }
-  | { state: 'ready'; protocolVersion: number; capabilities: string[] }
+  | { state: 'ready'; protocolVersion: number; capabilities: string[]; streamEpoch?: string }
   | { state: 'unavailable'; protocolVersion: number; error: { code: string; message?: string } };
 
 export interface PiBootstrapError {
@@ -106,6 +110,8 @@ export interface PiBootstrapOptions {
   onStreamReconnect?: () => void;
   /** Called when the underlying stream switches transport. */
   onTransportSwitch?: () => void;
+  /** A known authorization failure stopped the underlying stream. */
+  onAuthRequired?: () => void;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
   /** Runtime identity captured by the caller. */
@@ -156,11 +162,34 @@ export const bootstrapPiDirectory = async (
   result.phase = 'runtime-probe';
   const health = options.initialHealth ?? await task(() => dependencies.fetchHealth(options.signal, options.runtimeKey));
   if (health.state === 'ready') {
+    // Fail-visible compatibility gate: a runtime without the restart-safe
+    // stream epoch cannot keep cursors meaningful across a daemon restart.
+    // Refuse to attach with an explicit protocol mismatch instead of silently
+    // running with a cursor that a restart would invalidate.
+    const epochSupported = health.capabilities.includes(PI_STREAM_EPOCH_CAPABILITY)
+      && typeof health.streamEpoch === 'string'
+      && health.streamEpoch.length > 0;
+    if (!epochSupported) {
+      const error = {
+        code: 'PROTOCOL_MISMATCH' as const,
+        message: 'The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.',
+      };
+      result.health = {
+        state: 'unavailable',
+        protocolVersion: health.protocolVersion,
+        error,
+      };
+      result.phase = 'failed';
+      result.errors.push({ phase: 'runtime-probe', error });
+      return result;
+    }
     result.health = {
       state: 'ready',
       protocolVersion: health.protocolVersion,
       capabilities: [...health.capabilities],
+      streamEpoch: health.streamEpoch,
     };
+    result.streamEpoch = health.streamEpoch;
   } else {
     result.health = {
       state: 'unavailable',
@@ -241,9 +270,11 @@ export const bootstrapPiDirectory = async (
         onDisconnect: (reason) => options.onStreamDisconnect?.(reason),
         onReconnect: () => options.onStreamReconnect?.(),
         onTransportSwitch: () => options.onTransportSwitch?.(),
+        onAuthRequired: () => options.onAuthRequired?.(),
       },
       {
         ...(typeof streamFromSequence === 'number' && streamFromSequence >= 0 ? { fromSequence: streamFromSequence } : {}),
+        ...(result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
         signal: options.signal,
       },

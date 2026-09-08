@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 const mockFetchPiRuntimeHealth: any = mock(async () => ({
   state: "ready" as const,
   protocolVersion: 1,
-  capabilities: ["sessions.list"],
+  capabilities: ["sessions.list", "events.streamEpoch"],
+  streamEpoch: "epoch-test-1",
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,7 +58,8 @@ describe("bootstrapPiDirectory", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "unavailable",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
       error: { code: "DAEMON_UNAVAILABLE" },
     })
     // Re-import to pick up the freshly-reset mock.
@@ -77,7 +79,8 @@ describe("bootstrapPiDirectory", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: ["sessions.list"],
+      capabilities: ["sessions.list", "events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,
@@ -166,7 +169,8 @@ describe("bootstrapPiDirectory", () => {
       initialHealth: {
         state: "ready",
         protocolVersion: 1,
-        capabilities: ["sessions.list"],
+        capabilities: ["sessions.list", "events.streamEpoch"],
+        streamEpoch: "epoch-test-1",
       },
       initialSessions: [{
         session: { id: "s1", directory: "/work", createdAt: 0, updatedAt: 1_000 },
@@ -186,7 +190,8 @@ describe("bootstrapPiDirectory", () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
     })
     mockCreatePiEventStream.mockReturnValueOnce({
       dispose: () => undefined,
