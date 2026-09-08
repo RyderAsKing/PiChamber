@@ -161,7 +161,6 @@ export function useChatMessageAnimation({
   }, [allowAnimation, isUser, resolvedAnimationHandlers, shouldReserveAnimationSpace, messageContainerRef]);
 
   return {
-    allowAnimation,
     hasAnnouncedAuxiliaryScrollRef,
   };
 }

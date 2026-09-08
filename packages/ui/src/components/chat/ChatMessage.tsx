@@ -32,7 +32,7 @@ import {
 import { getAssistantError, extractMessageTextContent } from './message/chatMessageTextContent';
 import { useChatMessageModelMetadata } from './message/useChatMessageModelMetadata';
 import { useChatMessageAnimation } from './message/useChatMessageAnimation';
-import { useChatMessageToolsState } from './message/useChatMessageToolsState';
+import { useChatMessagePopupState } from './message/useChatMessagePopupState';
 
 const ToolOutputDialog = lazyWithChunkRecovery(() => import('./message/ToolOutputDialog'));
 
@@ -53,10 +53,8 @@ interface ChatMessageProps {
   animationHandlers?: AnimationHandlers;
   scrollToBottom?: () => void;
   turnGroupingContext?: TurnGroupingContext;
-  assistantHeaderMessageId?: string;
   isInActiveTurn?: boolean;
   activeStreamingPhase?: StreamPhase | null;
-  hideAssistantActivity?: boolean;
   animateUserOnMount?: boolean;
   onUserAnimationConsumed?: (messageId: string) => void;
 }
@@ -68,10 +66,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   onContentChange,
   animationHandlers,
   turnGroupingContext,
-  assistantHeaderMessageId,
   isInActiveTurn = false,
   activeStreamingPhase = null,
-  hideAssistantActivity = false,
   animateUserOnMount = false,
   onUserAnimationConsumed,
 }) => {
@@ -85,7 +81,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     streamPerfCount('ui.chat_message.render.streaming');
   }
 
-  const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = React.useState(false);
 
   const messageRole = React.useMemo(() => deriveMessageRole(message.info), [message.info]);
@@ -148,12 +143,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }, [turnGroupingContext?.activityParts]);
 
   const displayParts = React.useMemo(() => {
-    if (isUser || !hideAssistantActivity) {
+    if (isUser) {
       return visibleParts;
     }
 
+    // Assistant responses render final text only; turn activity is owned by
+    // the shared process rail, so progress/tool/reasoning/justification parts
+    // are always removed from the response body.
     return filterAssistantFinalParts(visibleParts, activityPartIds, message.info.id);
-  }, [activityPartIds, hideAssistantActivity, isUser, message.info.id, visibleParts]);
+  }, [activityPartIds, isUser, message.info.id, visibleParts]);
 
   // Attachments render in the footer below the bubble, so a message with
   // files but no text skips the bubble box instead of leaving an empty pill.
@@ -173,29 +171,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return visibleParts.filter((part) => part.type === 'tool');
   }, [isUser, visibleParts]);
 
-  const turnActivityToolParts = React.useMemo(() => {
-    if (isUser) {
-      return [] as Part[];
-    }
-    const records = turnGroupingContext?.activityParts ?? [];
-    return records
-      .filter((record) => record.kind === 'tool')
-      .map((record) => record.part)
-      .filter((part): part is Part => part.type === 'tool');
-  }, [isUser, turnGroupingContext?.activityParts]);
-
   const {
-    expandedTools,
-    effectiveExpandedTools,
     popupContent,
-    handleToggleTool,
     handleShowPopup,
     handlePopupChange,
-  } = useChatMessageToolsState({
-    message,
-    toolParts: hideAssistantActivity ? [] : toolParts,
-    turnActivityToolParts: hideAssistantActivity ? [] : turnActivityToolParts,
-  });
+  } = useChatMessagePopupState();
 
   const agentMention = React.useMemo(() => {
     if (!isUser) {
@@ -244,8 +224,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return false;
   }, [themeVariant]);
 
-  const [hasStartedStreamingHeader, setHasStartedStreamingHeader] = React.useState(false);
-
   const nextRole = React.useMemo(() => {
     if (!nextMessage) return null;
     return deriveMessageRole(nextMessage.info);
@@ -285,7 +263,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return displayParts.some((part) => part.type === 'reasoning');
   }, [displayParts, isUser]);
 
-  const { allowAnimation, hasAnnouncedAuxiliaryScrollRef } = useChatMessageAnimation({
+  const { hasAnnouncedAuxiliaryScrollRef } = useChatMessageAnimation({
     message,
     isUser,
     sessionId,
@@ -303,54 +281,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     }
     onUserAnimationConsumed?.(message.info.id);
   }, [animateUserOnMount, isUser, message.info.id, onUserAnimationConsumed]);
-
-  React.useEffect(() => {
-    setHasStartedStreamingHeader(false);
-  }, [message.info.id]);
-
-  React.useEffect(() => {
-    const headerMessageId = assistantHeaderMessageId ?? turnGroupingContext?.headerMessageId;
-    if (isUser || !headerMessageId || headerMessageId !== message.info.id) {
-      return;
-    }
-
-    const isCurrentlyStreaming = streamPhase === 'streaming' || streamPhase === 'cooldown';
-    if (isCurrentlyStreaming) {
-      setHasStartedStreamingHeader(true);
-    }
-  }, [assistantHeaderMessageId, isUser, message.info.id, streamPhase, turnGroupingContext?.headerMessageId]);
-
-  const shouldShowHeader = React.useMemo(() => {
-    if (isUser) return true;
-
-    const headerMessageId = assistantHeaderMessageId ?? turnGroupingContext?.headerMessageId;
-    if (headerMessageId) {
-      const isFirstAssistantInTurn = message.info.id === headerMessageId;
-
-      if (isFirstAssistantInTurn) {
-        if (streamPhase === 'completed') {
-          return true;
-        }
-
-        const isCurrentlyStreaming = streamPhase === 'streaming' || streamPhase === 'cooldown';
-        return hasStartedStreamingHeader || isCurrentlyStreaming;
-      }
-
-      return false;
-    }
-
-    return true;
-  }, [assistantHeaderMessageId, hasStartedStreamingHeader, isUser, turnGroupingContext, streamPhase, message.info.id]);
-
-  const handleCopyCode = React.useCallback((code: string) => {
-    void copyTextToClipboard(code).then((result) => {
-      if (!result.ok) {
-        return;
-      }
-      setCopiedCode(code);
-      setTimeout(() => setCopiedCode(null), 2000);
-    });
-  }, []);
 
   const assistantError = React.useMemo(() => {
     if (isUser) {
@@ -425,15 +355,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     isMobile,
     alwaysShowActions: alwaysShowMessageActions,
     hasTouchInput,
-    copiedCode,
-    onCopyCode: handleCopyCode,
-    expandedTools,
-    onToggleTool: handleToggleTool,
     onShowPopup: handleShowPopup,
     streamPhase,
-    allowAnimation,
     onContentChange,
-    shouldShowHeader: false,
     hasTextContent,
     onCopyMessage: handleCopyMessage,
     copiedMessage,
@@ -507,15 +431,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 isMobile={isMobile}
                 alwaysShowActions={alwaysShowMessageActions}
                 hasTouchInput={hasTouchInput}
-                copiedCode={copiedCode}
-                onCopyCode={handleCopyCode}
-                expandedTools={effectiveExpandedTools}
-                onToggleTool={handleToggleTool}
                 onShowPopup={handleShowPopup}
                 streamPhase={streamPhase}
-                allowAnimation={allowAnimation}
                 onContentChange={onContentChange}
-                shouldShowHeader={shouldShowHeader}
                 hasTextContent={hasTextContent}
                 onCopyMessage={handleCopyMessage}
                 copiedMessage={copiedMessage}
@@ -529,7 +447,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 footerAgentName={headerAgentName}
                 footerVariant={headerVariant}
                 isDarkTheme={isDarkTheme}
-                hideAssistantActivity={hideAssistantActivity}
               />
             </div>
           )}
@@ -558,8 +475,6 @@ export default React.memo(ChatMessage, (prev, next) => {
     ) &&
     prev.isInActiveTurn === next.isInActiveTurn &&
     prev.activeStreamingPhase === next.activeStreamingPhase &&
-    prev.hideAssistantActivity === next.hideAssistantActivity &&
-    prev.assistantHeaderMessageId === next.assistantHeaderMessageId &&
     prev.animateUserOnMount === next.animateUserOnMount &&
     prev.onUserAnimationConsumed === next.onUserAnimationConsumed &&
     areRelevantTurnGroupingContextsEqual(

@@ -22,6 +22,24 @@ mock.module('@/hooks/useProviderLogo', () => ({
   useProviderLogo: () => ({ src: null, onError: () => {}, hasLogo: false }),
 }));
 
+// Assistant text mounts render through the lazy markdown stack, which needs a
+// browser runtime. Render the markdown source as text so response-body
+// assertions can check which text parts survive.
+mock.module('@/components/chat/MarkdownRenderer', () => ({
+  MarkdownRenderer: (props: { content?: unknown }) => {
+    const text = typeof props.content === 'string' ? props.content : '';
+    return React.createElement('div', { 'data-markdown-content': 'true' }, text);
+  },
+  SimpleMarkdownRenderer: (props: { content?: unknown }) => {
+    const text = typeof props.content === 'string' ? props.content : '';
+    return React.createElement(
+      'div',
+      { className: 'break-words w-full min-w-0', 'data-markdown-content': 'true' },
+      text,
+    );
+  },
+}));
+
 mock.module('@/contexts/useThemeSystem', () => ({
   useThemeSystem: () => ({ currentTheme: null }),
   useOptionalThemeSystem: () => null,
@@ -170,7 +188,7 @@ describe('footer stability across sends', () => {
   });
 });
 
-describe('assistant turn activity rows', () => {
+describe('assistant response body', () => {
   const mkTool = (id: string, status: string) => ({
     id,
     type: 'tool',
@@ -183,12 +201,7 @@ describe('assistant turn activity rows', () => {
     messageId: 'm1',
     isMessageCompleted: false,
     isMobile: false,
-    expandedTools: new Set<string>(),
-    onToggleTool: () => {},
     onShowPopup: () => {},
-    copiedCode: null,
-    onCopyCode: () => {},
-    allowAnimation: false,
     streamPhase: 'streaming',
     hasTextContent: false,
   } as const;
@@ -208,7 +221,7 @@ describe('assistant turn activity rows', () => {
     isWorking: false,
   } as never;
 
-  test('renders tool parts without grouped count labels', () => {
+  test('response never double-renders rail activities: tool and reasoning parts render nothing while text survives', () => {
     const markup = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
@@ -216,6 +229,7 @@ describe('assistant turn activity rows', () => {
           mkTool('tp1', 'completed'),
           mkTool('tp2', 'completed'),
           { id: 'tx', type: 'text', text: 'The next step is ready.' },
+          { id: 'tr', type: 'reasoning', text: 'hidden reasoning trace' },
           mkTool('tp3', 'completed'),
           mkTool('tp4', 'completed'),
         ] as never}
@@ -223,9 +237,43 @@ describe('assistant turn activity rows', () => {
       />,
     );
 
+    // Interleaved tool rows and reasoning blocks are owned by the turn
+    // activity rail; the response body renders the final text only.
+    expect(markup).toContain('The next step is ready.');
     expect(markup).not.toContain('data-tool-call-group="true"');
-    expect(markup).not.toContain('tool calls');
     expect(markup).not.toContain('tool call');
+    expect(markup).not.toContain('Expand reasoning trace');
+    expect(markup).not.toContain('hidden reasoning trace');
+    expect(markup).not.toContain('src/a.ts');
+  });
+
+  test('justification text projected to the rail is suppressed from the response body', () => {
+    const justificationCtx = {
+      ...(ctxWorking as unknown as Record<string, unknown>),
+      activityParts: [
+        {
+          id: 'just-1',
+          turnId: 't',
+          messageId: 'm1',
+          partIndex: 0,
+          kind: 'justification',
+          part: { id: 'just-1', type: 'text', text: 'I will now inspect the failing test.' },
+        },
+      ],
+    } as never;
+    const markup = renderToStaticMarkup(
+      <AssistantMessageBody
+        {...base}
+        parts={[
+          { id: 'just-1', type: 'text', text: 'I will now inspect the failing test.' },
+          { id: 'answer', type: 'text', text: 'Here is the fix.' },
+        ] as never}
+        turnGroupingContext={justificationCtx}
+      />,
+    );
+
+    expect(markup).not.toContain('I will now inspect the failing test.');
+    expect(markup).toContain('Here is the fix.');
   });
 
   test('no footer mounts while the turn is working, however many batches land', () => {

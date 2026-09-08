@@ -8,7 +8,8 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - Message parts are rendered from `MessageBody.tsx`.
 - `MessageBody.tsx` owns message-level orchestration only. User subtask/shell rendering lives in `../UserAuxiliaryParts.tsx` with pure classification in `../userAuxiliaryPartsModel.ts`; assistant copy/fork/revert/save-image controls live in `../AssistantMessageActionButtons.tsx`.
-- Turn activity is projected once by `components/TurnActivityRail.tsx`, which keeps reasoning, progress text, and tools in one chronological disclosure rail across all assistant records.
+- The assistant response body (`../AssistantMessageBody.tsx`) renders final text, the error notice, attachments, and the turn footer only. It renders no tool or reasoning rows; justification text projected to the activity rail is suppressed from the response body.
+- Turn activity is projected once by `components/TurnActivityRail.tsx`, which keeps reasoning, progress text, and tools in one chronological disclosure rail across all assistant records. The rail is the only tool/reasoning renderer; per-message tool disclosure state lives in `../useTurnToolsState.ts`.
 - Tool rendering has two presentation layers inside that rail:
   - **Static tools** -> `StaticToolRow.tsx`
   - **Expandable tools** -> `ToolPart.tsx`

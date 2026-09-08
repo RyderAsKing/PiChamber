@@ -121,7 +121,7 @@ const TurnToolActivityRow = React.memo(({
     ) : (
         <StaticToolRow
             toolName={toolName}
-            activities={[activity]}
+            activity={activity}
             animateTailText={animate}
         />
     );

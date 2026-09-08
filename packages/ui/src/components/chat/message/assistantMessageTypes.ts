@@ -18,18 +18,11 @@ export interface MessageBodyProps {
   isMobile: boolean;
   alwaysShowActions?: boolean;
   hasTouchInput?: boolean;
-  copiedCode: string | null;
-  onCopyCode: (code: string) => void;
-  expandedTools: Set<string>;
-  onToggleTool: (toolId: string) => void;
   onShowPopup: (content: ToolPopupContent) => void;
   streamPhase: StreamPhase;
-  allowAnimation: boolean;
   onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
 
-  shouldShowHeader?: boolean;
   /** Turn-level activity is rendered by the shared process rail. */
-  hideAssistantActivity?: boolean;
   hasTextContent?: boolean;
   onCopyMessage?: () => void | boolean | Promise<void | boolean>;
   copiedMessage?: boolean;

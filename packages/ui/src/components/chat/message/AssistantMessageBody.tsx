@@ -1,8 +1,5 @@
 import React from 'react';
-import type { ToolPart as ToolPartType } from '@/lib/chat/types';
-import ToolPart from './parts/ToolPart';
 import AssistantTextPart from './parts/AssistantTextPart';
-import ReasoningPart from './parts/ReasoningPart';
 import { MessageFilesDisplay } from '../FileAttachment';
 import { cn } from '@/lib/utils';
 import { filterRenderableAssistantParts } from './partUtils';
@@ -15,9 +12,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { useChatSurfaceMode } from '@/components/chat/chatSurfaceContext';
 import { Icon } from '@/components/icon/Icon';
-import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
-import { StaticToolRow } from './parts/StaticToolRow';
-import { isExpandableTool } from './parts/toolRenderUtils';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
@@ -48,17 +42,13 @@ export const AssistantMessageBody = React.memo(
     isMobile,
     alwaysShowActions,
     hasTouchInput,
-    expandedTools,
-    onToggleTool,
     onShowPopup,
-    streamPhase: _streamPhase,
-    allowAnimation: _allowAnimation,
+    streamPhase,
     onContentChange,
     hasTextContent = false,
     onCopyMessage,
     onAuxiliaryContentComplete,
     turnGroupingContext,
-    hideAssistantActivity = false,
     errorMessage,
     errorVariant = 'error',
     footerProviderID,
@@ -68,8 +58,6 @@ export const AssistantMessageBody = React.memo(
     isDarkTheme = false,
   }: AssistantMessageBodyProps) => {
     const chatSurfaceMode = useChatSurfaceMode();
-    const streamPhase = _streamPhase;
-    void _allowAnimation;
     const messageContentRef = React.useRef<HTMLDivElement>(null);
     const messageTextContentRef = React.useRef<HTMLDivElement>(null);
 
@@ -102,7 +90,6 @@ export const AssistantMessageBody = React.memo(
     const openContextPreview = useUIStore((state) => state.openContextPreview);
 
     const {
-      animatedToolIdsLookup,
       messagePreviewUrl,
       isLastAssistantInTurn,
       isTurnWorking,
@@ -171,135 +158,51 @@ export const AssistantMessageBody = React.memo(
     const renderedParts = React.useMemo(() => {
       const rendered: React.ReactNode[] = [];
 
+      // The response body renders final text only. Tool, reasoning, and
+      // progress rows are owned by the shared turn activity rail; justification
+      // text projected to the rail is suppressed here so it never also renders
+      // as response content.
       let i = 0;
       while (i < visibleParts.length) {
         const part = visibleParts[i];
 
-        if (part.type === 'text') {
-          const partId = part.id ?? `${messageId}-part-${i}-${part.type}`;
-          if (hideAssistantActivity && activityTextPartIds.has(partId)) {
-            i++;
-            continue;
-          }
-          rendered.push(
-            <div
-              key={`assistant-text-${messageId}-${i}`}
-              ref={messageTextContentRef}
-              data-message-text-export-source="true"
-            >
-              <AssistantTextPart
-                part={part}
-                sessionId={sessionId}
-                messageId={messageId}
-                streamPhase={effectiveStreamPhase}
-                onContentChange={onContentChange}
-                onShowPopup={onShowPopup}
-              />
-            </div>,
-          );
+        if (part.type !== 'text') {
           i++;
           continue;
         }
 
-        if (part.type === 'reasoning') {
-          if (hideAssistantActivity) {
-            i++;
-            continue;
-          }
-          rendered.push(
-            <ReasoningPart
-              key={`reasoning-${messageId}-${i}`}
+        const partId = part.id ?? `${messageId}-part-${i}-${part.type}`;
+        if (activityTextPartIds.has(partId)) {
+          i++;
+          continue;
+        }
+
+        rendered.push(
+          <div
+            key={`assistant-text-${messageId}-${i}`}
+            ref={messageTextContentRef}
+            data-message-text-export-source="true"
+          >
+            <AssistantTextPart
               part={part}
+              sessionId={sessionId}
               messageId={messageId}
               streamPhase={effectiveStreamPhase}
               onContentChange={onContentChange}
-            />,
-          );
-          i++;
-          continue;
-        }
-
-        if (part.type === 'tool') {
-          if (hideAssistantActivity) {
-            i++;
-            continue;
-          }
-          const toolRun: ToolPartType[] = [];
-          let runIndex = i;
-          while (runIndex < visibleParts.length) {
-            const runPart = visibleParts[runIndex];
-            if (!runPart || runPart.type !== 'tool') {
-              break;
-            }
-            toolRun.push(runPart as ToolPartType);
-            runIndex += 1;
-          }
-
-          const toolNodes = toolRun.map((toolPart) => {
-            const toolName = toolPart.tool?.toLowerCase() ?? '';
-
-            if (isExpandableTool(toolName)) {
-              return (
-                <FadeInOnReveal key={`tool-${toolPart.id}`}>
-                  <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                    <ToolPart
-                      part={toolPart}
-                      isExpanded={expandedTools.has(toolPart.id)}
-                      onToggle={onToggleTool}
-                      isMobile={isMobile}
-                      alwaysShowActions={alwaysShowMessageActions}
-                      onContentChange={onContentChange}
-                      onShowPopup={onShowPopup}
-                      animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                    />
-                  </ToolRevealOnMount>
-                </FadeInOnReveal>
-              );
-            }
-
-            return (
-              <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
-                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                  <StaticToolRow
-                    toolName={toolName}
-                    activities={[
-                      {
-                        id: toolPart.id,
-                        turnId: '',
-                        messageId,
-                        partIndex: 0,
-                        part: toolPart,
-                        kind: 'tool' as const,
-                      },
-                    ]}
-                    animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                  />
-                </ToolRevealOnMount>
-              </FadeInOnReveal>
-            );
-          });
-
-          rendered.push(...toolNodes);
-          i = runIndex;
-          continue;
-        }
-
+              onShowPopup={onShowPopup}
+            />
+          </div>,
+        );
         i++;
       }
 
       return rendered;
     }, [
-      alwaysShowMessageActions,
-      animatedToolIdsLookup,
-      expandedTools,
       activityTextPartIds,
-      hideAssistantActivity,
-      isMobile,
       messageId,
       sessionId,
       onContentChange,
       onShowPopup,
-      onToggleTool,
       effectiveStreamPhase,
       visibleParts,
     ]);

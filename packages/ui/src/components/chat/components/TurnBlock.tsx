@@ -142,8 +142,6 @@ export const TurnBlock = React.memo(
           Boolean(activityOwnerMessageId) && message.info.id === activityOwnerMessageId;
         const shouldAttachFullTurnContext = isActivityOwner || isFirstAssistant || isLastAssistant;
         const messageActivityParts = activityPartsByMessageId.get(message.info.id) ?? [];
-        const assistantHeaderMessageId =
-          visibleAssistantMessages[0]?.info.id ?? turn.headerMessageId;
 
         const previousMessage = isUserMessage
           ? undefined
@@ -193,7 +191,6 @@ export const TurnBlock = React.memo(
             previousMessage={previousMessage}
             nextMessage={nextMessage}
             turnGroupingContext={turnGroupingContext}
-            assistantHeaderMessageId={assistantHeaderMessageId}
             isInActiveTurn={
               Boolean(streamingAssistantMessageId) &&
               message.info.id === streamingAssistantMessageId
@@ -206,7 +203,6 @@ export const TurnBlock = React.memo(
             onContentChange={onMessageContentChange}
             animationHandlers={getAnimationHandlers(message.info.id)}
             scrollToBottom={scrollToBottom}
-            hideAssistantActivity={isAssistantMessage}
           />
         );
       },
@@ -218,7 +214,6 @@ export const TurnBlock = React.memo(
         messageOrder.ordered,
         onMessageContentChange,
         scrollToBottom,
-        turn.headerMessageId,
         turn.hasReasoning,
         turn.hasTools,
         turn.turnId,

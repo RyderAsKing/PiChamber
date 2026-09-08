@@ -65,8 +65,9 @@ import {
   readExpandedToolsCache,
   writeExpandedToolsCache,
 } from './chatToolExpansion';
-import { useChatMessageToolsState } from './useChatMessageToolsState';
+import { useChatMessagePopupState } from './useChatMessagePopupState';
 import { useTurnToolsState } from './useTurnToolsState';
+import type { ToolPopupContent } from './types';
 import {
   buildProjectionCacheKey,
   getCachedProjection,
@@ -351,37 +352,42 @@ beforeEach(() => {
   expandedToolsStateCache.clear();
 });
 
-describe('chat fixed defaults: bash/edit disclosure starts closed and toggles', () => {
-  test('message-level tools start closed, open on toggle, and close again', async () => {
+describe('chat fixed defaults: per-message popup state', () => {
+  test('popup opens only for image or mermaid content and tracks the store overlay flag', async () => {
     const dom = installMinimalDom();
     const root: Root = createRoot(dom.container);
     try {
-      let api: ReturnType<typeof useChatMessageToolsState> | undefined;
+      let api: ReturnType<typeof useChatMessagePopupState> | undefined;
       const Harness = () => {
-        api = useChatMessageToolsState({
-          message: { info: { id: 'msg-fixed-closed' } as Message },
-          toolParts: [],
-          turnActivityToolParts: [],
-        });
+        api = useChatMessagePopupState();
         return null;
       };
       await act(async () => {
         await root.render(React.createElement(Harness));
       });
       expect(api).toBeDefined();
-      expect([...(api?.effectiveExpandedTools ?? [])]).toEqual([]);
+      expect(api?.popupContent.open).toBe(false);
+
+      const textOnly = { open: true, title: 't', content: 'c' } as ToolPopupContent;
+      act(() => {
+        api?.handleShowPopup(textOnly);
+      });
+      expect(api?.popupContent.open).toBe(false);
+      expect(useUIStore.getState().isImagePreviewOpen).toBe(false);
+
+      const image = { ...textOnly, image: { url: 'data:image/png;base64,AAA' } } as ToolPopupContent;
+      act(() => {
+        api?.handleShowPopup(image);
+      });
+      expect(api?.popupContent.open).toBe(true);
+      expect(api?.popupContent.image?.url).toBe('data:image/png;base64,AAA');
+      expect(useUIStore.getState().isImagePreviewOpen).toBe(true);
 
       act(() => {
-        api?.handleToggleTool('bash-tool-1');
+        api?.handlePopupChange(false);
       });
-      expect(api?.effectiveExpandedTools.has('bash-tool-1')).toBe(true);
-      expect(readExpandedToolsCache('msg-fixed-closed').has('bash-tool-1')).toBe(true);
-
-      act(() => {
-        api?.handleToggleTool('bash-tool-1');
-      });
-      expect(api?.effectiveExpandedTools.has('bash-tool-1')).toBe(false);
-      expect(readExpandedToolsCache('msg-fixed-closed').has('bash-tool-1')).toBe(false);
+      expect(api?.popupContent.open).toBe(false);
+      expect(useUIStore.getState().isImagePreviewOpen).toBe(false);
     } finally {
       await act(async () => {
         await root.unmount();
@@ -389,33 +395,54 @@ describe('chat fixed defaults: bash/edit disclosure starts closed and toggles', 
       dom.restore();
     }
   });
+});
 
-  test('message-level disclosure survives remount through the per-message expanded cache', async () => {
-    writeExpandedToolsCache('msg-remount', new Set(['edit-tool-1']));
-
+describe('chat fixed defaults: bash/edit disclosure starts closed and toggles', () => {
+  test('turn-level rail tools toggle manually and survive remount through the per-message expanded cache', async () => {
     const dom = installMinimalDom();
     const root: Root = createRoot(dom.container);
+    const activities = [
+      {
+        id: 'turn-bash-remount',
+        turnId: 'turn-1',
+        messageId: 'msg-rail-remount',
+        partIndex: 0,
+        kind: 'tool',
+        part: { id: 'turn-bash-remount', type: 'tool', tool: 'bash' },
+      },
+    ] as unknown as TurnActivityRecord[];
     try {
-      let api: ReturnType<typeof useChatMessageToolsState> | undefined;
+      let api: ReturnType<typeof useTurnToolsState> | undefined;
       const Harness = () => {
-        api = useChatMessageToolsState({
-          message: { info: { id: 'msg-remount' } as Message },
-          toolParts: [],
-          turnActivityToolParts: [],
-        });
+        api = useTurnToolsState({ activities });
         return null;
       };
+      let activeRoot: Root = root;
       await act(async () => {
-        await root.render(React.createElement(Harness));
+        await activeRoot.render(React.createElement(Harness));
       });
-      expect(api?.effectiveExpandedTools.has('edit-tool-1')).toBe(true);
+      expect([...(api?.effectiveExpandedTools ?? [])]).toEqual([]);
 
       act(() => {
-        api?.handleToggleTool('edit-tool-2');
+        api?.handleToggleTool('turn-bash-remount');
       });
-      expect(api?.effectiveExpandedTools.has('edit-tool-1')).toBe(true);
-      expect(api?.effectiveExpandedTools.has('edit-tool-2')).toBe(true);
-      expect(readExpandedToolsCache('msg-remount')).toEqual(new Set(['edit-tool-1', 'edit-tool-2']));
+      expect(api?.effectiveExpandedTools.has('turn-bash-remount')).toBe(true);
+      expect(readExpandedToolsCache('msg-rail-remount').has('turn-bash-remount')).toBe(true);
+
+      await act(async () => {
+        await activeRoot.unmount();
+      });
+      activeRoot = createRoot(dom.container);
+      await act(async () => {
+        await activeRoot.render(React.createElement(Harness));
+      });
+      expect(api?.effectiveExpandedTools.has('turn-bash-remount')).toBe(true);
+
+      act(() => {
+        api?.handleToggleTool('turn-bash-remount');
+      });
+      expect(api?.effectiveExpandedTools.has('turn-bash-remount')).toBe(false);
+      expect(readExpandedToolsCache('msg-rail-remount').has('turn-bash-remount')).toBe(false);
     } finally {
       await act(async () => {
         await root.unmount();

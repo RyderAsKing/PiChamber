@@ -199,24 +199,13 @@ const areTurnChangedFilesEqual = (left?: TurnChangedFile[], right?: TurnChangedF
   return true;
 };
 
-const areTurnActivityRecordsEqual = (left: TurnActivityRecord, right: TurnActivityRecord): boolean => {
+export const areTurnActivityRecordsEqual = (left: TurnActivityRecord, right: TurnActivityRecord): boolean => {
   return left.id === right.id
     && left.messageId === right.messageId
     && left.kind === right.kind
     && left.partIndex === right.partIndex
     && left.endedAt === right.endedAt
     && areRenderRelevantPartsEqual([left.part], [right.part]);
-};
-
-export const areRenderRelevantActivityListsEqual = (left: TurnActivityRecord[], right: TurnActivityRecord[]): boolean => {
-  if (left === right) return true;
-  if (left.length !== right.length) return false;
-  for (let index = 0; index < left.length; index += 1) {
-    if (!areTurnActivityRecordsEqual(left[index], right[index])) {
-      return false;
-    }
-  }
-  return true;
 };
 
 const areRelevantActivityPartsEqual = (

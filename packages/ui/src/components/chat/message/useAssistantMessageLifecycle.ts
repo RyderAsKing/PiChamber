@@ -7,24 +7,6 @@ import { extractLoopbackUrls } from '@/lib/url';
 import { formatTurnDuration } from './turnDuration';
 import { formatTimestampForDisplay } from './timeFormat';
 
-const TOOL_REVEAL_CACHE_MAX = 200;
-const revealedToolIdsByMessage = new Map<string, Set<string>>();
-
-const readRevealedToolIds = (messageId: string): Set<string> => {
-  const cached = revealedToolIdsByMessage.get(messageId);
-  return cached ? new Set(cached) : new Set<string>();
-};
-
-const writeRevealedToolIds = (messageId: string, value: Set<string>): void => {
-  if (revealedToolIdsByMessage.size >= TOOL_REVEAL_CACHE_MAX && !revealedToolIdsByMessage.has(messageId)) {
-    const oldest = revealedToolIdsByMessage.keys().next().value;
-    if (oldest) {
-      revealedToolIdsByMessage.delete(oldest);
-    }
-  }
-  revealedToolIdsByMessage.set(messageId, new Set(value));
-};
-
 export function useAssistantMessageLifecycle({
   messageId,
   visibleParts,
@@ -56,12 +38,6 @@ export function useAssistantMessageLifecycle({
   onAuxiliaryContentComplete?: () => void;
   onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
 }) {
-  const toolRevealReadyRef = React.useRef(false);
-
-  React.useEffect(() => {
-    toolRevealReadyRef.current = true;
-  }, []);
-
   const toolParts = React.useMemo(() => {
     return visibleParts.filter((part): part is ToolPartType => part.type === 'tool');
   }, [visibleParts]);
@@ -73,83 +49,6 @@ export function useAssistantMessageLifecycle({
   const reasoningParts = React.useMemo(() => {
     return visibleParts.filter((part) => part.type === 'reasoning');
   }, [visibleParts]);
-
-  const toolRevealStateRef = React.useRef<{
-    messageId: string;
-    hasCommitted: boolean;
-    persistedToolIds: Set<string>;
-    animatedToolIds: Set<string>;
-  }>({
-    messageId,
-    hasCommitted: false,
-    persistedToolIds: readRevealedToolIds(messageId),
-    animatedToolIds: new Set<string>(),
-  });
-
-  if (toolRevealStateRef.current.messageId !== messageId) {
-    toolRevealStateRef.current = {
-      messageId,
-      hasCommitted: false,
-      persistedToolIds: readRevealedToolIds(messageId),
-      animatedToolIds: new Set<string>(),
-    };
-  }
-
-  const currentToolIds = React.useMemo(() => {
-    const ids = new Set<string>();
-
-    for (const toolPart of toolParts) {
-      ids.add(toolPart.id);
-    }
-
-    const activitySegments = turnGroupingContext?.activityGroupSegments;
-    if (Array.isArray(activitySegments)) {
-      for (const segment of activitySegments) {
-        if (segment.anchorMessageId !== messageId) {
-          continue;
-        }
-        for (const activity of segment.parts) {
-          if (activity.kind !== 'tool') {
-            continue;
-          }
-          const toolId = (activity.part as { id?: unknown }).id;
-          if (typeof toolId === 'string' && toolId.length > 0) {
-            ids.add(toolId);
-          }
-        }
-      }
-    }
-
-    return Array.from(ids);
-  }, [messageId, toolParts, turnGroupingContext?.activityGroupSegments]);
-
-  const shouldAnimateNewToolMount = Boolean(turnGroupingContext?.isWorking && toolRevealReadyRef.current);
-  const persistedToolIds = toolRevealStateRef.current.persistedToolIds;
-  const animatedToolIds = toolRevealStateRef.current.animatedToolIds;
-
-  if (shouldAnimateNewToolMount && toolRevealStateRef.current.hasCommitted) {
-    for (const toolId of currentToolIds) {
-      if (!persistedToolIds.has(toolId)) {
-        animatedToolIds.add(toolId);
-      }
-    }
-  }
-
-  const animatedToolIdsKey = Array.from(animatedToolIds).join('\u0000');
-  const animatedToolIdsLookup = React.useMemo(
-    () => new Set(animatedToolIdsKey ? animatedToolIdsKey.split('\u0000') : []),
-    [animatedToolIdsKey],
-  );
-
-  React.useEffect(() => {
-    const nextPersistedToolIds = new Set(toolRevealStateRef.current.persistedToolIds);
-    for (const toolId of currentToolIds) {
-      nextPersistedToolIds.add(toolId);
-    }
-    toolRevealStateRef.current.persistedToolIds = nextPersistedToolIds;
-    toolRevealStateRef.current.hasCommitted = true;
-    writeRevealedToolIds(messageId, nextPersistedToolIds);
-  }, [currentToolIds, messageId]);
 
   const messagePreviewUrl = React.useMemo(() => {
     if (isMobile || isMiniChatSurface) {
@@ -350,10 +249,6 @@ export function useAssistantMessageLifecycle({
   }, [messageCompletedAt, messageCreatedAt, timeFormatPreference]);
 
   return {
-    toolParts,
-    assistantTextParts,
-    reasoningParts,
-    animatedToolIdsLookup,
     messagePreviewUrl,
     isLastAssistantInTurn,
     isTurnWorking,
