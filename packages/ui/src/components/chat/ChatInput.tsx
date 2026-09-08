@@ -81,9 +81,8 @@ import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
 import { useCommandCatalog } from "@/hooks/useCommandCatalog";
 import { extractGitChangedFiles } from "./changedFiles";
 import { sessionEvents } from "@/lib/sessionEvents";
-import { fetchResponseStyleInstruction } from "@/lib/responseStyle";
+import { resolveResponseStyleInstruction } from "@/lib/responseStyle";
 import { wrapSystemReminder } from "@/lib/systemReminder";
-import { getSyncMessages } from "@/sync/sync-refs";
 import {
   eventMatchesShortcut,
   getEffectiveShortcutCombo,
@@ -187,12 +186,6 @@ type SubmitOptions = {
   delivery?: "steer";
   /** Submit this text instead of the composer input. */
   presetText?: string;
-};
-
-const hasUserMessages = (sessionId: string, directory?: string) => {
-  return getSyncMessages(sessionId, directory).some(
-    (message) => message.role === "user",
-  );
 };
 
 const MemoModelControls = React.memo(ModelControls);
@@ -1273,20 +1266,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       const currentSessionDirectory =
         capturedTarget?.directory ?? currentDirectory;
-      const shouldAddResponseStyle =
-        newSessionDraftOpen ||
-        (currentSessionId
-          ? !hasUserMessages(currentSessionId, currentSessionDirectory)
-          : false);
-      if (shouldAddResponseStyle) {
-        const responseStyleInstruction =
-          await fetchResponseStyleInstruction().catch(() => null);
-        if (responseStyleInstruction) {
-          additionalParts.push({
-            text: wrapSystemReminder(responseStyleInstruction),
-            synthetic: true,
-          });
-        }
+      // First-prompt response-style injection follows the captured send
+      // target: eligibility is read synchronously, then re-checked on the
+      // same captured session after the awaited settings fetch. Selection
+      // changes during the fetch never drop the captured decision; see
+      // composer/DOCUMENTATION.md and resolveResponseStyleInstruction.
+      const responseStyleInstruction = await resolveResponseStyleInstruction({
+        newSessionDraftOpen,
+        sessionId: capturedTarget?.sessionId ?? currentSessionId,
+        getStoreState: () => getPiSessionStore().getState(),
+      });
+      if (responseStyleInstruction) {
+        additionalParts.push({
+          text: wrapSystemReminder(responseStyleInstruction),
+          synthetic: true,
+        });
       }
 
       if (inputMode !== "shell") {

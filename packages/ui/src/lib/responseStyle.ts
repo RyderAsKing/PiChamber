@@ -1,5 +1,6 @@
 import { runtimeFetch } from './runtime-fetch';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from './runtime-switch';
+import type { PiSessionStoreState } from '@/sync/pi-session-store-types';
 
 export const RESPONSE_STYLE_PRESETS = ['concise', 'detailed', 'mentor', 'pushback', 'noFiller', 'matchEnergy', 'warmPeer'] as const;
 export type ResponseStylePreset = typeof RESPONSE_STYLE_PRESETS[number];
@@ -50,6 +51,57 @@ const buildResponseStyleInstruction = ({
   if (!isResponseStylePreset(preset)) return null;
   return getResponseStylePresetInstructions(preset);
 };
+
+/**
+ * Response-style injection is a first-user-prompt behavior, so an existing
+ * session qualifies only when its transcript evidence is authoritative,
+ * complete, and free of earlier user messages:
+ *
+ * - `hydratedSessionIds` marks the transcript as loaded from the daemon; an
+ *   unknown/cold reducer is never proof of a first prompt. Cold sends safely
+ *   skip injection until hydration (the selected session hydrates on open,
+ *   and `PiSessionStore.prompt()` re-hydrates blank rows before dispatch),
+ *   so the composer spends no extra RPC or history download on this gate.
+ * - A resident reducer row must exist. A hydrated id without one is an
+ *   evicted transcript, not an empty one.
+ * - `hasMoreBefore` means the resident tail is one page of a longer history;
+ *   a user-free tail is then not proof that no earlier user message exists.
+ * - A recorded hydration failure (`sessionLoadErrorById`) leaves transcript
+ *   completeness unknown.
+ * - Authoritative fresh-empty and extension-only complete histories have no
+ *   earlier user message and qualify. Catalog `messageCount` (including the
+ *   cached first-paint metadata) and persisted history are never consulted.
+ */
+const isFirstUserPromptForSession = (
+  state: PiSessionStoreState,
+  sessionId: string,
+): boolean => {
+  const resident = state.reducer.bySession.get(sessionId);
+  return (
+    state.hydratedSessionIds.has(sessionId)
+    && !state.sessionLoadErrorById.has(sessionId)
+    && resident !== undefined
+    && resident.hasMoreBefore !== true
+    && ![...resident.messages.values()].some(
+      (message) => message.role === 'user',
+    )
+  );
+};
+
+/**
+ * Composer gate for one send. New-session drafts always target a session
+ * that has no history yet, so they bypass the transcript predicate;
+ * existing sessions rely on the authoritative first-prompt predicate.
+ */
+export const shouldInjectResponseStyle = (input: {
+  newSessionDraftOpen: boolean;
+  sessionId: string | null;
+  storeState: PiSessionStoreState;
+}): boolean =>
+  input.newSessionDraftOpen
+  || (input.sessionId !== null
+    ? isFirstUserPromptForSession(input.storeState, input.sessionId)
+    : false);
 
 const instructionFromSettings = (settings: ResponseStyleSettings): string | null =>
   buildResponseStyleInstruction({
@@ -103,4 +155,40 @@ export const fetchResponseStyleInstruction = async (): Promise<string | null> =>
   } finally {
     if (instructionInflight?.promise === request) instructionInflight = null;
   }
+};
+
+/**
+ * Send-preparation boundary for one response-style injection: evaluate the
+ * first-prompt gate on the captured send target, await the runtime-scoped
+ * settings fetch, then re-check the same captured session's eligibility so a
+ * first user message committed while the fetch was in flight (another send
+ * or a remote event) is not injected twice. New-session drafts skip the
+ * re-check: their captured session does not exist until materialization.
+ * A runtime switch resolves the fetch to null, and the captured-target
+ * dispatch is separately rejected by the runtime guard in `sendMessage`.
+ */
+export const resolveResponseStyleInstruction = async (input: {
+  newSessionDraftOpen: boolean;
+  sessionId: string | null;
+  getStoreState: () => PiSessionStoreState;
+}): Promise<string | null> => {
+  if (
+    !shouldInjectResponseStyle({
+      newSessionDraftOpen: input.newSessionDraftOpen,
+      sessionId: input.sessionId,
+      storeState: input.getStoreState(),
+    })
+  ) {
+    return null;
+  }
+  const instruction = await fetchResponseStyleInstruction().catch(() => null);
+  if (!instruction) return null;
+  if (
+    !input.newSessionDraftOpen
+    && input.sessionId !== null
+    && !isFirstUserPromptForSession(input.getStoreState(), input.sessionId)
+  ) {
+    return null;
+  }
+  return instruction;
 };
