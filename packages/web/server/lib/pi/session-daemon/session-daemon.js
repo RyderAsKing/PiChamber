@@ -34,6 +34,7 @@ import {
   SESSION_DAEMON_PROTOCOL_VERSION as PROTOCOL_VERSION,
 } from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
+import { createSessionReplayLog } from './session-replay.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
@@ -152,6 +153,7 @@ export function createSessionDaemon({
   cwd,
   agentDir = getAgentDir(),
   createRuntime: injectCreateRuntime,
+  createServices: injectCreateServices = createAgentSessionServices,
   healthMetadata = {},
   profileKey,
   serverInstanceId,
@@ -247,13 +249,16 @@ export function createSessionDaemon({
   let dormantSession;
   let sequence = 0;
   let started = false;
+  let stopping = false;
   const knownDirectories = new Set([cwd]);
   let activeDirectory = cwd;
-  const servicesCache = new Map();
   const clients = new Set();
-  // A reconnect replays only a contiguous retained gap; otherwise it receives
-  // a new authoritative snapshot before later events can arrive.
-  const eventLog = [];
+  // A reconnect replays only a contiguous retained suffix; otherwise it receives
+  // a new authoritative snapshot before later events can arrive. The suffix is
+  // bounded by both event count and serialized wire bytes (see
+  // session-replay.js); each event is serialized once and the cached line is
+  // reused for live broadcast and replay.
+  const replayLog = createSessionReplayLog();
   const streamingMessageIds = new Map();
   const latestAssistantMessageIds = new Map();
   const messageStartedAt = new Map();
@@ -340,7 +345,6 @@ export function createSessionDaemon({
   // reconstruct the current UI without requiring the extension to re-emit.
   const messageEntryAliases = createMessageEntryAliases();
   const skillReadClassifierByRuntime = new WeakMap();
-  const MAX_REPLAY_EVENTS = 1_024;
 
   const skillReadClassifierFor = (activeRuntime, directory) => {
     if (!activeRuntime || typeof activeRuntime !== 'object') return undefined;
@@ -443,17 +447,19 @@ export function createSessionDaemon({
     return title;
   };
 
-  const getServices = async (targetCwd = activeDirectory || cwd) => {
-    const existing = servicesCache.get(targetCwd);
-    if (existing) return existing;
-    const services = await createAgentSessionServices({
-      cwd: targetCwd,
-      agentDir,
-      resourceLoaderOptions: {},
-    });
-    servicesCache.set(targetCwd, services);
-    return services;
-  };
+  // Prompt-mutation responses need a fresh standalone loader so the committed
+  // file is reflected even while a busy runtime keeps its current loader.
+  // Services are transient per mutation and never retained: the SDK exposes no
+  // dispose on AgentSessionServices/ModelRuntime/ResourceLoader/SettingsManager
+  // (verified against pi 0.84.1: file reads plus a cleared create-time timeout,
+  // no watchers, intervals, or listeners), so dropping the reference lets GC
+  // reclaim it. Retaining them only grew the daemon and fanned provider
+  // refreshes out to orphan ModelRuntimes whose catalogs are never read.
+  const createFreshPromptServices = async (targetCwd = activeDirectory || cwd) => injectCreateServices({
+    cwd: targetCwd,
+    agentDir,
+    resourceLoaderOptions: {},
+  });
 
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
@@ -469,9 +475,11 @@ export function createSessionDaemon({
         ...payload,
       },
     };
-    eventLog.push(message);
-    if (eventLog.length > MAX_REPLAY_EVENTS) eventLog.shift();
-    for (const client of clients) writeFrame(client, message);
+    const line = `${JSON.stringify(message)}\n`;
+    // Live delivery stays full-fidelity even when the event is too large to
+    // retain: retention evicts whole oldest events and never truncates content.
+    replayLog.append(message.sequence, sessionId, line);
+    for (const client of clients) writeLine(client, line);
   };
 
   const extensionBridge = createExtensionBridge({
@@ -588,20 +596,24 @@ export function createSessionDaemon({
   };
 
   const idleDisposeTimers = new Map();
+  const activeSessionRequests = new Map();
+
+  const isValidIdleSessionId = (sessionId) => typeof sessionId === 'string' && sessionId.length > 0;
 
   const clearIdleDisposal = (sessionId) => {
-    if (sessionId) {
-      const timer = idleDisposeTimers.get(sessionId);
-      if (timer) clearTimeout(timer);
-      idleDisposeTimers.delete(sessionId);
-    } else {
-      for (const timer of idleDisposeTimers.values()) clearTimeout(timer);
-      idleDisposeTimers.clear();
-    }
+    if (!isValidIdleSessionId(sessionId)) return;
+    const timer = idleDisposeTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    idleDisposeTimers.delete(sessionId);
+  };
+
+  const clearAllIdleDisposals = () => {
+    for (const timer of idleDisposeTimers.values()) clearTimeout(timer);
+    idleDisposeTimers.clear();
   };
 
   const disposeRuntime = async () => {
-    clearIdleDisposal();
+    clearAllIdleDisposals();
     activeSessionInputs.clear();
     pendingResourceReloads.clear();
     await resourceReloadQueue.catch(() => {});
@@ -712,7 +724,6 @@ export function createSessionDaemon({
       let recreated = false;
       while (pendingRuntimeRecreation && !hasUnsafeRuntime()) {
         const revision = runtimeRecreationRevision;
-        servicesCache.clear();
         await disposeRuntime();
         if (!pendingRuntimeRecreation) break;
         await ensureRuntime();
@@ -802,38 +813,62 @@ export function createSessionDaemon({
     return [...candidates].some((targetRuntime) => pendingResourceReloads.has(targetRuntime));
   };
 
-  const disposeIdleSessionRuntime = async (sessionId) => {
-    if (disposingSessionIds.has(sessionId)) return;
+  // In-flight idle disposals by session id. A read or prompt that arrives
+  // while disposal is running waits for it and then reopens from JSONL
+  // instead of adopting a runtime that is about to be disposed.
+  const disposingSessionPromises = new Map();
+
+  const isIdleDisposalSafe = (sessionId, targetRuntime) => {
+    if (!targetRuntime) return false;
+    if (isValidIdleSessionId(sessionId) && (activeSessionRequests.get(sessionId) ?? 0) > 0) return false;
+    if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return false;
+    if (activeSessionInputs.has(targetRuntime)) return false;
+    if (pendingResourceReloads.has(targetRuntime) || resourceReloadsByRuntime.has(targetRuntime)) return false;
+    // A scheduled provider retry is still live work: agent_settled remains
+    // the authoritative idle boundary after retry success, exhaustion, or
+    // cancellation.
+    if (retryStateBySession.has(sessionId)) return false;
+    const compaction = compactionStateBySession.get(sessionId);
+    if (compaction && (compaction.phase === 'running' || compaction.phase === 'retrying')) return false;
+    return true;
+  };
+
+  const disposeIdleSessionRuntime = (sessionId) => {
+    if (disposingSessionIds.has(sessionId)) return disposingSessionPromises.get(sessionId) ?? Promise.resolve();
     const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
     if (!targetRuntime) {
       shutdownRequestedBySession.delete(sessionId);
-      return;
+      return Promise.resolve();
     }
-    if (
-      targetRuntime.session?.isStreaming
-      || targetRuntime.session?.isCompacting
-      || activeSessionInputs.has(targetRuntime)
-      || pendingResourceReloads.has(targetRuntime)
-      || resourceReloadsByRuntime.has(targetRuntime)
-    ) return;
+    if (!isIdleDisposalSafe(sessionId, targetRuntime)) return Promise.resolve();
     disposingSessionIds.add(sessionId);
     clearIdleDisposal(sessionId);
     activeSessionInputs.delete(targetRuntime);
     pendingResourceReloads.delete(targetRuntime);
     resourceReloadsByRuntime.delete(targetRuntime);
-    try {
-      if (targetRuntime === runtime) rememberRuntimeSession();
-      clearExtensionState(sessionId);
-      await runtimeRegistry.dispose(targetRuntime);
-      await releaseResidentLease({ cwd: targetRuntime.cwd || activeDirectory || cwd, sessionId });
-      shutdownRequestedBySession.delete(sessionId);
-      compactionStateBySession.delete(sessionId);
-      if (targetRuntime === runtime) runtime = undefined;
-    } catch {
-      publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
-    } finally {
-      disposingSessionIds.delete(sessionId);
-    }
+    const tracked = (async () => {
+      try {
+        if (targetRuntime === runtime) rememberRuntimeSession();
+        // Pending extension dialogs are cancelled with an authoritative
+        // dismiss event so no extension thread blocks forever on a
+        // disposed runtime.
+        clearExtensionState(sessionId);
+        await runtimeRegistry.dispose(targetRuntime);
+        await releaseResidentLease({ cwd: targetRuntime.cwd || activeDirectory || cwd, sessionId });
+        shutdownRequestedBySession.delete(sessionId);
+        compactionStateBySession.delete(sessionId);
+        if (targetRuntime === runtime) runtime = undefined;
+      } catch {
+        publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
+      } finally {
+        disposingSessionIds.delete(sessionId);
+      }
+    })();
+    disposingSessionPromises.set(sessionId, tracked);
+    tracked.finally(() => {
+      if (disposingSessionPromises.get(sessionId) === tracked) disposingSessionPromises.delete(sessionId);
+    });
+    return tracked;
   };
 
   const completeRequestedShutdown = (sessionId) => {
@@ -843,12 +878,82 @@ export function createSessionDaemon({
   };
 
   const scheduleIdleDisposal = (sessionId) => {
+    if (!started || stopping || !isValidIdleSessionId(sessionId)) return;
     clearIdleDisposal(sessionId);
     const timer = setTimeout(() => {
       idleDisposeTimers.delete(sessionId);
       void disposeIdleSessionRuntime(sessionId);
     }, idleTimeoutMs);
     idleDisposeTimers.set(sessionId, timer);
+  };
+
+  // Re-arm the idle lifetime after a view-only access. Clears first so the
+  // timer cannot fire mid-read, then schedules only when the session is
+  // resident and idle-safe; a busy session is left unarmed for its lifecycle
+  // edge (agent_settled, terminal compaction, prompt settlement) to arm.
+  // Never arms a timer for a non-resident session and never evicts on the
+  // acquisition path: capacity pressure alone must not dispose entries that
+  // are actively mounting.
+  const touchIdleDisposal = (sessionId) => {
+    clearIdleDisposal(sessionId);
+    if (!isValidIdleSessionId(sessionId)) return;
+    if (disposingSessionIds.has(sessionId)) return;
+    const targetRuntime = runtimeRegistry?.findBySessionId(sessionId);
+    if (!isIdleDisposalSafe(sessionId, targetRuntime)) return;
+    scheduleIdleDisposal(sessionId);
+  };
+
+  // Narrow session-access guard for request dispatch. Each in-flight
+  // session-scoped command holds one refcount while it activates and uses
+  // the runtime; the idle timer stays cleared until the last holder
+  // releases, and the release re-arms only when idle-safe (even after
+  // failure) so a failed read cannot leak the runtime. Prompt acceptance
+  // extends protection through activeSessionInputs and retry/compaction
+  // state, with async completion edges re-arming separately.
+  const acquireSessionAccess = (sessionId) => {
+    if (!isValidIdleSessionId(sessionId)) return undefined;
+    activeSessionRequests.set(sessionId, (activeSessionRequests.get(sessionId) ?? 0) + 1);
+    clearIdleDisposal(sessionId);
+    return sessionId;
+  };
+
+  const releaseSessionAccess = (sessionId) => {
+    if (!isValidIdleSessionId(sessionId)) return;
+    const remaining = (activeSessionRequests.get(sessionId) ?? 1) - 1;
+    if (remaining > 0) {
+      activeSessionRequests.set(sessionId, remaining);
+      return;
+    }
+    activeSessionRequests.delete(sessionId);
+    touchIdleDisposal(sessionId);
+  };
+
+  const sessionIdForIdleGuard = (message) => {
+    switch (message?.command) {
+      case 'sessions.open':
+      case 'sessions.messages':
+      case 'sessions.tree':
+      case 'sessions.navigate':
+      case 'sessions.fork':
+      case 'sessions.clone':
+      case 'sessions.abort':
+      case 'sessions.setModel':
+      case 'sessions.setThinking':
+      case 'sessions.compact':
+      case 'sessions.delete':
+      case 'sessions.rename': {
+        const candidate = message?.payload?.sessionId;
+        return isValidIdleSessionId(candidate) ? candidate : undefined;
+      }
+      case 'sessions.prompt':
+      case 'sessions.steer':
+      case 'sessions.followUp': {
+        const candidate = message?.payload?.sessionId ?? getSessionState().sessionId;
+        return isValidIdleSessionId(candidate) ? candidate : undefined;
+      }
+      default:
+        return undefined;
+    }
   };
 
   const listInflightByDirectory = new Map();
@@ -1052,6 +1157,11 @@ export function createSessionDaemon({
 
   const activateInflightBySessionId = new Map();
   const activateSessionUnshared = async (sessionId, requestedDirectory) => {
+    // A concurrent idle disposal owns the registry entry until it settles.
+    // Wait for it so this caller reopens from JSONL instead of adopting a
+    // runtime that disposal is about to tear down.
+    const racingDisposal = disposingSessionPromises.get(sessionId);
+    if (racingDisposal) await racingDisposal.catch(() => {});
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
@@ -1595,11 +1705,10 @@ export function createSessionDaemon({
     if (refreshProvidersInflight) return refreshProvidersInflight;
     const task = (async () => {
       const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15_000) : undefined;
+      // Refresh only live runtimes. Transient prompt-mutation services are never
+      // retained, so there are no orphan ModelRuntimes to refresh here; the
+      // returned catalog always comes from the active runtime via listProviders.
       const runtimes = new Set();
-      for (const services of servicesCache.values()) {
-        const mr = services?.modelRuntime;
-        if (mr) runtimes.add(mr);
-      }
       if (runtime?.session?.modelRuntime) runtimes.add(runtime.session.modelRuntime);
       if (runtime?.services?.modelRuntime) runtimes.add(runtime.services.modelRuntime);
       if (runtimeRegistry?.listAll) {
@@ -2014,12 +2123,13 @@ export function createSessionDaemon({
 
   // A busy session keeps its current Pi resource loader until its turn settles.
   // Mutation responses still need to reflect the committed file immediately,
-  // so replace only editable top-level prompts from a fresh standalone loader.
+  // so replace only editable top-level prompts from a fresh transient loader.
   // Package/path/extension-contributed resources remain owned by the live session.
+  // The transient services are dropped after use (no retention, no dispose hook
+  // in the SDK) so repeated mutations cannot grow the daemon.
   const resourcesAfterPromptMutation = async (targetDir) => {
     const current = await resourceCatalog(targetDir);
-    servicesCache.delete(targetDir);
-    const freshServices = await getServices(targetDir);
+    const freshServices = await createFreshPromptServices(targetDir);
     const freshEditable = promptResourcesFromLoader(freshServices.resourceLoader)
       .filter((prompt) => prompt.editable === true);
     return publicResources({
@@ -2032,7 +2142,6 @@ export function createSessionDaemon({
   };
 
   const finishPromptMutation = async (locations, targetDir) => {
-    servicesCache.delete(targetDir);
     const deferred = await refreshAffectedPromptRuntimes([...new Set(locations)], targetDir);
     const resources = await resourcesAfterPromptMutation(targetDir);
     return { ...resources, ...(deferred ? { deferred: true } : {}) };
@@ -2555,6 +2664,9 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
+    // Idle protection is owned by the request-dispatch guard: it holds the
+    // session refcount across activation/acceptance, agent_start clears once
+    // the turn is live, and settlement re-arms.
     let activeRuntime = await activateSession(payload.sessionId, payload.directory);
     let recreated = false;
     try {
@@ -2683,9 +2795,12 @@ export function createSessionDaemon({
       Promise.resolve(activeRuntime.session.abort()).catch(() => {});
     }).finally(() => {
       endSessionInput(activeRuntime);
-      void flushPendingResourceReload(activeRuntime).then((reloaded) => {
-        if (reloaded && !shutdownRequestedBySession.has(payload.sessionId)) {
-          scheduleIdleDisposal(payload.sessionId);
+      void flushPendingResourceReload(activeRuntime).then(() => {
+        // Re-arm whenever the settlement left the session idle: this covers
+        // extension commands that resolve without starting an agent turn
+        // (no agent_settled follows) as well as ordinary turn completion.
+        if (!shutdownRequestedBySession.has(payload.sessionId)) {
+          touchIdleDisposal(payload.sessionId);
         }
       });
       void flushPendingRuntimeRecreation().catch(() => {});
@@ -2700,6 +2815,8 @@ export function createSessionDaemon({
   };
 
   const treeForSession = async (sessionId, requestedDirectory) => {
+    // Idle protection is owned by the request-dispatch guard; the release
+    // re-arms even when projection below throws.
     const activeRuntime = await activateSession(sessionId, requestedDirectory);
     const nodes = activeRuntime.session.sessionManager?.getTree?.();
     if (!Array.isArray(nodes)) throw new SessionDaemonProtocolError('SESSION_TREE_NOT_FOUND', 'Pi returned an invalid session tree.');
@@ -2716,6 +2833,8 @@ export function createSessionDaemon({
   };
 
   const deleteSession = async (sessionId, requestedDirectory) => {
+    // Idle protection is owned by the request-dispatch guard. The release
+    // touch is a no-op once the runtime is gone, so deletion never re-arms.
     const active = runtimeRegistry?.findBySessionId(sessionId);
     let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
     const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
@@ -3081,7 +3200,15 @@ export function createSessionDaemon({
       throw new SessionDaemonProtocolError('INVALID_REQUEST', 'The daemon request is invalid.');
     }
 
-    switch (message.command) {
+    // Central idle-lifetime guard: hold one session refcount across the
+    // whole dispatch so a concurrent short read cannot re-arm (or a timer
+    // fire and dispose) while a longer operation on the same session is
+    // still using its runtime. The release re-arms when idle-safe even
+    // after failure, so failed reads cannot leak. Invalid ids never clear.
+    const guardedSessionId = sessionIdForIdleGuard(message);
+    const guard = acquireSessionAccess(guardedSessionId);
+    try {
+      switch (message.command) {
       case 'runtime.health':
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
@@ -3318,7 +3445,8 @@ export function createSessionDaemon({
       }
       case 'sessions.open': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        writeDetailResponse(socket, message.requestId, projectActiveSession(activeRuntime, activeRuntime.cwd, { limit: message.payload?.limit }));
+        const detail = projectActiveSession(activeRuntime, activeRuntime.cwd, { limit: message.payload?.limit });
+        writeDetailResponse(socket, message.requestId, detail);
         return;
       }
       case 'sessions.messages': {
@@ -3368,7 +3496,8 @@ export function createSessionDaemon({
           newLeafId: typeof newLeafId === 'string' ? newLeafId : null,
           ...(typeof result?.editorText === 'string' && result.editorText.length > 0 ? { editorText: result.editorText } : {}),
         };
-        writeDetailResponse(socket, message.requestId, { ...projectActiveSession(activeRuntime, activeRuntime.cwd), navigation });
+        const navigateDetail = projectActiveSession(activeRuntime, activeRuntime.cwd);
+        writeDetailResponse(socket, message.requestId, { ...navigateDetail, navigation });
         return;
       }
       case 'sessions.fork':
@@ -3390,7 +3519,11 @@ export function createSessionDaemon({
           await acquireResidentLease({ cwd: activeRuntime.cwd, sessionId: activeRuntime.session.sessionId });
         }
         rememberRuntimeSession();
-        writeDetailResponse(socket, message.requestId, projectActiveSession(activeRuntime, activeRuntime.cwd));
+        const forkedDetail = projectActiveSession(activeRuntime, activeRuntime.cwd);
+        // The guard re-arms the source session on release; arm the forked
+        // identity explicitly since it was created inside this dispatch.
+        touchIdleDisposal(activeRuntime.session?.sessionId);
+        writeDetailResponse(socket, message.requestId, forkedDetail);
         return;
       }
       case 'sessions.create': {
@@ -3458,13 +3591,16 @@ export function createSessionDaemon({
           };
           compactionStateBySession.set(message.payload.sessionId, compaction);
           publish('session.compaction', compaction, message.payload.sessionId, activeRuntime.cwd);
-          scheduleIdleDisposal(message.payload.sessionId);
+          touchIdleDisposal(message.payload.sessionId);
         });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { accepted: true } });
         return;
       }
       default:
         throw new SessionDaemonProtocolError('UNKNOWN_COMMAND', 'The daemon command is not supported.');
+    }
+    } finally {
+      if (guard !== undefined) releaseSessionAccess(guard);
     }
   };
 
@@ -3515,13 +3651,12 @@ export function createSessionDaemon({
             writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'authenticated' });
             const requestedSessionId = typeof message.sessionId === 'string' && message.sessionId.length > 0 ? message.sessionId : undefined;
             const fromSequence = Number.isSafeInteger(message.fromSequence) && message.fromSequence >= 0 ? message.fromSequence : undefined;
-            const oldestRetainedSequence = eventLog[0]?.sequence;
-            const canReplay = fromSequence !== undefined && Number.isSafeInteger(oldestRetainedSequence)
-              && fromSequence >= oldestRetainedSequence - 1;
-            if (canReplay) {
-              for (const event of eventLog) {
-                if (event.sequence > fromSequence && (!requestedSessionId || event.payload.sessionId === requestedSessionId)) writeFrame(socket, event);
-              }
+            // Contiguity is judged on the global retained suffix while delivery
+            // stays session-filtered, so a filtered client never replays through
+            // a gap left by eviction, an oversized event, an empty ring, or a
+            // future cursor: all of those take the snapshot fallback below.
+            if (fromSequence !== undefined && replayLog.canReplay(fromSequence, sequence)) {
+              for (const cachedLine of replayLog.linesAfter(fromSequence, requestedSessionId)) writeLine(socket, cachedLine);
             } else {
               publishSnapshot(socket, requestedSessionId);
             }
@@ -3548,6 +3683,7 @@ export function createSessionDaemon({
     },
     async start() {
       if (started) return;
+      stopping = false;
       await validatePiSessionJsonlDirectory({ cwd, agentDir });
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
@@ -3584,6 +3720,10 @@ export function createSessionDaemon({
     },
     async stop() {
       if (!started) return;
+      // Async request and reload completions may still release their guards
+      // while teardown awaits sockets/disposal. They must not arm new timers.
+      stopping = true;
+      clearAllIdleDisposals();
       for (const attempt of loginAttempts.values()) {
         attempt.controller.abort();
         attempt.rejectPrompt?.(new Error('Provider login cancelled.'));
@@ -3596,7 +3736,6 @@ export function createSessionDaemon({
       toolStartedAt.clear();
       completedToolTimings.clear();
       shutdownRequestedBySession.clear();
-      disposingSessionIds.clear();
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
       pendingUserStartsBySession.clear();
@@ -3608,6 +3747,17 @@ export function createSessionDaemon({
       await new Promise((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       });
+      // Teardown must not double-dispose a runtime with an in-flight idle
+      // disposal or release its lease twice: stop new timers, wait for the
+      // racing disposal, then dispose what remains.
+      clearAllIdleDisposals();
+      activeSessionRequests.clear();
+      const inFlightIdleDisposals = [...disposingSessionPromises.values()];
+      if (inFlightIdleDisposals.length > 0) {
+        await Promise.allSettled(inFlightIdleDisposals);
+      }
+      disposingSessionPromises.clear();
+      disposingSessionIds.clear();
       pendingRuntimeRecreation = false;
       runtimeRecreationRevision += 1;
       await disposeRuntime();
@@ -3620,5 +3770,9 @@ export function createSessionDaemon({
 
 function writeFrame(socket, frame) {
   if (!socket.destroyed) socket.write(`${JSON.stringify(frame)}\n`);
+}
+
+function writeLine(socket, line) {
+  if (!socket.destroyed) socket.write(line);
 }
 
