@@ -6,6 +6,8 @@
  * through to Pi's skill and extension registries.
  */
 
+import { toast } from '@/components/ui/toast';
+
 export interface ParsedSlashCommand {
     name: string;
     /** Everything typed after the command name, trimmed. */
@@ -75,7 +77,6 @@ export async function tryExecuteLocalSlashCommand({
     }
     if (name === 'compact') {
         if (!currentSessionId) {
-            const { toast } = await import('@/components/ui');
             toast.error('Open a session before compacting.');
             return true;
         }

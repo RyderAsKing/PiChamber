@@ -2,6 +2,8 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { Session } from '@/lib/chat/types';
 import { piSessionToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { PiThinkingLevel } from '@/lib/pi/types';
+import { useInputStore } from '@/sync/input-store';
+import { getRevertNavigation } from '@/sync/revert-navigation-store';
 
 export type ArchiveSessionsOptions = Record<string, unknown>;
 export type DeleteSessionOptions = Record<string, unknown>;
@@ -93,7 +95,6 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
   const editorText = detail?.navigation?.editorText;
   if (typeof editorText === 'string' && editorText.length > 0) {
     try {
-      const { useInputStore } = await import('@/sync/input-store');
       useInputStore.getState().setPendingRevertText(editorText);
     } catch {
       // ignore: input store may be unavailable during hydration
@@ -102,13 +103,11 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
 }
 
 export async function restoreRevertedMessage(sessionId: string, messageId: string): Promise<void> {
-  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
   if (!getRevertNavigation(sessionId)) throw new Error('No reverted conversation is available to restore.');
   await store().navigate(sessionId, messageId);
 }
 
 export async function unrevertSession(sessionId: string): Promise<void> {
-  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
   const target = getRevertNavigation(sessionId)?.previousLeafId;
   if (!target) throw new Error('No reverted conversation is available to restore.');
   await store().navigate(sessionId, target);
