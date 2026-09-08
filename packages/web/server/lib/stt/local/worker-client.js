@@ -6,26 +6,32 @@ import { applySherpaLoaderEnv } from './sherpa-loader.js';
 
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+const FORCE_KILL_MS = 1000;
 
 export class SttWorkerClient {
-  constructor({ idleShutdownMs = IDLE_SHUTDOWN_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+  constructor({ idleShutdownMs = IDLE_SHUTDOWN_MS, requestTimeoutMs = REQUEST_TIMEOUT_MS, forkWorker = fork, forceKillMs = FORCE_KILL_MS } = {}) {
     this.idleShutdownMs = idleShutdownMs;
     this.requestTimeoutMs = requestTimeoutMs;
+    this.forkWorker = forkWorker;
+    this.forceKillMs = forceKillMs;
     this.worker = null;
     this.pending = new Map();
     this.queue = Promise.resolve();
     this.idleTimer = null;
     this.stderrTail = '';
     this.intentional = new WeakSet();
+    this.terminated = false;
   }
 
   transcribe(input) {
+    if (this.terminated) return Promise.reject(new Error('STT worker shut down'));
     const operation = this.queue.catch(() => {}).then(() => this.request({ type: 'transcribe', ...input }));
     this.queue = operation;
     return operation;
   }
 
   request(message) {
+    if (this.terminated) return Promise.reject(new Error('STT worker shut down'));
     const worker = this.ensureWorker();
     const requestId = randomUUID();
     clearTimeout(this.idleTimer);
@@ -50,10 +56,11 @@ export class SttWorkerClient {
   }
 
   ensureWorker() {
+    if (this.terminated) throw new Error('STT worker shut down');
     if (this.worker?.connected && !this.worker.killed) return this.worker;
     const env = { ...process.env };
     applySherpaLoaderEnv(env);
-    const worker = fork(fileURLToPath(new URL('./worker-process.js', import.meta.url)), [], {
+    const worker = this.forkWorker(fileURLToPath(new URL('./worker-process.js', import.meta.url)), [], {
       env,
       execArgv: process.execArgv.filter((argument) => !argument.startsWith('--input-type')),
       serialization: 'advanced',
@@ -102,11 +109,12 @@ export class SttWorkerClient {
     if (!worker) return;
     this.intentional.add(worker);
     try { worker.disconnect(); } catch {}
-    const timer = setTimeout(() => { try { worker.kill(); } catch {} }, 1000);
+    const timer = setTimeout(() => { try { worker.kill(); } catch {} }, this.forceKillMs);
     timer.unref?.();
   }
 
   shutdown() {
+    this.terminated = true;
     clearTimeout(this.idleTimer);
     for (const pending of this.pending.values()) { clearTimeout(pending.timeout); pending.reject(new Error('STT worker shut down')); }
     this.pending.clear();
