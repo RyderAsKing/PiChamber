@@ -2,7 +2,9 @@ import type { Session } from '@/lib/chat/types';
 
 import type { ProjectEntry } from '@/lib/api/types';
 import { useUIStore } from '@/stores/useUIStore';
-import { resolveGlobalSessionDirectory, useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
+import { getPiSessionStore } from '@/apps/pi-session-store';
+import { liveSessionRecordToUiSession } from '@/sync/pi-session-catalog';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { useNotificationStore } from '@/sync/notification-store';
@@ -71,7 +73,15 @@ const projectLabelForDirectory = (directory: string | null, projects: ProjectEnt
 };
 
 export const buildMobileWidgetSnapshot = (): MobileWidgetSnapshot => {
-  const sessions = useGlobalSessionsStore.getState().activeSessions;
+  // Synchronous catalog read: the widget bridge cannot await a refresh.
+  // Pins, lifecycle order, unread counts, the 6-item cap, and the runtime
+  // stamp are preserved; only the session source moved off the wrapper.
+  const catalog = getPiSessionStore().getState().catalog;
+  const sessions: Session[] = [];
+  for (const record of catalog.byId.values()) {
+    if (record.archived) continue;
+    sessions.push(liveSessionRecordToUiSession(record));
+  }
   const unseenBySession = useNotificationStore.getState().index.session.unseenCount;
   const notifyOnSubtasks = useUIStore.getState().notifyOnSubtasks;
   const projects = useProjectsStore.getState().projects;

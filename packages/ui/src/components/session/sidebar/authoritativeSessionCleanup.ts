@@ -1,5 +1,5 @@
 import type { Session } from '@/lib/chat/types';
-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 
 type AuthoritativeSessionIdentity = {
   directory: string;

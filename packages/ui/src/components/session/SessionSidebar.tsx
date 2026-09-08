@@ -80,7 +80,7 @@ import {
 } from '@/sync/session-ordering';
 import {
   resolveGlobalSessionDirectory,
-} from '@/stores/useGlobalSessionsStore';
+} from '@/lib/chat/sessionDirectory';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useMobileAppActions } from '@/apps/mobileAppContext';

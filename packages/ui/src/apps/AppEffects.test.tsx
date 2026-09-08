@@ -66,7 +66,13 @@ mock.module('@/stores/useDirectoryStore', () => ({
 }));
 mock.module('@/stores/useConfigStore', () => ({ useConfigStore }));
 mock.module('@/lib/router/session-intent', () => ({ isNewSessionDraftActive: () => false }));
-mock.module('@/sync/pi-session-catalog-feeder', () => ({ PiSessionCatalogFeeder: () => null }));
+let feederRenderCount = 0;
+mock.module('@/sync/pi-session-catalog-feeder', () => ({
+  PiSessionCatalogFeeder: () => {
+    feederRenderCount += 1;
+    return null;
+  },
+}));
 mock.module('@/sync/worktree-discovery', () => ({ WorktreeDiscovery: () => null }));
 
 const installMinimalDom = () => {
@@ -129,6 +135,7 @@ afterEach(async () => {
   };
   currentDirectory = 'C:/repo';
   setDirectoryCalls = 0;
+  feederRenderCount = 0;
 });
 
 describe('SyncAppEffects directory bridge', () => {
@@ -144,5 +151,37 @@ describe('SyncAppEffects directory bridge', () => {
     });
 
     expect(setDirectoryCalls).toBe(0);
+  });
+});
+
+describe('catalog fill placement', () => {
+  test('common runtime includes feeder even when background cleanup is disabled (mini-chat path)', async () => {
+    const { SyncRuntimeEffects } = await import('./AppEffects');
+    const dom = installMinimalDom();
+    restoreDom.push(dom.restore);
+    const root = createRoot(dom.container);
+    roots.push(root);
+    feederRenderCount = 0;
+
+    await act(async () => {
+      root.render(<SyncRuntimeEffects embeddedBackgroundWorkEnabled={false} />);
+    });
+
+    expect(feederRenderCount).toBe(1);
+  });
+
+  test('full app mounts exactly one feeder (no duplicate via SyncAppEffects)', async () => {
+    const { SyncAppEffects } = await import('./AppEffects');
+    const dom = installMinimalDom();
+    restoreDom.push(dom.restore);
+    const root = createRoot(dom.container);
+    roots.push(root);
+    feederRenderCount = 0;
+
+    await act(async () => {
+      root.render(<SyncAppEffects embeddedBackgroundWorkEnabled={false} />);
+    });
+
+    expect(feederRenderCount).toBe(1);
   });
 });

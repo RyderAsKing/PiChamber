@@ -20,7 +20,9 @@ import type { RuntimeAPIs } from '@/lib/api/types';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { syncDesktopSettings } from '@/lib/persistence';
 import { startMobileErrorLogCapture } from '@/lib/mobile-error-log';
-import { refreshGlobalSessions, resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { loadSessionCatalog } from '@/sync/session-catalog-access';
+import { normalizePath } from '@/lib/pathNormalization';
+import { decideMobileRestore } from './mobileLastSessionRestore';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
@@ -353,34 +355,80 @@ export function MobileApp({ apis }: MobileAppProps) {
       setLastSessionRestorePending(false);
       return;
     }
+    // The persisted directory is demanded even when it is not a known
+    // project: it is the only scope that can authoritatively confirm the
+    // session still exists. Without it the restore cannot verify and must
+    // neither select nor clear.
+    const persistedDirectory = normalizePath(persisted.directory ?? null);
+    if (!persistedDirectory) {
+      lastSessionRestoreDoneRef.current = true;
+      setLastSessionRestorePending(false);
+      return;
+    }
+    const capturedStore = getPiSessionStore();
+    let capturedGeneration = 0;
+    try {
+      capturedGeneration = capturedStore.getRuntimeGeneration();
+    } catch {
+      capturedGeneration = 0;
+    }
     let cancelled = false;
     // Safety valve: the overlay must never strand the user on the splash if
     // the snapshot hangs — fall through to the draft after a bounded wait.
     const overlayTimeoutId = window.setTimeout(() => setLastSessionRestorePending(false), 6000);
     void (async () => {
-      // `null` = fetch failure — keep the ref unset so the next connect (a
-      // stale persisted isConnected can fire this early) retries the restore.
-      const snapshot = await refreshGlobalSessions().catch(() => null);
+      // Stale/failed loads keep the ref unset so the next connect retries.
+      // Only an authoritative `ready` for the persisted directory may
+      // select or clear; empty partial results never clear.
+      let result: Awaited<ReturnType<typeof loadSessionCatalog>> | null = null;
+      try {
+        result = await loadSessionCatalog([persistedDirectory]);
+      } catch {
+        result = null;
+      }
       if (cancelled) return;
-      if (!snapshot) {
+      if (!result) {
+        setLastSessionRestorePending(false);
+        return;
+      }
+      const currentStore = getPiSessionStore();
+      let currentGeneration = capturedGeneration;
+      try {
+        currentGeneration = currentStore.getRuntimeGeneration();
+      } catch {
+        currentGeneration = capturedGeneration;
+      }
+      const decision = decideMobileRestore({
+        persisted,
+        persistedDirectory,
+        stale: result.stale,
+        ready: result.readyDirectories.has(persistedDirectory),
+        catalog: result.catalog,
+        runtimeKey: getRuntimeKey(),
+        capturedRuntimeKey: runtimeKey,
+        storeIdentityMatches: currentStore === capturedStore,
+        generationMatches: currentGeneration === capturedGeneration,
+      });
+      if (decision.action === 'wait') {
         setLastSessionRestorePending(false);
         return;
       }
       lastSessionRestoreDoneRef.current = true;
-      const session = snapshot.activeSessions.find((entry) => entry.id === persisted.sessionId);
-      if (!session) {
-        // Authoritative snapshot says the session is gone (deleted/archived) —
-        // drop the stale pointer instead of retrying it on every launch.
+      if (decision.action === 'clear') {
+        // Authoritative ready scope says the session is gone
+        // (deleted/archived) — drop the stale pointer instead of retrying
+        // it on every launch.
         clearLastActiveSession(runtimeKey);
         setLastSessionRestorePending(false);
         return;
       }
       const latest = useSessionUIStore.getState();
+      if (getRuntimeKey() !== runtimeKey || getPiSessionStore() !== capturedStore) {
+        setLastSessionRestorePending(false);
+        return;
+      }
       if (!latest.currentSessionId) {
-        void latest.setCurrentSession(
-          session.id,
-          resolveGlobalSessionDirectory(session) ?? persisted.directory ?? undefined,
-        );
+        void latest.setCurrentSession(decision.sessionId, decision.directory);
       }
       setLastSessionRestorePending(false);
     })();

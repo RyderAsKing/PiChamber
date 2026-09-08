@@ -6,6 +6,13 @@
  * the per-directory refresh generation live in `pi-session-store.ts`
  * and `pi-session-catalog.ts`.
  *
+ * Mounted once via `SyncRuntimeEffects`, which every runtime shares (full
+ * app and mobile through `SyncAppEffects`, mini-chat directly), so
+ * cross-folder fill never depends on the retention/auto-delete preference.
+ * The mount itself is unconditional; readiness gating lives inside the
+ * effect (waits for `connection: 'ready'` and settled focus/list demand,
+ * re-subscribes on `chrome` so runtime resets revalidate).
+ *
  * Why a thin React wrapper:
  *
  * - Subscribe to `useProjectsStore` and `useWorktreeStore` once on mount.
@@ -15,10 +22,6 @@
  * - On every change in the project / worktree set, ask the store to
  *   refresh. The store's scheduler queues correctly even when calls
  *   overlap.
- *
- * Mini-chat uses `SyncRuntimeEffects` (no feeder); the global
- * `useGlobalSessionsStore.loadSessions` is its fill path until hooks
- * migrate, and that store calls through the same catalog owner.
  */
 
 import { useEffect } from 'react';

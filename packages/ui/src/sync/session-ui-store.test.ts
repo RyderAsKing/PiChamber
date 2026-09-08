@@ -575,3 +575,31 @@ describe('sendingNewSessionDraftId', () => {
     expect(useSessionUIStore.getState().sendingNewSessionDraftId).toBeNull();
   });
 });
+
+describe('getDirectoryForSession catalog fallback', () => {
+  test('returns the live byId directory without scanning active+archived lists', async () => {
+    const { piClient } = await import('@/lib/pi/client');
+    const original = piClient.listSessions;
+    piClient.listSessions = (async (scope: { directory?: string }) => {
+      if (scope.directory === '/fallback-dir') {
+        return {
+          sessions: [
+            { session: { id: 'fallback-1', directory: '/fallback-dir', title: 'Fallback', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+          ],
+        };
+      }
+      return { sessions: [] };
+    }) as typeof piClient.listSessions;
+    try {
+      getPiSessionStore().clear();
+      await getPiSessionStore().refreshDirectoryCatalog('/fallback-dir');
+      // No selection guess: the catalog row is the only authority.
+      useSessionUIStore.setState({ currentSessionId: null, currentSessionDirectory: null });
+      expect(useSessionUIStore.getState().getDirectoryForSession('fallback-1')).toBe('/fallback-dir');
+      expect(useSessionUIStore.getState().getDirectoryForSession('missing-id')).toBeNull();
+    } finally {
+      piClient.listSessions = original;
+      getPiSessionStore().clear();
+    }
+  });
+});

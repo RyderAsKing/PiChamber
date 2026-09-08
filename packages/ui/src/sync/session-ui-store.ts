@@ -21,7 +21,6 @@ import { isPiThinkingLevel } from "@/lib/pi/thinking"
 import { runtimeFetch } from "@/lib/runtime-fetch"
 import { useProjectsStore } from "@/stores/useProjectsStore"
 import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore"
-import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
 import { useSkillsStore } from "@/stores/useSkillsStore"
@@ -983,11 +982,14 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       selected,
     )
     if (resolved) return resolved
-    const globalStore = useGlobalSessionsStore.getState()
-    const globalSession = [...globalStore.activeSessions, ...globalStore.archivedSessions]
-      .find((s) => s.id === sessionId)
-    if (globalSession) return resolveGlobalSessionDirectory(globalSession)
-    return null
+    // Catalog-direct fallback: the live `byId` row already carries the
+    // authoritative normalized directory. No active+archived scan — the
+    // catalog is the single source, and a miss here is simply unknown.
+    try {
+      return getPiSessionStore().getState().catalog.byId.get(sessionId)?.directory ?? null;
+    } catch {
+      return null;
+    }
   },
 
   getLastUserChoice: (sessionId) => {

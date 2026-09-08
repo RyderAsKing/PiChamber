@@ -14,13 +14,13 @@ There are **two distinct session data scopes** in the UI:
    - Backed by `/api/pi/*` and the Pi event stream
    - Read via hooks like `useSessions()`, `useSessionMessageRecords()`, `getSyncSessions()`
 
-2. **Global sessions cache**
-   - Owned by `packages/ui/src/stores/useGlobalSessionsStore.ts`
-   - Shared source of truth for the Sessions sidebar global lists and Session Retention cleanup
-   - Holds:
-     - global active sessions
-     - global archived sessions
-     - active sessions indexed by directory
+2. **Global sessions cache (retired)**
+   - Formerly `packages/ui/src/stores/useGlobalSessionsStore.ts`; deleted.
+   - Former consumers now read the live catalog directly:
+     retention cleanup via `loadSessionCatalog` + `partitionCleanupCandidates`,
+     mobile restore via `loadSessionCatalog([persistedDirectory])` +
+     `decideMobileRestore`, the widget via synchronous `catalog.byId`, and
+     `session-ui-store` via `catalog.byId` directory lookup.
 
 These two scopes are intentionally different, but they are no longer equal peers for live UI truth.
 
@@ -36,8 +36,9 @@ The Pi runtime-scoped store is **not** a complete global view.
 So:
 
 - Use the **Pi runtime-scoped store** for live session/message state on the connected runtime, including background busy sessions the focused folder does not own
-- Use the **global sessions store** for cold/global session coverage (especially archived pages and unopened directories)
+- Use the **global sessions store** (retired; deleted) for cold/global session coverage (especially archived pages and unopened directories)
 - Use the **Pi live catalog and the global live status index** for live truth across known directories
+- Retention cleanup, mobile restore, the widget, and `session-ui-store` directory lookup read the catalog directly (see Wrapper contract (retired) and Catalog access boundary).
 
 ### Runtime-scoped sessions
 
@@ -77,7 +78,7 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
-| `useGlobalSessionsStore.ts` | Thin wrapper that reads the catalog via `liveSessionRecordToUiSession`; retains `upsertSession` / `removeSessions` / `archiveSessions` / `applySnapshot` / `resetForRuntimeSwitch` until `migrate-hooks` retires it | Derived view of the catalog; mutations for retained callers |
+| `useGlobalSessionsStore.ts` (retired, deleted) | Former thin wrapper around the catalog; `upsertSession` / `removeSessions` / `archiveSessions` / `applySnapshot` / `resetForRuntimeSwitch` removed with it. Retention cleanup, mobile restore, the widget, and directory lookup now call the catalog owner directly. | — |
 | `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set. Dedupe is case-insensitive; returned paths keep filesystem casing for daemon list RPC | App-wide |
 | `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
@@ -124,7 +125,7 @@ catalog.listStatusByDirectory:   Map<directory, 'idle'|'loading'|'ready'|'failed
 
 On browser startup, `PiSessionStore` reads `pi-session-catalog-cache.ts` before mounting catalog consumers. The cache stores stable sidebar metadata only. Restored records always use `lifecycle: 'idle'`, `hydrated: false`, and per-directory list status `'idle'`; historical cache data can render a warm sidebar but can never claim current activity or completeness. Missing and malformed runtime snapshots remain distinct from a valid cached empty directory. The cache is keyed by runtime identity, retains at most four recent runtimes and 2,000 rows, coalesces writes for 250 ms, and flushes on runtime switch and browser lifecycle suspension. Storage failure is an accepted loss of this convenience cache because the network fill remains authoritative.
 
-`PiSessionCatalogFeeder` is the only direct caller of `PiSessionStore.refreshAllDirectoryCatalogs` from React. It subscribes to both `useProjectsStore` (project roots) and `useWorktreeStore` (authoritatively discovered linked-worktree paths). On every change in the union it:
+`PiSessionCatalogFeeder` is the only direct caller of `PiSessionStore.refreshAllDirectoryCatalogs` from React. It renders once via `SyncRuntimeEffects` — shared by the full app and mobile through `SyncAppEffects` and by mini-chat directly — unconditionally, so cross-folder fill never depends on the retention/auto-delete preference. It subscribes to both `useProjectsStore` (project roots) and `useWorktreeStore` (authoritatively discovered linked-worktree paths). On every change in the union it:
 
 1. Computes the sorted directory-set signature.
 2. Skips the refresh when the signature has not changed (project-list reorders and worktree discovery that yields the same paths must not re-list).
@@ -133,13 +134,29 @@ On browser startup, `PiSessionStore` reads `pi-session-catalog-cache.ts` before 
 
 `refreshDirectoryCatalog` is the single fill primitive. It captures a per-directory generation, bumps it on every call, and ignores stale completions (a slow RPC returning after a newer refresh has begun, or after a runtime switch, commits nothing). Every list/focus/open commit also captures a catalog baseline at operation start and reconciles through `applyDirectoryListWithReconciliation` (see Membership rules), so true `title`/`archived` mutations newer than the list start survive without rejecting unrelated complete entities, while lifecycle/hydration-only changes take the listing's authoritative metadata. Delete tombstones live only while at least one list is in flight and are cleared when the last list settles; a delete before any list started is not tombstoned and relies on authoritative disappearance rather than retained history; runtime resets clear tombstones. After a successful directory commit the catalog owner raises frozen session-ordering baselines for that directory's active rows (monotonic, live ranks never demoted). Stale async `archive`/`rename`/`fork`/`clone` completions are rejected by runtime-generation/key guards and mutate nothing on the new runtime. The at-most-2-in-flight scheduler is owned by `pi-session-catalog.ts` (`mapDirectoriesWithRefreshSlot` uses `mapWithConcurrency(2)`; the older nested `withDirectoryRefreshSlot` is exported only for direct callers and must not be re-nested — two limiters can deadlock).
 
-### Wrapper contract (until retire-duplicates)
+### Wrapper contract (retired — deleted)
 
-`useGlobalSessionsStore` remains a thin wrapper for retention/pin metadata and mini-chat fill. Sidebar, header, command palette, archive, and mobile session lists read `catalog.byId` / `catalog.byDirectory` through `useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is the focused directory slice; `getSyncSessions()` is the runtime-wide active catalog.
+`useGlobalSessionsStore` was deleted after the remaining stateful consumers
+migrated to the catalog. Sidebar, header, command palette, archive, and mobile
+session lists read `catalog.byId` / `catalog.byDirectory` through
+`useCatalogUiSessions` / `useSession` / `useSessionStatus`. `useSessions()` is
+the focused directory slice; `getSyncSessions()` is the runtime-wide active catalog.
+
+Retention cleanup (`useSessionAutoCleanup`) reads runtime-wide active rows on
+the `catalog` topic via `listUiSessionsFromCatalog`, computes newest-5
+protection against all known active rows, then mutates only `ready`-directory
+candidates through the catalog owner with per-action runtime/generation guards.
+Mobile restore loads `loadSessionCatalog([persistedDirectory])` and selects or
+clears only on an authoritative `ready` scope. The widget reads `catalog.byId`
+synchronously. `session-ui-store` falls back to `catalog.byId` directory lookup.
 
 `listUiSessionsFromCatalog` treats an omitted or `undefined` `directory` as runtime-wide. `null` or `''` is an empty focused slice (`useSessions()` when the cluster has no directory). A non-empty string is that directory's membership; only a home-directory focus merges the literal `~` and expanded-home aliases. The React hook always passes `{ archived, directory }`, so `undefined` must not be treated as empty.
 
-The wrapper still skips sync when the focused folder's list is still in flight (`connection === 'loading'`, `focusPending`, or `sessionsListStatus` `'loading'`/`'idle'`). Mini-chat (no feeder) still reaches `loadSessions`. `fetchDirectoryPages` reads `'ready'` directories from the catalog and only refreshes `'idle'` / `'failed'` directories.
+The feeder waits while the focused folder's list is still in flight (`connection === 'loading'`, `focusPending`, or `sessionsListStatus` `'loading'`/`'idle'`). Every runtime mounts the feeder via `SyncRuntimeEffects` (full app, mobile, and mini-chat); on-demand `loadSessionCatalog` remains the read path for retention and mobile-restore callers. `fetchDirectoryPages` reads `'ready'` directories from the catalog and only refreshes `'idle'` / `'failed'` directories.
+
+### Catalog access boundary (`session-catalog-access.ts`)
+
+`loadSessionCatalog(directories?)` is the lightweight read path that replaces `useGlobalSessionsStore.loadSessions` completeness checks. It owns no list/store: no derived active/archived arrays, mutation overlays, subscriptions, or persisted cache. With no `directories` it collects project roots plus worktrees via `buildKnownSessionDirectories`, the focused Pi directory, and home candidates (feeder precedent; literal `~` excluded except explicit focused demand). It calls `refreshAllDirectoryCatalogs` only for scopes not already `'ready'` (warm `idle` never complete), then reports the committed `catalog`, `readyDirectories`, `failedDirectories`, `complete` (every requested scope `ready`), and `stale` (runtime key, store identity, or generation changed mid-load; stale forces `complete=false` so consumers do not act). One failed directory keeps its visible rows but never blocks other ready scopes. It never changes folder focus or selection. UI session directory ownership resolves via `lib/chat/sessionDirectory.ts` `resolveGlobalSessionDirectory` (`normalizePath(directory) ?? normalizePath(project.worktree)`).
 
 ### Failure handling
 
@@ -199,13 +216,13 @@ Persisted sidebar state is never reconciled destructively from the first success
 
 Session materialization recency is keyed by runtime and directory. Foreground loads and successful prefetches participate in the same bounded per-directory session LRU. Prefetch pagination metadata has a global count ceiling and is removed with session eviction, directory disposal, loader runtime reconfiguration, and loader disposal.
 
-### Global session list
+### Global session list (retired)
 
-Use `useGlobalSessionsStore` when the UI needs a **shared global session cache**.
-
-Current consumers:
-
-- `useSessionAutoCleanup.ts`
+The shared global session cache was deleted. For a runtime-wide active view
+use the catalog directly (`listUiSessionsFromCatalog(catalog, { archived: false })`
+or `getSyncSessions()`); for retention cleanup use `loadSessionCatalog()` +
+`buildAutoDeleteCandidates` + `partitionCleanupCandidates` (see Wrapper contract
+(retired)).
 
 ### Live cross-directory session/status view
 
@@ -244,25 +261,16 @@ Imperative cross-directory session lookups use the cached ID index from `getAllS
 
 Permission handling is server-owned. Pi follows its normal no-permission-popup default. The former no-op permission/question sync hooks (`useSessionPermissions`, `useSessionQuestions`, `useSessionQuestionCount`, `useScopedBlockingPermissions`, `useScopedBlockingQuestions`, `useParentSession`), dismissal helpers, optimistic bridge, and constant `global-sync-store` were removed without replacement; blocking user prompts remain served by Pi extension dialogs. A disconnected client does not invent a reply or claim that a request was resolved.
 
-### Mutation responsibility
+### Mutation responsibility (retired wrapper)
 
-`useGlobalSessionsStore` is kept correct by:
+The catalog owner (`PiSessionStore`) is the single mutation authority; the
+former `useGlobalSessionsStore` fetch/reconciliation and mirror mutations were
+deleted with it. Retention cleanup threads each session's owning directory via
+`resolveGlobalSessionDirectory` (canonical `lib/chat/sessionDirectory.ts`), the
+committed catalog, and per-directory `ready` authority — never the focused
+directory alone.
 
-1. shared global fetch/reconciliation via `loadSessions()` / `refreshGlobalSessions()`
-2. session create/update/delete events; recency-only updates for existing sessions are retained latest-per-session and committed once on `session.idle`/`session.error`, while structural updates and create/delete remain immediate and runtime switching discards pending updates. Display ordering reacts separately to active/settled lifecycle transitions, not to these recency publications
-3. direct mutation from session actions after successful SDK calls:
-   - create
-   - title update
-   - share
-   - unshare
-    - archive
-    - delete
-    - move to another worktree directory
-   - retention cleanup batch archive/delete (threads each session's owning directory via `resolveGlobalSessionDirectory`, the catalog, then the focused slice — never the focused directory alone, so cross-folder cleanup verifies membership against the correct daemon listing)
-
-This keeps cold/global lists responsive without requiring a refetch after every change.
-
-Live activity/status indicators must not depend on this cache. They must use the event/snapshot-reconciled global live status index.
+Live activity/status indicators must not depend on a cached list. They must use the event/snapshot-reconciled global live status index.
 
 `usePiSessionSnapshot` caches by store snapshot identity. Selectors that close over a session or message id will keep returning the previous entity when the store has not emitted. Subscribe to the collection (`reducer.bySession`, `sessions`, `hydratedSessionIds`) and look the id up in the hook body.
 
@@ -348,7 +356,7 @@ Session actions live in `session-actions.ts` and are the canonical place for SDK
 
 Rules:
 
-1. If an action mutates session list membership or visible session metadata, update `useGlobalSessionsStore` there.
+1. If an action mutates session list membership or visible session metadata, commit through the catalog owner (`PiSessionStore`); the deleted wrapper mirror is gone.
 2. If an action targets a session by ID, resolve the **session's own directory**. Do not assume the current directory is correct.
 3. `session-ui-store.ts` should delegate to `session-actions.ts` for these mutations instead of duplicating SDK calls.
 4. Sending after a revert commits the new branch optimistically: remove the reverted tail and marker before inserting the new message, and restore both if the send is rejected.
@@ -358,7 +366,7 @@ Rules:
 8. After session creation, the directory returned by the server is authoritative over the requested draft directory. The server may canonicalize a worktree path, and the first prompt must use the same directory identity as the created session.
 9. A prompt send that fails **after** the request left the client is ambiguous, never a definite failure: the server may already be answering it. Transports tag those errors (`markAmbiguousTransportFailure` in `@/lib/relay/transport-error`; the relay tunnel tags every stream that dies with a request in flight), and `isAmbiguousSendFailure` reads the tag before falling back to status/text heuristics. An ambiguous failure waits for the connection to return, refetches recent messages, and confirms the optimistic message in place instead of rolling it back — rolling it back lets the message queue re-send a prompt the engine is already running, producing two independent AI responses for one user message.
 
-Examples of global-store updates performed in `session-actions.ts`:
+Examples of catalog-owner updates performed in `session-actions.ts` (via `PiSessionStore`, never a wrapper mirror):
 
 - `createSession()` -> `upsertSession(session)`
 - `updateSessionTitle()` -> `upsertSession(result.data)`
@@ -366,7 +374,7 @@ Examples of global-store updates performed in `session-actions.ts`:
 - `archiveSession()` / `archiveSessions()` -> wait for server confirmation, then upsert each archived session
 - `unarchiveSession()` / `unarchiveSessions()` -> wait for server confirmation, then upsert each restored session
 - `deleteSession()` / `deleteSessions()` -> wait for server confirmation or `404`, then remove the session and its persisted state
-- `moveSessionToDirectory()` -> move the session between directory stores and update the global directory index
+- `moveSessionToDirectory()` -> move the session between directory stores; the catalog owner updates membership
 
 ### Restore (unarchive) contract
 
@@ -379,13 +387,13 @@ so `0` reads as active in the UI, the event reducer, and Pi clients.
 
 The server's `time_archived IS NULL` list filter still excludes such rows, so
 any query that wants a truthful active list must fetch inclusively
-(`archived: true`) and split client-side (`splitGlobalSessionsByArchived`).
-The global sessions store does this for its full and per-directory loads;
-directory bootstrap keeps using the server filter because live child stores
+(`archived: true`) and split client-side by truthiness of `time.archived`
+(the catalog classifies `timeArchived > 0` as archived, so `0` stays active).
+Directory bootstrap keeps using the server filter because live child stores
 must not hold archived sessions. A restored session re-enters its live
 directory store through the authoritative `session.updated` event the server
 publishes for the update; until then it remains fully visible through the
-global store (sidebar, switcher) and addressable by ID (message loading).
+catalog (sidebar, switcher) and addressable by ID (message loading).
 
 Archive and delete actions capture the active runtime key when they start and
 recheck it before every store reconciliation, so a response

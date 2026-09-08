@@ -52,7 +52,11 @@ export function SyncRuntimeEffects({ embeddedBackgroundWorkEnabled }: {
   useSessionAutoCleanup(embeddedBackgroundWorkEnabled);
   useQueuedMessageAutoSend(embeddedBackgroundWorkEnabled);
 
-  return null;
+  // Catalog fill is intentional background coverage, not retention work:
+  // every runtime (full app, mobile, mini-chat) mounts this component, so
+  // the feeder stays unconditional here and never couples to the
+  // auto-delete preference or `embeddedBackgroundWorkEnabled`.
+  return <PiSessionCatalogFeeder />;
 }
 
 /**
@@ -188,7 +192,6 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
       <PiSessionBootstrapBridge />
       <MiniChatPresenceBridge />
       <WorktreeDiscovery />
-      <PiSessionCatalogFeeder />
     </>
   );
 }

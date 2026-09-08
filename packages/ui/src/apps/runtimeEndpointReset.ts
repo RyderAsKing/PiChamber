@@ -2,7 +2,6 @@ import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
 import { disposeTerminalInputTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { useGlobalSessionsStore } from '@/stores/useGlobalSessionsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { usePermissionStore } from '@/stores/permissionStore';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
@@ -61,9 +60,9 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
     lastDisconnectReason: null,
   });
   useProjectsStore.getState().resetForRuntimeSwitch();
-  // Cross-project session list (mobile sessions sheet & co) belongs to the
-  // previous instance — drop it so stale sessions can't linger after a switch.
-  useGlobalSessionsStore.getState().resetForRuntimeSwitch();
+  // Global-list isolation is owned by PiSessionStore (`resetForRuntime` via
+  // the runtime-endpoint subscription clears the catalog, generations, and
+  // tombstones). No wrapper reset remains.
   useGlobalSessionStatusStore.setState({ statusById: new Map() });
   resetSessionOrdering();
   // Turn timings belong to the previous instance's sessions, and the reset also
