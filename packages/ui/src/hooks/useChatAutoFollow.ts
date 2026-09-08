@@ -482,7 +482,6 @@ export const useChatAutoFollow = ({
         onAnimationStart: () => {},
         onAnimatedHeightChange: kick,
         onReservationCancelled: () => {},
-        onReasoningBlock: () => {},
       };
       animationHandlersRef.current.set(messageId, handlers);
       return handlers;

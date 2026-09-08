@@ -8,7 +8,7 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - Message parts are rendered from `MessageBody.tsx`.
 - `MessageBody.tsx` owns message-level orchestration only. User subtask/shell rendering lives in `../UserAuxiliaryParts.tsx` with pure classification in `../userAuxiliaryPartsModel.ts`; assistant copy/fork/revert/save-image controls live in `../AssistantMessageActionButtons.tsx`.
-- The assistant response body (`../AssistantMessageBody.tsx`) renders final text, the error notice, attachments, and the turn footer only. It renders no tool or reasoning rows; justification text projected to the activity rail is suppressed from the response body.
+- The assistant response body (`../AssistantMessageBody.tsx`) renders final text, the error notice, attachments, and the turn footer only. It renders no tool or reasoning rows. ChatMessage's `filterAssistantFinalParts` removes tool, reasoning, and rail-projected justification parts before the body mounts, so the body receives already-filtered final parts and performs no tool/reasoning/justification scanning of its own; its render loop only skips remaining non-text part kinds (for example step-start markers).
 - Turn activity is projected once by `components/TurnActivityRail.tsx`, which keeps reasoning, progress text, and tools in one chronological disclosure rail across all assistant records. The rail is the only tool/reasoning renderer; per-message tool disclosure state lives in `../useTurnToolsState.ts`.
 - Tool rendering has two presentation layers inside that rail:
   - **Static tools** -> `StaticToolRow.tsx`
@@ -50,6 +50,9 @@ Use this doc when you ask an agent to change tool/header/description behavior.
 
 - `ReasoningPart.tsx`
   - Thinking block UI (`ReasoningTimelineBlock`), summary + optional duration.
+
+- `../useAssistantMessageLifecycle.ts`
+  - Owns assistant response-body footer/timing lifecycle: footer animation gate (live-to-settled mounted turns only), duration/timestamp text, completion state, and the loopback preview URL derived from final text. Tool/reasoning hold and completion bookkeeping was removed because the filtered final-parts contract guarantees tool and reasoning parts never reach the body; the activity rail owns that lifecycle.
 
 - `../useTurnToolsState.ts`
   - Owns tool disclosure state for the turn-level rail while preserving the per-message expansion caches.

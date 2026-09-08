@@ -26,7 +26,6 @@ export interface MessageBodyProps {
   hasTextContent?: boolean;
   onCopyMessage?: () => void | boolean | Promise<void | boolean>;
   copiedMessage?: boolean;
-  onAuxiliaryContentComplete?: () => void;
   agentMention?: AgentMentionInfo;
   turnGroupingContext?: TurnGroupingContext;
   errorMessage?: string;

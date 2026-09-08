@@ -214,10 +214,9 @@ mock.module('@/lib/configSync', () => ({
 }));
 
 // Sync-refs stub for config-store tests. The remaining exports mirror the real
-// stub's surface so unrelated importers keep working.
+// module's surface so unrelated importers keep working.
 
 mock.module('@/sync/sync-refs', () => ({
-  setSyncRefs: () => {},
   getDirectoryState: () => undefined,
   getSyncSessions: () => [],
   getAllSyncSessions: () => [],

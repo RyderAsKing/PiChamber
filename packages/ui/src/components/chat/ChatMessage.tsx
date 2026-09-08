@@ -256,21 +256,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return 'completed';
   }, [activeStreamingPhase, isInActiveTurn, isMessageCompleted]);
 
-  const hasReasoningParts = React.useMemo(() => {
-    if (isUser) {
-      return false;
-    }
-    return displayParts.some((part) => part.type === 'reasoning');
-  }, [displayParts, isUser]);
-
-  const { hasAnnouncedAuxiliaryScrollRef } = useChatMessageAnimation({
+  useChatMessageAnimation({
     message,
     isUser,
     sessionId,
     streamPhase,
     assistantTextParts,
     shouldCoordinateRendering,
-    hasReasoningParts,
     animationHandlers,
     messageContainerRef,
   });
@@ -327,17 +319,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return true;
   }, [isUser, messageTextContent]);
 
-  const handleAuxiliaryContentComplete = React.useCallback(() => {
-    if (isUser) {
-      return;
-    }
-    if (hasAnnouncedAuxiliaryScrollRef.current) {
-      return;
-    }
-    hasAnnouncedAuxiliaryScrollRef.current = true;
-    onContentChange?.('structural');
-  }, [hasAnnouncedAuxiliaryScrollRef, isUser, onContentChange]);
-
   if (shouldHideUserMessage || shouldHideEmptyAssistant) {
     return null;
   }
@@ -361,7 +342,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     hasTextContent,
     onCopyMessage: handleCopyMessage,
     copiedMessage,
-    onAuxiliaryContentComplete: handleAuxiliaryContentComplete,
     agentMention,
     errorMessage: assistantErrorText,
     errorVariant: assistantErrorVariant,
@@ -437,7 +417,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 hasTextContent={hasTextContent}
                 onCopyMessage={handleCopyMessage}
                 copiedMessage={copiedMessage}
-                onAuxiliaryContentComplete={handleAuxiliaryContentComplete}
                 agentMention={agentMention}
                 turnGroupingContext={turnGroupingContext}
                 errorMessage={assistantErrorText}

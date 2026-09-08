@@ -3,7 +3,6 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { Message, Session, SessionStatus } from '@/lib/chat/types';
 import { listLiveSessionRecordsFromCatalog, listUiSessionsFromCatalog } from './pi-session-catalog';
 
-export function setSyncRefs() {}
 export function getDirectoryState(...args: unknown[]): {
   session_status: Record<string, SessionStatus>;
   message: Record<string, Message[]>;

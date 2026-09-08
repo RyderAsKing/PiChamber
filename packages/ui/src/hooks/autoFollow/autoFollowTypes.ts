@@ -10,7 +10,6 @@ export interface AnimationHandlers {
   onStreamingCandidate?: () => void;
   onAnimationStart?: () => void;
   onReservationCancelled?: () => void;
-  onReasoningBlock?: () => void;
   onAnimatedHeightChange?: (height: number) => void;
 }
 

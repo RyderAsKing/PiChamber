@@ -47,7 +47,6 @@ export const AssistantMessageBody = React.memo(
     onContentChange,
     hasTextContent = false,
     onCopyMessage,
-    onAuxiliaryContentComplete,
     turnGroupingContext,
     errorMessage,
     errorVariant = 'error',
@@ -72,15 +71,6 @@ export const AssistantMessageBody = React.memo(
     const visibleParts = React.useMemo(() => {
       return filterRenderableAssistantParts(parts);
     }, [parts]);
-    const activityTextPartIds = React.useMemo(() => {
-      const ids = new Set<string>();
-      for (const activity of turnGroupingContext?.activityParts ?? []) {
-        if (activity.kind === 'justification') {
-          ids.add(activity.id);
-        }
-      }
-      return ids;
-    }, [turnGroupingContext?.activityParts]);
 
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -99,7 +89,6 @@ export const AssistantMessageBody = React.memo(
       turnDurationText,
       footerTimestamp,
     } = useAssistantMessageLifecycle({
-      messageId,
       visibleParts,
       isMessageCompleted,
       messageFinish,
@@ -111,8 +100,6 @@ export const AssistantMessageBody = React.memo(
       isMobile,
       isMiniChatSurface,
       timeFormatPreference,
-      onAuxiliaryContentComplete,
-      onContentChange,
     });
 
     const effectiveStreamPhase: StreamPhase = hasStopFinish ? 'completed' : streamPhase;
@@ -158,21 +145,15 @@ export const AssistantMessageBody = React.memo(
     const renderedParts = React.useMemo(() => {
       const rendered: React.ReactNode[] = [];
 
-      // The response body renders final text only. Tool, reasoning, and
-      // progress rows are owned by the shared turn activity rail; justification
-      // text projected to the rail is suppressed here so it never also renders
-      // as response content.
+      // The response body renders final text only. ChatMessage already
+      // removed tool, reasoning, and rail-projected justification parts via
+      // filterAssistantFinalParts; this loop only skips any remaining
+      // non-text part kinds (for example step-start markers).
       let i = 0;
       while (i < visibleParts.length) {
         const part = visibleParts[i];
 
         if (part.type !== 'text') {
-          i++;
-          continue;
-        }
-
-        const partId = part.id ?? `${messageId}-part-${i}-${part.type}`;
-        if (activityTextPartIds.has(partId)) {
           i++;
           continue;
         }
@@ -198,7 +179,6 @@ export const AssistantMessageBody = React.memo(
 
       return rendered;
     }, [
-      activityTextPartIds,
       messageId,
       sessionId,
       onContentChange,

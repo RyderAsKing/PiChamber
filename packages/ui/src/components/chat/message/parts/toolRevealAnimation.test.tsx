@@ -189,13 +189,6 @@ describe('footer stability across sends', () => {
 });
 
 describe('assistant response body', () => {
-  const mkTool = (id: string, status: string) => ({
-    id,
-    type: 'tool',
-    tool: 'read',
-    state: { status, input: { filePath: 'src/a.ts' }, metadata: {} },
-  });
-
   const base = {
     sessionId: 's',
     messageId: 'm1',
@@ -221,73 +214,41 @@ describe('assistant response body', () => {
     isWorking: false,
   } as never;
 
-  test('response never double-renders rail activities: tool and reasoning parts render nothing while text survives', () => {
+  test('already-filtered final parts: text renders while non-text part kinds stay silent', () => {
     const markup = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
         parts={[
-          mkTool('tp1', 'completed'),
-          mkTool('tp2', 'completed'),
+          { id: 'step-1', type: 'step-start', text: 'internal step marker' },
           { id: 'tx', type: 'text', text: 'The next step is ready.' },
-          { id: 'tr', type: 'reasoning', text: 'hidden reasoning trace' },
-          mkTool('tp3', 'completed'),
-          mkTool('tp4', 'completed'),
         ] as never}
-        turnGroupingContext={ctxWorking}
+        turnGroupingContext={ctxIdle}
       />,
     );
 
-    // Interleaved tool rows and reasoning blocks are owned by the turn
-    // activity rail; the response body renders the final text only.
+    // The response body renders the final text only. ChatMessage already
+    // removed tool/reasoning/justification parts (pipeline-covered in
+    // ChatMessage.assistantPartsPipeline.test.tsx); any remaining non-text
+    // part kind (e.g. step-start markers) contributes no visible content.
     expect(markup).toContain('The next step is ready.');
-    expect(markup).not.toContain('data-tool-call-group="true"');
-    expect(markup).not.toContain('tool call');
-    expect(markup).not.toContain('Expand reasoning trace');
-    expect(markup).not.toContain('hidden reasoning trace');
-    expect(markup).not.toContain('src/a.ts');
+    expect(markup).not.toContain('internal step marker');
   });
 
-  test('justification text projected to the rail is suppressed from the response body', () => {
-    const justificationCtx = {
-      ...(ctxWorking as unknown as Record<string, unknown>),
-      activityParts: [
-        {
-          id: 'just-1',
-          turnId: 't',
-          messageId: 'm1',
-          partIndex: 0,
-          kind: 'justification',
-          part: { id: 'just-1', type: 'text', text: 'I will now inspect the failing test.' },
-        },
-      ],
-    } as never;
-    const markup = renderToStaticMarkup(
-      <AssistantMessageBody
-        {...base}
-        parts={[
-          { id: 'just-1', type: 'text', text: 'I will now inspect the failing test.' },
-          { id: 'answer', type: 'text', text: 'Here is the fix.' },
-        ] as never}
-        turnGroupingContext={justificationCtx}
-      />,
-    );
-
-    expect(markup).not.toContain('I will now inspect the failing test.');
-    expect(markup).toContain('Here is the fix.');
-  });
-
-  test('no footer mounts while the turn is working, however many batches land', () => {
+  test('no footer mounts while the turn is working, however many text batches land', () => {
     const one = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
-        parts={[mkTool('tp1', 'running')] as never}
+        parts={[{ id: 'tx1', type: 'text', text: 'first batch' }] as never}
         turnGroupingContext={ctxWorking}
       />,
     );
     const two = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
-        parts={[mkTool('tp1', 'completed'), mkTool('tp2', 'running')] as never}
+        parts={[
+          { id: 'tx1', type: 'text', text: 'first batch' },
+          { id: 'tx2', type: 'text', text: 'second batch' },
+        ] as never}
         turnGroupingContext={ctxWorking}
       />,
     );
@@ -303,7 +264,7 @@ describe('assistant response body', () => {
         messageFinish="stop"
         hasTextContent
         footerModelName="Claude"
-        parts={[{ id: 'tx', type: 'text', text: 'done' }, mkTool('tp1', 'completed')] as never}
+        parts={[{ id: 'tx', type: 'text', text: 'done' }] as never}
         turnGroupingContext={ctxIdle}
       />,
     );

@@ -107,7 +107,6 @@ export const MessageRow = React.memo<MessageRowProps>(
       prev.animationHandlers?.onAnimationStart === next.animationHandlers?.onAnimationStart &&
       prev.animationHandlers?.onReservationCancelled ===
         next.animationHandlers?.onReservationCancelled &&
-      prev.animationHandlers?.onReasoningBlock === next.animationHandlers?.onReasoningBlock &&
       prev.animationHandlers?.onAnimatedHeightChange ===
         next.animationHandlers?.onAnimatedHeightChange
     );

@@ -1,14 +1,21 @@
 import React from 'react';
-import type { Part, ToolPart as ToolPartType } from '@/lib/chat/types';
+import type { Part } from '@/lib/chat/types';
 import type { TurnGroupingContext } from '../lib/turns/types';
-import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { TimeFormatPreference } from '@/stores/useUIStore';
 import { extractLoopbackUrls } from '@/lib/url';
 import { formatTurnDuration } from './turnDuration';
 import { formatTimestampForDisplay } from './timeFormat';
 
+/**
+ * Footer/timing lifecycle for the assistant response body.
+ *
+ * The response body receives already-filtered final parts
+ * (`filterAssistantFinalParts` in ChatMessage): tool, reasoning, and
+ * rail-projected justification parts never reach this hook, so its only
+ * concerns are the turn footer animation gate, duration/timestamp text,
+ * completion state, and the loopback preview URL advertised by final text.
+ */
 export function useAssistantMessageLifecycle({
-  messageId,
   visibleParts,
   isMessageCompleted,
   messageFinish,
@@ -20,10 +27,7 @@ export function useAssistantMessageLifecycle({
   isMobile,
   isMiniChatSurface,
   timeFormatPreference,
-  onAuxiliaryContentComplete,
-  onContentChange,
 }: {
-  messageId: string;
   visibleParts: Part[];
   isMessageCompleted: boolean;
   messageFinish?: string;
@@ -35,19 +39,9 @@ export function useAssistantMessageLifecycle({
   isMobile: boolean;
   isMiniChatSurface: boolean;
   timeFormatPreference: TimeFormatPreference;
-  onAuxiliaryContentComplete?: () => void;
-  onContentChange?: (reason?: ContentChangeReason, messageId?: string) => void;
 }) {
-  const toolParts = React.useMemo(() => {
-    return visibleParts.filter((part): part is ToolPartType => part.type === 'tool');
-  }, [visibleParts]);
-
   const assistantTextParts = React.useMemo(() => {
     return visibleParts.filter((part) => part.type === 'text');
-  }, [visibleParts]);
-
-  const reasoningParts = React.useMemo(() => {
-    return visibleParts.filter((part) => part.type === 'reasoning');
   }, [visibleParts]);
 
   const messagePreviewUrl = React.useMemo(() => {
@@ -66,21 +60,8 @@ export function useAssistantMessageLifecycle({
       }
       return url.includes('0.0.0.0') ? url.replace('0.0.0.0', '127.0.0.1') : url;
     }
-    for (const part of toolParts) {
-      const state = (part as unknown as { state?: unknown }).state as Record<string, unknown> | undefined;
-      const output = state && typeof state.output === 'string' ? state.output : null;
-      if (!output) {
-        continue;
-      }
-      // eslint-disable-next-line no-control-regex
-      const url = extractLoopbackUrls(output.replace(/\x1b\[[0-9;]*m/g, ''))[0];
-      if (!url) {
-        continue;
-      }
-      return url.includes('0.0.0.0') ? url.replace('0.0.0.0', '127.0.0.1') : url;
-    }
     return null;
-  }, [assistantTextParts, isMobile, isMiniChatSurface, toolParts]);
+  }, [assistantTextParts, isMobile, isMiniChatSurface]);
 
   const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
   const isTurnWorking = Boolean(turnGroupingContext?.isWorking);
@@ -93,124 +74,6 @@ export function useAssistantMessageLifecycle({
 
   const hasStopFinish = messageFinish === 'stop' || (isMessageCompleted && !errorMessage);
   const awaitingMessageCompletion = !isMessageCompleted;
-  const hasTools = toolParts.length > 0;
-
-  const hasPendingTools = React.useMemo(() => {
-    return toolParts.some((toolPart) => {
-      const state = ((toolPart as Record<string, unknown>).state as Record<string, unknown> | undefined) ?? {};
-      const status = state?.status;
-      return status === 'pending' || status === 'running' || status === 'started';
-    });
-  }, [toolParts]);
-
-  const isToolFinalized = React.useCallback((toolPart: ToolPartType) => {
-    const state = ((toolPart as Record<string, unknown>).state as Record<string, unknown> | undefined) ?? {};
-    const status = state?.status;
-    if (status === 'pending' || status === 'running' || status === 'started') {
-      return false;
-    }
-    if (
-      status === 'completed' ||
-      status === 'cancelled' ||
-      status === 'canceled' ||
-      status === 'error' ||
-      status === 'failed' ||
-      status === 'aborted' ||
-      status === 'timeout'
-    ) {
-      return true;
-    }
-    const time = (state?.time as Record<string, unknown> | undefined) ?? {};
-    const endTime = typeof time?.end === 'number' ? time.end : undefined;
-    const startTime = typeof time?.start === 'number' ? time.start : undefined;
-    if (typeof endTime !== 'number') {
-      return false;
-    }
-    if (typeof startTime === 'number' && endTime < startTime) {
-      return false;
-    }
-    return true;
-  }, []);
-
-  const allToolsFinalized = React.useMemo(() => {
-    if (toolParts.length === 0) {
-      return true;
-    }
-    if (hasPendingTools) {
-      return false;
-    }
-    return toolParts.every((toolPart) => isToolFinalized(toolPart));
-  }, [toolParts, hasPendingTools, isToolFinalized]);
-
-  const reasoningComplete = React.useMemo(() => {
-    if (reasoningParts.length === 0) {
-      return true;
-    }
-    return reasoningParts.every((part) => {
-      const time = (part as Record<string, unknown>).time as { end?: number } | undefined;
-      return typeof time?.end === 'number';
-    });
-  }, [reasoningParts]);
-
-  const hasOpenStep = !isMessageCompleted && typeof messageFinish !== 'string';
-
-  const shouldHoldForReasoning =
-    reasoningParts.length > 0 && hasTools && (hasPendingTools || hasOpenStep || !allToolsFinalized);
-
-  const shouldHoldTools =
-    awaitingMessageCompletion || (hasTools && (hasPendingTools || hasOpenStep || !allToolsFinalized));
-  const shouldHoldReasoning = awaitingMessageCompletion || shouldHoldForReasoning;
-
-  const hasAuxiliaryContent = hasTools || reasoningParts.length > 0;
-  const isTextlessAssistantMessage = assistantTextParts.length === 0;
-  const auxiliaryContentComplete =
-    hasAuxiliaryContent &&
-    isTextlessAssistantMessage &&
-    !shouldHoldTools &&
-    !shouldHoldReasoning &&
-    allToolsFinalized &&
-    reasoningComplete;
-
-  const auxiliaryCompletionAnnouncedRef = React.useRef(false);
-  const soloReasoningScrollTriggeredRef = React.useRef(false);
-
-  React.useEffect(() => {
-    soloReasoningScrollTriggeredRef.current = false;
-  }, [messageId]);
-
-  React.useEffect(() => {
-    if (!auxiliaryContentComplete) {
-      auxiliaryCompletionAnnouncedRef.current = false;
-      return;
-    }
-    if (auxiliaryCompletionAnnouncedRef.current) {
-      return;
-    }
-    auxiliaryCompletionAnnouncedRef.current = true;
-    onAuxiliaryContentComplete?.();
-  }, [auxiliaryContentComplete, onAuxiliaryContentComplete]);
-
-  React.useEffect(() => {
-    if (awaitingMessageCompletion) {
-      soloReasoningScrollTriggeredRef.current = false;
-      return;
-    }
-    if (hasTools) {
-      soloReasoningScrollTriggeredRef.current = false;
-      return;
-    }
-    if (reasoningParts.length === 0) {
-      return;
-    }
-    if (shouldHoldReasoning || !reasoningComplete) {
-      return;
-    }
-    if (soloReasoningScrollTriggeredRef.current) {
-      return;
-    }
-    soloReasoningScrollTriggeredRef.current = true;
-    onContentChange?.('structural');
-  }, [awaitingMessageCompletion, hasTools, onContentChange, reasoningComplete, reasoningParts.length, shouldHoldReasoning]);
 
   const turnDurationText = React.useMemo(() => {
     if (!isLastAssistantInTurn || isTurnWorking) return undefined;
