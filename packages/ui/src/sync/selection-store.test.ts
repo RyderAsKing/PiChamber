@@ -80,6 +80,17 @@ mock.module('@/stores/useConfigStore', () => ({
 
 mock.module('@/sync/sync-refs', () => ({
   getDirectoryState: () => undefined,
+  getSyncSessions: () => [],
+  getAllSyncSessions: () => [],
+  getAllSyncSessionMap: () => new Map(),
+  getSyncSessionDirectory: () => null,
+  getSyncMessages: () => [],
+  getSyncParts: () => [],
+  resolveSessionDirectory: () => null,
+  resolveSessionDirectoryFromSources: () => null,
+  refetchSessionMessages: async () => {},
+  unrevertSessionAction: async () => {},
+  forkFromMessageAction: async () => {},
 }));
 
 mock.module('@/sync/session-ui-store', () => ({

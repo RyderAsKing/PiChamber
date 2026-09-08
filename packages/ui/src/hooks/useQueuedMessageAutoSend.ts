@@ -3,13 +3,18 @@ import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type Me
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { getDirectoryState } from '@/sync/sync-refs';
+import { usePiSessionSnapshot, usePiSessionStore } from '@/sync/pi-session-context';
+import { TOPIC_CATALOG, TOPIC_CHROME, isInvalidSessionError, type PiSessionStoreState } from '@/apps/pi-session-store';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-
-type SessionStatusType = 'idle' | 'busy' | 'retry';
+import { normalizePath } from '@/lib/pathNormalization';
 
 const RECENT_ABORT_WINDOW_MS = 2000;
+
+/** Hydration-demand backoff shares the per-target failure map under this
+ *  sentinel message id, so demands reuse the same bounded backoff and
+ *  retry scheduler as failed sends instead of a permanent one-shot set. */
+const HYDRATE_DEMAND_FAILURE_ID = 'hydrate-demand';
 
 const AUTO_SEND_RETRY_BASE_DELAY_MS = 2000;
 const AUTO_SEND_RETRY_MAX_DELAY_MS = 60000;
@@ -156,59 +161,75 @@ export const resolveSessionSendConfig = (sessionId: string) => {
   };
 };
 
-export const shouldDispatchQueuedAutoSend = (
-  previousStatusType: SessionStatusType | undefined,
-  currentStatusType: SessionStatusType,
-  hasQueuedItems: boolean = false,
-): boolean => {
-  if (hasQueuedItems && currentStatusType === 'idle') return true;
-  return (previousStatusType === 'busy' || previousStatusType === 'retry')
-    && currentStatusType === 'idle';
-};
-
 /**
- * Resolve the live status the queue gate should honor for a session.
- *
- * The server's `/session/status` map only lists busy/retry sessions — idle
- * sessions are absent — so a missing entry means "idle per the snapshot", not
- * "no information". A missed busy event therefore leaves no entry while a turn
- * is still streaming. The trailing in-flight assistant message is the live
- * evidence of that running turn: treat it as busy so the queue never dispatches
- * into it (mirrors `useSessionActivity`'s fallback). The entry becomes idle the
- * moment the message completes or an idle status event lands. This reads the
- * directory child store directly so both the effect-loop gate and the
- * dispatch-time re-check agree.
+ * Tri-state dispatch gate resolved against the connected runtime's live
+ * `PiSessionStore`. `'ready'` grants dispatch only on live evidence of a
+ * terminal (`idle`/`error`) lifecycle on an owning, hydrated, non-archived
+ * row. `'busy'` holds on a live `busy`/`retry` mirror. `'unknown'` means no
+ * dispatch decision is possible — disconnected runtime, missing/colliding/
+ * archived/cold row — and holds: the persisted first-paint cache restores
+ * every row as `idle` with `hydrated=false`, so cached `idle` is metadata,
+ * never authority, and `unknown` never dispatches.
  */
-export const resolveQueuedSessionStatusType = (
-  sessionId: string,
-  directory: string,
-): SessionStatusType => {
-  const state = getDirectoryState(directory);
-  const statusType = state?.session_status?.[sessionId]?.type;
-  if (statusType === 'busy' || statusType === 'retry') {
-    return statusType;
+type QueuedAutoSendReadiness = 'ready' | 'busy' | 'unknown';
+
+export const resolveQueuedAutoSendReadiness = (
+  state: PiSessionStoreState,
+  target: MessageQueueTarget,
+): QueuedAutoSendReadiness => {
+  // A disconnected / errored / still-attaching runtime has no live
+  // lifecycle at all — its catalog rows must not be read as idle.
+  if (state.connection !== 'ready') {
+    return 'unknown';
   }
-  const sessionMessages = state?.message?.[sessionId];
-  const lastMessage = sessionMessages && sessionMessages.length > 0
-    ? sessionMessages[sessionMessages.length - 1]
-    : undefined;
-  if (
-    lastMessage?.role === 'assistant'
-    && typeof (lastMessage as { time?: { completed?: number } }).time?.completed !== 'number'
-  ) {
+  const record = state.catalog.byId.get(target.sessionId);
+  // A missing authoritative target cannot invent idle.
+  if (!record) {
+    return 'unknown';
+  }
+  // Directory ownership must match the captured target (normalized): a
+  // colliding session id from another directory must never receive the send.
+  if (normalizePath(record.directory) !== normalizePath(target.directory)) {
+    return 'unknown';
+  }
+  // Archived sessions never receive queued auto-sends.
+  if (record.archived) {
+    return 'unknown';
+  }
+  // A confirmed invalid session can never hydrate: the authoritative
+  // getSession failed with INVALID_SESSION and that error is retained until
+  // a later successful reload clears it. Hold dispatch ('unknown') so the
+  // queued entry stays for user inspection/removal.
+  if (isInvalidSessionError(state.sessionLoadErrorById.get(target.sessionId))) {
+    return 'unknown';
+  }
+  if (record.lifecycle === 'busy' || record.lifecycle === 'retry') {
     return 'busy';
   }
-  return 'idle';
+  // `idle`/`error` are terminal, but only live evidence may grant dispatch.
+  if (!record.hydrated) {
+    return 'unknown';
+  }
+  return 'ready';
 };
 
 export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?: boolean }) {
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (enabledOrOptions?.enabled ?? true);
   const queuedMessages = useMessageQueueStore((state) => state.queuedMessages);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
+  const store = usePiSessionStore();
 
+  // Wake the dispatch scanner on live lifecycle edges and connection
+  // transitions only. The catalog topic emits at lifecycle/list/title
+  // boundaries — token deltas mutate neither the catalog nor the
+  // connection, so streaming never wakes this scanner — and the scanner
+  // itself reads one catalog row per queued target, never a transcript.
+  const catalog = usePiSessionSnapshot((state) => state.catalog, undefined, TOPIC_CATALOG);
+  const connection = usePiSessionSnapshot((state) => state.connection, undefined, TOPIC_CHROME);
+
+  // Per-target guard for async work (queued send or hydration demand).
   const inFlightSessionsRef = React.useRef<Set<string>>(new Set());
   const sendFailuresRef = React.useRef<Map<string, QueuedAutoSendFailure>>(new Map());
-  const previousStatusRef = React.useRef<Map<string, SessionStatusType>>(new Map());
   const [retryTick, setRetryTick] = React.useState(0);
   const retryScheduler = React.useMemo(
     () => createQueuedAutoSendRetryScheduler(() => setRetryTick((value) => value + 1)),
@@ -222,10 +243,91 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       return;
     }
 
+    // Forget demand backoff for queue entries that no longer exist, so a
+    // later requeue of the same target starts clean.
+    const queuedKeys = useMessageQueueStore.getState().queuedMessages;
+    for (const [key, record] of sendFailuresRef.current) {
+      if (record.messageId === HYDRATE_DEMAND_FAILURE_ID && !(key in queuedKeys)) {
+        sendFailuresRef.current.delete(key);
+      }
+    }
+
+    const forgetHydrateDemand = (targetKey: string) => {
+      if (sendFailuresRef.current.get(targetKey)?.messageId === HYDRATE_DEMAND_FAILURE_ID) {
+        sendFailuresRef.current.delete(targetKey);
+      }
+    };
+
+    // Cold-row demand: fetch authoritative lifecycle for a queued target
+    // without selecting it or stealing directory focus. Missing, colliding,
+    // archived, or disconnected targets get no demand (hydration cannot
+    // resolve them), so those states hold without looping. Transient
+    // failures retry on the shared bounded backoff instead of holding
+    // forever or busy-looping.
+    const demandLiveState = async (target: MessageQueueTarget, sessionId: string, targetKey: string) => {
+      const storeState = store.getState();
+      if (storeState.connection !== 'ready') return;
+      const record = storeState.catalog.byId.get(sessionId);
+      if (!record || record.archived || normalizePath(record.directory) !== normalizePath(target.directory)) return;
+
+      // Terminal invalid session: the authoritative getSession already
+      // confirmed this target no longer exists on the runtime, so another
+      // hydrate can never succeed. Refuse the demand entirely — no request,
+      // no backoff loop — and retain the queued entry for user
+      // inspection/removal. SESSION_IN_USE and transient failures are not
+      // terminal and keep the bounded backoff. A later successful reload
+      // clears the recorded error, which resumes demands naturally.
+      if (isInvalidSessionError(storeState.sessionLoadErrorById.get(sessionId))) return;
+
+      // Backoff precedes the cold demand so a failing hydrate cannot loop.
+      const hydrateFailure = sendFailuresRef.current.get(targetKey);
+      if (
+        hydrateFailure?.messageId === HYDRATE_DEMAND_FAILURE_ID
+        && isQueuedAutoSendBackedOff(hydrateFailure, HYDRATE_DEMAND_FAILURE_ID, Date.now())
+      ) {
+        retryScheduler.schedule(hydrateFailure.nextAttemptAt);
+        return;
+      }
+      // One in-flight demand per target; the guard is shared with sends and
+      // released below with an explicit wake so nothing stays stranded.
+      if (inFlightSessionsRef.current.has(targetKey)) return;
+      inFlightSessionsRef.current.add(targetKey);
+      try {
+        await store.ensureHydrated(sessionId);
+      } finally {
+        inFlightSessionsRef.current.delete(targetKey);
+        // Explicit wake: the hydration commit may have landed while this
+        // pass held the guard, so the catalog emission alone may not
+        // re-run the scanner.
+        setRetryTick((value) => value + 1);
+      }
+      // `ensureHydrated` settles without rejecting even when hydration
+      // fails, so success is verified from authoritative state, not the
+      // promise outcome.
+      const settledRecord = store.getState().catalog.byId.get(sessionId);
+      if (settledRecord?.hydrated) {
+        // Authoritative state arrived; send-failure records (real message
+        // ids) stay untouched.
+        forgetHydrateDemand(targetKey);
+        return;
+      }
+      const priorFailures = hydrateFailure?.messageId === HYDRATE_DEMAND_FAILURE_ID ? hydrateFailure.failures : 0;
+      const failures = priorFailures + 1;
+      const nextAttemptAt = Date.now() + getQueuedAutoSendRetryDelayMs(failures);
+      sendFailuresRef.current.set(targetKey, { messageId: HYDRATE_DEMAND_FAILURE_ID, failures, nextAttemptAt });
+      retryScheduler.schedule(nextAttemptAt);
+    };
+
     const dispatchSessionQueue = async (target: MessageQueueTarget, queueSnapshot: QueuedMessage[]) => {
       const { sessionId } = target;
       const targetKey = getMessageQueueKey(target);
       if (queueSnapshot.length === 0) {
+        return;
+      }
+      // The queue entry may outlive a runtime switch; the current runtime
+      // must own the dispatch (the Pi store itself is runtime-scoped, so a
+      // stale target must never consult — or send into — the new runtime).
+      if (target.runtimeKey !== getRuntimeKey()) {
         return;
       }
       if (inFlightSessionsRef.current.has(targetKey)) {
@@ -236,8 +338,16 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
         retryScheduler.schedule(abortHoldUntil);
         return;
       }
-      const currentStatus = resolveQueuedSessionStatusType(sessionId, target.directory);
-      if (currentStatus !== 'idle') {
+      const storeState = store.getState();
+      const readiness = resolveQueuedAutoSendReadiness(storeState, target);
+      if (readiness === 'busy') {
+        return;
+      }
+      if (readiness === 'unknown') {
+        // The per-target queue may be edited or removed while the demand
+        // awaits, so nothing is sent from here: the settle wake re-runs the
+        // scanner, which re-reads live state and the queue before sending.
+        await demandLiveState(target, sessionId, targetKey);
         return;
       }
 
@@ -301,26 +411,15 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       }
     };
 
-    const nextStatusMap = new Map(previousStatusRef.current);
-
     const queueEntries = Object.entries(queuedMessages);
     queueEntries.forEach(([key, queue]) => {
       const target = parseMessageQueueKey(key);
+      // Deliberate scope: auto-send only serves the focused directory on the
+      // current runtime. Queues for other directories wait for their own
+      // focus; nothing steers or redirects them.
       if (!target || target.runtimeKey !== getRuntimeKey() || target.directory !== currentDirectory) return;
-      const { sessionId } = target;
-      const currentStatusType = resolveQueuedSessionStatusType(sessionId, target.directory);
-      const previousStatusType = previousStatusRef.current.get(sessionId);
-
-
-      if (queue.length > 0 && (
-        shouldDispatchQueuedAutoSend(previousStatusType, currentStatusType, queue.length > 0)
-      )) {
-        void dispatchSessionQueue(target, queue);
-      }
-
-      nextStatusMap.set(sessionId, currentStatusType);
+      if (queue.length === 0) return;
+      void dispatchSessionQueue(target, queue);
     });
-
-    previousStatusRef.current = nextStatusMap;
-  }, [enabled, queuedMessages, currentDirectory, retryTick, retryScheduler]);
+  }, [enabled, queuedMessages, currentDirectory, catalog, connection, retryTick, retryScheduler, store]);
 }
