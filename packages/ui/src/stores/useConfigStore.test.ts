@@ -224,7 +224,6 @@ mock.module('@/sync/sync-refs', () => ({
   getAllSyncSessionMap: () => new Map(),
   getSyncSessionDirectory: () => null,
   getSyncMessages: () => [],
-  getSyncSessionMaterializationStatus: () => 'ready',
   getSyncParts: () => [],
   resolveSessionDirectory: () => null,
   resolveSessionDirectoryFromSources: () => null,

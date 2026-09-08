@@ -34,7 +34,6 @@
 - `hooks/useProjectSessionSelection.ts`: Resolves active/current project-session selection logic and session-directory context. While a new-session draft is open it does not steal the view onto an existing session; the draft target follows the sidebar's active project instead. Switching a project/folder still loads that folder's remembered or first session in the background, but dedicated mobile keeps the sessions drawer open so the user can pick a different session. Opening Settings from the mobile sidebar closes the drawer.
 - `hooks/useSessionActions.ts`: Centralizes session row actions (select/open, rename, share/unshare, archive/delete, confirmations). Explicit session picks still close the mobile sessions drawer; project-folder auto-selects pass `keepPanelOpen`.
 - `hooks/useSessionSearchEffects.ts`: Handles search open/close UX and input focus behavior.
-- `hooks/useSessionPrefetch.ts`: Publishes directory-aware nearby/active session prefetch demand to the shared message loader.
 - `hooks/useSessionGrouping.ts`: Builds grouped session structures and search text/filter helpers.
 - `hooks/useSessionSidebarSections.ts`: Composes final per-project sections and group search metadata for rendering.
 - `hooks/useArchivedAutoFolders.ts`: Maintains archived auto-folder structure and assignment behavior.

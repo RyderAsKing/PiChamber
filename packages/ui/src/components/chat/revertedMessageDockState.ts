@@ -1,5 +1,4 @@
-import type { Message, Part } from '@/lib/chat/types';
-import type { State } from '@/sync/types';
+import type { Message, Part, Session } from '@/lib/chat/types';
 import { getRevertNavigation } from '@/sync/revert-navigation-store';
 
 type RevertedMessageRecord = {
@@ -36,7 +35,11 @@ const areRecordsEqual = (left: RevertedMessageRecord[], right: RevertedMessageRe
 };
 
 export const buildRevertedMessageDockState = (
-    state: Pick<State, 'session' | 'message' | 'part'>,
+    state: {
+        session: Session[];
+        message: Record<string, Message[]>;
+        part: Record<string, Part[]>;
+    },
     sessionId: string | null,
     previous: RevertedMessageDockState = EMPTY_REVERTED_MESSAGE_DOCK_STATE,
 ): RevertedMessageDockState => {

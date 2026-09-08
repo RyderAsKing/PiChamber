@@ -1,6 +1,5 @@
 /**
  * PiChamber-owned render/session types used by the restored PiChamber UI.
- * They replace `@/lib/chat/types` at the TypeScript/bundler boundary.
  */
 
 export type SessionStatus =
@@ -94,75 +93,10 @@ export type Part = TextPart | ReasoningPart | FilePart | ToolPart | {
   [key: string]: unknown;
 };
 
-export interface Provider {
-  id: string;
-  name?: string;
-  models?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface Agent {
-  id?: string;
-  name?: string;
-  [key: string]: unknown;
-}
-
-export interface Command {
-  id?: string;
-  name?: string;
-  [key: string]: unknown;
-}
-
-export interface Config {
-  [key: string]: unknown;
-}
-
-export interface Project {
-  id: string;
-  worktree?: string;
-  [key: string]: unknown;
-}
-
-export interface Path {
-  directory?: string;
-  [key: string]: unknown;
-}
-
 export interface Todo {
   id?: string;
   content?: string;
   status?: string;
-  [key: string]: unknown;
-}
-
-export interface LspStatus {
-  [key: string]: unknown;
-}
-
-export interface McpStatus {
-  [key: string]: unknown;
-}
-
-export interface VcsInfo {
-  [key: string]: unknown;
-}
-
-export interface PermissionRequest {
-  id: string;
-  [key: string]: unknown;
-}
-
-export interface QuestionRequest {
-  id: string;
-  [key: string]: unknown;
-}
-
-export interface ProviderListResponse {
-  all?: Provider[];
-  [key: string]: unknown;
-}
-
-export interface ProviderAuthResponse {
   [key: string]: unknown;
 }
 

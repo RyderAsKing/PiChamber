@@ -1,11 +1,13 @@
 /* eslint-disable */
 import { getPiSessionStore } from '@/apps/pi-session-store';
-import type { Message, Session } from '@/lib/chat/types';
+import type { Message, Session, SessionStatus } from '@/lib/chat/types';
 import { listLiveSessionRecordsFromCatalog, listUiSessionsFromCatalog } from './pi-session-catalog';
-import type { State } from './types';
 
 export function setSyncRefs() {}
-export function getDirectoryState(...args: unknown[]): Pick<State, 'session_status' | 'message'> | undefined {
+export function getDirectoryState(...args: unknown[]): {
+  session_status: Record<string, SessionStatus>;
+  message: Record<string, Message[]>;
+} | undefined {
   void args;
   return undefined;
 }
@@ -42,9 +44,6 @@ export function getSyncMessages(sessionId: string, _directory?: string): Message
   void sessionId;
   void _directory;
   return [];
-}
-export function getSyncSessionMaterializationStatus(_sessionId?: string, _directory?: string) {
-  return { hasMessages: true, renderable: true, missingPartMessageIDs: [] as string[] };
 }
 export function getSyncParts(_messageId?: string, _directory?: string): any[] {
   return [];

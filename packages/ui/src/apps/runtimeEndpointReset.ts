@@ -18,8 +18,6 @@ import { usePromptTemplatesStore } from '@/stores/usePromptTemplatesStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { clearCommandCatalogForRuntimeSwitch } from '@/lib/pi/commandCatalog';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { resetStreamingState } from '@/sync/streaming';
-import { useGlobalSessionStatusStore } from '@/sync/global-session-status';
 import { resetSessionOrdering } from '@/sync/session-ordering';
 import { resetSessionActivityTiming } from '@/sync/session-activity-timing';
 import { updateBrowserURL } from '@/lib/router';
@@ -34,7 +32,6 @@ import { updateBrowserURL } from '@/lib/router';
 // no bounce back to the draft.
 export const reconnectAppForTransportSwitch = (): void => {
   disposeTerminalInputTransport();
-  resetStreamingState();
 };
 
 export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedDetail): void => {
@@ -63,7 +60,6 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   // Global-list isolation is owned by PiSessionStore (`resetForRuntime` via
   // the runtime-endpoint subscription clears the catalog, generations, and
   // tombstones). No wrapper reset remains.
-  useGlobalSessionStatusStore.setState({ statusById: new Map() });
   resetSessionOrdering();
   // Turn timings belong to the previous instance's sessions, and the reset also
   // restarts the resume window so the switch is treated as a fresh load.
@@ -86,5 +82,4 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
     settingsPath: uiState.settingsPage,
     diffFile: uiState.pendingDiffFile,
   }, { replace: true, force: true });
-  resetStreamingState();
 };

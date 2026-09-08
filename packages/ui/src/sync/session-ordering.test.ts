@@ -4,7 +4,6 @@ import {
   compareSessionsByLifecycleOrder,
   observeSessionActivityEvent,
   orderSessionsByLifecycleScopes,
-  reconcileSessionActivitySnapshot,
   removeSessionOrdering,
   resetSessionOrdering,
   useSessionOrderingStore,
@@ -43,14 +42,6 @@ describe('session lifecycle ordering', () => {
     observeSessionActivityEvent('session-a', 'active');
 
     expect(useSessionOrderingStore.getState().rankById.has('session-a')).toBe(true);
-  });
-
-  test('seeds the first authoritative snapshot without synthetic promotions', () => {
-    reconcileSessionActivitySnapshot(['session-a'], ['session-a', 'session-b']);
-    expect(useSessionOrderingStore.getState().rankById.size).toBe(0);
-
-    reconcileSessionActivitySnapshot([], ['session-a', 'session-b']);
-    expect(useSessionOrderingStore.getState().rankById.size).toBe(0);
   });
 
   test('uses lifecycle rank only within the same parent scope', () => {

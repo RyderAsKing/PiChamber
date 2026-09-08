@@ -53,19 +53,6 @@ export const observeSessionActivityEvent = (
   promoteSessions([sessionId]);
 };
 
-export const reconcileSessionActivitySnapshot = (
-  activeSessionIds: Iterable<string>,
-  knownSessionIds: Iterable<string>,
-): void => {
-  const active = new Set(activeSessionIds);
-  const observed = new Set([...knownSessionIds, ...active]);
-
-  for (const sessionId of observed) {
-    const phase: SessionActivityPhase = active.has(sessionId) ? 'active' : 'settled';
-    phaseById.set(sessionId, phase);
-  }
-};
-
 export const removeSessionOrdering = (sessionId: string): void => {
   phaseById.delete(sessionId);
   baselineRankById.delete(sessionId);

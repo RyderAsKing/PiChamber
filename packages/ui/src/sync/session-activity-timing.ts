@@ -9,9 +9,8 @@ import { getSafeStorage } from '@/stores/utils/safeStorage';
 // update alone cannot establish a turn boundary. PiChamber session details and
 // lifecycle snapshots may additionally carry `runStartedAt`; this module
 // adopts that origin when available and otherwise measures the turn on the
-// client. It is driven from the same two write paths as
-// `global-session-status`, the index rows actually render their live state
-// from, so a row can never count a turn that index calls idle.
+// client. It is driven from `PiSessionStore` lifecycle event handling, so a
+// row can never count a turn that the catalog calls idle.
 //
 // Two maps with deliberately different lifetimes:
 //
@@ -27,9 +26,7 @@ import { getSafeStorage } from '@/stores/utils/safeStorage';
 // status itself still has no boundary: the server calls `SessionStatus.set`
 // with `busy` at every step of the agent loop and publishes an event each time,
 // so a busy event without `runStartedAt` means "still running", not "just
-// started". Reading it as a turn boundary resets every counter on reload,
-// because after a refresh one of those repeats almost always beats the first
-// status snapshot.
+// started". Reading it as a turn boundary resets every counter on reload.
 //
 // Turn *ends* are marked: `session.idle` and `session.error` events fire once,
 // live, and retire the persisted record.
@@ -42,15 +39,12 @@ import { getSafeStorage } from '@/stores/utils/safeStorage';
 //   active and stamped precisely as the page hides, compared against this page's
 //   navigation start — how long the app was actually absent;
 // - an adoption window after load, after which unclaimed records are discarded,
-//   which backstops a runtime whose event stream is down and where snapshots are
-//   therefore the only signal.
+//   which backstops a runtime whose event stream is down, where no live event
+//   would ever retire the record.
 //
-// Nothing else may drop a persisted start. Status snapshots legitimately arrive
-// before they can see a session as busy — bootstrap fetches status and sessions
-// in parallel, directory scopes resolve at different times — and treating one
-// of those as "the turn ended" destroyed the start moments before the real busy
-// snapshot arrived, which is exactly the reload-resets-to-zero bug. Absence of
-// evidence is not evidence here; only the two bounds above expire a record.
+// Nothing else may drop a persisted start. Settles come only from live
+// `idle`/`error` events, which fire once; absence of a busy event is not
+// evidence of a settled turn. Only the two bounds above expire a record.
 
 type SessionActivityPhase = 'active' | 'settled';
 
@@ -184,8 +178,8 @@ const getAdoptableStarts = (now: number): ReadonlyMap<string, PersistedStart> =>
 };
 
 // Live starts merged over restored-but-unconfirmed ones, so a reload landing
-// before the first authoritative snapshot does not drop the starts that
-// snapshot is about to confirm. Restored entries whose stamp has gone quiet are
+// before the first live status event does not drop the starts those events are
+// about to confirm. Restored entries whose stamp has gone quiet are
 // dropped here, which is the only way they leave storage.
 const persistStarts = (startedAt: ReadonlyMap<string, number>, now: number): void => {
   const payload: Record<string, PersistedStart> = {};
@@ -256,19 +250,12 @@ const trimSettled = (settled: Map<string, number>): void => {
 };
 
 /**
- * What ends a turn in this pass. An event names its session outright; a snapshot
- * only answers whether it covers a given one — deliberately the cheaper
- * question, since the settle loop walks running turns rather than session lists.
- * An `event` idle is a live, one-shot "this turn is over"; a snapshot omitting a
- * session is not, because it may simply not see it yet.
+ * A live `idle`/`error` event names its session outright: it is a one-shot,
+ * unambiguous end of turn.
  */
-type SettleInput =
-  | { source: 'event'; sessionId: string }
-  | { source: 'snapshot'; isCovered: (sessionId: string) => boolean };
-
 const applyTransitions = (
   activeSessionIds: ReadonlySet<string>,
-  settle: SettleInput | null,
+  settleSessionId: string | null,
 ): void => {
   const now = Date.now();
   const restored = getAdoptableStarts(now);
@@ -288,10 +275,11 @@ const applyTransitions = (
     sawActive = true;
     liveSeen.set(sessionId, now);
     if ((next.started ?? state.startedAt).has(sessionId)) continue;
-    // Busy carries no turn boundary from either source: the server re-publishes
+    // Busy carries no turn boundary: the server re-publishes
     // `session.status: busy` on every step of the agent loop, so a busy event
-    // means "still running", not "just started". Both paths therefore prefer a
-    // persisted start when one survives; only the bounds below expire it.
+    // means "still running", not "just started". The active path therefore
+    // prefers a persisted start when one survives; only the bounds below
+    // expire it.
     draftStarted().set(sessionId, restored.get(sessionId)?.start ?? now);
     if ((next.settled ?? state.settledMs).has(sessionId)) draftSettled().delete(sessionId);
   }
@@ -302,27 +290,13 @@ const applyTransitions = (
     draftSettled().set(sessionId, Math.max(0, now - start));
   };
 
-  if (settle === null) {
-    // Nothing ends this pass.
-  } else if (settle.source === 'event') {
+  if (settleSessionId !== null) {
     // An idle/error event is a live, unambiguous end of turn, so it also retires
-    // the persisted record. A snapshot's silence is not: it may simply not see
-    // the session yet.
-    if (getRestoredStarts().delete(settle.sessionId)) restoredChanged = true;
-    const start = state.startedAt.get(settle.sessionId);
+    // the persisted record.
+    if (getRestoredStarts().delete(settleSessionId)) restoredChanged = true;
+    const start = state.startedAt.get(settleSessionId);
     // Only a turn watched from its start yields a duration.
-    if (start !== undefined) settleTurn(settle.sessionId, start);
-  } else {
-    // Walk the running turns, not everything the snapshot covers. Only a live
-    // start can settle, and there are a handful of those against a directory's
-    // hundreds of sessions — asking "does this snapshot cover that one?" keeps
-    // the pass proportional to the work instead of to the session list, and
-    // allocates nothing per poll.
-    for (const [sessionId, start] of state.startedAt) {
-      if (activeSessionIds.has(sessionId)) continue;
-      if (!settle.isCovered(sessionId)) continue;
-      settleTurn(sessionId, start);
-    }
+    if (start !== undefined) settleTurn(settleSessionId, start);
   }
 
   if (next.settled) trimSettled(next.settled);
@@ -363,7 +337,7 @@ export const observeSessionActivityTiming = (
     applyTransitions(new Set([sessionId]), null);
     return;
   }
-  applyTransitions(EMPTY_ACTIVE, { source: 'event', sessionId });
+  applyTransitions(EMPTY_ACTIVE, sessionId);
 };
 
 /**
@@ -394,20 +368,6 @@ export const adoptServerRunTiming = (
   useSessionActivityTimingStore.setState({ startedAt: nextStarted, settledMs: nextSettled });
   ensureLivenessStampOnHide();
   persistStarts(nextStarted, now);
-};
-
-/**
- * Authoritative path: a `/session/status` snapshot for one directory. Sessions
- * the snapshot covers but does not report active stop their live counters —
- * that is what recovers a turn whose end event this client missed — but their
- * persisted records survive, because a snapshot that cannot yet see a session
- * looks identical to one whose turn is over.
- */
-export const reconcileSessionActivityTiming = (
-  activeSessionIds: ReadonlySet<string>,
-  isCoveredBySnapshot: (sessionId: string) => boolean,
-): void => {
-  applyTransitions(activeSessionIds, { source: 'snapshot', isCovered: isCoveredBySnapshot });
 };
 
 export const removeSessionActivityTiming = (sessionId: string): void => {

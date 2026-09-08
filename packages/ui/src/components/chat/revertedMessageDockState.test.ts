@@ -1,8 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import type { Message, Part } from '@/lib/chat/types';
-import type { State } from '@/sync/types';
+import type { Message, Part, Session } from '@/lib/chat/types';
 
 import { EMPTY_REVERTED_MESSAGE_DOCK_STATE, buildRevertedMessageDockState } from './revertedMessageDockState';
+
+type StateFixture = {
+    session: Session[];
+    message: Record<string, Message[]>;
+    part: Record<string, Part[]>;
+};
 
 const message = (id: string, role: 'user' | 'assistant'): Message => ({
     id,
@@ -17,7 +22,7 @@ const textPart = (id: string, text: string): Part => ({
     text,
 } as Part);
 
-const state = (partial: Partial<State>): Pick<State, 'session' | 'message' | 'part'> => ({
+const state = (partial: Partial<StateFixture>): StateFixture => ({
     session: [],
     message: {},
     part: {},
@@ -42,7 +47,7 @@ describe('buildRevertedMessageDockState', () => {
         const userParts = [textPart('part_user', 'hello')];
         const first = buildRevertedMessageDockState(
             state({
-                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as State['session'][number]],
+                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as Session],
                 message: { ses_1: [user, message('assistant_1', 'assistant')] },
                 part: { user_1: userParts, assistant_1: [textPart('part_a', 'a')] },
             }),
@@ -51,7 +56,7 @@ describe('buildRevertedMessageDockState', () => {
 
         const second = buildRevertedMessageDockState(
             state({
-                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as State['session'][number]],
+                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as Session],
                 message: { ses_1: [user, message('assistant_1', 'assistant')] },
                 part: { user_1: userParts, assistant_1: [textPart('part_a2', 'updated')] },
             }),
@@ -66,7 +71,7 @@ describe('buildRevertedMessageDockState', () => {
         const user = message('user_1', 'user');
         const first = buildRevertedMessageDockState(
             state({
-                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as State['session'][number]],
+                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as Session],
                 message: { ses_1: [user] },
                 part: { user_1: [textPart('part_user', 'hello')] },
             }),
@@ -75,7 +80,7 @@ describe('buildRevertedMessageDockState', () => {
 
         const second = buildRevertedMessageDockState(
             state({
-                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as State['session'][number]],
+                session: [{ id: 'ses_1', revert: { messageID: 'user_1' } } as Session],
                 message: { ses_1: [user] },
                 part: { user_1: [textPart('part_user_updated', 'updated')] },
             }),

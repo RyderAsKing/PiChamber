@@ -15,8 +15,6 @@ import { catalogLiveSessionIdsKey } from '@/sync/pi-session-catalog';
 import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
 import { useCatalogUiSessions } from '@/sync/sync-context';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
-import { useSync } from '@/sync/use-sync';
-import { SessionPrefetchEffect } from './sidebar/hooks/useSessionPrefetch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
@@ -288,7 +286,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const gitBranches = useGitAllBranches(isVisible);
 
-  const sync = useSync();
   const { git } = useRuntimeAPIs();
   const piConnection = usePiSessionSnapshot((state) => state.connection, undefined, 'chrome');
   const catalogReady = usePiSessionSnapshot((state) => {
@@ -1316,11 +1313,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         openNewSessionDraft={openNewSessionDraft}
         setActiveMainTab={setActiveMainTab}
         setSessionSwitcherOpen={setSessionSwitcherOpen}
-      />
-      <SessionPrefetchEffect
-        enabled={isVisible}
-        sortedSessions={orderedSessions}
-        prefetchSession={async (sessionId) => { await sync.syncSession(sessionId); }}
       />
       {!hideDirectoryControls && !mobileVariant ? (
         <SidebarNav

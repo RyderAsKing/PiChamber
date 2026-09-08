@@ -1,11 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { applyGlobalSessionStatusSnapshot } from './global-session-status';
 import {
   adoptServerRunTiming,
   observeSessionActivityTiming,
-  reconcileSessionActivityTiming,
   removeSessionActivityTiming,
   resetSessionActivityTiming,
   useSessionActivityTimingStore,
@@ -34,12 +32,6 @@ const readPersisted = (): Record<string, PersistedStart> | null => {
 const seedReload = (payload: unknown, loadedAgoMs = 0): void => {
   getSafeStorage().setItem(STORAGE_KEY, JSON.stringify(payload));
   resetSessionActivityTiming({ pageLoadAt: Date.now() - loadedAgoMs });
-};
-
-/** A status snapshot: which sessions it reports busy, and which it covers. */
-const snapshot = (activeIds: string[], coveredIds: string[] = activeIds): void => {
-  const covered = new Set(coveredIds);
-  reconcileSessionActivityTiming(new Set(activeIds), (sessionId) => covered.has(sessionId));
 };
 
 /** A record for a turn that began `ageMs` ago and was alive until the reload. */
@@ -94,26 +86,15 @@ describe('session activity timing', () => {
     expect(settledMs('ses_a')).toBe(undefined);
   });
 
-  test('snapshot reconciliation starts covered actives and settles the rest', () => {
-    observeSessionActivityTiming('ses_a', 'active');
-    observeSessionActivityTiming('ses_b', 'active');
-
-    snapshot(['ses_a'], ['ses_a', 'ses_b', 'ses_c']);
-
-    expect(startedAt('ses_a')).toBeDefined();
-    expect(startedAt('ses_b')).toBe(undefined);
-    expect(settledMs('ses_b')).toBeGreaterThanOrEqual(0);
-    // Never active, never covered by a start: nothing to report.
-    expect(settledMs('ses_c')).toBe(undefined);
-  });
-
-  test('a session outside the snapshot scope keeps running', () => {
+  test('an unrelated session\'s settle does not touch a running turn', () => {
     observeSessionActivityTiming('ses_other_directory', 'active');
-    const start = startedAt('ses_other_directory');
+    observeSessionActivityTiming('ses_a', 'active');
+    const start = startedAt('ses_a');
 
-    snapshot([], ['ses_a']);
+    observeSessionActivityTiming('ses_other_directory', 'settled');
 
-    expect(startedAt('ses_other_directory')).toBe(start);
+    expect(startedAt('ses_other_directory')).toBe(undefined);
+    expect(startedAt('ses_a')).toBe(start);
   });
 
   test('persists the start and a liveness stamp for a running turn', () => {
@@ -131,20 +112,11 @@ describe('session activity timing', () => {
     expect(readPersisted()).toBeNull();
   });
 
-  test('resumes a persisted start when a status snapshot reports the session active', () => {
-    const record = runningUntilReload(90_000);
-    seedReload({ ses_a: record });
-
-    snapshot(['ses_a'], ['ses_a']);
-
-    expect(startedAt('ses_a')).toBe(record.start);
-  });
-
   // Regression: the server re-publishes `session.status: busy` at every step of
-  // the agent loop, so after a reload one of those repeats normally arrives
-  // before the first status snapshot. Reading a busy event as "a turn just
-  // started" therefore reset the counter on almost every refresh.
-  test('resumes when a repeated busy event arrives before the first snapshot', () => {
+  // the agent loop, so after a reload one of those repeats arrives on the live
+  // event stream. Reading a busy event as "a turn just started" therefore reset
+  // the counter on almost every refresh.
+  test('resumes a persisted start when a live event reports the session active', () => {
     const record = runningUntilReload(90_000);
     seedReload({ ses_a: record });
 
@@ -157,8 +129,8 @@ describe('session activity timing', () => {
     const record = runningUntilReload(90_000);
     seedReload({ ses_a: record });
 
-    // Reload lands mid-turn: the snapshot resumes it…
-    snapshot(['ses_a'], ['ses_a']);
+    // Reload lands mid-turn: the live active event resumes it…
+    observeSessionActivityTiming('ses_a', 'active');
     expect(startedAt('ses_a')).toBe(record.start);
 
     // …it finishes, which retires the record, so the next turn starts fresh.
@@ -175,22 +147,22 @@ describe('session activity timing', () => {
 
     // The turn ended while the tab was gone; the event arrives on reconnect.
     observeSessionActivityTiming('ses_a', 'settled');
-    // A later snapshot must not resurrect the retired start.
+    // A later active event must not resurrect the retired start.
     const before = Date.now();
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before);
   });
 
   // The absence is measured from navigation start, not from "now", so a slow
   // bootstrap on a slow machine cannot spend the whole allowance before the
-  // first status snapshot arrives.
+  // first live status event arrives.
   test('resumes even when bootstrap takes most of a minute', () => {
     const loadedAgoMs = 45_000;
     const record = runningUntilReload(300_000, loadedAgoMs);
     seedReload({ ses_a: record }, loadedAgoMs);
 
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBe(record.start);
   });
@@ -203,39 +175,16 @@ describe('session activity timing', () => {
     // A turn starting this long after load is a new turn, not the one that was
     // running before the reload.
     const before = Date.now();
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before);
-  });
-
-  // Regression: bootstrap fetches status and sessions in parallel, so a
-  // snapshot can legitimately cover a session before it can see it busy.
-  // Treating that as "the turn ended" used to destroy the persisted start
-  // moments before the real busy snapshot arrived, resetting the counter to 0s.
-  test('an early snapshot that cannot see the session busy does not lose the start', () => {
-    const record = runningUntilReload(120_000);
-    seedReload({ ses_a: record });
-
-    applyGlobalSessionStatusSnapshot('/repo', {}, ['ses_a']);
-    applyGlobalSessionStatusSnapshot('/repo', { ses_a: { type: 'busy' } }, ['ses_a']);
-
-    expect(startedAt('ses_a')).toBe(record.start);
-  });
-
-  test('resumes through a snapshot that arrives before the session list loads', () => {
-    const record = runningUntilReload(120_000);
-    seedReload({ ses_a: record });
-
-    applyGlobalSessionStatusSnapshot('/repo', { ses_a: { type: 'busy' } }, []);
-
-    expect(startedAt('ses_a')).toBe(record.start);
   });
 
   test('does not resume a record whose liveness stamp has gone quiet', () => {
     const before = Date.now();
     seedReload({ ses_a: { start: before - 300_000, seen: before - 240_000 } });
 
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before);
   });
@@ -244,7 +193,7 @@ describe('session activity timing', () => {
     const before = Date.now();
     seedReload({ ses_a: { start: before - 48 * 60 * 60 * 1000, seen: before - 1_000 } });
 
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before);
   });
@@ -254,7 +203,7 @@ describe('session activity timing', () => {
     resetSessionActivityTiming();
 
     const before = Date.now();
-    snapshot(['ses_a'], ['ses_a']);
+    observeSessionActivityTiming('ses_a', 'active');
 
     expect(startedAt('ses_a')).toBeGreaterThanOrEqual(before);
   });
@@ -269,7 +218,7 @@ describe('session activity timing', () => {
     });
 
     for (const sessionId of ['ses_a', 'ses_b', 'ses_c', 'ses_d']) {
-      snapshot([sessionId]);
+      observeSessionActivityTiming(sessionId, 'active');
       expect(startedAt(sessionId)).toBeGreaterThanOrEqual(before);
     }
   });
@@ -338,7 +287,7 @@ describe('session activity timing', () => {
     const serverNow = Date.now();
     adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
     const first = startedAt('ses_a');
-    // Simulate reload: clear in-memory but keep server values available via snapshot.
+    // Simulate reload: clear in-memory but keep server values available via the adopt path.
     const before = Date.now();
     resetSessionActivityTiming();
     adoptServerRunTiming('ses_a', serverRunStartedAt, serverNow);
