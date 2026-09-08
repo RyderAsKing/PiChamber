@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils';
 import { FileIcon, FileRow, type FileStatus } from './FilesViewChrome';
 import type { FileNode } from './filesViewModel';
+import { createExpansionSet } from './fileTreeStatus';
 
 export interface FilesTreePanelProps {
   root: string;
@@ -81,13 +82,16 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
 }) => {
   const hasTree = Boolean(root && childrenByDir[root]);
   const rootLoadError = root ? loadErrorsByDir[root] : null;
+  // One O(expanded) build per snapshot, then O(1) membership per row
+  // instead of an `includes` scan per rendered node.
+  const expandedSet = React.useMemo(() => createExpansionSet(expandedPaths), [expandedPaths]);
 
   function renderTree(dirPath: string, depth: number): React.ReactNode {
     const nodes = childrenByDir[dirPath] ?? [];
 
     return nodes.map((node, index) => {
       const isDir = node.type === 'directory';
-      const isExpanded = isDir && expandedPaths.includes(node.path);
+      const isExpanded = isDir && expandedSet.has(node.path);
       const isActive = selectedFile?.path === node.path;
       const isLast = index === nodes.length - 1;
 

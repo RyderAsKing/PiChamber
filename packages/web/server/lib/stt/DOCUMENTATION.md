@@ -9,7 +9,7 @@ This module owns final-only composer dictation for web, Electron, hosted mobile,
 - `stream-manager.js` owns ordering, reconnect attachment, five-minute limits, silence detection, segmentation, final ordering, cancellation, and cleanup. A disconnected recording remains for 30 seconds so the client can reconnect. The client also retains the bounded recording and replays from the server's contiguous acknowledgement.
 - `service.js` resolves server-stored provider IDs, model state, downloads, and worker lifecycle.
 - `providers/` adapts one complete committed PCM buffer to either the local worker or an OpenAI-compatible `/v1/audio/transcriptions` endpoint.
-- `local/` owns the pinned model catalog, atomic downloader, native-addon loader, forked worker, bounded two-engine LRU, and one-at-a-time inference queue.
+- `local/` owns the pinned model catalog, atomic downloader, native-addon loader, forked worker, bounded two-engine LRU, and one-at-a-time inference queue. `SttWorkerClient.shutdown()` is terminal (server shutdown via `service.shutdown()`): it rejects in-flight requests, queued `transcribe()` operations reject without forking or sending again, and later `transcribe()`/`request()` calls reject. `shutdownWorker()` is the restartable five-minute idle path: the next request forks a new worker.
 
 ## Routes
 

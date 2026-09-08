@@ -434,3 +434,145 @@ describe('prompt template daemon operations', () => {
     })).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
   });
 });
+
+describe('transient prompt services (no servicesCache retention)', () => {
+  const dirs = [];
+  let daemon = null;
+  afterEach(async () => {
+    if (daemon) { await daemon.stop().catch(() => {}); daemon = null; }
+    await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })));
+  });
+
+  const startDaemonWithCountingServices = async ({ liveLoader } = {}) => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-prompt-transient-'));
+    dirs.push(root);
+    const endpoint = testDaemonEndpoint(root);
+    const agentDir = join(root, 'agent');
+    const cwd = join(root, 'project');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    const sess = new FakeSession();
+    // Live runtime keeps its own loader and modelRuntime; provider refresh must
+    // touch only this live ModelRuntime, never transient mutation services.
+    const liveRefresh = { count: 0 };
+    sess.modelRuntime = {
+      getProviders: () => [{ id: 'test' }],
+      getProvider: (id) => (id === 'test' ? { name: 'Test provider' } : undefined),
+      getModels: () => [{ provider: 'test', id: 'model', name: 'Test model' }],
+      getProviderAuthStatus: () => ({ configured: true }),
+      setRuntimeApiKey: async () => {},
+      removeRuntimeApiKey: async () => {},
+      refresh: async () => { liveRefresh.count += 1; return { errors: new Map() }; },
+    };
+    const runtimeState = { createCount: 0, disposeCount: 0 };
+    const transientStats = { createCount: 0, refreshCounts: [] };
+    const baseLiveLoader = liveLoader;
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd, agentDir,
+      createRuntime: async (opts) => {
+        runtimeState.createCount += 1;
+        const dir = typeof opts?.cwd === 'string' && opts.cwd.length > 0 ? opts.cwd : cwd;
+        const runtimeLoader = baseLiveLoader ?? makeLoader(agentDir, () => dir);
+        return {
+          cwd: dir,
+          session: sess,
+          services: { resourceLoader: runtimeLoader },
+          async dispose() { runtimeState.disposeCount += 1; },
+        };
+      },
+      // Transient fresh services per mutation: read editable prompts from disk
+      // like the real SDK loader, but with a counting ModelRuntime that must
+      // never be refreshed by providers.refresh (no retention).
+      createServices: async ({ cwd: servicesCwd }) => {
+        transientStats.createCount += 1;
+        const refreshState = { count: 0 };
+        transientStats.refreshCounts.push(refreshState);
+        return {
+          cwd: servicesCwd,
+          agentDir,
+          modelRuntime: {
+            getProviders: () => [],
+            getProviderAuthStatus: () => ({ configured: true }),
+            setRuntimeApiKey: async () => {},
+            removeRuntimeApiKey: async () => {},
+            refresh: async () => { refreshState.count += 1; return { errors: new Map() }; },
+          },
+          settingsManager: {},
+          resourceLoader: makeLoader(agentDir, () => servicesCwd),
+          diagnostics: [],
+        };
+      },
+    });
+    await daemon.start();
+    const request = (command, payload = {}) =>
+      requestSessionDaemon({ endpoint, credential, command, payload });
+    return { root, endpoint, agentDir, cwd, session: sess, runtimeState, transientStats, liveRefresh, request };
+  };
+
+  it('creates fresh services per mutation without reuse or retention', async () => {
+    const ctx = await startDaemonWithCountingServices();
+    await ctx.request('resources.list', { directory: ctx.cwd });
+    expect(ctx.transientStats.createCount).toBe(0);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+
+    const first = await ctx.request('resources.prompts.create', {
+      name: 'alpha', description: 'Alpha', content: 'Body A', location: 'global', directory: ctx.cwd,
+    });
+    expect(first.prompts.some((p) => p.name === 'alpha')).toBe(true);
+    expect(ctx.transientStats.createCount).toBe(1);
+
+    const second = await ctx.request('resources.prompts.create', {
+      name: 'beta', description: 'Beta', content: 'Body B', location: 'global', directory: ctx.cwd,
+    });
+    // Freshness: the second response reflects both committed files even though
+    // the live runtime was never recreated.
+    expect(second.prompts.some((p) => p.name === 'alpha')).toBe(true);
+    expect(second.prompts.some((p) => p.name === 'beta')).toBe(true);
+    expect(ctx.transientStats.createCount).toBe(2);
+    expect(ctx.runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+  });
+
+  it('merges live non-editable resources with fresh editable prompts', async () => {
+    const liveLoader = {
+      getSkills: () => ({ skills: [] }),
+      getPrompts: () => ({
+        prompts: [{
+          name: 'pkg', description: 'Pkg', content: 'Body', filePath: '/pkg/prompts/pkg.md',
+          sourceInfo: { origin: 'package', scope: 'user' },
+        }],
+      }),
+      getAgentsFiles: () => ({ agentsFiles: [] }),
+    };
+    const ctx = await startDaemonWithCountingServices({ liveLoader });
+    const created = await ctx.request('resources.prompts.create', {
+      name: 'local-edit', description: 'Local', content: 'Fresh body', location: 'global', directory: ctx.cwd,
+    });
+    // Active extension/package resources stay owned by the live session.
+    expect(created.prompts.some((p) => p.name === 'pkg')).toBe(true);
+    expect(created.prompts.find((p) => p.name === 'pkg').editable).not.toBe(true);
+    // Editable prompts reflect the committed file via transient services.
+    expect(created.prompts.find((p) => p.name === 'local-edit')).toMatchObject({
+      location: 'global',
+      editable: true,
+    });
+    expect(created.prompts.find((p) => p.name === 'local-edit').content).toContain('Fresh body');
+  });
+
+  it('refreshes providers from live runtimes only, not transient services', async () => {
+    const ctx = await startDaemonWithCountingServices();
+    await ctx.request('resources.prompts.create', {
+      name: 'alpha', description: 'A', content: 'Body A', location: 'global', directory: ctx.cwd,
+    });
+    await ctx.request('resources.prompts.create', {
+      name: 'beta', description: 'B', content: 'Body B', location: 'global', directory: ctx.cwd,
+    });
+    expect(ctx.transientStats.createCount).toBe(2);
+
+    const catalog = await ctx.request('providers.refresh', { directory: ctx.cwd });
+    expect(catalog.providers.some((p) => p.id === 'test')).toBe(true);
+    // Live runtime was refreshed exactly once; transient orphans were never
+    // retained and never refreshed (operation-count guard against retention).
+    expect(ctx.liveRefresh.count).toBe(1);
+    expect(ctx.transientStats.refreshCounts.map((s) => s.count)).toEqual([0, 0]);
+  });
+});
