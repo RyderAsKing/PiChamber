@@ -7,7 +7,7 @@ This directory owns the Pi-native runtime boundary. It defines:
 - The Pi session / message / part data shapes (`types.ts`).
 - The public `/api/pi/` IPC envelope (`protocol.ts`), including the `extension.*` events that project pi extension UI (blocking dialogs and their authoritative dismissals, notifications, statuses, widgets, custom entries/messages, runtime errors) onto the public stream.
 - The PiChamber extension GUI parser (`extension-ui.ts`). It validates `pichamber.ui` descriptors from extension custom entries/messages into render-ready components (markdown, kv, list, table, progress, badges, code) plus action buttons; unknown content degrades to a generic card instead of being dropped.
-- The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; fetch-based SSE comment heartbeats count as liveness.
+- The browser-side transport for `/api/pi/events` (`transport.ts`), using authenticated SSE by default and one active connection per stream generation. Explicit WebSocket mode remains only for runtimes that provide a matching upgrade endpoint; fetch-based SSE comment heartbeats count as liveness. The transport owns the full connection lifecycle: every subscribe carries the `events.streamEpoch` capability marker plus the `streamEpoch` the replay cursor was established under (the daemon treats a marker-less subscriber as a legacy client and falls back to a snapshot baseline, and refuses to replay a cursor from a retired epoch even when its own sequence numerically overtook it); SSE connects run under a setup deadline that disposes a late attempt through the generation guard; URL-token minting is bounded; a pending backoff is woken (deduplicated) by `online`, visibility, and resume signals; the consecutive-failure count resets only after a connection stays healthy for a sustained window, so flapping links keep their exponential backoff; a known 401/403 stops the retry loop and reports `onAuthRequired` (the owning store surfaces the existing auth flow and preserves all local work), and a status-less native EventSource error is classified by a bounded authoritative health probe — a transient 503 or unreachable probe never becomes a logout. Stream-epoch transitions observed on the wire are adopted only after an authoritative health probe confirms them; a frame from a retired epoch is dropped without downgrade, and an unverifiable foreign epoch re-establishes the stream instead of being adopted.
 - Stream cadence (`stream-cadence.ts`): adjacent same-part token deltas fold, then flush on `requestAnimationFrame` together with live `session.tool.update` frames; boundary events flush pending stream frames first.
 - The service facade that wraps every `/api/pi/*` call (`client.ts`). Session detail responses contain a bounded tail page; `getSessionMessages` requests older pages with the response's opaque before-cursor. Native Pi commands are discovered through `/api/pi/commands?directory=...` and execute through Pi's `session.prompt()` resolver, which remains authoritative for extension execution, skill expansion, and prompt-template expansion; PiChamber never implements `$1`/`$@` expansion and never expands skill files itself. Invocation is distinct by kind: `/name` invokes a Pi prompt template or extension command per Pi resolution (extension wins on collision), `/skill:name` invokes a Pi skill (bare `/name` never invokes a skill), and `#name` expands a PiChamber snippet literally. Supported PiChamber system commands (`undo`, `redo`, `timeline`, `compact`) intercept before Pi; TUI-only names (`reload`, `model`, `settings`, `init`) are never advertised. The shared `commandCatalog.ts` owns executable identity (`invocationName`), with `/review` vs `/skill:review` as different commands, prompt/extension `/review` colliding with the extension winning, and identical `/review` rows never rendered twice. Catalogs are scoped by runtime, effective directory, and revision; runtime switches clear, directory switches never show another directory's rows, failures preserve the same scope's last known catalog, and prompt create/update/rename/delete, extension reload, and skill reload invalidate. Pi-owned prompt templates are mutated only through `resources.prompts.create/update/delete` with an explicit effective directory and opaque resource IDs — never delete-followed-by-create from the browser. Prompt update accepts name, description, and content, preserves unknown frontmatter (for example `argument-hint`), validates the destination name and scope, rejects collisions, writes atomically, removes the source only after the destination succeeds, rolls back the destination when source removal fails, enforces project trust, preserves existing files on failure, refreshes affected idle Pi sessions in place, defers busy-session activation until a safe lifecycle edge, and returns sanitized projections without filesystem paths. Prompt mutations never dispose session runtimes. Pi trust changes, provider model catalogs, and non-prompt resource edits commit to disk without interrupting an active turn. Their mutation responses carry `deferred: true` when resident runtime recreation waits for an idle edge, and new sessions use the saved values immediately. Pi default model and thinking settings already target new sessions. PiChamber-owned snippets use `/api/pi/snippets`, remain scoped by runtime and effective directory, support rename and global/project moves by opaque ID, and perform literal `#name` expansion without Pi prompt-template arguments. All runtimes (web, Electron, hosted-mobile, Capacitor) use the connected server's storage via `runtimeFetch`/`piClient`; caches are keyed by runtime and effective directory, cleared on runtime switch, and failed fetches preserve the prior same-directory snapshot instead of masquerading as empty success.
 - The snapshot reducer helpers (`snapshot.ts`).
@@ -48,6 +48,26 @@ failure. The bootstrap and reconnect owners record failures into a list of
 phase-tagged errors rather than swallowing them; the caller decides whether
 to retry or surface a toast.
 
+Send requests follow the safe-retry contract: reads (GET) and explicitly
+idempotent mutations (a send carrying a stable `operationId` as its
+`idempotencyKey`) retry once on transient 503/network failures; every other
+mutation is never blanket-retried because a dispatched-but-lost request may
+already have executed. An internal request timeout surfaces as the distinct
+`DAEMON_TIMEOUT` `PiRequestError` (uncertain outcome), never as an
+`AbortError`, so callers can classify send failures with
+`classifySendFailure` (`send-failure-classification.ts`) into `rejected`,
+`uncertain`, and `aborted` instead of guessing from error text. A generic
+post-dispatch `AbortError` without an explicit caller abort is uncertain, not
+proof of rejection: it confirms via the exact `sessions.sendReceipt` lookup
+and stays runtime-scoped. `PiSessionStore` tracks explicit acceptance in
+`sendStateById` (`confirming` / `accepted` / `outcome-unknown` / `rejected`,
+read via `getSendState()`); unrelated live activity never
+settles a `confirming` send, an `accepted` receipt settles acceptance
+independently of turn progress, and `expired` / `unknown` / stale-epoch /
+payload-mismatch becomes a user-visible `outcome-unknown` that clears the
+stuck busy with a safe next action and never auto-resends. A new operation id
+is only minted explicitly with a warning.
+
 A failed runtime probe is `unavailable`, not an empty session list. The
 sidebar must show the unavailable banner until the daemon reports `ready`
 again; the bootstrap owner returns `phase: 'failed'` only when the probe
@@ -58,7 +78,16 @@ caller can render the correct message.
 ## Sequencing and reconnect
 
 Every event the public stream publishes carries a monotonically increasing
-`sequence` number from the daemon's global counter. The reducer stores the last
+`sequence` number from the daemon's global counter **and** an opaque
+`streamEpoch` — a random stream-lifetime identifier regenerated on every
+daemon process start. The daemon advertises the `events.streamEpoch`
+capability and stamps health, snapshots, events, and session read responses
+(list, detail, history) with the epoch. Clients must verify the capability at
+attach (bootstrap, first-attach `open`, and reconnect all gate on it and fail
+visibly with `PROTOCOL_MISMATCH` when it is absent) because a daemon restart
+resets the sequence space: a live cursor from the previous process would
+silently swallow every new event. Sequence comparisons are therefore
+epoch-scoped. The reducer stores the last
 accepted sequence per session id and rejects any event for that session whose
 sequence is `<=` the last accepted value. `getSession` reports that same global
 cursor, not proof that the returned transcript contains every locally applied
@@ -89,7 +118,27 @@ arrives for a session whose transcript was dropped but whose `lastSequence`
 cursor remains. That restore forces `getSession` even if the live event already
 created a one-turn resident row, then overlays the JSONL log onto it. Reconnect resumes from
 `max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
-rewind the runtime stream into the retained event log. It merges the selected
+rewind the runtime stream into the retained event log — unless the
+health-verified epoch changed (daemon restart), in which case the old cursor
+belongs to a retired sequence space and the snapshot baseline is used
+verbatim (`epochChanged`); a blind max across epochs would let a new daemon
+whose sequence overtook the old cursor skip the head of the new sequence
+space. The stream reports an
+epoch transition (`onEpochChange`) by resetting its replay cursor — the
+transport emits it only after an authoritative health probe verified the new
+epoch against the live daemon (a retired-epoch frame is dropped without
+downgrade, and an unverifiable foreign epoch re-establishes the stream) — and the
+reconnect owner compares the health-probe epoch with the established one: a
+verified epoch change resets all resident transcripts and per-session cursors
+(optimistic prompts, drafts, attachments, and navigation state survive), accepts
+the lower snapshot baseline of the new daemon, and queues full recovery. A
+reconnect whose requested cursor could not be replayed receives a snapshot
+stamped `resync: true`; contiguous same-epoch replay delivers no resync and
+triggers no reload at all. Replay miss and epoch change both queue a bounded
+recovery pass (affected residents selected-first, then known directory
+catalogs, at most two in flight each); failed scopes keep their retry
+obligation, `state.syncReadiness` stays `'recovering'` until scopes drain, and
+stream-health signals re-queue parked scopes without ever clearing them. It merges the selected
 session snapshot into the existing cluster without disposing other hydrated
 sessions, and reattaches the runtime-wide stream with the same disconnect
 handler; a later `session.snapshot` (replay window missed) force-hydrates that
@@ -175,7 +224,9 @@ chat transcript selectors.
 - `dialogs` — runtime-wide pending extension-dialog membership; only dialog open, dismissal, hydrate, and reconnect reconciliation publish it.
 - `chrome` — cluster UI: `connection`, `error`, `directory`,
   `selectedSessionId`, `sessions[]`, `sessionsListStatus`,
-  `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`.
+  `focusPending`, `hydratedSessionIds`, `sessionLoadErrorById`,
+  `sendStateById` (explicit send acceptance: `confirming` / `accepted` /
+  `outcome-unknown` / `rejected`).
 - `*` (default) — broadcast every commit, for tests and legacy callers.
 
 `commitEvents` walks the event batch and collects the session ids whose
