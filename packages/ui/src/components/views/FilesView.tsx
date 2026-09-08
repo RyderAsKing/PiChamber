@@ -62,20 +62,28 @@ import { useFileEditorNavigation } from './files/useFileEditorNavigation';
 import { useFileEditorSave } from './files/useFileEditorSave';
 import { useFileStatReconciliation } from './files/useFileStatReconciliation';
 import { useFileViewerModes } from './files/useFileViewerModes';
-import { useFilesTree } from './files/useFilesTree';
+import { useFilesTree, shouldEnableFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
 import { FileTabsRow } from './files/FileTabsRow';
 import { FileViewerToolbar } from './files/FileViewerToolbar';
 import { UnsavedChangesDialog } from './files/UnsavedChangesDialog';
 import { FilesTreePanel } from './files/FilesTreePanel';
+import { createFileTreeStatusIndex } from './files/fileTreeStatus';
 
 interface FilesViewProps {
   mode?: 'full' | 'editor-only';
   chrome?: 'desktop' | 'mobile';
   onClose?: () => void;
+  /**
+   * Whether the surface is currently visible. Hidden surfaces keep cached
+   * rows and dirty drafts but issue no tree polling; they resume once on
+   * reactivation. Defaults to true for callers that mount only when visible
+   * (e.g. MainLayout full view).
+   */
+  isVisible?: boolean;
 }
 
-export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'desktop', onClose }) => {
+export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'desktop', onClose, isVisible = true }) => {
   const { files, runtime } = useRuntimeAPIs();
   const mobileChrome = chrome === 'mobile';
   const { currentTheme, availableThemes, lightThemeId, darkThemeId } = useThemeSystem();
@@ -87,6 +95,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
   const currentDirectory = useEffectiveDirectory() ?? '';
   const root = normalizePath(currentDirectory.trim());
+  // Needs-tree policy: mobile (`chrome="mobile"`, always `editor-only`
+  // today) browses directories through this hook, and `full` renders
+  // `FilesTreePanel` from it. Desktop `editor-only` renders only the file
+  // viewer — its tree column is the separate `SidebarFilesTree` — so the
+  // tree is unused and stays disabled. Dirty drafts live in local editor
+  // state, so gating the tree never discards unsaved content.
+  const needsTree = shouldEnableFilesTree(chrome, mode);
   // editor-only hosts (desktop context panel, the mobile Files surface) bring
   // their own chrome — the open-file tabs row is redundant there.
   const showEditorTabsRow = mode !== 'editor-only';
@@ -177,6 +192,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     showHidden,
     showGitignored,
     removeExpandedPathsByPrefix,
+    enabled: needsTree,
+    visible: isVisible,
   });
 
   const toFileNode = React.useCallback((path: string): FileNode => {
@@ -681,7 +698,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFile, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
-    if (!root) {
+    if (!root || !needsTree) {
       return;
     }
 
@@ -699,7 +716,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       return undefined;
     }).filter(Boolean);
     await Promise.all(loadPromises);
-  }, [expandPaths, isDirectoryLoaded, loadDirectory, root]);
+  }, [expandPaths, isDirectoryLoaded, loadDirectory, needsTree, root]);
 
   const getNextOpenFile = React.useCallback((path: string, filesList: FileNode[]) => {
     const index = filesList.findIndex((file) => file.path === path);
@@ -758,12 +775,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [mobileDirectory, mobileRefreshing, refreshDirectory]);
 
   React.useEffect(() => {
-    if (!selectedFile?.path) {
+    if (!selectedFile?.path || !needsTree || !isVisible) {
       return;
     }
 
     void ensurePathVisible(selectedFile.path, false);
-  }, [ensurePathVisible, selectedFile?.path]);
+  }, [ensurePathVisible, isVisible, needsTree, selectedFile?.path]);
 
   React.useEffect(() => {
     if (!selectedFile) {
@@ -829,48 +846,31 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     void continueNavigation(intent);
   }, [continueNavigation, getNextOpenFile, openFiles, requestNavigation, selectedFile?.path]);
 
-  const getFileStatus = React.useCallback((path: string): FileStatus | null => {
-    // Check open status
-    if (openPaths.includes(path)) return 'open';
+  // Shared per-snapshot status index: one O(changed x depth) build per
+  // gitStatus snapshot, then O(1) lookups per row. Preserves the previous
+  // precedence (open beats git, first duplicate wins, M/A/D/? codes) and
+  // root-relative/outside-workspace behavior via fileTreeStatus helpers.
+  const fileTreeStatusIndex = React.useMemo(
+    () => createFileTreeStatusIndex({ root, openPaths, gitFiles: gitStatus?.files }),
+    [root, openPaths, gitStatus],
+  );
 
-    // Check git status
-    if (gitStatus?.files) {
-      const relative = path.startsWith(root + '/') ? path.slice(root.length + 1) : path;
-      const file = gitStatus.files.find(f => f.path === relative);
-      if (file) {
-        if (file.index === 'A' || file.working_dir === '?') return 'git-added';
-        if (file.index === 'D') return 'git-deleted';
-        if (file.index === 'M' || file.working_dir === 'M') return 'git-modified';
-      }
-    }
-    return null;
-  }, [openPaths, gitStatus, root]);
+  const getFileStatus = React.useCallback((path: string): FileStatus | null =>
+    fileTreeStatusIndex.getFileStatus(path), [fileTreeStatusIndex]);
 
-  const getFolderBadge = React.useCallback((dirPath: string): { modified: number; added: number } | null => {
-    if (!gitStatus?.files) return null;
-    const relativeDir = dirPath.startsWith(root + '/') ? dirPath.slice(root.length + 1) : dirPath;
-    const prefix = relativeDir ? `${relativeDir}/` : '';
-
-    let modified = 0, added = 0;
-    for (const f of gitStatus.files) {
-      if (f.path.startsWith(prefix)) {
-        if (f.index === 'M' || f.working_dir === 'M') modified++;
-        if (f.index === 'A' || f.working_dir === '?') added++;
-      }
-    }
-    return modified + added > 0 ? { modified, added } : null;
-  }, [gitStatus, root]);
+  const getFolderBadge = React.useCallback((dirPath: string): { modified: number; added: number } | null =>
+    fileTreeStatusIndex.getFolderBadge(dirPath), [fileTreeStatusIndex]);
 
   const toggleDirectory = React.useCallback(async (dirPath: string) => {
     const normalized = normalizePath(dirPath);
-    if (!root) return;
+    if (!root || !needsTree) return;
 
     toggleExpandedPath(root, normalized);
 
     if (!isDirectoryLoaded(normalized)) {
       await loadDirectory(normalized);
     }
-  }, [isDirectoryLoaded, loadDirectory, root, toggleExpandedPath]);
+  }, [isDirectoryLoaded, loadDirectory, needsTree, root, toggleExpandedPath]);
 
   const fileRowPermissions = React.useMemo(
     () => ({ canRename, canCreateFile, canCreateFolder, canDelete, canReveal }),

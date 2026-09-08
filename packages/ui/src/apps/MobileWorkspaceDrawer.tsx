@@ -223,7 +223,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
           <div className={cn('h-full', tab !== 'files' && 'hidden')}>
             <ErrorBoundary>
               <React.Suspense fallback={null}>
-                <LazyFilesView chrome="mobile" mode="editor-only" />
+                <LazyFilesView chrome="mobile" mode="editor-only" isVisible={open && tab === 'files'} />
               </React.Suspense>
             </ErrorBoundary>
           </div>

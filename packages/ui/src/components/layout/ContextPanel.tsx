@@ -672,7 +672,7 @@ export const ContextPanel: React.FC = () => {
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
             <div className="h-full min-w-0 flex-1">
               {hasOpenEditorFile ? (
-                <React.Suspense fallback={null}><FilesView mode="editor-only" /></React.Suspense>
+                <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                   <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
