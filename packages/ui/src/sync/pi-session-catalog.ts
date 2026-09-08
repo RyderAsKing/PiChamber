@@ -214,8 +214,8 @@ export const applyDirectoryListToCatalog = (
     if (sessionDirectory !== normalized) continue; // cross-directory leakage guard
     // `timeArchived === 0` is the restored-session convention (see
     // `sync/DOCUMENTATION.md`); classify as active even when the raw
-    // `archived` flag is true so the global archive split matches
-    // `splitGlobalSessionsByArchived`.
+    // `archived` flag is true so the catalog archive filter matches
+    // `listUiSessionsFromCatalog`.
     const isArchived = typeof session.timeArchived === 'number'
       ? session.timeArchived > 0
       : Boolean(session.archived);
@@ -599,15 +599,222 @@ export const catalogLiveSessionIdsKey = (catalog: PiSessionCatalogState): string
 };
 
 // ---------------------------------------------------------------------------
+// List/mutation reconciliation — owned by the PiSessionStore catalog.
+// ---------------------------------------------------------------------------
+
+/**
+ * Reconcile a stale-prone directory listing against catalog mutations that
+ * committed after the listing started.
+ *
+ * `baseline` is the catalog captured synchronously when the list operation
+ * started (held in the operation's closure, so its lifetime is exactly the
+ * RPC duration — no unbounded tombstone history). `current` is the catalog
+ * at commit time, which already includes every rename/archive/remove/create
+ * /detail-upsert/stream-event mutation that landed while the RPC was in
+ * flight. `tombstones` carries removal ids for rows that were already
+ * absent at both snapshots (a `remove()` of an unlisted row is a no-op
+ * locally, so the baseline comparison alone cannot see it). Tombstones live
+ * only while at least one list is in flight and are cleared when the last
+ * list settles; a delete confirmed before any list started is not an
+ * in-flight contract (stale server echoes rely on authoritative
+ * disappearance for unmutated rows, never on unbounded history).
+ *
+ * Per-session rules, never whole-response rejection (one failed or stale
+ * entity must not erase unrelated complete entities):
+ *
+ * - Existing rows that still belong to `directory` use a field-sensitive
+ *   overlay. Only `title`/`archived` values actually changed since `baseline`
+ *   are preserved from `current`; all other listing fields come from the
+ *   fresh payload. Live `lifecycle`/`retry`/`hydrated`/`updatedAt` are
+ *   preserved via `applyDirectoryListToCatalog`'s normal merge, so a busy
+ *   event during the list cannot freeze stale title/archive while a true
+ *   local rename/archive newer than the list start survives. Listing-only
+ *   fields (`preview`/`messageCount`/`parentId`/`createdAt`) always take the
+ *   listing's authoritative values. Added rows that the stale listing already
+ *   contains are left to `applyDirectoryListToCatalog` (it preserves a
+ *   stub's busy lifecycle while taking the listing's authoritative title),
+ *   so a pre-list busy stub is never frozen with an empty title.
+ * - A row deleted after the listing started (baseline had it, current does
+ *   not, or its id is in `tombstones`) is filtered out of the stale listing
+ *   so the response cannot resurrect it.
+ * - A row that moved out of `directory` after the listing started (current
+ *   directory differs) is filtered out of this directory's stale listing;
+ *   the owning directory's row survives via the `ownedElsewhere` rule.
+ * - Unmutated rows trust the listing, including authoritative disappearance
+ *   (present in baseline, unchanged locally, omitted from a complete
+ *   snapshot).
+ * - Omitted mutated rows are retained as current known proof, distinguished
+ *   by cause: locally mutated metadata (`title`/`archived` changed) or a
+ *   newly added row survives because the mutation is newer than the stale
+ *   listing; a live-only change (`lifecycle`/`retry`/`hydrated`/`updatedAt`)
+ *   survives because live activity observed after the list started proves
+ *   the row still exists on the connected runtime.
+ */
+export const applyDirectoryListWithReconciliation = (
+  baseline: PiSessionCatalogState,
+  current: PiSessionCatalogState,
+  directory: string,
+  items: readonly PiSessionListItem[],
+  now: number,
+  tombstones?: ReadonlySet<string>,
+): PiSessionCatalogState => {
+  const normalized = normalizedDirectory(directory);
+  // Validate + filter the fresh payload to this directory first, preserving
+  // order and dropping cross-directory leakage (same guard as the plain apply).
+  const freshIdsOrdered: PiSessionId[] = [];
+  const freshItemsForDir: PiSessionListItem[] = [];
+  const freshSeen = new Set<PiSessionId>();
+  for (const item of items) {
+    const session = item?.session;
+    if (!session?.id || !session.directory) continue;
+    if (normalizedDirectory(session.directory) !== normalized) continue;
+    if (freshSeen.has(session.id)) continue;
+    freshSeen.add(session.id);
+    freshIdsOrdered.push(session.id);
+    freshItemsForDir.push(item);
+  }
+  const freshSet = new Set(freshIdsOrdered);
+  const baselineMem = baseline.byDirectory.get(normalized) ?? [];
+  const currentMem = current.byDirectory.get(normalized) ?? [];
+  const baselineSet = new Set(baselineMem);
+  // Rows deleted after the list started: baseline membership had them, the
+  // current catalog has no row at all. Filtered so a stale listing cannot
+  // resurrect them.
+  const deletedViaSnapshot = new Set<PiSessionId>();
+  for (const id of baselineSet) {
+    if (!current.byId.has(id)) deletedViaSnapshot.add(id);
+  }
+  // Per-session mutation scan, scoped to ids relevant to this directory
+  // (baseline/current membership or the fresh payload). O(dir + fresh), never
+  // a full-catalog scan — listings are low-frequency but directories can hold
+  // hundreds of rows. No extra registry: compare `baseline` vs `current`
+  // field-by-field for the two locally mutated metadata fields
+  // (`title`/`archived`); live fields (`lifecycle`/`retry`/`hydrated`/
+  // `updatedAt`) ride the normal merge below.
+  const addedOmitted = new Map<PiSessionId, LiveSessionRecord>();
+  const omittedMetadata = new Map<PiSessionId, LiveSessionRecord>();
+  const omittedLive = new Map<PiSessionId, LiveSessionRecord>();
+  const overlayPresent = new Map<PiSessionId, { rec: LiveSessionRecord; titleChanged: boolean; archivedChanged: boolean }>();
+  const movedOutIds = new Set<PiSessionId>();
+  const relevant = new Set<PiSessionId>();
+  for (const id of baselineMem) relevant.add(id);
+  for (const id of currentMem) relevant.add(id);
+  for (const id of freshIdsOrdered) relevant.add(id);
+  for (const id of relevant) {
+    const currentRec = current.byId.get(id);
+    if (!currentRec) continue; // deleted — handled above / via tombstones.
+    const baselineRec = baseline.byId.get(id);
+    if (baselineRec === currentRec) continue; // unmutated — trust the listing.
+    if (currentRec.directory !== normalized) {
+      // Moved out of this directory after the list started (or a stale dual
+      // membership entry). Exclude the stale listing row; the owning
+      // directory keeps the current row via `ownedElsewhere`.
+      if (baselineRec && (baselineRec.directory === normalized || baselineSet.has(id) || freshSet.has(id))) {
+        movedOutIds.add(id);
+      }
+      continue;
+    }
+    if (!baselineRec) {
+      // Added during the list. When the stale listing already contains the id
+      // (pre-list busy/detail stub), leave it to the plain apply so the
+      // listing's authoritative title wins while the stub's busy lifecycle is
+      // preserved. Only rows the stale listing omits (true creates / moves-in
+      // / remote stubs) need explicit preservation.
+      if (freshSet.has(id)) continue;
+      addedOmitted.set(id, currentRec);
+      continue;
+    }
+    // Existing row that still belongs here: field-sensitive. Preserve only
+    // metadata actually changed since baseline; live fields are already
+    // preserved by the normal merge and listing-only fields always take the
+    // listing. A lifecycle/hydration-only change must not freeze old title.
+    const titleChanged = currentRec.title !== baselineRec.title;
+    const archivedChanged = currentRec.archived !== baselineRec.archived;
+    if (freshSet.has(id)) {
+      if (titleChanged || archivedChanged) {
+        overlayPresent.set(id, { rec: currentRec, titleChanged, archivedChanged });
+      }
+      // Live-only: trust the listing's title/archive, keep current live via merge.
+      continue;
+    }
+    if (titleChanged || archivedChanged) {
+      omittedMetadata.set(id, currentRec);
+    } else {
+      // Live-only but omitted: live observed after list start proves existence.
+      omittedLive.set(id, currentRec);
+    }
+  }
+  const filteredItems = freshItemsForDir.filter((item) => {
+    const id = item.session.id;
+    if (deletedViaSnapshot.has(id)) return false;
+    if (tombstones?.has(id)) return false;
+    if (movedOutIds.has(id)) return false;
+    return true;
+  });
+  const intermediate = applyDirectoryListToCatalog(current, normalized, filteredItems, now);
+  let nextById: Map<PiSessionId, LiveSessionRecord> | null = null;
+  // Field-sensitive overlay for present rows: only changed title/archive win.
+  // Live lifecycle/retry/hydrated/updatedAt already ride the normal merge.
+  for (const [id, info] of overlayPresent) {
+    const intermediateRec = intermediate.byId.get(id);
+    if (!intermediateRec) {
+      // Filtered via tombstone (remove-then-recreate same id): the stale
+      // listing row is gone, so retain the recreated current row below.
+      omittedMetadata.set(id, info.rec);
+      continue;
+    }
+    const nextTitle = info.titleChanged ? info.rec.title : intermediateRec.title;
+    const nextArchived = info.archivedChanged ? info.rec.archived : intermediateRec.archived;
+    if (intermediateRec.title !== nextTitle || intermediateRec.archived !== nextArchived) {
+      if (!nextById) nextById = new Map(intermediate.byId);
+      nextById.set(id, { ...intermediateRec, title: nextTitle, archived: nextArchived });
+    }
+  }
+  if (addedOmitted.size === 0 && omittedMetadata.size === 0 && omittedLive.size === 0 && !nextById) return intermediate;
+  const effectiveById = nextById ?? intermediate.byId;
+  const intermediateMem = intermediate.byDirectory.get(normalized) ?? [];
+  const intermediateSet = new Set(intermediateMem);
+  // Rows the stale listing omitted but still owned: re-insert in
+  // current-membership order (new creates surface at the front, matching
+  // `upsertRecord`), ahead of the listing's authoritative order. Metadata-
+  // mutated, newly added, and live-only rows all retain existence — the
+  // first two because the mutation is newer than the stale listing, the last
+  // because live observed after list start proves the row still exists.
+  const preservedForReinsert = new Map<PiSessionId, LiveSessionRecord>([
+    ...addedOmitted,
+    ...omittedMetadata,
+    ...omittedLive,
+  ]);
+  const toReinsert: PiSessionId[] = [];
+  for (const id of currentMem) {
+    if (preservedForReinsert.has(id) && !intermediateSet.has(id)) toReinsert.push(id);
+  }
+  let nextByDirectory: Map<string, readonly PiSessionId[]> | null = null;
+  if (toReinsert.length > 0) {
+    nextByDirectory = new Map(intermediate.byDirectory);
+    nextByDirectory.set(normalized, [...toReinsert, ...intermediateMem]);
+    if (!nextById) nextById = new Map(effectiveById);
+    for (const id of toReinsert) {
+      const rec = preservedForReinsert.get(id);
+      if (rec) nextById.set(id, rec);
+    }
+  }
+  if (!nextById && !nextByDirectory) return intermediate;
+  return {
+    byId: nextById ?? intermediate.byId,
+    byDirectory: nextByDirectory ?? intermediate.byDirectory,
+    listStatusByDirectory: intermediate.listStatusByDirectory,
+  };
+};
+
+// ---------------------------------------------------------------------------
 // Concurrency-2 directory refresh scheduler
 // ---------------------------------------------------------------------------
 
 /**
- * Maximum number of in-flight per-directory refreshes. Matches the rule the
- * retiring global store used (`DIRECTORY_SESSION_REFRESH_CONCURRENCY = 2`).
- * Moving the scheduler out of the global store is what lets the global
- * store eventually become a thin wrapper around `PiSessionStore`; until
- * then, callers in either layer can hold a slot through this helper.
+ * Maximum number of in-flight per-directory refreshes. Owned by the catalog
+ * (`DIRECTORY_SESSION_REFRESH_CONCURRENCY = 2`); `PiSessionStore` is the
+ * single mutation authority that holds slots through this helper.
  */
 const DIRECTORY_REFRESH_CONCURRENCY = 2;
 

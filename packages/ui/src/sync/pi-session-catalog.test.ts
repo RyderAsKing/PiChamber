@@ -5,10 +5,14 @@ import { PiRequestError, piClient } from '@/lib/pi/client';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 import { useNotificationStore } from '@/sync/notification-store';
 import { useConfigStore } from '@/stores/useConfigStore';
-import { resetSessionOrdering } from '@/sync/session-ordering';
+import { getSessionLifecycleOrderValue, resetSessionOrdering } from '@/sync/session-ordering';
 import {
+  applyArchiveChange,
   applyDirectoryListToCatalog,
+  applyDirectoryListWithReconciliation,
+  applyHydratedChange,
   applyLifecycleChange,
+  applyTitleChange,
   initialCatalog,
   listLiveSessionRecordsFromCatalog,
   listUiSessionsFromCatalog,
@@ -1142,6 +1146,660 @@ describe('listUiSessionsFromCatalog', () => {
     } finally {
       if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
       else Reflect.deleteProperty(globalThis, 'window');
+    }
+  });
+});
+
+describe('catalog-owner list/mutation reconciliation', () => {
+  test('delayed list preserves a create that commits after the list starts', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('seed', '/repo-a', { updatedAt: 1 })] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+      createSession: async (input) => ({
+        session: {
+          id: 'created-during-list',
+          directory: (input as { cwd: string }).cwd,
+          title: 'fresh',
+          createdAt: 50,
+          updatedAt: 50,
+          parentId: null,
+        },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const previousConfig = useConfigStore.getState();
+    useConfigStore.setState({ isInitialized: true } as never);
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('seed')).toBe(true);
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.create('fresh', { model: { providerId: 'p', modelId: 'm' }, thinking: 'minimal' as never, select: false });
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('created-during-list')).toBe(true);
+      staleList.resolve({ sessions: [listItem('seed', '/repo-a', { updatedAt: 1 })] });
+      await refresh;
+      await tickMicrotasks();
+      const catalog = store.getState().catalog;
+      expect(catalog.byId.has('seed')).toBe(true);
+      expect(catalog.byId.get('created-during-list')?.title).toBe('fresh');
+      expect(catalog.byDirectory.get('/repo-a')).toContain('created-during-list');
+    } finally {
+      useConfigStore.setState({
+        isInitialized: previousConfig.isInitialized,
+      } as never);
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('delayed list preserves rename and archive newer than the list start', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return { sessions: [listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 })] };
+        }
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.rename('s-1', 'new-title');
+      await store.archive('s-1', true);
+      staleList.resolve({ sessions: [listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 })] });
+      await refresh;
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('s-1');
+      expect(row?.title).toBe('new-title');
+      expect(row?.archived).toBe(true);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('delayed list preserves a present delete and filters the stale row', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) {
+          return {
+            sessions: [
+              listItem('keep', '/repo-a', { updatedAt: 1 }),
+              listItem('gone', '/repo-a', { updatedAt: 1 }),
+            ],
+          };
+        }
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.remove('gone');
+      staleList.resolve({
+        sessions: [
+          listItem('keep', '/repo-a', { updatedAt: 1 }),
+          listItem('gone', '/repo-a', { updatedAt: 1 }),
+        ],
+      });
+      await refresh;
+      await tickMicrotasks();
+      const catalog = store.getState().catalog;
+      expect(catalog.byId.has('gone')).toBe(false);
+      expect(catalog.byDirectory.get('/repo-a')).not.toContain('gone');
+      expect(catalog.byId.has('keep')).toBe(true);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('absent-row removal during a list prevents resurrection', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('ghost')).toBe(false);
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      // The row was never listed locally; `remove()` is a local no-op but
+      // must still tombstone so the stale listing cannot resurrect it.
+      await store.remove('ghost');
+      staleList.resolve({ sessions: [listItem('ghost', '/repo-a', { updatedAt: 1 })] });
+      await refresh;
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('ghost')).toBe(false);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('move A -> B during a delayed A list keeps B and drops A membership', async () => {
+    const delayedA = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let aCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async (scope) => {
+        const directory = scope.directory ?? '';
+        if (directory === '/repo-b') {
+          // First B fill is empty; the second (the move) carries `shared`.
+          const state = (stubState.bFills += 1);
+          if (state === 1) return { sessions: [] };
+          return { sessions: [listItem('shared', '/repo-b', { updatedAt: 2 })] };
+        }
+        aCalls += 1;
+        if (aCalls === 1) return { sessions: [listItem('shared', '/repo-a', { updatedAt: 1 })] };
+        return await delayedA.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: id === 'shared' ? '/repo-a' : '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const stubState = { bFills: 0 };
+    // Rebind after `stubState` exists: the closure above reads it lazily, so
+    // the first B call still routes correctly.
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      await store.refreshDirectoryCatalog('/repo-b');
+      await tickMicrotasks();
+      const delayed = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      // Server-side move lands in B while A's stale list is still in flight.
+      await store.refreshDirectoryCatalog('/repo-b');
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('shared')?.directory).toBe('/repo-b');
+      delayedA.resolve({ sessions: [listItem('shared', '/repo-a', { updatedAt: 1 })] });
+      await delayed;
+      await tickMicrotasks();
+      const catalog = store.getState().catalog;
+      expect(catalog.byId.get('shared')?.directory).toBe('/repo-b');
+      expect(catalog.byDirectory.get('/repo-b')).toContain('shared');
+      expect(catalog.byDirectory.get('/repo-a') ?? []).not.toContain('shared');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('prompt recency and busy lifecycle survive a delayed list', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('a-1', '/repo-a', { updatedAt: 10 })] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+      sendPrompt: async () => undefined,
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.prompt('a-1', 'hello', 'prompt');
+      const promptedAt = store.getState().catalog.byId.get('a-1')?.updatedAt ?? 0;
+      expect(promptedAt).toBeGreaterThan(10);
+      expect(store.getState().catalog.byId.get('a-1')?.lifecycle).toBe('busy');
+      staleList.resolve({ sessions: [listItem('a-1', '/repo-a', { updatedAt: 10 })] });
+      await refresh;
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('a-1');
+      expect(row?.updatedAt).toBe(promptedAt);
+      expect(row?.lifecycle).toBe('busy');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('failed list preserves mutations and unrelated directories', async () => {
+    const failingList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    const stubs = stubDaemons({
+      listSessions: async (scope) => {
+        const directory = scope.directory ?? '';
+        if (directory === '/repo-a' && failingList) {
+          // First A fill succeeds; the second (under test) fails.
+          if ((stubCalls.a += 1) === 1) return { sessions: [listItem('a-1', '/repo-a', { title: 'old' })] };
+          await failingList.promise;
+          throw new PiRequestError('DAEMON_UNAVAILABLE', 'boom');
+        }
+        if (directory === '/repo-b') return { sessions: [listItem('b-1', '/repo-b')] };
+        return { sessions: [] };
+      },
+      getSession: async (id) => ({
+        session: { id, directory: id.startsWith('b-') ? '/repo-b' : '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const stubCalls = { a: 0 };
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      await store.refreshDirectoryCatalog('/repo-b');
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.rename('a-1', 'renamed-during-failure');
+      failingList.resolve({ sessions: [] });
+      const result = await refresh;
+      await tickMicrotasks();
+      expect(result.ok).toBe(false);
+      const catalog = store.getState().catalog;
+      expect(catalog.byId.get('a-1')?.title).toBe('renamed-during-failure');
+      expect(catalog.byId.has('b-1')).toBe(true);
+      expect(catalog.listStatusByDirectory.get('/repo-a')).toBe('failed');
+      expect(catalog.listStatusByDirectory.get('/repo-b')).toBe('ready');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('runtime switch rejects a stale list commit', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('a-1', '/repo-a')] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      store.clear();
+      expect(store.getState().catalog.byId.size).toBe(0);
+      staleList.resolve({ sessions: [listItem('stale', '/repo-a')] });
+      await refresh;
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('stale')).toBe(false);
+      expect(store.getState().catalog.byId.size).toBe(0);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('stale archive/rename after a runtime switch mutate nothing', async () => {
+    const archiveGate = deferred<unknown>();
+    const renameGate = deferred<unknown>();
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [listItem('s-1', '/repo-a', { title: 'old' })] }),
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+      archiveSession: async () => await archiveGate.promise,
+      renameSession: async () => await renameGate.promise,
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const archiving = store.archive('s-1', true);
+      const renaming = store.rename('s-1', 'stale-title');
+      await tickMicrotasks();
+      store.clear();
+      expect(store.getState().catalog.byId.size).toBe(0);
+      archiveGate.resolve({ session: { id: 's-1', archived: true } });
+      renameGate.resolve({ session: { id: 's-1', title: 'stale-title' } });
+      await archiving;
+      await renaming;
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.size).toBe(0);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('focus list preserves a rename newer than the focus start', async () => {
+    const focusList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    const stubs = stubDaemons({
+      selectProject: async (dir: string) => ({ directory: dir }),
+      listSessions: async (scope) => {
+        const directory = scope.directory ?? '';
+        if (directory === '/repo-a') return { sessions: [listItem('a-1', '/repo-a', { title: 'old' })] };
+        return await focusList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-b', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      // Seed B via a remote event before the focus starts, so the focus
+      // rename has a row to mutate while the focus listing is in flight.
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([sessionUpdatedEvent('b-1', '/repo-b', 'old', 1)]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('b-1')?.title).toBe('old');
+      const focusing = store.focusProject('/repo-b', null);
+      await tickMicrotasks();
+      await tickMicrotasks();
+      await store.rename('b-1', 'renamed-during-focus');
+      focusList.resolve({ sessions: [] });
+      await focusing;
+      await tickMicrotasks();
+      // The focus listing was empty (stale); the rename newer than focus
+      // start must survive.
+      expect(store.getState().catalog.byId.get('b-1')?.title).toBe('renamed-during-focus');
+      expect(store.getState().catalog.byDirectory.get('/repo-b')).toContain('b-1');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('authoritative directory snapshot raises ordering baselines', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('base', '/repo-a', { title: 'old', updatedAt: 10, createdAt: 9 })] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 9, updatedAt: 10 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const stale = { id: 'base', time: { created: 9, updated: 10 } } as never;
+      expect(getSessionLifecycleOrderValue(stale, new Map())).toBe(10);
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      // A rename during the list bumps `updatedAt` to now and must survive
+      // the stale listing; the catalog owner's post-commit raise then lifts
+      // the frozen ordering baseline to that authoritative stamp.
+      await store.rename('base', 'new');
+      const renamedAt = store.getState().catalog.byId.get('base')?.updatedAt ?? 0;
+      expect(renamedAt).toBeGreaterThan(10);
+      staleList.resolve({ sessions: [listItem('base', '/repo-a', { title: 'old', updatedAt: 10, createdAt: 9 })] });
+      await refresh;
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('base')?.title).toBe('new');
+      expect(getSessionLifecycleOrderValue(stale, new Map())).toBe(renamedAt);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('reconciliation helper never rejects a whole directory for one mutated row', async () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 }),
+      listItem('mut', '/repo-a', { title: 'old', updatedAt: 1 }),
+    ], 10);
+    const mutated = applyDirectoryListToCatalog(baseline, '/repo-a', [
+      listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 }),
+      listItem('mut', '/repo-a', { title: 'old', updatedAt: 1 }),
+    ], 10);
+    const current = applyTitleChange(mutated, 'mut', 'new', 99);
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 }), listItem('fresh', '/repo-a', { title: 'fresh', updatedAt: 2 })],
+      20,
+    );
+    // `mut` was renamed after the list started: it survives even though the
+    // stale listing omits it. `keep` follows the listing, `fresh` is adopted,
+    // and no unrelated complete entity is lost.
+    expect(reconciled.byId.get('mut')?.title).toBe('new');
+    expect(reconciled.byId.has('keep')).toBe(true);
+    expect(reconciled.byId.get('fresh')?.title).toBe('fresh');
+  });
+
+  test('lifecycle-only change does not freeze stale title/archive', () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 }),
+    ], 10);
+    // Busy event during the list: lifecycle flips, title/archive untouched.
+    const current = applyLifecycleChange(baseline, 's-1', 'busy');
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('s-1', '/repo-a', { title: 'remote-new', archived: true, timeArchived: 7, updatedAt: 20 })],
+      30,
+    );
+    // Authoritative remote rename/archive wins; live lifecycle rides the merge.
+    expect(reconciled.byId.get('s-1')?.title).toBe('remote-new');
+    expect(reconciled.byId.get('s-1')?.archived).toBe(true);
+    expect(reconciled.byId.get('s-1')?.lifecycle).toBe('busy');
+  });
+
+  test('true rename/archive during the list survives a stale listing', () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 }),
+    ], 10);
+    let current = applyTitleChange(baseline, 's-1', 'local-new', 99);
+    current = applyArchiveChange(current, 's-1', true, 99);
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 })],
+      30,
+    );
+    expect(reconciled.byId.get('s-1')?.title).toBe('local-new');
+    expect(reconciled.byId.get('s-1')?.archived).toBe(true);
+  });
+
+  test('hydration-only change does not freeze stale title', () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 }),
+    ], 10);
+    const current = applyHydratedChange(baseline, 's-1', true);
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('s-1', '/repo-a', { title: 'remote-new', updatedAt: 20 })],
+      30,
+    );
+    expect(reconciled.byId.get('s-1')?.title).toBe('remote-new');
+    expect(reconciled.byId.get('s-1')?.hydrated).toBe(true);
+  });
+
+  test('omitted live-only row retains existence as current known proof', () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 }),
+      listItem('live', '/repo-a', { title: 'old', updatedAt: 1 }),
+    ], 10);
+    const current = applyLifecycleChange(baseline, 'live', 'busy');
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 })],
+      20,
+    );
+    // Live observed after list start proves the row still exists; retain it
+    // with its best-known (old) metadata and busy lifecycle.
+    expect(reconciled.byId.get('live')?.title).toBe('old');
+    expect(reconciled.byId.get('live')?.lifecycle).toBe('busy');
+    expect(reconciled.byDirectory.get('/repo-a')).toContain('live');
+  });
+
+  test('omitted metadata-mutated row retains its new values', () => {
+    const baseline = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 }),
+      listItem('mut', '/repo-a', { title: 'old', updatedAt: 1 }),
+    ], 10);
+    const current = applyTitleChange(baseline, 'mut', 'local-new', 99);
+    const reconciled = applyDirectoryListWithReconciliation(
+      baseline,
+      current,
+      '/repo-a',
+      [listItem('keep', '/repo-a', { title: 'keep', updatedAt: 1 })],
+      20,
+    );
+    expect(reconciled.byId.get('mut')?.title).toBe('local-new');
+    expect(reconciled.byDirectory.get('/repo-a')).toContain('mut');
+  });
+
+  test('delayed list with busy event then remote rename/archive takes remote metadata, keeps busy', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 })] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('s-1')?.title).toBe('old');
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      // Busy event lands while the list is in flight (lifecycle-only).
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([lifecycleEvent('s-1', '/repo-a', 'busy', 2)]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('s-1')?.lifecycle).toBe('busy');
+      // Stale listing resolves with authoritative remote rename/archive.
+      staleList.resolve({
+        sessions: [listItem('s-1', '/repo-a', { title: 'remote-new', archived: true, timeArchived: 7, updatedAt: 20 })],
+      });
+      await refresh;
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('s-1');
+      expect(row?.title).toBe('remote-new');
+      expect(row?.archived).toBe(true);
+      expect(row?.lifecycle).toBe('busy');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('delayed list with hydration during flight then remote rename takes remote title, keeps hydrated', async () => {
+    const staleList = deferred<{ sessions: ReturnType<typeof listItem>[] }>();
+    let listCalls = 0;
+    const stubs = stubDaemons({
+      listSessions: async () => {
+        listCalls += 1;
+        if (listCalls === 1) return { sessions: [listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 })] };
+        return await staleList.promise;
+      },
+      getSession: async (id) => ({
+        session: { id, directory: '/repo-a', createdAt: 0, updatedAt: 0 },
+        lastSequence: 0,
+        messages: [],
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({ directory: '/repo-a' });
+      await tickMicrotasks();
+      const refresh = store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      await store.ensureHydrated('s-1');
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('s-1')?.hydrated).toBe(true);
+      staleList.resolve({
+        sessions: [listItem('s-1', '/repo-a', { title: 'remote-new', updatedAt: 20 })],
+      });
+      await refresh;
+      await tickMicrotasks();
+      const row = store.getState().catalog.byId.get('s-1');
+      expect(row?.title).toBe('remote-new');
+      expect(row?.hydrated).toBe(true);
+    } finally {
+      stubs.restore();
+      store.dispose();
     }
   });
 });

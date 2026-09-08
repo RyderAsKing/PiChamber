@@ -25,16 +25,17 @@ import { getPiSessionCatalogCache, type PiSessionCatalogCache } from '@/sync/pi-
 import { useConfigStore } from '@/stores/useConfigStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
-import { observeSessionActivityEvent, removeSessionOrdering } from '@/sync/session-ordering';
+import { observeSessionActivityEvent, raiseSessionOrderingBaselines, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
 import {
   applyArchiveChange,
-  applyDirectoryListToCatalog,
+  applyDirectoryListWithReconciliation,
   applyHydratedChange,
   applyLifecycleChange,
   applyTitleChange,
   initialCatalog,
+  liveSessionRecordToUiSession,
   markDirectoryFailed,
   markDirectoryLoading,
   mapDirectoriesWithRefreshSlot,
@@ -160,6 +161,17 @@ export class PiSessionStore {
    *  refresh has begun, or after a runtime switch) commit nothing. Cleared
    *  on `dispose` / `clear` / `resetForRuntime`. */
   private directoryRefreshGenerationByDirectory = new Map<string, number>();
+  /** Active catalog list operations (refresh/focus/open) — bounds the
+   *  delete-tombstone lifetime to in-flight RPCs so no unbounded history
+   *  survives after the last list settles. */
+  private catalogActiveListCount = 0;
+  /** Removals confirmed while a catalog list was in flight, keyed by session
+   *  id. Covers rows already absent locally (where a baseline snapshot alone
+   *  cannot see the deletion) so a stale listing cannot resurrect them.
+   *  Cleared when the last active list settles and on every runtime reset.
+   *  A delete confirmed before any list started is not tombstoned; it relies
+   *  on authoritative disappearance for unmutated rows, never on retained history. */
+  private catalogDeleteTombstones = new Set<PiSessionId>();
   private providerRefreshRevisionByDirectory = new Map<string, number>();
   private providerRefreshTaskByDirectory = new Map<string, Promise<void>>();
   private evictionScheduled = false;
@@ -224,6 +236,11 @@ export class PiSessionStore {
   };
   private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
+    this.catalogDeleteTombstones.clear();
+    // `catalogActiveListCount` is intentionally left alone: in-flight lists
+    // from the previous runtime still own their `finally` decrement. Their
+    // commits are rejected by the generation guards; only tombstones (which
+    // belong to the old runtime) are dropped here.
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;
@@ -245,6 +262,28 @@ export class PiSessionStore {
     this.stream = null;
     this.streamGeneration += 1;
     this.streamReadyRevision += 1;
+  }
+  private enterCatalogListOp(): void {
+    this.catalogActiveListCount += 1;
+  }
+  private exitCatalogListOp(): void {
+    this.catalogActiveListCount = Math.max(0, this.catalogActiveListCount - 1);
+    if (this.catalogActiveListCount === 0) this.catalogDeleteTombstones.clear();
+  }
+  /** Raise frozen ordering baselines from an authoritative directory snapshot.
+   *  Monotonic: live ranks are never demoted. */
+  private raiseOrderingBaselinesForDirectory(directory: string): void {
+    const normalized = normalizePath(directory);
+    if (!normalized) return;
+    const ids = this.state.catalog.byDirectory.get(normalized);
+    if (!ids || ids.length === 0) return;
+    const sessions = [];
+    for (const id of ids) {
+      const record = this.state.catalog.byId.get(id);
+      if (!record || record.archived) continue;
+      sessions.push(liveSessionRecordToUiSession(record));
+    }
+    if (sessions.length > 0) raiseSessionOrderingBaselines(sessions);
   }
 
   dispose = () => {
@@ -349,14 +388,12 @@ export class PiSessionStore {
     this.emitBroadcast();
   };
 
-  // -------------------------------------------------------------------------
   // Catalog refresh — per-directory listings populate `state.catalog` with
   // metadata for every known session. Failures preserve prior rows and flip
   // the directory's `listStatusByDirectory` entry to `'failed'`; other
   // directories are untouched. The at-most-2 in-flight scheduler lives in
-  // `pi-session-catalog.ts` so the retiring global store can call through a
-  // thin wrapper instead of owning its own.
-  // -------------------------------------------------------------------------
+  // `pi-session-catalog.ts` and is owned by the catalog (`PiSessionStore` is
+  // the single mutation authority).
 
   /**
    * Refresh the catalog for a single directory. A successful list replaces
@@ -377,6 +414,13 @@ export class PiSessionStore {
     const generation = (this.directoryRefreshGenerationByDirectory.get(normalized) ?? 0) + 1;
     this.directoryRefreshGenerationByDirectory.set(normalized, generation);
     const startedRuntimeGeneration = this.runtimeGeneration;
+    // Baseline snapshot for mutation reconciliation: every catalog mutation
+    // that commits after this line (rename/archive/remove/create/detail
+    // upserts/stream-event metadata) is newer than the listing and must
+    // survive it per session. Held in this operation's closure, so its
+    // lifetime is exactly the RPC duration.
+    const baseline = this.state.catalog;
+    this.enterCatalogListOp();
     const nextLoadingCatalog = markDirectoryLoading(this.state.catalog, normalized);
     if (nextLoadingCatalog !== this.state.catalog) {
       this.state = {
@@ -392,10 +436,11 @@ export class PiSessionStore {
       if (this.directoryRefreshGenerationByDirectory.get(normalized) !== generation) return { ok: true };
       if (startedRuntimeGeneration !== this.runtimeGeneration) return { ok: true };
       if (runtimeKey !== getRuntimeKey()) return { ok: true };
-      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, normalized, result.sessions, Date.now());
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, result.sessions, Date.now(), this.catalogDeleteTombstones);
       if (nextCatalog !== this.state.catalog) {
         this.state = { ...this.state, catalog: nextCatalog };
         this.emit([TOPIC_CATALOG]);
+        this.raiseOrderingBaselinesForDirectory(normalized);
       }
       return { ok: true };
     } catch (error) {
@@ -416,14 +461,15 @@ export class PiSessionStore {
       }
       if (topics.length > 0) this.emit(topics);
       return { ok: false, error: requestError };
+    } finally {
+      this.exitCatalogListOp();
     }
   }
 
   /**
    * Refresh the catalog for many directories concurrently. Schedules at
-   * most two listings in flight at any moment — same rule the retiring
-   * global store used. Each directory's success/failure is independent;
-   * a failed directory does not affect the others.
+   * most two listings in flight at any moment. Each directory's success/failure
+   * is independent; a failed directory does not affect the others.
    */
   async refreshAllDirectoryCatalogs(directories: Iterable<string>): Promise<void> {
     const ordered = [...new Set(directories)].map((directory) => normalizePath(directory)).filter((directory): directory is string => Boolean(directory));
@@ -600,6 +646,8 @@ export class PiSessionStore {
   private async resolveFocus(expected: number, directory: string): Promise<void> {
     const runtimeKey = getRuntimeKey();
     const startedRuntimeGeneration = this.runtimeGeneration;
+    const baseline = this.state.catalog;
+    this.enterCatalogListOp();
     const desiredSessionId = this.pendingPreferredSessionId;
     let resolvedDirectory = directory;
     try {
@@ -666,7 +714,7 @@ export class PiSessionStore {
           ?? null
         ));
       this.pendingPreferredSessionId = null;
-      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now());
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.catalogDeleteTombstones);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
@@ -680,6 +728,7 @@ export class PiSessionStore {
       const listTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) listTopics.push(TOPIC_CATALOG);
       this.emit(listTopics);
+      if (catalogChanged) this.raiseOrderingBaselinesForDirectory(resolvedDirectory);
       if (nextSelectedSessionId) this.touchLastAccess(nextSelectedSessionId);
       if (nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId)) {
         await this.hydrate(nextSelectedSessionId, this.runtimeGeneration);
@@ -708,6 +757,7 @@ export class PiSessionStore {
         this.failFocus(expected, asError(error));
       }
     } finally {
+      this.exitCatalogListOp();
       if (expected === this.focusGeneration && this.pendingFocus?.expected === expected) {
         this.pendingFocus = null;
       }
@@ -841,6 +891,8 @@ export class PiSessionStore {
     };
     this.emitChrome();
     const runtimeKey = getRuntimeKey();
+    const baseline = this.state.catalog;
+    this.enterCatalogListOp();
     try {
       const selected = await piClient.selectProject(directory, { runtimeKey });
       if (expected !== this.runtimeGeneration) return;
@@ -890,7 +942,7 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
-      const nextCatalog = applyDirectoryListToCatalog(this.state.catalog, selected.directory, result.sessions, Date.now());
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, result.sessions, Date.now(), this.catalogDeleteTombstones);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
@@ -902,13 +954,16 @@ export class PiSessionStore {
       const openTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) openTopics.push(TOPIC_CATALOG);
       this.emit(openTopics);
+      if (catalogChanged) this.raiseOrderingBaselinesForDirectory(selected.directory);
       if (selectedSessionId) {
         await this.hydrate(selectedSessionId, expected, undefined, {
           initialHealth,
           initialSessions: result.sessions,
         });
       }
-    } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); }
+    } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); } finally {
+      this.exitCatalogListOp();
+    }
   }
 
   async select(sessionId: PiSessionId, targetDirectory?: string): Promise<void> {
@@ -1051,7 +1106,12 @@ export class PiSessionStore {
   }
 
   async rename(sessionId: string, title: string) {
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
     await piClient.renameSession({ sessionId, title }, this.scope());
+    // A runtime switch while the RPC was in flight must not mutate the new
+    // runtime's catalog with the old runtime's confirmation.
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
     const now = Date.now();
     const nextCatalog = applyTitleChange(this.state.catalog, sessionId, title, now);
     const catalogChanged = nextCatalog !== this.state.catalog;
@@ -1070,8 +1130,11 @@ export class PiSessionStore {
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
   }
   async archive(sessionId: string, archived: boolean, directory?: string) {
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
     const sessionDir = this.resolveSessionDirectory(sessionId, directory);
     await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
     const now = Date.now();
     const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, now);
     const catalogChanged = nextCatalog !== this.state.catalog;
@@ -1086,9 +1149,14 @@ export class PiSessionStore {
   }
   async remove(sessionId: string, directory?: string) {
     const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
     const sessionDir = this.resolveSessionDirectory(sessionId, directory);
     await piClient.deleteSession({ sessionId, ignoreMissing: true }, sessionDir ? this.scope(sessionDir) : this.scope());
-    if (expected !== this.runtimeGeneration) return;
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+    // Record the removal while any list is in flight so a stale listing that
+    // still contains the id cannot resurrect it — including rows that were
+    // already absent locally (baseline snapshots alone cannot see those).
+    if (this.catalogActiveListCount > 0) this.catalogDeleteTombstones.add(sessionId);
     removeSessionActivityTiming(sessionId);
     removeSessionOrdering(sessionId);
     clearRevertNavigation(sessionId);
@@ -1126,7 +1194,10 @@ export class PiSessionStore {
       this.state.sessions.find((item) => item.session.id === sessionId)?.session.title ??
       this.state.catalog.byId.get(sessionId)?.title ??
       '';
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
     const detail = await piClient.forkSession({ sessionId, ...(messageId ? { messageId } : {}) }, this.scope());
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
     this.upsertAndHydrate(detail);
     // Make the fork obvious in the sidebar / header. Keep the original title
     // and append " (Fork)" once — don't double-append on repeated forks.
@@ -1137,7 +1208,13 @@ export class PiSessionStore {
       void this.rename(detail.session.id, forkTitle).catch(() => {});
     }
   }
-  async clone(sessionId: string) { const detail = await piClient.cloneSession({ sessionId }, this.scope()); this.upsertAndHydrate(detail); }
+  async clone(sessionId: string) {
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
+    const detail = await piClient.cloneSession({ sessionId }, this.scope());
+    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+    this.upsertAndHydrate(detail);
+  }
   async navigate(sessionId: string, messageId: string) {
     // Capture the pre-navigation active branch for the dock. Use the
     // reducer's current messages so we preserve ordering without
