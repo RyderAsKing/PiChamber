@@ -64,7 +64,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     createFolderAndStartRename,
     handleDeleteSession,
     handleRestoreSession,
-    mobileVariant,
     alwaysShowActions,
     allowQuickArchiveAction,
     renderSessionNode,
@@ -108,7 +107,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     isRowSelected,
     toggleRowSelected,
     setRowRange,
-    isZombie,
     isStreaming,
     hasActivityDuration,
     sessionTitle,
@@ -208,10 +206,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     >
       {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
     </button>
-  ) : null;
-
-  const streamingIndicator = isZombie ? (
-    <Icon name="error-warning" className="h-4 w-4 text-status-warning" />
   ) : null;
 
   const handleMenuOpenChange = (open: boolean) => {
@@ -535,10 +529,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 </div>
               ) : null}
             </div>
-
-            {streamingIndicator && !mobileVariant ? (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">{streamingIndicator}</div>
-            ) : null}
           </ContextMenu.Trigger>
           {contextMenuContent}
         </ContextMenu.Root>

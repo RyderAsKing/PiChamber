@@ -229,7 +229,6 @@ const setupRetention = (overrides?: {
   action?: 'archive' | 'delete';
   lastRunAt?: number | null;
   currentSessionId?: string | null;
-  isLoading?: boolean;
 }): void => {
   useUIStore.setState({
     autoDeleteEnabled: overrides?.enabled ?? true,
@@ -239,7 +238,6 @@ const setupRetention = (overrides?: {
   });
   useSessionUIStore.setState({
     currentSessionId: overrides?.currentSessionId ?? null,
-    isLoading: overrides?.isLoading ?? false,
   });
 };
 
@@ -268,7 +266,7 @@ afterEach(() => {
   resetWorkspace();
   getPiSessionStore().clear();
   setSingletonDirectory(null);
-  setupRetention({ enabled: false, lastRunAt: null, currentSessionId: null, isLoading: false });
+  setupRetention({ enabled: false, lastRunAt: null, currentSessionId: null });
 });
 
 describe('runSessionAutoCleanupNow', () => {

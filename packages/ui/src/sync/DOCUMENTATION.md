@@ -13,6 +13,10 @@ This document covers the current client-side session/data architecture in `packa
 - Backed by `/api/pi/*` and the Pi event stream
 - Read via hooks like `useSessions()`, `useSessionMessageRecords()`, `getSyncSessions()`
 
+### Viewport store (retired)
+
+`packages/ui/src/sync/viewport-store.ts` was deleted. It was an in-memory-only store and every value was write-only: scroll anchors and scrollbar snapshots were saved on scroll/session-switch but never read back, `isSyncing` had no readers, and the sole value reader (`isZombie`) had no writers that ever set it true. Current scroll ownership: `useChatAutoFollow` owns bottom-pin `restoreSnapshot`, entry-stick, rAF/timers, and following/released state with no save timer or side channel; `MessageList` owns scroll compensation via `messageId` + `offsetTop` anchors. The sidebar zombie branch was removed with no layout change.
+
 ### Global sessions cache (retired)
 
 `packages/ui/src/stores/useGlobalSessionsStore.ts` was deleted. It is not a data scope and must not be reintroduced. Former consumers now read the live catalog directly: retention cleanup via `loadSessionCatalog` + `partitionCleanupCandidates`, mobile restore via `loadSessionCatalog([persistedDirectory])` + `decideMobileRestore`, the mobile widget via a synchronous `catalog.byId` read, and `session-ui-store` via a `catalog.byId` directory lookup.
@@ -72,7 +76,6 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | `session-directory-resolution.ts` | Session directory resolution helpers used by `getDirectoryForSession` and diagnostics | App UI state |
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort prompts, action entrypoints | App UI state |
 | `known-session-directories.ts` | The shared `buildKnownSessionDirectories(projects, worktrees)` helper the sidebar and feeder use to agree on the directory set. Dedupe is case-insensitive; returned paths keep filesystem casing for daemon list RPC | App-wide |
-| `viewport-store.ts` | Scroll anchors, session memory, loading indicators | App UI state |
 | `attachment-files.ts` | Attachment picker allowlists, MIME/content validation, structured-text sanitization, and HEIC conversion | Local chat attachments across shared UI runtimes |
 | `document-attachments.ts` | Bounded Office/OpenDocument extraction, document text serialization, embedded-image extraction, and positional citations | DOCX, PPTX, XLSX, ODT, ODP, and ODS chat attachments |
 | `input-store.ts` | Draft input state, attachment preparation/upload/cleanup, synthetic parts | App UI state |
@@ -167,7 +170,7 @@ Current consumers:
 
 Live busy/retry state must come from the catalog `lifecycle` mirror, which is flipped by accepted lifecycle/snapshot events in `commitEvents` and restored from authoritative listings — never from persisted history or inferred from message timestamps.
 
-`getAllSyncSessions()` returns the runtime-wide active+archived catalog list; `getAllSyncSessionMap()` builds a fresh `Map` from the active catalog on every call — it is not cached or incrementally indexed, so do not use it in render hot paths.
+`getAllSyncSessions()` returns the runtime-wide active+archived catalog list.
 
 Session display order is last-prompt recency, not last turn stage. `session-ordering.ts` promotes a session only when `observeSessionActivityEvent` sees a new `active` phase (the send path). Settled/idle, hydrate replay, reconnect snapshots, and list `time.updated` stamps do not promote. Pins remain the first ordering bucket. The timestamp/creation fallback is frozen when a session first participates in ordering; creation time and ID provide deterministic ties. Runtime switches clear all phases, baselines, and ranks.
 
@@ -340,7 +343,7 @@ Load-state hooks must not be put on `session:{id}` — that would keep ChatConta
 
 ### Why split
 
-A single Zustand store with N properties means every subscriber's selector re-evaluates on every state change — even if the change is unrelated to what that subscriber reads. During streaming, `sessionMemoryState` updates ~60/sec. Before the split, all 68+ `useSessionUIStore` subscribers re-evaluated on each update. After splitting into focused stores, only `useViewportStore` subscribers (2-3 components) re-evaluate.
+A single Zustand store with N properties means every subscriber's selector re-evaluates on every state change — even if the change is unrelated to what that subscriber reads. The former `viewport-store.ts` split existed to isolate scroll-anchor writes from session selection state; that store has since been deleted as write-only (see Viewport store (retired)), so the numeric rates and subscriber counts previously claimed here no longer apply.
 
 The optimization multiplies with targeted event cloning: fewer new references per event × fewer subscribers per store = dramatically less work per SSE frame.
 
@@ -351,7 +354,6 @@ The optimization multiplies with targeted event cloning: fewer new references pe
 | `session-ui-store.ts` | Session selection, draft lifecycle, abort, worktree, SDK actions | Session switch, draft open/close |
 | `input-store.ts` | Pending input text, synthetic parts, attached files | User typing, file attach, revert/fork |
 | `selection-store.ts` | Per-session model/agent/variant choices | Model/agent picker |
-| `viewport-store.ts` | Scroll anchors, session memory state, sync status | Streaming, scroll, session switch |
 
 ### Rules for new UI state
 

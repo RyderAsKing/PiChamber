@@ -1,7 +1,6 @@
 import React from 'react';
 
 import { MessageFreshnessDetector } from '@/lib/messageFreshness';
-import { useViewportStore } from '@/sync/viewport-store';
 import type {
   AnimationHandlers,
   AutoFollowState,
@@ -15,7 +14,6 @@ import {
   AUTO_MATCH_TOLERANCE_PX,
   ENTRY_STICK_MAX_MS,
   ENTRY_STICK_QUIESCENCE_MS,
-  SAVE_DEBOUNCE_MS,
   SETTLE_MS,
   canScroll,
   distanceFromBottom,
@@ -58,10 +56,6 @@ export const useChatAutoFollow = ({
 
   const settlingRef = React.useRef(false);
   const settleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sessionMessageCountRef = React.useRef(sessionMessageCount);
-  sessionMessageCountRef.current = sessionMessageCount;
-  const currentSessionIdRef = React.useRef(currentSessionId);
-  currentSessionIdRef.current = currentSessionId;
   const currentSessionKeyRef = React.useRef(currentSessionKey);
   currentSessionKeyRef.current = currentSessionKey;
 
@@ -79,11 +73,7 @@ export const useChatAutoFollow = ({
   const entryStickCapTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const entryStickLastHeightRef = React.useRef(0);
 
-  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingSaveRef = React.useRef<{ sessionId: string; anchor: number } | null>(null);
   const pendingInitialRestoreRef = React.useRef<string | null>(null);
-
-  const updateViewportAnchor = useViewportStore((s) => s.updateViewportAnchor);
 
   // Detect container DOM element changes across mounts/remounts.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,48 +239,6 @@ export const useChatAutoFollow = ({
     stop();
   }, [endEntryStick, stop]);
 
-  const flushSave = React.useCallback(() => {
-    if (saveTimerRef.current !== null) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
-    const pending = pendingSaveRef.current;
-    if (!pending) return;
-    const container = scrollRef.current;
-    if (!container) {
-      pendingSaveRef.current = null;
-      return;
-    }
-    updateViewportAnchor(pending.sessionId, pending.anchor, {
-      scrollTop: container.scrollTop,
-      scrollHeight: container.scrollHeight,
-      clientHeight: container.clientHeight,
-    });
-    pendingSaveRef.current = null;
-  }, [updateViewportAnchor]);
-
-  const queueSave = React.useCallback(() => {
-    const sessionId = currentSessionIdRef.current;
-    if (!sessionId) return;
-    const container = scrollRef.current;
-    if (!container) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const anchorRatio = scrollHeight > 0 ? (scrollTop + clientHeight / 2) / scrollHeight : 0;
-    const anchor = Math.floor(anchorRatio * sessionMessageCountRef.current);
-
-    pendingSaveRef.current = { sessionId, anchor };
-    if (saveTimerRef.current !== null) return;
-    saveTimerRef.current = setTimeout(() => {
-      saveTimerRef.current = null;
-      flushSave();
-    }, SAVE_DEBOUNCE_MS);
-  }, [flushSave]);
-
-  const saveSnapshotNow = React.useCallback(() => {
-    flushSave();
-  }, [flushSave]);
-
   const restoreSnapshot = React.useCallback(async (): Promise<boolean> => {
     const sessionKey = currentSessionKeyRef.current;
     if (!sessionKey) return false;
@@ -316,12 +264,11 @@ export const useChatAutoFollow = ({
     }
     lastSessionKeyRef.current = currentSessionKey;
     MessageFreshnessDetector.getInstance().recordSessionStart(currentSessionId);
-    flushSave();
     autoRef.current = null;
     if (pendingInitialRestoreRef.current && pendingInitialRestoreRef.current !== currentSessionKey) {
       pendingInitialRestoreRef.current = null;
     }
-  }, [currentSessionId, currentSessionKey, flushSave]);
+  }, [currentSessionId, currentSessionKey]);
 
   React.useEffect(() => {
     settlingRef.current = false;
@@ -375,19 +322,16 @@ export const useChatAutoFollow = ({
       if (scrollingDown || stateRef.current === 'following' || atTrueBottom) {
         setStateValue('following');
       }
-      queueSave();
       return;
     }
 
     if (stateRef.current === 'following' && (isAuto(el) || isAnimationGuardActive())) {
       scrollToBottom(false);
-      queueSave();
       return;
     }
 
     stop();
-    queueSave();
-  }, [isAnimationGuardActive, isAuto, queueSave, scrollToBottom, setStateValue, stop, updateOverflowAndButton]);
+  }, [isAnimationGuardActive, isAuto, scrollToBottom, setStateValue, stop, updateOverflowAndButton]);
 
   useAutoFollowKeyboardGestures({
     containerEl,
@@ -500,13 +444,8 @@ export const useChatAutoFollow = ({
         settleTimerRef.current = null;
       }
       endEntryStick();
-      flushSave();
-      if (saveTimerRef.current !== null) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
     };
-  }, [endEntryStick, flushSave]);
+  }, [endEntryStick]);
 
   useAutoFollowTurnObserver(containerEl, onActiveTurnChange);
 
@@ -522,7 +461,6 @@ export const useChatAutoFollow = ({
     goToBottom,
     scrollToBottomOnSend,
     releaseAutoFollow,
-    saveSnapshotNow,
     restoreSnapshot,
   };
 };

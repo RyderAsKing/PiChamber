@@ -5,7 +5,6 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel, useIsGitRepo } from '@/stores/useGitStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
-import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
 import { useGlobalSessionStatus } from '@/sync/sync-context';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUnseenCount } from '@/sync/notification-store';
@@ -112,12 +111,6 @@ export function useSessionNodeItemMetadata({
   const toggleRowSelected = useSessionMultiSelectStore((state) => state.toggleSelected);
   const setRowRange = useSessionMultiSelectStore((state) => state.setRange);
 
-  const isZombie = useViewportStore(
-    React.useCallback(
-      (state) => Boolean(state.sessionMemoryState.get(viewportSessionKey(session.id))?.isZombie),
-      [session.id],
-    ),
-  );
   const sessionStatus = useGlobalSessionStatus(session.id);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
@@ -159,7 +152,6 @@ export function useSessionNodeItemMetadata({
     isRowSelected,
     toggleRowSelected,
     setRowRange,
-    isZombie,
     isStreaming,
     hasActivityDuration,
     sessionTitle,

@@ -304,7 +304,6 @@ export const debugUtils = {
       sessions: {
         total: sessions.length,
         currentSessionId: sessionState.currentSessionId,
-        lastLoadedDirectory: sessionState.lastLoadedDirectory,
         uniqueDirectories: sessionDirectories.size,
         directorySamples: Array.from(sessionDirectories).slice(0, 5),
         directoryCounts: sessionDirectoryCounts,

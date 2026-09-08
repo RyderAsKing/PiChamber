@@ -34,6 +34,5 @@ export interface UseChatAutoFollowResult {
   goToBottom: (mode?: 'instant' | 'smooth') => void;
   scrollToBottomOnSend: () => void;
   releaseAutoFollow: () => void;
-  saveSnapshotNow: () => void;
   restoreSnapshot: () => Promise<boolean>;
 }

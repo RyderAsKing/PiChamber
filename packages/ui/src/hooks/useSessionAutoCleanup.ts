@@ -60,7 +60,7 @@ type CleanupResult = {
   completedIds: string[];
   failedIds: string[];
   action: 'archive' | 'delete';
-  skippedReason?: 'disabled' | 'loading' | 'cooldown' | 'no-candidates' | 'running' | 'stale' | 'partial';
+  skippedReason?: 'disabled' | 'cooldown' | 'no-candidates' | 'running' | 'stale' | 'partial';
 };
 
 /**
@@ -186,14 +186,6 @@ export const runSessionAutoCleanupNow = async ({
     if (!force) {
       return { completedIds: [], failedIds: [], action: retention.action, skippedReason: 'disabled' };
     }
-  }
-
-  try {
-    if (useSessionUIStore.getState().isLoading) {
-      return { completedIds: [], failedIds: [], action: retention.action, skippedReason: 'loading' };
-    }
-  } catch {
-    return { completedIds: [], failedIds: [], action: retention.action, skippedReason: 'partial' };
   }
 
   const batchNow = nowOverride ?? Date.now();
@@ -413,7 +405,6 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (options?.enabled ?? true);
 
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const isLoading = useSessionUIStore((state) => state.isLoading);
   const autoDeleteEnabled = useUIStore((state) => state.autoDeleteEnabled);
   const autoDeleteAfterDays = useUIStore((state) => state.autoDeleteAfterDays);
   const sessionRetentionAction = useUIStore((state) => state.sessionRetentionAction);
@@ -468,7 +459,7 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
     if (!autoDeleteEnabled || autoDeleteAfterDays <= 0) {
       return;
     }
-    if (isLoading || candidates.length === 0) {
+    if (candidates.length === 0) {
       return;
     }
     const now = Date.now();
@@ -486,7 +477,6 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
     autoRun,
     candidates.length,
     enabled,
-    isLoading,
     runCleanup,
   ]);
 

@@ -88,12 +88,6 @@ export async function unshareSession(_id?: string): Promise<null> {
   return null;
 }
 
-export async function optimisticSend(): Promise<void> {}
-
-export async function refetchSessionMessages(_id?: string): Promise<void> {
-  void _id;
-}
-
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
   const detail = await store().navigate(sessionId, messageId) as unknown as { navigation?: { editorText?: string } } | undefined;
   const editorText = detail?.navigation?.editorText;
@@ -124,16 +118,6 @@ export async function forkFromMessage(sessionId: string, messageId?: string): Pr
   await store().fork(sessionId, messageId);
 }
 
-export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null): Promise<never[]> {
-  void _sessionId;
-  void _directory;
-  return [];
-}
-
-export function rememberRuntimeLiveStatus(_args?: unknown): void {
-  void _args;
-}
-
 export async function waitForConnectionOrThrow(): Promise<void> {
   const snapshot = store().getState();
   if (snapshot.connection === 'ready') return;
@@ -144,15 +128,6 @@ export async function compactSession(sessionId: string, customInstructions?: str
   await store().compact(sessionId, customInstructions);
 }
 
-export async function setLinkedIssue(..._args: unknown[]): Promise<void> {
-  void _args;
-}
-
 export function abortCurrentOperation(sessionId?: string): void {
   if (sessionId) void store().abort(sessionId);
-}
-
-export function getSessionLastAssistantModel(..._args: unknown[]): null {
-  void _args;
-  return null;
 }

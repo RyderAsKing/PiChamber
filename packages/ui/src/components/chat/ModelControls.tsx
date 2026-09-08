@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
+import { useSessionRenderable } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
@@ -26,8 +26,6 @@ import type { MobileControlsPanel } from './mobileControlsUtils';
 import { ThinkingLevelControl } from './ThinkingLevelControl';
 import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
-import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
-import { getSyncParts } from '@/sync/sync-refs';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { applyComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import {
@@ -353,16 +351,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         },
         currentSessionId ? `session:${currentSessionId}` : '*',
     );
-    const currentSessionMessagesFromSync = useSessionMessages(currentSessionId ?? '', currentSessionDirectory ?? undefined);
-    // Skip synthetic subagent-completion nudges — restoring from them resets a
-    // manual model override back to the agent default (issue #2404).
-    const latestLoadedUserChoice = React.useMemo(() => {
-        return findLatestUserModelChoice(
-            currentSessionMessagesFromSync,
-            (messageId) => getSyncParts(messageId, currentSessionDirectory ?? undefined),
-        );
-    }, [currentSessionDirectory, currentSessionMessagesFromSync]);
-
     const tryApplyModelSelection = React.useCallback(
         (providerId: string, modelId: string): ModelApplyResult => {
             if (!providerId || !modelId) {
@@ -578,24 +566,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return;
         }
 
-        if (latestLoadedUserChoice?.providerID && latestLoadedUserChoice.modelID) {
-            const historicalVariant = latestLoadedUserChoice.variant
-                && isPiThinkingLevel(latestLoadedUserChoice.variant)
-                && getModelVariantOptions(latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID).includes(latestLoadedUserChoice.variant)
-                ? latestLoadedUserChoice.variant
-                : undefined;
-            const result = applyLockedSessionComposerSelection(
-                latestLoadedUserChoice.providerID,
-                latestLoadedUserChoice.modelID,
-                historicalVariant,
-            );
-            if (result === 'provider-missing') {
-                return;
-            }
-            existingSessionRestoreRef.current = currentSessionId;
-            return;
-        }
-
         const savedSessionModel = getSessionModelSelection(currentSessionId);
         if (savedSessionModel) {
             const result = applyLockedSessionComposerSelection(
@@ -619,7 +589,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         getModelVariantOptions,
         getSessionModelSelection,
         hasRenderableCurrentSessionSnapshot,
-        latestLoadedUserChoice,
         providers.length,
         setCurrentVariant,
         sync,

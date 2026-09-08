@@ -727,7 +727,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     setProjectRootBranches,
   });
 
-  const isSessionsLoading = useSessionUIStore((state) => state.isLoading);
   const sessionOwnership = React.useMemo(
     () => createSessionOwnershipIndex(sessions, normalizedProjects, availableWorktreesByProject, archivedSessions),
     [archivedSessions, availableWorktreesByProject, normalizedProjects, sessions],
@@ -746,7 +745,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     enabled: isVisible,
     normalizedProjects,
     ownership: sessionOwnership,
-    isSessionsLoading,
     hasAuthoritativeGlobalSessions: catalogReady,
     isWorktreeTopologyLoading,
     unresolvedWorktreeProjectPaths,

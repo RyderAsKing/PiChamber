@@ -217,18 +217,12 @@ mock.module('@/lib/configSync', () => ({
 // module's surface so unrelated importers keep working.
 
 mock.module('@/sync/sync-refs', () => ({
-  getDirectoryState: () => undefined,
   getSyncSessions: () => [],
   getAllSyncSessions: () => [],
-  getAllSyncSessionMap: () => new Map(),
   getSyncSessionDirectory: () => null,
+  getActiveSyncSessions: () => [],
   getSyncMessages: () => [],
   getSyncParts: () => [],
-  resolveSessionDirectory: () => null,
-  resolveSessionDirectoryFromSources: () => null,
-  refetchSessionMessages: async () => {},
-  unrevertSessionAction: async () => {},
-  forkFromMessageAction: async () => {},
 }));
 
 const { useConfigStore } = await import('./useConfigStore');

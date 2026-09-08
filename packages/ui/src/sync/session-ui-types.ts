@@ -1,5 +1,5 @@
 import type { Session } from '@/lib/chat/types';
-import type { AttachedFile, SessionContextUsage } from '@/stores/types/sessionTypes';
+import type { AttachedFile } from '@/stores/types/sessionTypes';
 import type { SyntheticContextPart } from './input-store';
 import type {
   ArchiveSessionsOptions,
@@ -51,14 +51,6 @@ export type SendMessageOptions = {
   initialInputKind?: 'extension-command';
 };
 
-export type AssistantMessageSessionExecution = {
-  providerID: string;
-  modelID: string;
-  variant: string;
-  agent: string;
-  instructions: string;
-};
-
 export type NewSessionDraftState = {
   id: string | null;
   open: boolean;
@@ -75,20 +67,6 @@ export type NewSessionDraftState = {
   targetFolderId?: string;
 };
 
-export type ViewportAnchor = {
-  sessionId: string;
-  value: number;
-};
-
-export type SessionHistoryMeta = {
-  limit: number;
-  hasMore: boolean;
-  complete: boolean;
-  isLoading: boolean;
-  loading?: boolean;
-  nextCursor?: string;
-};
-
 export type SessionUIState = {
   currentSessionId: string | null;
   currentSessionDirectory: string | null;
@@ -98,9 +76,6 @@ export type SessionUIState = {
   error: string | null;
   webUICreatedSessions: Set<string>;
   sessionAbortFlags: Map<string, { timestamp: number; acknowledged: boolean }>;
-  abortControllers: Map<string, AbortController>;
-  isLoading: boolean;
-  lastLoadedDirectory: string | null;
   /** The draft whose first send is in flight. Other drafts and existing sessions remain interactive. */
   sendingNewSessionDraftId: string | null;
   setSendingNewSessionDraftId: (draftId: string | null) => void;
@@ -132,12 +107,6 @@ export type SessionUIState = {
   clearError: () => void;
   markSessionAsPiChamberCreated: (sessionId: string) => void;
   isPiChamberCreatedSession: (sessionId: string) => boolean;
-  getContextUsage: (
-    contextLimit: number,
-    outputLimit: number
-  ) => SessionContextUsage | null;
-  initializeNewPiChamberSession: (sessionId: string) => void;
-  overrideNewSessionDraftTarget: (options: Record<string, unknown>) => void;
 
   // Actions — Pi API operations (read domain data from sync-refs)
   sendMessage: (
@@ -191,25 +160,10 @@ export type SessionUIState = {
   forkFromMessage: (sessionId: string, messageId: string) => Promise<void>;
   handleSlashUndo: (sessionId: string) => Promise<void>;
   handleSlashRedo: (sessionId: string) => Promise<void>;
-  createSessionFromAssistantMessage: (
-    sourceMessageId: string,
-    execution: AssistantMessageSessionExecution
-  ) => Promise<void>;
 
   // Data access helpers (read from sync)
   getSessionsByDirectory: (directory: string) => Session[];
   getDirectoryForSession: (sessionId: string) => string | null;
-  getLastUserChoice: (
-    sessionId: string
-  ) => {
-    agent?: string;
-    providerID?: string;
-    modelID?: string;
-    variant?: string;
-  } | null;
-  getCurrentAgent: (sessionId: string) => string | undefined;
-  debugSessionMessages: (sessionId: string) => Promise<void>;
-  pollForTokenUpdates: () => void;
   setSessionDirectory: (sessionId: string, directory: string | null) => void;
   /**
    * Replace a guessed selection directory with the authoritative one once sync

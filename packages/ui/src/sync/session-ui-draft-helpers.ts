@@ -228,7 +228,6 @@ export async function materializeOpenDraftSession(
           closeDraft?: boolean;
         }
       ) => Promise<Session | null>;
-      initializeNewPiChamberSession: (sessionId: string) => void;
       setCurrentSession: (id: string | null, directoryHint?: string | null) => void;
     };
   }
@@ -380,8 +379,6 @@ export async function materializeOpenDraftSession(
         selection.variant
       );
   }
-
-  store.initializeNewPiChamberSession(created.id);
 
   if (shouldActivateCreatedSession) {
     store.setCurrentSession(created.id, createdDirectory);
