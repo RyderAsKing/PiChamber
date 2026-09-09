@@ -742,15 +742,21 @@ export function createSessionDaemon({
    */
   const tryAcquireSessionSendLock = (sessionId) => {
     if (sendLockStateBySession.has(sessionId)) return null;
-    const state = { tail: Promise.resolve() };
+    const state = { tail: Promise.resolve(), refCount: 1 };
     sendLockStateBySession.set(sessionId, state);
     let releaseCurrent;
-    // Queue waiters behind the current holder, never ahead of it.
+    let released = false;
+    // Queue waiters behind the current holder, never ahead of it. The entry
+    // stays until the last owner/waiter drains so a new tryAcquire still
+    // sees queued config work as busy.
     state.tail = new Promise((resolve) => { releaseCurrent = resolve; });
     return {
       release: () => {
+        if (released) return;
+        released = true;
         releaseCurrent();
-        if (sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
+        state.refCount -= 1;
+        if (state.refCount === 0 && sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
       },
     };
   };
@@ -762,8 +768,13 @@ export function createSessionDaemon({
    */
   const withSessionSendLock = async (sessionId, run) => {
     const existing = sendLockStateBySession.get(sessionId);
-    const state = existing ?? { tail: Promise.resolve() };
+    const state = existing ?? { tail: Promise.resolve(), refCount: 0 };
     if (!existing) sendLockStateBySession.set(sessionId, state);
+    // Count every queued waiter before the first await so the creator's
+    // release cannot delete the entry while waiters still drain. The entry
+    // is removed only when the last owner/waiter releases, including after
+    // a thrown config.
+    state.refCount += 1;
     const previous = state.tail;
     let releaseCurrent;
     const current = new Promise((resolve) => { releaseCurrent = resolve; });
@@ -773,7 +784,8 @@ export function createSessionDaemon({
       return await run();
     } finally {
       releaseCurrent();
-      if (!existing && sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
+      state.refCount -= 1;
+      if (state.refCount === 0 && sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
     }
   };
 

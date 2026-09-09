@@ -581,6 +581,127 @@ describe('send operation safety (findings #3 and #4)', () => {
       .resolves.toMatchObject({ result: { status: 'accepted' } });
   });
 
+  it('tryAcquire creator triple overlap keeps queued configs serialized and rejects a concurrent prompt (thrown config drains)', async () => {
+    const { session } = await startDaemonWithSession({ openSession: false });
+    const gate = {};
+    gate.released = new Promise((resolve) => { gate.release = resolve; });
+    session.activationGate = gate;
+    // Hold the first queued config inside setModel so the race window stays
+    // open deterministically: P1 holds via activation, C1 holds via model.
+    const modelGate = {};
+    modelGate.released = new Promise((resolve) => { modelGate.release = resolve; });
+    const originalSetModel = session.setModel.bind(session);
+    let setModelCalls = 0;
+    session.setModel = async (model) => {
+      setModelCalls += 1;
+      if (setModelCalls === 1) await modelGate.released;
+      return originalSetModel(model);
+    };
+    const validModel = { providerId: 'test', modelId: 'model' };
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const waitFor = async (predicate) => {
+      const start = Date.now();
+      while (!predicate()) {
+        if (Date.now() - start > 2000) throw new Error('Timed out waiting for lock state');
+        await sleep(5);
+      }
+    };
+
+    // Triple overlap: P1 (tryAcquire holder) + C1 (valid waiter) + C2
+    // (invalid waiter that throws). P1 carries no inline model so only the
+    // queued configs touch setModel.
+    const prompt = send('sessions.prompt', { sessionId: 'session-1', text: 'first', operationId: 'op-tri-acquire-1' });
+    await sleep(25);
+    const config1 = send('sessions.setModel', { sessionId: 'session-1', model: validModel });
+    const config2 = send('sessions.setModel', { sessionId: 'session-1', model: { providerId: 'missing-provider', modelId: 'missing-model' } });
+    await sleep(50);
+    expect(session.sent).toHaveLength(0);
+    expect(setModelCalls).toBe(0);
+
+    gate.release();
+    // P1 accepts, releases, then C1 starts and blocks in setModel while C2
+    // stays queued behind it.
+    await waitFor(() => session.sent.length === 1 && setModelCalls === 1);
+    // The lock entry must survive P1's release while waiters drain: a new
+    // prompt arriving now is concurrent with queued config work and must be
+    // rejected, never interleaved. With the premature-delete race this
+    // resolves accepted on a fresh entry concurrently with C1.
+    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'probe', operationId: 'op-tri-acquire-probe' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect(session.sent).toHaveLength(1);
+
+    modelGate.release();
+    await expect(prompt).resolves.toMatchObject({ result: { accepted: true } });
+    await expect(config1).resolves.toMatchObject({ result: {} });
+    await expect(config2).rejects.toMatchObject({ code: 'INVALID_MODEL' });
+    // Only the valid config reached Pi; the thrown config still released.
+    expect(session.modelApplications).toHaveLength(1);
+    // The last waiter drained and cleaned up: the session stays usable.
+    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'after', operationId: 'op-tri-acquire-after' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+    expect(session.sent).toHaveLength(2);
+  });
+
+  it('withSession creator triple overlap keeps queued configs serialized and rejects a concurrent prompt (thrown config drains)', async () => {
+    const { session } = await startDaemonWithSession({ openSession: false });
+    const gate = {};
+    gate.released = new Promise((resolve) => { gate.release = resolve; });
+    session.activationGate = gate;
+    // Hold the second config (first waiter) so the probe lands while a
+    // waiter still owns the queue: C0 completes first, C1 blocks, C2 throws.
+    const modelGate = {};
+    modelGate.released = new Promise((resolve) => { modelGate.release = resolve; });
+    const originalSetModel = session.setModel.bind(session);
+    let setModelCalls = 0;
+    session.setModel = async (model) => {
+      setModelCalls += 1;
+      if (setModelCalls === 2) await modelGate.released;
+      return originalSetModel(model);
+    };
+    const validModel = { providerId: 'test', modelId: 'model' };
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const waitFor = async (predicate) => {
+      const start = Date.now();
+      while (!predicate()) {
+        if (Date.now() - start > 2000) throw new Error('Timed out waiting for lock state');
+        await sleep(5);
+      }
+    };
+
+    // Triple overlap: C0 (withSession creator) + C1 (valid waiter) + C2
+    // (invalid waiter that throws).
+    const creator = send('sessions.setModel', { sessionId: 'session-1', model: validModel });
+    await sleep(25);
+    const waiter = send('sessions.setModel', { sessionId: 'session-1', model: validModel });
+    const thrown = send('sessions.setModel', { sessionId: 'session-1', model: { providerId: 'missing-provider', modelId: 'missing-model' } });
+    await sleep(50);
+    expect(setModelCalls).toBe(0);
+    expect(session.sent).toHaveLength(0);
+
+    gate.release();
+    // C0 finishes, C1 starts and blocks in setModel while C2 stays queued.
+    await waitFor(() => setModelCalls === 2);
+    // The creator entry must survive until the last waiter drains: a prompt
+    // arriving now is concurrent with queued config work and must be
+    // rejected. With the premature-delete race this resolves accepted on a
+    // fresh entry concurrently with C1.
+    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'probe', operationId: 'op-tri-creator-probe' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect(session.sent).toHaveLength(0);
+
+    modelGate.release();
+    await expect(creator).resolves.toMatchObject({ result: {} });
+    await expect(waiter).resolves.toMatchObject({ result: {} });
+    await expect(thrown).rejects.toMatchObject({ code: 'INVALID_MODEL' });
+    // Both valid configs reached Pi exactly once; the thrown config still
+    // released the queue.
+    expect(session.modelApplications).toHaveLength(2);
+    // The last waiter drained and cleaned up: the session stays usable.
+    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'after', operationId: 'op-tri-creator-after' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+    expect(session.sent).toHaveLength(1);
+  });
+
   it('an abort during acceptance cancels the send before Pi runs and leaves the session usable', async () => {
     const { session } = await startDaemonWithSession({ openSession: false });
     const gate = {};
