@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 
 import { createMobilePasswordOperationTracker, loadMobileConnections, migrateLegacyInlineTokenRecords, upsertMobileConnection, validateMobileConnectionSession, type MobileRelayConfig } from './mobileConnections';
+import { getMobileDeviceId, MOBILE_DEVICE_ID_STORAGE_KEY } from './mobile/mobileConnectionTypes';
 
 const originalFetch = globalThis.fetch;
 const originalWindow = globalThis.window;
@@ -161,6 +162,164 @@ describe('mobile connection storage', () => {
       expect(relayEntries).toHaveLength(1);
       expect(relayEntries[0]?.label).toBe('Relay renamed');
     } finally {
+      restoreGlobals();
+    }
+  });
+});
+
+describe('mobile connection IDs without randomUUID (LAN HTTP)', () => {
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+  test('device ID persists a cryptographic fallback and reuses it', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      const first = getMobileDeviceId();
+      expect(UUID_PATTERN.test(first)).toBe(true);
+      expect(getMobileDeviceId()).toBe(first);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      restoreGlobals();
+    }
+  });
+
+  test('new connections mint fallback IDs and reuse persisted IDs', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      await upsertMobileConnection({
+        label: 'LAN',
+        candidates: [{ kind: 'direct', url: 'http://192.168.1.20:2606' }],
+      });
+      const connections = await loadMobileConnections();
+      expect(connections).toHaveLength(1);
+      const createdId = connections[0]!.id;
+      expect(UUID_PATTERN.test(createdId)).toBe(true);
+
+      await upsertMobileConnection({
+        label: 'LAN renamed',
+        candidates: [{ kind: 'direct', url: 'http://192.168.1.20:2606' }],
+      });
+      const renamed = await loadMobileConnections();
+      expect(renamed).toHaveLength(1);
+      expect(renamed[0]!.id).toBe(createdId);
+      expect(renamed[0]!.label).toBe('LAN renamed');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      restoreGlobals();
+    }
+  });
+
+  test('device ID falls back when localStorage read throws', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      window.localStorage.getItem = () => {
+        throw new Error('read failed');
+      };
+      // Throws would fail the test; reaching the assertion proves no throw.
+      const id = getMobileDeviceId();
+      expect(UUID_PATTERN.test(id)).toBe(true);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      restoreGlobals();
+    }
+  });
+
+  test('device ID falls back when localStorage write throws', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      window.localStorage.setItem = () => {
+        throw new Error('write failed');
+      };
+      // Throws would fail the test; reaching the assertion proves no throw.
+      const id = getMobileDeviceId();
+      expect(UUID_PATTERN.test(id)).toBe(true);
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      restoreGlobals();
+    }
+  });
+
+  test('reuses stored device ID without entropy', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    const getRandomValues = globalThis.crypto.getRandomValues;
+    try {
+      installTestWindow();
+      window.localStorage.setItem(MOBILE_DEVICE_ID_STORAGE_KEY, 'stored-device-id');
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      globalThis.crypto.getRandomValues = (() => {
+        throw new Error('entropy unavailable');
+      }) as typeof globalThis.crypto.getRandomValues;
+      // Throws would fail the test; reaching the assertion proves no throw.
+      const id = getMobileDeviceId();
+      expect(id).toBe('stored-device-id');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      globalThis.crypto.getRandomValues = getRandomValues;
+      restoreGlobals();
+    }
+  });
+
+  test('renaming a persisted connection reuses its ID without entropy', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    const getRandomValues = globalThis.crypto.getRandomValues;
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      await upsertMobileConnection({
+        label: 'LAN',
+        candidates: [{ kind: 'direct', url: 'http://192.168.1.22:2606' }],
+      });
+      const createdId = (await loadMobileConnections())[0]!.id;
+      expect(UUID_PATTERN.test(createdId)).toBe(true);
+      globalThis.crypto.getRandomValues = (() => {
+        throw new Error('entropy unavailable');
+      }) as typeof globalThis.crypto.getRandomValues;
+      await upsertMobileConnection({
+        label: 'LAN renamed',
+        candidates: [{ kind: 'direct', url: 'http://192.168.1.22:2606' }],
+      });
+      const renamed = await loadMobileConnections();
+      expect(renamed).toHaveLength(1);
+      expect(renamed[0]!.id).toBe(createdId);
+      expect(renamed[0]!.label).toBe('LAN renamed');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      globalThis.crypto.getRandomValues = getRandomValues;
+      restoreGlobals();
+    }
+  });
+
+  test('random-source failure throws instead of minting an ID', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(globalThis.crypto, 'randomUUID');
+    const getRandomValues = globalThis.crypto.getRandomValues;
+    try {
+      installTestWindow();
+      Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: undefined });
+      globalThis.crypto.getRandomValues = (() => {
+        throw new Error('entropy unavailable');
+      }) as typeof globalThis.crypto.getRandomValues;
+      expect(() => getMobileDeviceId()).toThrow('entropy unavailable');
+      await expect(upsertMobileConnection({
+        label: 'LAN',
+        candidates: [{ kind: 'direct', url: 'http://192.168.1.21:2606' }],
+      })).rejects.toThrow('entropy unavailable');
+    } finally {
+      if (descriptor) Object.defineProperty(globalThis.crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(globalThis.crypto as unknown as Record<string, unknown>, 'randomUUID');
+      globalThis.crypto.getRandomValues = getRandomValues;
       restoreGlobals();
     }
   });

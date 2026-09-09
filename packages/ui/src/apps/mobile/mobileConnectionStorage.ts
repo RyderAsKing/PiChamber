@@ -1,5 +1,6 @@
 import { SecureStorage } from '@aparajita/capacitor-secure-storage';
 import { isCapacitorApp } from '@/lib/platform';
+import { createBrowserUuid } from '@/lib/uuid';
 import {
   MOBILE_CONNECTIONS_LIMIT,
   MOBILE_CONNECTIONS_STORAGE_KEY,
@@ -281,7 +282,7 @@ export const upsertConnectionInList = (
   );
   const native = isCapacitorApp();
   const next: MobileSavedConnection = {
-    id: draft.id || existing?.id || crypto.randomUUID(),
+    id: draft.id || existing?.id || createBrowserUuid(),
     label: draft.label,
     candidates: draft.candidates,
     lastUsedAt: Date.now(),
