@@ -105,15 +105,15 @@ QueuedMessageChip.displayName = 'QueuedMessageChip';
 
 const blockedReasonCopy = (reason: string): string => {
     if (reason === 'runtime-mismatch') {
-        return 'Belongs to a different runtime. It will never send here automatically and will not switch runtimes. Check history, then send as new if needed.';
+        return 'Saved for a different server. It will not send here. Check history before resending.';
     }
     if (reason === 'stale-epoch') {
-        return 'The server restarted after this was queued. The original may already have run. Check history first. Sending again may duplicate.';
+        return 'The server restarted after this was queued. It may have already run. Check history before resending.';
     }
     if (reason === 'operation-mismatch') {
-        return 'Send identity does not match. The original may already have run. Check history before sending as new. It will not send automatically.';
+        return 'Send identity does not match. It may have already run. Check history before resending.';
     }
-    return 'Saved before send confirmation. It may already have been sent. Check history before sending as new. It will not send automatically.';
+    return 'Saved before send confirmation. It may have already been sent. Check history before resending.';
 };
 
 const BlockedQueueWarning = memo(({ reason, onSendAsNew }: { reason: string; onSendAsNew: () => void }) => (
@@ -122,11 +122,10 @@ const BlockedQueueWarning = memo(({ reason, onSendAsNew }: { reason: string; onS
         className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-2.5 py-2"
     >
         <p className="typography-ui-label text-foreground">{blockedReasonCopy(reason)}</p>
-        <p className="typography-meta mt-1 text-muted-foreground">Sending again may duplicate.</p>
         <div className="mt-2 flex justify-end">
             <Button type="button" variant="outline" size="xs" onClick={onSendAsNew}>
                 <Icon name="restart" className="h-3 w-3" aria-hidden="true" />
-                Send as new
+                Send again
             </Button>
         </div>
     </div>
@@ -155,11 +154,13 @@ export const SendStateNotice = memo(({ sessionId }: { sessionId: string }) => {
         }
     }, [checking, sessionId]);
 
-    const handleSendAsNew = React.useCallback(() => {
-        // Explicit confirmation only: mints a fresh operation id and clears
-        // the unknown record. The preserved composer draft still needs an
-        // explicit send — nothing is replayed automatically.
-        getPiSessionStore().beginNewSendIntentAfterUnknown(sessionId);
+    const handleBackToDraft = React.useCallback(() => {
+        // The unknown notice only clears the record and returns to the
+        // preserved composer draft. Nothing is resent here, and no fresh
+        // operation id is minted: the next explicit send mints one. The
+        // composer draft survives because clearSendState only drops the
+        // send record and never touches input-store draft state.
+        getPiSessionStore().clearSendState(sessionId);
     }, [sessionId]);
 
     const handleDismiss = React.useCallback(() => {
@@ -177,33 +178,20 @@ export const SendStateNotice = memo(({ sessionId }: { sessionId: string }) => {
             }
         })();
         return (
-            <div
-                role="status"
-                className="rounded-xl border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-3 py-2.5"
-            >
-                <div className="flex items-start gap-2">
-                    <Icon name="information" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--status-info)]" aria-hidden="true" />
-                    <div className="min-w-0 flex-1">
-                        <p className="typography-ui-label font-medium text-foreground">{sendState.title}</p>
-                        <p className="typography-ui-label mt-0.5 text-muted-foreground">{sendState.action}</p>
-                        {runtimeMismatch ? (
-                            <p className="typography-meta mt-1 text-muted-foreground">This send belongs to a different runtime and will not continue here.</p>
-                        ) : null}
-                    </div>
-                </div>
-                <div className="mt-2 flex justify-end">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="xs"
-                        onClick={() => void handleCheckStatus()}
-                        disabled={checking || runtimeMismatch}
-                        aria-label="Check send status without resending"
-                    >
-                        <Icon name="refresh" className="h-3 w-3" aria-hidden="true" />
-                        {checking ? 'Checking…' : 'Check status'}
-                    </Button>
-                </div>
+            <div role="status" className="flex items-center gap-2 px-1 py-1">
+                <Icon name="time" className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <p className="typography-ui-label min-w-0 flex-1 truncate text-muted-foreground">Sending…</p>
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    onClick={() => void handleCheckStatus()}
+                    disabled={checking || runtimeMismatch}
+                    aria-label="Check send status without resending"
+                >
+                    <Icon name="refresh" className="h-3 w-3" aria-hidden="true" />
+                    {checking ? 'Checking…' : 'Check status'}
+                </Button>
             </div>
         );
     }
@@ -212,23 +200,15 @@ export const SendStateNotice = memo(({ sessionId }: { sessionId: string }) => {
         return (
             <div
                 role="alert"
-                className="rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-3 py-2.5"
+                className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-2.5 py-2"
             >
                 <div className="flex items-start gap-2">
                     <Icon name="error-warning" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
-                    <div className="min-w-0 flex-1">
-                        <p className="typography-ui-label font-medium text-foreground">{sendState.title}</p>
-                        <p className="typography-ui-label mt-0.5 text-muted-foreground">{sendState.action}</p>
-                        <p className="typography-meta mt-1 text-muted-foreground">Sending again may duplicate. Check history first.</p>
-                    </div>
+                    <p className="typography-ui-label min-w-0 flex-1 text-foreground">Could not confirm delivery. Check the conversation before sending again.</p>
                 </div>
-                <div className="mt-2 flex justify-end gap-2">
-                    <Button type="button" variant="outline" size="xs" onClick={handleDismiss}>
-                        Dismiss
-                    </Button>
-                    <Button type="button" variant="default" size="xs" onClick={handleSendAsNew}>
-                        <Icon name="restart" className="h-3 w-3" aria-hidden="true" />
-                        Send as new
+                <div className="mt-2 flex justify-end">
+                    <Button type="button" variant="default" size="xs" onClick={handleBackToDraft}>
+                        Back to draft
                     </Button>
                 </div>
             </div>
@@ -239,47 +219,23 @@ export const SendStateNotice = memo(({ sessionId }: { sessionId: string }) => {
         return (
             <div
                 role="alert"
-                className="rounded-xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2.5"
+                className="rounded-lg border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-2.5 py-2"
             >
                 <div className="flex items-start gap-2">
                     <Icon name="error-warning" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--status-error)]" aria-hidden="true" />
-                    <div className="min-w-0 flex-1">
-                        <p className="typography-ui-label font-medium text-foreground">{sendState.title}</p>
-                        <p className="typography-ui-label mt-0.5 text-muted-foreground">{sendState.action}</p>
-                    </div>
+                    <p className="typography-ui-label min-w-0 flex-1 text-foreground">Send was rejected. Your draft was kept. Review it and try again.</p>
                 </div>
-                <div className="mt-2 flex justify-end gap-2">
+                <div className="mt-2 flex justify-end">
                     <Button type="button" variant="outline" size="xs" onClick={handleDismiss}>
                         Dismiss
-                    </Button>
-                    <Button type="button" variant="default" size="xs" onClick={handleSendAsNew}>
-                        <Icon name="restart" className="h-3 w-3" aria-hidden="true" />
-                        Send as new
                     </Button>
                 </div>
             </div>
         );
     }
 
-    return (
-        <div
-            role="status"
-            className="rounded-xl border border-[var(--status-success-border)] bg-[var(--status-success-background)] px-3 py-2.5"
-        >
-            <div className="flex items-start gap-2">
-                <Icon name="check" className="mt-0.5 h-4 w-4 shrink-0 text-[var(--status-success)]" aria-hidden="true" />
-                <div className="min-w-0 flex-1">
-                    <p className="typography-ui-label font-medium text-foreground">{sendState.title}</p>
-                    <p className="typography-ui-label mt-0.5 text-muted-foreground">{sendState.action}</p>
-                </div>
-            </div>
-            <div className="mt-2 flex justify-end">
-                <Button type="button" variant="outline" size="xs" onClick={handleDismiss}>
-                    Dismiss
-                </Button>
-            </div>
-        </div>
-    );
+    // Accepted needs no notice: the turn is running in the conversation.
+    return null;
 });
 
 SendStateNotice.displayName = 'SendStateNotice';
@@ -323,7 +279,8 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
         undefined,
         currentSessionId ? `session:${currentSessionId}` : 'chrome',
     );
-    const hasSendNotice = currentSessionId ? sendStateByIdForVisibility.has(currentSessionId) : false;
+    const visibleSendState = currentSessionId ? sendStateByIdForVisibility.get(currentSessionId) : undefined;
+    const hasSendNotice = visibleSendState !== undefined && visibleSendState.status !== 'accepted';
     // Re-evaluate blocked reasons when reconnect recovery flips (a verified
     // epoch change is what turns a queued authority stale). The selector is
     // a leaf string, so unrelated chrome commits do not wake this list.

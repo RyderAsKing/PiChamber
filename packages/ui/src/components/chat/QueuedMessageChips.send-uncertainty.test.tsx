@@ -3,12 +3,13 @@ import React from 'react';
 import { renderToString } from 'react-dom/server';
 
 // NOTE (harness): the repo has no DOM library and adding one is out of scope,
-// so "mounted" follows the existing convention of this suite: components are
-// mounted via `renderToString` (the real queue hook returns its server
-// snapshot during SSR, so the queue list itself is driven through a
-// test-controlled hook mock), user clicks are exercised by invoking the exact
-// store action the button wires to (labels/roles asserted in HTML), and async
-// status changes are verified by re-rendering after the awaited transition.
+// so this suite evaluates components via `renderToString` (SSR component
+// evaluation, not mounted DOM: no effects, no layout, no real event
+// dispatch). The queue list itself is driven through a test-controlled hook
+// mock, labels/roles are asserted in HTML, button wiring is proven by
+// capturing the actual shared Button `onClick` and invoking it (never by
+// calling store methods directly for the wired action), and async status
+// changes are verified by re-rendering after the awaited transition.
 // Real queue-authority transitions live in `messageQueueAuthority.test.ts`,
 // which uses the real store without SSR rendering.
 
@@ -42,6 +43,18 @@ const sendRecord = (status: SendStatus, operationId: string): SendRecord => {
     runtimeKey: 'url:default', messageId: `msg_${operationId}`, updatedAt: 1, ...titles[status],
   };
 };
+
+type ButtonCapture = { children?: React.ReactNode; onClick?: () => void; disabled?: boolean };
+const buttonCaptures: ButtonCapture[] = [];
+
+// Isolated Button mock: captures the actual `onClick` the notice wires while
+// still returning a real `<button>` so SSR HTML keeps labels/roles.
+mock.module('@/components/ui/button', () => ({
+  Button: (props: { children?: React.ReactNode; onClick?: () => void; disabled?: boolean }) => {
+    buttonCaptures.push({ children: props.children, onClick: props.onClick, disabled: props.disabled });
+    return React.createElement('button', { onClick: props.onClick, disabled: props.disabled }, props.children);
+  },
+}));
 
 mock.module('@/sync/pi-session-context', () => ({
   usePiSessionSnapshot: (selector: (state: Record<string, unknown>) => unknown) => selector({
@@ -122,58 +135,92 @@ mock.module('@/stores/messageQueueStore', () => ({
 const { SendStateNotice, QueuedMessageChips } = await import('@/components/chat/QueuedMessageChips');
 const storeModule = await import('@/apps/pi-session-store');
 const PiSessionStore = storeModule.PiSessionStore;
+const { getPiSessionStore } = storeModule;
 type PiSessionStore = InstanceType<typeof storeModule.PiSessionStore>;
 const piClientModule = await import('@/lib/pi/client');
 const { piClient } = piClientModule;
 const { createReducerPartMap } = await import('@/lib/pi/event-reducer');
 const { getQueuedAutoSendBlockedReason } = await import('@/hooks/useQueuedMessageAutoSend');
 const { getRuntimeKey } = await import('@/lib/runtime-switch');
+const { createChatDraftIdentity, readChatDraft, writeChatDraft } = await import('@/lib/chatDraftPersistence');
+const { useInputStore } = await import('@/sync/input-store');
+
+const buttonText = (children: unknown): string => {
+  if (typeof children === 'string') return children;
+  if (typeof children === 'number') return String(children);
+  if (Array.isArray(children)) return children.map(buttonText).join(' ');
+  if (children && typeof children === 'object' && 'props' in (children as Record<string, unknown>)) {
+    return buttonText((children as { props?: { children?: unknown } }).props?.children);
+  }
+  return '';
+};
+
+const findButtonCapture = (needle: string): ButtonCapture => {
+  const found = buttonCaptures.find((capture) => buttonText(capture.children).includes(needle));
+  if (!found) {
+    throw new Error(
+      `Button with label "${needle}" was not rendered (captured: ${buttonCaptures.map((capture) => JSON.stringify(buttonText(capture.children))).join(', ')})`,
+    );
+  }
+  if (typeof found.onClick !== 'function') throw new Error(`Button "${needle}" has no onClick`);
+  return found;
+};
 
 beforeEach(() => {
   mockedSessionId = 's1';
   mockedDirectory = '/repo';
   mockedSendStateById = new Map();
   mockedQueueByKey = {};
+  buttonCaptures.length = 0;
+  try {
+    getPiSessionStore().clear();
+  } catch {
+    // Singleton not yet created or store not ready; seeded per test below.
+  }
 });
 
-describe('send uncertainty notice (mounted)', () => {
-  test('outcome-unknown renders with no queue visible, with history guidance and duplicate warning', () => {
+describe('send uncertainty notice (SSR evaluation)', () => {
+  test('outcome-unknown renders with no queue visible, with concise draft guidance', () => {
     mockedSendStateById = new Map([['s1', sendRecord('outcome-unknown', 'op-unknown-1')]]);
     // No queued messages: the chips list stays hidden, only the notice shows.
     const html = renderToString(<QueuedMessageChips onEditMessage={() => undefined} onSendMessage={() => undefined} />);
-    expect(html).toContain('Send outcome unknown');
-    expect(html).toContain('Check history');
-    expect(html).toContain('may duplicate');
-    expect(html).toContain('Send as new');
-    expect(html).toContain('Dismiss');
+    expect(html).toContain('Could not confirm delivery. Check the conversation before sending again.');
+    expect(html).toContain('Back to draft');
+    expect(html).not.toContain('Send as new');
+    expect(html).not.toContain('may duplicate');
     expect(html).not.toContain('Queued messages');
-    expect(html).not.toContain('Send rejected');
+    expect(html).not.toContain('Send was rejected');
     expect(html).toContain('role="alert"');
   });
 
-  test('confirming renders distinctly with a safe status check and no duplicate warning', () => {
+  test('confirming renders compactly with a safe status check and no duplicate warning', () => {
     mockedSendStateById = new Map([['s1', sendRecord('confirming', 'op-confirm-1')]]);
     const html = renderToString(<SendStateNotice sessionId="s1" />);
-    expect(html).toContain('Confirming send');
-    expect(html).toContain('Do not resend yet');
+    expect(html).toContain('Sending…');
     expect(html).toContain('Check status');
     expect(html).not.toContain('may duplicate');
+    expect(html).not.toContain('Could not confirm delivery');
+    expect(html).not.toContain('Send was rejected');
     expect(html).toContain('role="status"');
   });
 
-  test('accepted renders without a stuck confirming spinner', () => {
+  test('accepted renders nothing (no success panel)', () => {
     mockedSendStateById = new Map([['s1', sendRecord('accepted', 'op-accepted-1')]]);
     const html = renderToString(<SendStateNotice sessionId="s1" />);
-    expect(html).toContain('Send accepted');
-    expect(html).toContain('No action needed');
-    expect(html).not.toContain('Confirming send');
-    expect(html).toContain('Dismiss');
+    expect(html).toBe('');
+    expect(html).not.toContain('Sending…');
+    expect(html).not.toContain('Dismiss');
+    mockedSendStateById = new Map([['s1', sendRecord('accepted', 'op-accepted-1')]]);
+    const chipsHtml = renderToString(<QueuedMessageChips onEditMessage={() => undefined} onSendMessage={() => undefined} />);
+    expect(chipsHtml).toBe('');
   });
 
   test('Check status is read-only: exact receipt, zero sends, still confirming on pending', async () => {
-    const store = new PiSessionStore();
+    // Drives the actual "Check status" Button onClick wired by the notice
+    // against the real owning singleton (no partial store mock).
+    const singleton = getPiSessionStore();
     try {
-      const internal = store as unknown as {
+      const internal = singleton as unknown as {
         state: ReturnType<PiSessionStore['getState']>;
         hydratedSessionIds: Set<string>;
         streamEpoch: string | null;
@@ -190,12 +237,17 @@ describe('send uncertainty notice (mounted)', () => {
       }]]);
       internal.promptGenerationById = new Map([['s1', 1]]);
       internal.state = {
-        ...store.getState(),
+        ...singleton.getState(),
         directory: '/repo',
         connection: 'ready' as const,
         sendStateById: new Map([['s1', { ...sendRecord('confirming', 'op-read-1'), runtimeKey: getRuntimeKey() }]]),
       } as never;
-      (store as unknown as { stream: unknown }).stream = { dispose: () => undefined };
+      (singleton as unknown as { stream: unknown }).stream = { dispose: () => undefined };
+      mockedSendStateById = new Map([['s1', { ...sendRecord('confirming', 'op-read-1'), runtimeKey: getRuntimeKey() }]]);
+      buttonCaptures.length = 0;
+      const beforeHtml = renderToString(<SendStateNotice sessionId="s1" />);
+      expect(beforeHtml).toContain('Sending…');
+      expect(beforeHtml).toContain('Check status');
       const originalSend = piClient.sendPrompt.bind(piClient);
       const originalReceipt = piClient.getSendReceipt.bind(piClient);
       let sendCalls = 0;
@@ -209,24 +261,29 @@ describe('send uncertainty notice (mounted)', () => {
         return { status: 'pending', streamEpoch: 'epoch-1' };
       }) as unknown as typeof piClient.getSendReceipt;
       try {
-        // The Check-status click path: read-only receipt lookup.
-        const settled = await store.refreshSendConfirmation('s1');
-        expect(settled).toBe(false);
+        // The Check-status click path: read-only receipt lookup via the real wiring.
+        findButtonCapture('Check status').onClick!();
+        const startedAt = Date.now();
+        while (receiptInputs.length === 0 && Date.now() - startedAt < 4000) {
+          await new Promise((resolve) => setTimeout(resolve, 2));
+        }
         expect(receiptInputs).toHaveLength(1);
         expect(receiptInputs[0]).toMatchObject({ sessionId: 's1', operationId: 'op-read-1' });
         expect(sendCalls).toBe(0);
-        expect(store.getSendState('s1')?.status).toBe('confirming');
-        // Async rerender still shows the checking state, not acceptance.
+        expect(singleton.getSendState('s1')?.status).toBe('confirming');
+        // Async rerender still shows the pending state, not acceptance.
         mockedSendStateById = new Map([['s1', { ...sendRecord('confirming', 'op-read-1'), runtimeKey: getRuntimeKey() }]]);
         const html = renderToString(<SendStateNotice sessionId="s1" />);
-        expect(html).toContain('Confirming send');
+        expect(html).toContain('Sending…');
         expect(html).toContain('Check status');
+        expect(html).not.toContain('Could not confirm delivery');
       } finally {
         piClient.sendPrompt = originalSend;
         piClient.getSendReceipt = originalReceipt;
       }
     } finally {
-      store.dispose();
+      singleton.clear();
+      buttonCaptures.length = 0;
     }
   });
 
@@ -266,8 +323,8 @@ describe('send uncertainty notice (mounted)', () => {
         expect(store.getSendState('s1')?.status).toBe('accepted');
         mockedSendStateById = new Map([['s1', { ...sendRecord('accepted', 'op-accept-1'), runtimeKey: getRuntimeKey() }]]);
         const html = renderToString(<SendStateNotice sessionId="s1" />);
-        expect(html).toContain('Send accepted');
-        expect(html).not.toContain('Confirming send');
+        expect(html).toBe('');
+        expect(html).not.toContain('Sending…');
       } finally {
         piClient.getSendReceipt = originalReceipt;
       }
@@ -301,7 +358,8 @@ describe('send uncertainty notice (mounted)', () => {
       expect(store.getSendState('s1')?.status).toBe('confirming');
       mockedSendStateById = new Map([['s1', { ...sendRecord('confirming', 'op-live-1'), runtimeKey: getRuntimeKey() }]]);
       const html = renderToString(<SendStateNotice sessionId="s1" />);
-      expect(html).toContain('Confirming send');
+      expect(html).toContain('Sending…');
+      expect(html).toContain('Check status');
     } finally {
       store.dispose();
     }
@@ -356,36 +414,62 @@ describe('send uncertainty notice (mounted)', () => {
       expect(store.getSendState('s1')?.status).toBe('confirming');
       mockedSendStateById = new Map([['s1', { ...sendRecord('confirming', 'op-live-1'), runtimeKey: getRuntimeKey() }]]);
       const html = renderToString(<SendStateNotice sessionId="s1" />);
-      expect(html).toContain('Confirming send');
+      expect(html).toContain('Sending…');
+      expect(html).toContain('Check status');
     } finally {
       store.dispose();
     }
   });
 
-  test('explicit Send as new after unknown mints a fresh id and never reuses the old', () => {
-    const store = new PiSessionStore();
+  test('Back to draft clears unknown without dispatching a send', () => {
+    // Drives the actual "Back to draft" Button onClick wired by the notice
+    // against the real owning singleton (no partial store mock, no dead
+    // begin-helper spying). Dismiss alone sends nothing and mints nothing;
+    // the next explicit prompt mints a fresh id (covered in
+    // `pi-session-store-send-explicit.test.ts`).
+    const singleton = getPiSessionStore();
     try {
-      const internal = store as unknown as {
+      const singletonInternal = singleton as unknown as {
         state: ReturnType<PiSessionStore['getState']>;
-        promptGenerationById: Map<string, number>;
       };
-      internal.promptGenerationById = new Map();
-      internal.state = {
-        ...store.getState(),
-        sendStateById: new Map([['s1', { ...sendRecord('outcome-unknown', 'op-old-1'), runtimeKey: getRuntimeKey() }]]),
+      const unknownRecord = { ...sendRecord('outcome-unknown', 'op-old-1'), runtimeKey: getRuntimeKey() };
+      singletonInternal.state = {
+        ...singleton.getState(),
+        sendStateById: new Map([['s1', unknownRecord]]),
       } as never;
-      mockedSendStateById = new Map([['s1', { ...sendRecord('outcome-unknown', 'op-old-1'), runtimeKey: getRuntimeKey() }]]);
-      expect(renderToString(<SendStateNotice sessionId="s1" />)).toContain('Send as new');
-      expect(store.getSendState('s1')?.operationId).toBe('op-old-1');
-      // The Send-as-new click path. Clearing the unknown record is the
-      // consent gate; the next send mints a fresh operation id elsewhere.
-      const fresh = store.beginNewSendIntentAfterUnknown('s1');
-      expect(fresh).not.toBe('op-old-1');
-      expect(store.getSendState('s1')).toBeUndefined();
+      (singleton as unknown as { stream: unknown }).stream = { dispose: () => undefined };
+      mockedSendStateById = new Map([['s1', unknownRecord]]);
+      buttonCaptures.length = 0;
+      const draftIdentity = createChatDraftIdentity(getRuntimeKey(), '/repo', 's1');
+      writeChatDraft(draftIdentity, 'preserved draft text', []);
+      const attachmentsBefore = useInputStore.getState().attachedFiles;
+      expect(readChatDraft(draftIdentity).text).toBe('preserved draft text');
+      const html = renderToString(<SendStateNotice sessionId="s1" />);
+      expect(html).toContain('Could not confirm delivery. Check the conversation before sending again.');
+      expect(html).toContain('Back to draft');
+      expect(html).not.toContain('Send as new');
+      expect(singleton.getSendState('s1')?.operationId).toBe('op-old-1');
+      const backToDraft = findButtonCapture('Back to draft');
+      const originalSend = piClient.sendPrompt.bind(piClient);
+      let sendCalls = 0;
+      piClient.sendPrompt = (async () => {
+        sendCalls += 1;
+        throw new Error('Back to draft must not send');
+      }) as typeof piClient.sendPrompt;
+      try {
+        backToDraft.onClick!();
+        expect(sendCalls).toBe(0);
+        expect(singleton.getSendState('s1')).toBeUndefined();
+        expect(readChatDraft(draftIdentity).text).toBe('preserved draft text');
+        expect(useInputStore.getState().attachedFiles).toBe(attachmentsBefore);
+      } finally {
+        piClient.sendPrompt = originalSend;
+      }
       mockedSendStateById = new Map();
       expect(renderToString(<SendStateNotice sessionId="s1" />)).toBe('');
     } finally {
-      store.dispose();
+      singleton.clear();
+      buttonCaptures.length = 0;
     }
   });
 
@@ -437,7 +521,7 @@ describe('send uncertainty notice (mounted)', () => {
   });
 });
 
-describe('blocked queue notice (mounted)', () => {
+describe('blocked queue notice (SSR evaluation)', () => {
   test('legacy entries without authority stay visible with a requeue warning and no auto-send', () => {
     const runtime = getRuntimeKey();
     const key = `${runtime}\n/repo\ns1`;
@@ -453,8 +537,40 @@ describe('blocked queue notice (mounted)', () => {
     expect(reason).toBe('missing-authority');
     const html = renderToString(<QueuedMessageChips onEditMessage={() => undefined} onSendMessage={() => undefined} />);
     expect(html).toContain('Queued messages');
-    expect(html).toContain('Saved before send confirmation');
-    expect(html).toContain('may duplicate');
-    expect(html).toContain('Send as new');
+    expect(html).toContain('Saved before send confirmation. It may have already been sent. Check history before resending.');
+    expect(html).not.toContain('Sending again may duplicate.');
+    expect(html).toContain('Send again');
+    expect(html).not.toContain('Send as new');
+  });
+
+  test('rejected is a distinct error without a duplicate warning and keeps the draft', () => {
+    mockedSendStateById = new Map([['s1', sendRecord('rejected', 'op-rejected-1')]]);
+    const html = renderToString(<SendStateNotice sessionId="s1" />);
+    expect(html).toContain('Send was rejected. Your draft was kept. Review it and try again.');
+    expect(html).toContain('Dismiss');
+    expect(html).not.toContain('Could not confirm delivery');
+    expect(html).not.toContain('may duplicate');
+    expect(html).not.toContain('may have already');
+    expect(html).not.toContain('Back to draft');
+    expect(html).toContain('role="alert"');
+  });
+
+  test('different-server queue entries stay explicit about never sending here', () => {
+    const runtime = getRuntimeKey();
+    const key = `${runtime}\n/repo\ns1`;
+    mockedQueueByKey = {
+      [key]: [{ id: 'queued-foreign-1', content: 'foreign hello', createdAt: 1, sendAuthority: { operationId: 'qm:queued-foreign-1', messageId: 'msg_foreign', runtimeKey: 'url:other-server', capturedAt: 1 } } as never],
+    };
+    const reason = getQueuedAutoSendBlockedReason(
+      { id: 'queued-foreign-1', content: 'foreign hello', createdAt: 1, sendAuthority: { operationId: 'qm:queued-foreign-1', messageId: 'msg_foreign', runtimeKey: 'url:other-server', capturedAt: 1 } } as never,
+      { runtimeKey: runtime, directory: '/repo', sessionId: 's1' },
+      runtime,
+      'epoch-1',
+    );
+    expect(reason).toBe('runtime-mismatch');
+    const html = renderToString(<QueuedMessageChips onEditMessage={() => undefined} onSendMessage={() => undefined} />);
+    expect(html).toContain('Saved for a different server. It will not send here. Check history before resending.');
+    expect(html).toContain('Send again');
+    expect(html).not.toContain('Sending again may duplicate.');
   });
 });
