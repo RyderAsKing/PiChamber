@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { PairingConnectionPayload } from '@/lib/connectionPayload';
 import { isCapacitorApp } from '@/lib/platform';
+import { createBrowserUuid } from '@/lib/uuid';
 import {
   RELAY_CONNECT_TIMEOUT_MS,
   createMobilePasswordOperationTracker,
@@ -192,7 +193,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         if (result.status === 'needs-login') {
           persistMetadata({ id: saved?.id, label, candidates });
           setPendingConnection({
-            id: saved?.id ?? crypto.randomUUID(),
+            id: saved?.id ?? createBrowserUuid(),
             label,
             candidates,
             relay: relayCandidateOf({ candidates }) ?? undefined,

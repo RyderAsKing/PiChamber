@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import type { PairingConnectionPayload } from '@/lib/connectionPayload';
+import { createBrowserUuid } from '@/lib/uuid';
 import type { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
 
 export const MOBILE_CONNECTIONS_STORAGE_KEY = 'pichamber.mobile.connections.v1';
@@ -19,11 +20,11 @@ export const getMobileDeviceId = (): string => {
   try {
     const existing = window.localStorage.getItem(MOBILE_DEVICE_ID_STORAGE_KEY);
     if (existing && existing.trim()) return existing.trim();
-    const generated = crypto.randomUUID();
+    const generated = createBrowserUuid();
     window.localStorage.setItem(MOBILE_DEVICE_ID_STORAGE_KEY, generated);
     return generated;
   } catch {
-    return crypto.randomUUID();
+    return createBrowserUuid();
   }
 };
 
