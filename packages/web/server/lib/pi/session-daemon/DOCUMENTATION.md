@@ -49,4 +49,15 @@ This module is the Pi-owned session-daemon foundation. A detached local daemon p
 
 This module defines the authenticated session API boundary consumed by the Pi-native session UI. Session leases coordinate PiChamber daemons only: the standalone `pi` CLI runs its own foreground runtime and does not honor these leases, so concurrently editing the same session through PiChamber and `pi` remains unsupported until Pi provides compatible upstream locking. Resource configuration and richer attachment extraction remain owned by their dedicated workstreams. The session event stream is SSE over the existing authenticated runtime transport; WebSocket callers fall back to it, preserving direct and relay behavior without a second daemon listener. The public route emits named heartbeat events so native `EventSource` clients can detect a silent foreground connection, reconnect, and resume from their last accepted sequence.
 
-The Pi SDK is pinned exactly at `0.84.1`. Any Pi 0.x minor upgrade requires a deliberate SDK/release-note review and repeat of this module's disposable-runtime smoke validation.
+The Pi SDK is pinned exactly at `0.85.1`. Any Pi 0.x minor upgrade requires a deliberate SDK/release-note review and repeat of this module's disposable-runtime smoke validation.
+
+## SDK upgrade validation
+
+The 0.84.1 → 0.85.1 upgrade retains the public session runtime/services API and v3 JSONL format. No PiChamber data migration or cache deletion is required. The SDK repairs a missing trailing newline when opening an existing session; subsequent entries remain separate JSONL records. Existing settings, custom model definitions, labels, and extension entries remain intact.
+
+- `sdk-upgrade.test.js` exercises the installed SDK with disposable directories: cached OpenCode models, user model additions and overrides, forced HTTP refresh, ETag/304, failed refresh preserving the last catalog, restart restoration, and opening/appending a pre-upgrade v3 session.
+- `session-daemon-extensions.e2e.test.js` exercises real extension loading, commands, dialogs, GUI projection, reload, and session disposal.
+- `supervisor.test.js` covers authenticated replacement of a daemon from an older PiChamber build. Normal versioned releases must retain that replacement behavior. Same-version, same-path manual dependency replacement is not a release upgrade and requires stopping the old server/daemon before restarting.
+- The SDK CLI bin moved to `dist/bundle/cli.js`; the detached daemon already resolves `package.json`'s `bin.pi` rather than hardcoding the old location.
+
+The new bundled OpenCode catalog removes `deepseek-v4-flash-free`. SDK remote catalogs still merge additively with bundled models, so this upgrade fixes that stale entry, not general upstream deletion propagation. Explicit user-defined models with the same ID remain supported. Do not clear users' `models.json` or `models-store.json` to apply an upgrade.
