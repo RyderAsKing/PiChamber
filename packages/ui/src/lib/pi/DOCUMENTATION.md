@@ -61,12 +61,29 @@ post-dispatch `AbortError` without an explicit caller abort is uncertain, not
 proof of rejection: it confirms via the exact `sessions.sendReceipt` lookup
 and stays runtime-scoped. `PiSessionStore` tracks explicit acceptance in
 `sendStateById` (`confirming` / `accepted` / `outcome-unknown` / `rejected`,
-read via `getSendState()`); unrelated live activity never
-settles a `confirming` send, an `accepted` receipt settles acceptance
-independently of turn progress, and `expired` / `unknown` / stale-epoch /
-payload-mismatch becomes a user-visible `outcome-unknown` that clears the
-stuck busy with a safe next action and never auto-resends. A new operation id
-is only minted explicitly with a warning.
+read via `getSendState()`). Live activity settles turn liveness, never send
+acceptance: an authoritative idle event can clear optimistic busy while the
+receipt remains `confirming`. An `accepted` receipt is internal bookkeeping,
+not a success notice. `expired` / `unknown` / stale-epoch / payload-mismatch
+becomes `outcome-unknown`; only the unresolved optimistic turn is cleared,
+never an authoritatively running turn. The UI preserves the draft and warns
+before another explicit send. Returning to the draft only dismisses the
+notice; it neither sends nor allocates an unused operation id.
+
+The store serializes acceptance per session. Concurrent identical requests
+share one dispatch; a changed payload under the same operation id is rejected,
+and a distinct send cannot replace an in-flight or uncertain owner. After
+acceptance, steer/follow-up remains available. The daemon still owns durable
+within-process deduplication, including later retries of an accepted id.
+
+Only ambiguous dispatch failures start automatic receipt recovery. Each
+session has one read-only lookup in flight and one retry timer, with up to five
+attempts per cycle and exponential delays starting at 200 ms. Exhausted cycles
+park until a later stream-health/reconnect signal or explicit Check status;
+manual checks restart the budget but do nothing while the original send is
+still in flight. Pending receipts and failed reads never trigger a resend.
+Captured runtime, session, operation, and generation reject stale completions;
+delete, clear, dispose, and runtime replacement cancel scheduled recovery.
 
 A failed runtime probe is `unavailable`, not an empty session list. The
 sidebar must show the unavailable banner until the daemon reports `ready`

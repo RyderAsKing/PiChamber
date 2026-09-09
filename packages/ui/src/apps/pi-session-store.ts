@@ -109,6 +109,21 @@ export type {
   PiSessionStoreState,
 };
 
+const SEND_RECEIPT_MAX_ATTEMPTS = 5;
+const SEND_RECEIPT_BASE_DELAY_MS = 200;
+const SEND_RECEIPT_MAX_DELAY_MS = 8000;
+
+type SendReceiptPoll = {
+  operationId: string;
+  kind: 'prompt' | 'steer' | 'followUp';
+  generation: number;
+  runtimeKey: string;
+  expectedRuntimeGeneration: number;
+  attempts: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  inflight: boolean;
+};
+
 let sharedStore: PiSessionStore | null = null;
 
 export const getPiSessionStore = (): PiSessionStore => {
@@ -170,6 +185,12 @@ export class PiSessionStore {
    * `rejected`) independently of turn liveness.
    */
   private pendingSendIntentById = new Map<PiSessionId, { operationId: string; kind: 'prompt' | 'steer' | 'followUp'; messageId?: string; streamEpoch?: string; runtimeKey: string; generation: number }>();
+  private sendFlightBySession = new Map<PiSessionId, {
+    operationId: string;
+    payload: string;
+    promise: Promise<Awaited<ReturnType<typeof piClient.sendPrompt>> | undefined>;
+  }>();
+  private sendReceiptPollBySession = new Map<PiSessionId, SendReceiptPoll>();
   /** Monotonic clock of last access per resident session. Updated on
    *  `select`, successful `commitHydratedSession`, accepted events, and
    *  explicit `touchLastAccess`. Eviction walks ascending order so the
@@ -511,6 +532,8 @@ export class PiSessionStore {
     this.pendingPromptById.delete(sessionId);
     this.promptGenerationById.delete(sessionId);
     this.pendingSendIntentById.delete(sessionId);
+    this.cancelReceiptPoll(sessionId);
+    this.sendFlightBySession.delete(sessionId);
     this.lastAccessById.delete(sessionId);
     const nextSendState = new Map(this.state.sendStateById);
     nextSendState.delete(sessionId);
@@ -560,23 +583,6 @@ export class PiSessionStore {
   getSendState = (sessionId: PiSessionId): PiSendRecord | undefined =>
     this.state.sendStateById.get(sessionId);
   /**
-   * Start an explicit new intent after an `outcome-unknown` send. Never called
-   * automatically: the caller must have shown the unknown warning and kept
-   * drafts intact. Mints a fresh operation id so the old uncertain intent can
-   * never be re-executed. Returns the new operation id.
-   */
-  beginNewSendIntentAfterUnknown = (sessionId: PiSessionId): string => {
-    const previous = this.state.sendStateById.get(sessionId);
-    if (previous && previous.status !== 'outcome-unknown') {
-      console.warn(
-        '[send] starting a new intent while the previous send is not outcome-unknown; the previous operation id will not be reused.',
-      );
-    }
-    const nextOperationId = `send_${crypto.randomUUID()}`;
-    this.clearSendState(sessionId);
-    return nextOperationId;
-  };
-  /**
    * Safe exact-id status check for a `confirming` send. Reads the
    * authoritative `sessions.sendReceipt` for the tracked operation id —
    * never sends, never mints a new intent, never replays. Returns true when
@@ -590,6 +596,15 @@ export class PiSessionStore {
     const intent = this.pendingSendIntentById.get(sessionId);
     if (!intent) return false;
     if (intent.runtimeKey !== getRuntimeKey()) return false;
+    // A receipt can still be unknown while the original request is in transit.
+    if (this.sendFlightBySession.has(sessionId)) return false;
+    const poll = this.sendReceiptPollBySession.get(sessionId);
+    if (poll) {
+      if (poll.inflight) return false;
+      if (poll.timer) clearTimeout(poll.timer);
+      poll.timer = null;
+      poll.attempts = 0;
+    }
     return this.confirmUncertainSendViaReceipt(sessionId, intent.generation, this.runtimeGeneration, intent.runtimeKey);
   };
   /** Dismiss a settled `accepted`/`rejected`/`outcome-unknown` notice (for example after
@@ -609,6 +624,59 @@ export class PiSessionStore {
     this.state = { ...this.state, sendStateById: next };
     this.emit([`session:${sessionId}`, TOPIC_CHROME]);
   };
+  private assertSendAllowed(sessionId: PiSessionId, operationId: string): void {
+    const cur = this.state.sendStateById.get(sessionId);
+    if (cur?.status === 'confirming' && cur.operationId !== operationId) {
+      throw new PiRequestError('SESSION_BUSY', 'Another message is still being sent. Please wait.', 409);
+    }
+  }
+  private writeConfirmingState(sessionId: PiSessionId, intent: { operationId: string; kind: 'prompt' | 'steer' | 'followUp'; messageId?: string; streamEpoch?: string; runtimeKey: string }): void {
+    this.setSendState(sessionId, {
+      status: 'confirming',
+      operationId: intent.operationId,
+      kind: intent.kind,
+      ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+      runtimeKey: intent.runtimeKey,
+      ...(intent.messageId ? { messageId: intent.messageId } : {}),
+      updatedAt: Date.now(),
+      title: 'Confirming send',
+      action: 'Waiting for the server to confirm. Do not resend yet.',
+    });
+  }
+  private writeSettledSendState(sessionId: PiSessionId, intent: { operationId: string; kind: 'prompt' | 'steer' | 'followUp'; messageId?: string; streamEpoch?: string; runtimeKey: string }, status: 'accepted' | 'rejected' | 'outcome-unknown', title: string, action: string): void {
+    this.setSendState(sessionId, {
+      status,
+      operationId: intent.operationId,
+      kind: intent.kind,
+      ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
+      runtimeKey: intent.runtimeKey,
+      ...(intent.messageId ? { messageId: intent.messageId } : {}),
+      updatedAt: Date.now(),
+      title,
+      action,
+    });
+  }
+  private isCurrentSend(sessionId: PiSessionId, operationId: string, generation: number, expectedRuntimeGeneration: number, dispatchRuntimeKey: string): boolean {
+    if (expectedRuntimeGeneration !== this.runtimeGeneration) return false;
+    if (this.promptGenerationById.get(sessionId) !== generation) return false;
+    if (dispatchRuntimeKey !== getRuntimeKey()) return false;
+    const intent = this.pendingSendIntentById.get(sessionId);
+    const send = this.state.sendStateById.get(sessionId);
+    return intent?.operationId === operationId && send?.operationId === operationId;
+  }
+  private cancelReceiptPoll(sessionId: PiSessionId, operationId?: string): void {
+    const poll = this.sendReceiptPollBySession.get(sessionId);
+    if (!poll) return;
+    if (operationId && poll.operationId !== operationId) return;
+    if (poll.timer) clearTimeout(poll.timer);
+    this.sendReceiptPollBySession.delete(sessionId);
+  }
+  private cancelAllReceiptPolls(): void {
+    for (const poll of this.sendReceiptPollBySession.values()) {
+      if (poll.timer) clearTimeout(poll.timer);
+    }
+    this.sendReceiptPollBySession.clear();
+  }
   /** Directory-focus generation. Stale after a newer focusProject call replaces it. */
   getFocusGeneration = (): number => this.focusGeneration;
   /** True once the runtime-wide cluster is attached: either the stream
@@ -637,6 +705,8 @@ export class PiSessionStore {
     };
   };
   private resetLiveRuntimeState(): void {
+    this.cancelAllReceiptPolls();
+    this.sendFlightBySession.clear();
     this.providerRefreshRevisionByDirectory.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
@@ -1265,6 +1335,8 @@ export class PiSessionStore {
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
     this.pendingSendIntentById.clear();
+    this.cancelAllReceiptPolls();
+    this.sendFlightBySession.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
@@ -1701,7 +1773,54 @@ export class PiSessionStore {
       thinking?: PiThinkingLevel;
     },
   ) {
+    const requestedId = options?.operationId ?? `send_${crypto.randomUUID()}`;
+    // Compare the transmitted payload before sharing acceptance. Keep this
+    // only for the in-flight request; never log or persist message content.
+    const payload = JSON.stringify([
+      delivery, text, attachments?.map(({ id }) => id) ?? [],
+      options?.messageId ?? deriveStableMessageId(requestedId),
+      options?.streamEpoch ?? this.streamEpoch,
+      options?.model?.providerId ?? null, options?.model?.modelId ?? null,
+      options?.thinking ?? null,
+    ]);
+    const flight = this.sendFlightBySession.get(sessionId);
+    if (flight) {
+      if (flight.operationId !== requestedId) {
+        throw new PiRequestError('SESSION_BUSY', 'Another message is still being sent. Please wait.', 409);
+      }
+      if (flight.payload !== payload) {
+        throw new PiRequestError('OPERATION_PAYLOAD_MISMATCH', 'This send is already in progress with different content.', 409);
+      }
+      return flight.promise;
+    }
+    const task = this.executePrompt(sessionId, text, delivery, attachments, options, requestedId);
+    this.sendFlightBySession.set(sessionId, { operationId: requestedId, payload, promise: task });
+    try {
+      return await task;
+    } finally {
+      if (this.sendFlightBySession.get(sessionId)?.promise === task) this.sendFlightBySession.delete(sessionId);
+    }
+  }
+  private async executePrompt(
+    sessionId: string,
+    text: string,
+    delivery: 'prompt' | 'steer' | 'followUp',
+    attachments: Array<{ id: string }> | undefined,
+    options: {
+      knownEmptyTranscript?: boolean;
+      operationId?: string;
+      messageId?: string;
+      streamEpoch?: string;
+      model?: { providerId: string; modelId: string };
+      thinking?: PiThinkingLevel;
+    } | undefined,
+    requestedOperationId: string,
+  ) {
     const expected = this.runtimeGeneration;
+    if (this.isDeleted(sessionId)) {
+      throw new PiRequestError('INVALID_SESSION', 'Session was deleted', 404);
+    }
+    this.assertSendAllowed(sessionId, requestedOperationId);
     let existing = this.state.reducer.bySession.get(sessionId);
     const hasAuthoritativeCreatedEmptyTranscript =
       options?.knownEmptyTranscript === true
@@ -1715,6 +1834,34 @@ export class PiSessionStore {
       await this.hydrate(sessionId, expected);
       if (expected !== this.runtimeGeneration) return;
       existing = this.state.reducer.bySession.get(sessionId);
+    }
+    if (this.isDeleted(sessionId)) {
+      throw new PiRequestError('INVALID_SESSION', 'Session was deleted', 404);
+    }
+    this.assertSendAllowed(sessionId, requestedOperationId);
+    const retryIntent = this.pendingSendIntentById.get(sessionId);
+    const isRetry = retryIntent?.operationId === requestedOperationId;
+    if (isRetry && retryIntent.kind !== delivery) {
+      throw new PiRequestError('OPERATION_PAYLOAD_MISMATCH', 'The same send id was used with a different delivery kind', 409);
+    }
+    const hadPendingPromptBefore = this.pendingPromptById.has(sessionId);
+    const hadLiveTurnBefore = existing?.lifecycle === 'busy' || existing?.lifecycle === 'retry';
+    const acceptedSend = this.state.sendStateById.get(sessionId);
+    if (acceptedSend?.status === 'accepted' && acceptedSend.operationId === requestedOperationId) {
+      // Deduplication emits no new turn events. Retry the captured identity
+      // without creating an optimistic turn or changing authoritative liveness.
+      if (acceptedSend.kind !== delivery) {
+        throw new PiRequestError('OPERATION_PAYLOAD_MISMATCH', 'This message was sent with a different delivery kind.', 409);
+      }
+      const input = {
+        sessionId, text, operationId: requestedOperationId,
+        messageId: options?.messageId ?? acceptedSend.messageId,
+        streamEpoch: options?.streamEpoch ?? acceptedSend.streamEpoch,
+        model: options?.model, thinking: options?.thinking, attachments,
+      };
+      if (delivery === 'steer') return piClient.sendSteer(input, this.scope());
+      if (delivery === 'followUp') return piClient.sendFollowUp(input, this.scope());
+      return piClient.sendPrompt(input, this.scope());
     }
     const modelOverride = options?.model;
     const thinkingOverride = options?.thinking;
@@ -1752,36 +1899,34 @@ export class PiSessionStore {
     const nextBySession = new Map(this.state.reducer.bySession);
     nextBySession.set(sessionId, nextSession);
     this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: nextBySession } };
-    const generation = (this.promptGenerationById.get(sessionId) ?? 0) + 1;
-    this.promptGenerationById.set(sessionId, generation);
-    this.pendingPromptById.add(sessionId);
-    // Capture the stable full intent once: operation id, message id, and
-    // stream epoch are held verbatim through every retry of this generation
-    // so the daemon fingerprint never mismatches. The runtime key is captured
-    // with the intent so a runtime switch can never replay it elsewhere.
-    const operationId = options?.operationId ?? `send_${crypto.randomUUID()}`;
-    const messageId = options?.messageId ?? deriveStableMessageId(operationId);
-    const stampedEpoch = options?.streamEpoch ?? this.streamEpoch ?? undefined;
-    const dispatchRuntimeKey = getRuntimeKey();
-    this.pendingSendIntentById.set(sessionId, {
-      operationId,
-      kind: delivery,
-      ...(messageId ? { messageId } : {}),
-      ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
-      runtimeKey: dispatchRuntimeKey,
-      generation,
-    });
-    this.setSendState(sessionId, {
-      status: 'confirming',
-      operationId,
-      kind: delivery,
-      ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
-      runtimeKey: dispatchRuntimeKey,
-      ...(messageId ? { messageId } : {}),
-      updatedAt: Date.now(),
-      title: 'Confirming send',
-      action: 'Waiting for the server to confirm. Do not resend yet.',
-    });
+    let generation: number;
+    let operationId: string;
+    let messageId: string | undefined;
+    let stampedEpoch: string | undefined;
+    let dispatchRuntimeKey: string;
+    let kind: 'prompt' | 'steer' | 'followUp';
+    if (isRetry && retryIntent) {
+      ({ generation, operationId, messageId, streamEpoch: stampedEpoch, runtimeKey: dispatchRuntimeKey, kind } = retryIntent);
+      this.pendingPromptById.add(sessionId);
+    } else {
+      generation = (this.promptGenerationById.get(sessionId) ?? 0) + 1;
+      this.promptGenerationById.set(sessionId, generation);
+      this.pendingPromptById.add(sessionId);
+      operationId = requestedOperationId;
+      messageId = options?.messageId ?? deriveStableMessageId(operationId);
+      stampedEpoch = options?.streamEpoch ?? this.streamEpoch ?? undefined;
+      dispatchRuntimeKey = getRuntimeKey();
+      kind = delivery;
+      this.pendingSendIntentById.set(sessionId, {
+        operationId,
+        kind,
+        ...(messageId ? { messageId } : {}),
+        ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
+        runtimeKey: dispatchRuntimeKey,
+        generation,
+      });
+      this.writeConfirmingState(sessionId, { operationId, kind, ...(messageId ? { messageId } : {}), ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}), runtimeKey: dispatchRuntimeKey });
+    }
     this.promoteSession(sessionId, 'active', { reorder: true });
     this.touchSessionList(sessionId);
     const promptedAt = Date.now();
@@ -1811,26 +1956,13 @@ export class PiSessionStore {
     };
     try {
       let result;
-      if (delivery === 'steer') result = await piClient.sendSteer(input, this.scope());
-      else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, this.scope());
+      if (kind === 'steer') result = await piClient.sendSteer(input, this.scope());
+      else if (kind === 'followUp') result = await piClient.sendFollowUp(input, this.scope());
       else result = await piClient.sendPrompt(input, this.scope());
-      // Direct acceptance settles send acceptance independently of turn
-      // progress: the receipt proves the daemon owns the intent, while the
-      // live event stream still owns the turn. Keep the optimistic turn
-      // pending; lifecycle events for an accepted send may clear it.
-      if (expected === this.runtimeGeneration && this.promptGenerationById.get(sessionId) === generation) {
+      if (this.isCurrentSend(sessionId, operationId, generation, expected, dispatchRuntimeKey)) {
         this.pendingSendIntentById.delete(sessionId);
-        this.setSendState(sessionId, {
-          status: 'accepted',
-          operationId,
-          kind: delivery,
-          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
-          runtimeKey: dispatchRuntimeKey,
-          ...(messageId ? { messageId } : {}),
-          updatedAt: Date.now(),
-          title: 'Send accepted',
-          action: 'The assistant is working. No action needed.',
-        });
+        this.cancelReceiptPoll(sessionId, operationId);
+        this.writeSettledSendState(sessionId, { operationId, kind, ...(messageId ? { messageId } : {}), ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}), runtimeKey: dispatchRuntimeKey }, 'accepted', 'Send accepted', 'The assistant is working. No action needed.');
       }
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
@@ -1857,91 +1989,48 @@ export class PiSessionStore {
       const isNewIdRequiredCode = failureCode === 'OPERATION_EXPIRED'
         || failureCode === 'STALE_STREAM_EPOCH'
         || failureCode === 'OPERATION_PAYLOAD_MISMATCH';
-      // A generic AbortError after dispatch proves nothing about execution:
-      // without an explicit caller abort signal the request may already be
-      // running, so it stays uncertain and confirms via receipt. Runtime
-      // guards (`DAEMON_UNAVAILABLE`) and `SESSION_ABORTED` during acceptance
-      // remain local cancellations (nothing executed, id freed).
       const isGenericAbort = error instanceof Error && error.name === 'AbortError';
       const classified = (() => {
         try { return classifySendFailure(error); } catch { return 'rejected' as const; }
       })();
       const effectiveKind = isGenericAbort && classified === 'aborted' ? 'uncertain' as const : classified;
-      const isCurrent = this.promptGenerationById.get(sessionId) === generation
-        && expected === this.runtimeGeneration
-        && dispatchRuntimeKey === getRuntimeKey();
+      const isCurrent = this.isCurrentSend(sessionId, operationId, generation, expected, dispatchRuntimeKey);
+      const preservesPriorTurn = !isRetry && (hadPendingPromptBefore || hadLiveTurnBefore);
       if (isNewIdRequiredCode && isCurrent) {
-        // The old id can never auto-replay (expired, stale, or caller bug).
-        // Surface an actionable outcome-unknown: clear the stuck busy, keep
-        // drafts, and require an explicit new intent. Never auto-mint one.
-        this.pendingPromptById.delete(sessionId);
+        if (!preservesPriorTurn) this.clearOptimisticBusyToIdle(sessionId);
         this.pendingSendIntentById.delete(sessionId);
-        this.clearOptimisticBusyToIdle(sessionId);
+        this.cancelReceiptPoll(sessionId, operationId);
         const copy = failureCode === 'OPERATION_PAYLOAD_MISMATCH'
-          ? {
-              title: 'Send needs a new intent',
-              action: 'The same send id was used with different content. Check history, then send again as a new message.',
-            }
+          ? { title: 'Send needs a new intent', action: 'The same send id was used with different content. Check history, then send again as a new message.' }
           : failureCode === 'STALE_STREAM_EPOCH'
-            ? {
-                title: 'Send outcome unknown',
-                action: 'The server restarted before confirming. Check history for your message, then send again as a new message.',
-              }
-            : {
-                title: 'Send expired',
-                action: 'The server no longer remembers this send. Check history, then send again as a new message.',
-              };
-        this.setSendState(sessionId, {
-          status: 'outcome-unknown',
-          operationId,
-          kind: delivery,
-          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
-          runtimeKey: dispatchRuntimeKey,
-          ...(messageId ? { messageId } : {}),
-          updatedAt: Date.now(),
-          ...copy,
-        });
+            ? { title: 'Send outcome unknown', action: 'The server restarted before confirming. Check history for your message, then send again as a new message.' }
+            : { title: 'Send expired', action: 'The server no longer remembers this send. Check history, then send again as a new message.' };
+        this.writeSettledSendState(sessionId, { operationId, kind, ...(messageId ? { messageId } : {}), ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}), runtimeKey: dispatchRuntimeKey }, 'outcome-unknown', copy.title, copy.action);
         throw error;
       }
       if (effectiveKind === 'uncertain' && isCurrent) {
-        // The request was dispatched but its outcome is unknown — NOT a
-        // definite failure. Keep the send pending (no false-failure roll back)
-        // and confirm through the exact authenticated `sessions.sendReceipt`
-        // lookup — never through an unrelated lifecycle read. The confirm
-        // guards the captured runtime generation and runtime key, so a runtime
-        // switch never replays this uncertain intent into the new runtime, and
-        // a verified epoch change never auto-replays: the daemon rejects a
-        // stale epoch as unknown and the caller must use a new operation id.
-        // A manual retry must reuse the same operation id so the daemon's
-        // execution boundary deduplicates.
         void this.confirmUncertainSendViaReceipt(sessionId, generation, expected, dispatchRuntimeKey);
         throw error;
       }
       if (isCurrent) {
-        this.pendingPromptById.delete(sessionId);
         this.pendingSendIntentById.delete(sessionId);
-        this.setSendState(sessionId, {
-          status: 'rejected',
-          operationId,
-          kind: delivery,
-          ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}),
-          runtimeKey: dispatchRuntimeKey,
-          ...(messageId ? { messageId } : {}),
-          updatedAt: Date.now(),
-          title: effectiveKind === 'aborted' ? 'Send cancelled' : 'Send rejected',
-          action: effectiveKind === 'aborted'
-            ? 'The send was cancelled before the server accepted it. You can send again as a new message.'
-            : 'The server declined this send before running it. Check the message, then send again as a new message.',
-        });
-        const current = this.state.reducer.bySession.get(sessionId);
-        if (current?.lifecycle === 'busy' && current.streamingMessages.size === 0) {
-          const reverted = new Map(this.state.reducer.bySession);
-          reverted.set(sessionId, { ...current, lifecycle: 'error' });
-          this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: reverted } };
-          this.promoteSession(sessionId, 'settled');
-          // The reducer record changed (lifecycle: error); chrome also
-          // flips via the next selector read. Catalog is unchanged.
-          this.emit([`session:${sessionId}`, TOPIC_CHROME]);
+        this.cancelReceiptPoll(sessionId, operationId);
+        this.writeSettledSendState(sessionId, { operationId, kind, ...(messageId ? { messageId } : {}), ...(stampedEpoch ? { streamEpoch: stampedEpoch } : {}), runtimeKey: dispatchRuntimeKey }, 'rejected', effectiveKind === 'aborted' ? 'Send cancelled' : 'Send rejected', effectiveKind === 'aborted'
+          ? 'The send was cancelled before the server accepted it. You can send again as a new message.'
+          : 'The server declined this send before running it. Check the message, then send again as a new message.');
+        // Failure of a steer/follow-up must not overwrite the running turn.
+        if (!preservesPriorTurn) {
+          const wasOptimistic = this.pendingPromptById.delete(sessionId);
+          const current = this.state.reducer.bySession.get(sessionId);
+          if (wasOptimistic && current?.lifecycle === 'busy' && current.streamingMessages.size === 0) {
+            const reverted = new Map(this.state.reducer.bySession);
+            reverted.set(sessionId, { ...current, lifecycle: 'error' });
+            this.state = { ...this.state, reducer: { ...this.state.reducer, bySession: reverted } };
+            this.promoteSession(sessionId, 'settled');
+            this.emit([`session:${sessionId}`, TOPIC_CHROME]);
+          }
+        } else if (!hadPendingPromptBefore) {
+          this.pendingPromptById.delete(sessionId);
         }
       }
       throw error;
@@ -1952,6 +2041,9 @@ export class PiSessionStore {
    *  the chat must not stay working forever, and the explicit send record
    *  carries the user-visible next action. Drafts and history are preserved. */
   private clearOptimisticBusyToIdle(sessionId: PiSessionId): void {
+    // Live progress retires the optimistic owner independently of acceptance.
+    // An unknown receipt must not turn an authoritatively busy session idle.
+    if (!this.pendingPromptById.delete(sessionId)) return;
     const current = this.state.reducer.bySession.get(sessionId);
     if (!current) return;
     if (current.lifecycle !== 'busy' && current.lifecycle !== 'retry') return;
@@ -1962,20 +2054,38 @@ export class PiSessionStore {
     this.promoteSession(sessionId, 'settled');
     this.emit([`session:${sessionId}`, TOPIC_CHROME]);
   }
-  /**
-   * Confirm an uncertain send through the exact authenticated receipt.
-   *
-   * The daemon's `sessions.sendReceipt` lookup is the only authority for
-   * whether the intent executed. `accepted` settles send acceptance
-   * independently of turn progress (the event stream still owns the turn);
-   * `pending` keeps `confirming`; `expired`/`unknown` becomes an explicit
-   * user-visible `outcome-unknown` that clears the stuck busy and never
-   * auto-replays. This path never reads `getSession` lifecycle and never
-   * hydrates: inferring success from an unrelated busy/idle snapshot would
-   * confirm the wrong turn. Guards the captured runtime generation, runtime
-   * key, and prompt generation so a runtime switch or newer send never
-   * commits stale confirmation.
-   */
+  /** Read-only receipt confirmation for uncertain sends. Never resends. */
+  private scheduleReceiptRetry(sessionId: PiSessionId, poll: SendReceiptPoll): void {
+    if (this.sendReceiptPollBySession.get(sessionId) !== poll) return;
+    if (poll.timer) return;
+    const intent = this.pendingSendIntentById.get(sessionId);
+    if (!intent || intent.operationId !== poll.operationId || intent.generation !== poll.generation) { this.cancelReceiptPoll(sessionId, poll.operationId); return; }
+    const rec = this.state.sendStateById.get(sessionId);
+    if (!rec || rec.status !== 'confirming' || rec.operationId !== poll.operationId) { this.cancelReceiptPoll(sessionId, poll.operationId); return; }
+    if (this.isDeleted(sessionId)) { this.cancelReceiptPoll(sessionId, poll.operationId); return; }
+    if (poll.expectedRuntimeGeneration !== this.runtimeGeneration || intent.runtimeKey !== poll.runtimeKey || poll.runtimeKey !== getRuntimeKey() || this.promptGenerationById.get(sessionId) !== poll.generation) { this.cancelReceiptPoll(sessionId, poll.operationId); return; }
+    if (poll.attempts >= SEND_RECEIPT_MAX_ATTEMPTS) return;
+    const delay = Math.min(SEND_RECEIPT_MAX_DELAY_MS, SEND_RECEIPT_BASE_DELAY_MS * 2 ** Math.max(0, poll.attempts - 1));
+    poll.timer = setTimeout(() => {
+      if (this.sendReceiptPollBySession.get(sessionId) !== poll) return;
+      poll.timer = null;
+      void this.confirmUncertainSendViaReceipt(sessionId, poll.generation, poll.expectedRuntimeGeneration, poll.runtimeKey);
+    }, delay);
+  }
+  private retryPendingSendReceipts(): void {
+    for (const [sessionId, poll] of [...this.sendReceiptPollBySession]) {
+      if (poll.inflight || poll.timer) continue;
+      const intent = this.pendingSendIntentById.get(sessionId);
+      if (!intent || intent.operationId !== poll.operationId || intent.generation !== poll.generation) { this.cancelReceiptPoll(sessionId, poll.operationId); continue; }
+      const rec = this.state.sendStateById.get(sessionId);
+      if (!rec || rec.status !== 'confirming' || rec.operationId !== poll.operationId) { this.cancelReceiptPoll(sessionId, poll.operationId); continue; }
+      if (this.isDeleted(sessionId)) { this.cancelReceiptPoll(sessionId, poll.operationId); continue; }
+      if (intent.runtimeKey !== getRuntimeKey() || poll.runtimeKey !== getRuntimeKey()) continue;
+      if (this.promptGenerationById.get(sessionId) !== poll.generation) continue;
+      if (poll.attempts >= SEND_RECEIPT_MAX_ATTEMPTS) poll.attempts = 0;
+      this.scheduleReceiptRetry(sessionId, poll);
+    }
+  }
   private async confirmUncertainSendViaReceipt(
     sessionId: PiSessionId,
     generation: number,
@@ -1984,7 +2094,22 @@ export class PiSessionStore {
   ): Promise<boolean> {
     const intent = this.pendingSendIntentById.get(sessionId);
     if (!intent || intent.generation !== generation) return false;
-    if (intent.runtimeKey !== dispatchRuntimeKey || dispatchRuntimeKey !== getRuntimeKey()) return false;
+    if (intent.runtimeKey !== dispatchRuntimeKey || dispatchRuntimeKey !== getRuntimeKey()) { this.cancelReceiptPoll(sessionId, intent.operationId); return false; }
+    if (this.isDeleted(sessionId)) { this.cancelReceiptPoll(sessionId, intent.operationId); return false; }
+    const confirming = this.state.sendStateById.get(sessionId);
+    if (!confirming || confirming.status !== 'confirming' || confirming.operationId !== intent.operationId) { this.cancelReceiptPoll(sessionId, intent.operationId); return false; }
+    if (expectedRuntimeGeneration !== this.runtimeGeneration) { this.cancelReceiptPoll(sessionId, intent.operationId); return false; }
+    let poll = this.sendReceiptPollBySession.get(sessionId);
+    if (!poll || poll.operationId !== intent.operationId || poll.generation !== generation) {
+      poll = { operationId: intent.operationId, kind: intent.kind, generation, runtimeKey: intent.runtimeKey, expectedRuntimeGeneration, attempts: 0, timer: null, inflight: false };
+      this.sendReceiptPollBySession.set(sessionId, poll);
+    }
+    if (poll.inflight) return false;
+    if (poll.attempts >= SEND_RECEIPT_MAX_ATTEMPTS) return false;
+    poll.inflight = true;
+    poll.attempts += 1;
+    const captured = poll;
+    const operationId = intent.operationId;
     const resident = this.state.reducer.bySession.get(sessionId);
     const directory = resident?.directory
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
@@ -2005,86 +2130,49 @@ export class PiSessionStore {
         || intent.runtimeKey !== dispatchRuntimeKey
         || dispatchRuntimeKey !== getRuntimeKey()
       ) {
+        if (this.sendReceiptPollBySession.get(sessionId) === captured) this.cancelReceiptPoll(sessionId, operationId);
         return false;
       }
-      // A receipt stamped by a retired daemon lifetime cannot confirm this
-      // intent. It becomes an explicit outcome-unknown (never a silent
-      // pending-forever): the daemon restarted, the old sequence space is
-      // gone, and the same id must never auto-replay on the fresh daemon.
+      if (this.sendReceiptPollBySession.get(sessionId) !== captured) return false;
+      const curIntent = this.pendingSendIntentById.get(sessionId);
+      const curSend = this.state.sendStateById.get(sessionId);
+      if (!curIntent || curIntent.operationId !== operationId || curIntent.generation !== generation) { this.cancelReceiptPoll(sessionId, operationId); return false; }
+      if (!curSend || curSend.status !== 'confirming' || curSend.operationId !== operationId) { this.cancelReceiptPoll(sessionId, operationId); return false; }
+      if (this.isDeleted(sessionId)) { this.cancelReceiptPoll(sessionId, operationId); return false; }
       if (typeof receipt.streamEpoch === 'string' && receipt.streamEpoch.length > 0) {
         if (this.retiredStreamEpochs.has(receipt.streamEpoch)
           || (this.streamEpoch !== null && receipt.streamEpoch !== this.streamEpoch)) {
-          this.pendingPromptById.delete(sessionId);
-          this.pendingSendIntentById.delete(sessionId);
           this.clearOptimisticBusyToIdle(sessionId);
-          this.setSendState(sessionId, {
-            status: 'outcome-unknown',
-            operationId: intent.operationId,
-            kind: intent.kind,
-            ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
-            runtimeKey: intent.runtimeKey,
-            ...(intent.messageId ? { messageId: intent.messageId } : {}),
-            updatedAt: Date.now(),
-            title: 'Send outcome unknown',
-            action: 'The server restarted before confirming. Check history for your message, then send again as a new message.',
-          });
+          this.pendingSendIntentById.delete(sessionId);
+          this.writeSettledSendState(sessionId, intent, 'outcome-unknown', 'Send outcome unknown', 'The server restarted before confirming. Check history for your message, then send again as a new message.');
+          this.cancelReceiptPoll(sessionId, operationId);
           return true;
         }
       }
       if (receipt.status === 'accepted') {
-        // Exact acceptance settles send acceptance independently of turn
-        // state: the daemon owns the intent, the event stream owns progress.
-        // Keep the optimistic turn pending; never infer turn progress here.
         this.pendingSendIntentById.delete(sessionId);
-        this.setSendState(sessionId, {
-          status: 'accepted',
-          operationId: intent.operationId,
-          kind: intent.kind,
-          ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
-          runtimeKey: intent.runtimeKey,
-          ...(intent.messageId ? { messageId: intent.messageId } : {}),
-          updatedAt: Date.now(),
-          title: 'Send accepted',
-          action: 'The assistant is working. No action needed.',
-        });
+        this.writeSettledSendState(sessionId, intent, 'accepted', 'Send accepted', 'The assistant is working. No action needed.');
+        this.cancelReceiptPoll(sessionId, operationId);
         return true;
       }
       if (receipt.status === 'pending') {
-        // Still accepting: keep confirming, keep the optimistic turn. No
-        // automatic replay; the live stream will settle the turn.
+        this.scheduleReceiptRetry(sessionId, captured);
         return false;
       }
       // `expired` / `unknown`: retention is gone or the id was never seen.
-      // The outcome is unknowable — never assume success, never auto-replay
-      // with the same id. Clear the stuck busy so the chat is not working
-      // forever and surface an explicit safe next action.
-      this.pendingPromptById.delete(sessionId);
-      this.pendingSendIntentById.delete(sessionId);
       this.clearOptimisticBusyToIdle(sessionId);
+      this.pendingSendIntentById.delete(sessionId);
       const copy = receipt.status === 'expired'
-        ? {
-            title: 'Send expired',
-            action: 'The server no longer remembers this send. Check history, then send again as a new message.',
-          }
-        : {
-            title: 'Send outcome unknown',
-            action: 'The server has no record of this send. Check history for your message, then send again as a new message.',
-          };
-      this.setSendState(sessionId, {
-        status: 'outcome-unknown',
-        operationId: intent.operationId,
-        kind: intent.kind,
-        ...(intent.streamEpoch ? { streamEpoch: intent.streamEpoch } : {}),
-        runtimeKey: intent.runtimeKey,
-        ...(intent.messageId ? { messageId: intent.messageId } : {}),
-        updatedAt: Date.now(),
-        ...copy,
-      });
+        ? { title: 'Send expired', action: 'The server no longer remembers this send. Check history, then send again as a new message.' }
+        : { title: 'Send outcome unknown', action: 'The server has no record of this send. Check history for your message, then send again as a new message.' };
+      this.writeSettledSendState(sessionId, intent, 'outcome-unknown', copy.title, copy.action);
+      this.cancelReceiptPoll(sessionId, operationId);
       return true;
     } catch {
-      // The event stream remains primary. A failed confirmation must preserve
-      // the optimistic/live state rather than turning failure into idle.
+      this.scheduleReceiptRetry(sessionId, captured);
       return false;
+    } finally {
+      if (this.sendReceiptPollBySession.get(sessionId) === captured) captured.inflight = false;
     }
   }
   private async reconcilePendingPromptSnapshot(
@@ -2638,6 +2726,7 @@ export class PiSessionStore {
       || streamGeneration !== this.streamGeneration
     ) return;
     this.streamReadyRevision += 1;
+    this.retryPendingSendReceipts();
     if (this.state.connection === 'ready' && !this.state.error) {
       // Stream health is NOT baseline proof. If reconnect-recovery
       // obligations are parked (failed scopes after exhausting the retry
@@ -2767,6 +2856,7 @@ export class PiSessionStore {
         // it missed, so residents and catalogs need no reload. A replay miss
         // (`resync` snapshot) or epoch change already queued a bounded
         // recovery of known directory catalogs and affected residents above.
+        this.retryPendingSendReceipts();
         this.scheduleIdleEviction();
         if (epochChanged) this.publishSyncRecoveryState();
       } else this.reportError(new PiRequestError(result.error?.code ?? 'DAEMON_UNAVAILABLE', result.error?.message));
@@ -2809,16 +2899,19 @@ export class PiSessionStore {
   }
 
   private notePromptProgress(event: PiSessionEvent) {
-    // Uncertain sends settle only through the exact receipt, never through
-    // unrelated live activity. Without operation correlation a busy/idle from
-    // another turn, another device, or a replay would falsely clear the
-    // uncertain intent. `confirming` and `outcome-unknown` therefore ignore
-    // lifecycle/message progress entirely; only an `accepted` (or untracked)
-    // send may be settled by its own turn events.
     const sendState = this.state.sendStateById.get(event.sessionId);
-    if (sendState && (sendState.status === 'confirming' || sendState.status === 'outcome-unknown')) {
+    if (sendState?.status === 'confirming') {
+      if (
+        event.name === 'assistant.message.start'
+        || event.name === 'session.error'
+        || event.name === 'session.interrupted'
+        || event.name === 'session.lifecycle'
+      ) {
+        this.pendingPromptById.delete(event.sessionId);
+      }
       return;
     }
+    if (sendState?.status === 'outcome-unknown') return;
     if (
       event.name === 'assistant.message.start'
       || (event.name === 'session.lifecycle' && (event.payload.state === 'busy' || event.payload.state === 'retry'))
@@ -3032,28 +3125,11 @@ export class PiSessionStore {
         });
       }
       this.notePromptProgress(event);
-      // While a send is `confirming`, unrelated lifecycle/idle activity must
-      // not flip the optimistic busy to idle: without operation correlation
-      // an idle from another turn or device would falsely settle the
-      // uncertain intent. Retain busy until the exact receipt settles
-      // acceptance (`accepted` keeps the turn pending; `outcome-unknown`
-      // clears it explicitly with user-visible copy). `rejected` and
-      // `outcome-unknown` never retain here (see `retainPendingPrompt`).
-      if (
-        this.pendingPromptById.has(event.sessionId)
-        && this.state.sendStateById.get(event.sessionId)?.status === 'confirming'
-      ) {
-        const confirmingSession = working.bySession.get(event.sessionId);
-        if (confirmingSession && confirmingSession.lifecycle !== 'busy' && confirmingSession.lifecycle !== 'retry') {
-          const bySession = new Map(working.bySession);
-          bySession.set(event.sessionId, { ...confirmingSession, lifecycle: 'busy' });
-          working = { ...working, bySession };
-        }
-      }
       if (
         this.pendingPromptById.has(event.sessionId)
         && event.name === 'session.snapshot'
         && !event.payload.snapshot.isStreaming
+        && this.state.sendStateById.get(event.sessionId)?.status !== 'confirming'
       ) {
         working = this.retainPendingPrompt(working, event.sessionId);
         this.promoteSession(event.sessionId, 'active');

@@ -136,20 +136,25 @@ describe('explicit send acceptance', () => {
       await waitFor(() => store.getSendState('s1')?.status === 'confirming');
       expect(internal(store).pendingPromptById.has('s1')).toBe(true);
 
-      // Unrelated busy/idle on the same session must not clear the uncertain intent.
+      // Unrelated live activity never settles acceptance, but authoritative
+      // turn liveness still wins: idle may settle the busy row while the
+      // send stays confirming (separate liveness from unknown acceptance).
       internal(store).commitEvents([busyLifecycle('s1', 5_001)]);
       expect(store.getSendState('s1')?.status).toBe('confirming');
-      expect(internal(store).pendingPromptById.has('s1')).toBe(true);
+      expect(internal(store).pendingPromptById.has('s1')).toBe(false);
+      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
       internal(store).commitEvents([idleLifecycle('s1', 5_002)]);
       expect(store.getSendState('s1')?.status).toBe('confirming');
-      expect(internal(store).pendingPromptById.has('s1')).toBe(true);
+      expect(internal(store).pendingPromptById.has('s1')).toBe(false);
+      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('idle');
 
       // Only the exact receipt settles acceptance, independently of turn state.
+      // Acceptance does not resurrect an authoritatively settled busy row.
       receiptResolve({ status: 'accepted', streamEpoch: 'epoch-1', receipt: { accepted: true, messageId: 'm-1' } });
       await waitFor(() => store.getSendState('s1')?.status === 'accepted');
       expect(store.getSendState('s1')?.operationId).toBe('op-unrelated');
-      expect(internal(store).pendingPromptById.has('s1')).toBe(true);
-      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
+      expect(internal(store).pendingPromptById.has('s1')).toBe(false);
+      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('idle');
       piClient.sendPrompt = originalSend;
       piClient.getSendReceipt = originalReceipt;
     } finally {
@@ -215,31 +220,53 @@ describe('explicit send acceptance', () => {
     }
   });
 
-  test('an explicit new intent after unknown mints a fresh id with a warning and never reuses the old id', async () => {
+  test('an explicit new intent after unknown mints a fresh id and never reuses the old id', async () => {
     const store = new PiSessionStore();
     try {
       seed(store);
       const originalSend = piClient.sendPrompt.bind(piClient);
       const originalReceipt = piClient.getSendReceipt.bind(piClient);
-      piClient.sendPrompt = (async () => {
+      let sendCalls = 0;
+      const sentOperationIds: Array<string | undefined> = [];
+      piClient.sendPrompt = (async (input: { operationId?: string }) => {
+        sendCalls += 1;
+        sentOperationIds.push(input?.operationId);
         throw markAmbiguousTransportFailure(new Error('lost'));
-      }) as typeof piClient.sendPrompt;
+      }) as unknown as typeof piClient.sendPrompt;
       piClient.getSendReceipt = (async () => ({
         status: 'unknown',
         streamEpoch: 'epoch-1',
       })) as unknown as typeof piClient.getSendReceipt;
-
-      await expect(
-        store.prompt('s1', 'hello', 'prompt', undefined, { operationId: 'op-old' }),
-      ).rejects.toThrow();
-      await waitFor(() => store.getSendState('s1')?.status === 'outcome-unknown');
-      const fresh = store.beginNewSendIntentAfterUnknown('s1');
-      expect(typeof fresh).toBe('string');
-      expect(fresh).not.toBe('op-old');
-      expect(fresh.startsWith('send_')).toBe(true);
-      expect(store.getSendState('s1')).toBeUndefined();
-      piClient.sendPrompt = originalSend;
-      piClient.getSendReceipt = originalReceipt;
+      try {
+        await expect(
+          store.prompt('s1', 'hello', 'prompt', undefined, { operationId: 'op-old' }),
+        ).rejects.toThrow();
+        await waitFor(() => store.getSendState('s1')?.status === 'outcome-unknown');
+        expect(store.getSendState('s1')?.operationId).toBe('op-old');
+        expect(sendCalls).toBe(1);
+        // Dismissing the unknown notice alone dispatches nothing and mints nothing.
+        store.clearSendState('s1');
+        expect(store.getSendState('s1')).toBeUndefined();
+        expect(sendCalls).toBe(1);
+        // The next explicit send owns no operation id, so the store mints one.
+        // Observe the minted id on the wire and prove the old id is never reused.
+        piClient.sendPrompt = (async (input: { operationId?: string }) => {
+          sendCalls += 1;
+          sentOperationIds.push(input?.operationId);
+          return { accepted: true, messageId: 'm-fresh' };
+        }) as unknown as typeof piClient.sendPrompt;
+        await store.prompt('s1', 'hello again', 'prompt');
+        expect(sendCalls).toBe(2);
+        const fresh = sentOperationIds[1];
+        expect(typeof fresh).toBe('string');
+        expect(fresh).not.toBe('op-old');
+        expect(fresh!.startsWith('send_')).toBe(true);
+        expect(store.getSendState('s1')?.operationId).toBe(fresh);
+        expect(store.getSendState('s1')?.status).toBe('accepted');
+      } finally {
+        piClient.sendPrompt = originalSend;
+        piClient.getSendReceipt = originalReceipt;
+      }
     } finally {
       store.dispose();
       getPiSessionCatalogCache().dispose();
