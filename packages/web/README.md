@@ -45,6 +45,21 @@ tunnels, logs, pairing, and machine-readable output.
 - `connect-url` creates a one-time pairing link; credentials are not written to URLs or logs.
 - The server owns its per-profile Pi daemon lifecycle (installed web, development web, and desktop use separate namespaces) and stops only its own daemon during shutdown.
 
+## SDK updates
+
+This release pins Pi SDK `0.85.1`, including an updated bundled OpenCode model
+catalog. Existing Pi sessions, credentials, settings, and custom models stay in
+place; no manual migration or cache deletion is needed. Custom model additions
+and overrides still apply to the updated catalog. If a saved default points to a
+removed model, select an available replacement; the upgrade does not rewrite
+your saved defaults or chat history.
+
+Restart the PiChamber server after updating. The normal update command restarts
+managed background instances; foreground instances must be stopped and started
+manually. Desktop users must relaunch the updated app. Hosted and mobile clients
+use their connected server's SDK, so updating only the client does not update its
+model catalog.
+
 ## Development
 
 ```bash
