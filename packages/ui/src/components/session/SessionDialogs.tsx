@@ -16,7 +16,6 @@ import { DirectoryExplorerDialog } from './DirectoryExplorerDialog';
 import type { Session } from '@/lib/chat/types';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import * as sessionActions from '@/sync/session-actions';
 import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -35,7 +34,7 @@ export const SessionDialogs: React.FC = () => {
     const [deleteDialog, setDeleteDialog] = React.useState<DeleteDialogState | null>(null);
     const [isProcessingDelete, setIsProcessingDelete] = React.useState(false);
 
-    const deleteSession = sessionActions.deleteSession;
+    const deleteSession = useSessionUIStore((s) => s.deleteSession);
     const deleteSessions = useSessionUIStore((s) => s.deleteSessions);
     const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
     const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);

@@ -693,11 +693,28 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // deleteSession — calls the Pi API, SSE event updates child store
+  // deleteSession — calls the Pi API, SSE event updates child store.
+  // Deleting the visible session navigates to the new-session draft so the
+  // chat does not stay pinned to a deleted id and error on load. The Pi
+  // cluster may still hold a sibling selection for background continuity;
+  // the open draft wins the visible route via the draft guard.
   // ---------------------------------------------------------------------------
-  deleteSession: (id, options) => deleteSessionAction(id, options as any),
+  deleteSession: async (id, options) => {
+    const result = await deleteSessionAction(id, options as any)
+    if (result && get().currentSessionId === id) {
+      get().openNewSessionDraft()
+    }
+    return result
+  },
 
-  deleteSessions: (ids, options) => deleteSessionsAction(ids, options as any),
+  deleteSessions: async (ids, options) => {
+    const result = await deleteSessionsAction(ids, options as any)
+    const current = get().currentSessionId
+    if (current && result.deletedIds.includes(current)) {
+      get().openNewSessionDraft()
+    }
+    return result
+  },
 
   archiveSession: (id) => archiveSessionAction(id),
 
