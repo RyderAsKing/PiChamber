@@ -765,7 +765,14 @@ const closeProbeResultTunnel = (result: ProbeResult): void => {
 
 const reprobeSelectionKeyOf = (selection: ReprobeSelection | null): string =>
   selection
-    ? `${selection.generation}|${selection.runtimeKey}|${selection.apiBaseUrl}|${selection.connectionId}`
+    ? // Identity mirrors `isReprobeSelectionStale`: generation, runtime
+      // identity, saved-row identity, credential reference, and candidate
+      // snapshot. `secureKey` is a storage reference (URL / relay key), not a
+      // secret value, and `candidatesJson` holds URLs plus the relay public
+      // config — neither carries tokens — so both are safe to fold into the
+      // single-flight key. Excluding them let a candidate-refresh follow-up
+      // share the old stale promise and never probe fresh.
+      `${selection.generation}|${selection.runtimeKey}|${selection.apiBaseUrl}|${selection.connectionId}|${selection.secureKey}|${selection.candidatesJson}`
     : `noselection|${getRuntimeEndpointGeneration()}|${getRuntimeKey()}`;
 
 let reprobeInFlight: Promise<ReprobeOutcome> | null = null;

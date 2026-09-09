@@ -478,3 +478,223 @@ describe('reprobe late-probe core guard (actual switchToTransport)', () => {
     }
   });
 });
+
+describe('reprobe single-flight identity (candidates/secure reference)', () => {
+  test('updated LAN candidates while direct probe in flight probes fresh (same credential reference)', async () => {
+    const gate = deferred<Response | null>();
+    try {
+      const { active, betterUrl, currentUrl, token } = await seedDirectPair({
+        betterUrl: 'https://better.example',
+        currentUrl: 'https://current.example',
+      });
+      let betterHealthCalls = 0;
+      fetchHandler = async (url) => {
+        if (url === `${betterUrl}/health`) {
+          betterHealthCalls += 1;
+          // First race hangs; the serialized follow-up must issue its own race.
+          if (betterHealthCalls === 1) return gate.promise;
+          return okHealth();
+        }
+        if (url === `${betterUrl}/auth/session`) return okSession();
+        if (url.endsWith('/health')) return okHealth();
+        if (url.endsWith('/auth/session')) return okSession();
+        return null;
+      };
+
+      const first = transport.reprobeActiveConnection();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(betterHealthCalls).toBe(1);
+
+      // Candidate refresh: same credential reference (first URL unchanged, so
+      // `secureKey` is identical) but a different candidate snapshot.
+      const lanUrl = 'https://lan-new.example';
+      await storage.upsertMobileConnection({
+        id: active.id,
+        label: active.label,
+        candidates: [
+          { kind: 'direct' as const, url: betterUrl },
+          { kind: 'direct' as const, url: lanUrl },
+        ],
+        clientToken: token,
+      });
+      void currentUrl;
+      // Follow-up while the old race is still pending must not share the stale
+      // promise — it serializes behind it and probes the fresh set.
+      const second = transport.reprobeActiveConnection();
+
+      gate.resolve(okHealth());
+      const [firstOutcome, secondOutcome] = await Promise.all([first, second]);
+      // Old selection is stale (candidate snapshot moved) → discarded.
+      expect(firstOutcome).toBe('no-connection');
+      // Fresh selection probes its own race and switches to the better host.
+      expect(secondOutcome).toBe('switched');
+      expect(betterHealthCalls).toBe(2);
+      expect(switchCalls).toHaveLength(1);
+      expect(switchCalls[0]?.apiBaseUrl).toBe(betterUrl);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('updated relay LAN candidates while relay probe in flight closes stale and adopts fresh', async () => {
+    const relayGate = deferred<{
+      ok: boolean;
+      status: number;
+      json: () => Promise<unknown>;
+    } | null>();
+    try {
+      const relay = {
+        relayUrl: 'wss://relay.example/tunnel',
+        serverId: 'srv_1',
+        hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' },
+      };
+      const currentUrl = 'https://current.example';
+      const lanUrl = 'https://lan-new.example';
+      const rows = await storage.upsertMobileConnection({
+        label: 'Relay device',
+        candidates: [
+          { kind: 'relay' as const, relay },
+          { kind: 'direct' as const, url: currentUrl },
+        ],
+        clientToken: 'relay-token',
+      });
+      const active = rows[0]!;
+      const secureKey = storage.secureTokenKeyOf(active);
+      runtimeKey = secureKey;
+      apiBaseUrl = currentUrl;
+      relayActive = false;
+      // Same credential reference (relay key unchanged); only the LAN snapshot changes.
+      expect(storage.secureTokenKeyOf(active)).toBe(secureKey);
+
+      tunnelFetchHandler = async () => relayGate.promise;
+      let lanHealthCalls = 0;
+      fetchHandler = async (url) => {
+        if (url === `${lanUrl}/health`) {
+          lanHealthCalls += 1;
+          return okHealth();
+        }
+        if (url === `${lanUrl}/auth/session`) return okSession();
+        if (url.endsWith('/health')) return okHealth();
+        if (url.endsWith('/auth/session')) return okSession();
+        return null;
+      };
+
+      const first = transport.reprobeActiveConnection();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Refresh adds a better LAN candidate; relay reference (secureKey) is identical.
+      await storage.upsertMobileConnection({
+        id: active.id,
+        label: active.label,
+        candidates: [
+          { kind: 'direct' as const, url: lanUrl },
+          { kind: 'direct' as const, url: currentUrl },
+          { kind: 'relay' as const, relay },
+        ],
+        clientToken: 'relay-token',
+      });
+      const second = transport.reprobeActiveConnection();
+
+      relayGate.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ authenticated: true, scope: 'client' }),
+      });
+      const [firstOutcome, secondOutcome] = await Promise.all([first, second]);
+      // Stale relay winner is closed, never adopted; fresh LAN winner switches.
+      expect(firstOutcome).toBe('no-connection');
+      expect(secondOutcome).toBe('switched');
+      expect(tunnelCloseCount).toBe(1);
+      expect(adoptedTunnels).toHaveLength(0);
+      expect(lanHealthCalls).toBe(1);
+      expect(switchCalls).toHaveLength(1);
+      expect(switchCalls[0]?.apiBaseUrl).toBe(lanUrl);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+
+  test('rotated credential reference while probe in flight never shares stale nor leaks old credential', async () => {
+    const gate = deferred<Response | null>();
+    try {
+      const { active, betterUrl, token } = await seedDirectPair({
+        betterUrl: 'https://old-better.example',
+        currentUrl: 'https://old-current.example',
+        token: 'old-token-abc',
+      });
+      let oldBetterHealthCalls = 0;
+      let newBetterHealthCalls = 0;
+      const newBetterUrl = 'https://new-better.example';
+      const newToken = 'new-token-xyz';
+      fetchHandler = async (url, init) => {
+        const headers = Object.fromEntries(new Headers(init?.headers).entries());
+        if (url === `${betterUrl}/health`) {
+          oldBetterHealthCalls += 1;
+          if (oldBetterHealthCalls === 1) return gate.promise;
+          return okHealth();
+        }
+        if (url === `${betterUrl}/auth/session`) return okSession();
+        if (url === `${newBetterUrl}/health`) {
+          newBetterHealthCalls += 1;
+          // Old credential must never be sent to the rotated host.
+          expect(headers['authorization']).not.toBe(`Bearer ${token}`);
+          return okHealth();
+        }
+        if (url === `${newBetterUrl}/auth/session`) {
+          expect(headers['authorization']).not.toBe(`Bearer ${token}`);
+          return okSession();
+        }
+        if (url.endsWith('/health')) return okHealth();
+        if (url.endsWith('/auth/session')) return okSession();
+        return null;
+      };
+
+      const first = transport.reprobeActiveConnection();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(oldBetterHealthCalls).toBe(1);
+
+      // Credential rotation: new first URL → new `secureKey` reference (storage
+      // key, not a secret value) plus a new candidate snapshot. Keep the same
+      // row id so the follow-up is a true selection change, then point the
+      // runtime at the rotated reference without bumping the generation — the
+      // single-flight key must still treat it as distinct via `secureKey` +
+      // `candidatesJson`, serialize behind the stale race, and probe fresh.
+      await storage.upsertMobileConnection({
+        id: active.id,
+        label: active.label,
+        candidates: [
+          { kind: 'direct' as const, url: newBetterUrl },
+          { kind: 'direct' as const, url: 'https://old-current.example' },
+        ],
+        clientToken: newToken,
+      });
+      const rotated = storage.readConnections().find((c) => c.id === active.id)!;
+      const rotatedSecureKey = storage.secureTokenKeyOf(rotated);
+      expect(rotatedSecureKey).not.toBe(storage.secureTokenKeyOf(active));
+      runtimeKey = rotatedSecureKey;
+      // `apiBaseUrl` stays on the old current host; only the credential
+      // reference and candidate snapshot moved.
+      const second = transport.reprobeActiveConnection();
+
+      gate.resolve(okHealth());
+      const [firstOutcome, secondOutcome] = await Promise.all([first, second]);
+      expect(firstOutcome).toBe('no-connection');
+      expect(secondOutcome).toBe('switched');
+      // Two separate races: stale old host + fresh rotated host. The stale
+      // promise is never shared for the fresh selection.
+      expect(oldBetterHealthCalls).toBe(1);
+      expect(newBetterHealthCalls).toBe(1);
+      expect(switchCalls).toHaveLength(1);
+      expect(switchCalls[0]?.apiBaseUrl).toBe(newBetterUrl);
+      // Old credential never sent to the rotated host (asserted in fetchHandler).
+      const leaked = fetchCalls.filter(
+        (c) =>
+          c.url.startsWith(newBetterUrl) &&
+          c.headers['authorization'] === `Bearer ${token}`
+      );
+      expect(leaked).toEqual([]);
+    } finally {
+      restoreAfterEach();
+    }
+  });
+});
