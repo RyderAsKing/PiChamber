@@ -46,7 +46,7 @@
 
 - Both sides and both directions are covered; `usePanelSlide` still drives the non-drag open/close `transform` for the left sidebar's inner surface.
 
-- **Toggle-only titlebar controls** have a fixed `2.5rem` header reservation. Do not measure and publish their width through root CSS variables on each sidebar toggle: those geometry reads synchronously resolve the invalidated layout tree. Electron frameless controls remain measured because their native-control footprint is variable.
+- **Toggle-only titlebar controls** have a fixed `2.5rem` header reservation. Do not measure and publish their width through root CSS variables on each sidebar toggle: those geometry reads synchronously resolve the invalidated layout tree. Window chrome is fixed (classic minimize/maximize/close on the right for frameless Windows/Linux; native OS-owned traffic lights on macOS), so the left overlay only holds the frameless app menu plus the sidebar toggle. Only the frameless app-menu cluster is measured, to preserve the existing `--oc-titlebar-controls-width` / `--oc-titlebar-overlay-width` reservation contract with the header and sidebar strip.
 
 ## Horizontal-Scroll Exclusions
 
@@ -86,7 +86,7 @@
 
 - `MainLayout` does not mount `GitView` on initial mobile chat startup. It mounts the right-drawer view only when `(mobileRightSidebarOpen || mobileRightDrawerVisible)`; a route-addressable mobile `activeMainTab === 'git'` mounts the full view only when the drawer is closed, so `?tab=git` cannot produce a blank main area.
 
-- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `git/gitViewSnapshots.ts`). Gitmoji selection lives in `git/GitmojiPickerDialog.tsx` with commit prefix parsing in `git/gitmojiMatcher.ts`. Branch integration and commit log/history dialogs live in `git/UpdateBranchDialog.tsx` and `git/GitHistoryDialog.tsx`.
+- Draft/identity state survives drawer unmount via `gitViewSnapshots` (per-directory LRU in `git/gitViewSnapshots.ts`). Branch integration and commit log/history dialogs live in `git/UpdateBranchDialog.tsx` and `git/GitHistoryDialog.tsx`.
 
 - Hidden `useGitStore` selectors and `isActive`-gated effects do not run while the drawer is closed because the component is not mounted. The `GitView` chunk is not requested during initial mobile startup (verified via Network panel: no `GitView` request before the first right-drawer open).
 

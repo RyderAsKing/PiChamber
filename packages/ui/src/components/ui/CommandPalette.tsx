@@ -18,7 +18,7 @@ import {
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useCatalogUiSessions } from '@/sync/sync-context';
-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   EMPTY_SESSION_ORDER_RANKS,

@@ -4,8 +4,6 @@ import {
   usePiConnectionState,
   useSessionStatus,
   useSessionMessages,
-  useSessionPermissions,
-  useSessionQuestions,
 } from '@/sync/sync-context';
 import { isSessionAssistantWorking } from '@/components/chat/lib/turns/assistantWorkingState';
 
@@ -30,23 +28,14 @@ const IDLE_RESULT: SessionActivityResult = {
  * Determines if a session is actively working.
  * Checks session_status and, only when status is missing, falls back to the
  * trailing assistant message when its completion update has not landed yet.
- * Returns idle when permissions or questions are pending (the permission /
- * question indicator takes priority, and the send button must stay available so
- * the user can supersede the prompt with a new message).
  */
 function useSessionActivity(sessionId: string | null | undefined, directory?: string): SessionActivityResult {
   const connection = usePiConnectionState();
   const status = useSessionStatus(sessionId ?? '', directory);
   const messages = useSessionMessages(sessionId ?? '', directory);
-  const permissions = useSessionPermissions(sessionId ?? '', directory);
-  const questions = useSessionQuestions(sessionId ?? '', directory);
 
   return React.useMemo<SessionActivityResult>(() => {
     if (!sessionId) return IDLE_RESULT;
-
-    // Permissions or questions pending → idle (the blocking indicator takes
-    // priority and the send button must remain a send, not a stop).
-    if (permissions.length > 0 || questions.length > 0) return IDLE_RESULT;
 
     const phase: SessionActivityPhase = (status?.type ?? 'idle') as SessionActivityPhase;
 
@@ -77,7 +66,7 @@ function useSessionActivity(sessionId: string | null | undefined, directory?: st
       isBusy: phase === 'busy' || (!statusWorking && hasPendingAssistant),
       isCooldown: false,
     };
-  }, [connection, sessionId, status, messages, permissions, questions]);
+  }, [connection, sessionId, status, messages]);
 }
 
 export function useCurrentSessionActivity(): SessionActivityResult {

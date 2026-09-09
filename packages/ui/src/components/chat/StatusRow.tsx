@@ -1,7 +1,6 @@
 import React from "react";
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { cn } from "@/lib/utils";
-import { useDirectorySync } from "@/sync/sync-context";
 import type { Todo } from "@/lib/chat/types";
 
 // Compat aliases for old TodoItem shape
@@ -160,16 +159,8 @@ export const StatusRow: React.FC<StatusRowProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const liveTodos = useDirectorySync(
-    React.useCallback(
-      (state) => {
-        if (!showTodos || !currentSessionId) return EMPTY_TODOS;
-        return state.todo[currentSessionId] ?? EMPTY_TODOS;
-      },
-      [currentSessionId, showTodos],
-    ),
-  );
-  const todos: TodoItem[] = currentSessionId ? liveTodos : EMPTY_TODOS;
+  // Directory todo plumbing is retired; the row renders no tasks.
+  const todos: TodoItem[] = EMPTY_TODOS;
   const isMobileRaw = useUIStore((state) => state.isMobile);
   const { enabled: isTabletLayout } = useTabletLayout();
   const isMobile = isMobileRaw && !isTabletLayout;

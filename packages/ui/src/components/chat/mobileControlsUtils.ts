@@ -1,12 +1,7 @@
-import type { Agent } from '@/lib/chat/types';
 import { getProviderModelDisplayName, type DisplayProvider } from '@/lib/modelDisplay';
 import { thinkingLevelLabel } from '@/lib/pi/thinking';
 
-export type MobileControlsPanel = 'model' | 'agent' | 'variant' | null;
-
-export const isPrimaryMode = (mode?: unknown) => mode === 'primary' || mode === 'all' || mode === undefined || mode === null;
-
-export const getCyclablePrimaryAgents = (agents: Agent[]) => agents.filter((agent) => isPrimaryMode(agent.mode));
+export type MobileControlsPanel = 'model' | 'variant' | null;
 
 export const getModelDisplayName = (
     provider: DisplayProvider,

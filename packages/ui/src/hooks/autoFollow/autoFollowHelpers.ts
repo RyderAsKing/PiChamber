@@ -1,6 +1,5 @@
 export const BOTTOM_SPACER_DESKTOP_VH = 0.10;
 export const BOTTOM_SPACER_MOBILE_PX = 40;
-export const SAVE_DEBOUNCE_MS = 150;
 export const TOUCH_FINGER_DOWN_THRESHOLD = 2;
 export const AUTO_MARK_TTL_MS = 1500;
 export const AUTO_MATCH_TOLERANCE_PX = 2;

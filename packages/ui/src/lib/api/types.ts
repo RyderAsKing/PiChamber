@@ -587,9 +587,6 @@ export interface SettingsPayload {
   activeProjectId?: string;
   securityScopedBookmarks?: string[];
   pinnedDirectories?: string[];
-  showReasoningTraces?: boolean;
-  collapsibleThinkingBlocks?: boolean;
-  collapseThinkingByDefault?: boolean;
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
   notificationMode?: 'always' | 'hidden-only';
@@ -599,15 +596,6 @@ export interface SettingsPayload {
   sessionRetentionAction?: 'archive' | 'delete';
   followUpBehavior?: 'steer' | 'queue';
   queueModeEnabled?: boolean;
-  gitmojiEnabled?: boolean;
-  inputSpellcheckEnabled?: boolean;
-  showToolFileIcons?: boolean;
-  codeBlockLineWrap?: boolean;
-  showTurnChangedFiles?: boolean;
-  showExpandedBashTools?: boolean;
-  showExpandedEditTools?: boolean;
-  mermaidRenderingMode?: 'svg' | 'ascii';
-  showSplitAssistantMessageActions?: boolean;
   fontSize?: number;
   terminalFontSize?: number;
   terminalShell?: TerminalShell;
@@ -621,7 +609,6 @@ export interface SettingsPayload {
   shortcutOverrides?: Record<string, string>;
   diffLayoutPreference?: 'dynamic' | 'inline' | 'side-by-side';
   gitChangesViewMode?: 'flat' | 'tree';
-  directoryShowHidden?: boolean;
   filesViewShowGitignored?: boolean;
   openInAppId?: string;
   gitProviderId?: string;

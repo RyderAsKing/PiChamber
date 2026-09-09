@@ -1,7 +1,6 @@
 import type { DesktopSettings } from '@/lib/desktop';
 import { sanitizeStarterRefs } from './draftStarters';
 import { useUIStore } from '@/stores/useUIStore';
-import { loadAppearancePreferences, applyAppearancePreferences } from '@/lib/appearancePersistence';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
@@ -438,36 +437,4 @@ export const updateDesktopSettings = async (
     );
   }
   return flushed;
-};
-
-export const initializeAppearancePreferences = async (): Promise<void> => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const persistApi = getPersistApi();
-
-  try {
-    const appearance = await loadAppearancePreferences();
-    if (!appearance) {
-      return;
-    }
-
-    const applyAppearance = () => applyAppearancePreferences(appearance);
-
-    if (persistApi?.hasHydrated?.()) {
-      applyAppearance();
-      return;
-    }
-
-    applyAppearance();
-    if (persistApi?.onFinishHydration) {
-      const unsubscribe = persistApi.onFinishHydration(() => {
-        unsubscribe?.();
-        applyAppearance();
-      });
-    }
-  } catch (error) {
-    console.warn('Failed to load appearance preferences:', error);
-  }
 };

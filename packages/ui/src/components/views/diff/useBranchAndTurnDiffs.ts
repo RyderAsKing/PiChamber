@@ -31,7 +31,6 @@ export function useBranchAndTurnDiffs({
   const lastTurnDiffs = React.useMemo<TurnSnapshotDiff[]>(() => {
     const projection = projectTurnRecords(sessionMessageRecords, {
       showTextJustificationActivity: false,
-      showTurnChangedFiles: true,
       mergeHiddenUserTurns: true,
     });
 

@@ -202,7 +202,6 @@ const baseProps = {
   activeDirectory: undefined as string | undefined,
   expandedPaths: [] as string[],
   chrome: 'desktop' as const,
-  showHidden: true,
   showGitignored: true,
   removeExpandedPathsByPrefix: () => undefined,
 };

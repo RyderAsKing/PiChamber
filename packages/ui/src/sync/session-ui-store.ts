@@ -14,39 +14,18 @@
  */
 
 import { create } from "zustand"
-import type { Session, Part, Message, TextPart } from "@/lib/chat/types"
-import type { SessionContextUsage } from "@/stores/types/sessionTypes"
 import { getPiSessionStore } from "@/apps/pi-session-store"
-import { isPiThinkingLevel } from "@/lib/pi/thinking"
-import { runtimeFetch } from "@/lib/runtime-fetch"
-import { useConfigStore } from "@/stores/useConfigStore"
 import { useProjectsStore } from "@/stores/useProjectsStore"
 import { buildAvailableWorktreesByProject, useWorktreeStore } from "@/stores/useWorktreeStore"
-import { useGlobalSessionsStore, resolveGlobalSessionDirectory } from "@/stores/useGlobalSessionsStore"
 import { useDirectoryStore } from "@/stores/useDirectoryStore"
 import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
-import { useSkillsStore } from "@/stores/useSkillsStore"
 import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 import { markPendingUserSendAnimation } from "@/lib/userSendAnimation"
-import { deriveSessionTitle } from "@/lib/chat/deriveSessionTitle"
 import { normalizePath } from "@/lib/pathNormalization"
-import { flattenAssistantTextParts } from "@/lib/messages/messageText"
-import { composeForkSessionMessage } from "@/lib/messages/executionMeta"
-import { findLatestUserModelChoice } from "@/lib/messages/userModelChoice"
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
 import {
-  getSyncSessions,
   getAllSyncSessions,
-  getSyncMessages,
-  getSyncParts,
-  getDirectoryState,
-  getSyncSessionDirectory,
 } from "./sync-refs"
-import {
-  resolveSessionDirectoryFromSources,
-  type SessionDirectoryResolution,
-  type SessionDirectorySources,
-} from "./session-directory-resolution"
 import { markSessionViewed } from "./notification-store"
 import { setActiveSession } from "./sync-context"
 import {
@@ -60,13 +39,10 @@ import {
   updateSessionTitle as updateSessionTitleAction,
   shareSession as shareSessionAction,
   unshareSession as unshareSessionAction,
-  optimisticSend,
-  refetchSessionMessages,
   revertToMessage as revertToMessageAction,
   restoreRevertedMessage as restoreRevertedMessageAction,
   unrevertSession as unrevertSessionAction,
   forkFromMessage as forkFromMessageAction,
-  fetchMessagesForSession,
   type ArchiveSessionsOptions,
   type DeleteSessionOptions,
   type DeleteSessionsOptions,
@@ -74,7 +50,6 @@ import {
 } from "./session-actions"
 import { useInputStore } from "./input-store"
 import { useSelectionStore } from "./selection-store"
-import { getViewportSessionMemory, useViewportStore, viewportSessionKey } from "./viewport-store"
 import { getRuntimeKey } from "@/lib/runtime-switch"
 import { clearLastActiveSession, persistLastActiveSession } from "./last-session-cache"
 import {
@@ -84,10 +59,7 @@ import {
   type DraftWorktreeIntent,
   type DraftWorktreeCreationReceipt,
   type SendMessageOptions,
-  type AssistantMessageSessionExecution,
   type NewSessionDraftState,
-  type ViewportAnchor,
-  type SessionHistoryMeta,
   type SessionUIState,
 } from "./session-ui-types"
 import { routeMessage } from "./session-ui-message-routing"
@@ -120,10 +92,7 @@ export type {
   DraftWorktreeIntent,
   DraftWorktreeCreationReceipt,
   SendMessageOptions,
-  AssistantMessageSessionExecution,
   NewSessionDraftState,
-  ViewportAnchor,
-  SessionHistoryMeta,
   SessionUIState,
 }
 
@@ -162,9 +131,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   error: null,
   webUICreatedSessions: new Set(),
   sessionAbortFlags: new Map(),
-  abortControllers: new Map(),
-  isLoading: false,
-  lastLoadedDirectory: null,
   sendingNewSessionDraftId: null,
   pendingChangesBarDismissed: new Map(),
 
@@ -179,7 +145,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const key = runtimeMemoryKey()
     activeSessionByRuntime.set(key, id)
 
-    const previousSessionId = get().currentSessionId
     const directoryState = useDirectoryStore.getState()
 
     const sessionDir = resolveSessionDirectory(id)
@@ -232,21 +197,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
     } catch (e) {
       console.warn("Failed to set Pi directory for session switch:", e)
-    }
-
-    // Defer viewport anchor save for previous session — not needed for the
-    // skeleton to render and reads messages which can be expensive.
-    if (previousSessionId && previousSessionId !== id) {
-      const prevId = previousSessionId
-      setTimeout(() => {
-        const memState = getViewportSessionMemory(prevId)
-        if (!memState?.isStreaming) {
-          const prevMessages = getSyncMessages(prevId)
-          if (prevMessages.length > 0) {
-            useViewportStore.getState().updateViewportAnchor(prevId, prevMessages.length - 1)
-          }
-        }
-      }, 0)
     }
 
     // Mark session viewed in notification store + update active session ref
@@ -401,18 +351,13 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       useInputStore.getState().setPendingInputText(options.initialPrompt)
     }
 
-    // Config (providers/agents/default model+agent) lives at the PROJECT level. When the user
+    // Config (providers/default model) lives at the PROJECT level. When the user
     // came from a worktree session, `directory` is the worktree path, whose provider list does
     // not include every runtime-scoped provider
     // — resolving defaults against it could pick the wrong fallback model. Activate
-    // the project's config instead so the default cascade matches app startup, then re-apply it
-    // (a fresh draft must start from defaults, not inherit the previous session's selection).
+    // the project's config instead so the default cascade matches app startup.
     const configDirectory = normalizePath(selectedProject?.path ?? null) ?? directory
-    void activateConfigForDirectory(configDirectory).then(() => {
-      useConfigStore.getState().applyDefaultModelAgentSelection({
-        projectDefaultModel: selectedProject?.defaultModel,
-      })
-    })
+    void activateConfigForDirectory(configDirectory)
 
     if (directory && directory !== useDirectoryStore.getState().currentDirectory) {
       useDirectoryStore.getState().setDirectory(directory)
@@ -554,75 +499,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
 
   isPiChamberCreatedSession: (sessionId) => get().webUICreatedSessions.has(sessionId),
 
-  getContextUsage: (contextLimit: number, outputLimit: number) => {
-    if (get().newSessionDraft?.open) return null
-    const sessionId = get().currentSessionId
-    if (!sessionId) return null
-
-    const messages = getSyncMessages(sessionId)
-    if (messages.length === 0) return null
-
-    type AssistantTokens = { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
-    let lastTokens: AssistantTokens | undefined
-    let lastMessageId: string | undefined
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i]
-      if (msg.role !== "assistant") continue
-      const tokens = (msg as { tokens?: AssistantTokens }).tokens
-      if (!tokens) continue
-      const total = tokens.input + tokens.output + tokens.reasoning + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0)
-      if (total > 0) {
-        lastTokens = tokens
-        lastMessageId = msg.id
-        break
-      }
-    }
-
-    if (!lastTokens) return null
-
-    const totalTokens = lastTokens.input + lastTokens.output + lastTokens.reasoning + (lastTokens.cache?.read ?? 0) + (lastTokens.cache?.write ?? 0)
-    const thresholdLimit = contextLimit > 0 ? contextLimit : 200000
-    const percentage = contextLimit > 0 ? Math.round((totalTokens / contextLimit) * 100) : 0
-    const normalizedOutput = outputLimit > 0 ? Math.round((lastTokens.output / outputLimit) * 100) : undefined
-
-    return {
-      totalTokens,
-      percentage,
-      contextLimit: contextLimit || 0,
-      outputLimit: outputLimit || undefined,
-      normalizedOutput,
-      thresholdLimit,
-      lastMessageId,
-    }
-  },
-
-  initializeNewPiChamberSession: () => {
-    // Stub — was a no-op in old store
-  },
-
-  overrideNewSessionDraftTarget: (options) => {
-    let nextDirectory: string | null = null
-    set((s) => {
-      const nextDraft = { ...s.newSessionDraft, ...options }
-      nextDirectory = normalizePath(
-        typeof nextDraft.directoryOverride === "string" ? nextDraft.directoryOverride : null,
-      )
-      const currentDirectory = normalizePath(s.newSessionDraft.directoryOverride)
-      if (
-        nextDirectory !== currentDirectory
-        && !Object.prototype.hasOwnProperty.call(options, "branchIntent")
-      ) {
-        nextDraft.branchIntent = null
-      }
-      return { newSessionDraft: nextDraft }
-    })
-    void activateConfigForDirectory(nextDirectory)
-
-    if (nextDirectory && nextDirectory !== useDirectoryStore.getState().currentDirectory) {
-      useDirectoryStore.getState().setDirectory(nextDirectory)
-    }
-  },
-
   dismissPendingChangesBar: (sessionId, signature) => {
     const map = new Map(get().pendingChangesBarDismissed);
     if (signature === null) {
@@ -732,8 +608,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const sessionAgentSelection = targetSessionId
       ? useSelectionStore.getState().getSessionAgentSelection(targetSessionId)
       : null
-    const configAgentName = useConfigStore.getState().currentAgentName
-    const effectiveAgent = trimmedAgent || sessionAgentSelection || configAgentName || undefined
+    const effectiveAgent = trimmedAgent || sessionAgentSelection || undefined
 
     if (targetSessionId) {
       useSelectionStore.getState().saveSessionModelSelection(targetSessionId, providerID, modelID)
@@ -743,23 +618,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       useSelectionStore.getState().saveSessionAgentSelection(targetSessionId, effectiveAgent)
       useSelectionStore.getState().saveAgentModelForSession(targetSessionId, effectiveAgent, providerID, modelID)
       useSelectionStore.getState().saveAgentModelVariantForSession(targetSessionId, effectiveAgent, providerID, modelID, variant)
-    }
-
-    if (targetSessionId) {
-      const viewportState = useViewportStore.getState()
-      const memState = getViewportSessionMemory(targetSessionId)
-      if (!memState || !memState.lastUserMessageAt) {
-        const newMemState = new Map(viewportState.sessionMemoryState)
-        newMemState.set(viewportSessionKey(targetSessionId), {
-          viewportAnchor: 0,
-          isStreaming: false,
-          lastAccessedAt: Date.now(),
-          backgroundMessageCount: 0,
-          ...memState,
-          lastUserMessageAt: Date.now(),
-        })
-        useViewportStore.setState({ sessionMemoryState: newMemState })
-      }
     }
 
     const currentSessionDirectory = targetSessionId
@@ -821,7 +679,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       }
 
       if (targetFolderId) {
-        const scopeKey = directoryOverride || get().lastLoadedDirectory || session.directory
+        const scopeKey = directoryOverride || session.directory
         if (scopeKey) {
           useSessionFoldersStore.getState().addSessionToFolder(scopeKey, targetFolderId, session.id)
         }
@@ -868,9 +726,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   // revertToMessage — delegates to session-actions (single implementation)
   // ---------------------------------------------------------------------------
   revertToMessage: async (sessionId, messageId) => {
-    // Ensure the complete message range is present before applying the revert
-    // marker. Reverted UI is derived from session.revert + stored messages.
-    await refetchSessionMessages(sessionId)
     await revertToMessageAction(sessionId, messageId)
   },
 
@@ -915,59 +770,6 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   },
 
   // ---------------------------------------------------------------------------
-  // createSessionFromAssistantMessage — reads from sync
-  // ---------------------------------------------------------------------------
-  createSessionFromAssistantMessage: async (sourceMessageId, execution) => {
-    if (!sourceMessageId) return
-    if (!execution?.instructions?.trim()) return
-
-    // Find which session this message belongs to by scanning sync state
-    const state = getDirectoryState()
-    if (!state) return
-
-    let sourceSessionId: string | undefined
-    let sourceMessage: Message | undefined
-
-    for (const [sid, msgs] of Object.entries((state as any).message ?? {})) {
-      const found = (msgs as any[])?.find((m: any) => m.id === sourceMessageId)
-      if (found) {
-        sourceSessionId = sid
-        sourceMessage = found
-        break
-      }
-    }
-
-    if (!sourceMessage || sourceMessage.role !== "assistant") return
-
-    const sourceParts = getSyncParts(sourceMessageId)
-    const assistantPlanText = flattenAssistantTextParts(sourceParts)
-    if (!assistantPlanText.trim()) return
-
-    const directory = resolveSessionDirectory(sourceSessionId ?? null)
-    const pID = execution.providerID || useSelectionStore.getState().lastUsedProvider?.providerID
-    const mID = execution.modelID || useSelectionStore.getState().lastUsedProvider?.modelID
-
-    if (!pID || !mID) return
-
-    const sourceDirectory = normalizePath(directory ?? getPiSessionStore().getState().directory ?? null)
-    const session = await get().createSession(undefined, sourceDirectory || null, null)
-    if (!session) return
-
-    await get().sendMessage(
-      composeForkSessionMessage(execution.instructions, assistantPlanText),
-      pID,
-      mID,
-      execution.agent || undefined,
-      undefined,
-      undefined,
-      undefined,
-      execution.variant || undefined,
-      undefined,
-      { sessionId: session.id },
-    )
-  },
-
-  // ---------------------------------------------------------------------------
   // Data access helpers — read from sync
   // ---------------------------------------------------------------------------
   getSessionsByDirectory: (directory) => {
@@ -990,52 +792,14 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       selected,
     )
     if (resolved) return resolved
-    const globalStore = useGlobalSessionsStore.getState()
-    const globalSession = [...globalStore.activeSessions, ...globalStore.archivedSessions]
-      .find((s) => s.id === sessionId)
-    if (globalSession) return resolveGlobalSessionDirectory(globalSession)
-    return null
-  },
-
-  getLastUserChoice: (sessionId) => {
-    const directory = get().getDirectoryForSession(sessionId) ?? undefined
-    const messages = getSyncMessages(sessionId, directory)
-    const choice = findLatestUserModelChoice(
-      messages,
-      (messageId) => getSyncParts(messageId, directory),
-    )
-    if (!choice) {
-      return null
+    // Catalog-direct fallback: the live `byId` row already carries the
+    // authoritative normalized directory. No active+archived scan — the
+    // catalog is the single source, and a miss here is simply unknown.
+    try {
+      return getPiSessionStore().getState().catalog.byId.get(sessionId)?.directory ?? null;
+    } catch {
+      return null;
     }
-    return {
-      agent: choice.agent,
-      providerID: choice.providerID,
-      modelID: choice.modelID,
-      variant: choice.variant,
-    }
-  },
-
-  getCurrentAgent: (sessionId) => {
-    return useSelectionStore.getState().sessionAgentSelections.get(sessionId) ?? undefined
-  },
-
-  debugSessionMessages: async (sessionId) => {
-    const msgs = getSyncMessages(sessionId)
-    const sessions = getSyncSessions()
-    const session = sessions.find((s) => s.id === sessionId)
-    console.log(`Debug session ${sessionId}:`, {
-      session,
-      messageCount: msgs.length,
-      messages: msgs.map((m) => ({
-        id: m.id,
-        role: m.role,
-        tokens: m.role === "assistant" ? m.tokens : undefined,
-      })),
-    })
-  },
-
-  pollForTokenUpdates: () => {
-    // Handled by sync system's SSE stream
   },
 
   adoptAuthoritativeSessionDirectory: (sessionId) => {

@@ -5,7 +5,6 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
-import { setDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { setFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import {
   areCommandTriggerListsEqual,
@@ -39,24 +38,15 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
   const store = useUIStore.getState();
   const queueStore = useMessageQueueStore.getState();
 
-  if (
-    typeof settings.showReasoningTraces === 'boolean' &&
-    settings.showReasoningTraces !== store.showReasoningTraces
-  ) {
-    store.setShowReasoningTraces(settings.showReasoningTraces);
-  }
-  if (
-    typeof settings.collapsibleThinkingBlocks === 'boolean' &&
-    settings.collapsibleThinkingBlocks !== store.collapsibleThinkingBlocks
-  ) {
-    store.setCollapsibleThinkingBlocks(settings.collapsibleThinkingBlocks);
-  }
-  if (
-    typeof settings.collapseThinkingByDefault === 'boolean' &&
-    settings.collapseThinkingByDefault !== store.collapseThinkingByDefault
-  ) {
-    store.setCollapseThinkingByDefault(settings.collapseThinkingByDefault);
-  }
+  // Retired presentation/chat preferences are ignored so saved values cannot
+  // restore retired behavior: showReasoningTraces,
+  // collapsibleThinkingBlocks, collapseThinkingByDefault, persistChatDraft,
+  // inputSpellcheckEnabled, wideChatLayoutEnabled, codeBlockLineWrap,
+  // showToolFileIcons, showTurnChangedFiles, showExpandedBashTools,
+  // showExpandedEditTools, desktopWindowControlsPosition/Style,
+  // mermaidRenderingMode, userMessageRenderingMode, collapsibleUserMessages,
+  // stickyUserHeader, promptNavigatorEnabled, showSplitAssistantMessageActions,
+  // directoryShowHidden, defaultFileViewerPreview.
   if (
     typeof settings.autoDeleteEnabled === 'boolean' &&
     settings.autoDeleteEnabled !== store.autoDeleteEnabled
@@ -179,42 +169,6 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     store.setMaxLastMessageLength(settings.maxLastMessageLength);
   }
   if (
-    typeof settings.inputSpellcheckEnabled === 'boolean' &&
-    settings.inputSpellcheckEnabled !== store.inputSpellcheckEnabled
-  ) {
-    store.setInputSpellcheckEnabled(settings.inputSpellcheckEnabled);
-  }
-  if (
-    typeof settings.showToolFileIcons === 'boolean' &&
-    settings.showToolFileIcons !== store.showToolFileIcons
-  ) {
-    store.setShowToolFileIcons(settings.showToolFileIcons);
-  }
-  if (
-    typeof settings.codeBlockLineWrap === 'boolean' &&
-    settings.codeBlockLineWrap !== store.codeBlockLineWrap
-  ) {
-    store.setCodeBlockLineWrap(settings.codeBlockLineWrap);
-  }
-  if (
-    typeof settings.showTurnChangedFiles === 'boolean' &&
-    settings.showTurnChangedFiles !== store.showTurnChangedFiles
-  ) {
-    store.setShowTurnChangedFiles(settings.showTurnChangedFiles);
-  }
-  if (
-    typeof settings.showExpandedBashTools === 'boolean' &&
-    settings.showExpandedBashTools !== store.showExpandedBashTools
-  ) {
-    store.setShowExpandedBashTools(settings.showExpandedBashTools);
-  }
-  if (
-    typeof settings.showExpandedEditTools === 'boolean' &&
-    settings.showExpandedEditTools !== store.showExpandedEditTools
-  ) {
-    store.setShowExpandedEditTools(settings.showExpandedEditTools);
-  }
-  if (
     typeof settings.timeFormatPreference === 'string' &&
     (settings.timeFormatPreference === 'auto' ||
       settings.timeFormatPreference === '12h' ||
@@ -234,85 +188,11 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
       store.setWeekStartPreference(settings.weekStartPreference);
     }
   }
-  if (typeof settings.desktopWindowControlsPosition === 'string') {
-    const nextPosition =
-      settings.desktopWindowControlsPosition === 'left'
-        ? 'left'
-        : settings.desktopWindowControlsPosition === 'right' ||
-            settings.desktopWindowControlsPosition === 'auto'
-          ? 'right'
-          : null;
-    if (nextPosition && nextPosition !== store.desktopWindowControlsPosition) {
-      store.setDesktopWindowControlsPosition(nextPosition);
-    }
-  }
-  if (typeof settings.desktopWindowControlsStyle === 'string') {
-    const nextStyle =
-      settings.desktopWindowControlsStyle === 'traffic-lights'
-        ? 'traffic-lights'
-        : settings.desktopWindowControlsStyle === 'classic'
-          ? 'classic'
-          : null;
-    if (nextStyle && nextStyle !== store.desktopWindowControlsStyle) {
-      store.setDesktopWindowControlsStyle(nextStyle);
-    }
-  }
-  if (
-    typeof settings.mermaidRenderingMode === 'string' &&
-    (settings.mermaidRenderingMode === 'svg' ||
-      settings.mermaidRenderingMode === 'ascii')
-  ) {
-    if (settings.mermaidRenderingMode !== store.mermaidRenderingMode) {
-      store.setMermaidRenderingMode(settings.mermaidRenderingMode);
-    }
-  }
-  if (
-    typeof settings.userMessageRenderingMode === 'string' &&
-    (settings.userMessageRenderingMode === 'markdown' ||
-      settings.userMessageRenderingMode === 'plain')
-  ) {
-    if (settings.userMessageRenderingMode !== store.userMessageRenderingMode) {
-      store.setUserMessageRenderingMode(settings.userMessageRenderingMode);
-    }
-  }
-  if (
-    typeof settings.collapsibleUserMessages === 'boolean' &&
-    settings.collapsibleUserMessages !== store.collapsibleUserMessages
-  ) {
-    store.setCollapsibleUserMessages(settings.collapsibleUserMessages);
-  }
-  if (
-    typeof settings.stickyUserHeader === 'boolean' &&
-    settings.stickyUserHeader !== store.stickyUserHeader
-  ) {
-    store.setStickyUserHeader(settings.stickyUserHeader);
-  }
-  if (
-    typeof settings.promptNavigatorEnabled === 'boolean' &&
-    settings.promptNavigatorEnabled !== store.promptNavigatorEnabled
-  ) {
-    store.setPromptNavigatorEnabled(settings.promptNavigatorEnabled);
-  }
   if (
     typeof settings.expandedEditorToolbar === 'boolean' &&
     settings.expandedEditorToolbar !== store.expandedEditorToolbar
   ) {
     store.setExpandedEditorToolbar(settings.expandedEditorToolbar);
-  }
-  if (
-    typeof settings.wideChatLayoutEnabled === 'boolean' &&
-    settings.wideChatLayoutEnabled !== store.wideChatLayoutEnabled
-  ) {
-    store.setWideChatLayoutEnabled(settings.wideChatLayoutEnabled);
-  }
-  if (
-    typeof settings.showSplitAssistantMessageActions === 'boolean' &&
-    settings.showSplitAssistantMessageActions !==
-      store.showSplitAssistantMessageActions
-  ) {
-    store.setShowSplitAssistantMessageActions(
-      settings.showSplitAssistantMessageActions
-    );
   }
   if (
     typeof settings.fontSize === 'number' &&
@@ -489,9 +369,8 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
       store.setGitChangesViewMode(settings.gitChangesViewMode);
     }
   }
-  if (typeof settings.directoryShowHidden === 'boolean') {
-    setDirectoryShowHidden(settings.directoryShowHidden, { persist: false });
-  }
+  // Retired directoryShowHidden is ignored; the directory surface owns its
+  // built-in default (consumer worker). Only filesViewShowGitignored syncs.
   if (typeof settings.filesViewShowGitignored === 'boolean') {
     setFilesViewShowGitignored(settings.filesViewShowGitignored, {
       persist: false,

@@ -1,11 +1,9 @@
 import React from 'react';
 
 import type { CommitFileEntry, GitLogResponse } from '@/lib/api/types';
-import type { GitmojiEntry } from '@/hooks/useGitmojiList';
 import type { OperationLogEntry } from './BranchIntegrationSection';
 import { ConflictDialog } from './ConflictDialog';
 import { GitHistoryDialog, type GitLogDialogMode, type HistoryBranchDivider } from './GitHistoryDialog';
-import { GitmojiPickerDialog } from './GitmojiPickerDialog';
 import { StashDialog } from './StashDialog';
 import { StashesDialog } from './StashesDialog';
 import { UpdateBranchDialog } from './UpdateBranchDialog';
@@ -59,12 +57,6 @@ export interface GitViewDialogsProps {
   uncommittedFileCount: number;
   onStashesChanged: (change?: { affectsIndex?: boolean }) => Promise<void>;
 
-  // GitmojiPickerDialog props
-  isGitmojiPickerOpen: boolean;
-  setIsGitmojiPickerOpen: (open: boolean) => void;
-  gitmojiEmojis: GitmojiEntry[];
-  onSelectGitmoji: (emoji: string, code: string) => void;
-
   // ConflictDialog props
   conflictDialogOpen: boolean;
   setConflictDialogOpen: (open: boolean) => void;
@@ -117,10 +109,6 @@ export const GitViewDialogs: React.FC<GitViewDialogsProps> = ({
   hasStagedChanges,
   uncommittedFileCount,
   onStashesChanged,
-  isGitmojiPickerOpen,
-  setIsGitmojiPickerOpen,
-  gitmojiEmojis,
-  onSelectGitmoji,
   conflictDialogOpen,
   setConflictDialogOpen,
   conflictFiles,
@@ -180,13 +168,6 @@ export const GitViewDialogs: React.FC<GitViewDialogsProps> = ({
         hasStagedChanges={hasStagedChanges}
         uncommittedFileCount={uncommittedFileCount}
         onChanged={onStashesChanged}
-      />
-
-      <GitmojiPickerDialog
-        open={isGitmojiPickerOpen}
-        onOpenChange={setIsGitmojiPickerOpen}
-        gitmojis={gitmojiEmojis}
-        onSelect={onSelectGitmoji}
       />
 
       {currentDirectory && (

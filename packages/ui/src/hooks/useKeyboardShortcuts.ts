@@ -2,7 +2,6 @@
 import React from 'react';
 import { isTerminalEventTarget } from '@/lib/terminalFocus';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useSelectionStore } from '@/sync/selection-store';
 import * as sessionActions from '@/sync/session-actions';
 import { normalizeContextPanelDirectoryKey, useUIStore } from '@/stores/useUIStore';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -445,16 +444,7 @@ export const useKeyboardShortcuts = () => {
         }
 
         e.preventDefault();
-        void cycleComposerThinking(1).then((nextVariant) => {
-          const sessionId = useSessionUIStore.getState().currentSessionId;
-          const agentName = useConfigStore.getState().currentAgentName;
-          const providerId = useConfigStore.getState().currentProviderId;
-          const modelId = useConfigStore.getState().currentModelId;
-
-          if (sessionId && agentName && providerId && modelId) {
-            useSelectionStore.getState().saveAgentModelVariantForSession(sessionId, agentName, providerId, modelId, nextVariant);
-          }
-        }).catch(() => {
+        void cycleComposerThinking(1).catch(() => {
           toast.error("Couldn't update thinking");
         });
 

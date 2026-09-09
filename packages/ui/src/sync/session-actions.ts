@@ -2,6 +2,8 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { Session } from '@/lib/chat/types';
 import { piSessionToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { PiThinkingLevel } from '@/lib/pi/types';
+import { useInputStore } from '@/sync/input-store';
+import { getRevertNavigation } from '@/sync/revert-navigation-store';
 
 export type ArchiveSessionsOptions = Record<string, unknown>;
 export type DeleteSessionOptions = Record<string, unknown>;
@@ -88,18 +90,11 @@ export async function unshareSession(_id?: string): Promise<null> {
   return null;
 }
 
-export async function optimisticSend(): Promise<void> {}
-
-export async function refetchSessionMessages(_id?: string): Promise<void> {
-  void _id;
-}
-
 export async function revertToMessage(sessionId: string, messageId: string): Promise<void> {
   const detail = await store().navigate(sessionId, messageId) as unknown as { navigation?: { editorText?: string } } | undefined;
   const editorText = detail?.navigation?.editorText;
   if (typeof editorText === 'string' && editorText.length > 0) {
     try {
-      const { useInputStore } = await import('@/sync/input-store');
       useInputStore.getState().setPendingRevertText(editorText);
     } catch {
       // ignore: input store may be unavailable during hydration
@@ -108,13 +103,11 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
 }
 
 export async function restoreRevertedMessage(sessionId: string, messageId: string): Promise<void> {
-  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
   if (!getRevertNavigation(sessionId)) throw new Error('No reverted conversation is available to restore.');
   await store().navigate(sessionId, messageId);
 }
 
 export async function unrevertSession(sessionId: string): Promise<void> {
-  const { getRevertNavigation } = await import('@/sync/revert-navigation-store');
   const target = getRevertNavigation(sessionId)?.previousLeafId;
   if (!target) throw new Error('No reverted conversation is available to restore.');
   await store().navigate(sessionId, target);
@@ -122,26 +115,6 @@ export async function unrevertSession(sessionId: string): Promise<void> {
 
 export async function forkFromMessage(sessionId: string, messageId?: string): Promise<void> {
   await store().fork(sessionId, messageId);
-}
-
-export async function fetchMessagesForSession(_sessionId?: string, _directory?: string | null): Promise<never[]> {
-  void _sessionId;
-  void _directory;
-  return [];
-}
-
-export function rememberRuntimeLiveStatus(_args?: unknown): void {
-  void _args;
-}
-
-export async function dismissOpenPermissionsForSession(_sessionId: string): Promise<boolean> {
-  void _sessionId;
-  return false;
-}
-
-export async function dismissOpenQuestionsForSession(_sessionId: string): Promise<boolean> {
-  void _sessionId;
-  return false;
 }
 
 export async function waitForConnectionOrThrow(): Promise<void> {
@@ -154,25 +127,6 @@ export async function compactSession(sessionId: string, customInstructions?: str
   await store().compact(sessionId, customInstructions);
 }
 
-export async function setLinkedIssue(..._args: unknown[]): Promise<void> {
-  void _args;
-}
-
 export function abortCurrentOperation(sessionId?: string): void {
   if (sessionId) void store().abort(sessionId);
-}
-
-export function getSessionLastAssistantModel(..._args: unknown[]): null {
-  void _args;
-  return null;
-}
-
-export function setOptimisticRefs(
-  _add?: (input: unknown) => unknown,
-  _remove?: (input: unknown) => unknown,
-  _confirm?: (input: unknown) => unknown,
-): void {
-  void _add;
-  void _remove;
-  void _confirm;
 }

@@ -57,7 +57,6 @@ import type { SkillAutocompleteHandle } from "./SkillAutocomplete";
 import type { SnippetAutocompleteHandle } from "./SnippetAutocomplete";
 import { cn } from "@/lib/utils";
 import { ModelControls } from "./ModelControls";
-import { parseAgentMentions } from "@/lib/messages/agentMentions";
 import { StatusRow } from "./StatusRow";
 import { PendingChangesBar } from "./PendingChangesBar";
 import { useChatSurfaceMode } from "./chatSurfaceContext";
@@ -82,9 +81,8 @@ import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
 import { useCommandCatalog } from "@/hooks/useCommandCatalog";
 import { extractGitChangedFiles } from "./changedFiles";
 import { sessionEvents } from "@/lib/sessionEvents";
-import { fetchResponseStyleInstruction } from "@/lib/responseStyle";
+import { resolveResponseStyleInstruction } from "@/lib/responseStyle";
 import { wrapSystemReminder } from "@/lib/systemReminder";
-import { getSyncMessages } from "@/sync/sync-refs";
 import {
   eventMatchesShortcut,
   getEffectiveShortcutCombo,
@@ -188,12 +186,6 @@ type SubmitOptions = {
   delivery?: "steer";
   /** Submit this text instead of the composer input. */
   presetText?: string;
-};
-
-const hasUserMessages = (sessionId: string, directory?: string) => {
-  return getSyncMessages(sessionId, directory).some(
-    (message) => message.role === "user",
-  );
 };
 
 const MemoModelControls = React.memo(ModelControls);
@@ -430,10 +422,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       ? getModelMetadata(currentProviderId, currentModelId)
       : undefined;
   const currentVariant = useConfigStore((state) => state.currentVariant);
-  const currentAgentName = useConfigStore((state) => state.currentAgentName);
-  const setAgent = useConfigStore((state) => state.setAgent);
-  const getVisibleAgents = useConfigStore((state) => state.getVisibleAgents);
-  const agents = getVisibleAgents();
   const isMobile = useUIStore((state) => state.isMobile);
   const dictation = useComposerDictation();
   const dictationSelectionRef = React.useRef({ start: 0, end: 0 });
@@ -450,10 +438,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const isMobileForDraft = isMobile && !isTabletLayout;
   const setImagePreviewOpen = useUIStore((state) => state.setImagePreviewOpen);
   const inputBarOffset = useUIStore((state) => state.inputBarOffset);
-  const persistChatDraft = useUIStore((state) => state.persistChatDraft);
-  const inputSpellcheckEnabled = useUIStore(
-    (state) => state.inputSpellcheckEnabled,
-  );
   const isExpandedInput = useUIStore((state) => state.isExpandedInput);
   const setExpandedInput = useUIStore((state) => state.setExpandedInput);
   const setTimelineDialogOpen = useUIStore(
@@ -636,17 +620,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  const knownAgentNames = React.useMemo(
-    () =>
-      new Set(
-        agents.flatMap((agent) =>
-          agent.name ? [agent.name.toLowerCase()] : [],
-        ),
-      ),
-    [agents],
-  );
-  const knownAgentNamesRef = React.useRef(knownAgentNames);
-  knownAgentNamesRef.current = knownAgentNames;
+  // No generic-agent registry exists (the Pi daemon exposes no agent list
+  // endpoint), so there are no agent names for the prompt language to resolve.
+  const knownAgentNames = React.useMemo(() => new Set<string>(), []);
 
   // Known slash-invocations for highlighting: the authoritative executable
   // catalog (`review`, `skill:code-review`, `hello`, `undo`, …). Membership
@@ -780,7 +756,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     setMessage,
     confirmedMentionsRef,
     identity: chatDraftIdentity,
-    persistEnabled: persistChatDraft,
+    persistEnabled: true,
     initialDraft: {
       text: initialDraftRef.current ?? "",
       identity: initialDraftIdentityRef.current,
@@ -925,7 +901,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           ? {
               providerID: currentProviderId,
               modelID: currentModelId,
-              agent: currentAgentName ?? undefined,
               variant: currentVariant ?? undefined,
             }
           : undefined,
@@ -961,7 +936,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     isMobile,
     currentProviderId,
     currentModelId,
-    currentAgentName,
     currentVariant,
   ]);
 
@@ -1039,7 +1013,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const providerIdToSend =
       capturedSendConfig?.providerID ?? currentProviderId;
     const modelIdToSend = capturedSendConfig?.modelID ?? currentModelId;
-    const agentNameToSend = capturedSendConfig?.agent ?? currentAgentName;
+    const agentNameToSend = capturedSendConfig?.agent;
     const variantToSend = capturedSendConfig?.variant ?? currentVariant;
 
     if (!providerIdToSend || !modelIdToSend) {
@@ -1170,26 +1144,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         return;
       }
 
-      if (currentSessionId && !queuedOnly) {
-        // Sending is authoritative for blocking prompts: deny pending
-        // permissions and dismiss open questions for the session subtree,
-        // then queue the message once if either was open. The deny/clear
-        // vanishes the card instantly (optimistic); rejecting unblocks the
-        // agent's tool but does NOT end its turn, so a direct send would
-        // race with the still-active run and be silently discarded by the
-        // Pi session runner. Instead we queue; the queued-message auto-send
-        // hook delivers it as the next turn once the rejected turn winds
-        // down and the session returns to idle (parity with #1740).
-        const [deniedPermissions, dismissedQuestions] = await Promise.all([
-          sessionActions.dismissOpenPermissionsForSession(currentSessionId),
-          sessionActions.dismissOpenQuestionsForSession(currentSessionId),
-        ]);
-        if (deniedPermissions || dismissedQuestions) {
-          await handleQueueMessage();
-          return;
-        }
-      }
-
       const branchCheckoutReceipt =
         draftBranchCheckout.getReceipt(branchIntent);
       const sendMessageOptions = capturedTarget
@@ -1224,10 +1178,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
         },
         {
-          parseAgentMention: (text) => {
-            const { sanitizedText, mention } = parseAgentMentions(text, agents);
-            return { text: sanitizedText, agentName: mention?.name };
-          },
+          parseAgentMention: (text) => ({ text }),
           extractFileMentions: (text) => {
             const { sanitizedText, attachments } =
               extractInlineFileMentions(text);
@@ -1241,7 +1192,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       );
 
       let primaryText = outgoing.primaryText;
-      const { primaryAttachments, additionalParts, agentMentionName } =
+      const { primaryAttachments, additionalParts } =
         outgoing;
 
       if (outgoing.isEmpty) return;
@@ -1315,20 +1266,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       const currentSessionDirectory =
         capturedTarget?.directory ?? currentDirectory;
-      const shouldAddResponseStyle =
-        newSessionDraftOpen ||
-        (currentSessionId
-          ? !hasUserMessages(currentSessionId, currentSessionDirectory)
-          : false);
-      if (shouldAddResponseStyle) {
-        const responseStyleInstruction =
-          await fetchResponseStyleInstruction().catch(() => null);
-        if (responseStyleInstruction) {
-          additionalParts.push({
-            text: wrapSystemReminder(responseStyleInstruction),
-            synthetic: true,
-          });
-        }
+      // First-prompt response-style injection follows the captured send
+      // target: eligibility is read synchronously, then re-checked on the
+      // same captured session after the awaited settings fetch. Selection
+      // changes during the fetch never drop the captured decision; see
+      // composer/DOCUMENTATION.md and resolveResponseStyleInstruction.
+      const responseStyleInstruction = await resolveResponseStyleInstruction({
+        newSessionDraftOpen,
+        sessionId: capturedTarget?.sessionId ?? currentSessionId,
+        getStoreState: () => getPiSessionStore().getState(),
+      });
+      if (responseStyleInstruction) {
+        additionalParts.push({
+          text: wrapSystemReminder(responseStyleInstruction),
+          synthetic: true,
+        });
       }
 
       if (inputMode !== "shell") {
@@ -1362,7 +1314,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         modelIdToSend,
         agentNameToSend,
         primaryAttachments,
-        agentMentionName,
+        undefined,
         additionalParts.length > 0 ? additionalParts : undefined,
         variantToSend,
         inputMode,
@@ -1879,7 +1831,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
   const {
     handleFileSelect,
-    handleAgentSelect,
     handleSkillSelect,
     handleSnippetSelect,
     handleCommandSelect,
@@ -2262,7 +2213,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   onSkillSelect={handleSkillSelect}
                   onSnippetSelect={handleSnippetSelect}
                   onFileSelect={handleFileSelect}
-                  onAgentSelect={handleAgentSelect}
                   onClose={closeAutocomplete}
                 />
                 <ComposerFooter
@@ -2394,7 +2344,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                   ? "Plan, build, / for skills, @ for context"
                                   : useCompactChatPlaceholder
                                     ? "Use @ / ! # for helpers"
-                                    : "@ for files/agents; / for commands, skills, and prompts; ! for shell; # for snippets"
+                                    : "@ for files; / for commands, skills, and prompts; ! for shell; # for snippets"
                               : "Select or create a session to start chatting"
                           }
                           editable={
@@ -2403,7 +2353,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                           }
                           autoCorrect={false}
                           autoCapitalize="none"
-                          spellCheck={isMobile || inputSpellcheckEnabled}
+                          spellCheck={isMobile}
                           fillContainer={isComposerExpanded}
                           maxLines={
                             isMobile

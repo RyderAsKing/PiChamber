@@ -144,15 +144,15 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
     result.draftStartersScheduleTaskAdded =
       candidate.draftStartersScheduleTaskAdded;
   }
-  if (typeof candidate.showReasoningTraces === 'boolean') {
-    result.showReasoningTraces = candidate.showReasoningTraces;
-  }
-  if (typeof candidate.collapsibleThinkingBlocks === 'boolean') {
-    result.collapsibleThinkingBlocks = candidate.collapsibleThinkingBlocks;
-  }
-  if (typeof candidate.collapseThinkingByDefault === 'boolean') {
-    result.collapseThinkingByDefault = candidate.collapseThinkingByDefault;
-  }
+  // Retired presentation/chat preferences are intentionally ignored here so
+  // saved values cannot restore retired behavior: showReasoningTraces,
+  // collapsibleThinkingBlocks, collapseThinkingByDefault, persistChatDraft,
+  // inputSpellcheckEnabled, wideChatLayoutEnabled, codeBlockLineWrap,
+  // showToolFileIcons, showTurnChangedFiles, showExpandedBashTools,
+  // showExpandedEditTools, desktopWindowControlsPosition/Style,
+  // mermaidRenderingMode, userMessageRenderingMode, collapsibleUserMessages,
+  // stickyUserHeader, promptNavigatorEnabled, showSplitAssistantMessageActions,
+  // directoryShowHidden, defaultFileViewerPreview, gitmojiEnabled.
   if (typeof candidate.autoDeleteEnabled === 'boolean') {
     result.autoDeleteEnabled = candidate.autoDeleteEnabled;
   }
@@ -264,9 +264,6 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (typeof candidate.autoCreateWorktree === 'boolean') {
     result.autoCreateWorktree = candidate.autoCreateWorktree;
-  }
-  if (typeof candidate.gitmojiEnabled === 'boolean') {
-    result.gitmojiEnabled = candidate.gitmojiEnabled;
   }
   if (isFollowUpBehavior(candidate.followUpBehavior)) {
     result.followUpBehavior = candidate.followUpBehavior;
@@ -536,24 +533,6 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
     }
   }
 
-  if (typeof candidate.inputSpellcheckEnabled === 'boolean') {
-    result.inputSpellcheckEnabled = candidate.inputSpellcheckEnabled;
-  }
-  if (typeof candidate.showToolFileIcons === 'boolean') {
-    result.showToolFileIcons = candidate.showToolFileIcons;
-  }
-  if (typeof candidate.codeBlockLineWrap === 'boolean') {
-    result.codeBlockLineWrap = candidate.codeBlockLineWrap;
-  }
-  if (typeof candidate.showTurnChangedFiles === 'boolean') {
-    result.showTurnChangedFiles = candidate.showTurnChangedFiles;
-  }
-  if (typeof candidate.showExpandedBashTools === 'boolean') {
-    result.showExpandedBashTools = candidate.showExpandedBashTools;
-  }
-  if (typeof candidate.showExpandedEditTools === 'boolean') {
-    result.showExpandedEditTools = candidate.showExpandedEditTools;
-  }
   if (
     typeof candidate.timeFormatPreference === 'string' &&
     (candidate.timeFormatPreference === 'auto' ||
@@ -570,57 +549,8 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   ) {
     result.weekStartPreference = candidate.weekStartPreference;
   }
-  if (typeof candidate.desktopWindowControlsPosition === 'string') {
-    if (candidate.desktopWindowControlsPosition === 'left') {
-      result.desktopWindowControlsPosition = 'left';
-    } else if (
-      candidate.desktopWindowControlsPosition === 'right' ||
-      candidate.desktopWindowControlsPosition === 'auto'
-    ) {
-      // Legacy "auto" never read OS chrome config; treat as right.
-      result.desktopWindowControlsPosition = 'right';
-    }
-  }
-  if (typeof candidate.desktopWindowControlsStyle === 'string') {
-    if (
-      candidate.desktopWindowControlsStyle === 'classic' ||
-      candidate.desktopWindowControlsStyle === 'traffic-lights'
-    ) {
-      result.desktopWindowControlsStyle = candidate.desktopWindowControlsStyle;
-    }
-  }
-  if (
-    typeof candidate.mermaidRenderingMode === 'string' &&
-    (candidate.mermaidRenderingMode === 'svg' ||
-      candidate.mermaidRenderingMode === 'ascii')
-  ) {
-    result.mermaidRenderingMode = candidate.mermaidRenderingMode;
-  }
-  if (
-    typeof candidate.userMessageRenderingMode === 'string' &&
-    (candidate.userMessageRenderingMode === 'markdown' ||
-      candidate.userMessageRenderingMode === 'plain')
-  ) {
-    result.userMessageRenderingMode = candidate.userMessageRenderingMode;
-  }
-  if (typeof candidate.collapsibleUserMessages === 'boolean') {
-    result.collapsibleUserMessages = candidate.collapsibleUserMessages;
-  }
-  if (typeof candidate.stickyUserHeader === 'boolean') {
-    result.stickyUserHeader = candidate.stickyUserHeader;
-  }
-  if (typeof candidate.promptNavigatorEnabled === 'boolean') {
-    result.promptNavigatorEnabled = candidate.promptNavigatorEnabled;
-  }
   if (typeof candidate.expandedEditorToolbar === 'boolean') {
     result.expandedEditorToolbar = candidate.expandedEditorToolbar;
-  }
-  if (typeof candidate.wideChatLayoutEnabled === 'boolean') {
-    result.wideChatLayoutEnabled = candidate.wideChatLayoutEnabled;
-  }
-  if (typeof candidate.showSplitAssistantMessageActions === 'boolean') {
-    result.showSplitAssistantMessageActions =
-      candidate.showSplitAssistantMessageActions;
   }
   if (
     typeof candidate.fontSize === 'number' &&
@@ -740,9 +670,6 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
       candidate.gitChangesViewMode === 'tree')
   ) {
     result.gitChangesViewMode = candidate.gitChangesViewMode;
-  }
-  if (typeof candidate.directoryShowHidden === 'boolean') {
-    result.directoryShowHidden = candidate.directoryShowHidden;
   }
   if (typeof candidate.filesViewShowGitignored === 'boolean') {
     result.filesViewShowGitignored = candidate.filesViewShowGitignored;

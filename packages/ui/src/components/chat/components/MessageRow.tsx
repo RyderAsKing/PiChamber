@@ -17,10 +17,8 @@ export interface MessageRowProps {
   previousMessage?: ChatMessageEntry;
   nextMessage?: ChatMessageEntry;
   turnGroupingContext?: TurnGroupingContext;
-  assistantHeaderMessageId?: string;
   isInActiveTurn?: boolean;
   activeStreamingPhase?: StreamPhase | null;
-  hideAssistantActivity?: boolean;
   animateUserOnMount?: boolean;
   onUserAnimationConsumed?: (messageId: string) => void;
   onContentChange: (reason?: ContentChangeReason) => void;
@@ -34,10 +32,8 @@ export const MessageRow = React.memo<MessageRowProps>(
     previousMessage,
     nextMessage,
     turnGroupingContext,
-    assistantHeaderMessageId,
     isInActiveTurn,
     activeStreamingPhase,
-    hideAssistantActivity,
     animateUserOnMount,
     onUserAnimationConsumed,
     onContentChange,
@@ -79,10 +75,8 @@ export const MessageRow = React.memo<MessageRowProps>(
         animationHandlers={animationHandlers}
         scrollToBottom={scrollToBottom}
         turnGroupingContext={turnGroupingContext}
-        assistantHeaderMessageId={assistantHeaderMessageId}
         isInActiveTurn={isInActiveTurn}
         activeStreamingPhase={activeStreamingPhase}
-        hideAssistantActivity={hideAssistantActivity}
       />
     );
   },
@@ -104,10 +98,8 @@ export const MessageRow = React.memo<MessageRowProps>(
         prev.message.info.id,
         resolveMessageRole(prev.message) === 'user',
       ) &&
-      prev.assistantHeaderMessageId === next.assistantHeaderMessageId &&
       prev.isInActiveTurn === next.isInActiveTurn &&
       prev.activeStreamingPhase === next.activeStreamingPhase &&
-      prev.hideAssistantActivity === next.hideAssistantActivity &&
       prev.animationHandlers?.onChunk === next.animationHandlers?.onChunk &&
       prev.animationHandlers?.onComplete === next.animationHandlers?.onComplete &&
       prev.animationHandlers?.onStreamingCandidate ===
@@ -115,7 +107,6 @@ export const MessageRow = React.memo<MessageRowProps>(
       prev.animationHandlers?.onAnimationStart === next.animationHandlers?.onAnimationStart &&
       prev.animationHandlers?.onReservationCancelled ===
         next.animationHandlers?.onReservationCancelled &&
-      prev.animationHandlers?.onReasoningBlock === next.animationHandlers?.onReasoningBlock &&
       prev.animationHandlers?.onAnimatedHeightChange ===
         next.animationHandlers?.onAnimatedHeightChange
     );

@@ -22,8 +22,6 @@ import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useUIStore } from '@/stores/useUIStore';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useGitStatus } from '@/stores/useGitStore';
-import { useConfigStore } from '@/stores/useConfigStore';
-import { useDirectoryShowHidden } from '@/lib/directoryShowHidden';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useTransientValue } from '@/hooks/useTransientValue';
@@ -90,7 +88,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const { isMobile, isTablet, screenWidth } = useDeviceInfo();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const alwaysShowActions = isMobile || isTablet;
-  const showHidden = useDirectoryShowHidden();
   const showGitignored = useFilesViewShowGitignored();
 
   const currentDirectory = useEffectiveDirectory() ?? '';
@@ -189,7 +186,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     activeDirectory: mobileChrome ? mobileDirectory : undefined,
     expandedPaths,
     chrome,
-    showHidden,
     showGitignored,
     removeExpandedPathsByPrefix,
     enabled: needsTree,
@@ -365,7 +361,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
   // File navigation/editor state
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
-  const settingsDefaultFileViewerPreview = useConfigStore((state) => state.settingsDefaultFileViewerPreview);
   const settingsExpandedEditorToolbar = useUIStore((state) => state.expandedEditorToolbar);
 
   React.useEffect(() => {
@@ -388,7 +383,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     directory: searchDirectory,
     query: searchQuery,
     chrome,
-    showHidden,
     showGitignored,
   });
 
@@ -502,9 +496,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     textViewMode,
   } = useFileViewerModes({
     root,
-    openPaths,
     selectedPath: selectedFile?.path ?? null,
-    defaultPreview: settingsDefaultFileViewerPreview,
     fileContent,
     draftContent,
     setDraftContent,

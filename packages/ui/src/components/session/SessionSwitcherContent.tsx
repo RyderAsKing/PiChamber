@@ -7,7 +7,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useGlobalSessionStatus } from '@/sync/sync-context';
 import { useSwitcherItems, type SwitcherItem } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { useUIStore } from '@/stores/useUIStore';
-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { formatSessionCompactDateLabel } from './sidebar/utils';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import type { SessionNode } from './sidebar/types';

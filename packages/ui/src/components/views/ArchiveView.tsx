@@ -10,7 +10,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useCatalogUiSessions } from '@/sync/sync-context';
-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { formatSessionDateLabel, normalizePath } from '@/components/session/sidebar/utils';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 

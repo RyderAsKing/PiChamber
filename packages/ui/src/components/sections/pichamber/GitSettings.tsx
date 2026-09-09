@@ -1,6 +1,5 @@
 import React from 'react';
 import { updateDesktopSettings } from '@/lib/persistence';
-import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { setFilesViewShowGitignored, useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
@@ -15,8 +14,6 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 
 export const GitSettings: React.FC = () => {
-  const settingsGitmojiEnabled = useConfigStore((state) => state.settingsGitmojiEnabled);
-  const setSettingsGitmojiEnabled = useConfigStore((state) => state.setSettingsGitmojiEnabled);
   const showGitignored = useFilesViewShowGitignored();
   const gitChangesViewMode = useUIStore((state) => state.gitChangesViewMode);
   const setGitChangesViewMode = useUIStore((state) => state.setGitChangesViewMode);
@@ -31,7 +28,6 @@ export const GitSettings: React.FC = () => {
   );
 
   type GitSettingsPayload = {
-    gitmojiEnabled?: boolean;
     gitChangesViewMode?: 'flat' | 'tree';
   };
 
@@ -50,9 +46,6 @@ export const GitSettings: React.FC = () => {
               const settings = result?.settings;
               if (settings) {
                 data = {
-                  gitmojiEnabled: typeof (settings as Record<string, unknown>).gitmojiEnabled === 'boolean'
-                    ? ((settings as Record<string, unknown>).gitmojiEnabled as boolean)
-                    : undefined,
                   gitChangesViewMode:
                     (settings as Record<string, unknown>).gitChangesViewMode === 'flat'
                     || (settings as Record<string, unknown>).gitChangesViewMode === 'tree'
@@ -78,9 +71,6 @@ export const GitSettings: React.FC = () => {
         }
 
         if (data) {
-          if (typeof data.gitmojiEnabled === 'boolean') {
-            setSettingsGitmojiEnabled(data.gitmojiEnabled);
-          }
           if (data.gitChangesViewMode === 'flat' || data.gitChangesViewMode === 'tree') {
             setGitChangesViewMode(data.gitChangesViewMode);
           }
@@ -93,18 +83,7 @@ export const GitSettings: React.FC = () => {
       }
     };
     loadSettings();
-  }, [setGitChangesViewMode, setSettingsGitmojiEnabled]);
-
-  const handleGitmojiChange = React.useCallback(async (enabled: boolean) => {
-    setSettingsGitmojiEnabled(enabled);
-    try {
-      await updateDesktopSettings({
-        gitmojiEnabled: enabled,
-      });
-    } catch (error) {
-      console.warn('Failed to save gitmoji setting:', error);
-    }
-  }, [setSettingsGitmojiEnabled]);
+  }, [setGitChangesViewMode]);
 
   const handleGitChangesViewModeChange = React.useCallback((mode: 'flat' | 'tree') => {
     if (mode === gitChangesViewMode) {
@@ -140,16 +119,6 @@ export const GitSettings: React.FC = () => {
             ))}
           </SettingsRadioGroup>
         </SettingsControlGroup>
-
-        <SettingsCheckboxRow
-          settingsItem="git.gitmoji"
-          checked={settingsGitmojiEnabled}
-          onChange={(checked) => {
-            void handleGitmojiChange(checked);
-          }}
-          label={"Enable Gitmoji Picker"}
-          ariaLabel={"Enable Gitmoji picker"}
-        />
 
         <SettingsCheckboxRow
           settingsItem="git.gitignored-files"

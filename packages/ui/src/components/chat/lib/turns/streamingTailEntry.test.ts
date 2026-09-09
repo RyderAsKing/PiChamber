@@ -67,7 +67,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_other',
             liveParts: [textPart('part_live', 'live')],
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next).toBe(entry);
@@ -82,7 +81,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_1',
             liveParts,
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next).not.toBe(entry);
@@ -105,7 +103,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_1',
             liveParts,
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next).not.toBe(entry);
@@ -124,7 +121,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_1',
             liveParts: [synthetic, visible],
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next.kind).toBe('turn');
@@ -139,7 +135,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_1',
             liveParts: [textPart('part_1', 'hello')],
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next).not.toBe(entry);
@@ -180,7 +175,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_2',
             liveParts: [textPart('part_live', 'hello')],
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next.kind).toBe('turn');
@@ -201,7 +195,6 @@ describe('buildLiveStreamingEntry', () => {
             activeStreamingMessageId: 'assistant_1',
             liveParts: [nextTool, textPart('part_1', 'hello')],
             showTextJustificationActivity: false,
-            showTurnChangedFiles: false,
         });
 
         expect(next.kind).toBe('turn');

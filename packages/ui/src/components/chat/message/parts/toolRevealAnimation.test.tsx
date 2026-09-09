@@ -22,6 +22,24 @@ mock.module('@/hooks/useProviderLogo', () => ({
   useProviderLogo: () => ({ src: null, onError: () => {}, hasLogo: false }),
 }));
 
+// Assistant text mounts render through the lazy markdown stack, which needs a
+// browser runtime. Render the markdown source as text so response-body
+// assertions can check which text parts survive.
+mock.module('@/components/chat/MarkdownRenderer', () => ({
+  MarkdownRenderer: (props: { content?: unknown }) => {
+    const text = typeof props.content === 'string' ? props.content : '';
+    return React.createElement('div', { 'data-markdown-content': 'true' }, text);
+  },
+  SimpleMarkdownRenderer: (props: { content?: unknown }) => {
+    const text = typeof props.content === 'string' ? props.content : '';
+    return React.createElement(
+      'div',
+      { className: 'break-words w-full min-w-0', 'data-markdown-content': 'true' },
+      text,
+    );
+  },
+}));
+
 mock.module('@/contexts/useThemeSystem', () => ({
   useThemeSystem: () => ({ currentTheme: null }),
   useOptionalThemeSystem: () => null,
@@ -144,27 +162,6 @@ describe('working footer stability between tools', () => {
 });
 
 describe('footer stability across sends', () => {
-  const files = [
-    { file: 'src/a.ts', additions: 3, deletions: 1 },
-    { file: 'src/b.ts', additions: 10, deletions: 0 },
-  ] as never;
-
-  test('file pills keep button DOM when the turn stops being latest', async () => {
-    const { TurnChangedFilePills } = await import('../TurnChangedFilesPills');
-    const latest = renderToStaticMarkup(
-      <TurnChangedFilePills files={files} isInteractive={true} />,
-    );
-    const old = renderToStaticMarkup(
-      <TurnChangedFilePills files={files} isInteractive={false} />,
-    );
-    // Same element types (no button<->span swap that drops focus and
-    // repaints every chip); only the disabled state flips.
-    expect(latest.match(/<button/g)?.length).toBe(2);
-    expect(old.match(/<button/g)?.length).toBe(2);
-    expect(latest).not.toContain('disabled=""');
-    expect(old).toContain('disabled=""');
-  });
-
   test('latest message omits revert without reserving an empty slot', async () => {
     const { AssistantMessageActionButtons } = await import('../AssistantMessageActionButtons');
     const buttons = (isLatestMessage: boolean) => renderToStaticMarkup(
@@ -191,28 +188,15 @@ describe('footer stability across sends', () => {
   });
 });
 
-describe('assistant turn activity rows', () => {
-  const mkTool = (id: string, status: string) => ({
-    id,
-    type: 'tool',
-    tool: 'read',
-    state: { status, input: { filePath: 'src/a.ts' }, metadata: {} },
-  });
-
+describe('assistant response body', () => {
   const base = {
     sessionId: 's',
     messageId: 'm1',
     isMessageCompleted: false,
     isMobile: false,
-    expandedTools: new Set<string>(),
-    onToggleTool: () => {},
     onShowPopup: () => {},
-    copiedCode: null,
-    onCopyCode: () => {},
-    allowAnimation: false,
     streamPhase: 'streaming',
     hasTextContent: false,
-    showReasoningTraces: false,
   } as const;
 
   const ctxWorking = {
@@ -230,38 +214,41 @@ describe('assistant turn activity rows', () => {
     isWorking: false,
   } as never;
 
-  test('renders tool parts without grouped count labels', () => {
+  test('already-filtered final parts: text renders while non-text part kinds stay silent', () => {
     const markup = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
         parts={[
-          mkTool('tp1', 'completed'),
-          mkTool('tp2', 'completed'),
+          { id: 'step-1', type: 'step-start', text: 'internal step marker' },
           { id: 'tx', type: 'text', text: 'The next step is ready.' },
-          mkTool('tp3', 'completed'),
-          mkTool('tp4', 'completed'),
         ] as never}
-        turnGroupingContext={ctxWorking}
+        turnGroupingContext={ctxIdle}
       />,
     );
 
-    expect(markup).not.toContain('data-tool-call-group="true"');
-    expect(markup).not.toContain('tool calls');
-    expect(markup).not.toContain('tool call');
+    // The response body renders the final text only. ChatMessage already
+    // removed tool/reasoning/justification parts (pipeline-covered in
+    // ChatMessage.assistantPartsPipeline.test.tsx); any remaining non-text
+    // part kind (e.g. step-start markers) contributes no visible content.
+    expect(markup).toContain('The next step is ready.');
+    expect(markup).not.toContain('internal step marker');
   });
 
-  test('no footer mounts while the turn is working, however many batches land', () => {
+  test('no footer mounts while the turn is working, however many text batches land', () => {
     const one = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
-        parts={[mkTool('tp1', 'running')] as never}
+        parts={[{ id: 'tx1', type: 'text', text: 'first batch' }] as never}
         turnGroupingContext={ctxWorking}
       />,
     );
     const two = renderToStaticMarkup(
       <AssistantMessageBody
         {...base}
-        parts={[mkTool('tp1', 'completed'), mkTool('tp2', 'running')] as never}
+        parts={[
+          { id: 'tx1', type: 'text', text: 'first batch' },
+          { id: 'tx2', type: 'text', text: 'second batch' },
+        ] as never}
         turnGroupingContext={ctxWorking}
       />,
     );
@@ -277,7 +264,7 @@ describe('assistant turn activity rows', () => {
         messageFinish="stop"
         hasTextContent
         footerModelName="Claude"
-        parts={[{ id: 'tx', type: 'text', text: 'done' }, mkTool('tp1', 'completed')] as never}
+        parts={[{ id: 'tx', type: 'text', text: 'done' }] as never}
         turnGroupingContext={ctxIdle}
       />,
     );

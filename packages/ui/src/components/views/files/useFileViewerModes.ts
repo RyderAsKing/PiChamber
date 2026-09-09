@@ -4,7 +4,7 @@ import { toast } from '@/components/ui';
 import type { FilesAPI } from '@/lib/api/types';
 import { isDrawioFile } from '@/lib/toolHelpers';
 import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
-import { isHtmlFile, isMarkdownFile, type FileStatSnapshot } from './filesViewModel';
+import type { FileStatSnapshot } from './filesViewModel';
 
 export type TextViewMode = 'view' | 'edit';
 export type PreviewViewMode = 'preview' | 'edit';
@@ -36,9 +36,7 @@ function storeMode(key: string, mode: string) {
 
 type UseFileViewerModesOptions = {
   root: string;
-  openPaths: string[];
   selectedPath: string | null;
-  defaultPreview: boolean;
   fileContent: string;
   draftContent: string;
   setDraftContent: (content: string) => void;
@@ -48,12 +46,10 @@ type UseFileViewerModesOptions = {
   recordStat: (stat: FileStatSnapshot | null) => void;
 };
 
-/** Owns per-file viewer choices and the Draw.io preview document lifecycle. */
+/** Owns per-file viewer choices and the Draw.io preview document lifecycle. Manual mode switching stays; the default is always edit. */
 export function useFileViewerModes({
   root,
-  openPaths,
   selectedPath,
-  defaultPreview,
   fileContent,
   draftContent,
   setDraftContent,
@@ -64,9 +60,9 @@ export function useFileViewerModes({
 }: UseFileViewerModesOptions) {
   const [textViewMode, setTextViewMode] = React.useState<TextViewMode>('edit');
   const [mdViewMode, setMdViewMode] = React.useState<PreviewViewMode>('edit');
-  const [jsonViewMode, setJsonViewMode] = React.useState<JsonViewMode>('tree');
+  const [jsonViewMode, setJsonViewMode] = React.useState<JsonViewMode>('text');
   const [htmlViewMode, setHtmlViewMode] = React.useState<PreviewViewMode>('edit');
-  const [drawioViewMode, setDrawioViewMode] = React.useState<PreviewViewMode>('preview');
+  const [drawioViewMode, setDrawioViewMode] = React.useState<PreviewViewMode>('edit');
   const [drawioRemountNonce, setDrawioRemountNonce] = React.useState(0);
   const [diagramSaved, setDiagramSaved] = React.useState(false);
   const textModesRef = React.useRef<Record<string, TextViewMode>>({});
@@ -98,19 +94,18 @@ export function useFileViewerModes({
 
   React.useEffect(() => {
     if (!selectedPath) return;
-    const previewDefault: PreviewViewMode = defaultPreview ? 'preview' : 'edit';
     setTextViewMode(textModesRef.current[selectedPath] ?? 'edit');
     setMdViewMode(mdModesRef.current[selectedPath]
-      ?? readStoredMode<PreviewViewMode>(MD_VIEWER_MODE_KEY, ['preview', 'edit'], previewDefault));
+      ?? readStoredMode<PreviewViewMode>(MD_VIEWER_MODE_KEY, ['preview', 'edit'], 'edit'));
     setHtmlViewMode(htmlModesRef.current[selectedPath]
-      ?? readStoredMode<PreviewViewMode>(HTML_VIEWER_MODE_KEY, ['preview', 'edit'], previewDefault));
-    setDrawioViewMode(drawioModesRef.current[selectedPath] ?? previewDefault);
+      ?? readStoredMode<PreviewViewMode>(HTML_VIEWER_MODE_KEY, ['preview', 'edit'], 'edit'));
+    setDrawioViewMode(drawioModesRef.current[selectedPath] ?? 'edit');
     setJsonViewMode(readStoredMode<JsonViewMode>(
       JSON_VIEWER_MODE_KEY,
       ['tree', 'text'],
-      defaultPreview ? 'tree' : 'text',
+      'text',
     ));
-  }, [defaultPreview, selectedPath]);
+  }, [selectedPath]);
 
   const saveTextViewMode = React.useCallback((mode: TextViewMode) => {
     if (selectedPath) textModesRef.current[selectedPath] = mode;
@@ -205,32 +200,6 @@ export function useFileViewerModes({
   React.useEffect(() => () => {
     if (diagramSavedTimerRef.current) clearTimeout(diagramSavedTimerRef.current);
   }, []);
-
-  React.useEffect(() => {
-    const applyDefault = (enabled: boolean) => {
-      const previewMode: PreviewViewMode = enabled ? 'preview' : 'edit';
-      const nextJsonMode: JsonViewMode = enabled ? 'tree' : 'text';
-      for (const path of openPaths) {
-        textModesRef.current[path] = 'edit';
-        if (isMarkdownFile(path)) mdModesRef.current[path] = previewMode;
-        if (isHtmlFile(path)) htmlModesRef.current[path] = previewMode;
-        if (isDrawioFile(path)) drawioModesRef.current[path] = previewMode;
-      }
-      setTextViewMode('edit');
-      setMdViewMode(previewMode);
-      setHtmlViewMode(previewMode);
-      setDrawioViewMode(previewMode);
-      setJsonViewMode(nextJsonMode);
-      storeMode(MD_VIEWER_MODE_KEY, previewMode);
-      storeMode(HTML_VIEWER_MODE_KEY, previewMode);
-      storeMode(JSON_VIEWER_MODE_KEY, nextJsonMode);
-    };
-    const handleChanged = (event: Event) => {
-      applyDefault(Boolean((event as CustomEvent<{ enabled?: boolean }>).detail?.enabled));
-    };
-    window.addEventListener('pichamber:file-viewer-preview-mode-changed', handleChanged);
-    return () => window.removeEventListener('pichamber:file-viewer-preview-mode-changed', handleChanged);
-  }, [openPaths]);
 
   const diagramEditorXml = isDrawioFile(selectedPath ?? '')
     ? diagramXmlRef.current || draftContent || fileContent

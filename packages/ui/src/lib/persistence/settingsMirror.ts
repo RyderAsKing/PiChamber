@@ -56,8 +56,6 @@ export const persistRuntimeSettingsMirror = (
     projects: settings.projects,
     activeProjectId: settings.activeProjectId,
     pinnedDirectories: settings.pinnedDirectories,
-    gitmojiEnabled: settings.gitmojiEnabled,
-    directoryShowHidden: settings.directoryShowHidden,
     filesViewShowGitignored: settings.filesViewShowGitignored,
     openInAppId: settings.openInAppId,
     pwaAppName: settings.pwaAppName,
@@ -159,19 +157,8 @@ export const persistToLocalStorage = (settings: DesktopSettings): void => {
   } else {
     localStorage.removeItem('oc.sessions.projectCollapse');
   }
-  if (typeof settings.gitmojiEnabled === 'boolean') {
-    localStorage.setItem('gitmojiEnabled', String(settings.gitmojiEnabled));
-  } else {
-    localStorage.removeItem('gitmojiEnabled');
-  }
-  if (typeof settings.directoryShowHidden === 'boolean') {
-    localStorage.setItem(
-      'directoryTreeShowHidden',
-      settings.directoryShowHidden ? 'true' : 'false'
-    );
-  } else {
-    localStorage.removeItem('directoryTreeShowHidden');
-  }
+  // Retired gitmojiEnabled and directoryShowHidden are intentionally not mirrored:
+  // the directory surface owns its built-in default and must not be restored from settings.
   if (typeof settings.filesViewShowGitignored === 'boolean') {
     localStorage.setItem(
       'filesViewShowGitignored',

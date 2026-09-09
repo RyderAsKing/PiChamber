@@ -1,6 +1,5 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { useUIStore } from '@/stores/useUIStore';
 
 interface CommitInputProps {
   value: string;
@@ -24,7 +23,6 @@ export const CommitInput: React.FC<CommitInputProps> = ({
 }) => {
   
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
-  const inputSpellcheckEnabled = useUIStore((state) => state.inputSpellcheckEnabled);
 
   // Auto-resize based on content (layout phase to avoid mount flicker)
   React.useLayoutEffect(() => {
@@ -62,7 +60,7 @@ export const CommitInput: React.FC<CommitInputProps> = ({
       disabled={disabled}
       autoCorrect={hasTouchInput ? 'on' : 'off'}
       autoCapitalize={hasTouchInput ? 'sentences' : 'off'}
-      spellCheck={isMobile || inputSpellcheckEnabled}
+      spellCheck={isMobile}
       className={cn(
         'w-full rounded-lg border border-border/60 bg-surface-elevated px-3 py-2 typography-ui-label text-foreground placeholder:text-muted-foreground',
         'resize-none outline-none transition-[border-color,box-shadow] duration-150',

@@ -1,7 +1,7 @@
 import type { ProjectEntry } from "@/lib/api/types";
 import { normalizePath } from "@/lib/pathNormalization";
 
-export const normalizeProjectPath = normalizePath;
+const normalizeProjectPath = normalizePath;
 
 export const resolveProjectForDirectory = (
   projects: ProjectEntry[],

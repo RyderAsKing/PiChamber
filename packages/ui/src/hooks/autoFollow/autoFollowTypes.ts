@@ -10,7 +10,6 @@ export interface AnimationHandlers {
   onStreamingCandidate?: () => void;
   onAnimationStart?: () => void;
   onReservationCancelled?: () => void;
-  onReasoningBlock?: () => void;
   onAnimatedHeightChange?: (height: number) => void;
 }
 
@@ -35,6 +34,5 @@ export interface UseChatAutoFollowResult {
   goToBottom: (mode?: 'instant' | 'smooth') => void;
   scrollToBottomOnSend: () => void;
   releaseAutoFollow: () => void;
-  saveSnapshotNow: () => void;
   restoreSnapshot: () => Promise<boolean>;
 }

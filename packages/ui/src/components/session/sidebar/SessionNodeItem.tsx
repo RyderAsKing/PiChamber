@@ -64,7 +64,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     createFolderAndStartRename,
     handleDeleteSession,
     handleRestoreSession,
-    mobileVariant,
     alwaysShowActions,
     allowQuickArchiveAction,
     renderSessionNode,
@@ -108,15 +107,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     isRowSelected,
     toggleRowSelected,
     setRowRange,
-    isZombie,
     isStreaming,
     hasActivityDuration,
-    sessionPermissions,
     sessionTitle,
     hasChildren,
     isPinnedSession,
     isExpanded,
-    pendingQuestionCount,
     needsAttention,
     sessionCompactUpdatedLabel,
     forkSolid,
@@ -182,9 +178,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     setRenameDraft(editTitle);
   }, [editingId, editTitle, session.id]);
 
-  const pendingPermissionCount = sessionPermissions.length;
-  const pendingQuestionLabel =
-    pendingQuestionCount === 1 ? '1 pending question' : `${pendingQuestionCount} pending questions`;
   const showUnreadCompleteDot = !isStreaming && needsAttention && !isActive;
   const showActivityDuration = isStreaming && hasActivityDuration;
   const showPinnedMarker = isPinnedSession;
@@ -213,10 +206,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     >
       {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
     </button>
-  ) : null;
-
-  const streamingIndicator = isZombie ? (
-    <Icon name="error-warning" className="h-4 w-4 text-status-warning" />
   ) : null;
 
   const handleMenuOpenChange = (open: boolean) => {
@@ -433,9 +422,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   prSummary ||
                   subtaskCount > 0 ||
                   (agentName && agentName !== 'default') ||
-                  showActivityDuration ||
-                  pendingPermissionCount > 0 ||
-                  pendingQuestionCount > 0 ? (
+                  showActivityDuration ? (
                     <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden pt-0.5 typography-ui-label font-normal text-muted-foreground">
                       {secondaryMeta?.showFolderLabel && tooltipProjectLabel ? (
                         <span className="min-w-0 max-w-[110px] shrink-0 truncate">{tooltipProjectLabel}</span>
@@ -484,26 +471,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                           running={isStreaming}
                           className="text-muted-foreground/70"
                         />
-                      ) : null}
-
-                      {pendingPermissionCount > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-0.5 text-destructive shrink-0"
-                          aria-label={'Permission required'}
-                        >
-                          <Icon name="shield" className="size-3.5" />
-                          <span>{pendingPermissionCount}</span>
-                        </span>
-                      ) : null}
-
-                      {pendingQuestionCount > 0 ? (
-                        <span
-                          className="inline-flex items-center gap-0.5 text-status-info shrink-0"
-                          aria-label={pendingQuestionLabel}
-                        >
-                          <Icon name="question" className="size-3.5" />
-                          <span>{pendingQuestionCount}</span>
-                        </span>
                       ) : null}
                     </div>
                   ) : null}
@@ -562,10 +529,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 </div>
               ) : null}
             </div>
-
-            {streamingIndicator && !mobileVariant ? (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 z-10">{streamingIndicator}</div>
-            ) : null}
           </ContextMenu.Trigger>
           {contextMenuContent}
         </ContextMenu.Root>

@@ -15,7 +15,7 @@ import {
   resolveSessionDirectoryFromSources,
 } from '@/sync/session-directory-resolution';
 import { getRecentSendFailures } from '@/sync/send-failure-log';
-import { useStreamingStore } from '@/sync/streaming';
+import { selectStreamingAssistantMessageId } from '@/sync/suspend-live-tail-records';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 export interface DebugMessageInfo {
@@ -304,7 +304,6 @@ export const debugUtils = {
       sessions: {
         total: sessions.length,
         currentSessionId: sessionState.currentSessionId,
-        lastLoadedDirectory: sessionState.lastLoadedDirectory,
         uniqueDirectories: sessionDirectories.size,
         directorySamples: Array.from(sessionDirectories).slice(0, 5),
         directoryCounts: sessionDirectoryCounts,
@@ -463,19 +462,21 @@ export const debugUtils = {
 
   getStreamingState() {
     const sessionState = useSessionUIStore.getState();
-    const streamingState = useStreamingStore.getState();
+    const bySession = getPiSessionStore().getState().reducer.bySession;
+    const streamingMessageIds = new Map<string, string | null>();
+    for (const [sessionId, session] of bySession) {
+      streamingMessageIds.set(sessionId, selectStreamingAssistantMessageId(session));
+    }
     const currentStreamingId = sessionState.currentSessionId
-      ? streamingState.streamingMessageIds.get(sessionState.currentSessionId) ?? null
+      ? streamingMessageIds.get(sessionState.currentSessionId) ?? null
       : null;
     console.log('[STREAM] Streaming State:', {
       streamingMessageId: currentStreamingId,
-      streamingMessageIds: Array.from(streamingState.streamingMessageIds.entries()),
-      messageStreamStates: Array.from(streamingState.messageStreamStates.entries()),
+      streamingMessageIds: Array.from(streamingMessageIds.entries()),
     });
     return {
       streamingMessageId: currentStreamingId,
-      streamingMessageIds: streamingState.streamingMessageIds,
-      streamStates: streamingState.messageStreamStates,
+      streamingMessageIds,
     };
   },
 
@@ -696,11 +697,10 @@ export const debugUtils = {
     const hasCompletedFlag = (typeof completedAt === 'number' && completedAt > 0) || messageStatus === 'completed';
     const messageIsComplete = Boolean(hasCompletedFlag && hasStopReason);
 
-     const streamingState = useStreamingStore.getState();
-    const streamingMessageId = (lastMessage as any).sessionID
-      ? streamingState.streamingMessageIds.get((lastMessage as any).sessionID as string) ?? null
+    const lastMessageSessionId = (lastMessage as any).sessionID as string | undefined;
+    const streamingMessageId = lastMessageSessionId
+      ? selectStreamingAssistantMessageId(getPiSessionStore().getState().reducer.bySession.get(lastMessageSessionId) ?? null)
       : null;
-    const lifecycle = streamingState.messageStreamStates.get(lastMessage.id);
     const isStreamingCandidate = lastMessage.id === streamingMessageId;
 
     console.log('[SUMMARY] Completion Status:');
@@ -710,7 +710,6 @@ export const debugUtils = {
     console.log('hasCompletedFlag:', hasCompletedFlag);
     console.log('hasStopReason:', hasStopReason);
     console.log('messageIsComplete:', messageIsComplete);
-    console.log('lifecycle phase:', lifecycle?.phase);
     console.log('isStreamingCandidate:', isStreamingCandidate);
     console.log('streamingMessageId:', streamingMessageId);
     console.log('Step-finish parts:', stepFinishParts);

@@ -14,8 +14,6 @@ interface CommitSectionProps {
   onCommitAndPush: () => void;
   commitAction: CommitAction;
   hasPendingIndexMutation?: boolean;
-  gitmojiEnabled: boolean;
-  onOpenGitmojiPicker: () => void;
 }
 
 export const CommitSection: React.FC<CommitSectionProps> = ({
@@ -26,8 +24,6 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
   onCommitAndPush,
   commitAction,
   hasPendingIndexMutation = false,
-  gitmojiEnabled,
-  onOpenGitmojiPicker,
 }) => {
   
   const hasStagedFiles = stagedCount > 0;
@@ -58,19 +54,6 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
           hasTouchInput={hasTouchInput}
           isMobile={isMobile}
         />
-
-        {gitmojiEnabled && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onOpenGitmojiPicker}
-            className="w-fit"
-            type="button"
-          >
-            <Icon name="emotion-happy" className="size-4" />
-            {"Add gitmoji"}
-          </Button>
-        )}
 
         <div className="@container/commit-actions flex items-center gap-2 min-w-0">
           <div className="flex-1" />

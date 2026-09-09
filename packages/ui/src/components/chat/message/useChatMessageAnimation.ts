@@ -12,7 +12,6 @@ export function useChatMessageAnimation({
   streamPhase,
   assistantTextParts,
   shouldCoordinateRendering,
-  hasReasoningParts,
   animationHandlers,
   messageContainerRef,
 }: {
@@ -22,7 +21,6 @@ export function useChatMessageAnimation({
   streamPhase: StreamPhase;
   assistantTextParts: Part[];
   shouldCoordinateRendering: boolean;
-  hasReasoningParts: boolean;
   animationHandlers?: AnimationHandlers;
   messageContainerRef: React.RefObject<HTMLDivElement | null>;
 }) {
@@ -33,7 +31,6 @@ export function useChatMessageAnimation({
   }, [message.info, isUser, sessionId]);
 
   const resolvedAnimationHandlers = animationHandlers ?? null;
-  const hasAnnouncedAuxiliaryScrollRef = React.useRef(false);
   const animationCompletedRef = React.useRef(false);
   const hasRequestedReservationRef = React.useRef(false);
   const animationStartNotifiedRef = React.useRef(false);
@@ -45,7 +42,6 @@ export function useChatMessageAnimation({
     hasRequestedReservationRef.current = false;
     animationStartNotifiedRef.current = false;
     hasTriggeredReservationOnceRef.current = false;
-    hasAnnouncedAuxiliaryScrollRef.current = false;
     hasEverStreamedRef.current = false;
   }, [message.info.id]);
 
@@ -68,9 +64,7 @@ export function useChatMessageAnimation({
 
     if (!shouldReserveAnimationSpace) {
       if (hasRequestedReservationRef.current) {
-        if (hasReasoningParts && resolvedAnimationHandlers?.onReasoningBlock) {
-          resolvedAnimationHandlers.onReasoningBlock();
-        } else if (resolvedAnimationHandlers?.onReservationCancelled) {
+        if (resolvedAnimationHandlers?.onReservationCancelled) {
           resolvedAnimationHandlers.onReservationCancelled();
         }
         hasRequestedReservationRef.current = false;
@@ -85,7 +79,7 @@ export function useChatMessageAnimation({
     hasTriggeredReservationOnceRef.current = true;
     resolvedAnimationHandlers.onStreamingCandidate();
     hasRequestedReservationRef.current = true;
-  }, [resolvedAnimationHandlers, shouldReserveAnimationSpace, hasReasoningParts]);
+  }, [resolvedAnimationHandlers, shouldReserveAnimationSpace]);
 
   React.useEffect(() => {
     if (!resolvedAnimationHandlers?.onAnimationStart) {
@@ -159,9 +153,4 @@ export function useChatMessageAnimation({
       observer.disconnect();
     };
   }, [allowAnimation, isUser, resolvedAnimationHandlers, shouldReserveAnimationSpace, messageContainerRef]);
-
-  return {
-    allowAnimation,
-    hasAnnouncedAuxiliaryScrollRef,
-  };
 }

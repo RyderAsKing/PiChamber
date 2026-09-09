@@ -1,5 +1,4 @@
 import type { ThemeMode } from '@/types/theme';
-import type { DesktopWindowControlsPosition, DesktopWindowControlsStyle } from '@/lib/desktop';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 import type { FollowUpBehavior } from '@/stores/messageQueueStore';
@@ -47,19 +46,6 @@ export const DIFF_LAYOUT_OPTIONS: Option<'dynamic' | 'inline' | 'side-by-side'>[
     id: 'side-by-side',
     label: 'Always side-by-side',
     description: 'Compare original and modified files.',
-  },
-];
-
-export const MERMAID_RENDERING_OPTIONS: Option<'svg' | 'ascii'>[] = [
-  {
-    id: 'svg',
-    label: 'SVG',
-    description: 'Render diagrams as scalable graphics.',
-  },
-  {
-    id: 'ascii',
-    label: 'ASCII',
-    description: 'Render diagrams as text blocks.',
   },
 ];
 
@@ -126,19 +112,6 @@ export const normalizePwaOrientation = (
   return value === 'portrait' || value === 'landscape' ? value : 'system';
 };
 
-export const USER_MESSAGE_RENDERING_OPTIONS: Option<'markdown' | 'plain'>[] = [
-  {
-    id: 'markdown',
-    label: 'Markdown',
-    description: 'Render user text with markdown formatting.',
-  },
-  {
-    id: 'plain',
-    label: 'Plain text',
-    description: 'Render user text with preserved whitespace and links.',
-  },
-];
-
 export const TIME_FORMAT_OPTIONS: Option<'auto' | '12h' | '24h'>[] = [
   {
     id: 'auto',
@@ -184,15 +157,8 @@ export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
   },
 ];
 
-export const normalizeUserMessageRenderingMode = (
-  mode: unknown
-): 'markdown' | 'plain' => {
-  return mode === 'markdown' ? 'markdown' : 'plain';
-};
-
 export type VisibleSetting =
   | 'theme'
-  | 'windowControlsPosition'
   | 'pwaInstallName'
   | 'pwaOrientation'
   | 'mobileKeyboardMode'
@@ -205,44 +171,12 @@ export type VisibleSetting =
   | 'editorFontSize'
   | 'spacing'
   | 'inputBarOffset'
-  | 'mermaidRendering'
-  | 'userMessageRendering'
-  | 'collapsibleUserMessages'
-  | 'stickyUserHeader'
-  | 'promptNavigatorEnabled'
-  | 'wideChatLayout'
-  | 'codeBlockLineWrap'
-  | 'splitAssistantMessageActions'
   | 'diffLayout'
   | 'mobileStatusBar'
-  | 'dotfiles'
-  | 'fileViewerPreview'
-  | 'reasoning'
-  | 'showToolFileIcons'
-  | 'showTurnChangedFiles'
-  | 'expandedTools'
   | 'followUpBehavior'
   | 'terminalQuickKeys'
   | 'fileEditorKeymap'
-  | 'persistDraft'
-  | 'inputSpellcheck'
   | 'reportUsage'
   | 'perfHud'
   | 'expandedEditorToolbar'
   | 'autoSaveEnabled';
-
-export const WINDOW_CONTROLS_POSITION_OPTIONS: Array<{
-  id: DesktopWindowControlsPosition;
-  label: string;
-}> = [
-  { id: 'left', label: 'Left' },
-  { id: 'right', label: 'Right' },
-];
-
-export const WINDOW_CONTROLS_STYLE_OPTIONS: Array<{
-  id: DesktopWindowControlsStyle;
-  label: string;
-}> = [
-  { id: 'classic', label: 'Classic' },
-  { id: 'traffic-lights', label: 'Traffic lights' },
-];

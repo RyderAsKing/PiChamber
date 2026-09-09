@@ -5,8 +5,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel, useIsGitRepo } from '@/stores/useGitStore';
 import { getGitHubPrStatusKey, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
-import { useViewportStore, viewportSessionKey } from '@/sync/viewport-store';
-import { useGlobalSessionStatus, useSessionPermissions, useSessionQuestionCount } from '@/sync/sync-context';
+import { useGlobalSessionStatus } from '@/sync/sync-context';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { isSessionPinned } from '@/stores/useSessionPinnedStore';
@@ -15,7 +14,6 @@ import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { formatProjectLabel, normalizePath } from './utils';
 import { formatSessionCompactDateLabel } from './utils';
 import { getForkBackgroundColor, getForkColor } from './forkColor';
-import { selectQuestionBadgeSessionScopes } from './sessionNodeItemUtils';
 import type { SessionNode } from './types';
 import type { SecondaryMeta } from './sessionNodeTypes';
 
@@ -113,27 +111,15 @@ export function useSessionNodeItemMetadata({
   const toggleRowSelected = useSessionMultiSelectStore((state) => state.toggleSelected);
   const setRowRange = useSessionMultiSelectStore((state) => state.setRange);
 
-  const isZombie = useViewportStore(
-    React.useCallback(
-      (state) => Boolean(state.sessionMemoryState.get(viewportSessionKey(session.id))?.isZombie),
-      [session.id],
-    ),
-  );
   const sessionStatus = useGlobalSessionStatus(session.id);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
-  const sessionPermissions = useSessionPermissions(session.id, sessionDirectory ?? undefined);
   const sessionTitle = getSessionDisplayTitle(session);
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);
 
-  const questionBadgeSessionScopes = React.useMemo(
-    () => selectQuestionBadgeSessionScopes(node, isExpanded, sessionDirectory),
-    [isExpanded, node, sessionDirectory],
-  );
-  const pendingQuestionCount = useSessionQuestionCount(questionBadgeSessionScopes);
   const isSubtaskSession = Boolean((session as Session & { parentID?: string | null }).parentID);
   const unseenCount = useSessionUnseenCount(session.id);
   const needsAttention = unseenCount > 0 && (!isSubtaskSession || notifyOnSubtasks);
@@ -166,15 +152,12 @@ export function useSessionNodeItemMetadata({
     isRowSelected,
     toggleRowSelected,
     setRowRange,
-    isZombie,
     isStreaming,
     hasActivityDuration,
-    sessionPermissions,
     sessionTitle,
     hasChildren,
     isPinnedSession,
     isExpanded,
-    pendingQuestionCount,
     needsAttention,
     sessionCompactUpdatedLabel,
     forkSolid,

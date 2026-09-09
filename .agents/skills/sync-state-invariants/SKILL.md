@@ -15,8 +15,8 @@ Classify every input before deriving state:
 
 | Input | Valid use |
 |---|---|
-| Directory child store | Live per-directory session/message/status/permission state |
-| Global sessions store | Complete global active/archived cache and retention/sidebar coverage |
+| `PiSessionStore` live reducer (`reducer.bySession`) | Live per-session message/part/lifecycle state on the connected runtime (LRU-capped transcripts, `hydratedSessionIds`) |
+| Pi session catalog (`catalog.byId` / `byDirectory` / `listStatusByDirectory`) | Runtime-scoped metadata completeness: directory membership, sidebar coverage, archived rows, per-directory `ready` authority for destructive cleanup |
 | Persisted history/cache | Startup continuity and context restoration, never proof of current activity |
 | Optimistic shadow state | Temporary UI continuity until authoritative reconciliation |
 

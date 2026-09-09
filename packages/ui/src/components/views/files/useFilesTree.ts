@@ -17,7 +17,6 @@ type FilesTreeOptions = {
   activeDirectory?: string;
   expandedPaths: string[];
   chrome: 'desktop' | 'mobile';
-  showHidden: boolean;
   showGitignored: boolean;
   removeExpandedPathsByPrefix: (root: string, prefix: string) => void;
   /**
@@ -100,7 +99,6 @@ export function useFilesTree({
   activeDirectory,
   expandedPaths,
   chrome,
-  showHidden,
   showGitignored,
   removeExpandedPathsByPrefix,
   enabled = true,
@@ -140,7 +138,6 @@ export function useFilesTree({
     const nodes: FileNode[] = [];
     for (const entry of entries) {
       if (!entry?.name) continue;
-      if (chrome === 'desktop' && !showHidden && entry.name.startsWith('.')) continue;
       if (chrome === 'desktop' && !showGitignored && shouldIgnoreEntryName(entry.name)) continue;
 
       const normalizedEntryPath = normalizePath(entry.path || '');
@@ -161,9 +158,9 @@ export function useFilesTree({
       });
     }
     return sortNodes(nodes);
-  }, [chrome, showGitignored, showHidden]);
+  }, [chrome, showGitignored]);
 
-  const treeKey = `${subscribedRuntimeKey}|${root}|h${showHidden ? '1' : '0'}|g${showGitignored ? '1' : '0'}|${chrome}`;
+  const treeKey = `${subscribedRuntimeKey}|${root}|g${showGitignored ? '1' : '0'}|${chrome}`;
   // Current canonical scope, updated synchronously every render so an async
   // completion that lands after a runtime/root/filter change — even before
   // the reset effect runs — still sees the mismatch and is rejected.

@@ -51,7 +51,6 @@ const getStartupTraceSummary = () => {
     || event.name.includes('initializeApp')
     || event.name.includes('initApp')
     || event.name.includes('loadProviders')
-    || event.name.includes('loadAgents')
     || event.name.includes('config.defaults')
     || event.name.includes('modelsMetadata')
     || event.name.includes('ModelControls')

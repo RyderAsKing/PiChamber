@@ -155,7 +155,6 @@ const GeneralSectionContent: React.FC = () => {
 const VisualSectionContent: React.FC = () => {
     return <PiChamberVisualSettings visibleSettings={[
         'theme',
-        'windowControlsPosition',
         'pwaInstallName',
         'pwaOrientation',
         'mobileKeyboardMode',
@@ -169,29 +168,13 @@ const VisualSectionContent: React.FC = () => {
     ]} />;
 };
 
-// Chat section: User message rendering, Diff layout, Mobile status bar, Show reasoning traces, Follow-up behavior, Persist draft
+// Chat section: Diff layout, Follow-up behavior, draft starters (Features)
 const ChatSectionContent: React.FC = () => {
     return (
         <PiChamberVisualSettings
             visibleSettings={[
-                'userMessageRendering',
-                'mermaidRendering',
-                'reasoning',
-                'showToolFileIcons',
-                'showTurnChangedFiles',
-                'expandedTools',
-                'collapsibleUserMessages',
-                'stickyUserHeader',
-                'promptNavigatorEnabled',
-                'wideChatLayout',
-                'codeBlockLineWrap',
-                'splitAssistantMessageActions',
                 'diffLayout',
-                'dotfiles',
-                'fileViewerPreview',
                 'followUpBehavior',
-                'persistDraft',
-                'inputSpellcheck',
             ]}
         />
     );

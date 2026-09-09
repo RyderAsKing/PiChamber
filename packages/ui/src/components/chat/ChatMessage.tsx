@@ -1,8 +1,6 @@
 import React from 'react';
 import type { Message, Part } from '@/lib/chat/types';
-import { useShallow } from 'zustand/react/shallow';
 
-import { useUIStore } from '@/stores/useUIStore';
 import { useDeviceInfo } from '@/lib/device';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { cn } from '@/lib/utils';
@@ -34,7 +32,7 @@ import {
 import { getAssistantError, extractMessageTextContent } from './message/chatMessageTextContent';
 import { useChatMessageModelMetadata } from './message/useChatMessageModelMetadata';
 import { useChatMessageAnimation } from './message/useChatMessageAnimation';
-import { useChatMessageToolsState } from './message/useChatMessageToolsState';
+import { useChatMessagePopupState } from './message/useChatMessagePopupState';
 
 const ToolOutputDialog = lazyWithChunkRecovery(() => import('./message/ToolOutputDialog'));
 
@@ -55,10 +53,8 @@ interface ChatMessageProps {
   animationHandlers?: AnimationHandlers;
   scrollToBottom?: () => void;
   turnGroupingContext?: TurnGroupingContext;
-  assistantHeaderMessageId?: string;
   isInActiveTurn?: boolean;
   activeStreamingPhase?: StreamPhase | null;
-  hideAssistantActivity?: boolean;
   animateUserOnMount?: boolean;
   onUserAnimationConsumed?: (messageId: string) => void;
 }
@@ -70,10 +66,8 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   onContentChange,
   animationHandlers,
   turnGroupingContext,
-  assistantHeaderMessageId,
   isInActiveTurn = false,
   activeStreamingPhase = null,
-  hideAssistantActivity = false,
   animateUserOnMount = false,
   onUserAnimationConsumed,
 }) => {
@@ -87,22 +81,10 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     streamPerfCount('ui.chat_message.render.streaming');
   }
 
-  const { showReasoningTraces, stickyUserHeader, showExpandedBashTools, showExpandedEditTools } = useUIStore(
-    useShallow((state) => ({
-      showReasoningTraces: state.showReasoningTraces,
-      stickyUserHeader: state.stickyUserHeader,
-      showExpandedBashTools: state.showExpandedBashTools,
-      showExpandedEditTools: state.showExpandedEditTools,
-    })),
-  );
-
-  const [copiedCode, setCopiedCode] = React.useState<string | null>(null);
   const [copiedMessage, setCopiedMessage] = React.useState(false);
 
   const messageRole = React.useMemo(() => deriveMessageRole(message.info), [message.info]);
   const isUser = messageRole.isUser;
-  const useExternalUserActionsRow = isUser && (isMobile || !stickyUserHeader);
-  const showStickyInlineHoverRow = isUser && !isMobile && stickyUserHeader && !useExternalUserActionsRow;
 
   const sessionId = message.info.sessionID;
 
@@ -147,9 +129,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   const visibleParts = React.useMemo(
     () =>
       filterVisibleParts(normalizedParts, {
-        includeReasoning: showReasoningTraces,
+        includeReasoning: true,
       }),
-    [normalizedParts, showReasoningTraces],
+    [normalizedParts],
   );
 
   const activityPartIds = React.useMemo(() => {
@@ -161,12 +143,15 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
   }, [turnGroupingContext?.activityParts]);
 
   const displayParts = React.useMemo(() => {
-    if (isUser || !hideAssistantActivity) {
+    if (isUser) {
       return visibleParts;
     }
 
+    // Assistant responses render final text only; turn activity is owned by
+    // the shared process rail, so progress/tool/reasoning/justification parts
+    // are always removed from the response body.
     return filterAssistantFinalParts(visibleParts, activityPartIds, message.info.id);
-  }, [activityPartIds, hideAssistantActivity, isUser, message.info.id, visibleParts]);
+  }, [activityPartIds, isUser, message.info.id, visibleParts]);
 
   // Attachments render in the footer below the bubble, so a message with
   // files but no text skips the bubble box instead of leaving an empty pill.
@@ -186,31 +171,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return visibleParts.filter((part) => part.type === 'tool');
   }, [isUser, visibleParts]);
 
-  const turnActivityToolParts = React.useMemo(() => {
-    if (isUser) {
-      return [] as Part[];
-    }
-    const records = turnGroupingContext?.activityParts ?? [];
-    return records
-      .filter((record) => record.kind === 'tool')
-      .map((record) => record.part)
-      .filter((part): part is Part => part.type === 'tool');
-  }, [isUser, turnGroupingContext?.activityParts]);
-
   const {
-    expandedTools,
-    effectiveExpandedTools,
     popupContent,
-    handleToggleTool,
     handleShowPopup,
     handlePopupChange,
-  } = useChatMessageToolsState({
-    message,
-    toolParts: hideAssistantActivity ? [] : toolParts,
-    turnActivityToolParts: hideAssistantActivity ? [] : turnActivityToolParts,
-    showExpandedBashTools,
-    showExpandedEditTools,
-  });
+  } = useChatMessagePopupState();
 
   const agentMention = React.useMemo(() => {
     if (!isUser) {
@@ -259,8 +224,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return false;
   }, [themeVariant]);
 
-  const [hasStartedStreamingHeader, setHasStartedStreamingHeader] = React.useState(false);
-
   const nextRole = React.useMemo(() => {
     if (!nextMessage) return null;
     return deriveMessageRole(nextMessage.info);
@@ -268,11 +231,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
 
   const hasTurnGrouping = Boolean(turnGroupingContext);
   const isLastAssistantInTurn = turnGroupingContext?.isLastAssistantInTurn ?? false;
-
-  const previousIsHiddenUserMessage = React.useMemo(
-    () => !isUser && isHiddenUserMessage(previousMessage),
-    [isUser, previousMessage],
-  );
 
   const nextIsHiddenUserMessage = React.useMemo(
     () => !isUser && isHiddenUserMessage(nextMessage),
@@ -298,21 +256,13 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return 'completed';
   }, [activeStreamingPhase, isInActiveTurn, isMessageCompleted]);
 
-  const hasReasoningParts = React.useMemo(() => {
-    if (isUser) {
-      return false;
-    }
-    return displayParts.some((part) => part.type === 'reasoning');
-  }, [displayParts, isUser]);
-
-  const { allowAnimation, hasAnnouncedAuxiliaryScrollRef } = useChatMessageAnimation({
+  useChatMessageAnimation({
     message,
     isUser,
     sessionId,
     streamPhase,
     assistantTextParts,
     shouldCoordinateRendering,
-    hasReasoningParts,
     animationHandlers,
     messageContainerRef,
   });
@@ -323,54 +273,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     }
     onUserAnimationConsumed?.(message.info.id);
   }, [animateUserOnMount, isUser, message.info.id, onUserAnimationConsumed]);
-
-  React.useEffect(() => {
-    setHasStartedStreamingHeader(false);
-  }, [message.info.id]);
-
-  React.useEffect(() => {
-    const headerMessageId = assistantHeaderMessageId ?? turnGroupingContext?.headerMessageId;
-    if (isUser || !headerMessageId || headerMessageId !== message.info.id) {
-      return;
-    }
-
-    const isCurrentlyStreaming = streamPhase === 'streaming' || streamPhase === 'cooldown';
-    if (isCurrentlyStreaming) {
-      setHasStartedStreamingHeader(true);
-    }
-  }, [assistantHeaderMessageId, isUser, message.info.id, streamPhase, turnGroupingContext?.headerMessageId]);
-
-  const shouldShowHeader = React.useMemo(() => {
-    if (isUser) return true;
-
-    const headerMessageId = assistantHeaderMessageId ?? turnGroupingContext?.headerMessageId;
-    if (headerMessageId) {
-      const isFirstAssistantInTurn = message.info.id === headerMessageId;
-
-      if (isFirstAssistantInTurn) {
-        if (streamPhase === 'completed') {
-          return true;
-        }
-
-        const isCurrentlyStreaming = streamPhase === 'streaming' || streamPhase === 'cooldown';
-        return hasStartedStreamingHeader || isCurrentlyStreaming;
-      }
-
-      return false;
-    }
-
-    return true;
-  }, [assistantHeaderMessageId, hasStartedStreamingHeader, isUser, turnGroupingContext, streamPhase, message.info.id]);
-
-  const handleCopyCode = React.useCallback((code: string) => {
-    void copyTextToClipboard(code).then((result) => {
-      if (!result.ok) {
-        return;
-      }
-      setCopiedCode(code);
-      setTimeout(() => setCopiedCode(null), 2000);
-    });
-  }, []);
 
   const assistantError = React.useMemo(() => {
     if (isUser) {
@@ -417,29 +319,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     return true;
   }, [isUser, messageTextContent]);
 
-  const handleAuxiliaryContentComplete = React.useCallback(() => {
-    if (isUser) {
-      return;
-    }
-    if (hasAnnouncedAuxiliaryScrollRef.current) {
-      return;
-    }
-    hasAnnouncedAuxiliaryScrollRef.current = true;
-    onContentChange?.('structural');
-  }, [hasAnnouncedAuxiliaryScrollRef, isUser, onContentChange]);
-
   if (shouldHideUserMessage || shouldHideEmptyAssistant) {
     return null;
   }
 
-  const assistantTopPaddingClass =
-    !isUser && shouldShowHeader && !hideAssistantActivity && !previousIsHiddenUserMessage
-      ? stickyUserHeader
-        ? isMobile
-          ? 'pt-4'
-          : 'pt-6'
-        : 'pt-0'
-      : 'pt-0';
+  const assistantTopPaddingClass = 'pt-0';
   const userMessageRadius = 'var(--radius-xl)';
   const userMessageBodyProps = {
     sessionId: message.info.sessionID,
@@ -452,25 +336,16 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
     isMobile,
     alwaysShowActions: alwaysShowMessageActions,
     hasTouchInput,
-    copiedCode,
-    onCopyCode: handleCopyCode,
-    expandedTools,
-    onToggleTool: handleToggleTool,
     onShowPopup: handleShowPopup,
     streamPhase,
-    allowAnimation,
     onContentChange,
-    shouldShowHeader: false,
     hasTextContent,
     onCopyMessage: handleCopyMessage,
     copiedMessage,
-    showReasoningTraces,
-    onAuxiliaryContentComplete: handleAuxiliaryContentComplete,
     agentMention,
     errorMessage: assistantErrorText,
     errorVariant: assistantErrorVariant,
     isLatestMessage: !nextMessage,
-    stickyUserHeaderEnabled: stickyUserHeader,
   };
 
   return (
@@ -495,7 +370,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 respectReducedMotion
               >
                 <div className={cn('relative flex justify-end', !isMobile ? 'group/user-shell' : undefined)}>
-                  <div className={cn('max-w-[85%]', showStickyInlineHoverRow && hasUserBubbleContent ? 'pb-5' : undefined)}>
+                  <div className="max-w-[85%]">
                     {hasUserBubbleContent ? (
                       <div
                         style={{
@@ -511,15 +386,11 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                       >
                         <MessageBody
                           {...userMessageBodyProps}
-                          userActionsMode={useExternalUserActionsRow ? 'external-content' : 'inline'}
+                          userActionsMode="external-content"
                         />
                       </div>
-                    ) : useExternalUserActionsRow ? null : (
-                      <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
-                    )}
-                    {useExternalUserActionsRow ? (
-                      <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
                     ) : null}
+                    <MessageBody {...userMessageBodyProps} userActionsMode="external-actions" />
                   </div>
                 </div>
               </FadeInOnReveal>
@@ -540,20 +411,12 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 isMobile={isMobile}
                 alwaysShowActions={alwaysShowMessageActions}
                 hasTouchInput={hasTouchInput}
-                copiedCode={copiedCode}
-                onCopyCode={handleCopyCode}
-                expandedTools={effectiveExpandedTools}
-                onToggleTool={handleToggleTool}
                 onShowPopup={handleShowPopup}
                 streamPhase={streamPhase}
-                allowAnimation={allowAnimation}
                 onContentChange={onContentChange}
-                shouldShowHeader={shouldShowHeader}
                 hasTextContent={hasTextContent}
                 onCopyMessage={handleCopyMessage}
                 copiedMessage={copiedMessage}
-                onAuxiliaryContentComplete={handleAuxiliaryContentComplete}
-                showReasoningTraces={showReasoningTraces}
                 agentMention={agentMention}
                 turnGroupingContext={turnGroupingContext}
                 errorMessage={assistantErrorText}
@@ -563,7 +426,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 footerAgentName={headerAgentName}
                 footerVariant={headerVariant}
                 isDarkTheme={isDarkTheme}
-                hideAssistantActivity={hideAssistantActivity}
               />
             </div>
           )}
@@ -592,8 +454,6 @@ export default React.memo(ChatMessage, (prev, next) => {
     ) &&
     prev.isInActiveTurn === next.isInActiveTurn &&
     prev.activeStreamingPhase === next.activeStreamingPhase &&
-    prev.hideAssistantActivity === next.hideAssistantActivity &&
-    prev.assistantHeaderMessageId === next.assistantHeaderMessageId &&
     prev.animateUserOnMount === next.animateUserOnMount &&
     prev.onUserAnimationConsumed === next.onUserAnimationConsumed &&
     areRelevantTurnGroupingContextsEqual(

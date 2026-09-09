@@ -11,10 +11,6 @@ import {
   saveAsMarkdownDesktop,
   type ChildSessionExport,
 } from '@/lib/exportSession';
-import {
-  buildSessionMessageRecordsSnapshot,
-  useDirectoryStore,
-} from '@/sync/sync-context';
 
 export const collectNodeDescendantIds = (root: SessionNode): string[] => {
   const out: string[] = [];
@@ -44,9 +40,6 @@ export function useSessionExport(
   node: SessionNode,
   sessionDirectory: string | null
 ) {
-  const directoryStore = useDirectoryStore(sessionDirectory ?? undefined, {
-    bootstrap: false,
-  });
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
   const [exportIncludeSubtasks, setExportIncludeSubtasks] = React.useState(true);
 
@@ -66,10 +59,10 @@ export function useSessionExport(
         try {
           if (!sessionDirectory)
             throw new Error('Session directory is required for export');
-          const childRecords = buildSessionMessageRecordsSnapshot(
-            directoryStore.getState(),
-            child.session.id
-          ).list;
+          // Original snapshot always returned an empty list; the directory
+          // child-store manager was retired, so preserve the always-empty
+          // outcome without the dead dependency.
+          const childRecords: ChildSessionExport['records'] = [];
           const childTitle = child.session.title || "Untitled Sub-agent";
           const childAgent = typeof child.session.agent === 'string' ? child.session.agent : undefined;
           const grandChildren = await collectChildExports(child.children);
@@ -86,7 +79,7 @@ export function useSessionExport(
       }
       return { children: results, skipped };
     },
-    [directoryStore, sessionDirectory]
+    [sessionDirectory]
   );
 
   const showSkippedSubtasksWarning = React.useCallback((count: number) => {
@@ -105,10 +98,10 @@ export function useSessionExport(
         return;
       }
 
-      const records = buildSessionMessageRecordsSnapshot(
-        directoryStore.getState(),
-        session.id
-      ).list;
+      // Original snapshot always returned an empty list; the directory
+      // child-store manager was retired, so preserve the always-empty outcome
+      // without the dead dependency.
+      const records: ChildSessionExport['records'] = [];
       if (records.length === 0) {
         toast.error("Nothing to export");
         return;
@@ -153,9 +146,7 @@ export function useSessionExport(
     },
     [
       collectChildExports,
-      directoryStore,
       node.children,
-      session.id,
       session.title,
       sessionDirectory,
       showSkippedSubtasksWarning,

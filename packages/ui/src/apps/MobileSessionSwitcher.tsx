@@ -6,7 +6,7 @@ import { formatSessionCompactDateLabel } from '@/components/session/sidebar/util
 import { useSwitcherItems } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { cn } from '@/lib/utils';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
-import { resolveGlobalSessionDirectory } from '@/stores/useGlobalSessionsStore';
+import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';

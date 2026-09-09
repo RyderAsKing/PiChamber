@@ -14,11 +14,10 @@ import { useDeviceInfo, useTabletLayout } from '@/lib/device';
 import { mergeModelMetadataWithLiveModel } from '@/lib/modelMetadata';
 import { getModelDisplayName as getSharedModelDisplayName } from '@/lib/modelDisplay';
 import { cn } from '@/lib/utils';
-import { useContextStore } from '@/stores/contextStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
-import { useSessionMessages, useSessionRenderable } from '@/sync/sync-context';
+import { useSessionRenderable } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useUIStore } from '@/stores/useUIStore';
 import { useModelLists } from '@/hooks/useModelLists';
@@ -27,8 +26,6 @@ import type { MobileControlsPanel } from './mobileControlsUtils';
 import { ThinkingLevelControl } from './ThinkingLevelControl';
 import { usePiReadiness } from '@/hooks/usePiReadiness';
 import { markStartupTrace } from '@/lib/startupTrace';
-import { findLatestUserModelChoice } from '@/lib/messages/userModelChoice';
-import { getSyncParts } from '@/sync/sync-refs';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { applyComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import {
@@ -79,8 +76,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const currentVariant = useConfigStore((state) => state.currentVariant);
     const settingsDefaultThinking = useConfigStore((state) => state.settingsDefaultThinking);
     const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
-    const currentAgentName = useConfigStore((state) => state.currentAgentName);
-    const setAgent = useConfigStore((state) => state.setAgent);
     const setProvider = useConfigStore((state) => state.setProvider);
     const setSelectedProvider = useConfigStore((state) => state.setSelectedProvider);
     const setModel = useConfigStore((state) => state.setModel);
@@ -109,7 +104,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const getSessionModelSelection = useSelectionStore((state) => state.getSessionModelSelection);
     const saveSessionModelSelection = useSelectionStore((state) => state.saveSessionModelSelection);
 
-    const contextHydrated = useContextStore((state) => state.hasHydrated);
+    const contextHydrated = useSelectionStore((state) => state.hasHydrated);
 
     const toggleFavoriteModel = useUIStore((state) => state.toggleFavoriteModel);
     const reorderFavoriteModel = useUIStore((state) => state.reorderFavoriteModel);
@@ -134,7 +129,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const usingExternalMobilePanel = mobilePanel !== undefined && typeof onMobilePanelChange === 'function';
     const activeMobilePanel = usingExternalMobilePanel ? mobilePanel : localMobilePanel;
     const setActiveMobilePanel = usingExternalMobilePanel ? onMobilePanelChange : setLocalMobilePanel;
-    const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState<'model' | 'agent' | null>(null);
+    const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState<'model' | null>(null);
     const [mobileModelQuery, setMobileModelQuery] = React.useState('');
     const [expandedMobileModelKey, setExpandedMobileModelKey] = React.useState<string | null>(null);
     const manualVariantSelectionRef = React.useRef(false);
@@ -194,7 +189,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         }
     }, [activeMobilePanel]);
 
-    // Handle model selector close behavior (separate from agent selector)
+    // Handle model selector close behavior
     const prevModelSelectorOpenRef = React.useRef(isModelSelectorOpen);
     React.useEffect(() => {
         const wasOpen = prevModelSelectorOpenRef.current;
@@ -356,16 +351,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         },
         currentSessionId ? `session:${currentSessionId}` : '*',
     );
-    const currentSessionMessagesFromSync = useSessionMessages(currentSessionId ?? '', currentSessionDirectory ?? undefined);
-    // Skip synthetic subagent-completion nudges — restoring from them resets a
-    // manual model override back to the agent default (issue #2404).
-    const latestLoadedUserChoice = React.useMemo(() => {
-        return findLatestUserModelChoice(
-            currentSessionMessagesFromSync,
-            (messageId) => getSyncParts(messageId, currentSessionDirectory ?? undefined),
-        );
-    }, [currentSessionDirectory, currentSessionMessagesFromSync]);
-
     const tryApplyModelSelection = React.useCallback(
         (providerId: string, modelId: string): ModelApplyResult => {
             if (!providerId || !modelId) {
@@ -581,27 +566,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
             return;
         }
 
-        if (latestLoadedUserChoice?.providerID && latestLoadedUserChoice.modelID) {
-            if (latestLoadedUserChoice.agent && currentAgentName !== latestLoadedUserChoice.agent) {
-                setAgent(latestLoadedUserChoice.agent);
-            }
-            const historicalVariant = latestLoadedUserChoice.variant
-                && isPiThinkingLevel(latestLoadedUserChoice.variant)
-                && getModelVariantOptions(latestLoadedUserChoice.providerID, latestLoadedUserChoice.modelID).includes(latestLoadedUserChoice.variant)
-                ? latestLoadedUserChoice.variant
-                : undefined;
-            const result = applyLockedSessionComposerSelection(
-                latestLoadedUserChoice.providerID,
-                latestLoadedUserChoice.modelID,
-                historicalVariant,
-            );
-            if (result === 'provider-missing') {
-                return;
-            }
-            existingSessionRestoreRef.current = currentSessionId;
-            return;
-        }
-
         const savedSessionModel = getSessionModelSelection(currentSessionId);
         if (savedSessionModel) {
             const result = applyLockedSessionComposerSelection(
@@ -618,7 +582,6 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     }, [
         applyLockedSessionComposerSelection,
         contextHydrated,
-        currentAgentName,
         currentModelId,
         currentProviderId,
         currentSessionId,
@@ -626,9 +589,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         getModelVariantOptions,
         getSessionModelSelection,
         hasRenderableCurrentSessionSnapshot,
-        latestLoadedUserChoice,
         providers.length,
-        setAgent,
         setCurrentVariant,
         sync,
     ]);

@@ -7,7 +7,6 @@ import type { ToolPart as ToolPartType } from '@/lib/chat/types';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionMessageRecords, useEnsureSessionMessages, useSessionReducerPart } from '@/sync/sync-context';
-import { useUIStore } from '@/stores/useUIStore';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { Text } from '@/components/ui/text';
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
@@ -115,7 +114,6 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     const stateWithData = state as ToolStateWithMetadata;
     const metadata = stateWithData.metadata;
     const input = stateWithData.input;
-    const showToolFileIcons = useUIStore((s) => s.showToolFileIcons);
     const currentDirectory = useEffectiveDirectory() ?? '';
 
     const normalizedPartTool = normalizeToolName(part.tool);
@@ -539,7 +537,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                             <ApplyPatchFileButtons
                                 metadata={metadata}
                                 animate={animateTailText}
-                                showFileIcons={showToolFileIcons}
+                                showFileIcons
                                 textClassName={TOOL_ROW_DESCRIPTION_CLASS}
                                 openDiffLabel={"Open file diff"}
                                 onFileClick={runtime?.editor ? openApplyPatchFile : undefined}
@@ -620,11 +618,11 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 </span>
                             )}
                             {!justificationText && normalizedPartTool === 'lsp' && descriptionPath ? (
-                                <AnimatedToolPath path={descriptionPath} animate={animateTailText} grow={false} showFileIcons={showToolFileIcons} />
+                                <AnimatedToolPath path={descriptionPath} animate={animateTailText} grow={false} showFileIcons />
                             ) : null}
                             {!justificationText && normalizedPartTool !== 'lsp' && description && (
                                 descriptionPath && description === descriptionPath ? (
-                                    <AnimatedToolPath path={descriptionPath} animate={animateTailText} grow={false} showFileIcons={showToolFileIcons} />
+                                    <AnimatedToolPath path={descriptionPath} animate={animateTailText} grow={false} showFileIcons />
                                 ) : (
                                     <Text
                                         variant={animateTailText ? 'generate-effect' : 'static'}

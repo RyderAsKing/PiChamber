@@ -8,13 +8,11 @@ import { getMermaidViewerController } from './mermaidViewer';
 // Shared decoration context
 // ---------------------------------------------------------------------------
 
-export type MermaidRender = { svg?: string; ascii?: string };
+export type MermaidRender = { svg?: string };
 
 export type DecorateLabels = {
   copy: string;
   copied: string;
-  enableCodeWrap: string;
-  disableCodeWrap: string;
   copyTable: string;
   downloadTable: string;
   copyDiagram: string;
@@ -35,10 +33,8 @@ export type MermaidControlOptions = {
 export type DecorateContext = {
   labels: DecorateLabels;
   mermaidControls: MermaidControlOptions;
-  codeBlockLineWrap: boolean;
   deferCodeLineNumberSync?: boolean;
-  onToggleCodeBlockLineWrap?: () => void;
-  // Renders a mermaid block source to svg/ascii using current theme colors.
+  // Renders a mermaid block source to svg using current theme colors.
   renderMermaid: (source: string) => MermaidRender;
   onPreviewLoopback?: (url: string) => void;
 };
@@ -56,7 +52,6 @@ const ICONS = {
   zoomIn: spriteIcon('add'),
   zoomOut: spriteIcon('subtract'),
   fit: spriteIcon('refresh'),
-  textWrap: spriteIcon('text-wrap'),
 } as const;
 
 const ICON_BTN_CLASS =
@@ -77,40 +72,27 @@ const makeIconButton = (icon: keyof typeof ICONS, title: string, slot: string): 
   return button;
 };
 
-const applyCodeBlockWrapState = (wrapper: HTMLElement, enabled: boolean, labels: DecorateLabels): void => {
+const applyCodeBlockWrapState = (wrapper: HTMLElement): void => {
   const body = wrapper.querySelector<HTMLElement>('[data-md-code-body]');
   const pre = wrapper.querySelector<HTMLElement>('pre');
   const code = wrapper.querySelector<HTMLElement>('pre code');
   const lineContents = wrapper.querySelectorAll<HTMLElement>('[data-md-code-line-content]');
-  const wrapButton = wrapper.querySelector<HTMLButtonElement>('[data-md-action="toggle-code-wrap"]');
-  wrapper.setAttribute('data-code-wrap', enabled ? 'true' : 'false');
-  body?.classList.toggle('overflow-x-auto', !enabled);
-  body?.classList.toggle('overflow-x-hidden', enabled);
-  pre?.classList.toggle('whitespace-pre-wrap', enabled);
-  pre?.classList.toggle('break-words', enabled);
-  code?.classList.toggle('whitespace-pre-wrap', enabled);
-  code?.classList.toggle('break-words', enabled);
+  wrapper.setAttribute('data-code-wrap', 'true');
+  body?.classList.remove('overflow-x-auto');
+  body?.classList.add('overflow-x-hidden');
+  pre?.classList.add('whitespace-pre-wrap', 'break-words');
+  code?.classList.add('whitespace-pre-wrap', 'break-words');
   if (pre) {
-    pre.style.whiteSpace = enabled ? 'pre-wrap' : 'pre';
-    pre.style.overflowWrap = enabled ? 'anywhere' : 'normal';
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.style.overflowWrap = 'anywhere';
   }
   if (code) {
-    code.style.whiteSpace = enabled ? 'pre-wrap' : 'pre';
-    code.style.overflowWrap = enabled ? 'anywhere' : 'normal';
+    code.style.whiteSpace = 'pre-wrap';
+    code.style.overflowWrap = 'anywhere';
   }
   for (const lineContent of Array.from(lineContents)) {
-    lineContent.style.whiteSpace = enabled ? 'pre-wrap' : 'pre';
-    lineContent.style.overflowWrap = enabled ? 'anywhere' : 'normal';
-  }
-  if (wrapButton) {
-    const title = enabled ? labels.disableCodeWrap : labels.enableCodeWrap;
-    wrapButton.setAttribute('title', title);
-    wrapButton.setAttribute('aria-label', title);
-    wrapButton.classList.toggle('text-foreground', enabled);
-    wrapButton.classList.toggle('opacity-100', enabled);
-    wrapButton.classList.toggle('text-muted-foreground', !enabled);
-    wrapButton.classList.toggle('opacity-65', !enabled);
-    wrapButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+    lineContent.style.whiteSpace = 'pre-wrap';
+    lineContent.style.overflowWrap = 'anywhere';
   }
 };
 
@@ -173,12 +155,12 @@ export const getMarkdownCodeText = (code: HTMLElement): string => {
   return code.hasAttribute('data-md-code-trailing-newline') ? `${text}\n` : text;
 };
 
-export const applyMarkdownCodeBlockWrapState = (root: HTMLElement, enabled: boolean, labels: DecorateLabels): void => {
+export const applyMarkdownCodeBlockWrapState = (root: HTMLElement): void => {
   const wrappers = root.querySelectorAll<HTMLElement>('[data-component="markdown-code"]');
   for (const wrapper of Array.from(wrappers)) {
     const pre = wrapper.querySelector<HTMLPreElement>('pre');
     if (pre) layoutCodeLines(pre);
-    applyCodeBlockWrapState(wrapper, enabled, labels);
+    applyCodeBlockWrapState(wrapper);
   }
 };
 
@@ -233,12 +215,10 @@ const decorateCodeBlocks = (root: HTMLElement, ctx: DecorateContext): void => {
     langLabel.className = 'font-mono text-[13px] text-muted-foreground';
     langLabel.textContent = language;
     const copyBtn = makeIconButton('copy', ctx.labels.copy, 'copy-code');
-    const wrapBtn = makeIconButton('textWrap', ctx.codeBlockLineWrap ? ctx.labels.disableCodeWrap : ctx.labels.enableCodeWrap, 'toggle-code-wrap');
     header.appendChild(langLabel);
     const actions = document.createElement('div');
     actions.className = 'flex items-center gap-1';
     actions.setAttribute('data-md-code-actions', '');
-    actions.appendChild(wrapBtn);
     actions.appendChild(copyBtn);
     header.appendChild(actions);
 
@@ -254,7 +234,7 @@ const decorateCodeBlocks = (root: HTMLElement, ctx: DecorateContext): void => {
     body.appendChild(pre);
     wrapper.appendChild(header);
     wrapper.appendChild(body);
-    applyCodeBlockWrapState(wrapper, ctx.codeBlockLineWrap, ctx.labels);
+    applyCodeBlockWrapState(wrapper);
   }
 };
 
@@ -420,14 +400,14 @@ const decorateMermaid = (root: HTMLElement, ctx: DecorateContext): void => {
         toolbar.appendChild(download);
       }
     } else {
-      block.setAttribute('data-mermaid-render', 'ascii');
-      const asciiPre = document.createElement('pre');
-      asciiPre.setAttribute('data-markdown', 'mermaid-ascii');
-      asciiPre.textContent = rendered.ascii || source;
-      scroll.appendChild(asciiPre);
+      block.setAttribute('data-mermaid-render', 'svg');
+      const fallbackPre = document.createElement('pre');
+      fallbackPre.setAttribute('data-markdown', 'mermaid-ascii');
+      fallbackPre.textContent = source;
+      scroll.appendChild(fallbackPre);
       if (ctx.mermaidControls.copy) {
         const copy = makeIconButton('copy', ctx.labels.copyDiagram, 'mermaid-copy');
-        copy.setAttribute('data-md-source', rendered.ascii || source);
+        copy.setAttribute('data-md-source', source);
         toolbar.appendChild(copy);
       }
     }
@@ -544,12 +524,6 @@ export const attachMarkdownInteractions = (
       return;
     }
 
-    if (action === 'toggle-code-wrap') {
-      event.preventDefault();
-      ctx.onToggleCodeBlockLineWrap?.();
-      return;
-    }
-
     // Toggle table menus
     if (action === 'table-copy-toggle' || action === 'table-download-toggle') {
       event.preventDefault();
@@ -586,7 +560,7 @@ export const attachMarkdownInteractions = (
       return;
     }
 
-    // Mermaid copy source / ascii
+    // Mermaid copy source
     if (action === 'mermaid-copy') {
       const source = actionEl.getAttribute('data-md-source') ?? '';
       if (source) void copyTextToClipboard(source).then(() => flashCopied(actionEl as HTMLButtonElement, ctx.labels.copied, 'copy', ctx.labels.copyDiagram));

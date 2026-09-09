@@ -61,9 +61,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
   const isInitialized = useConfigStore((state) => state.isInitialized);
   const isConnected = useConfigStore((state) => state.isConnected);
   const loadProviders = useConfigStore((state) => state.loadProviders);
-  const loadAgents = useConfigStore((state) => state.loadAgents);
   const providersCount = useConfigStore((state) => state.providers.length);
-  const agentsCount = useConfigStore((state) => state.agents.length);
   const sync = useSync();
 
   React.useEffect(() => {
@@ -113,8 +111,7 @@ const MiniChatBootstrap: React.FC<{ config: MiniChatConfig }> = ({ config }) => 
   React.useEffect(() => {
     if (!isConnected) return;
     if (providersCount === 0) void loadProviders({ source: 'electronMiniChat:recovery' });
-    if (agentsCount === 0) void loadAgents({ source: 'electronMiniChat:recovery' });
-  }, [agentsCount, isConnected, loadAgents, loadProviders, providersCount]);
+  }, [isConnected, loadProviders, providersCount]);
 
   const sessionBootstrappedRef = React.useRef(false);
   React.useEffect(() => {

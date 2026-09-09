@@ -10,8 +10,6 @@ export interface PiChamberDefaults {
     defaultThinking?: string;
     defaultThinkingByModel?: Record<string, string>;
     autoCreateWorktree?: boolean;
-    gitmojiEnabled?: boolean;
-    defaultFileViewerPreview?: boolean;
     zenModel?: string;
     messageStreamTransport?: 'auto' | 'ws' | 'sse';
 }
@@ -99,8 +97,6 @@ export const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
                 if (data) {
                     const defaultModel = typeof data?.defaultModel === 'string' ? data.defaultModel.trim() : '';
                     const defaultVariant = typeof data?.defaultVariant === 'string' ? data.defaultVariant.trim() : '';
-                    const gitmojiEnabled = typeof data?.gitmojiEnabled === 'boolean' ? data.gitmojiEnabled : undefined;
-                    const defaultFileViewerPreview = typeof data?.defaultFileViewerPreview === 'boolean' ? data.defaultFileViewerPreview : undefined;
                     const zenModel = typeof data?.zenModel === 'string' ? data.zenModel.trim() : '';
                     const messageStreamTransport =
                         data?.messageStreamTransport === 'ws' || data?.messageStreamTransport === 'sse' || data?.messageStreamTransport === 'auto'
@@ -111,8 +107,6 @@ export const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
                         defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
                         defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
                         autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
-                        gitmojiEnabled,
-                        defaultFileViewerPreview,
                         zenModel: zenModel.length > 0 ? zenModel : undefined,
                         messageStreamTransport,
                     });
@@ -133,8 +127,6 @@ export const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
         const data = await response.json();
         const defaultModel = typeof data?.defaultModel === 'string' ? data.defaultModel.trim() : '';
         const defaultVariant = typeof data?.defaultVariant === 'string' ? data.defaultVariant.trim() : '';
-        const gitmojiEnabled = typeof data?.gitmojiEnabled === 'boolean' ? data.gitmojiEnabled : undefined;
-        const defaultFileViewerPreview = typeof data?.defaultFileViewerPreview === 'boolean' ? data.defaultFileViewerPreview : undefined;
         const zenModel = typeof data?.zenModel === 'string' ? data.zenModel.trim() : '';
         const messageStreamTransport =
             data?.messageStreamTransport === 'ws' || data?.messageStreamTransport === 'sse' || data?.messageStreamTransport === 'auto'
@@ -145,8 +137,6 @@ export const fetchPiChamberDefaults = async (): Promise<PiChamberDefaults> => {
             defaultModel: defaultModel.length > 0 ? defaultModel : undefined,
             defaultVariant: defaultVariant.length > 0 ? defaultVariant : undefined,
             autoCreateWorktree: typeof data?.autoCreateWorktree === 'boolean' ? data.autoCreateWorktree : undefined,
-            gitmojiEnabled,
-            defaultFileViewerPreview,
             zenModel: zenModel.length > 0 ? zenModel : undefined,
             messageStreamTransport,
         });

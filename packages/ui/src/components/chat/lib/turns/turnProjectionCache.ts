@@ -35,7 +35,6 @@ export const buildProjectionCacheKey = (
   sessionKey: string,
   messages: ChatMessageEntry[],
   showTextJustificationActivity: boolean,
-  showTurnChangedFiles: boolean,
   mergeHiddenUserTurnsKey: string,
 ): string => {
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
@@ -48,7 +47,6 @@ export const buildProjectionCacheKey = (
     lastMessagePartCount,
     buildMessagesVersionSignature(messages),
     showTextJustificationActivity ? '1' : '0',
-    showTurnChangedFiles ? '1' : '0',
     mergeHiddenUserTurnsKey,
   ].join('|');
 };

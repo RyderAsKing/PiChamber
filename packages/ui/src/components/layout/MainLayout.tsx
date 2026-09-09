@@ -235,11 +235,6 @@ export const MainLayout: React.FC = () => {
                     return;
                 }
 
-                if (sessionState.isLoading) {
-                    scheduleDraftOpen(250);
-                    return;
-                }
-
                 sessionState.openNewSessionDraft({ automatic: true });
             }, delayMs);
         };

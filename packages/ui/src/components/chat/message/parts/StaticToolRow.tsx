@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import type { TurnActivityRecord as TurnActivityPart } from '../../lib/turns/types';
-import { areRenderRelevantActivityListsEqual } from '../renderCompare';
+import { areTurnActivityRecordsEqual } from '../renderCompare';
 import { MinDurationShineText } from './MinDurationShineText';
 import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import { getToolSkillName } from './skillToolPresentation';
@@ -79,7 +79,7 @@ const formatActivityDuration = (start: number, end?: number, now: number = Date.
 };
 
 /**
- * Extract a short filename from a tool part's input (for aggregation display).
+ * Extract a short filename from a tool part's input (for the row description).
  */
 const getToolFileName = (activity: TurnActivityPart): string | null => {
     const part = activity.part as ToolPartType;
@@ -266,7 +266,7 @@ const renderReadFilePath = (displayPath: string, animate = true) => {
 };
 
 /**
- * Get a short description for a static tool (for aggregation display).
+ * Get a short description for a static tool (for the row description).
  */
 const getToolShortDescription = (activity: TurnActivityPart): string | null => {
     const part = activity.part as ToolPartType;
@@ -330,76 +330,40 @@ const getToolShortDescription = (activity: TurnActivityPart): string | null => {
     return getToolFileName(activity);
 };
 
-const StaticToolRowInner: React.FC<{
+interface StaticToolRowProps {
     toolName: string;
-    activities: TurnActivityPart[];
+    activity: TurnActivityPart;
     animateTailText: boolean;
-}> = ({ toolName, activities, animateTailText }) => {
-    const showToolFileIcons = useUIStore((state) => state.showToolFileIcons);
+}
+
+const StaticToolRowInner: React.FC<StaticToolRowProps> = ({ toolName, activity, animateTailText }) => {
     const runtime = React.useContext(RuntimeAPIContext);
     const mobileActions = useMobileAppActions();
     const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
-    const hasRunningActivity = React.useMemo(() => activities.some((activity) => isActivityRunning(activity)), [activities]);
-    const timedActivity = React.useMemo(() => {
-        for (const activity of activities) {
-            const time = getActivityTime(activity);
-            if (typeof time.start === 'number') {
-                return { activity, time };
-            }
-        }
-        return null;
-    }, [activities]);
+    const isRunning = isActivityRunning(activity);
+    const activityTime = getActivityTime(activity);
+    const hasDuration = typeof activityTime.start === 'number';
     const durationNow = useDurationTickerNow(
-        Boolean(timedActivity && hasRunningActivity && typeof timedActivity.time.end !== 'number'),
+        Boolean(hasDuration && isRunning && typeof activityTime.end !== 'number'),
         250,
     );
-    const durationLabel = timedActivity
-        ? formatActivityDuration(timedActivity.time.start!, timedActivity.time.end, durationNow)
+    const durationLabel = hasDuration
+        ? formatActivityDuration(activityTime.start!, activityTime.end, durationNow)
         : null;
 
-    const descriptions = React.useMemo(() => {
-        const descs: string[] = [];
-        for (const activity of activities) {
-            const desc = getToolShortDescription(activity);
-            if (desc && !descs.includes(desc)) {
-                descs.push(desc);
-            }
-        }
-        return descs;
-    }, [activities]);
-
-    const skillEntries = React.useMemo(() => {
-        const entries: Array<{ name: string }> = [];
-        for (const activity of activities) {
-            const name = getToolSkillName(activity.part as ToolPartType);
-            if (!name || entries.some((entry) => entry.name === name)) continue;
-            entries.push({ name });
-        }
-        return entries;
-    }, [activities]);
+    const description = getToolShortDescription(activity);
+    const skillName = getToolSkillName(activity.part as ToolPartType);
 
     const normalizedToolName = toolName.toLowerCase();
-    const isSkillGroup = normalizedToolName === 'skill' || (normalizedToolName === 'read' && skillEntries.length > 0);
+    const isSkillGroup = normalizedToolName === 'skill' || (normalizedToolName === 'read' && skillName !== null);
     const isReadGroup = normalizedToolName === 'read' && !isSkillGroup;
     const presentationToolName = isSkillGroup ? 'skill' : toolName;
     const displayName = getToolMetadata(presentationToolName).displayName;
     const icon = getToolIcon(presentationToolName);
 
-    const readFileEntries = React.useMemo(() => {
-        if (!isReadGroup) return [] as Array<{ path: string; displayPath: string; offset?: number }>;
-
-        const entries: Array<{ path: string; displayPath: string; offset?: number }> = [];
-        for (const activity of activities) {
-            const filePath = getToolFilePath(activity);
-            const offset = getToolReadOffset(activity);
-            if (!filePath) continue;
-            if (entries.some((entry) => entry.path === filePath)) continue;
-            const displayPath = getRelativeFilePath(filePath, currentDirectory);
-            if (!displayPath) continue;
-            entries.push({ path: filePath, displayPath, offset });
-        }
-        return entries;
-    }, [activities, currentDirectory, isReadGroup]);
+    const readFilePath = isReadGroup ? getToolFilePath(activity) : null;
+    const readFileOffset = isReadGroup ? getToolReadOffset(activity) : undefined;
+    const readFileDisplayPath = readFilePath ? getRelativeFilePath(readFilePath, currentDirectory) : null;
 
     const handleFileClick = React.useCallback((filePath: string, offset?: number) => {
         const absolutePath = toAbsoluteFilePath(currentDirectory, filePath);
@@ -470,7 +434,7 @@ const StaticToolRowInner: React.FC<{
                 {icon}
             </div>
             <MinDurationShineText
-                active={hasRunningActivity}
+                active={isRunning}
                 minDurationMs={1000}
                 className={cn(TOOL_ROW_TITLE_CLASS, 'inline-flex items-center flex-shrink-0')}
                 style={TOOL_NORMAL_TITLE_STYLE}
@@ -478,44 +442,42 @@ const StaticToolRowInner: React.FC<{
             >
                 {displayName}
             </MinDurationShineText>
-            {isReadGroup && readFileEntries.length > 0
-                ? readFileEntries.map((entry) => (
+            {isReadGroup && readFilePath && readFileDisplayPath
+                ? (
                     <button
-                        key={entry.path}
                         type="button"
                         onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            handleFileClick(entry.path, entry.offset);
+                            handleFileClick(readFilePath, readFileOffset);
                         }}
                         className={cn('inline-flex !min-h-0 items-center justify-start gap-1 min-w-0 flex-1 text-left hover:text-[var(--status-info)] hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
-                        title={entry.offset ? `${entry.displayPath}:${entry.offset}` : entry.displayPath}
+                        title={readFileOffset ? `${readFileDisplayPath}:${readFileOffset}` : readFileDisplayPath}
                     >
-                        {showToolFileIcons ? <FileTypeIcon filePath={entry.path} className="h-3.5 w-3.5" /> : null}
-                        {renderReadFilePath(entry.displayPath, animateTailText)}
+                        {<FileTypeIcon filePath={readFilePath} className="h-3.5 w-3.5" />}
+                        {renderReadFilePath(readFileDisplayPath, animateTailText)}
                     </button>
-                ))
+                )
                 : null}
-            {isSearchGroup && descriptions.length > 0
-                ? descriptions.map((desc, index) => (
-                    <span key={`${desc}-${index}`} className="inline-flex min-w-0 flex-1">
+            {isSearchGroup && description !== null
+                ? (
+                    <span className="inline-flex min-w-0 flex-1">
                         <Text
                             variant={animateTailText ? 'generate-effect' : 'static'}
                             className={cn('min-w-0 flex-1 truncate whitespace-nowrap', TOOL_ROW_DESCRIPTION_CLASS)}
                             style={{ color: 'var(--tools-description)' }}
-                            title={desc}
+                            title={description}
                         >
-                            "{desc}"
+                            "{description}"
                         </Text>
                     </span>
-                ))
+                )
                 : null}
-            {isFetchGroup && descriptions.length > 0
-                ? descriptions.map((url, index) => (
+            {isFetchGroup && description !== null
+                ? (
                     <a
-                        key={`${url}-${index}`}
-                        href={url}
+                        href={description}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={cn(
@@ -523,39 +485,38 @@ const StaticToolRowInner: React.FC<{
                             'truncate whitespace-nowrap', TOOL_ROW_DESCRIPTION_CLASS
                         )}
                         style={{ color: 'var(--status-info)' }}
-                        title={url}
+                        title={description}
                     >
-                        <ExternalLinkFavicon href={url} />
-                        <span className="min-w-0 truncate">{url}</span>
+                        <ExternalLinkFavicon href={description} />
+                        <span className="min-w-0 truncate">{description}</span>
                     </a>
-                ))
+                )
                 : null}
-            {isSkillGroup && skillEntries.length > 0
-                ? skillEntries.map((entry, index) => (
+            {isSkillGroup && skillName !== null
+                ? (
                     <button
-                        key={`${entry.name}-${index}`}
                         type="button"
                         onClick={(event) => {
                             event.preventDefault();
                             event.stopPropagation();
-                            openSkillSettings(entry.name, mobileActions);
+                            openSkillSettings(skillName, mobileActions);
                         }}
                         className={cn('inline-flex !min-h-0 h-5 min-w-0 flex-1 items-center truncate whitespace-nowrap text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
-                        title={`Open ${entry.name} in Settings`}
-                        aria-label={`Open ${entry.name} skill in Settings`}
+                        title={`Open ${skillName} in Settings`}
+                        aria-label={`Open ${skillName} skill in Settings`}
                     >
-                        {entry.name}
+                        {skillName}
                     </button>
-                ))
+                )
                 : null}
-            {!isReadGroup && !isSearchGroup && !isFetchGroup && !isSkillGroup && descriptions.length > 0 ? (
+            {!isReadGroup && !isSearchGroup && !isFetchGroup && !isSkillGroup && description !== null ? (
                 <Text
                     variant={animateTailText ? 'generate-effect' : 'static'}
                     className={cn('min-w-0 flex-1 truncate whitespace-nowrap', TOOL_ROW_DESCRIPTION_CLASS)}
                     style={{ color: 'var(--tools-description)' }}
                 >
-                    {descriptions.join(' ')}
+                    {description}
                 </Text>
             ) : null}
             {durationLabel ? (
@@ -570,8 +531,18 @@ const StaticToolRowInner: React.FC<{
     );
 };
 
-export const StaticToolRow = React.memo(StaticToolRowInner, (prev, next) => {
+/**
+ * Memo boundary for static tool rows. Compares the render-relevant props:
+ * toolName, animateTailText, and the full render-relevant activity record
+ * (identity plus part state/metadata/status/time/output content), so a
+ * same-ID metadata or content replacement re-renders while an equivalent
+ * activity stays stable.
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export const areStaticToolRowPropsEqual = (prev: StaticToolRowProps, next: StaticToolRowProps): boolean => {
     return prev.toolName === next.toolName
         && prev.animateTailText === next.animateTailText
-        && areRenderRelevantActivityListsEqual(prev.activities, next.activities);
-});
+        && areTurnActivityRecordsEqual(prev.activity, next.activity);
+};
+
+export const StaticToolRow = React.memo(StaticToolRowInner, areStaticToolRowPropsEqual);

@@ -1,10 +1,6 @@
 import React from 'react';
-import type { ToolPart as ToolPartType } from '@/lib/chat/types';
-import ToolPart from './parts/ToolPart';
 import AssistantTextPart from './parts/AssistantTextPart';
-import ReasoningPart from './parts/ReasoningPart';
 import { MessageFilesDisplay } from '../FileAttachment';
-import { TurnChangedFilesDropdown } from '../TurnChangedFilesDropdown';
 import { cn } from '@/lib/utils';
 import { filterRenderableAssistantParts } from './partUtils';
 import { FadeInOnReveal } from './FadeInOnReveal';
@@ -16,14 +12,10 @@ import { useUIStore } from '@/stores/useUIStore';
 import { TextSelectionMenu } from './TextSelectionMenu';
 import { useChatSurfaceMode } from '@/components/chat/chatSurfaceContext';
 import { Icon } from '@/components/icon/Icon';
-import { ToolRevealOnMount } from './parts/ToolRevealOnMount';
-import { StaticToolRow } from './parts/StaticToolRow';
-import { isExpandableTool } from './parts/toolRenderUtils';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { getAgentColor } from '@/lib/agentColors';
 import { AssistantMessageActionButtons } from './AssistantMessageActionButtons';
-import { TurnChangedFilePills } from './TurnChangedFilesPills';
 import type { StreamPhase } from './types';
 import type { AssistantMessageBodyProps } from './assistantMessageTypes';
 import { shareMessageAsImage } from './shareMessageAsImage';
@@ -34,7 +26,6 @@ const MESSAGE_FOOTER_CONTAINER_STYLE = {
   containerType: 'inline-size' as const,
   containerName: 'message-footer',
 };
-const INLINE_MESSAGE_ACTIONS_CLASS_NAME = 'mt-2 mb-1 flex items-center justify-start gap-1.5';
 
 export const AssistantMessageBody = React.memo(
   ({
@@ -51,18 +42,12 @@ export const AssistantMessageBody = React.memo(
     isMobile,
     alwaysShowActions,
     hasTouchInput,
-    expandedTools,
-    onToggleTool,
     onShowPopup,
-    streamPhase: _streamPhase,
-    allowAnimation: _allowAnimation,
+    streamPhase,
     onContentChange,
     hasTextContent = false,
     onCopyMessage,
-    onAuxiliaryContentComplete,
-    showReasoningTraces = false,
     turnGroupingContext,
-    hideAssistantActivity = false,
     errorMessage,
     errorVariant = 'error',
     footerProviderID,
@@ -72,8 +57,6 @@ export const AssistantMessageBody = React.memo(
     isDarkTheme = false,
   }: AssistantMessageBodyProps) => {
     const chatSurfaceMode = useChatSurfaceMode();
-    const streamPhase = _streamPhase;
-    void _allowAnimation;
     const messageContentRef = React.useRef<HTMLDivElement>(null);
     const messageTextContentRef = React.useRef<HTMLDivElement>(null);
 
@@ -88,30 +71,15 @@ export const AssistantMessageBody = React.memo(
     const visibleParts = React.useMemo(() => {
       return filterRenderableAssistantParts(parts);
     }, [parts]);
-    const activityTextPartIds = React.useMemo(() => {
-      const ids = new Set<string>();
-      for (const activity of turnGroupingContext?.activityParts ?? []) {
-        if (activity.kind === 'justification') {
-          ids.add(activity.id);
-        }
-      }
-      return ids;
-    }, [turnGroupingContext?.activityParts]);
 
     const isMiniChatSurface = chatSurfaceMode === 'mini-chat';
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const getDirectoryForSession = useSessionUIStore((state) => state.getDirectoryForSession);
     const effectiveDirectory = useEffectiveDirectory();
-    const collapsibleThinkingBlocks = useUIStore((state) => state.collapsibleThinkingBlocks);
-    const collapseThinkingByDefault = useUIStore((state) => state.collapseThinkingByDefault);
-    const showSplitAssistantMessageActions = useUIStore(
-      (state) => state.showSplitAssistantMessageActions,
-    );
     const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
     const openContextPreview = useUIStore((state) => state.openContextPreview);
 
     const {
-      animatedToolIdsLookup,
       messagePreviewUrl,
       isLastAssistantInTurn,
       isTurnWorking,
@@ -121,7 +89,6 @@ export const AssistantMessageBody = React.memo(
       turnDurationText,
       footerTimestamp,
     } = useAssistantMessageLifecycle({
-      messageId,
       visibleParts,
       isMessageCompleted,
       messageFinish,
@@ -133,8 +100,6 @@ export const AssistantMessageBody = React.memo(
       isMobile,
       isMiniChatSurface,
       timeFormatPreference,
-      onAuxiliaryContentComplete,
-      onContentChange,
     });
 
     const effectiveStreamPhase: StreamPhase = hasStopFinish ? 'completed' : streamPhase;
@@ -151,11 +116,8 @@ export const AssistantMessageBody = React.memo(
 
     const showErrorMessage = Boolean(errorMessage);
     const errorIconName = errorVariant === 'info' ? 'information' : 'error-warning';
-    const shouldShowMessageActions = hasCopyableText;
     const shouldShowTurnFooter =
       isLastAssistantInTurn && (hasTextContent || Boolean(errorMessage)) && !isTurnWorking;
-    const shouldShowStandaloneMessageActions =
-      showSplitAssistantMessageActions && shouldShowMessageActions && !shouldShowTurnFooter;
 
     const messageActionButtons = React.useMemo(
       () => (
@@ -180,199 +142,48 @@ export const AssistantMessageBody = React.memo(
       ],
     );
 
-    const lastRenderableTextPartIndex = React.useMemo(() => {
-      if (!shouldShowStandaloneMessageActions) {
-        return -1;
-      }
-
-      let lastIndex = -1;
-      for (let index = 0; index < visibleParts.length; index += 1) {
-        const part = visibleParts[index];
-        if (!part || part.type !== 'text') {
-          continue;
-        }
-        const partId = part.id ?? `${messageId}-part-${index}-${part.type}`;
-        if (hideAssistantActivity && activityTextPartIds.has(partId)) {
-          continue;
-        }
-        lastIndex = index;
-      }
-
-      return lastIndex;
-    }, [activityTextPartIds, hideAssistantActivity, messageId, shouldShowStandaloneMessageActions, visibleParts]);
-
-    const shouldRenderStandaloneActionsAfterContent =
-      shouldShowStandaloneMessageActions && lastRenderableTextPartIndex < 0;
-
     const renderedParts = React.useMemo(() => {
       const rendered: React.ReactNode[] = [];
 
+      // The response body renders final text only. ChatMessage already
+      // removed tool, reasoning, and rail-projected justification parts via
+      // filterAssistantFinalParts; this loop only skips any remaining
+      // non-text part kinds (for example step-start markers).
       let i = 0;
       while (i < visibleParts.length) {
         const part = visibleParts[i];
 
-        if (part.type === 'text') {
-          const partId = part.id ?? `${messageId}-part-${i}-${part.type}`;
-          if (hideAssistantActivity && activityTextPartIds.has(partId)) {
-            i++;
-            continue;
-          }
-          rendered.push(
-            <div
-              key={`assistant-text-${messageId}-${i}`}
-              ref={messageTextContentRef}
-              data-message-text-export-source="true"
-            >
-              <AssistantTextPart
-                part={part}
-                sessionId={sessionId}
-                messageId={messageId}
-                streamPhase={effectiveStreamPhase}
-                onContentChange={onContentChange}
-                onShowPopup={onShowPopup}
-              />
-            </div>,
-          );
-          if (shouldShowStandaloneMessageActions && i === lastRenderableTextPartIndex) {
-            rendered.push(
-              <div
-                key={`message-actions-${messageId}`}
-                className={INLINE_MESSAGE_ACTIONS_CLASS_NAME}
-                data-message-actions="true"
-              >
-                <div className="flex items-center gap-1.5" data-message-action-group="true">
-                  {messageActionButtons}
-                </div>
-              </div>,
-            );
-          }
+        if (part.type !== 'text') {
           i++;
           continue;
         }
 
-        if (part.type === 'reasoning') {
-          if (hideAssistantActivity) {
-            i++;
-            continue;
-          }
-          if (showReasoningTraces) {
-            if (!collapsibleThinkingBlocks) {
-              rendered.push(
-                <AssistantTextPart
-                  key={`reasoning-${messageId}-${i}`}
-                  part={part}
-                  sessionId={sessionId}
-                  messageId={messageId}
-                  streamPhase={effectiveStreamPhase}
-                  onContentChange={onContentChange}
-                  onShowPopup={onShowPopup}
-                />,
-              );
-            } else {
-              rendered.push(
-                <ReasoningPart
-                  key={`reasoning-${messageId}-${i}`}
-                  part={part}
-                  messageId={messageId}
-                  streamPhase={effectiveStreamPhase}
-                  onContentChange={onContentChange}
-                  collapseByDefault={collapseThinkingByDefault}
-                />,
-              );
-            }
-          }
-          i++;
-          continue;
-        }
-
-        if (part.type === 'tool') {
-          if (hideAssistantActivity) {
-            i++;
-            continue;
-          }
-          const toolRun: ToolPartType[] = [];
-          let runIndex = i;
-          while (runIndex < visibleParts.length) {
-            const runPart = visibleParts[runIndex];
-            if (!runPart || runPart.type !== 'tool') {
-              break;
-            }
-            toolRun.push(runPart as ToolPartType);
-            runIndex += 1;
-          }
-
-          const toolNodes = toolRun.map((toolPart) => {
-            const toolName = toolPart.tool?.toLowerCase() ?? '';
-
-            if (isExpandableTool(toolName)) {
-              return (
-                <FadeInOnReveal key={`tool-${toolPart.id}`}>
-                  <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                    <ToolPart
-                      part={toolPart}
-                      isExpanded={expandedTools.has(toolPart.id)}
-                      onToggle={onToggleTool}
-                      isMobile={isMobile}
-                      alwaysShowActions={alwaysShowMessageActions}
-                      onContentChange={onContentChange}
-                      onShowPopup={onShowPopup}
-                      animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                    />
-                  </ToolRevealOnMount>
-                </FadeInOnReveal>
-              );
-            }
-
-            return (
-              <FadeInOnReveal key={`static-tools-${toolPart.id}`}>
-                <ToolRevealOnMount animate={animatedToolIdsLookup.has(toolPart.id)}>
-                  <StaticToolRow
-                    toolName={toolName}
-                    activities={[
-                      {
-                        id: toolPart.id,
-                        turnId: '',
-                        messageId,
-                        partIndex: 0,
-                        part: toolPart,
-                        kind: 'tool' as const,
-                      },
-                    ]}
-                    animateTailText={animatedToolIdsLookup.has(toolPart.id)}
-                  />
-                </ToolRevealOnMount>
-              </FadeInOnReveal>
-            );
-          });
-
-          rendered.push(...toolNodes);
-          i = runIndex;
-          continue;
-        }
-
+        rendered.push(
+          <div
+            key={`assistant-text-${messageId}-${i}`}
+            ref={messageTextContentRef}
+            data-message-text-export-source="true"
+          >
+            <AssistantTextPart
+              part={part}
+              sessionId={sessionId}
+              messageId={messageId}
+              streamPhase={effectiveStreamPhase}
+              onContentChange={onContentChange}
+              onShowPopup={onShowPopup}
+            />
+          </div>,
+        );
         i++;
       }
 
       return rendered;
     }, [
-      alwaysShowMessageActions,
-      animatedToolIdsLookup,
-      collapsibleThinkingBlocks,
-      collapseThinkingByDefault,
-      expandedTools,
-      activityTextPartIds,
-      hideAssistantActivity,
-      isMobile,
-      lastRenderableTextPartIndex,
       messageId,
-      messageActionButtons,
       sessionId,
       onContentChange,
       onShowPopup,
-      onToggleTool,
-      shouldShowStandaloneMessageActions,
       effectiveStreamPhase,
-      showReasoningTraces,
       visibleParts,
     ]);
 
@@ -456,19 +267,6 @@ export const AssistantMessageBody = React.memo(
             )}
           </div>
           <MessageFilesDisplay files={parts} onShowPopup={onShowPopup} />
-          {shouldRenderStandaloneActionsAfterContent && (
-            <div
-              className={INLINE_MESSAGE_ACTIONS_CLASS_NAME}
-              data-message-actions="true"
-            >
-              <div
-                className="flex items-center gap-1.5"
-                data-message-action-group="true"
-              >
-                {messageActionButtons}
-              </div>
-            </div>
-          )}
           {shouldShowTurnFooter && (
             <div
               className={cn(
@@ -540,15 +338,6 @@ export const AssistantMessageBody = React.memo(
                     </TooltipTrigger>
                     <TooltipContent>{footerTimestamp}</TooltipContent>
                   </Tooltip>
-                ) : null}
-                {!isMiniChatSurface && isLastAssistantInTurn && hasStopFinish ? (
-                  <TurnChangedFilesDropdown activityParts={turnGroupingContext?.activityParts} />
-                ) : null}
-                {!isMiniChatSurface && isLastAssistantInTurn && hasStopFinish ? (
-                  <TurnChangedFilePills
-                    files={turnGroupingContext?.changedFiles}
-                    isInteractive={turnGroupingContext?.isLatestTurn === true}
-                  />
                 ) : null}
               </div>
               <div

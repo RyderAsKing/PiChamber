@@ -105,6 +105,26 @@ and the send path reading the same grammar.
 - `submit/buildOutgoingMessage.ts` flattens queued messages, the composer text,
   synthetic context, attachments, and skill instructions into Pi's
   one-primary-plus-parts shape. The oldest queued message becomes primary.
+- Response-style injection (`@/lib/responseStyle`) is a first-user-prompt
+  behavior. The submit gate reads the live `PiSessionStore` snapshot
+  synchronously, before the settings-fetch await: new-session drafts always
+  qualify, while an existing session qualifies only when its authoritatively
+  hydrated, complete transcript (`hydratedSessionIds` plus a resident reducer
+  row with no `hasMoreBefore` cursor) establishes no earlier user message.
+  A cold, hydration-failed, evicted, or paged tail transcript is not proof of
+  a first prompt and skips injection — the selected session hydrates on open
+  and `prompt()` re-hydrates blank rows before dispatch, so the gate spends no
+  extra RPC or history download. `resolveResponseStyleInstruction` owns this
+  boundary: it evaluates the gate on the captured send target synchronously,
+  awaits the runtime-scoped settings fetch, then re-checks the same captured
+  session's transcript so a first user message committed while the fetch was
+  in flight (another send or a remote event) is not injected twice.
+  New-session drafts skip the re-check because their captured session does not
+  exist until materialization, and selection changes during the fetch never
+  drop the captured decision. The settings snapshot is runtime-key scoped and
+  resolves to null after a runtime switch, and `sendMessage` separately
+  rejects a captured target whose runtimeKey no longer matches, so neither
+  the instruction nor the dispatch can cross runtimes.
 - `state/useComposerDraft.ts` — a draft belongs to a (runtime, directory,
   session) identity. Writes are debounced while typing but forced at every edge
   where the page may stop running, because a pending timer is not a saved

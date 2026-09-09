@@ -19,7 +19,7 @@ import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/s
 import { DiffIcon } from '@/components/icons/DiffIcon';
 import { useUIStore, type MainTab } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { buildSessionMessageRecordsSnapshot, useDirectoryStore, useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectoryMetadataStore } from '@/stores/useDirectoryStore';
@@ -28,7 +28,6 @@ import { getAllSyncSessions } from '@/sync/sync-refs';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
-import { useDesktopWindowControlsLayout } from '@/hooks/useDesktopWindowControlsLayout';
 import { WindowsWindowControls } from '@/components/desktop/WindowsWindowControls';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
 import { useDeviceInfo, useTabletLayout, useTabletStandalonePwaRuntime } from '@/lib/device';
@@ -49,7 +48,7 @@ import { ProjectActionsButton } from '@/components/layout/ProjectActionsButton';
 const SessionSwitcherDropdown = React.lazy(() =>
   import('@/components/session/SessionSwitcherDropdown').then((module) => ({ default: module.SessionSwitcherDropdown })),
 );
-import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, startDesktopWindowDrag, type UpdateInfo } from '@/lib/desktop';
+import { canUseElectronDesktopIPC, invokeDesktop, isDesktopLocalOriginActive, isDesktopShell, startDesktopWindowDrag, usesFramelessElectronChrome, type UpdateInfo } from '@/lib/desktop';
 import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
 import {
   LOCAL_HOST_ID,
@@ -193,7 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
     return /Macintosh|Mac OS X/.test(navigator.userAgent || '');
   }, []);
 
-  const { usesFramelessChrome, side: windowControlsSide } = useDesktopWindowControlsLayout();
+  const usesFramelessChrome = usesFramelessElectronChrome();
 
   const macosMajorVersion = React.useMemo(() => {
     if (typeof window === 'undefined') {
@@ -475,7 +474,6 @@ export const Header: React.FC<HeaderProps> = ({
     }
     return getSessionDisplayTitle(currentSession);
   }, [currentSession, currentSessionId, headerLocationLabel]);
-  const headerDirectoryStore = useDirectoryStore(openDirectory || undefined, { bootstrap: false });
   const sync = useSync();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);
   const archiveSessions = useSessionUIStore((state) => state.archiveSessions);
@@ -539,7 +537,10 @@ export const Header: React.FC<HeaderProps> = ({
       toast.error("Failed to load the complete session history");
       return;
     }
-    const records = buildSessionMessageRecordsSnapshot(headerDirectoryStore.getState(), currentSessionId).list;
+    // Original snapshot always returned an empty list; the directory
+    // child-store manager was retired, so preserve the always-empty outcome
+    // without the dead dependency.
+    const records: Parameters<typeof formatSessionAsMarkdown>[0] = [];
     if (records.length === 0) {
       toast.error("Nothing to export");
       return;
@@ -549,7 +550,7 @@ export const Header: React.FC<HeaderProps> = ({
     const savedPath = await saveAsMarkdownDesktop(markdown, filename);
     if (!savedPath) downloadAsMarkdown(markdown, filename);
     toast.success("Session exported");
-  }, [currentSession?.title, currentSessionId, headerDirectoryStore, openDirectory, sync]);
+  }, [currentSession?.title, currentSessionId, openDirectory, sync]);
 
   const isCurrentSessionActive = currentSessionStatus?.type === 'busy' || currentSessionStatus?.type === 'retry';
 
@@ -1241,7 +1242,7 @@ export const Header: React.FC<HeaderProps> = ({
 
 
           {desktopSidebarActions}
-          <WindowsWindowControls visible={usesFramelessChrome && windowControlsSide === 'right'} position="right" />
+          <WindowsWindowControls visible={usesFramelessChrome} />
         </div>
       </div>
     </div>
