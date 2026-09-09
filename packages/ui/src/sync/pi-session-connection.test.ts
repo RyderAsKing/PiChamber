@@ -15,6 +15,61 @@ import {
   useSessionActivityTimingStore,
 } from '@/sync/session-activity-timing';
 
+describe('prompt crypto compatibility', () => {
+  for (const delivery of ['prompt', 'steer', 'followUp'] as const) {
+    test(`${delivery} sends without randomUUID on LAN HTTP`, async () => {
+      const store = new PiSessionStore();
+      const internal = asInternal(store);
+      internal.commitHydratedSession(reducerSession({ sessionId: 's1' }));
+      internal.state = { ...internal.state, directory: '/repo' };
+      const descriptor = Object.getOwnPropertyDescriptor(crypto, 'randomUUID');
+      const method = delivery === 'prompt' ? 'sendPrompt' : delivery === 'steer' ? 'sendSteer' : 'sendFollowUp';
+      const original = piClient[method];
+      const ids: string[] = [];
+      piClient[method] = async (input) => {
+        ids.push(input.messageId!);
+        return { accepted: true, messageId: input.messageId! };
+      };
+      Object.defineProperty(crypto, 'randomUUID', { configurable: true, value: undefined });
+      try {
+        for (let i = 0; i < 2; i++) {
+          await store.prompt('s1', 'hello', delivery, undefined, { knownEmptyTranscript: true });
+        }
+        expect(ids).toHaveLength(2);
+        expect(/^msg_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ids[0])).toBe(true);
+        expect(ids[0]).not.toBe(ids[1]);
+      } finally {
+        piClient[method] = original;
+        if (descriptor) Object.defineProperty(crypto, 'randomUUID', descriptor);
+        else Reflect.deleteProperty(crypto, 'randomUUID');
+        store.dispose();
+      }
+    });
+  }
+
+  test('ID generation failure preserves idle state', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.commitHydratedSession(reducerSession({ sessionId: 's1' }));
+    const descriptor = Object.getOwnPropertyDescriptor(crypto, 'randomUUID');
+    Object.defineProperty(crypto, 'randomUUID', {
+      configurable: true,
+      value: () => { throw new Error('random source failed'); },
+    });
+    try {
+      await expect(store.prompt('s1', 'hello', 'prompt', undefined, { knownEmptyTranscript: true }))
+        .rejects.toThrow('random source failed');
+      expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('idle');
+      expect(internal.pendingPromptById.has('s1')).toBe(false);
+      expect(store.getState().catalog.byId.get('s1')?.lifecycle).not.toBe('busy');
+    } finally {
+      if (descriptor) Object.defineProperty(crypto, 'randomUUID', descriptor);
+      else Reflect.deleteProperty(crypto, 'randomUUID');
+      store.dispose();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Helpers / fakes
 // ---------------------------------------------------------------------------

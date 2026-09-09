@@ -1235,6 +1235,20 @@ export class PiSessionStore {
       if (expected !== this.runtimeGeneration) return;
       existing = this.state.reducer.bySession.get(sessionId);
     }
+    // LAN HTTP contexts expose getRandomValues but not randomUUID. Prepare
+    // the ID before publishing busy state so random-source failures cannot
+    // strand a prompt that was never sent. Keep the existing UUID v4 format.
+    let uuid: string;
+    if (typeof crypto.randomUUID === 'function') {
+      uuid = crypto.randomUUID();
+    } else {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 0x0f) | 0x40;
+      bytes[8] = (bytes[8] & 0x3f) | 0x80;
+      const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+    const input = { sessionId, text, messageId: `msg_${uuid}`, ...(attachments?.length ? { attachments } : {}) };
     const nextSession: PiReducerSessionState = existing
       ? { ...existing, lifecycle: 'busy' }
       : {
@@ -1281,7 +1295,6 @@ export class PiSessionStore {
     const promptTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) promptTopics.push(TOPIC_CATALOG);
     this.emit(promptTopics);
-    const input = { sessionId, text, messageId: `msg_${crypto.randomUUID()}`, ...(attachments?.length ? { attachments } : {}) };
     try {
       let result;
       if (delivery === 'steer') result = await piClient.sendSteer(input, this.scope());
