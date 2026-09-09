@@ -35,6 +35,11 @@ import {
 } from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionReplayLog } from './session-replay.js';
+import {
+  createSendOperationRegistry,
+  isValidSendOperationId,
+  stableFingerprint,
+} from './send-operation-registry.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
@@ -164,6 +169,7 @@ export function createSessionDaemon({
   onOwnershipClaim,
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
+  sendOperationTtlMs = 10 * 60 * 1_000,
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
     agentDir: sessionAgentDir,
@@ -200,6 +206,9 @@ export function createSessionDaemon({
   }
   if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs < 0) {
     throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon idle timeout is invalid.');
+  }
+  if (!Number.isFinite(sendOperationTtlMs) || sendOperationTtlMs <= 0) {
+    throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon send operation ttl is invalid.');
   }
 
   let server;
@@ -248,6 +257,13 @@ export function createSessionDaemon({
   let idleDisposeTimer;
   let dormantSession;
   let sequence = 0;
+  // Opaque, random, public stream-lifetime identifier. It regenerates on every
+  // daemon process start (restart, crash, or replacement), so clients can
+  // distinguish "same daemon, contiguous sequence" from "new daemon, sequence
+  // restarted from zero". It is deliberately NOT derived from the daemon id,
+  // profile key, pid, or any other private identity: it exists only to be
+  // compared for equality on the public wire.
+  const streamEpoch = randomUUID().replace(/-/g, '');
   let started = false;
   let stopping = false;
   const knownDirectories = new Set([cwd]);
@@ -304,6 +320,27 @@ export function createSessionDaemon({
   // runtimes dirty and reload them at the next safe lifecycle edge. Other
   // Pi configuration writes queue resident-runtime recreation at that edge.
   const activeSessionInputs = new Map();
+  // Send-intent deduplication (finding #3): one stable operation id per send
+  // intent; the registry is the authoritative execution boundary before Pi.
+  // In-memory per daemon process — a restart loses receipts, which is the
+  // documented crash-window; clients must never replay uncertain sends across
+  // a verified stream-epoch change.
+  const sendOperations = createSendOperationRegistry({ ttlMs: sendOperationTtlMs });
+  // Short per-session config+acceptance lock (finding #4). Held only across a
+  // send's activation/config/acceptance section, never for a whole turn, so a
+  // streaming session still accepts standalone setModel/setThinking; aborts
+  // never take the lock. Ordinary concurrent prompts are explicitly rejected
+  // as SESSION_BUSY instead of silently converted or interleaved.
+  const sendLockStateBySession = new Map();
+  // Targeted cancel ownership for aborts that arrive while a send holds the
+  // config+acceptance lock (finding #4 phase A). One token object per
+  // in-flight acceptance; `sessions.abort` marks ONLY the current token, so
+  // a delayed abort can never cancel a later acceptance (new object) and the
+  // send's async error-path abort stays generation-guarded. The token is
+  // removed when acceptance settles. The streaming kill is additionally
+  // generation-scoped (see `sessions.abort`): an abort that awaited
+  // activation while a newer run started skips its kill.
+  const sendAcceptanceBySession = new Map();
   const pendingResourceReloads = new Set();
   const resourceReloadsByRuntime = new Map();
   let resourceReloadQueue = Promise.resolve();
@@ -468,6 +505,7 @@ export function createSessionDaemon({
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event,
+      streamEpoch,
       sequence: ++sequence,
       payload: {
         sessionId,
@@ -544,7 +582,7 @@ export function createSessionDaemon({
     };
   };
 
-  const publishSnapshot = (socket, requestedSessionId) => {
+  const publishSnapshot = (socket, requestedSessionId, { resync = false } = {}) => {
     const targetRuntime = requestedSessionId ? runtimeRegistry?.findBySessionId(requestedSessionId) : runtime;
     const session = targetRuntime?.session
       ? { sessionId: targetRuntime.session.sessionId, isStreaming: targetRuntime.session.isStreaming }
@@ -566,10 +604,15 @@ export function createSessionDaemon({
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event: 'session.snapshot',
+      streamEpoch,
       sequence: snapshotSequence,
       payload: {
         ...(session.sessionId ? { sessionId: session.sessionId } : {}),
         directory: targetDirectory,
+        // `resync` tells the client the requested cursor could not be replayed
+        // (replay window expired or a daemon restart reset the sequence), so
+        // this snapshot is a recovery baseline rather than a routine attach.
+        ...(resync ? { resync: true } : {}),
         isStreaming: session.isStreaming ?? false,
         lifecycle: retry ? 'retry' : session.isStreaming ? 'busy' : 'idle',
         ...(retry ? { retry } : {}),
@@ -690,6 +733,48 @@ export function createSessionDaemon({
 
   const beginSessionInput = (targetRuntime) => {
     activeSessionInputs.set(targetRuntime, (activeSessionInputs.get(targetRuntime) ?? 0) + 1);
+  };
+
+  /**
+   * Try to take the session's config+acceptance lock without waiting.
+   * Returns null when another send or config write already holds or queues on
+   * it — the caller must reject instead of interleaving.
+   */
+  const tryAcquireSessionSendLock = (sessionId) => {
+    if (sendLockStateBySession.has(sessionId)) return null;
+    const state = { tail: Promise.resolve() };
+    sendLockStateBySession.set(sessionId, state);
+    let releaseCurrent;
+    // Queue waiters behind the current holder, never ahead of it.
+    state.tail = new Promise((resolve) => { releaseCurrent = resolve; });
+    return {
+      release: () => {
+        releaseCurrent();
+        if (sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
+      },
+    };
+  };
+
+  /**
+   * Run a short config mutation (standalone setModel/setThinking) inside the
+   * same per-session lock, waiting behind any in-flight send acceptance
+   * instead of rejecting. The lock is never held for a whole turn.
+   */
+  const withSessionSendLock = async (sessionId, run) => {
+    const existing = sendLockStateBySession.get(sessionId);
+    const state = existing ?? { tail: Promise.resolve() };
+    if (!existing) sendLockStateBySession.set(sessionId, state);
+    const previous = state.tail;
+    let releaseCurrent;
+    const current = new Promise((resolve) => { releaseCurrent = resolve; });
+    state.tail = previous.then(() => current);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      releaseCurrent();
+      if (!existing && sendLockStateBySession.get(sessionId) === state) sendLockStateBySession.delete(sessionId);
+    }
   };
 
   const endSessionInput = (targetRuntime) => {
@@ -1501,7 +1586,10 @@ export function createSessionDaemon({
       protocolVersion: PROTOCOL_VERSION,
       kind: 'response',
       requestId,
-      result: detail,
+      // Stamp the stream lifetime so a client can reject a detail response
+      // that was generated by a previous daemon process (stale sequence
+      // space) after observing an epoch change.
+      result: { ...detail, streamEpoch },
     };
     if (Buffer.byteLength(JSON.stringify(frame)) > MAX_FRAME_BYTES) {
       throw new SessionDaemonProtocolError(
@@ -2423,6 +2511,9 @@ export function createSessionDaemon({
     const next = model && (model.reasoning === true || model.thinkingLevelMap)
       ? clampThinkingLevel(getSupportedThinkingLevels(model), thinking)
       : thinking;
+    // Inline send config (finding #4): an unchanged level is a no-op so every
+    // send can carry the captured thinking without publishing a change event.
+    if (runtime.session.thinkingLevel === next) return;
     runtime.session.setThinkingLevel(next);
     publish('session.thinking', { thinking: next }, sessionId, directory);
   };
@@ -2658,16 +2749,121 @@ export function createSessionDaemon({
     return { text: text.join('\n'), images, files };
   };
 
+  const sendOperationFingerprint = ({ kind, payload }) => ({
+    kind,
+    text: payload.text,
+    model: payload.model ?? null,
+    thinking: payload.thinking ?? null,
+    messageId: payload.messageId ?? null,
+    attachments: Array.isArray(payload.attachments)
+      ? payload.attachments.map((attachment) => ({
+          id: attachment?.id ?? null,
+          name: attachment?.name ?? null,
+          mime: attachment?.mime ?? null,
+          size: attachment?.size ?? null,
+        }))
+      : null,
+  });
+
   const sessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
+    const kind = delivery ?? 'prompt';
+    // Expected stream-epoch guard: enforced BEFORE the registry claim and
+    // before any config/Pi side effect. A retry stamped with a retired epoch
+    // (daemon restart) has an unknown outcome — it may have executed on the
+    // old lifetime — so it is rejected as unknown, never executed nor
+    // deduplicated. Omit `streamEpoch` for legacy fire-and-forget sends.
+    if (payload.streamEpoch !== undefined) {
+      if (typeof payload.streamEpoch !== 'string' || payload.streamEpoch.length === 0 || payload.streamEpoch.length > 128) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The expected stream epoch is invalid.');
+      }
+      if (payload.streamEpoch !== streamEpoch) {
+        throw new SessionDaemonProtocolError('STALE_STREAM_EPOCH', 'The daemon restarted since this operation was created; its outcome is unknown. Retry with a new operation id.');
+      }
+    }
+    // Finding #3: claim the stable operation id at the authoritative execution
+    // boundary — before Pi activation and before any attachment side effect.
+    // A duplicate returns the original receipt; a payload mismatch rejects.
+    // `streamEpoch` is NOT fingerprinted (see guard above).
+    let claimEntry = null;
+    if (payload.operationId !== undefined) {
+      if (!isValidSendOperationId(payload.operationId)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send operation id is invalid.');
+      }
+      const claimed = sendOperations.claim({
+        kind,
+        sessionId: payload.sessionId,
+        operationId: payload.operationId,
+        fingerprint: stableFingerprint(sendOperationFingerprint({ kind, payload })),
+      });
+      if (claimed.outcome === 'mismatch') {
+        throw new SessionDaemonProtocolError('OPERATION_PAYLOAD_MISMATCH', 'This operation id was already used with a different payload.');
+      }
+      if (claimed.outcome === 'expired') {
+        throw new SessionDaemonProtocolError('OPERATION_EXPIRED', 'This operation id expired after the retention window; retry with a new operation id.');
+      }
+      if (claimed.outcome === 'overloaded') {
+        throw new SessionDaemonProtocolError('SESSION_BUSY', 'The daemon is accepting too many sends; retry with backoff.');
+      }
+      if (claimed.outcome === 'accepted') return { ...claimed.receipt, deduplicated: true };
+      if (claimed.outcome === 'pending') {
+        // A concurrent duplicate shares the original outcome.
+        const shared = await claimed.settled;
+        return { ...shared.receipt, deduplicated: true };
+      }
+      claimEntry = claimed.entry;
+    }
+    // Finding #4: short per-session config+acceptance lock. Ordinary
+    // concurrent prompts are explicitly rejected as busy instead of
+    // interleaving; the lock is released at acceptance, never held for a turn.
+    // The claim above MUST settle on every failure below — an unsettled
+    // pending entry stays until its owner settles (pending is never evicted),
+    // so a forgotten settle hangs concurrent duplicates until restart.
+    const sendLock = tryAcquireSessionSendLock(payload.sessionId);
+    if (!sendLock) {
+      const busyError = new SessionDaemonProtocolError('SESSION_BUSY', 'A send for this session is already being accepted.');
+      claimEntry?.settle({ accepted: false, error: busyError });
+      throw busyError;
+    }
+    // Targeted acceptance token so an abort arriving during config cancels
+    // ONLY this acceptance (object identity; later acceptances get a new
+    // object). Removed in `finally` below.
+    const acceptance = { cancelled: false };
+    sendAcceptanceBySession.set(payload.sessionId, acceptance);
+    try {
+      const result = await runSessionInputAcceptance(payload, delivery, acceptance);
+      claimEntry?.settle({ accepted: true, receipt: { accepted: true, messageId: result.messageId } });
+      return result;
+    } catch (error) {
+      claimEntry?.settle({ accepted: false, error });
+      throw error;
+    } finally {
+      if (sendAcceptanceBySession.get(payload.sessionId) === acceptance) {
+        sendAcceptanceBySession.delete(payload.sessionId);
+      }
+      sendLock.release();
+    }
+  };
+
+  const runSessionInputAcceptance = async (payload, delivery, acceptance) => {
     // Idle protection is owned by the request-dispatch guard: it holds the
     // session refcount across activation/acceptance, agent_start clears once
     // the turn is live, and settlement re-arms.
+    // Abort-during-acceptance barrier: if `sessions.abort` marked this
+    // acceptance's token while activation/config was in flight, fail BEFORE
+    // any Pi invocation so no partial execution escapes. The registry settle
+    // in `sessionInput` frees the id (nothing executed, safe to retry).
+    const throwIfAcceptanceAborted = () => {
+      if (acceptance?.cancelled === true) {
+        throw new SessionDaemonProtocolError('SESSION_ABORTED', 'The send was aborted during acceptance.');
+      }
+    };
     let activeRuntime = await activateSession(payload.sessionId, payload.directory);
+    throwIfAcceptanceAborted();
     let recreated = false;
     try {
       recreated = await flushPendingRuntimeRecreation();
@@ -2678,6 +2874,7 @@ export function createSessionDaemon({
     }
     if (recreated) activeRuntime = await activateSession(payload.sessionId, payload.directory);
     await flushPendingResourceReload(activeRuntime);
+    throwIfAcceptanceAborted();
     // After a provider stream dies, Pi can report idle while the UI still
     // retries as steer/follow-up. Start a new turn instead of rejecting.
     const deliverAs = delivery && activeRuntime.session.isStreaming ? delivery : undefined;
@@ -2687,8 +2884,19 @@ export function createSessionDaemon({
     beginSessionInput(activeRuntime);
     try {
     if (payload.model !== undefined) {
-      await setSessionModel(activeRuntime, payload.model);
-      publishSessionModel(activeRuntime.session, payload.sessionId, activeRuntime.cwd);
+      // Inline send config (finding #4). Applying an identical model is
+      // skipped: Pi resets thinking to the model default on setModel, so a
+      // no-op re-apply would clobber the thinking level sent below.
+      const liveModel = activeRuntime.session?.model;
+      const modelUnchanged = Boolean(
+        liveModel?.provider && liveModel?.id
+        && liveModel.provider === payload.model.providerId
+        && liveModel.id === payload.model.modelId,
+      );
+      if (!modelUnchanged) {
+        await setSessionModel(activeRuntime, payload.model);
+        publishSessionModel(activeRuntime.session, payload.sessionId, activeRuntime.cwd);
+      }
     }
     if (payload.thinking !== undefined) {
       applyThinking(activeRuntime, payload.thinking, payload.sessionId, activeRuntime.cwd);
@@ -2722,6 +2930,7 @@ export function createSessionDaemon({
     }
 
     const attachments = await prepareAttachmentContent(payload.attachments);
+    throwIfAcceptanceAborted();
     const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
     const content = attachments.images.length > 0
       ? [{ type: 'text', text }, ...attachments.images]
@@ -2869,7 +3078,10 @@ export function createSessionDaemon({
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
     clearToolTimingsForSession(sessionId);
-    publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
+    // Explicit typed deletion: every connected and replaying client drops
+    // catalog, transcript, activity, and caches. Archive and directory moves
+    // keep the session id and never publish this event.
+    publish('session.deleted', {}, sessionId, targetDir);
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
@@ -3218,11 +3430,16 @@ export function createSessionDaemon({
             state: 'ready',
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
+            streamEpoch,
             capabilities: [
+              // Public stream-lifetime identification: every event, snapshot,
+              // and health result carries `streamEpoch`, and session read
+              // responses stamp it so clients can reject stale-epoch data.
+              'events.streamEpoch',
               'runtime.claim', 'runtime.shutdown',
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
-              'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
+              'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
@@ -3439,7 +3656,9 @@ export function createSessionDaemon({
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
           requestId: message.requestId,
-          result: { sessions },
+          // Stamp the stream lifetime so clients can reject a listing that a
+          // previous daemon process generated after an epoch change.
+          result: { sessions, streamEpoch },
         });
         return;
       }
@@ -3539,8 +3758,79 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
+      case 'sessions.sendReceipt': {
+        // Narrow safe-confirmation lookup for a previous send intent. Exact
+        // `kind + sessionId + operationId` identity; `streamEpoch` (when
+        // supplied) must match this daemon lifetime or the answer is
+        // `unknown` — receipts never survive a restart, so an old epoch can
+        // never confirm execution here. No Pi invocation, no config, no
+        // registry mutation: read-only except bounded expiry eviction.
+        const payload = message.payload ?? {};
+        const kind = payload.kind;
+        const sessionId = payload.sessionId;
+        const operationId = payload.operationId;
+        if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp')
+          || typeof sessionId !== 'string' || sessionId.length === 0
+          || !isValidSendOperationId(operationId)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send receipt lookup is invalid.');
+        }
+        if (payload.streamEpoch !== undefined) {
+          if (typeof payload.streamEpoch !== 'string' || payload.streamEpoch.length === 0 || payload.streamEpoch.length > 128) {
+            throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The expected stream epoch is invalid.');
+          }
+          if (payload.streamEpoch !== streamEpoch) {
+            writeFrame(socket, {
+              protocolVersion: PROTOCOL_VERSION,
+              kind: 'response',
+              requestId: message.requestId,
+              result: { status: 'unknown', streamEpoch },
+            });
+            return;
+          }
+        }
+        const lookup = sendOperations.query({ kind, sessionId, operationId });
+        if (lookup.status === 'accepted') {
+          writeFrame(socket, {
+            protocolVersion: PROTOCOL_VERSION,
+            kind: 'response',
+            requestId: message.requestId,
+            result: { status: 'accepted', streamEpoch, receipt: lookup.receipt },
+          });
+          return;
+        }
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { status: lookup.status, streamEpoch },
+        });
+        return;
+      }
       case 'sessions.abort': {
+        // Targeted acceptance cancel plus generation-scoped streaming kill.
+        // If a send holds the config+acceptance lock, mark ONLY its current
+        // token (later acceptances get a new object, so a delayed mark can
+        // never cancel a new run). The acceptance barrier turns the mark into
+        // a `SESSION_ABORTED` failure before any Pi invocation (registry id
+        // freed, nothing executed). For the streaming kill, capture the send
+        // generation at entry: if a newer run starts during this abort's own
+        // `activateSession` await, the generation advances and the kill is
+        // skipped so an old abort cannot cancel newer work. The abort still
+        // reports success (it cancelled what was current at entry); a newer
+        // run needs its own abort.
+        const abortSessionId = typeof message.payload?.sessionId === 'string' ? message.payload.sessionId : undefined;
+        const abortGeneration = abortSessionId !== undefined ? (sendGenerationBySession.get(abortSessionId) ?? 0) : 0;
+        try {
+          const abortTarget = abortSessionId !== undefined ? sendAcceptanceBySession.get(abortSessionId) : undefined;
+          if (abortTarget) abortTarget.cancelled = true;
+        } catch {}
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        // An old abort awaiting activation must not kill a newer run that
+        // started while it was awaiting: the generation guard owns this.
+        if (abortSessionId !== undefined && (sendGenerationBySession.get(abortSessionId) ?? 0) !== abortGeneration) {
+          writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+          return;
+        }
         const streaming = activeRuntime.session.isStreaming;
         await activeRuntime.session.abort();
         if (streaming) publish('session.interrupted', { reason: 'user-abort', streaming: true }, message.payload.sessionId, activeRuntime.cwd);
@@ -3548,15 +3838,24 @@ export function createSessionDaemon({
         return;
       }
       case 'sessions.setModel': {
-        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        await setSessionModel(activeRuntime, message.payload?.model);
-        publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
+        // Standalone config joins the same per-session config+acceptance lock
+        // (finding #4): it serializes behind an in-flight send acceptance
+        // instead of interleaving with it, but never waits for a whole turn.
+        const payload = message.payload;
+        await withSessionSendLock(payload?.sessionId, async () => {
+          const activeRuntime = await activateSession(payload?.sessionId, payload?.directory || payload?.cwd);
+          await setSessionModel(activeRuntime, payload?.model);
+          publishSessionModel(activeRuntime.session, payload.sessionId, activeRuntime.cwd);
+        });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
       case 'sessions.setThinking': {
-        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
-        applyThinking(activeRuntime, message.payload?.thinking, message.payload.sessionId, activeRuntime.cwd);
+        const payload = message.payload;
+        await withSessionSendLock(payload?.sessionId, async () => {
+          const activeRuntime = await activateSession(payload?.sessionId, payload?.directory || payload?.cwd);
+          applyThinking(activeRuntime, payload?.thinking, payload.sessionId, activeRuntime.cwd);
+        });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }
@@ -3651,14 +3950,32 @@ export function createSessionDaemon({
             writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'authenticated' });
             const requestedSessionId = typeof message.sessionId === 'string' && message.sessionId.length > 0 ? message.sessionId : undefined;
             const fromSequence = Number.isSafeInteger(message.fromSequence) && message.fromSequence >= 0 ? message.fromSequence : undefined;
+            // Stream-lifetime identity the client's cursor was established
+            // under (capability negotiation). A cursor stamped with a
+            // different epoch belongs to a retired sequence space: even when
+            // this daemon's sequence numerically overtook it, replaying from
+            // it would silently skip the head of the new sequence space.
+            // Subscribers without the marker (legacy clients) cannot be
+            // epoch-verified at all, so their cursor is never replayed —
+            // they receive the snapshot safe fallback instead.
+            const requestedEpoch = typeof message.streamEpoch === 'string' && message.streamEpoch.length > 0 && message.streamEpoch.length <= 128
+              ? message.streamEpoch
+              : undefined;
+            const epochMismatch = requestedEpoch !== undefined && requestedEpoch !== streamEpoch;
             // Contiguity is judged on the global retained suffix while delivery
             // stays session-filtered, so a filtered client never replays through
             // a gap left by eviction, an oversized event, an empty ring, or a
             // future cursor: all of those take the snapshot fallback below.
-            if (fromSequence !== undefined && replayLog.canReplay(fromSequence, sequence)) {
+            // Replay additionally requires the epoch marker: a subscriber that
+            // cannot epoch-verify its cursor (legacy client) always receives
+            // the snapshot safe fallback instead of a raw-sequence replay.
+            if (fromSequence !== undefined && requestedEpoch !== undefined && !epochMismatch && replayLog.canReplay(fromSequence, sequence)) {
               for (const cachedLine of replayLog.linesAfter(fromSequence, requestedSessionId)) writeLine(socket, cachedLine);
             } else {
-              publishSnapshot(socket, requestedSessionId);
+              // A supplied cursor that cannot be replayed is a resync: the
+              // snapshot is the client's recovery baseline for a missed replay
+              // window, a daemon restart, or a cursor from a retired epoch.
+              publishSnapshot(socket, requestedSessionId, { resync: fromSequence !== undefined || epochMismatch === true });
             }
             continue;
           }

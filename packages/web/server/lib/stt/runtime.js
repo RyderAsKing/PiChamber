@@ -6,7 +6,7 @@ import { SttStreamManager } from './stream-manager.js';
 
 const HEARTBEAT_MS = 30_000;
 
-export function createSttRuntime({ app, server, express, uiAuthController, isRequestOriginAllowed, rejectWebSocketUpgrade, modelsDir, configFile }) {
+export function createSttRuntime({ app, server, express, uiAuthController, isRequestOriginAllowed, rejectWebSocketUpgrade, modelsDir, configFile, liveRevocation = null }) {
   const service = createSttService({ modelsDir, configFile });
   const manager = new SttStreamManager({ createTranscriber: (providerConfigId) => service.createTranscriber(providerConfigId) });
 
@@ -82,15 +82,49 @@ export function createSttRuntime({ app, server, express, uiAuthController, isReq
     socket.on('error', () => {});
   });
 
+  const trackUpgradePrincipal = (socket, principal, generation) => {
+    if (!principal || typeof liveRevocation?.trackLiveConnection !== 'function') return null;
+    let tracked;
+    try {
+      tracked = liveRevocation.trackLiveConnection({
+        principal,
+        close: () => {
+          if (!socket.destroyed) socket.destroy();
+        },
+        generation,
+      });
+    } catch {
+      try { if (!socket.destroyed) socket.destroy(); } catch {}
+      return null;
+    }
+    // Covers the pending window, a failed upgrade, and the natural close.
+    // Rejected registrations already destroyed the socket; the inactive entry
+    // signals the caller to skip handleUpgrade.
+    socket.once('close', () => tracked.end());
+    return tracked;
+  };
+
   const upgradeHandler = (req, socket, head) => {
     if (parseRequestPathname(req.url) !== STT_WS_PATH) return;
     void (async () => {
       try {
+        let principal = null;
+        let generation;
+        try {
+          if (typeof liveRevocation?.getGeneration === 'function') generation = liveRevocation.getGeneration();
+        } catch {
+          generation = undefined;
+        }
         if (uiAuthController?.enabled) {
-          if (!await uiAuthController.ensureSessionToken(req, null)) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
+          principal = await uiAuthController.ensureSessionToken(req, null);
+          if (!principal) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
           if (!await isRequestOriginAllowed(req)) { rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return; }
         }
         if (!wsServer) { rejectWebSocketUpgrade(socket, 503, 'STT WebSocket unavailable'); return; }
+        // Deterministic verify-registration barrier, as in the terminal
+        // runtime: generation captured before the auth/origin awaits.
+        const tracked = trackUpgradePrincipal(socket, principal, generation);
+        if (principal && tracked && tracked.active === false) return;
         wsServer.handleUpgrade(req, socket, head, (ws) => wsServer.emit('connection', ws, req));
       } catch { rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'); }
     })();

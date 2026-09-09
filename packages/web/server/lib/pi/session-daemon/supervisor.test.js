@@ -92,7 +92,8 @@ describe('Pi session daemon supervisor', () => {
     await expect(supervisor.health()).resolves.toEqual({
       state: 'ready',
       protocolVersion: 1,
-      capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login', 'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set', 'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete']),
+      capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login', 'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set', 'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete', 'events.streamEpoch']),
+      streamEpoch: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     await expect(supervisor.request('sessions.list')).resolves.toMatchObject({ sessions: expect.any(Array) });
 

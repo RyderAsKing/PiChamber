@@ -1,6 +1,8 @@
 import React from 'react';
+import { toast } from '@/components/ui';
 import { useUIStore } from '@/stores/useUIStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import { buildGuardedWriteOptions } from '@/components/views/files/fileRevisionCache';
 import { DiagramEditor, type DiagramEditorHandle } from '@/components/diagram/DiagramEditor';
 import { Icon } from '@/components/icon/Icon';
 
@@ -11,21 +13,33 @@ export function DiagramView() {
   const [filePath, setFilePath] = React.useState<string | null>(null);
   const [xml, setXml] = React.useState('');
   const [loading, setLoading] = React.useState(true);
+  // Opaque read-content revision backing guarded writes; undefined =
+  // unknown/legacy (no guard), null = missing file.
+  const revisionRef = React.useRef<string | null | undefined>(undefined);
+  const loadIdRef = React.useRef(0);
   const editorRef = React.useRef<DiagramEditorHandle>(null);
   const pendingDiagramFile = useUIStore((state) => state.pendingDiagramFile);
 
   const loadFile = React.useCallback(async (path: string) => {
+    const loadId = loadIdRef.current + 1;
+    loadIdRef.current = loadId;
     setLoading(true);
     setFilePath(path);
     try {
       const result = await files?.readFile?.(path);
+      if (loadIdRef.current !== loadId) return;
       if (result) {
         setXml(result.content);
+        revisionRef.current = result.revision;
       }
     } catch {
+      if (loadIdRef.current !== loadId) return;
       setXml('');
+      revisionRef.current = undefined;
     } finally {
-      setLoading(false);
+      if (loadIdRef.current === loadId) {
+        setLoading(false);
+      }
     }
   }, [files]);
 
@@ -41,9 +55,20 @@ export function DiagramView() {
 
   const saveDiagram = React.useCallback(async () => {
     const newXml = editorRef.current?.getXml();
-    if (filePath && files?.writeFile && newXml && newXml !== xml) {
-      await files.writeFile(filePath, newXml);
+    if (!filePath || !files?.writeFile || !newXml || newXml === xml) return;
+    try {
+      // Guarded write: an external change since the read surfaces as a typed
+      // error instead of silently overwriting the file on disk.
+      const result = await files.writeFile(filePath, newXml, buildGuardedWriteOptions(revisionRef.current));
+      if (!result?.success) {
+        toast.error('Failed to write file');
+        return;
+      }
       setXml(newXml);
+      if (typeof result.revision !== 'undefined') revisionRef.current = result.revision;
+    } catch (error) {
+      // The editor keeps its content; the user can retry or reload.
+      toast.error(error instanceof Error ? error.message : 'Save failed');
     }
   }, [filePath, files, xml]);
 

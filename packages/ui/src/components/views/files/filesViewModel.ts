@@ -11,6 +11,8 @@ export type FileStatSnapshot = {
   path: string;
   size: number;
   mtimeMs?: number;
+  /** Opaque read/write revision when the stat source supplied one. */
+  revision?: string | null;
 };
 
 export const getParentDirectoryPath = (path: string): string => {

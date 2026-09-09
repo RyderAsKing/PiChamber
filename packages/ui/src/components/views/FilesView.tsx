@@ -59,8 +59,10 @@ import { useFileOperations } from './files/useFileOperations';
 import { loadFileDocument } from './files/loadFileDocument';
 import { useDirtyFileNavigation, type DirtyFileNavigationIntent } from './files/useDirtyFileNavigation';
 import { useFileEditorNavigation } from './files/useFileEditorNavigation';
-import { useFileEditorSave } from './files/useFileEditorSave';
+import { useFileEditorSave, type FileEditorConflict } from './files/useFileEditorSave';
 import { useFileStatReconciliation } from './files/useFileStatReconciliation';
+import { shouldInvalidateLoadedRevision, type FileRevisionScope } from './files/fileRevisionCache';
+import { FileSaveConflictDialog } from './files/FileSaveConflictDialog';
 import { useFileViewerModes } from './files/useFileViewerModes';
 import { useFilesTree, shouldEnableFilesTree } from './files/useFilesTree';
 import { useFilesViewSearch } from './files/useFilesViewSearch';
@@ -276,6 +278,23 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const desktopImageBlobUrlRef = React.useRef<string>('');
 
   const [loadedFilePath, setLoadedFilePath] = React.useState<string | null>(null);
+  // Opaque read-content revision retained exact with buffer/runtime/path/
+  // generation. `undefined` = unknown/legacy (no guard), `null` = missing.
+  const [loadedFileRevision, setLoadedFileRevision] = React.useState<string | null | undefined>(undefined);
+  const [loadedRevisionScope, setLoadedRevisionScope] = React.useState<{ runtimeKey: string; root: string; path: string; generation: number } | null>(null);
+  const activeRuntimeKey = useFilesViewTabsStore((state) => state.activeRuntimeKey);
+  const [saveConflictDetails, setSaveConflictDetails] = React.useState<{
+    path: string;
+    displayPath: string;
+    exists: boolean;
+    currentRevision: string | null;
+    currentContent: string | null;
+    /** Non-null when the conflict came from a Draw.io diagram save; the
+     *  preserved diagram XML the Overwrite action must re-attempt. */
+    diagramXml: string | null;
+  } | null>(null);
+  const [isResolvingConflict, setIsResolvingConflict] = React.useState(false);
+  const [showConflictCompare, setShowConflictCompare] = React.useState(false);
 
   const [draftContent, setDraftContent] = React.useState('');
   const [loadedFileLineEnding, setLoadedFileLineEnding] = React.useState<FileLineEnding>('\n');
@@ -300,6 +319,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setFileError(null);
     setDesktopImageSrc('');
     setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
     if (isMobile) setShowMobilePageContent(false);
   }, [isMobile, root, setSelectedPath]);
   const {
@@ -380,8 +403,34 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setFileError(null);
     setDesktopImageSrc('');
     setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
     setShowMobilePageContent(false);
   }, [root]);
+
+  // Runtime switch with an identical path must never reuse the previous
+  // runtime's bytes or revision. Tabs already reset per runtime; local
+  // content/revision follows the same boundary.
+  const lastFilesViewRuntimeRef = React.useRef<string>(activeRuntimeKey);
+  React.useEffect(() => {
+    if (lastFilesViewRuntimeRef.current === activeRuntimeKey) return;
+    lastFilesViewRuntimeRef.current = activeRuntimeKey;
+    activeFileLoadIdRef.current += 1;
+    loadingFilePathRef.current = null;
+    setFileContent('');
+    setDraftContent('');
+    setFileError(null);
+    setFileLoading(false);
+    setDesktopImageSrc('');
+    setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
+    setContentDetectedBinary(false);
+  }, [activeRuntimeKey]);
 
   const searchDirectory = mobileChrome ? mobileDirectory : currentDirectory;
   const { results: searchResults, searching } = useFilesViewSearch({
@@ -392,10 +441,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     showGitignored,
   });
 
-  const readFile = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string; optional?: boolean }): Promise<string> => {
+  const readFileEntry = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string; optional?: boolean }): Promise<{ content: string; revision?: string | null; exists?: boolean }> => {
     if (files.readFile) {
       const result = await files.readFile(path, { ...(options ?? {}), directory: root || undefined });
-      return result.content ?? '';
+      return { content: result.content ?? '', revision: result.revision, exists: result.exists };
     }
 
     const params = new URLSearchParams({ path });
@@ -418,16 +467,25 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       const error = await response.json().catch(() => ({ error: response.statusText }));
       throw new Error((error as { error?: string }).error || "Failed to read file");
     }
-    return response.text();
+    const content = await response.text();
+    const rawRevision = response.headers?.get?.('x-pichamber-file-revision');
+    const existsHeader = response.headers?.get?.('x-pichamber-file-exists');
+    const exists = existsHeader === 'false' ? false : true;
+    return {
+      content,
+      revision: typeof rawRevision === 'string' && rawRevision.length > 0 ? rawRevision : (exists ? undefined : null),
+      exists,
+    };
   }, [files, root]);
 
-  const readFileStat = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string }): Promise<FileStatSnapshot | null> => {
+  const readFileStat = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string; knownRevision?: string | null }): Promise<FileStatSnapshot | null> => {
     if (files.statFile) {
       const result = await files.statFile(path, { ...(options ?? {}), directory: root || undefined });
       return {
         path: result.path,
         size: result.size,
         mtimeMs: result.mtimeMs,
+        revision: result.revision,
       };
     }
     return null;
@@ -468,12 +526,16 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
 
   const isDirty = draftContent !== displayedContent;
   const readSelectedFileStat = React.useCallback(
-    (path: string) => readFileStat(path, selectedFileReadOptions),
+    (path: string, options?: { knownRevision?: string | null }) => readFileStat(path, { ...selectedFileReadOptions, ...options }),
     [readFileStat, selectedFileReadOptions],
   );
   const reloadExternallyChangedFile = React.useCallback(() => {
     // The selection effect observes this reset and performs exactly one reload.
+    // Dirty drafts never reach here (the reconciler skips them), so clearing
+    // the revision is safe: the reload captures a fresh one.
     setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
   }, []);
   const { recordStat: recordLoadedFileStat } = useFileStatReconciliation({
     selectedPath: selectedFile?.path ?? null,
@@ -482,6 +544,107 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     readStat: readSelectedFileStat,
     onExternalChange: reloadExternallyChangedFile,
   });
+  // Assigned right after useFileViewerModes resolves; lets handleFileSaved
+  // keep the diagram buffers in sync without a hook-order dependency cycle.
+  const recordDiagramContentRef = React.useRef<((content: string) => void) | null>(null);
+
+  const handleFileSaved = React.useCallback((path: string, content: string, revision?: string | null, scope?: FileRevisionScope | null) => {
+    setFileContent(content);
+    // Bind the saved revision to the save's captured authority (runtime/root/
+    // path/generation), not to whatever is current at completion time; the
+    // save hook has already dropped stale completions.
+    const savedGeneration = scope?.generation ?? activeFileLoadIdRef.current;
+    if (typeof revision !== 'undefined') {
+      setLoadedFileRevision(revision);
+      setLoadedRevisionScope({
+        runtimeKey: scope?.runtimeKey ?? activeRuntimeKey,
+        root: scope?.root ?? root,
+        path,
+        generation: savedGeneration,
+      });
+    }
+    if (root && isPathWithinRoot(path, root)) {
+      const relativePath = getDisplayPath(root, path);
+      if (relativePath) {
+        sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
+      }
+    }
+    if (isDrawioFile(path)) recordDiagramContentRef.current?.(content);
+    // Refresh stat after write so polling does not observe our own stale
+    // metadata. A stat completing after a selection/runtime switch is stale
+    // and must not poison the reconciliation baseline.
+    void readFileStat(path)
+      .then((stat) => {
+        if (!stat) return;
+        if (activeFileLoadIdRef.current !== savedGeneration) return;
+        recordLoadedFileStat(stat);
+      })
+      .catch(() => {});
+  }, [activeRuntimeKey, readFileStat, recordLoadedFileStat, root]);
+
+  const captureSaveScope = React.useCallback((): FileRevisionScope | null => {
+    if (!selectedFile?.path) return null;
+    return {
+      runtimeKey: activeRuntimeKey,
+      root,
+      path: selectedFile.path,
+      generation: activeFileLoadIdRef.current,
+    };
+  }, [activeRuntimeKey, root, selectedFile?.path]);
+  const currentSaveScope = captureSaveScope;
+
+  const handleSaveConflict = React.useCallback(async (conflict: FileEditorConflict, diagramXml: string | null = null) => {
+    // The conflict dialog belongs to the file the save was started for; a
+    // selection/reload/runtime switch (generation bump) during the fetch
+    // must not open it over the now-selected document.
+    const capturedGeneration = activeFileLoadIdRef.current;
+    const targetPath = conflict.path;
+    // Fetch the current version without touching the dirty draft or the
+    // preserved diagram XML. A failed fetch still opens the dialog (reload
+    // then retries the read).
+    let currentContent: string | null = null;
+    let currentRevision: string | null = conflict.currentRevision;
+    let exists = conflict.exists;
+    try {
+      if (exists) {
+        const entry = await readFileEntry(targetPath, selectedFileReadOptions);
+        currentContent = entry.content;
+        if (typeof entry.revision === 'string') currentRevision = entry.revision;
+        exists = entry.exists !== false;
+      }
+    } catch {
+      // Keep the server-advertised revision; Reload will surface the error.
+    }
+    if (activeFileLoadIdRef.current !== capturedGeneration) return;
+    setSaveConflictDetails({
+      path: targetPath,
+      displayPath: getDisplayPath(root, targetPath) || targetPath,
+      exists,
+      currentRevision,
+      currentContent,
+      diagramXml,
+    });
+    setShowConflictCompare(false);
+    // Preserve dirty text and diagram XML: nothing here writes to buffers.
+  }, [readFileEntry, root, selectedFileReadOptions]);
+
+  const guardedExpectedRevision = React.useMemo(() => {
+    if (!selectedFile?.path || loadedFilePath !== selectedFile.path) return undefined;
+    const scope = loadedRevisionScope;
+    if (!scope) return undefined;
+    if (shouldInvalidateLoadedRevision(
+      { ...scope, revision: loadedFileRevision },
+      { runtimeKey: activeRuntimeKey, root, path: selectedFile.path, generation: activeFileLoadIdRef.current },
+    )) {
+      // Stale scope with a known base must never degrade to an unguarded
+      // legacy write. Force a typed conflict so dirty text is preserved and
+      // the explicit reload/overwrite/compare workflow runs.
+      if (typeof loadedFileRevision === 'string' || loadedFileRevision === null) return '__stale__';
+      return undefined;
+    }
+    if (typeof loadedFileRevision === 'string' || loadedFileRevision === null) return loadedFileRevision;
+    return undefined;
+  }, [activeRuntimeKey, loadedFilePath, loadedFileRevision, loadedRevisionScope, root, selectedFile?.path]);
   const {
     clearDiagramContent,
     diagramEditorXml,
@@ -510,30 +673,19 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setDraftContent,
     autoSaveEnabled,
     writeFile: files.writeFile,
-    readStat: readSelectedFileStat,
-    recordStat: recordLoadedFileStat,
+    expectedRevision: guardedExpectedRevision,
+    captureSaveScope,
+    currentSaveScope,
+    onSaved: handleFileSaved,
+    onConflict: (conflict) => { void handleSaveConflict(conflict, conflict.xml); },
   });
+  recordDiagramContentRef.current = recordDiagramContent;
   const getMdViewMode = React.useCallback(() => mdViewMode, [mdViewMode]);
 
-  const handleFileSaved = React.useCallback((path: string, content: string) => {
-    setFileContent(content);
-    if (root && isPathWithinRoot(path, root)) {
-      const relativePath = getDisplayPath(root, path);
-      if (relativePath) {
-        sessionEvents.requestGitRefresh({ directory: root, paths: [relativePath] });
-      }
-    }
-    if (isDrawioFile(path)) recordDiagramContent(content);
-    // Refresh stat after write so polling does not observe our own stale metadata.
-    void readFileStat(path)
-      .then((stat) => {
-        if (stat) recordLoadedFileStat(stat);
-      })
-      .catch(() => {});
-  }, [readFileStat, recordDiagramContent, recordLoadedFileStat, root]);
   const {
     autoSaveStatus,
     isSaving,
+    clearSaveConflict,
     saveDraft,
     saveNow,
   } = useFileEditorSave({
@@ -547,7 +699,11 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     lineEnding: loadedFileLineEnding,
     isNonEditableBinary: Boolean(selectedFile?.path && (isBinaryFile(selectedFile.path) || contentDetectedBinary)),
     writeFile: files.writeFile,
+    expectedRevision: guardedExpectedRevision,
     onSaved: handleFileSaved,
+    captureSaveScope,
+    currentSaveScope,
+    onConflict: (conflict) => { void handleSaveConflict(conflict); },
   });
   const {
     confirmOpen: confirmDiscardOpen,
@@ -579,8 +735,11 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const loadSelectedFile = React.useCallback(async (node: FileNode) => {
     const loadId = activeFileLoadIdRef.current + 1;
     activeFileLoadIdRef.current = loadId;
+    const loadRuntimeKey = activeRuntimeKey;
+    const loadRoot = root;
     const isCurrentLoad = () => {
       if (!root) return false;
+      if (loadRuntimeKey !== activeRuntimeKey || loadRoot !== root) return false;
       const rootState = useFilesViewTabsStore.getState().byRoot[root];
       const currentPath = rootState?.selectedPath ?? rootState?.openPaths[0] ?? null;
       return activeFileLoadIdRef.current === loadId && currentPath === node.path;
@@ -589,6 +748,11 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     setFileError(null);
     setDesktopImageSrc('');
     setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
+    clearSaveConflict();
     setContentDetectedBinary(false);
 
     if (isMobile) {
@@ -602,11 +766,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     };
     let keepDesktopImageLoading = false;
     setFileLoading(true);
+    let entryRevision: string | null | undefined;
 
     await loadFileDocument(
       node.path,
       runtime.isDesktop,
-      (path) => readFile(path, readOptions),
+      (path) => readFileEntry(path, readOptions).then((entry) => {
+        entryRevision = entry.revision;
+        return entry.content;
+      }),
     )
       .then((result) => {
         if (!isCurrentLoad()) return;
@@ -630,6 +798,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         recordDiagramContent(result.content);
         setDraftContent(result.draft);
         setLoadedFilePath(node.path);
+        setLoadedFileRevision(entryRevision);
+        setLoadedRevisionScope({ runtimeKey: loadRuntimeKey, root: loadRoot, path: node.path, generation: loadId });
         void readFileStat(node.path, readOptions)
           .then((stat) => {
             if (stat && isCurrentLoad()) {
@@ -651,6 +821,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileContent('');
           setDraftContent('');
           setLoadedFilePath(null);
+          setLoadedFileRevision(undefined);
+          setLoadedRevisionScope(null);
           recordLoadedFileStat(null);
           if (searchQuery.trim().length > 0) {
             setSearchQuery('');
@@ -679,6 +851,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileContent('');
           setDraftContent('');
           setFileError(null);
+          setLoadedFileRevision(undefined);
+          setLoadedRevisionScope(null);
           recordLoadedFileStat(null);
           if (isMobile) {
             setShowMobilePageContent(false);
@@ -688,6 +862,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         setFileContent('');
         setDraftContent('');
         setFileError(error instanceof Error ? error.message : "Failed to read file");
+        setLoadedFileRevision(undefined);
+        setLoadedRevisionScope(null);
         recordLoadedFileStat(null);
       })
       .finally(() => {
@@ -695,7 +871,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileLoading(false);
         }
       });
-  }, [expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFile, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
+  }, [activeRuntimeKey, clearSaveConflict, expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFileEntry, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
     if (!root || !needsTree) {
@@ -740,10 +916,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     clearDiagramContent();
     setDraftContent('');
     setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
+    clearSaveConflict();
     if (isMobile) {
       setShowMobilePageContent(true);
     }
-  }, [clearDiagramContent, ensurePathVisible, isMobile, requestNavigation, root, setSelectedPath]);
+  }, [clearDiagramContent, clearSaveConflict, ensurePathVisible, isMobile, requestNavigation, root, setSelectedPath]);
 
   const handleSelectFilePath = React.useCallback((path: string) => {
     void handleSelectFile(toFileNode(path));
@@ -773,6 +954,53 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       setMobileRefreshing(false);
     }
   }, [mobileDirectory, mobileRefreshing, refreshDirectory]);
+
+  const handleConflictReload = React.useCallback(() => {
+    const details = saveConflictDetails;
+    // Explicit reload discards the dirty draft and loads the current
+    // version (or closes the deleted file). Dirty text is preserved until
+    // this explicit action.
+    if (!details) return;
+    if (!details.exists) {
+      if (root) removeOpenPath(root, details.path);
+      clearSelectedFile();
+      setSaveConflictDetails(null);
+      setShowConflictCompare(false);
+      clearSaveConflict();
+      return;
+    }
+    setDraftContent('');
+    setLoadedFilePath(null);
+    setLoadedFileRevision(undefined);
+    setLoadedRevisionScope(null);
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
+    clearSaveConflict();
+  }, [clearSaveConflict, clearSelectedFile, removeOpenPath, root, saveConflictDetails]);
+
+  const handleConflictOverwrite = React.useCallback(async () => {
+    if (!saveConflictDetails || isResolvingConflict) return;
+    setIsResolvingConflict(true);
+    try {
+      // Diagram conflicts re-attempt the preserved diagram write; text
+      // conflicts force the preserved draft through the guarded text save.
+      const overwritten = saveConflictDetails.diagramXml !== null
+        ? await saveDiagramNow(saveConflictDetails.path, saveConflictDetails.diagramXml, { overwrite: true })
+        : await saveNow({ overwrite: true });
+      if (overwritten) {
+        setSaveConflictDetails(null);
+        setShowConflictCompare(false);
+      }
+    } finally {
+      setIsResolvingConflict(false);
+    }
+  }, [isResolvingConflict, saveConflictDetails, saveDiagramNow, saveNow]);
+
+  const handleConflictClose = React.useCallback(() => {
+    // Closing keeps the dirty draft intact for a later explicit choice.
+    setSaveConflictDetails(null);
+    setShowConflictCompare(false);
+  }, []);
 
   React.useEffect(() => {
     if (!selectedFile?.path || !needsTree || !isVisible) {
@@ -1368,6 +1596,23 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         isSaving={isSaving}
         onSaveAndContinue={() => void saveAndContinue()}
         onDiscardAndContinue={discardAndContinue}
+      />
+      <FileSaveConflictDialog
+        open={Boolean(saveConflictDetails)}
+        conflict={saveConflictDetails ? {
+          path: saveConflictDetails.path,
+          displayPath: saveConflictDetails.displayPath,
+          exists: saveConflictDetails.exists,
+          currentRevision: saveConflictDetails.currentRevision,
+          currentContent: saveConflictDetails.currentContent,
+          dirtyContent: saveConflictDetails.diagramXml ?? draftContent,
+        } : null}
+        isResolving={isResolvingConflict || isSaving}
+        showCompare={showConflictCompare}
+        onToggleCompare={() => setShowConflictCompare((value) => !value)}
+        onReload={handleConflictReload}
+        onOverwrite={() => { void handleConflictOverwrite(); }}
+        onClose={handleConflictClose}
       />
       <div className={cn('flex flex-col flex-shrink-0', showEditorTabsRow && 'border-b border-border/40')}>
         {/* Row 1: Tabs */}

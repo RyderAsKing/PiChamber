@@ -74,10 +74,22 @@ export function useFileOperations({
       if (operation === 'createFile') {
         const parent = target.path;
         const path = normalizePath(`${parent ? `${parent}/` : ''}${name}`);
-        const result = await files.writeFile!(path, '');
-        if (result.success) {
-          toast.success('File created');
-          await refreshDirectory(parent);
+        // Create-only guarded write: two creators racing the same missing
+        // path serialize per file; the loser receives a typed revision
+        // conflict instead of silently winning.
+        try {
+          const result = await files.writeFile!(path, '', { expectedRevision: null });
+          if (result.success) {
+            toast.success('File created');
+            await refreshDirectory(parent);
+          }
+        } catch (error) {
+          const reason = (error as { reason?: unknown })?.reason;
+          if (reason === 'file-revision-conflict' || (error as Error)?.name === 'FileRevisionConflictError') {
+            toast.error('File already exists');
+          } else {
+            throw error;
+          }
         }
       } else if (operation === 'createFolder') {
         const parent = target.path;

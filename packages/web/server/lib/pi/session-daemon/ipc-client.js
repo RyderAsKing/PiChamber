@@ -94,7 +94,7 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
  * Open an authenticated server-only event subscription. The caller owns the
  * returned close function and must relay only projected frames to browsers.
  */
-export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, onEvent, onError, timeoutMs = 30_000 }) => {
+export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError, timeoutMs = 30_000 }) => {
   const decoder = new StringDecoder('utf8');
   let buffer = '';
   let authenticated = false;
@@ -114,7 +114,16 @@ export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSe
   };
   socket.once('error', () => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')));
   socket.on('connect', () => {
-    socket.write(`${JSON.stringify({ kind: 'authenticate', credential, ...(sessionId ? { sessionId } : {}), ...(Number.isSafeInteger(fromSequence) && fromSequence >= 0 ? { fromSequence } : {}) })}\n`);
+    socket.write(`${JSON.stringify({
+      kind: 'authenticate',
+      credential,
+      ...(sessionId ? { sessionId } : {}),
+      ...(Number.isSafeInteger(fromSequence) && fromSequence >= 0 ? { fromSequence } : {}),
+      // Stream-lifetime identity of the replay cursor. The daemon treats a
+      // cursor from a different epoch as unreplayable (retired sequence
+      // space) instead of comparing raw sequence numbers.
+      ...(typeof streamEpoch === 'string' && streamEpoch.length > 0 && streamEpoch.length <= 128 ? { streamEpoch } : {}),
+    })}\n`);
   });
   socket.on('data', (chunk) => {
     buffer += decoder.write(chunk);

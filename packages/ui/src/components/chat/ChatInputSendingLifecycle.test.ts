@@ -34,3 +34,23 @@ test('worktree send queues in the background with a toast and a fresh draft', ()
 test('background worktree failure surfaces a toast when the draft is no longer current', () => {
   expect(source).toContain("'Worktree creation failed'");
 });
+
+test('uncertain mobile transport blocks sends, queueing, and the send affordance', () => {
+  // Imperative submit gate: the actual ChatInput (not just the app shell)
+  // must refuse to replay a mutation into an unverified endpoint.
+  expect(source).toContain('isMobileConnectionUncertain()');
+  const submitGate = source.indexOf('if (isMobileConnectionUncertain())');
+  expect(submitGate).toBeGreaterThan(-1);
+  expect(source.slice(submitGate, submitGate + 400)).toContain('Connection lost.');
+
+  // Queue gate: enqueueing while uncertain is also blocked (draft stays local).
+  const queueGate = source.indexOf('const handleQueueMessage =');
+  expect(queueGate).toBeGreaterThan(-1);
+  const queueBody = source.slice(queueGate, queueGate + 800);
+  expect(queueBody).toContain('isMobileConnectionUncertain()');
+
+  // Reactive affordance gate: the send/queue buttons disable while uncertain
+  // (typing stays enabled so drafts remain local).
+  expect(source).toContain('useMobileConnectionUncertain()');
+  expect(source).toContain('!isConnectionUncertain');
+});

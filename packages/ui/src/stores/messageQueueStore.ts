@@ -6,6 +6,7 @@ import { updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { piClient } from '@/lib/pi/client';
 import { normalizePath } from '@/lib/pathNormalization';
+import { deriveStableMessageId } from '@/lib/pi/send-intent';
 
 export type FollowUpBehavior = 'steer' | 'queue';
 
@@ -41,6 +42,45 @@ export const normalizeFollowUpBehavior = (
     return DEFAULT_FOLLOW_UP_BEHAVIOR;
 };
 
+export interface QueuedSendAuthority {
+    /** Stable operation id for this queued entry (`qm:<queuedMessageId>`). */
+    operationId: string;
+    /** Stable message id derived from the operation id. */
+    messageId: string;
+    /** Verified stream epoch captured before upload. Held verbatim. Missing blocks auto-send. */
+    streamEpoch?: string;
+    /** Runtime the authority was captured under. Never replayed elsewhere. */
+    runtimeKey: string;
+    capturedAt: number;
+    /** Owning session for cache scope. Reload must reuse the same session or block. */
+    sessionId?: string;
+    /** Exact text at capture. Reload must reuse verbatim or block. */
+    text?: string;
+    /** Exact send config at capture. Reload must reuse verbatim or block. */
+    sendConfig?: {
+        providerID: string;
+        modelID: string;
+        agent?: string;
+        variant?: string;
+    };
+    /**
+     * Exact resolved upload ids, all-or-nothing. Persisted before any first
+     * dispatch (ready ids at queue time; fresh data ids after upload but
+     * before prompt). Reload reuses verbatim or blocks — never skips
+     * attachments or re-uploads under a dispatched id.
+     */
+    attachmentIds?: string[];
+    /**
+     * Explicit fresh-vs-dispatched marker. Fresh (`false`) entries were never
+     * dispatched and may upload once through the normal route (persisting
+     * resolved ids before dispatch). Dispatched (`true`) entries already left
+     * the client under this op id — outcome uncertain after reload — so a
+     * failed rehydration must block without fallthrough. Legacy entries omit
+     * the flag and are treated as dispatched (uncertain) for safety.
+     */
+    dispatched?: boolean;
+}
+
 export interface QueuedMessage {
     id: string;
     content: string;
@@ -53,6 +93,14 @@ export interface QueuedMessage {
         agent?: string;
         variant?: string;
     };
+    /**
+     * Captured send authority (epoch + intent identity). Persisted with the
+     * queue so a reload cannot recapture a fresh epoch for the same operation
+     * id. Entries without authority (legacy) must never auto-dispatch: the
+     * original may already have executed, so automatic reexecution is
+     * prohibited and an explicit new intent is required.
+     */
+    sendAuthority?: QueuedSendAuthority;
 }
 
 export type MessageQueueTarget = {
@@ -83,8 +131,52 @@ export const createMessageQueueTarget = (
     return { runtimeKey, directory: normalizedDirectory, sessionId };
 };
 
+export const sanitizeQueuedAttachmentForPersist = (attachment: AttachedFile): AttachedFile => {
+    const { file: _file, previewUrl: _preview, ...rest } = attachment as AttachedFile & { file?: unknown; previewUrl?: unknown };
+    void _file;
+    void _preview;
+    // Ready uploads live on the server: persist only the opaque attachment id
+    // metadata, never local bytes or preview URLs. Expired ids without bytes
+    // block reexecution until the file is re-added (see routeMessage).
+    if (rest.uploadState?.status === 'ready') {
+        return { ...rest, dataUrl: '', previewUrl: undefined, file: undefined as unknown as File };
+    }
+    return { ...rest, previewUrl: undefined, file: undefined as unknown as File };
+};
+
+export const sanitizeQueuedMessageForPersist = (message: QueuedMessage): QueuedMessage => ({
+    ...message,
+    ...(message.attachments ? { attachments: message.attachments.map(sanitizeQueuedAttachmentForPersist) } : {}),
+});
+
+const sanitizeQueuedMessagesForPersist = (
+    queues: Record<string, QueuedMessage[]>,
+): Record<string, QueuedMessage[]> => {
+    const next: Record<string, QueuedMessage[]> = {};
+    for (const [key, messages] of Object.entries(queues)) {
+        next[key] = messages.map(sanitizeQueuedMessageForPersist);
+    }
+    return next;
+};
+
+export const getPersistedMessageQueueStateForTests = (state: Pick<MessageQueueState, 'queuedMessages' | 'quarantinedLegacyMessages' | 'followUpBehavior'>) => ({
+    queuedMessages: sanitizeQueuedMessagesForPersist(state.queuedMessages),
+    quarantinedLegacyMessages: sanitizeQueuedMessagesForPersist(state.quarantinedLegacyMessages),
+    followUpBehavior: state.followUpBehavior,
+});
+
 export const getMessageQueueKey = (target: MessageQueueTarget): string =>
     `${target.runtimeKey}\n${target.directory}\n${target.sessionId}`;
+
+/**
+ * Stable operation id for one queued send intent (finding #3). Canonical
+ * owner: the queued entry owns the intent, so every dispatch and backed-off
+ * retry of the same entry reuses the id and the daemon's execution boundary
+ * deduplicates an accepted-but-unconfirmed send instead of producing two AI
+ * responses. Never auto-mint a fresh id for an uncertain send: an explicit
+ * new intent (`requeueWithNewIntent`, with a warning) is required.
+ */
+export const queuedSendOperationId = (queuedMessageId: string): string => `qm:${queuedMessageId}`;
 
 export const parseMessageQueueKey = (key: string): MessageQueueTarget | null => {
     const [runtimeKey, directory, ...sessionParts] = key.split('\n');
@@ -111,7 +203,7 @@ interface MessageQueueState {
 }
 
 interface MessageQueueActions {
-    addToQueue: (target: MessageQueueTarget, message: Omit<QueuedMessage, 'id' | 'createdAt'>) => void;
+    addToQueue: (target: MessageQueueTarget, message: Omit<QueuedMessage, 'id' | 'createdAt'>) => string;
     removeFromQueue: (target: MessageQueueTarget, messageId: string) => void;
     reorderQueue: (target: MessageQueueTarget, fromId: string, toId: string) => void;
     popToInput: (target: MessageQueueTarget, messageId: string) => QueuedMessage | null;
@@ -122,6 +214,31 @@ interface MessageQueueActions {
     getSendableQueue: (target: MessageQueueTarget) => QueuedMessage[];
     setFollowUpBehavior: (behavior: FollowUpBehavior) => void;
     getQueueForTarget: (target: MessageQueueTarget) => QueuedMessage[];
+    /** Persist captured send authority for a queued entry (epoch + identity). */
+    setQueuedSendAuthority: (target: MessageQueueTarget, messageId: string, authority: QueuedSendAuthority) => void;
+    /**
+     * Explicit new intent for a blocked/unknown queued send. Never called
+     * automatically: the caller must have shown the duplicate warning and
+     * captured the freshly verified current runtime/epoch authority (the
+     * owning UI reads `getRuntimeKey()` + `getPiSessionStore().getStreamEpoch()`
+     * and passes it explicitly; an omitted runtime falls back to the live
+     * runtime key, an omitted epoch leaves the fresh authority epoch-less
+     * so the auto-send gate waits for verification).
+     * Copies content/config/valid attachments into a fresh queued entry with
+     * a fresh id (hence fresh `queuedSendOperationId`) and a fresh authority
+     * stamped with the current runtime key and verified epoch, using
+     * `deriveStableMessageId` so the id matches routing exactly. Deliberately
+     * current-runtime only: a target whose runtime differs from the verified
+     * current runtime returns null and dispatches nothing. Removes the old
+     * entry; drafts and other queued entries are preserved. The fresh entry
+     * is auto-sendable after this explicit consent — no additional silent
+     * new-id retry ever happens without it. Returns the new queued id.
+     */
+    requeueWithNewIntent: (
+        target: MessageQueueTarget,
+        messageId: string,
+        explicitAuthority?: { runtimeKey?: string; streamEpoch?: string | null },
+    ) => string | null;
 }
 
 type MessageQueueStore = MessageQueueState & MessageQueueActions;
@@ -168,6 +285,11 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         attachments: message.attachments,
                         createdAt: Date.now(),
                         sendConfig: message.sendConfig,
+                        // Authority travels with the queue entry when the caller
+                        // captured it (verified epoch + intent identity). Legacy
+                        // callers omit it; those entries must never auto-dispatch
+                        // after a reload (see the auto-send gate).
+                        ...(message.sendAuthority ? { sendAuthority: message.sendAuthority } : {}),
                     };
 
                     set((state) => {
@@ -186,6 +308,20 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         return {
                             queuedMessages,
                         };
+                    });
+                    return id;
+                },
+
+                setQueuedSendAuthority: (target, messageId, authority) => {
+                    const key = getMessageQueueKey(target);
+                    set((state) => {
+                        const queue = state.queuedMessages[key];
+                        if (!queue) return state;
+                        const index = queue.findIndex((m) => m.id === messageId);
+                        if (index < 0) return state;
+                        const next = queue.slice();
+                        next[index] = { ...next[index], sendAuthority: authority };
+                        return { queuedMessages: { ...state.queuedMessages, [key]: next } };
                     });
                 },
 
@@ -337,14 +473,112 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                 getQueueForTarget: (target) => {
                     return get().queuedMessages[getMessageQueueKey(target)] ?? [];
                 },
+
+                requeueWithNewIntent: (target, messageId, explicitAuthority) => {
+                    const key = getMessageQueueKey(target);
+                    const current = get().queuedMessages[key] ?? [];
+                    const existing = current.find((m) => m.id === messageId);
+                    if (!existing) return null;
+                    // Deliberately current-runtime only: never mint a fresh
+                    // intent for an old runtime. The owning UI passes the
+                    // verified current runtime/epoch explicitly (explicit
+                    // dependency injection — the store never reads the session
+                    // cluster itself, avoiding a store→apps import cycle).
+                    // Without an explicit runtime the live runtime key is the
+                    // fallback; without an explicit verified epoch the fresh
+                    // authority carries no epoch and the auto-send gate waits
+                    // for a verified epoch before dispatching.
+                    let currentRuntimeKey = '';
+                    try {
+                        currentRuntimeKey = explicitAuthority?.runtimeKey ?? getRuntimeKey();
+                    } catch {
+                        currentRuntimeKey = target.runtimeKey;
+                    }
+                    if (!currentRuntimeKey || target.runtimeKey !== currentRuntimeKey) return null;
+                    let verifiedEpoch: string | undefined;
+                    if (explicitAuthority && 'streamEpoch' in explicitAuthority) {
+                        verifiedEpoch = typeof explicitAuthority.streamEpoch === 'string' && explicitAuthority.streamEpoch.length > 0
+                            ? explicitAuthority.streamEpoch
+                            : undefined;
+                    } else {
+                        verifiedEpoch = undefined;
+                    }
+                    // Explicit new intent only: the old uncertain id is never
+                    // reused. Warn so a possibly-executed send cannot silently
+                    // duplicate; the user must have checked history first.
+                    // A missing (legacy) or stale epoch never carries over:
+                    // the fresh entry stamps the verified current epoch, so
+                    // the auto-send gate unblocks only after this consent.
+                    console.warn(
+                        '[queue] creating an explicit new send intent for a blocked send; check history first to avoid a duplicate.',
+                    );
+                    const id = `queued-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                    const operationId = queuedSendOperationId(id);
+                    const readyManifest = (() => {
+                        const list = existing.attachments ?? [];
+                        if (list.length === 0) return [] as string[];
+                        const ids: string[] = [];
+                        for (const attachment of list) {
+                            const state = attachment.uploadState;
+                            if (state?.status === 'ready' && state.expiresAt > Date.now()) {
+                                ids.push(state.attachmentId);
+                            } else {
+                                return undefined;
+                            }
+                        }
+                        return ids;
+                    })();
+                    const fresh: QueuedMessage = {
+                        id,
+                        content: existing.content,
+                        ...(existing.attachments ? { attachments: existing.attachments } : {}),
+                        createdAt: Date.now(),
+                        ...(existing.sendConfig ? { sendConfig: { ...existing.sendConfig } } : {}),
+                        sendAuthority: {
+                            operationId,
+                            messageId: deriveStableMessageId(operationId),
+                            ...(verifiedEpoch ? { streamEpoch: verifiedEpoch } : {}),
+                            runtimeKey: currentRuntimeKey,
+                            capturedAt: Date.now(),
+                            sessionId: target.sessionId,
+                            text: existing.content,
+                            ...(existing.sendConfig ? { sendConfig: { ...existing.sendConfig } } : {}),
+                            ...(readyManifest ? { attachmentIds: [...readyManifest] } : {}),
+                            dispatched: false,
+                        },
+                    };
+                    set((state) => {
+                        const queue = (state.queuedMessages[key] ?? []).filter((m) => m.id !== messageId);
+                        const sending = state.sendingIds[key];
+                        const nextSending = sending?.includes(messageId)
+                            ? sending.filter((entryId) => entryId !== messageId)
+                            : sending;
+                        return {
+                            queuedMessages: {
+                                ...state.queuedMessages,
+                                [key]: [...queue, fresh].slice(-MAX_MESSAGES_PER_QUEUE),
+                            },
+                            ...(nextSending !== sending
+                                ? (nextSending && nextSending.length > 0
+                                    ? { sendingIds: { ...state.sendingIds, [key]: nextSending } }
+                                    : (() => {
+                                        const { [key]: _removed, ...rest } = state.sendingIds;
+                                        void _removed;
+                                        return { sendingIds: rest };
+                                    })())
+                                : {}),
+                        };
+                    });
+                    return id;
+                },
             }),
             {
                 name: 'message-queue-store',
                 version: 2,
                 storage: createDeferredSafeJSONStorage(),
                 partialize: (state) => ({
-                    queuedMessages: state.queuedMessages,
-                    quarantinedLegacyMessages: state.quarantinedLegacyMessages,
+                    queuedMessages: sanitizeQueuedMessagesForPersist(state.queuedMessages),
+                    quarantinedLegacyMessages: sanitizeQueuedMessagesForPersist(state.quarantinedLegacyMessages),
                     followUpBehavior: state.followUpBehavior,
                 }),
                 migrate: migrateMessageQueueState,

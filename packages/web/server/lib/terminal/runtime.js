@@ -29,7 +29,11 @@ const trimHistory = (history) => {
 export function createTerminalRuntime({
   app, server, fs, path, uiAuthController, buildAugmentedPath, searchPathFor, isExecutable,
   isRequestOriginAllowed, rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
-  loadPtyProvider, terminalTerminationGraceMs = TERMINATION_GRACE_MS,
+  // Live-revocation owner for this transport: upgrades are tracked under the
+  // authenticated principal so a later revocation or global invalidation
+  // closes the socket. Lifetime is not tied to the 60-second URL token TTL
+  // used to establish the connection.
+  liveRevocation = null, loadPtyProvider, terminalTerminationGraceMs = TERMINATION_GRACE_MS,
 }) {
   const sessions = new Map();
   const pendingSessionCreates = new Map();
@@ -274,15 +278,54 @@ export function createTerminalRuntime({
     socket.on('close', cleanup); socket.on('error', () => {});
   });
 
+  const trackUpgradePrincipal = (socket, principal, generation) => {
+    if (!principal || typeof liveRevocation?.trackLiveConnection !== 'function') return null;
+    let tracked;
+    try {
+      tracked = liveRevocation.trackLiveConnection({
+        principal,
+        close: () => {
+          if (!socket.destroyed) socket.destroy();
+        },
+        generation,
+      });
+    } catch {
+      try { if (!socket.destroyed) socket.destroy(); } catch {}
+      return null;
+    }
+    // Covers the pending window (gates passed, upgrade not yet handled), a
+    // failed upgrade, and the natural close after the WebSocket is live.
+    // Rejected registrations (revoked/stale-generation/over-limit/disposed)
+    // already destroyed the socket via close(); the inactive entry keeps the
+    // close handler safe and signals the caller to skip handleUpgrade.
+    socket.once('close', () => tracked.end());
+    return tracked;
+  };
+
   const upgradeHandler = (req, socket, head) => {
     if (parseRequestPathname(req.url) !== TERMINAL_WS_PATH) return;
     void (async () => {
       try {
+        let principal = null;
+        let generation;
+        try {
+          if (typeof liveRevocation?.getGeneration === 'function') generation = liveRevocation.getGeneration();
+        } catch {
+          generation = undefined;
+        }
         if (uiAuthController?.enabled) {
-          if (!await uiAuthController.ensureSessionToken(req, null)) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
+          principal = await uiAuthController.ensureSessionToken(req, null);
+          if (!principal) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
           if (!await isRequestOriginAllowed(req)) { rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return; }
         }
         if (!wsServer) { rejectWebSocketUpgrade(socket, 500, 'Terminal WebSocket unavailable'); return; }
+        // Deterministic verify-registration barrier: generation was captured
+        // before the auth/origin awaits, so a revocation or global
+        // invalidation racing verification reject-closes here without trusting
+        // the principal. An inactive entry means the socket is already
+        // destroyed — never call handleUpgrade for it.
+        const tracked = trackUpgradePrincipal(socket, principal, generation);
+        if (principal && tracked && tracked.active === false) return;
         wsServer.handleUpgrade(req, socket, head, (ws) => wsServer.emit('connection', ws, req));
       } catch { rejectWebSocketUpgrade(socket, 500, 'Upgrade failed'); }
     })();

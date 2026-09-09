@@ -320,3 +320,505 @@ describe("createPiEventStream", () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Stream-epoch cursor + lifecycle (findings 1/5/6)
+// ---------------------------------------------------------------------------
+
+const epochEvent = (sequence: number, streamEpoch: string) => ({
+  ...event(sequence),
+  streamEpoch,
+})
+
+const jsonResponse = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+
+describe("createPiEventStream epoch negotiation", () => {
+  beforeEach(() => {
+    runtimeKey = "runtime-a"
+    capacitor = false
+    streamUrls.length = 0
+    runtimeFetch.mockReset()
+    refreshRuntimeUrlAuthToken.mockReset()
+    openRuntimeWebSocket.mockReset()
+  })
+
+  test("stamps the subscribe query with the capability marker and the cursor epoch", async () => {
+    const encoder = new TextEncoder()
+    runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event(8))}\n\n`))
+      },
+    })))
+    const handle = (await import("./transport")).createPiEventStream({
+      onEvent: () => {},
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a" })
+
+    await flush()
+    const query = streamUrls[0]?.query
+    expect(query?.capabilities).toBe("events.streamEpoch")
+    expect(query?.streamEpoch).toBe("epoch-a")
+    expect(query?.fromSequence).toBe("7")
+    handle.dispose()
+  })
+
+  test("verifies a foreign epoch with an authoritative health probe before adopting it", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let healthCalls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        healthCalls += 1
+        return jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: Array<{ sequence: number; streamEpoch?: string }> = []
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push({ sequence: frame.sequence, streamEpoch: frame.streamEpoch }),
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    // A frame from a foreign epoch is not adopted from the wire alone.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-b"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(epochs).toEqual(["epoch-b"])
+    expect(received).toEqual([{ sequence: 8, streamEpoch: "epoch-b" }])
+
+    // The retired epoch re-appearing on the wire is dropped without probing.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(9, "epoch-a"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(received).toEqual([{ sequence: 8, streamEpoch: "epoch-b" }])
+
+    // Current-epoch frames flow normally; the next subscribe identity is
+    // the adopted epoch, not the retired one.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(10, "epoch-b"))}\n\n`))
+    await flush()
+    expect(received).toEqual([
+      { sequence: 8, streamEpoch: "epoch-b" },
+      { sequence: 10, streamEpoch: "epoch-b" },
+    ])
+    handle.reconnect()
+    // The reconnect runs after the base backoff (~250ms + jitter).
+    const queriesBefore = streamUrls.length
+    let reconnected = false
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      if (streamUrls.length > queriesBefore) {
+        reconnected = true
+        break
+      }
+    }
+    expect(reconnected).toBe(true)
+    const latestQuery = streamUrls[streamUrls.length - 1]?.query
+    expect(latestQuery?.streamEpoch).toBe("epoch-b")
+    expect(latestQuery?.fromSequence).toBe("10")
+    handle.dispose()
+  })
+
+  test("rejects a foreign epoch that authoritative health contradicts, without disconnecting", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let healthCalls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        healthCalls += 1
+        return jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-a" })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: number[] = []
+    const epochs: string[] = []
+    const disconnects: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+      onEpochChange: (epoch) => epochs.push(epoch),
+      onDisconnect: (reason) => disconnects.push(reason),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    // Stale frame stamped with a retired epoch: dropped, no adoption, and
+    // the healthy stream is not torn down.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(99, "epoch-old"))}\n\n`))
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(99, "epoch-old"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(epochs).toEqual([])
+    expect(received).toEqual([])
+    expect(disconnects).toEqual([])
+    // Current-epoch frames still flow.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-a"))}\n\n`))
+    await flush()
+    expect(received).toEqual([8])
+    handle.dispose()
+  })
+
+  test("drops an unverifiable foreign epoch and re-establishes the stream", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        return jsonResponse({ state: "unavailable", protocolVersion: 1, error: { code: "DAEMON_UNAVAILABLE" } })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: number[] = []
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-b"))}\n\n`))
+    await flush()
+    await flush()
+    // No adoption without authoritative confirmation; the transport
+    // reconnects under a fresh health gate instead.
+    expect(epochs).toEqual([])
+    expect(received).toEqual([])
+    expect(runtimeFetch.mock.calls.filter((call: unknown[]) => call[0] === "/api/pi/events").length).toBeGreaterThanOrEqual(2)
+    handle.dispose()
+  })
+})
+
+describe("createPiEventStream transport lifecycle", () => {
+  beforeEach(() => {
+    runtimeKey = "runtime-a"
+    capacitor = false
+    streamUrls.length = 0
+    runtimeFetch.mockReset()
+    refreshRuntimeUrlAuthToken.mockReset()
+    openRuntimeWebSocket.mockReset()
+  })
+
+  const streamOnlyMock = (controllers: ReadableStreamDefaultController<Uint8Array>[]) => {
+    runtimeFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path !== "/api/pi/events") throw new Error(`unexpected probe: ${path}`)
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+          init?.signal?.addEventListener("abort", () => controller.close(), { once: true })
+        },
+      }))
+    })
+  }
+
+  test("a known 401 stops the retry loop and reports the existing auth flow", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let calls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path !== "/api/pi/events") throw new Error("unexpected probe")
+      calls += 1
+      return new Response(null, { status: 401 })
+    })
+    void controllers
+
+    const authRequired: string[] = []
+    const disconnects: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: () => {},
+      onDisconnect: (reason) => disconnects.push(reason),
+      onAuthRequired: () => authRequired.push("auth"),
+    }, { sessionId: "session-1", reconnectDelayMs: 0 })
+
+    await flush()
+    expect(disconnects).toEqual(["sse-auth-401"])
+    expect(authRequired).toEqual(["auth"])
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    // No second attempt: the transport leaves recovery to the auth flow.
+    expect(calls).toBe(1)
+    handle.dispose()
+  })
+
+  test("a transient 503 retries without reporting an auth failure", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let calls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path !== "/api/pi/events") throw new Error("unexpected probe")
+      calls += 1
+      if (calls === 1) return new Response(null, { status: 503 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const authRequired: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: () => {},
+      onAuthRequired: () => authRequired.push("auth"),
+    }, { sessionId: "session-1", reconnectDelayMs: 0 })
+
+    await flush()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await flush()
+    expect(authRequired).toEqual([])
+    expect(calls).toBeGreaterThanOrEqual(2)
+    handle.dispose()
+  })
+
+  test("the setup deadline disposes a late attempt", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    const late: { resolve: ((response: Response) => void) | null } = { resolve: null }
+    let calls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path !== "/api/pi/events") throw new Error("unexpected probe")
+      calls += 1
+      if (calls === 1) {
+        return new Promise<Response>((resolve) => {
+          late.resolve = resolve
+        })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const disconnects: string[] = []
+    const received: number[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+      onDisconnect: (reason) => disconnects.push(reason),
+    }, { sessionId: "session-1", setupTimeoutMs: 20, reconnectDelayMs: 0 })
+
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(disconnects).toEqual(["sse-setup-timeout"])
+    // The hung attempt finally resolves after the deadline: it must not be
+    // adopted (generation guard) and must not deliver events.
+    late.resolve?.(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event(8))}\n\n`))
+      },
+    })))
+    await flush()
+    expect(received).toEqual([])
+    handle.dispose()
+  })
+
+  test("wakes a pending backoff on online/visible and deduplicates the wake", async () => {
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let calls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path !== "/api/pi/events") throw new Error("unexpected probe")
+      calls += 1
+      if (calls === 1) return new Response(null, { status: 503 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+    void streamOnlyMock
+
+    const originalWindow = (globalThis as { window?: unknown }).window
+    Object.defineProperty(globalThis, "window", { configurable: true, value: new EventTarget() })
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const handle = createPiEventStream({ onEvent: () => {} }, { sessionId: "session-1" })
+
+      await flush()
+      expect(calls).toBe(1)
+      // A failure schedules a long backoff (attempt 1 → ~500ms). The online
+      // signal wakes it immediately.
+      window.dispatchEvent(new Event("online"))
+      await flush()
+      await flush()
+      expect(calls).toBe(2)
+      // Further wake signals while no backoff is pending are no-ops.
+      window.dispatchEvent(new Event("online"))
+      window.dispatchEvent(new Event("online"))
+      await flush()
+      expect(calls).toBe(2)
+
+      // Dispose removes the wake listeners entirely.
+      handle.dispose()
+      window.dispatchEvent(new Event("online"))
+      await flush()
+      expect(calls).toBe(2)
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow,
+      })
+    }
+  })
+
+  test("resets the failure count only after sustained health", async () => {
+    const originalSetTimeout = globalThis.setTimeout
+    const delays: number[] = []
+    const recordingSetTimeout = ((handler: () => void, timeout?: number, ...rest: unknown[]) => {
+      delays.push(timeout ?? 0)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (originalSetTimeout as any)(handler, timeout, ...rest)
+    }) as typeof setTimeout
+    globalThis.setTimeout = recordingSetTimeout
+
+    const waitFor = async (predicate: () => boolean, timeoutMs = 3_000): Promise<boolean> => {
+      const startedAt = Date.now()
+      while (!predicate()) {
+        if (Date.now() - startedAt > timeoutMs) return false
+        await new Promise((resolve) => originalSetTimeout(resolve, 2))
+      }
+      return true
+    }
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+      const run = async (healthResetMs: number): Promise<number> => {
+        const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+        let calls = 0
+        runtimeFetch.mockReset()
+        runtimeFetch.mockImplementation(async (path: string) => {
+          if (path !== "/api/pi/events") throw new Error("unexpected probe")
+          calls += 1
+          return new Response(new ReadableStream({
+            start(controller) {
+              controllers.push(controller)
+            },
+          }))
+        })
+        delays.length = 0
+        const encoder = new TextEncoder()
+        const handle = createPiEventStream({ onEvent: () => {} }, {
+          sessionId: "session-1",
+          heartbeatTimeoutMs: 25,
+          healthResetMs,
+        })
+        // Attempt 1: activity makes the connection healthy, then silence
+        // kills it at the heartbeat timeout.
+        await flush()
+        controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(event(8))}\n\n`))
+        await new Promise((resolve) => originalSetTimeout(resolve, 45))
+        await flush()
+        // Wait for the scheduled reconnect to establish attempt 2.
+        expect(await waitFor(() => calls >= 2)).toBe(true)
+        await flush()
+        // Attempt 2: same cadence. The backoff scheduled for this failure
+        // reveals whether the failure count was still elevated.
+        controllers[1]?.enqueue(encoder.encode(`data: ${JSON.stringify(event(9))}\n\n`))
+        await new Promise((resolve) => originalSetTimeout(resolve, 45))
+        await flush()
+        handle.dispose()
+        // Reconnect backoffs only: excludes heartbeat (25), the sustained-
+        // health window, and the 10s setup deadline.
+        const backoffs = delays.filter((delay) => delay >= 200 && delay < 2_000)
+        expect(backoffs.length).toBeGreaterThanOrEqual(2)
+        return backoffs[1]
+      }
+
+      const withoutReset = await run(60_000)
+      const withReset = await run(10)
+      // Without sustained health the second failure backs off at 2x base
+      // (250 * 2^1, +jitter < 100). With the sustained-health window having
+      // elapsed, the count was reset and the backoff stays at base.
+      expect(withoutReset).toBeGreaterThanOrEqual(500)
+      expect(withoutReset).toBeLessThan(600)
+      expect(withReset).toBeGreaterThanOrEqual(250)
+      expect(withReset).toBeLessThan(350)
+    } finally {
+      globalThis.setTimeout = originalSetTimeout
+    }
+  })
+
+  test("a status-less native EventSource error probes health instead of inventing a 401", async () => {
+    const originalEventSource = (globalThis as { EventSource?: unknown }).EventSource
+    const sources: Array<{ onerror?: () => void; close: () => void }> = []
+    class FakeEventSource {
+      onerror?: () => void
+      onopen?: () => void
+      onmessage?: (event: { data?: string }) => void
+      constructor(_url: string) {
+        void _url
+        sources.push(this)
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+    Object.defineProperty(globalThis, "EventSource", { configurable: true, value: FakeEventSource })
+    capacitor = true
+    refreshRuntimeUrlAuthToken.mockResolvedValue(undefined)
+
+    let healthStatus = 503
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path !== "/api/pi/runtime") throw new Error("unexpected stream call")
+      return new Response(JSON.stringify({ error: { code: healthStatus === 401 ? "DAEMON_AUTH_FAILED" : "DAEMON_UNAVAILABLE" } }), {
+        status: healthStatus,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    try {
+      const { createPiEventStream } = await import("./transport")
+
+      // Transient probe result: the status-less error must NOT become a 401.
+      const transientDisconnects: string[] = []
+      const transientAuth: string[] = []
+      const transient = createPiEventStream({
+        onEvent: () => {},
+        onDisconnect: (reason) => transientDisconnects.push(reason),
+        onAuthRequired: () => transientAuth.push("auth"),
+      }, { sessionId: "session-1", reconnectDelayMs: 0 })
+      await flush()
+      expect(sources.length).toBeGreaterThanOrEqual(1)
+      sources[sources.length - 1]?.onerror?.()
+      await flush()
+      expect(transientDisconnects).toEqual(["sse-error"])
+      expect(transientAuth).toEqual([])
+      transient.dispose()
+
+      // Authoritative 401 probe result: the existing auth flow is notified
+      // and the retry loop stops.
+      healthStatus = 401
+      const authDisconnects: string[] = []
+      const authRequired: string[] = []
+      const authorized = createPiEventStream({
+        onEvent: () => {},
+        onDisconnect: (reason) => authDisconnects.push(reason),
+        onAuthRequired: () => authRequired.push("auth"),
+      }, { sessionId: "session-1", reconnectDelayMs: 0 })
+      await flush()
+      sources[sources.length - 1]?.onerror?.()
+      await flush()
+      expect(authDisconnects).toEqual(["sse-auth-probe"])
+      expect(authRequired).toEqual(["auth"])
+      authorized.dispose()
+    } finally {
+      capacitor = false
+      Object.defineProperty(globalThis, "EventSource", {
+        configurable: true,
+        value: originalEventSource,
+      })
+    }
+  })
+})

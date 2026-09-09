@@ -419,3 +419,28 @@ export const buildRuntimeAuthHeaders = async (headers?: HeadersInit): Promise<He
   }
   return next;
 };
+
+// ---------------------------------------------------------------------------
+// Auth-expired notification
+//
+// Long-lived transports (the Pi event stream) stop retrying on a known
+// authorization failure and notify the mounted auth flow through this window
+// event. The gate controller decides what the user sees; local work is never
+// cleared by the notification. The event carries no credentials or reasons
+// that could leak token state.
+// ---------------------------------------------------------------------------
+
+export const RUNTIME_AUTH_EXPIRED_EVENT = 'pichamber:auth-expired';
+
+export const notifyRuntimeAuthExpired = (): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(RUNTIME_AUTH_EXPIRED_EVENT));
+};
+
+export const subscribeRuntimeAuthExpired = (listener: () => void): (() => void) => {
+  if (typeof window === 'undefined') return () => undefined;
+  window.addEventListener(RUNTIME_AUTH_EXPIRED_EVENT, listener);
+  return () => {
+    window.removeEventListener(RUNTIME_AUTH_EXPIRED_EVENT, listener);
+  };
+};

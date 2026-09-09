@@ -20,6 +20,12 @@ import {
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
+import {
+  DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
+  createPiEventStreamRegistry,
+  openPiEventStream,
+} from './event-stream.js';
+import { isValidSendOperationId } from './session-daemon/send-operation-registry.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -58,9 +64,11 @@ const writeDaemonError = (res, error) => {
       ? 502
     : code === 'INVALID_SESSION'
       ? 404
-      : code === 'SESSION_IN_USE'
+      : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
         ? 409
-        : code === 'ATTACHMENT_TOO_LARGE'
+        : code === 'OPERATION_EXPIRED'
+          ? 410
+          : code === 'ATTACHMENT_TOO_LARGE'
         ? 413
         : code === 'ATTACHMENT_LIMIT_REACHED'
           ? 429
@@ -290,6 +298,9 @@ const projectSessionDetail = (value) => {
     ...(compaction ? { compaction } : {}),
     ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
     ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
+    ...(typeof value.streamEpoch === 'string' && value.streamEpoch.length > 0 && value.streamEpoch.length <= 128
+      ? { streamEpoch: value.streamEpoch }
+      : {}),
     ...projectExtensionSnapshotState(value),
   };
 };
@@ -539,7 +550,13 @@ export const projectEventFrame = (frame) => {
   if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
     || !frame.payload || typeof frame.payload.sessionId !== 'string' || typeof frame.payload.directory !== 'string') return null;
   const { sessionId, directory } = frame.payload;
-  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory };
+  // The daemon's opaque stream-lifetime id. Passed through verbatim so clients
+  // can detect a daemon restart (sequence space reset) and reject stale-epoch
+  // events; old daemons omit it and the field stays undefined.
+  const streamEpoch = typeof frame.streamEpoch === 'string' && frame.streamEpoch.length > 0 && frame.streamEpoch.length <= 128
+    ? frame.streamEpoch
+    : undefined;
+  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory, ...(streamEpoch ? { streamEpoch } : {}) };
   switch (frame.event) {
     case 'session.snapshot': {
       const snapshot = frame.payload;
@@ -560,13 +577,21 @@ export const projectEventFrame = (frame) => {
         ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
         ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
+        ...(snapshot.resync === true ? { resync: true } : {}),
         ...extensionSnapshot,
       } } };
     }
     case 'session.lifecycle': {
+      // Legacy daemons published deletion as `lifecycle idle + deleted:true`.
+      // Project it as the explicit typed deletion so old hosts still clean
+      // every client. Current daemons publish `session.deleted` directly.
+      if (frame.payload && frame.payload.deleted === true) {
+        return { ...common, name: 'session.deleted', payload: {} };
+      }
       const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
       return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
     }
+    case 'session.deleted': return { ...common, payload: {} };
     case 'session.updated': {
       if (typeof frame.payload.title !== 'string') return null;
       const title = frame.payload.title.trim();
@@ -801,7 +826,9 @@ export const registerPiRuntimeRoutes = (app, {
   resolveUpdatePackageManager = resolveTrustedUpdatePackageManager,
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
+  eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
+  const eventStreamRegistry = createPiEventStreamRegistry();
   app.get('/api/pi/ui-settings', async (_req, res) => {
     try {
       res.json(await uiSettingsStore.read());
@@ -902,6 +929,7 @@ export const registerPiRuntimeRoutes = (app, {
         protocolVersion: health.protocolVersion,
         state: 'ready',
         capabilities: Array.isArray(health.capabilities) ? health.capabilities : [],
+        ...(typeof health.streamEpoch === 'string' && health.streamEpoch ? { streamEpoch: health.streamEpoch } : {}),
       });
     } catch {
       res.status(503).json({ protocolVersion: 1, state: 'unavailable', error: { code: 'DAEMON_UNAVAILABLE' } });
@@ -1402,7 +1430,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  app.get('/api/pi/events', async (req, res) => {
+  app.get('/api/pi/events', (req, res) => {
     const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId.length > 0 ? req.query.sessionId : undefined;
     const directory = typeof req.query.directory === 'string' && req.query.directory.length > 0 ? req.query.directory : undefined;
     const rawCursor = req.query.fromSequence;
@@ -1411,7 +1439,31 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    let close;
+    // Stream-lifetime identity of the replay cursor (capability negotiation).
+    // Epoch-aware clients stamp their subscribe with the epoch the cursor was
+    // established under; the daemon refuses to replay a cursor from a retired
+    // epoch even when its own sequence numerically overtook it. A marker-less
+    // legacy client without a cursor gets the snapshot baseline (initial
+    // attach with no replay to verify). A legacy client that supplies a
+    // cursor cannot be epoch-verified, so its cursor is rejected fail-visible
+    // instead of claiming a snapshot fallback is safe.
+    const rawStreamEpoch = req.query.streamEpoch;
+    const streamEpoch = typeof rawStreamEpoch === 'string' && rawStreamEpoch.length > 0 && rawStreamEpoch.length <= 128
+      ? rawStreamEpoch
+      : undefined;
+    if (rawStreamEpoch !== undefined && streamEpoch === undefined) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const rawCapabilities = req.query.capabilities;
+    const capabilities = typeof rawCapabilities === 'string' ? rawCapabilities.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(rawCapabilities) ? rawCapabilities.flatMap((v) => String(v).split(',').map((s) => s.trim())).filter(Boolean)
+      : [];
+    const hasEpochCapability = capabilities.includes('events.streamEpoch');
+    if (fromSequence !== undefined && (!hasEpochCapability || streamEpoch === undefined)) {
+      res.status(400).json({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
+      return;
+    }
     try {
       const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
       if (typeof runtime.subscribe !== 'function') throw protocolMismatch();
@@ -1421,29 +1473,26 @@ export const registerPiRuntimeRoutes = (app, {
         Connection: 'keep-alive',
       });
       res.flushHeaders?.();
-      const send = (frame) => {
-        const event = projectEventFrame(frame);
-        if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
-      };
-      close = await runtime.subscribe({ sessionId, directory, fromSequence, onEvent: send, onError: () => res.end() });
-      // Named heartbeat events are visible to native EventSource clients.
-      // Comment-only SSE heartbeats keep proxies open but are hidden from the
-      // EventSource API, so WKWebView cannot use them to detect a silent link.
-      // Send one immediately so an empty replay still proves the connection is
-      // healthy before the client resets its reconnect backoff.
-      const sendHeartbeat = () => res.write('event: heartbeat\ndata: {}\n\n');
-      sendHeartbeat();
-      const heartbeat = setInterval(sendHeartbeat, eventHeartbeatMs);
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        close?.();
-      };
-      req.once('close', cleanup);
-      res.once('close', cleanup);
+      // event-stream.js owns the connection lifecycle: cleanup installed before
+      // subscribe opens, idempotent close on disconnect/error/shutdown, bounded
+      // socket buffering with a recoverable disconnect, and heartbeat
+      // suppression on dead responses.
+      openPiEventStream({
+        req,
+        res,
+        subscribe: (handlers) => runtime.subscribe({ sessionId, directory, fromSequence, streamEpoch, ...handlers }),
+        projectFrame: projectEventFrame,
+        heartbeatMs: eventHeartbeatMs,
+        maxBufferedBytes: eventStreamMaxBufferedBytes,
+        registry: eventStreamRegistry,
+        respondWithError: (error) => {
+          if (!res.headersSent) writeDaemonError(res, error);
+          else if (!res.writableEnded && !res.destroyed) res.end();
+        },
+      });
     } catch (error) {
       if (!res.headersSent) writeDaemonError(res, error);
-      else res.end();
-      close?.();
+      else if (!res.writableEnded && !res.destroyed) res.end();
     }
   });
 
@@ -1460,6 +1509,7 @@ export const registerPiRuntimeRoutes = (app, {
       });
       const archived = await archiveStore.read();
       res.json({
+        ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         sessions: projectSessionList(result?.sessions).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),
@@ -1645,11 +1695,26 @@ export const registerPiRuntimeRoutes = (app, {
   for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       let payload = req.body && typeof req.body === 'object' ? req.body : {};
+      if (payload.operationId !== undefined && !isValidSendOperationId(payload.operationId)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
+      if (payload.messageId !== undefined && (typeof payload.messageId !== 'string' || payload.messageId.length === 0 || payload.messageId.length > 512)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
+      if (payload.streamEpoch !== undefined && (typeof payload.streamEpoch !== 'string' || payload.streamEpoch.length === 0 || payload.streamEpoch.length > 128)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
       let attachmentIds = [];
       try {
         if (payload.attachments !== undefined) {
           if (!Array.isArray(payload.attachments) || payload.attachments.some((attachment) => !attachment || typeof attachment.id !== 'string')) throw protocolMismatch();
           attachmentIds = payload.attachments.map((attachment) => attachment.id);
+          // Resolve happens before the daemon call; consume below is idempotent,
+          // so a deduplicated replay of an already-consumed attachment still
+          // resolves from the retired map and returns the original receipt.
           const attachments = await attachmentStore.resolve(attachmentIds);
           payload = { ...payload, attachments };
         }
@@ -1664,7 +1729,11 @@ export const registerPiRuntimeRoutes = (app, {
           return;
         }
         await attachmentStore.consume?.(attachmentIds);
-        res.status(202).json({ accepted: true, messageId: result.messageId });
+        res.status(202).json({
+          accepted: true,
+          messageId: result.messageId,
+          ...(result.deduplicated === true ? { deduplicated: true } : {}),
+        });
       }
     });
   }
@@ -1675,6 +1744,50 @@ export const registerPiRuntimeRoutes = (app, {
       if (result !== undefined) res.status(204).end();
     });
   }
+
+  // Exact authenticated receipt lookup for an uncertain send. The client
+  // passes the full `kind + sessionId + operationId` identity plus the
+  // captured `streamEpoch` it stamped on the send; a stale epoch returns
+  // `unknown` (never a false acceptance) and never replays on the fresh
+  // daemon. No Pi invocation, no side effects.
+  app.post('/api/pi/sessions/:sessionId/send-receipt', async (req, res) => {
+    const sessionId = sessionIdFrom(req);
+    if (!sessionId) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const kind = body.kind;
+    const operationId = body.operationId;
+    const streamEpoch = body.streamEpoch;
+    if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp') || !isValidSendOperationId(operationId)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    if (streamEpoch !== undefined && (typeof streamEpoch !== 'string' || streamEpoch.length === 0 || streamEpoch.length > 128)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.sendReceipt', {
+        kind,
+        sessionId,
+        operationId,
+        ...(streamEpoch !== undefined ? { streamEpoch } : {}),
+      });
+      if (!result || typeof result !== 'object' || !['accepted', 'pending', 'expired', 'unknown'].includes(result.status)
+        || typeof result.streamEpoch !== 'string' || result.streamEpoch.length === 0) {
+        throw protocolMismatch();
+      }
+      res.json({
+        status: result.status,
+        streamEpoch: result.streamEpoch,
+        ...(result.status === 'accepted' && result.receipt && typeof result.receipt === 'object' ? { receipt: result.receipt } : {}),
+      });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
 
   app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
@@ -1755,5 +1868,9 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  return { dispose: () => attachmentStore.dispose?.() };
+  return {
+    dispose: () => attachmentStore.dispose?.(),
+    /** End every live event stream (active or still opening) during shutdown. */
+    closeEventStreams: () => eventStreamRegistry.closeAll(),
+  };
 };

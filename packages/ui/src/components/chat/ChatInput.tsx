@@ -6,9 +6,11 @@ import { useUIStore } from "@/stores/useUIStore";
 import {
   createMessageQueueTarget,
   getMessageQueueKey,
+  queuedSendOperationId,
   useMessageQueueStore,
   type QueuedMessage,
 } from "@/stores/messageQueueStore";
+import { deriveStableMessageId } from "@/lib/pi/send-intent";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { isNewSessionDraftSendPending } from "@/sync/session-ui-draft-helpers";
 import { usePiSessionSnapshot } from "@/sync/pi-session-context";
@@ -63,6 +65,7 @@ import { PendingChangesBar } from "./PendingChangesBar";
 import { useChatSurfaceMode } from "./chatSurfaceContext";
 import { useCurrentSessionActivity } from "@/hooks/useSessionActivity";
 import { toast } from "@/components/ui";
+import { isMobileConnectionUncertain, useMobileConnectionUncertain } from "@/apps/mobile/mobileRecoveryStatus";
 import { useTabletLayout } from "@/lib/device";
 import { useHardwareKeyboard } from "@/lib/hardwareKeyboard";
 import type { MobileControlsPanel } from "./mobileControlsUtils";
@@ -859,14 +862,23 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const hasQueuedMessages = queuedMessages.length > 0;
   const hasUsableModel = Boolean(currentProviderId && currentModelId);
   const attachmentsReady = areAttachmentsReadyToSend(attachedFiles);
-  const attachmentGateMessage = hasPendingAttachmentUploads(attachedFiles)
+  // Reactive mobile recovery gate (see handleSubmit/handleQueueMessage for
+  // the imperative guards): while the native transport is uncertain the
+  // shell shows stale readonly content — disable send AND queue so neither
+  // replays a mutation into an unverified endpoint. Typing stays enabled so
+  // drafts remain local. Desktop/web never set this flag.
+  const isConnectionUncertain = useMobileConnectionUncertain();
+  const connectionUncertainMessage = isConnectionUncertain
+    ? "Connection lost. Waiting to reconnect — your draft is kept."
+    : null;
+  const attachmentGateMessage = connectionUncertainMessage ?? (hasPendingAttachmentUploads(attachedFiles)
     ? "Uploading attachments…"
     : hasFailedAttachmentUploads(attachedFiles) ||
         (attachedFiles.length > 0 && !attachmentsReady)
       ? "Retry or remove failed attachments"
-      : null;
+      : null);
   const canSend =
-    (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady;
+    (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady && !isConnectionUncertain;
 
   // Locked while a worktree is being created, a new-session draft send is
   // in flight, or the selected session is owned by another PiChamber
@@ -892,6 +904,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // Add message to queue instead of sending
   const queueInFlightRef = React.useRef(false);
   const handleQueueMessage = React.useCallback(async () => {
+    // Same uncertain-transport gate as handleSubmit: never enqueue a mutation
+    // into an unverified endpoint — the draft stays local and queued auto-send
+    // stays paused until a verified healthy probe (see MobileApp).
+    if (isMobileConnectionUncertain()) {
+      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      return;
+    }
     const inputSnapshot = getCurrentInputSnapshot();
     if (
       queueInFlightRef.current ||
@@ -916,7 +935,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     const messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, "");
 
-    addToQueue(messageQueueTarget, {
+    // Capture the verified epoch with the queue entry so a reload cannot
+    // recapture a fresh epoch for the same operation id. The auto-send gate
+    // blocks entries whose authority is missing or stale (see
+    // `useQueuedMessageAutoSend`); an explicit new intent is then required.
+    const queueRuntimeKey = getRuntimeKey();
+    const queueEpoch = (() => {
+      try {
+        const epoch = getPiSessionStore().getStreamEpoch?.();
+        return typeof epoch === 'string' && epoch.length > 0 ? epoch : undefined;
+      } catch { return undefined; }
+    })();
+    const queuedId = addToQueue(messageQueueTarget, {
       content: messageToQueue,
       attachments:
         attachmentsToQueue.length > 0 ? attachmentsToQueue : undefined,
@@ -930,6 +960,43 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             }
           : undefined,
     });
+    try {
+      const operationId = queuedSendOperationId(queuedId);
+      const manifestIds = (() => {
+        if (attachmentsToQueue.length === 0) return [] as string[];
+        const ids: string[] = [];
+        for (const attachment of attachmentsToQueue) {
+          const state = attachment.uploadState;
+          if (state?.status === 'ready' && state.expiresAt > Date.now()) {
+            ids.push(state.attachmentId);
+          } else {
+            return undefined;
+          }
+        }
+        return ids;
+      })();
+      useMessageQueueStore.getState().setQueuedSendAuthority(messageQueueTarget, queuedId, {
+        operationId,
+        messageId: deriveStableMessageId(operationId),
+        ...(queueEpoch ? { streamEpoch: queueEpoch } : {}),
+        runtimeKey: queueRuntimeKey,
+        capturedAt: Date.now(),
+        sessionId: messageQueueTarget.sessionId,
+        text: messageToQueue,
+        ...(currentProviderId && currentModelId
+          ? {
+              sendConfig: {
+                providerID: currentProviderId,
+                modelID: currentModelId,
+                ...(currentAgentName ? { agent: currentAgentName } : {}),
+                ...(currentVariant ? { variant: currentVariant } : {}),
+              },
+            }
+          : {}),
+        ...(manifestIds ? { attachmentIds: [...manifestIds] } : {}),
+        dispatched: false,
+      });
+    } catch { /* authority is best-effort; the gate treats missing as blocked */ }
 
     // Clear input and attachments
     // Note: confirmedMentionsRef is NOT cleared here because queued messages
@@ -989,6 +1056,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   };
 
   const handleSubmit = async (options?: SubmitOptions) => {
+    // Mobile temporary-unreachable recovery: the transport is uncertain and the
+    // shell is showing stale readonly content. Never replay a mutation into an
+    // unverified endpoint — keep the draft local and let the banner retry.
+    // Queued prompts stay queued (auto-send is disabled while uncertain) and
+    // drain only after a verified healthy probe.
+    if (isMobileConnectionUncertain()) {
+      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      return;
+    }
     const queuedOnly = options?.queuedOnly ?? false;
     const queuedMessageId = options?.queuedMessageId;
     const delivery =

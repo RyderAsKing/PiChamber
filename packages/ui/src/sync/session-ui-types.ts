@@ -45,6 +45,12 @@ export type SendMessageOptions = {
   sessionId?: string;
   directory?: string;
   delivery?: 'steer';
+  /**
+   * Stable id for one send intent, retained across send retries. Queue
+   * dispatchers pass one derived from the queued entry so a backed-off retry
+   * cannot double-execute an accepted-but-unconfirmed send.
+   */
+  operationId?: string;
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt;
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
   draftSnapshot?: NewSessionDraftState;

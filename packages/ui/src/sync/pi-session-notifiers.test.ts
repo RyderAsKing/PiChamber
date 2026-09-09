@@ -623,7 +623,13 @@ describe('PiSessionStore topic-isolated notifiers', () => {
 
       expect(bCounter.count).toBeGreaterThanOrEqual(1);
       expect(catalog.count).toBe(1);
-      expect(chrome.count).toBe(1);
+      // Explicit send acceptance (`sendStateById`) also notifies chrome:
+      // one emit for the optimistic `confirming` batch and one for the
+      // `accepted` settle, plus the prompt busy emit. Bound it instead of
+      // pinning an exact count so future acceptance fields stay free.
+      expect(chrome.count).toBeGreaterThanOrEqual(1);
+      expect(chrome.count <= 3).toBe(true);
+      expect(store.getSendState('b')?.status).toBe('accepted');
       expect(aCounter.count).toBe(0);
     } finally {
       piClient.sendPrompt = originalSendPrompt;

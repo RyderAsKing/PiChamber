@@ -155,7 +155,12 @@ const stubDaemons = (options: StubOptions = {}) => {
   }) as typeof piClient.getSessionMessages;
   piClient.health = (async () => {
     if (options.health) return options.health() as never;
-    return { state: 'ready', protocolVersion: 1, capabilities: [] } as never;
+    return {
+      state: 'ready',
+      protocolVersion: 1,
+      capabilities: ['events.streamEpoch'],
+      streamEpoch: 'epoch-connection-test',
+    } as never;
   }) as typeof piClient.health;
   piClient.navigateSession = (async (sessionId: string, messageId: string) => {
     calls.navigateSession += 1;

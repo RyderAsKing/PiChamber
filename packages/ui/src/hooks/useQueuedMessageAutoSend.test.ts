@@ -291,6 +291,9 @@ describe('buildQueuedAutoSendPayload', () => {
       'variant-1',
       'normal',
       {
+        // A queued send carries a stable operation id so backed-off retries
+        // deduplicate against the daemon's execution boundary.
+        operationId: 'qm:queued-1',
         target: {
           runtimeKey: 'runtime-original',
           sessionId: 'session-original',

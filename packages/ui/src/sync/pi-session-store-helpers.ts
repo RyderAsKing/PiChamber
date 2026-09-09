@@ -95,6 +95,9 @@ export const initialSessionStoreState = (
   focusPending: false,
   sessionsListStatus: 'idle',
   catalog,
+  syncReadiness: 'ready',
+  syncRecovery: { directories: [], residents: [] },
+  sendStateById: new Map(),
 });
 
 /**

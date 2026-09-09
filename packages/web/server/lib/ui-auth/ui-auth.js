@@ -294,6 +294,11 @@ const isWebSocketUpgrade = (req) => {
 
 const isUrlAuthReadableHttpPath = (pathname) => pathname === '/api/pi/events';
 
+const isEventStreamRequest = (req) => {
+  const method = typeof req?.method === 'string' ? req.method.toUpperCase() : 'GET';
+  return method === 'GET' && isUrlAuthReadableHttpPath(getRequestPathname(req));
+};
+
 const URL_AUTH_WEBSOCKET_PATHS = new Set([
   '/api/terminal/ws',
   '/api/stt/ws',
@@ -404,9 +409,13 @@ export const createUiAuth = ({
   readSettingsFromDiskMigrated,
   clientAuthController = null,
   requireClientAuth = false,
+  liveRevocation = null,
 } = {}) => {
   const normalizedPassword = normalizePassword(password);
   let jwtSecret = getOrCreateJwtSecret();
+  // Set by the password branch; lets the shared URL-token establishment path
+  // re-validate UI-session principals against the current signing secret.
+  let verifySessionToken = null;
 
   const getUrlAuthEncryptionKey = () => crypto.createHash('sha256').update(jwtSecret).digest();
 
@@ -420,6 +429,24 @@ export const createUiAuth = ({
     return { token: `${URL_AUTH_TOKEN_PREFIX}${encryptedToken}`, expiresAt };
   };
 
+  const isPrincipalValidForEstablishment = async (sessionToken) => {
+    if (typeof sessionToken !== 'string' || sessionToken.length === 0) return false;
+    if (sessionToken.startsWith('client:')) {
+      if (typeof clientAuthController?.isClientValid !== 'function') return true;
+      try {
+        return await clientAuthController.isClientValid(sessionToken.slice('client:'.length)) === true;
+      } catch {
+        return false;
+      }
+    }
+    if (typeof verifySessionToken !== 'function') return true;
+    try {
+      return await verifySessionToken(sessionToken) === true;
+    } catch {
+      return false;
+    }
+  };
+
   const authenticateUrlAuthToken = async (req) => {
     if (!canUseUrlAuthTokenForRequest(req)) return null;
     const token = getUrlAuthTokenFromRequest(req);
@@ -430,6 +457,12 @@ export const createUiAuth = ({
         contentEncryptionAlgorithms: ['A256GCM'],
       });
       if (payload.type !== 'url-auth' || typeof payload.sessionToken !== 'string' || !payload.sessionToken) return null;
+      // The 60-second token TTL gates establishment only; it is not a
+      // connection lifetime grant. Re-validate the embedded principal against
+      // the credential store (revocation) and the current signing secret
+      // (global invalidation) so a token minted before either event is denied
+      // at open time — the mint/open race.
+      if (!await isPrincipalValidForEstablishment(payload.sessionToken)) return null;
       return { ok: true, sessionToken: payload.sessionToken };
     } catch {
       return null;
@@ -475,6 +508,45 @@ export const createUiAuth = ({
     client: clientAuth?.client || null,
   });
 
+  // Live revocation at the auth-owning boundary: a successfully authenticated
+  // SSE event-stream request is tracked under the principal derived from its
+  // verified credential (never a client-supplied ID), so a later revocation
+  // or global invalidation can close it. Lifetime is governed by the tracker,
+  // not by the 60-second URL token TTL used to establish the connection.
+  // `generation` must be the coordinator generation captured BEFORE the
+  // caller's first auth await; a stale value reject-closes the late
+  // registration (verify-registration race) without trusting the principal.
+  const trackEventStreamPrincipal = (req, res, principal, generation) => {
+    if (!liveRevocation || typeof liveRevocation.trackLiveConnection !== 'function') return;
+    if (!isEventStreamRequest(req)) return;
+    if (typeof principal !== 'string' || principal.length === 0) return;
+    let entry;
+    try {
+      entry = liveRevocation.trackLiveConnection({
+        principal,
+        close: () => {
+          if (res.destroyed || res.writableEnded) return;
+          res.destroy();
+        },
+        generation,
+      });
+    } catch {
+      return;
+    }
+    // Rejected registrations (revoked/stale-generation/over-limit/disposed)
+    // already destroyed the response via close(); attaching end() is still
+    // safe (inactive entries are no-ops) and covers the natural-close path.
+    res.once?.('close', () => entry.end());
+  };
+
+  const captureLiveGeneration = () => {
+    try {
+      if (typeof liveRevocation?.getGeneration === 'function') return liveRevocation.getGeneration();
+    } catch {
+    }
+    return undefined;
+  };
+
   if (!normalizedPassword) {
     const setSessionCookie = (req, res, token, ttlMs = sessionTtlMs) => {
       const secure = isSecureRequest(req);
@@ -505,8 +577,10 @@ export const createUiAuth = ({
       if (req.method === 'OPTIONS') {
         return next();
       }
+      const generation = captureLiveGeneration();
       const clientAuth = await authenticateClientRequest(req);
       if (clientAuth) {
+        trackEventStreamPrincipal(req, res, clientSessionToken(clientAuth), generation);
         return next();
       }
       return res.status(401).json({ error: 'Client authentication required', locked: true, clientAuthRequired: true });
@@ -689,6 +763,7 @@ export const createUiAuth = ({
       return false;
     }
   };
+  verifySessionToken = isSessionValid;
 
   const issueSession = async (req, res, { trustDevice = false } = {}) => {
     const ttlMs = resolveSessionTtlMs(trustDevice);
@@ -717,12 +792,19 @@ export const createUiAuth = ({
     if (req.method === 'OPTIONS') {
       return next();
     }
+    // Deterministic verify-registration barrier: capture the live generation
+    // before the first await so a global invalidation racing verification is
+    // rejected at track time. Per-principal revokes are covered by the
+    // coordinator's revoked-ID memory even without the generation.
+    const generation = captureLiveGeneration();
     const token = getTokenFromRequest(req);
     if (await isSessionValid(token)) {
+      trackEventStreamPrincipal(req, res, token, generation);
       return next();
     }
     const clientAuth = await authenticateClientRequest(req);
     if (clientAuth) {
+      trackEventStreamPrincipal(req, res, clientSessionToken(clientAuth), generation);
       return next();
     }
     clearSessionCookie(req, res);
@@ -939,6 +1021,22 @@ export const createUiAuth = ({
 
   const handleResetAuth = (req, res) => {
     try {
+      // Env-secret topology cannot rotate: the signing key is the process
+      // environment, not the persisted file, so global invalidation is
+      // unavailable. Fail honestly without side effects — closing live
+      // connections while leaving the secret (and every outstanding JWT/URL
+      // token) valid would imply a sign-out that never happened.
+      if (process.env.PICHAMBER_JWT_SECRET) {
+        return res.status(400).json({ error: 'Global sign-out is unavailable while PICHAMBER_JWT_SECRET is set' });
+      }
+      // Global invalidation ends established live connections (SSE, terminal,
+      // dictation) immediately; the rotated signing secret denies every
+      // outstanding session JWT and URL token from here on. New cookies and
+      // URL tokens are issued from the reread in-memory secret, so they are
+      // bound to the new generation. Single-server topology: rotation is
+      // in-process only (the pairing CLI never rotates the JWT secret), so
+      // no cross-process poll is involved.
+      liveRevocation?.revokeAllLive?.('signout-everywhere');
       const passkeyResult = passkeyController.clearAllPasskeys();
       rotateJwtSecret();
       clearSessionCookie(req, res);

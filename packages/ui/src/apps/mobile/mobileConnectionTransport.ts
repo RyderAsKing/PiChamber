@@ -4,6 +4,7 @@ import { createRelayTunnelClient } from '@/lib/relay/tunnel-client';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import {
   getRuntimeApiBaseUrl,
+  getRuntimeEndpointGeneration,
   getRuntimeKey,
   switchRuntimeEndpoint,
 } from '@/lib/runtime-switch';
@@ -219,8 +220,11 @@ export const probeRelaySession = async (
   token?: string,
   grant?: string,
   timeoutMs: number = RELAY_CONNECT_TIMEOUT_MS,
-  options?: { keepTunnel?: boolean }
+  options?: { keepTunnel?: boolean; shouldAbort?: () => boolean }
 ): Promise<RelayProbeResult> => {
+  // Never send the old credential after the selection moved on — not even to
+  // the old host. A stale probe is wasted radio and a confusing log line.
+  if (options?.shouldAbort?.()) return { outcome: 'unreachable' };
   const tunnel = createRelayTunnelClient({
     relayUrl: relay.relayUrl,
     serverId: relay.serverId,
@@ -287,8 +291,9 @@ export const switchToRelayRuntime = (
 export const probeConnectionCandidates = async (
   candidates: MobileTransportCandidate[],
   token: string | undefined,
-  options?: { fast?: boolean }
+  options?: { fast?: boolean; shouldAbort?: () => boolean }
 ): Promise<ProbeResult> => {
+  const shouldAbort = options?.shouldAbort;
   const requestOptions = options?.fast
     ? { totalTimeoutMs: MOBILE_FAST_PROBE_TIMEOUT_MS }
     : undefined;
@@ -305,6 +310,7 @@ export const probeConnectionCandidates = async (
 
   const probeDirectChain = async (): Promise<ProbeResult> => {
     for (const candidate of directList) {
+      if (shouldAbort?.()) return { status: 'unreachable' };
       const url = normalizeConnectionUrl(candidate.url) || candidate.url;
       const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
       const health = await requestWithTimeout(
@@ -312,6 +318,7 @@ export const probeConnectionCandidates = async (
         { method: 'GET' },
         requestOptions
       );
+      if (shouldAbort?.()) return { status: 'unreachable' };
       if (!health?.ok) continue;
       if (expectedServerId) {
         const payload = await health.json().catch(() => null);
@@ -337,6 +344,7 @@ export const probeConnectionCandidates = async (
         },
         requestOptions
       );
+      if (shouldAbort?.()) return { status: 'unreachable' };
       if (session?.status === 401) return { status: 'needs-login' };
       if (!session || (!session.ok && session.status !== 404)) continue;
       const status = await readSessionStatus(session);
@@ -357,13 +365,18 @@ export const probeConnectionCandidates = async (
 
   const probeRelay = async (): Promise<ProbeResult> => {
     if (!relayCandidate) return { status: 'unreachable' };
+    if (shouldAbort?.()) return { status: 'unreachable' };
     const { outcome, tunnel } = await probeRelaySession(
       relayCandidate.relay,
       token,
       undefined,
       options?.fast ? MOBILE_FAST_PROBE_TIMEOUT_MS : undefined,
-      { keepTunnel: true }
+      { keepTunnel: true, ...(shouldAbort ? { shouldAbort } : {}) }
     );
+    if (shouldAbort?.()) {
+      tunnel?.close();
+      return { status: 'unreachable' };
+    }
     if (outcome === 'ok')
       return {
         status: 'ok',
@@ -396,6 +409,7 @@ export const probeConnectionCandidates = async (
 
     const startRelayProbe = () => {
       if (relayCancelled || settled) return;
+      if (shouldAbort?.()) return;
       if (headstartTimer !== undefined) {
         window.clearTimeout(headstartTimer);
         headstartTimer = undefined;
@@ -464,7 +478,13 @@ export const getAutoConnectTargetLabel = (): string | null => {
 };
 
 export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => {
+  const generationBefore = getRuntimeEndpointGeneration();
+  const runtimeBefore = `${getRuntimeKey()}|${getRuntimeApiBaseUrl()}`;
+  const isStale = (): boolean =>
+    getRuntimeEndpointGeneration() !== generationBefore ||
+    `${getRuntimeKey()}|${getRuntimeApiBaseUrl()}` !== runtimeBefore;
   await migrateLegacyInlineTokens();
+  if (isStale()) return { status: 'no-candidate' };
   const candidate = readConnections()[0];
   if (!candidate) return { status: 'no-candidate' };
 
@@ -485,6 +505,10 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
   const result = await probeConnectionCandidates(candidate.candidates, token, {
     fast: true,
   });
+  if (isStale()) {
+    closeProbeResultTunnel(result);
+    return { status: 'no-candidate' };
+  }
   if (result.status === 'needs-login')
     return { status: 'needs-login', label: candidate.label };
   if (result.status !== 'ok')
@@ -494,6 +518,10 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
     label: candidate.label,
     candidates: candidate.candidates,
   });
+  if (isStale()) {
+    closeChosenTransportTunnel(result.transport);
+    return { status: 'no-candidate' };
+  }
   switchToTransport(result.transport, token, {
     runtimeKey: secureTokenKeyOf(candidate),
   });
@@ -660,19 +688,147 @@ export const isActiveRuntimeConnection = (
   return Boolean(runtimeKey) && secureTokenKeyOf(connection) === runtimeKey;
 };
 
-export const reprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
+// ---------------------------------------------------------------------------
+// Late-probe safety: endpoint selection generation + runtime identity.
+//
+// `reprobeActiveConnection` captures its selection, then awaits secure reads
+// and network probes. An explicit disconnect, a host switch, or a
+// disconnect/reconnect flap back to the SAME runtime key while a probe is
+// pending must not be undone by that probe's late `upsert`/`switchToTransport`.
+// The controller (`MobileConnectionRecovery`) drops late results AFTER the
+// switch — too late. The owning core therefore rejects stale selections BEFORE
+// every side effect: secure-token use, network sends with old credentials,
+// storage upserts, and transport switches.
+//
+// `getRuntimeEndpointGeneration()` bumps on every `switchRuntimeEndpoint`
+// (including explicit disconnects), so a same-key reconnect still invalidates
+// the older probe. Runtime identity (`getRuntimeKey()` + `getRuntimeApiBaseUrl()`)
+// covers host switches even if the generation were missed, and the saved-row
+// identity + candidate snapshot covers storage refreshes that changed the row
+// without switching endpoints (a stale upsert must not clobber newer candidates).
+// Stale relay winners are closed, never adopted, so cancel/dispose cannot leak
+// probe tunnels or close the live winner.
+// ---------------------------------------------------------------------------
+
+type ReprobeSelection = {
+  generation: number;
+  runtimeKey: string;
+  apiBaseUrl: string;
+  connectionId: string;
+  secureKey: string;
+  candidatesJson: string;
+};
+
+const captureReprobeSelection = (
+  active: MobileSavedConnection
+): ReprobeSelection => ({
+  generation: getRuntimeEndpointGeneration(),
+  runtimeKey: getRuntimeKey(),
+  apiBaseUrl: getRuntimeApiBaseUrl(),
+  connectionId: active.id,
+  secureKey: secureTokenKeyOf(active),
+  candidatesJson: JSON.stringify(active.candidates.map(serializeCandidate)),
+});
+
+const isReprobeSelectionStale = (selection: ReprobeSelection): boolean => {
+  if (getRuntimeEndpointGeneration() !== selection.generation) return true;
+  if (getRuntimeKey() !== selection.runtimeKey) return true;
+  if (getRuntimeApiBaseUrl() !== selection.apiBaseUrl) return true;
+  const current = findActiveConnection();
+  if (!current || current.id !== selection.connectionId) return true;
+  if (secureTokenKeyOf(current) !== selection.secureKey) return true;
+  try {
+    if (
+      JSON.stringify(current.candidates.map(serializeCandidate)) !==
+      selection.candidatesJson
+    )
+      return true;
+  } catch {
+    return true;
+  }
+  return false;
+};
+
+const closeChosenTransportTunnel = (
+  transport: ChosenTransport | undefined
+): void => {
+  try {
+    if (transport?.kind === 'relay') transport.tunnel?.close();
+  } catch {
+    // Best-effort cleanup — a stale probe must never throw while discarding.
+  }
+};
+
+const closeProbeResultTunnel = (result: ProbeResult): void => {
+  if (result.status === 'ok') closeChosenTransportTunnel(result.transport);
+};
+
+const reprobeSelectionKeyOf = (selection: ReprobeSelection | null): string =>
+  selection
+    ? `${selection.generation}|${selection.runtimeKey}|${selection.apiBaseUrl}|${selection.connectionId}`
+    : `noselection|${getRuntimeEndpointGeneration()}|${getRuntimeKey()}`;
+
+let reprobeInFlight: Promise<ReprobeOutcome> | null = null;
+let reprobeInFlightKey = '';
+
+const trackReprobeFlight = (
+  key: string,
+  promise: Promise<ReprobeOutcome>
+): Promise<ReprobeOutcome> => {
+  const tracked = promise.finally(() => {
+    if (reprobeInFlight === tracked) {
+      reprobeInFlight = null;
+      reprobeInFlightKey = '';
+    }
+  });
+  reprobeInFlight = tracked;
+  reprobeInFlightKey = key;
+  return tracked;
+};
+
+export const reprobeActiveConnection = (): Promise<ReprobeOutcome> => {
+  // Single-owner core dedup: every caller (recovery controller idle/cycle
+  // probes, cold-start classification, online/resume wakes, AND the background
+  // candidate-refresh follow-up) shares one in-flight probe per selection.
+  // Same-selection concurrent calls share the promise (one network race, one
+  // switch, no double tunnels). A distinct selection while one is in flight
+  // serializes behind it — never parallel — so the older probe can discard
+  // (closing its winner) before the fresh selection probes.
+  const snapshot = findActiveConnection();
+  const snapshotSelection = snapshot ? captureReprobeSelection(snapshot) : null;
+  const snapshotKey = reprobeSelectionKeyOf(snapshotSelection);
+  if (reprobeInFlight && reprobeInFlightKey === snapshotKey)
+    return reprobeInFlight;
+  if (reprobeInFlight) {
+    const previous = reprobeInFlight;
+    const chained = previous.then(
+      () => runReprobeActiveConnection(),
+      () => runReprobeActiveConnection()
+    );
+    return trackReprobeFlight(snapshotKey, chained);
+  }
+  return trackReprobeFlight(snapshotKey, runReprobeActiveConnection());
+};
+
+const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
   const active = findActiveConnection();
   if (!active) return 'no-connection';
+  const selection = captureReprobeSelection(active);
+  const isStale = (): boolean => isReprobeSelectionStale(selection);
 
   let token: string | undefined;
   if (isCapacitorApp()) {
     token = active.hasToken
       ? await readSecureToken(secureTokenKeyOf(active))
       : undefined;
+    // Secure read resolved after a disconnect/switch: never use the old
+    // credential and never commit — the selection is gone.
+    if (isStale()) return 'no-connection';
   } else {
     token = active.clientToken;
   }
   if (!token) return 'unreachable';
+  if (isStale()) return 'no-connection';
 
   const currentIndex = active.candidates.findIndex((candidate) =>
     transportMatchesCurrentRuntime(
@@ -686,25 +842,52 @@ export const reprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
     currentIndex >= 0
       ? active.candidates.slice(0, currentIndex)
       : active.candidates;
-  const better = await probeConnectionCandidates(higher, token, { fast: true });
+  // Do not send the old credential anywhere after a switch — not even to the
+  // old host's URLs. The probe is wasted work once the selection is gone.
+  if (isStale()) return 'no-connection';
+  const better = await probeConnectionCandidates(higher, token, {
+    fast: true,
+    shouldAbort: isStale,
+  });
+  if (isStale()) {
+    closeProbeResultTunnel(better);
+    return 'no-connection';
+  }
   if (better.status === 'ok') {
+    const latest = findActiveConnection();
+    if (!latest || latest.id !== active.id || isStale()) {
+      closeChosenTransportTunnel(better.transport);
+      return 'no-connection';
+    }
     await upsertMobileConnection({
       id: active.id,
       label: active.label,
       candidates: active.candidates,
     });
+    if (isStale()) {
+      closeChosenTransportTunnel(better.transport);
+      return 'no-connection';
+    }
     switchToTransport(better.transport, token, {
       runtimeKey: secureTokenKeyOf(active),
     });
     return 'switched';
   }
-  if (better.status === 'needs-login') return 'needs-login';
+  if (better.status === 'needs-login') {
+    if (isStale()) return 'no-connection';
+    return 'needs-login';
+  }
 
   if (currentIndex >= 0) {
+    if (isStale()) return 'no-connection';
+    // Validate against the CAPTURED base URL with the captured token, never
+    // the current URL: after a host switch the current URL is a different host
+    // and the old credential must not be sent there.
     const stillValid = await validateActiveRuntimeSession(
-      { url: getRuntimeApiBaseUrl(), clientToken: token },
+      { url: selection.apiBaseUrl, clientToken: token },
       { fast: true }
     );
+    if (isStale()) return 'no-connection';
     if (stillValid) {
       scheduleCandidateRefresh();
       return 'unchanged';
@@ -713,19 +896,44 @@ export const reprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
 
   const lower =
     currentIndex >= 0 ? active.candidates.slice(currentIndex + 1) : [];
-  const fallback = await probeConnectionCandidates(lower, token, { fast: true });
+  if (lower.length === 0) {
+    if (isStale()) return 'no-connection';
+    return 'unreachable';
+  }
+  if (isStale()) return 'no-connection';
+  const fallback = await probeConnectionCandidates(lower, token, {
+    fast: true,
+    shouldAbort: isStale,
+  });
+  if (isStale()) {
+    closeProbeResultTunnel(fallback);
+    return 'no-connection';
+  }
   if (fallback.status === 'ok') {
+    const latest = findActiveConnection();
+    if (!latest || latest.id !== active.id || isStale()) {
+      closeChosenTransportTunnel(fallback.transport);
+      return 'no-connection';
+    }
     await upsertMobileConnection({
       id: active.id,
       label: active.label,
       candidates: active.candidates,
     });
+    if (isStale()) {
+      closeChosenTransportTunnel(fallback.transport);
+      return 'no-connection';
+    }
     switchToTransport(fallback.transport, token, {
       runtimeKey: secureTokenKeyOf(active),
     });
     return 'switched';
   }
-  if (fallback.status === 'needs-login') return 'needs-login';
+  if (fallback.status === 'needs-login') {
+    if (isStale()) return 'no-connection';
+    return 'needs-login';
+  }
+  if (isStale()) return 'no-connection';
   return 'unreachable';
 };
 
@@ -744,6 +952,11 @@ export const refreshActiveConnectionCandidates =
       logConnect('candidates:refresh-skip', { reason: 'no-relay-candidate' });
       return 'skipped';
     }
+    // Capture the selection before the network fetch: an explicit disconnect
+    // or host switch while the fetch is pending must not upsert stale LAN
+    // candidates into the (possibly deleted) old row.
+    const selection = captureReprobeSelection(active);
+    const isStale = (): boolean => isReprobeSelectionStale(selection);
     candidateRefreshInFlight = true;
     try {
       const response = await raceWithTimeout(
@@ -757,6 +970,10 @@ export const refreshActiveConnectionCandidates =
           reason: 'fetch-failed',
           status: response?.status ?? null,
         });
+        return 'skipped';
+      }
+      if (isStale()) {
+        logConnect('candidates:refresh-skip', { reason: 'selection-changed' });
         return 'skipped';
       }
       const payload = (await response.json().catch(() => null)) as {
@@ -798,6 +1015,15 @@ export const refreshActiveConnectionCandidates =
         JSON.stringify(active.candidates.map(serializeCandidate)) ===
         JSON.stringify(next.map(serializeCandidate));
       if (unchanged) return 'unchanged';
+      if (isStale()) {
+        logConnect('candidates:refresh-skip', { reason: 'selection-changed' });
+        return 'skipped';
+      }
+      const latest = findActiveConnection();
+      if (!latest || latest.id !== active.id || isStale()) {
+        logConnect('candidates:refresh-skip', { reason: 'selection-changed' });
+        return 'skipped';
+      }
       logConnect('candidates:refreshed', { lanCount: lanUrls.length });
       await upsertMobileConnection({
         id: active.id,
@@ -818,9 +1044,19 @@ export const scheduleCandidateRefresh = (): void => {
         (): CandidateRefreshResult => 'skipped'
       );
       logConnect('candidates:refresh-result', { result });
+      // Background follow-up shares the core single-owner reprobe: if a
+      // controller probe is already in flight for the same selection it
+      // collapses into it instead of double-switching transports.
       if (result === 'updated' && isRelayModeActive()) {
         await reprobeActiveConnection().catch(() => null);
       }
     })();
   }, CANDIDATE_REFRESH_DELAY_MS);
+};
+
+/** Test-only reset for the core single-flight state (per-file isolation). */
+export const __resetMobileProbeStateForTests = (): void => {
+  reprobeInFlight = null;
+  reprobeInFlightKey = '';
+  candidateRefreshInFlight = false;
 };
