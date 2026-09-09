@@ -604,11 +604,14 @@ describe('Pi event stream route', () => {
       .then((response) => response.text())
       .catch(() => 'aborted');
     await vi.waitFor(() => expect(resolveSubscribe).toBeDefined());
+    const [clientSocket] = server.__testConnections;
+    expect(clientSocket).toBeDefined();
     controller.abort();
+    // Wait for this request's socket, not all server connections: Node's fetch
+    // pool can open an idle replacement socket after aborting the request.
+    await vi.waitFor(() => expect(clientSocket.destroyed).toBe(true));
     resolveSubscribe();
     await vi.waitFor(() => expect(closeCalls).toBe(1));
-    // The aborted client's connection is fully gone.
-    await vi.waitFor(() => expect(server.__testConnections.size).toBe(0));
     await clientOutcome;
   });
 
