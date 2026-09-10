@@ -35,10 +35,11 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 
 ## File-save revisions (finding #8)
 - Revisions are opaque exact strings (`v1:<size>:<mtimeMs>[:<sha256>]`, 5 MiB hash ceiling). `null` means missing at read time; `undefined` means legacy/unknown and never guards a save.
-- `GET /api/fs/read` returns `x-pichamber-file-revision` plus `Cache-Control: no-store`; optional missing reads also return `x-pichamber-file-exists: false`.
+- `GET /api/fs/read` returns `x-pichamber-file-revision` plus `Cache-Control: no-store`; optional missing reads also return `x-pichamber-file-exists: false`. The server CORS policy exposes both headers so HMR, packaged desktop, and Capacitor clients retain revision authority across origins.
 - `GET /api/fs/stat` returns `{ revision, exists }` and accepts `?knownRevision=` to echo the client revision when size+mtime (and hash-ceiling category) match, skipping read+hash.
 - `POST /api/fs/write` accepts `{ expectedRevision, overwrite }`. Omitting `expectedRevision` keeps legacy unconditional writes. `expectedRevision: null` (or `'missing'`) is create-only. `overwrite: true` is the explicit force path. Mismatches return HTTP 409 `{ reason: 'file-revision-conflict', currentRevision, exists, path }`. Identical content is an idempotent `{ noop: true }` success without rewrite. Writes serialize per canonical (realpath) file with re-keying for create/re-point races, preserve mode across atomic temp+rename, and never normalize line endings.
 - External writers that bypass the protocol are non-cooperating: last writer wins on disk, and the next cooperating save conflicts instead of silently overwriting.
+- The exact `~` global-session sentinel resolves to the server user's home directory before workspace validation. Other relative paths keep normal server-cwd resolution.
 
 ## Composition contract with `index.js`
 - `index.js` provides composition-time dependencies only (platform primitives + callbacks such as `resolveProjectDirectory`, `normalizeDirectoryPath`, and `buildAugmentedPath`).

@@ -13,7 +13,11 @@ import { createTerminalRuntime } from '../terminal/runtime.js';
 import { createSttRuntime } from '../stt/runtime.js';
 import { getExecutableSearchDirectories } from '../tunnels/executable-search.js';
 
-const normalizeDirectoryPath = (value) => (typeof value === 'string' ? path.resolve(value.trim()) : '');
+export const normalizeDirectoryPath = (value) => {
+  if (typeof value !== 'string') return '';
+  const requested = value.trim();
+  return path.resolve(requested === '~' ? os.homedir() : requested);
+};
 
 const buildAugmentedPath = () => mergePathValues(process.env.PATH || '', process.env.Path || '', path.delimiter);
 
@@ -40,7 +44,7 @@ const resolveProjectDirectory = async (req) => {
   const requested = typeof query === 'string' && query.trim() ? query.trim() : (typeof header === 'string' ? header.trim() : '');
   if (!requested) return { directory: process.cwd(), error: null };
   try {
-    const resolved = path.resolve(requested);
+    const resolved = normalizeDirectoryPath(requested);
     const stats = await fs.promises.stat(resolved);
     if (!stats.isDirectory()) return { directory: null, error: 'Specified path is not a directory' };
     return { directory: await fs.promises.realpath(resolved), error: null };

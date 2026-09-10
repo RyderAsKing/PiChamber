@@ -36,5 +36,8 @@ describe('packaged UI CORS', () => {
     expect(ended).toBe(true);
     expect(headers['Access-Control-Allow-Origin']).toBe('pichamber-ui://app');
     expect(headers['Access-Control-Allow-Headers']).toBe('x-pichamber-directory,x-pichamber-filename,x-pichamber-mime,authorization');
+    expect(headers['Access-Control-Expose-Headers']).toBe(
+      'x-pichamber-file-revision,x-pichamber-file-exists',
+    );
   });
 });

@@ -26,6 +26,11 @@ const DEFAULT_ALLOWED_CORS_HEADERS = [
   'x-pichamber-mime',
 ].join(',');
 
+const EXPOSED_UI_CORS_HEADERS = [
+  'x-pichamber-file-revision',
+  'x-pichamber-file-exists',
+].join(',');
+
 export const isAllowedUiCorsOrigin = (origin) => (
   typeof origin === 'string'
   && (ALLOWED_UI_CORS_ORIGINS.has(origin) || LOOPBACK_HTTP_ORIGIN.test(origin))
@@ -48,6 +53,7 @@ export const applyUiCorsHeaders = (req, res) => {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', resolveAllowedCorsHeaders(req.headers?.['access-control-request-headers']));
+  res.setHeader('Access-Control-Expose-Headers', EXPOSED_UI_CORS_HEADERS);
   res.setHeader('Vary', 'Origin');
   return req.method === 'OPTIONS';
 };
