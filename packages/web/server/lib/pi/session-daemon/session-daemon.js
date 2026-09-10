@@ -3085,7 +3085,10 @@ export function createSessionDaemon({
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
     clearToolTimingsForSession(sessionId);
-    publish('session.lifecycle', { state: 'idle', deleted: true, serverNow: Date.now() }, sessionId, targetDir);
+    // Explicit typed deletion: every connected and replaying client drops
+    // catalog, transcript, activity, and caches. Archive and directory moves
+    // keep the session id and never publish this event.
+    publish('session.deleted', {}, sessionId, targetDir);
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {

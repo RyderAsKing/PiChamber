@@ -582,9 +582,16 @@ export const projectEventFrame = (frame) => {
       } } };
     }
     case 'session.lifecycle': {
+      // Legacy daemons published deletion as `lifecycle idle + deleted:true`.
+      // Project it as the explicit typed deletion so old hosts still clean
+      // every client. Current daemons publish `session.deleted` directly.
+      if (frame.payload && frame.payload.deleted === true) {
+        return { ...common, name: 'session.deleted', payload: {} };
+      }
       const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
       return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
     }
+    case 'session.deleted': return { ...common, payload: {} };
     case 'session.updated': {
       if (typeof frame.payload.title !== 'string') return null;
       const title = frame.payload.title.trim();

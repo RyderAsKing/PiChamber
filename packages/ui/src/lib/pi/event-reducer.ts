@@ -123,6 +123,22 @@ export const applyPiEvent = (
     return { state, didApply: false };
   }
 
+  // Authoritative deletion is a tombstone, not a transcript row. Delete the
+  // resident row when present but always advance the per-session cursor so
+  // stale live events (sequence <= deletion) cannot resurrect it and a
+  // repeated deletion with a newer sequence stays an idempotent no-op.
+  if (event.name === 'session.deleted') {
+    const nextBySession = new Map(state.bySession);
+    nextBySession.delete(event.sessionId);
+    const nextLastSequence = new Map(state.lastSequence);
+    nextLastSequence.set(event.sessionId, event.sequence);
+    return {
+      state: { bySession: nextBySession, lastSequence: nextLastSequence },
+      didApply: true,
+      sessionId: event.sessionId,
+    };
+  }
+
   const current = state.bySession.get(event.sessionId);
   const session: PiReducerSessionState = current
     ? {
@@ -285,6 +301,9 @@ export const applyPiEvent = (
     case 'session.compaction':
       session.compaction = { ...event.payload };
       break;
+    // `session.deleted` has no case here: the early tombstone return above
+    // handles it, so `event` is narrowed to exclude that name by the time the
+    // switch runs. Do not re-add a case for it; it cannot be reached.
     case 'session.updated':
       // Title/metadata lives in the live catalog, not the transcript reducer.
       break;

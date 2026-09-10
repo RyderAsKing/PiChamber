@@ -1231,7 +1231,11 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('sessions.abort', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
     expect(runtime.session.aborted).toBe(1);
     runtime.session.isStreaming = false;
+    const deletedEvent = client.next((frame) => frame.event === 'session.deleted');
     await expect(client.request('sessions.delete', { sessionId: 'pi-session-forked' })).resolves.toMatchObject({ result: {} });
+    await expect(deletedEvent).resolves.toMatchObject({
+      payload: { sessionId: 'pi-session-forked', directory: root },
+    });
     await client.close();
   });
 

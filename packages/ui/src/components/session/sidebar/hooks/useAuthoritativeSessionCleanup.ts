@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Session } from '@/lib/chat/types';
+import { getPiSessionStore } from '@/apps/pi-session-store';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { cleanupPersistedSessionState } from '@/sync/session-deletion-cleanup';
 import {
   buildAuthoritativeSessionIdentityMap,
   findRemovedAuthoritativeSessions,
@@ -28,7 +28,12 @@ export const useAuthoritativeSessionCleanup = (args: {
       : null;
 
     for (const identity of findRemovedAuthoritativeSessions(previous, current)) {
-      cleanupPersistedSessionState({ runtimeKey, ...identity });
+      // Funnel through the store's shared deletion commit so the missed
+      // deletion also lands a runtime-scoped tombstone: an in-flight list,
+      // detail, or history response started before the daemon-side deletion
+      // cannot resurrect the row. Persisted state cleanup (runtime +
+      // directory + session scoped) happens inside the same commit.
+      getPiSessionStore().commitMissedDeletion(identity.sessionId, identity.directory);
     }
     baselineRef.current = { runtimeKey, identities: current };
   }, [enabled, hasAuthoritativeGlobalSessions, sessions]);
