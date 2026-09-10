@@ -20,6 +20,7 @@ import {
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
+import { isValidSendOperationId } from './session-daemon/send-operation-registry.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -58,9 +59,11 @@ const writeDaemonError = (res, error) => {
       ? 502
     : code === 'INVALID_SESSION'
       ? 404
-      : code === 'SESSION_IN_USE'
+      : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH'
         ? 409
-        : code === 'ATTACHMENT_TOO_LARGE'
+        : code === 'OPERATION_EXPIRED'
+          ? 410
+          : code === 'ATTACHMENT_TOO_LARGE'
         ? 413
         : code === 'ATTACHMENT_LIMIT_REACHED'
           ? 429
@@ -1645,11 +1648,22 @@ export const registerPiRuntimeRoutes = (app, {
   for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       let payload = req.body && typeof req.body === 'object' ? req.body : {};
+      if (payload.operationId !== undefined && !isValidSendOperationId(payload.operationId)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
+      if (payload.messageId !== undefined && (typeof payload.messageId !== 'string' || payload.messageId.length === 0 || payload.messageId.length > 512)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
       let attachmentIds = [];
       try {
         if (payload.attachments !== undefined) {
           if (!Array.isArray(payload.attachments) || payload.attachments.some((attachment) => !attachment || typeof attachment.id !== 'string')) throw protocolMismatch();
           attachmentIds = payload.attachments.map((attachment) => attachment.id);
+          // Resolve happens before the daemon call; consume below is
+          // idempotent (retired entries resolve), so a deduplicated replay
+          // of an already-consumed attachment still returns the receipt.
           const attachments = await attachmentStore.resolve(attachmentIds);
           payload = { ...payload, attachments };
         }
@@ -1664,10 +1678,49 @@ export const registerPiRuntimeRoutes = (app, {
           return;
         }
         await attachmentStore.consume?.(attachmentIds);
-        res.status(202).json({ accepted: true, messageId: result.messageId });
+        res.status(202).json({
+          accepted: true,
+          messageId: result.messageId,
+          ...(result.deduplicated === true ? { deduplicated: true } : {}),
+        });
       }
     });
   }
+
+  // Exact read-only receipt lookup for an uncertain send. The client passes
+  // the full `kind + sessionId + operationId` identity; the daemon never
+  // invokes Pi and never mutates the registry except bounded expiry
+  // eviction. No epoch is required in this split (see stream-epoch branch).
+  app.post('/api/pi/sessions/:sessionId/send-receipt', async (req, res) => {
+    const sessionId = sessionIdFrom(req);
+    if (!sessionId) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const kind = body.kind;
+    const operationId = body.operationId;
+    if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp') || !isValidSendOperationId(operationId)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.sendReceipt', {
+        kind,
+        sessionId,
+        operationId,
+      });
+      if (!result || typeof result !== 'object' || !['accepted', 'pending', 'expired', 'unknown'].includes(result.status)) {
+        throw protocolMismatch();
+      }
+      res.json({
+        status: result.status,
+        ...(result.status === 'accepted' && result.receipt && typeof result.receipt === 'object' ? { receipt: result.receipt } : {}),
+      });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
 
   for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {

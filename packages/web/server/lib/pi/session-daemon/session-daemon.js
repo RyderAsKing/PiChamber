@@ -35,6 +35,11 @@ import {
 } from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
 import { createSessionReplayLog } from './session-replay.js';
+import {
+  createSendOperationRegistry,
+  isValidSendOperationId,
+  stableFingerprint,
+} from './send-operation-registry.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
 import { createSkillReadClassifier } from './skill-read-classifier.js';
 import { createSessionRuntimeRegistry } from './runtime-registry.js';
@@ -164,6 +169,7 @@ export function createSessionDaemon({
   onOwnershipClaim,
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
+  sendOperationTtlMs = 10 * 60 * 1_000,
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
     agentDir: sessionAgentDir,
@@ -200,6 +206,9 @@ export function createSessionDaemon({
   }
   if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs < 0) {
     throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon idle timeout is invalid.');
+  }
+  if (!Number.isFinite(sendOperationTtlMs) || sendOperationTtlMs <= 0) {
+    throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon send operation ttl is invalid.');
   }
 
   let server;
@@ -304,6 +313,13 @@ export function createSessionDaemon({
   // runtimes dirty and reload them at the next safe lifecycle edge. Other
   // Pi configuration writes queue resident-runtime recreation at that edge.
   const activeSessionInputs = new Map();
+  // Send-intent deduplication (finding #3): one stable operation id per send
+  // intent; the registry is the authoritative execution boundary before Pi.
+  // In-memory per daemon process — a restart loses receipts, which is the
+  // documented crash window. This split performs no stream-epoch guard and
+  // no per-session config/acceptance lock; every claim settles so pending
+  // duplicates never hang.
+  const sendOperations = createSendOperationRegistry({ ttlMs: sendOperationTtlMs });
   const pendingResourceReloads = new Set();
   const resourceReloadsByRuntime = new Map();
   let resourceReloadQueue = Promise.resolve();
@@ -2658,7 +2674,73 @@ export function createSessionDaemon({
     return { text: text.join('\n'), images, files };
   };
 
+  const sendOperationFingerprint = ({ kind, payload }) => ({
+    kind,
+    text: payload.text,
+    model: payload.model ?? null,
+    thinking: payload.thinking ?? null,
+    messageId: payload.messageId ?? null,
+    attachments: Array.isArray(payload.attachments)
+      ? payload.attachments.map((attachment) => ({
+          id: attachment?.id ?? null,
+          name: attachment?.name ?? null,
+          mime: attachment?.mime ?? null,
+          size: attachment?.size ?? null,
+        }))
+      : null,
+  });
+
   const sessionInput = async (payload, delivery) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
+      || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
+      throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
+    }
+    if (payload.thinking !== undefined) validateThinking(payload.thinking);
+    const kind = delivery ?? 'prompt';
+    // Finding #3: claim the stable operation id at the authoritative
+    // execution boundary — before Pi activation and before any attachment
+    // side effect. A duplicate returns the original receipt; a payload
+    // mismatch rejects. Scope is kind + session + id. Every claim settles
+    // so pending duplicates never hang: acceptance retains the receipt,
+    // request-path rejection frees the id (nothing executed).
+    let claimEntry = null;
+    if (payload.operationId !== undefined) {
+      if (!isValidSendOperationId(payload.operationId)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send operation id is invalid.');
+      }
+      const claimed = sendOperations.claim({
+        kind,
+        sessionId: payload.sessionId,
+        operationId: payload.operationId,
+        fingerprint: stableFingerprint(sendOperationFingerprint({ kind, payload })),
+      });
+      if (claimed.outcome === 'mismatch') {
+        throw new SessionDaemonProtocolError('OPERATION_PAYLOAD_MISMATCH', 'This operation id was already used with a different payload.');
+      }
+      if (claimed.outcome === 'expired') {
+        throw new SessionDaemonProtocolError('OPERATION_EXPIRED', 'This operation id expired after the retention window; retry with a new operation id.');
+      }
+      if (claimed.outcome === 'overloaded') {
+        throw new SessionDaemonProtocolError('SESSION_BUSY', 'The daemon is accepting too many sends; retry with backoff.');
+      }
+      if (claimed.outcome === 'accepted') return { ...claimed.receipt, deduplicated: true };
+      if (claimed.outcome === 'pending') {
+        const shared = await claimed.settled;
+        return { ...shared.receipt, deduplicated: true };
+      }
+      claimEntry = claimed.entry;
+    }
+    try {
+      const result = await runSessionInput(payload, delivery);
+      claimEntry?.settle({ accepted: true, receipt: { accepted: true, messageId: result.messageId } });
+      return result;
+    } catch (error) {
+      claimEntry?.settle({ accepted: false, error });
+      throw error;
+    }
+  };
+
+  const runSessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
@@ -3222,7 +3304,7 @@ export function createSessionDaemon({
               'runtime.claim', 'runtime.shutdown',
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
-              'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel',
+              'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
@@ -3537,6 +3619,41 @@ export function createSessionDaemon({
         const payload = message.payload?.sessionId ? message.payload : { ...message.payload, sessionId: getSessionState().sessionId };
         const result = await sessionInput(payload, message.command === 'sessions.steer' ? 'steer' : message.command === 'sessions.followUp' ? 'followUp' : undefined);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'sessions.sendReceipt': {
+        // Exact read-only receipt lookup for an uncertain send. Requires the
+        // full `kind + sessionId + operationId` identity; never invokes Pi,
+        // never mutates the registry except bounded expiry eviction inside
+        // `query()`. Returns `accepted` (retained receipt), `pending`
+        // (still-accepting claim), `expired` (seen but retention gone —
+        // outcome unknown, never assume success), or `unknown` (never seen
+        // in this lifetime, or rejected before Pi ran so nothing executed).
+        const payload = message.payload ?? {};
+        const kind = payload.kind;
+        const sessionId = payload.sessionId;
+        const operationId = payload.operationId;
+        if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp')
+          || typeof sessionId !== 'string' || sessionId.length === 0
+          || !isValidSendOperationId(operationId)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send receipt lookup is invalid.');
+        }
+        const lookup = sendOperations.query({ kind, sessionId, operationId });
+        if (lookup.status === 'accepted') {
+          writeFrame(socket, {
+            protocolVersion: PROTOCOL_VERSION,
+            kind: 'response',
+            requestId: message.requestId,
+            result: { status: 'accepted', receipt: lookup.receipt },
+          });
+          return;
+        }
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { status: lookup.status },
+        });
         return;
       }
       case 'sessions.abort': {
