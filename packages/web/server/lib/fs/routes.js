@@ -433,6 +433,13 @@ export const registerFsRoutes = (app, dependencies) => {
   const commandTimeoutMs = createCommandTimeoutMs();
   const gitReadCacheTtlMs = createGitReadCacheTtlMs();
   const gitCheckIgnoreTimeoutMs = createGitCheckIgnoreTimeoutMs();
+  const fsSearchRuntime = createFsSearchRuntime({
+    fsPromises,
+    path,
+    spawn,
+    resolveGitBinaryForSpawn,
+    gitCheckIgnoreTimeoutMs,
+  });
   const gitReadCache = new Map();
   const inFlightGitReadCache = new Map();
 
@@ -1475,46 +1482,64 @@ export const registerFsRoutes = (app, dependencies) => {
     if (!rawPath.trim()) return res.status(400).json({ error: 'Directory path is required' });
 
     try {
-      const { canonicalPath } = await resolveWorkspacePath(rawPath, { scope: 'read' });
+      const resolved = await resolveWorkspacePathFromContext({
+        req,
+        targetPath: rawPath,
+        resolveProjectDirectory,
+        path,
+        os,
+        normalizeDirectoryPath,
+        pichamberUserConfigRoot,
+      });
+      if (!resolved.ok) {
+        return res.status(400).json({ error: resolved.error });
+      }
+
+      const [canonicalPath, canonicalBase] = await Promise.all([
+        realpathCache.resolve(resolved.resolved),
+        realpathCache.resolve(resolved.base).catch(() => path.resolve(resolved.base)),
+      ]);
+      if (!isPathWithinRoot(canonicalPath, canonicalBase, path, os)) {
+        return res.status(403).json({ error: 'Access to directory denied' });
+      }
+
+      const stats = await fsPromises.stat(canonicalPath);
+      if (!stats.isDirectory()) {
+        return res.status(400).json({ error: 'Specified path is not a directory', reason: 'not-directory' });
+      }
+
       const query = typeof req.query.query === 'string' ? req.query.query : '';
-      const limit = Number.isSafeInteger(Number(req.query.limit)) ? Math.min(Number(req.query.limit), 500) : 60;
+      const requestedLimit = Number(req.query.limit);
+      const limit = Number.isSafeInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 500)) : 60;
       const includeHidden = req.query.includeHidden === 'true';
       const respectGitignore = req.query.respectGitignore !== 'false';
       const type = req.query.type === 'directory' ? 'directory' : req.query.type === 'file' ? 'file' : undefined;
 
-      const fsSearchRuntime = createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn });
       const rawHits = await fsSearchRuntime.searchFilesystemFiles(canonicalPath, {
         query,
         limit,
         includeHidden,
         respectGitignore,
+        type,
       });
 
-      const files = rawHits
-        .filter((hit) => {
-          if (type === 'file' && hit.isDir) return false;
-          if (type === 'directory' && !hit.isDir) return false;
-          return true;
-        })
-        .map((hit) => {
-          const hitPath = hit.path.replace(/\\/g, '/');
-          const rootNorm = canonicalPath.replace(/\\/g, '/');
-          const relativePath = hitPath.startsWith(rootNorm)
-            ? hitPath.slice(rootNorm.length).replace(/^\//, '')
-            : path.basename(hitPath);
-          const name = path.basename(hitPath);
-          return {
-            name,
-            path: hitPath,
-            relativePath,
-            ...(name.includes('.') ? { extension: name.split('.').pop().toLowerCase() } : {}),
-          };
-        });
+      const logicalRoot = path.resolve(resolved.resolved);
+      const files = rawHits.map((hit) => {
+        const relativePath = hit.relativePath.replace(/\\/g, '/');
+        const hitPath = path.join(logicalRoot, hit.relativePath).replace(/\\/g, '/');
+        const name = hit.name;
+        return {
+          name,
+          path: hitPath,
+          relativePath,
+          ...(hit.extension ? { extension: hit.extension } : {}),
+        };
+      });
 
       return res.json({ files });
     } catch (error) {
-      if (error && error.code === 'WORKSPACE_ACCESS_DENIED') {
-        return sendWorkspaceAccessDenied(res, 'Access to directory denied');
+      if (isOsPermissionError(error)) {
+        return sendOsPermissionDenied(res, 'Access to directory denied');
       }
       return res.status(500).json({ error: (error && error.message) || 'Failed to search files' });
     }
