@@ -6,9 +6,15 @@
  * `operationId`; the daemon claims the id here BEFORE activating Pi or
  * consuming anything. The registry guarantees:
  *
- * - One intent executes at most once per daemon process lifetime. A retry of
- *   the same intent (transport retry, manual confirmation, queue backoff)
- *   returns the original acceptance receipt instead of invoking Pi again.
+ * - One intent executes at most once within the bounded retention window
+ *   (`ttlMs` and `maxEntries`; tombstones are FIFO-capped at `maxEntries`
+ *   so `expired` can degrade to `unknown` under pressure, and a restart
+ *   loses all receipts). There is no lifetime at-most-once guarantee: after
+ *   expiry/eviction pressure or a restart the same id may report `expired`
+ *   or `unknown` and the caller must use a new operation id. A retry of
+ *   the same intent inside the window (transport retry, manual
+ *   confirmation, queue backoff) returns the original acceptance receipt
+ *   instead of invoking Pi again.
  * - Concurrent duplicates of a still-pending intent share the original
  *   outcome: they await the first execution's settlement instead of racing it.
  *   Pending claims are never evicted while their owner is still active:
@@ -16,22 +22,23 @@
  *   same operation, so pending entries stay until their owner settles and
  *   duplicates always share (never re-execute a pending-expired operation).
  * - The same id with a different payload (text, model, thinking, message id,
- *   attachments, or delivery kind) is rejected as
- *   `OPERATION_PAYLOAD_MISMATCH` — a duplicated id never silently executes
- *   unrelated work. `streamEpoch` (stamped only by the stream-epoch split)
+ *   or attachments) is rejected as `OPERATION_PAYLOAD_MISMATCH` — a
+ *   duplicated id never silently executes unrelated work. Identity is
+ *   `kind + sessionId + operationId`: the same id on a different session or
+ *   delivery kind is a different intent and executes independently (never a
+ *   mismatch). `streamEpoch` (stamped only by the stream-epoch split)
  *   is intentionally NOT fingerprinted, so adding or omitting it on a retry
  *   in the same lifetime never causes a mismatch. This split performs no
  *   epoch guard; the stream-epoch branch enforces `STALE_STREAM_EPOCH`
  *   before the claim.
- * - Scope is `kind + sessionId + operationId`, so the same id on a different
- *   session or delivery kind is a different intent.
  *
  * Retention is bounded and explicit: accepted receipts are kept for `ttlMs`
  * and at most `maxEntries` accepted receipts are retained (oldest evicted).
  * Evicted or TTL-expired acceptances leave a bounded `expired` tombstone
  * (capped at `maxEntries`) so `query()` can distinguish `expired` — "was
  * seen but retention is gone, outcome unknown, never assume success" —
- * from `unknown` — "never seen in this daemon lifetime". A later retry
+ * from `unknown` — "never seen in this retention window (including tombstone
+ * pressure and post-restart)". A later retry
  * with the same id after expiry is rejected as `expired` (OPERATION_EXPIRED),
  * never an automatic re-execution: callers must treat the retention window
  * as the only safe retry window and use a new operation id afterwards.
@@ -224,8 +231,9 @@ export const createSendOperationRegistry = ({
   // full `kind + sessionId + operationId` key. Returns one of
   // `accepted` (retained receipt), `pending` (still-accepting claim),
   // `expired` (seen but retention gone — outcome unknown, never assume
-  // success), or `unknown` (never seen in this lifetime, or rejected before
-  // Pi ran so nothing executed). Never returns a receipt after expiry.
+  // success), or `unknown` (never seen in this retention window, evicted
+  // tombstone pressure, post-restart, or rejected before Pi ran so nothing
+  // executed). Never returns a receipt after expiry.
   const query = ({ kind, sessionId, operationId }) => {
     evictExpired();
     if (typeof kind !== 'string' || kind.length === 0

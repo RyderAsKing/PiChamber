@@ -149,7 +149,11 @@ describe('pi extensions end-to-end through the real SDK', () => {
     expect(list.result.commands.map((command) => command.name)).toContain('demo-dialog');
 
     // Invoke the extension command: it blocks on a dialog over the stream.
-    await client.request('sessions.prompt', {
+    // True preflight acceptance for extension commands fires after the command
+    // handler completes (post-dialog), so the prompt request stays open while
+    // the dialog is answered on a separate connection — matching production
+    // where each HTTP route uses its own daemon socket.
+    const dialogPrompt = client.request('sessions.prompt', {
       sessionId: created.result.session.id,
       text: '/demo-dialog',
     });
@@ -160,10 +164,17 @@ describe('pi extensions end-to-end through the real SDK', () => {
     const settled = client.next((message) => message.kind === 'event'
       && message.event === 'session.lifecycle'
       && message.payload.state === 'idle');
-    await client.request('extensions.respond', {
-      requestId: dialog.payload.requestId,
-      confirmed: true,
-    });
+    const respondClient = connectClient(endpoint);
+    await respondClient.authenticate();
+    try {
+      await respondClient.request('extensions.respond', {
+        requestId: dialog.payload.requestId,
+        confirmed: true,
+      });
+    } finally {
+      await respondClient.close().catch(() => {});
+    }
+    await dialogPrompt;
 
     // Extension saw the answer and emitted its GUI card + custom message.
     const card = await client.next((message) => message.kind === 'event' && message.event === 'extension.entry');

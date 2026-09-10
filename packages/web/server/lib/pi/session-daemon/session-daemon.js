@@ -208,7 +208,7 @@ export function createSessionDaemon({
     throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon idle timeout is invalid.');
   }
   if (!Number.isFinite(sendOperationTtlMs) || sendOperationTtlMs <= 0) {
-    throw new SessionDaemonProtocolError('INVALID_IDLE_TIMEOUT', 'The session daemon send operation ttl is invalid.');
+    throw new SessionDaemonProtocolError('INVALID_SEND_OPERATION_TTL', 'The session daemon send operation ttl is invalid.');
   }
 
   let server;
@@ -315,9 +315,12 @@ export function createSessionDaemon({
   const activeSessionInputs = new Map();
   // Send-intent deduplication (finding #3): one stable operation id per send
   // intent; the registry is the authoritative execution boundary before Pi.
-  // In-memory per daemon process — a restart loses receipts, which is the
-  // documented crash window. This split performs no stream-epoch guard and
-  // no per-session config/acceptance lock; every claim settles so pending
+  // Identity is `kind + sessionId + operationId`: the same id on a different
+  // kind or session is a different intent, never a payload mismatch.
+  // Retention is bounded (ttlMs/maxEntries, tombstones capped) and in-memory
+  // per daemon process — a restart loses receipts, which is the documented
+  // crash window. This split performs no stream-epoch guard and no
+  // per-session config/acceptance lock; every claim settles so pending
   // duplicates never hang.
   const sendOperations = createSendOperationRegistry({ ttlMs: sendOperationTtlMs });
   const pendingResourceReloads = new Set();
@@ -331,26 +334,70 @@ export function createSessionDaemon({
   let runtimeRecreationRevision = 0;
   let runtimeRecreationTask = null;
   // Pi emits each user message start before its persisted entry is readable.
-  // Keep prompt metadata in send order so queued follow-ups cannot attach the
-  // next prompt's files to an earlier user message.
+  // Keep prompt file metadata keyed by delivery kind so a queued followUp
+  // that a later steer overtakes cannot swap attachment footers. Steering
+  // drains before followUp in the SDK loop regardless of send order, so a
+  // single FIFO would attach the wrong files. SDK `queue_update` is the
+  // authoritative ownership signal: the queue that shrank owns the next
+  // user start. Direct (non-queued) starts emit no shrink and fall back to
+  // oldest-by-generation across kinds. No text/content heuristics are used.
   const pendingUserStartsBySession = new Map();
-  const enqueueUserStart = (sessionId, generation, files) => {
-    const pending = pendingUserStartsBySession.get(sessionId) ?? [];
-    pending.push({ generation, files });
-    pendingUserStartsBySession.set(sessionId, pending);
+  const queueSizesBySession = new Map();
+  const queueShrinkBySession = new Map();
+  const pendingBucketsFor = (sessionId) => {
+    let buckets = pendingUserStartsBySession.get(sessionId);
+    if (!buckets) {
+      buckets = { prompt: [], steer: [], followUp: [] };
+      pendingUserStartsBySession.set(sessionId, buckets);
+    }
+    return buckets;
+  };
+  const hasPendingUserStarts = (buckets) => (
+    buckets.prompt.length > 0 || buckets.steer.length > 0 || buckets.followUp.length > 0
+  );
+  const enqueueUserStart = (sessionId, generation, files, deliveryKind) => {
+    const buckets = pendingBucketsFor(sessionId);
+    const bucket = deliveryKind === 'steer' || deliveryKind === 'followUp' ? deliveryKind : 'prompt';
+    buckets[bucket].push({ generation, files, deliveryKind: bucket });
+  };
+  const takeOldestUserStart = (buckets) => {
+    let oldestBucket;
+    let oldestGeneration = Infinity;
+    for (const bucket of ['prompt', 'steer', 'followUp']) {
+      const first = buckets[bucket][0];
+      if (first && first.generation < oldestGeneration) {
+        oldestGeneration = first.generation;
+        oldestBucket = bucket;
+      }
+    }
+    if (!oldestBucket) return undefined;
+    const next = buckets[oldestBucket].shift();
+    return next;
   };
   const takeUserStart = (sessionId) => {
-    const pending = pendingUserStartsBySession.get(sessionId);
-    const next = pending?.shift();
-    if (!pending?.length) pendingUserStartsBySession.delete(sessionId);
+    const buckets = pendingUserStartsBySession.get(sessionId);
+    if (!buckets) return undefined;
+    const shrink = queueShrinkBySession.get(sessionId);
+    queueShrinkBySession.delete(sessionId);
+    let next;
+    if ((shrink === 'steer' || shrink === 'followUp') && buckets[shrink].length > 0) {
+      next = buckets[shrink].shift();
+    } else {
+      next = takeOldestUserStart(buckets);
+    }
+    if (!hasPendingUserStarts(buckets)) {
+      pendingUserStartsBySession.delete(sessionId);
+    }
     return next;
   };
   const removeUserStart = (sessionId, generation) => {
-    const pending = pendingUserStartsBySession.get(sessionId);
-    if (!pending) return;
-    const remaining = pending.filter((entry) => entry.generation !== generation);
-    if (remaining.length > 0) pendingUserStartsBySession.set(sessionId, remaining);
-    else pendingUserStartsBySession.delete(sessionId);
+    const buckets = pendingUserStartsBySession.get(sessionId);
+    if (!buckets) return;
+    for (const bucket of ['prompt', 'steer', 'followUp']) {
+      const filtered = buckets[bucket].filter((entry) => entry.generation !== generation);
+      buckets[bucket] = filtered;
+    }
+    if (!hasPendingUserStarts(buckets)) pendingUserStartsBySession.delete(sessionId);
   };
   const shutdownRequestedBySession = new Set();
   const disposingSessionIds = new Set();
@@ -2700,9 +2747,11 @@ export function createSessionDaemon({
     // Finding #3: claim the stable operation id at the authoritative
     // execution boundary — before Pi activation and before any attachment
     // side effect. A duplicate returns the original receipt; a payload
-    // mismatch rejects. Scope is kind + session + id. Every claim settles
-    // so pending duplicates never hang: acceptance retains the receipt,
-    // request-path rejection frees the id (nothing executed).
+    // mismatch (same kind + session + id, different text/model/thinking/
+    // message/attachments) rejects. A different kind or session is a
+    // different intent, never a mismatch. Every claim settles so pending
+    // duplicates never hang: acceptance retains the receipt, request-path
+    // rejection frees the id (nothing executed).
     let claimEntry = null;
     if (payload.operationId !== undefined) {
       if (!isValidSendOperationId(payload.operationId)) {
@@ -2760,10 +2809,15 @@ export function createSessionDaemon({
     }
     if (recreated) activeRuntime = await activateSession(payload.sessionId, payload.directory);
     await flushPendingResourceReload(activeRuntime);
+    // Requested delivery always travels as SDK `streamingBehavior`; the SDK
+    // ignores it while idle and queues while streaming. Sampling
+    // `isStreaming` before the model/attachment awaits would drop a queued
+    // followUp/steer that arrives idle but races another sender that starts
+    // during those awaits, so never gate the option on that early sample.
     // After a provider stream dies, Pi can report idle while the UI still
     // retries as steer/follow-up. Start a new turn instead of rejecting.
-    const deliverAs = delivery && activeRuntime.session.isStreaming ? delivery : undefined;
-    if (!deliverAs && activeRuntime.session.isStreaming) {
+    const requestedDelivery = delivery ?? undefined;
+    if (!requestedDelivery && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
     }
     beginSessionInput(activeRuntime);
@@ -2805,9 +2859,8 @@ export function createSessionDaemon({
 
     const attachments = await prepareAttachmentContent(payload.attachments);
     const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
-    const content = attachments.images.length > 0
-      ? [{ type: 'text', text }, ...attachments.images]
-      : text;
+    const images = attachments.images.length > 0 ? attachments.images : undefined;
+    const isSlashPrompt = typeof text === 'string' && text.startsWith('/');
     const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
       ? payload.messageId
       : activeRuntime.session.sessionManager?.getLeafId?.() ?? `msg_${randomUUID()}`;
@@ -2818,9 +2871,11 @@ export function createSessionDaemon({
     const generation = (sendGenerationBySession.get(payload.sessionId) ?? 0) + 1;
     sendGenerationBySession.set(payload.sessionId, generation);
     // Slash-prefixed input dispatches extension commands and skill/template
-    // expansion exactly like the pi CLI and RPC modes; plain text keeps the
-    // sendUserMessage path so it is never expanded.
-    enqueueUserStart(payload.sessionId, generation, attachments.files);
+    // expansion exactly like the pi CLI and RPC modes; plain text uses
+    // prompt() with template expansion disabled and source "extension",
+    // matching sendUserMessage() semantics while exposing the SDK
+    // preflightResult acceptance signal.
+    enqueueUserStart(payload.sessionId, generation, attachments.files, requestedDelivery);
     // Pi's `session.setModel()` notifies extensions (`model_select`) but not
     // session subscribers, so an extension-driven model switch would otherwise
     // never publish `session.model`. Snapshot the live model to reconcile
@@ -2829,20 +2884,81 @@ export function createSessionDaemon({
     const prevModel = activeRuntime.session?.model
       ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
       : null;
-    let sendCall;
+    let promptPromise;
+    // True SDK acceptance: await the prompt preflight signal, not the full
+    // agent turn. preflightResult(true) means accepted, queued, or handled;
+    // preflightResult(false) is followed by a prompt rejection that must
+    // propagate to the caller so dedup does not cache it as accepted.
+    let preflightOutcome = null;
+    let notifyPreflight;
+    const preflightGate = new Promise((resolve) => { notifyPreflight = resolve; });
+    const onPreflightResult = (accepted) => {
+      if (preflightOutcome !== null) return;
+      preflightOutcome = accepted === true;
+      notifyPreflight(preflightOutcome);
+    };
     try {
-      sendCall = typeof content === 'string' && content.startsWith('/')
-        ? activeRuntime.session.prompt(content, {
+      promptPromise = isSlashPrompt
+        ? activeRuntime.session.prompt(text, {
             source: 'rpc',
-            ...(deliverAs ? { streamingBehavior: deliverAs } : {}),
+            ...(images ? { images } : {}),
+            ...(requestedDelivery ? { streamingBehavior: requestedDelivery } : {}),
+            preflightResult: onPreflightResult,
           })
-        : activeRuntime.session.sendUserMessage(content, deliverAs ? { deliverAs } : undefined);
+        : activeRuntime.session.prompt(text, {
+            expandPromptTemplates: false,
+            source: 'extension',
+            ...(images ? { images } : {}),
+            ...(requestedDelivery ? { streamingBehavior: requestedDelivery } : {}),
+            preflightResult: onPreflightResult,
+          });
     } catch (error) {
       removeUserStart(payload.sessionId, generation);
       throw error;
     }
-    Promise.resolve(sendCall).then(() => {
+    // A settlement without a preflight signal resolves the gate so a missing
+    // callback cannot hang acceptance. Resolve implies acceptance; reject
+    // implies preflight failure whose real error is propagated below. The
+    // installed SDK always signals, so this only covers test doubles.
+    Promise.resolve(promptPromise).then(
+      () => { if (preflightOutcome === null) { preflightOutcome = true; notifyPreflight(true); } },
+      () => { if (preflightOutcome === null) { preflightOutcome = false; notifyPreflight(false); } },
+    );
+    const preflightAccepted = await preflightGate;
+    if (!preflightAccepted) {
+      let preflightError;
+      try {
+        await promptPromise;
+        preflightError = new Error('The Pi session rejected the prompt before acceptance.');
+      } catch (error) {
+        preflightError = error;
+      }
       removeUserStart(payload.sessionId, generation);
+      throw preflightError;
+    }
+    Promise.resolve(promptPromise).then(() => {
+      // Queued sends resolve on queueing, before the queued user message
+      // starts. Keep that file metadata until the per-delivery
+      // `message_start` consumes it. Retention is decided at resolution
+      // time from authoritative runtime state, not from the early
+      // `requestedDelivery` flag alone: an idle followUp/steer that the SDK
+      // ignored (new turn, no queue) and any handled extension command
+      // (never emits a user start) must not retain forever. Only a still-
+      // streaming session or a non-empty SDK queue proves the send is
+      // queued; handled extension commands never retain even while
+      // streaming.
+      const stillStreaming = Boolean(activeRuntime.session?.isStreaming);
+      let hasQueuedMessages = false;
+      try {
+        hasQueuedMessages = (activeRuntime.session?.getSteeringMessages?.().length ?? 0) > 0
+          || (activeRuntime.session?.getFollowUpMessages?.().length ?? 0) > 0;
+      } catch {
+        hasQueuedMessages = false;
+      }
+      const shouldRetain = !isExtensionCommand && (stillStreaming || hasQueuedMessages);
+      if (!shouldRetain) {
+        removeUserStart(payload.sessionId, generation);
+      }
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
       if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
       const curModel = activeRuntime.session?.model;
@@ -2947,6 +3063,8 @@ export function createSessionDaemon({
     sendGenerationBySession.delete(sessionId);
     settledSendGenerationBySession.delete(sessionId);
     pendingUserStartsBySession.delete(sessionId);
+    queueSizesBySession.delete(sessionId);
+    queueShrinkBySession.delete(sessionId);
     latestUserMessageIds.delete(sessionId);
     latestAssistantMessageIds.delete(sessionId);
     toolInputBySession.delete(sessionId);
@@ -3153,9 +3271,24 @@ export function createSessionDaemon({
         }, sessionId, directory);
         break;
       }
-      case 'queue_update':
-        publish('session.queue', { steering: event.steering.length, followUp: event.followUp.length }, sessionId, directory);
+      case 'queue_update': {
+        const steeringLength = Array.isArray(event.steering) ? event.steering.length : 0;
+        const followUpLength = Array.isArray(event.followUp) ? event.followUp.length : 0;
+        // Authoritative ownership for the next user start: only a shrink
+        // tells which SDK queue owns it. Enqueues grow; dequeues shrink
+        // immediately before their `message_start`. No text matching.
+        const previous = queueSizesBySession.get(sessionId);
+        if (previous) {
+          const steeringShrank = steeringLength < previous.steering;
+          const followUpShrank = followUpLength < previous.followUp;
+          if (steeringShrank && !followUpShrank) queueShrinkBySession.set(sessionId, 'steer');
+          else if (followUpShrank && !steeringShrank) queueShrinkBySession.set(sessionId, 'followUp');
+          else if (steeringShrank || followUpShrank) queueShrinkBySession.delete(sessionId);
+        }
+        queueSizesBySession.set(sessionId, { steering: steeringLength, followUp: followUpLength });
+        publish('session.queue', { steering: steeringLength, followUp: followUpLength }, sessionId, directory);
         break;
+      }
       case 'agent_start':
         clearIdleDisposal(sessionId);
         retryStateBySession.delete(sessionId);
@@ -3628,7 +3761,8 @@ export function createSessionDaemon({
         // `query()`. Returns `accepted` (retained receipt), `pending`
         // (still-accepting claim), `expired` (seen but retention gone —
         // outcome unknown, never assume success), or `unknown` (never seen
-        // in this lifetime, or rejected before Pi ran so nothing executed).
+        // in this retention window, tombstone pressure, post-restart, or
+        // rejected before Pi ran so nothing executed).
         const payload = message.payload ?? {};
         const kind = payload.kind;
         const sessionId = payload.sessionId;
@@ -3856,6 +3990,8 @@ export function createSessionDaemon({
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
       pendingUserStartsBySession.clear();
+      queueSizesBySession.clear();
+      queueShrinkBySession.clear();
       latestUserMessageIds.clear();
       latestAssistantMessageIds.clear();
       for (const client of clients) client.destroy();

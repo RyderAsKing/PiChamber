@@ -20,7 +20,8 @@ function testDaemonEndpoint(root) {
 
 /**
  * Minimal Pi session double: counts actual Pi invocations (`sent`) so the
- * tests prove one intent executes at most once per daemon lifetime.
+ * tests prove one intent executes at most once within the bounded retention
+ * window (not lifetime: tombstones are capped and restarts lose receipts).
  */
 class FakeSession {
   constructor(sessionId, sessionFile) {
@@ -56,7 +57,11 @@ class FakeSession {
     return () => this.listeners.delete(listener);
   }
 
-  async prompt() {}
+  async prompt(text, options) {
+    options?.preflightResult?.(true);
+    const deliverAs = options?.streamingBehavior;
+    this.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
+  }
 
   async sendUserMessage(text, options) {
     this.sent.push({ text, options });
