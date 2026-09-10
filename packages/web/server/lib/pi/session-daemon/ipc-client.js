@@ -94,24 +94,32 @@ export const requestSessionDaemon = ({ endpoint, credential, command, payload, t
  * Open an authenticated server-only event subscription. The caller owns the
  * returned close function and must relay only projected frames to browsers.
  */
-export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError, timeoutMs = 30_000 }) => {
+export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError, signal, timeoutMs = 30_000 }) => {
   const decoder = new StringDecoder('utf8');
   let buffer = '';
   let authenticated = false;
   let closed = false;
   const socket = createConnection({ path: endpoint });
-  const timer = setTimeout(() => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')), timeoutMs);
-  const finish = () => {
+  let timer;
+  function finish() {
     clearTimeout(timer);
-    if (!closed) socket.destroy();
-  };
-  const fail = (error) => {
+    signal?.removeEventListener('abort', abort);
+    socket.destroy();
+  }
+  function fail(error) {
     if (closed) return;
     closed = true;
-    clearTimeout(timer);
-    socket.destroy();
+    finish();
     onError?.(error);
-  };
+  }
+  function abort() {
+    if (closed) return;
+    closed = true;
+    finish();
+  }
+  timer = setTimeout(() => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')), timeoutMs);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   socket.once('error', () => fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE')));
   socket.on('connect', () => {
     socket.write(`${JSON.stringify({ kind: 'authenticate', credential, ...(sessionId ? { sessionId } : {}), ...(Number.isSafeInteger(fromSequence) && fromSequence >= 0 ? { fromSequence } : {}), ...(typeof streamEpoch === 'string' && streamEpoch.length > 0 ? { streamEpoch } : {}) })}\n`);
@@ -147,9 +155,5 @@ export const subscribeSessionDaemon = ({ endpoint, credential, sessionId, fromSe
   socket.on('close', () => {
     if (!closed) fail(new SessionDaemonClientError('DAEMON_UNAVAILABLE'));
   });
-  return () => {
-    if (closed) return;
-    closed = true;
-    finish();
-  };
+  return abort;
 };

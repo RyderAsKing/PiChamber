@@ -126,6 +126,7 @@ describe('session daemon IPC client framing', () => {
     });
 
     const events = [];
+    let closeCalled = false;
     const close = subscribeSessionDaemon({
       endpoint,
       credential,
@@ -146,9 +147,54 @@ describe('session daemon IPC client framing', () => {
         streamEpoch: 'epoch-abc123',
       });
       expect(events[0]).toMatchObject({ kind: 'event', streamEpoch: 'epoch-abc123' });
-    } finally {
       close();
+      closeCalled = true;
+      for (let attempt = 0; attempt < 50 && peers.size > 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(peers.size).toBe(0);
+    } finally {
+      if (!closeCalled) close();
       for (const peer of peers) peer.destroy();
     }
   }, 20_000);
+
+  it('aborts an opening subscription without reporting a transport error', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-ipc-client-'));
+    roots.push(root);
+    const endpoint = endpointFor(root);
+    const peers = new Set();
+    const server = createServer((socket) => {
+      peers.add(socket);
+      socket.on('error', () => {});
+      socket.on('close', () => peers.delete(socket));
+      socket.resume();
+      // Deliberately never authenticate. The AbortSignal must close this
+      // opening socket instead of waiting for the 30-second setup timeout.
+    });
+    servers.push(server);
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ path: endpoint }, resolve);
+    });
+
+    const controller = new AbortController();
+    const errors = [];
+    subscribeSessionDaemon({
+      endpoint,
+      credential,
+      signal: controller.signal,
+      onError: (error) => errors.push(error),
+    });
+    for (let attempt = 0; attempt < 50 && peers.size === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(peers.size).toBe(1);
+    controller.abort();
+    for (let attempt = 0; attempt < 50 && peers.size > 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(peers.size).toBe(0);
+    expect(errors).toEqual([]);
+  });
 });

@@ -201,7 +201,7 @@ export async function startWebUiServer(options = {}) {
     getServerId: async () => null,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
-  registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
+  const piRuntimeRoutes = registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
   // Cloudflare Tunnel external access (manual token + quick modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
@@ -263,12 +263,13 @@ export async function startWebUiServer(options = {}) {
       if (stopped) return;
       stopped = true;
       if (activeController === controller) activeController = null;
+      // Stop revocation polling and end active or opening SSE streams before
+      // asking the HTTP server to wait on its sockets.
+      liveRevocation.dispose();
+      piRuntimeRoutes.closeEventStreams();
       await Promise.allSettled([
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
-        // Stop the revocation poll and close any remaining tracked live
-        // connections synchronously (bounded shutdown cleanup).
-        Promise.resolve(liveRevocation.dispose()),
         close(server),
       ]);
       uiAuthController.dispose?.();
