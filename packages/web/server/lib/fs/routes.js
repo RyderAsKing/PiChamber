@@ -1,6 +1,7 @@
 import { createRealpathCache } from '../path-realpath-cache.js';
 import nodeFsPromises from 'node:fs/promises';
 import nodePath from 'node:path';
+import { createHash } from 'node:crypto';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { createFsSearchRuntime } from './search.js';
 import { pickHostDirectory } from './pick-directory.js';
@@ -27,6 +28,155 @@ const isOsPermissionError = (error) => (
 
 const sendOsPermissionDenied = (res, message) => (
   res.status(403).json({ error: message, reason: 'os-permission' })
+);
+
+// File-save revision protocol (finding #8).
+//
+// Cooperating PiChamber writers attach the opaque `expectedRevision` they read
+// to every save. The server serializes compare+atomic-replace per canonical
+// file so two writers with the same base revision cannot both win: the first
+// commits, the second receives a typed 409 `file-revision-conflict` with the
+// current revision and re-reads before retrying.
+//
+// Revision format is opaque to clients (exact string compare only):
+//   `v1:<size>:<mtimeMs>:<sha256hex>` for hashed text, or
+//   `v1:<size>:<mtimeMs>` when content exceeds the hash ceiling.
+// A missing file has revision `null` on the wire; `expectedRevision: null`
+// (or the literal `'missing'`) means "create only". `overwrite: true` is
+// the explicit force path that bypasses the check. Omitting
+// `expectedRevision` preserves legacy unconditional writes for older clients
+// and non-editor callers.
+//
+// External processes that write without this protocol are non-cooperating:
+// check and replace cannot be atomic against them. Last writer still wins on
+// disk; the next cooperating save observes a revision mismatch and conflicts
+// instead of silently overwriting. See DOCUMENTATION.md.
+const FILE_REVISION_PREFIX = 'v1';
+const FILE_REVISION_MISSING_LITERAL = 'missing';
+const FILE_REVISION_HASH_MAX_BYTES = 5 * 1024 * 1024;
+const FILE_REVISION_HEADER = 'x-pichamber-file-revision';
+
+const fileWriteLocks = new Map();
+
+// Canonical write-lock key. Locking on the pre-realpath workspace path would
+// let symlink aliases of the same file bypass serialization, so key on the
+// realpath target instead. For a missing target (create-only writes) walk up
+// to the deepest existing ancestor so aliases of the same missing file still
+// share one key; the write body re-keys inside the lock when the target
+// appears or is re-pointed between key resolution and lock acquisition.
+const canonicalFileWriteLockKey = async (fsPromises, path, target) => {
+  try {
+    return await fsPromises.realpath(target);
+  } catch (error) {
+    if (!error || typeof error !== 'object' || error.code !== 'ENOENT') {
+      return path.resolve(target);
+    }
+    let current = target;
+    const segments = [];
+    for (;;) {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      segments.unshift(path.basename(current));
+      try {
+        const realParent = await fsPromises.realpath(parent);
+        return path.join(realParent, ...segments);
+      } catch (parentError) {
+        if (parentError && typeof parentError === 'object' && parentError.code === 'ENOENT') {
+          current = parent;
+          continue;
+        }
+        return path.resolve(target);
+      }
+    }
+  }
+};
+
+const withFileWriteLock = (key, fn) => {
+  const previous = fileWriteLocks.get(key) || Promise.resolve();
+  const next = previous.then(fn, fn);
+  const tracked = next.catch(() => {});
+  fileWriteLocks.set(key, tracked);
+  void tracked.finally(() => {
+    if (fileWriteLocks.get(key) === tracked) {
+      fileWriteLocks.delete(key);
+    }
+  });
+  return next;
+};
+
+const hashBytes = (buffer) => {
+  try {
+    return createHash('sha256').update(buffer).digest('hex');
+  } catch {
+    return null;
+  }
+};
+
+const buildFileRevision = ({ size, mtimeMs, hash }) => {
+  const safeSize = Number.isFinite(Number(size)) ? Number(size) : 0;
+  const safeMtime = Number.isFinite(Number(mtimeMs)) ? Number(mtimeMs) : 0;
+  if (typeof hash === 'string' && hash.length > 0) {
+    return `${FILE_REVISION_PREFIX}:${safeSize}:${safeMtime}:${hash}`;
+  }
+  return `${FILE_REVISION_PREFIX}:${safeSize}:${safeMtime}`;
+};
+
+const revisionForContentAndStat = (content, stats) => {
+  const size = typeof stats?.size === 'number' ? stats.size : Buffer.byteLength(typeof content === 'string' ? content : String(content ?? ''), 'utf8');
+  const mtimeMs = typeof stats?.mtimeMs === 'number' ? stats.mtimeMs : 0;
+  if (size > FILE_REVISION_HASH_MAX_BYTES) {
+    return buildFileRevision({ size, mtimeMs, hash: null });
+  }
+  const hash = hashBytes(Buffer.from(typeof content === 'string' ? content : String(content ?? ''), 'utf8'));
+  return buildFileRevision({ size, mtimeMs, hash });
+};
+
+const revisionForBufferAndStat = (buffer, stats) => {
+  const size = typeof stats?.size === 'number' ? stats.size : buffer.length;
+  const mtimeMs = typeof stats?.mtimeMs === 'number' ? stats.mtimeMs : 0;
+  if (size > FILE_REVISION_HASH_MAX_BYTES) {
+    return buildFileRevision({ size, mtimeMs, hash: null });
+  }
+  return buildFileRevision({ size, mtimeMs, hash: hashBytes(buffer) });
+};
+
+const normalizeExpectedRevision = (value) => {
+  if (value === undefined) return { mode: 'legacy' };
+  if (value === null) return { mode: 'missing' };
+  if (typeof value === 'string') {
+    if (value === FILE_REVISION_MISSING_LITERAL) return { mode: 'missing' };
+    // Opaque: retain exact, compare exact. Empty string is invalid.
+    if (value.length === 0) return { mode: 'invalid' };
+    return { mode: 'revision', revision: value };
+  }
+  return { mode: 'invalid' };
+};
+
+// Parses a client-supplied `knownRevision` for the stat cheap-path. Opaque
+// contract: a v1 revision is only ever compared for size/mtime equality, and
+// the exact client string is echoed back; anything else returns null and the
+// route computes a fresh revision the normal way.
+const parseKnownStatRevision = (value) => {
+  if (typeof value !== 'string' || !value.startsWith(`${FILE_REVISION_PREFIX}:`)) return null;
+  const parts = value.split(':');
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  const size = Number(parts[1]);
+  const mtimeMs = Number(parts[2]);
+  if (!Number.isFinite(size) || !Number.isFinite(mtimeMs)) return null;
+  if (parts.length === 3) return { size, mtimeMs, hash: null };
+  const hash = parts[3];
+  if (!/^[0-9a-f]{64}$/.test(hash)) return null;
+  return { size, mtimeMs, hash };
+};
+
+const sendFileRevisionConflict = (res, { path: conflictPath, currentRevision, exists }) => (
+  res.status(409).json({
+    error: 'File has changed on disk',
+    reason: 'file-revision-conflict',
+    path: conflictPath,
+    exists: Boolean(exists),
+    currentRevision: exists ? currentRevision : null,
+  })
 );
 
 export const mintOutsideFileGrant = async (targetPath, {
@@ -786,7 +936,44 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: 'Specified path is not a file' });
       }
 
-      return res.json({ path: canonicalPath, isFile: true, size: stats.size, mtimeMs: stats.mtimeMs });
+      // Cheap-path for change polling: when the client sends the exact
+      // revision it already holds and size+mtime are unchanged, skip the
+      // full read+hash a fresh revision would require. A same-size,
+      // same-mtime external write is already undetectable to metadata
+      // polling, so this preserves the polling contract while removing the
+      // per-poll read+hash of large files. The hash-ceiling category must
+      // match too; a size that crossed the ceiling means the content
+      // changed and the real revision must be computed.
+      const known = parseKnownStatRevision(req.query?.knownRevision);
+      if (known
+        && known.size === stats.size
+        && known.mtimeMs === stats.mtimeMs
+        && (known.hash !== null) === (stats.size <= FILE_REVISION_HASH_MAX_BYTES)) {
+        return res.json({
+          path: canonicalPath,
+          isFile: true,
+          size: stats.size,
+          mtimeMs: stats.mtimeMs,
+          revision: req.query.knownRevision,
+          exists: true,
+        });
+      }
+
+      let revision = null;
+      try {
+        const size = typeof stats.size === 'number' ? stats.size : 0;
+        if (size <= FILE_REVISION_HASH_MAX_BYTES && typeof fsPromises.readFile === 'function') {
+          const buffer = await fsPromises.readFile(canonicalPath);
+          const bytes = Buffer.isBuffer(buffer) ? buffer : Buffer.from(typeof buffer === 'string' ? buffer : String(buffer ?? ''), 'utf8');
+          revision = revisionForBufferAndStat(bytes, stats);
+        } else {
+          revision = buildFileRevision({ size, mtimeMs: stats.mtimeMs, hash: null });
+        }
+      } catch {
+        revision = buildFileRevision({ size: stats.size, mtimeMs: stats.mtimeMs, hash: null });
+      }
+
+      return res.json({ path: canonicalPath, isFile: true, size: stats.size, mtimeMs: stats.mtimeMs, revision, exists: true });
     } catch (error) {
       const err = error;
       if (err && typeof err === 'object' && err.code === 'ENOENT') {
@@ -858,11 +1045,16 @@ export const registerFsRoutes = (app, dependencies) => {
           console.warn(`Read retry exhausted for ${canonicalPath}: stat reported ${stats.size} bytes but content is empty`);
         }
       }
+      const revision = revisionForContentAndStat(content, stats);
+      res.setHeader(FILE_REVISION_HEADER, revision);
+      res.setHeader('Cache-Control', 'no-store');
       return res.type('text/plain').send(content);
     } catch (error) {
       const err = error;
       if (err && typeof err === 'object' && err.code === 'ENOENT') {
         if (optional) {
+          res.setHeader('x-pichamber-file-exists', 'false');
+          res.setHeader('Cache-Control', 'no-store');
           return res.type('text/plain').send('');
         }
         return res.status(404).json({ error: 'File not found' });
@@ -1022,13 +1214,18 @@ export const registerFsRoutes = (app, dependencies) => {
   });
 
   app.post('/api/fs/write', async (req, res) => {
-    const { path: filePath, content } = req.body || {};
+    const { path: filePath, content, expectedRevision, overwrite } = req.body || {};
     if (!filePath || typeof filePath !== 'string') {
       return res.status(400).json({ error: 'Path is required' });
     }
     if (typeof content !== 'string') {
       return res.status(400).json({ error: 'Content is required' });
     }
+    const expectation = normalizeExpectedRevision(expectedRevision);
+    if (expectation.mode === 'invalid') {
+      return res.status(400).json({ error: 'Invalid expectedRevision' });
+    }
+    const forceOverwrite = overwrite === true;
 
     try {
       const resolved = await resolveWorkspacePathFromContext({
@@ -1044,35 +1241,131 @@ export const registerFsRoutes = (app, dependencies) => {
         return res.status(400).json({ error: resolved.error });
       }
 
-      const writePath = await fsPromises.realpath(resolved.resolved).catch((error) => {
-        if (error && typeof error === 'object' && error.code === 'ENOENT') {
-          return resolved.resolved;
+      // Serialize cooperating writers by canonical (realpath-resolved) path
+      // so two saves with the same base revision cannot interleave
+      // check+replace, including writes that arrive through different
+      // symlink spellings of the same file.
+      let lockKey = await canonicalFileWriteLockKey(fsPromises, path, resolved.resolved);
+      let outcome = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        outcome = await withFileWriteLock(lockKey, async () => {
+          const writePath = await fsPromises.realpath(resolved.resolved).catch((error) => {
+            if (error && typeof error === 'object' && error.code === 'ENOENT') {
+              return resolved.resolved;
+            }
+            throw error;
+          });
+          // The target may have been created or re-pointed between lock-key
+          // resolution and lock acquisition (delete/recreate races). Re-key
+          // onto the canonical path so the compare+replace below still runs
+          // under the lock other writers of the same file will observe.
+          if (writePath !== lockKey && attempt < 2) {
+            return { __rekey: writePath };
+          }
+          const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
+        if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
+          return res.status(403).json({ error: 'Access denied' });
         }
-        throw error;
-      });
-      const canonicalBase = await fsPromises.realpath(resolved.base).catch(() => path.resolve(resolved.base));
-      if (!isPathWithinRoot(writePath, canonicalBase, path, os)) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
 
-      const existing = await fsPromises.readFile(writePath, 'utf8').catch(() => null);
-      if (existing === content) {
-        return res.json({ success: true, path: resolved.resolved });
-      }
+        let existing = null;
+        let existingStats = null;
+        let exists = false;
+        try {
+          const stats = await fsPromises.stat(writePath);
+          if (!stats.isFile()) {
+            // Preserve existing behavior for directory targets: read as text
+            // fails, so treat as missing content for comparison. Stat
+            // already proved the path exists but is not a file; writing
+            // through rename would replace it, which must stay an error.
+            // Fall through to the write attempt so the filesystem reports
+            // the real failure instead of inventing a revision.
+            exists = true;
+            existingStats = stats;
+            existing = null;
+          } else {
+            exists = true;
+            existingStats = stats;
+            existing = await fsPromises.readFile(writePath, 'utf8').catch(() => null);
+          }
+        } catch (error) {
+          if (error && typeof error === 'object' && error.code === 'ENOENT') {
+            exists = false;
+          } else {
+            throw error;
+          }
+        }
 
-      await fsPromises.mkdir(path.dirname(writePath), { recursive: true });
+        let currentRevision = null;
+        if (exists && existing !== null && existingStats) {
+          currentRevision = revisionForContentAndStat(existing, existingStats);
+        } else if (exists && existingStats) {
+          currentRevision = buildFileRevision({ size: existingStats.size, mtimeMs: existingStats.mtimeMs, hash: null });
+        }
 
-      // Atomic write: write to temp then rename to avoid concurrent readers
-      // seeing an empty file during the O_TRUNC window of direct writeFile.
-      const tmp = `${writePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      try {
-        await fsPromises.writeFile(tmp, content, 'utf8');
-        await fsPromises.rename(tmp, writePath);
-      } catch (error) {
-        await fsPromises.unlink(tmp).catch(() => {});
-        throw error;
+        // Idempotent no-op: identical content never conflicts and never
+        // rewrites, preserving mtime/mode and avoiding spurious 409s when
+        // two writers converge on the same bytes.
+        if (exists && existing === content) {
+          return res.json({ success: true, path: resolved.resolved, revision: currentRevision, noop: true });
+        }
+
+        if (!forceOverwrite && expectation.mode !== 'legacy') {
+          if (expectation.mode === 'missing') {
+            if (exists) {
+              return sendFileRevisionConflict(res, { path: resolved.resolved, currentRevision, exists: true });
+            }
+          } else if (expectation.mode === 'revision') {
+            if (!exists) {
+              return sendFileRevisionConflict(res, { path: resolved.resolved, currentRevision: null, exists: false });
+            }
+            if (currentRevision !== expectation.revision) {
+              return sendFileRevisionConflict(res, { path: resolved.resolved, currentRevision, exists: true });
+            }
+          }
+        }
+
+        await fsPromises.mkdir(path.dirname(writePath), { recursive: true });
+
+        // Preserve access mode across atomic replace; rename creates a new
+        // inode with default permissions, so copy the existing mode onto the
+        // temp file first. New files keep the process default.
+        const existingMode = exists && existingStats && typeof existingStats.mode === 'number'
+          ? existingStats.mode & 0o777
+          : null;
+
+        // Atomic write: write to temp then rename to avoid concurrent readers
+        // seeing an empty file during the O_TRUNC window of direct writeFile.
+        // Bytes are written exactly as received; line-ending normalization
+        // stays in the editor serializer, symlinks stay intact because
+        // writePath is the realpath target, and binary content is never
+        // decoded here.
+        const tmp = `${writePath}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        try {
+          await fsPromises.writeFile(tmp, content, 'utf8');
+          if (existingMode !== null && typeof fsPromises.chmod === 'function') {
+            await fsPromises.chmod(tmp, existingMode).catch(() => {});
+          }
+          await fsPromises.rename(tmp, writePath);
+        } catch (error) {
+          await fsPromises.unlink(tmp).catch(() => {});
+          throw error;
+        }
+        let newRevision = null;
+        try {
+          const nextStats = await fsPromises.stat(writePath);
+          newRevision = revisionForContentAndStat(content, nextStats);
+        } catch {
+          newRevision = revisionForContentAndStat(content, { size: Buffer.byteLength(content, 'utf8'), mtimeMs: Date.now() });
+        }
+        return res.json({ success: true, path: resolved.resolved, revision: newRevision });
+        });
+        if (outcome && typeof outcome === 'object' && outcome.__rekey) {
+          lockKey = outcome.__rekey;
+          continue;
+        }
+        return outcome;
       }
-      return res.json({ success: true, path: resolved.resolved });
+      return outcome;
     } catch (error) {
       const err = error;
       if (isOsPermissionError(err)) {

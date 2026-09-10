@@ -307,6 +307,7 @@ const callReveal = async (handler, body) => {
 describe('fs write', () => {
   it('does not rewrite a file when content is unchanged', async () => {
     const fsPromises = {
+      stat: vi.fn(async () => ({ isFile: () => true, size: 4, mtimeMs: 1000 })),
       readFile: vi.fn(async () => 'same'),
       mkdir: vi.fn(async () => undefined),
       writeFile: vi.fn(async () => undefined),
@@ -315,12 +316,15 @@ describe('fs write', () => {
 
     const res = await callWrite(handler, { path: '/repo/file.txt', content: 'same' });
 
-    expect(res.body).toEqual({ success: true, path: '/repo/file.txt' });
+    expect(res.body).toMatchObject({ success: true, path: '/repo/file.txt', noop: true });
+    expect(typeof res.body.revision).toBe('string');
+    expect(res.body.revision.startsWith('v1:')).toBe(true);
     expect(fsPromises.writeFile).not.toHaveBeenCalled();
   });
 
   it('writes a file when content changed', async () => {
     const fsPromises = {
+      stat: vi.fn(async () => ({ isFile: () => true, size: 3, mtimeMs: 1000 })),
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
       writeFile: vi.fn(async () => undefined),
@@ -331,7 +335,8 @@ describe('fs write', () => {
 
     const res = await callWrite(handler, { path: '/repo/file.txt', content: 'new' });
 
-    expect(res.body).toEqual({ success: true, path: '/repo/file.txt' });
+    expect(res.body).toMatchObject({ success: true, path: '/repo/file.txt' });
+    expect(typeof res.body.revision).toBe('string');
     expect(fsPromises.mkdir).toHaveBeenCalledWith('/repo', { recursive: true });
     const tmp = fsPromises.writeFile.mock.calls[0][0];
     expect(tmp).toMatch(/^\/repo\/file\.txt\.tmp-/);
@@ -346,6 +351,7 @@ describe('fs write', () => {
         if (targetPath === '/repo/link.txt') return '/repo/target.txt';
         return targetPath;
       }),
+      stat: vi.fn(async () => ({ isFile: () => true, size: 3, mtimeMs: 1000 })),
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
       writeFile: vi.fn(async () => undefined),
@@ -356,7 +362,7 @@ describe('fs write', () => {
 
     const res = await callWrite(handler, { path: '/repo/link.txt', content: 'new' });
 
-    expect(res.body).toEqual({ success: true, path: '/repo/link.txt' });
+    expect(res.body).toMatchObject({ success: true, path: '/repo/link.txt' });
     expect(fsPromises.readFile).toHaveBeenCalledWith('/repo/target.txt', 'utf8');
     const tmp = fsPromises.writeFile.mock.calls[0][0];
     expect(tmp).toMatch(/^\/repo\/target\.txt\.tmp-/);
@@ -370,6 +376,7 @@ describe('fs write', () => {
         if (targetPath === '/repo/link.txt') return '/outside/target.txt';
         return targetPath;
       }),
+      stat: vi.fn(async () => ({ isFile: () => true, size: 3, mtimeMs: 1000 })),
       readFile: vi.fn(async () => 'old'),
       mkdir: vi.fn(async () => undefined),
       writeFile: vi.fn(async () => undefined),
@@ -384,6 +391,336 @@ describe('fs write', () => {
     expect(res.body).toEqual({ error: 'Access denied' });
     expect(fsPromises.writeFile).not.toHaveBeenCalled();
     expect(fsPromises.rename).not.toHaveBeenCalled();
+  });
+});
+
+describe('fs file-save revisions (finding #8)', () => {
+  const createMemoryFs = (initial = {}) => {
+    const store = new Map(Object.entries(initial));
+    let mtimeSeq = 1000;
+    const calls = { chmod: [] };
+    const enoent = () => Object.assign(new Error('not found'), { code: 'ENOENT' });
+    const fsPromises = {
+      realpath: vi.fn(async (targetPath) => targetPath),
+      stat: vi.fn(async (targetPath) => {
+        if (!store.has(targetPath)) throw enoent();
+        const content = store.get(targetPath) ?? '';
+        return {
+          isFile: () => true,
+          size: Buffer.byteLength(content, 'utf8'),
+          mtimeMs: 1000 + (store.get(`${targetPath}:mtime`) ?? 0),
+          mode: 0o100600,
+        };
+      }),
+      readFile: vi.fn(async (targetPath, encoding) => {
+        if (!store.has(targetPath)) throw enoent();
+        const content = store.get(targetPath) ?? '';
+        if (encoding === undefined || Buffer.isBuffer(content)) return Buffer.from(content, 'utf8');
+        return content;
+      }),
+      mkdir: vi.fn(async () => undefined),
+      writeFile: vi.fn(async (targetPath, content) => {
+        store.set(targetPath, typeof content === 'string' ? content : String(content));
+      }),
+      chmod: vi.fn(async (targetPath, mode) => {
+        calls.chmod.push([targetPath, mode]);
+      }),
+      rename: vi.fn(async (tmp, dest) => {
+        if (!store.has(tmp)) throw enoent();
+        store.set(dest, store.get(tmp));
+        store.delete(tmp);
+        store.set(`${dest}:mtime`, (store.get(`${dest}:mtime`) ?? 0) + 1);
+        mtimeSeq += 1;
+      }),
+      unlink: vi.fn(async (targetPath) => {
+        store.delete(targetPath);
+      }),
+      rm: vi.fn(async (targetPath) => {
+        store.delete(targetPath);
+        store.delete(`${targetPath}:mtime`);
+      }),
+    };
+    const externalWrite = (targetPath, content) => {
+      store.set(targetPath, content);
+      store.set(`${targetPath}:mtime`, (store.get(`${targetPath}:mtime`) ?? 0) + 7);
+    };
+    const externalDelete = (targetPath) => {
+      store.delete(targetPath);
+      store.delete(`${targetPath}:mtime`);
+    };
+    return { store, fsPromises, calls, externalWrite, externalDelete };
+  };
+
+  const registerReadWrite = (fsPromises) => {
+    const { app, getRoute } = createRouteRegistry();
+    registerFsRoutes(app, {
+      os: { homedir: () => '/home/user' },
+      path: path.posix,
+      fsPromises: { realpath: async (p) => p, ...fsPromises },
+      spawn: vi.fn(),
+      crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: (p) => p,
+      resolveProjectDirectory: async () => ({ directory: '/repo' }),
+      buildAugmentedPath: () => '/usr/bin',
+      resolveGitBinaryForSpawn: () => 'git',
+      pichamberUserConfigRoot: '/home/user/.config',
+    });
+    return {
+      read: getRoute('GET', '/api/fs/read'),
+      write: getRoute('POST', '/api/fs/write'),
+      stat: getRoute('GET', '/api/fs/stat'),
+    };
+  };
+
+  it('two readers observe the same opaque revision', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'hello' });
+    const { read } = registerReadWrite(mem.fsPromises);
+    const first = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, first);
+    const second = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, second);
+    expect(first.body).toBe('hello');
+    expect(second.body).toBe('hello');
+    const revA = first.getHeader('x-pichamber-file-revision');
+    const revB = second.getHeader('x-pichamber-file-revision');
+    expect(typeof revA).toBe('string');
+    expect(revA).toBe(revB);
+    expect(revA.startsWith('v1:')).toBe(true);
+  });
+
+  it('serializes simultaneous same-revision writes: first wins, second conflicts', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'base' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const baseRev = readRes.getHeader('x-pichamber-file-revision');
+    const [firstRes, secondRes] = await Promise.all([
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/a.txt', content: 'writer-one', expectedRevision: baseRev } }, r); return r; })(),
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/a.txt', content: 'writer-two', expectedRevision: baseRev } }, r); return r; })(),
+    ]);
+    const successes = [firstRes, secondRes].filter((r) => r.statusCode === 200);
+    const conflicts = [firstRes, secondRes].filter((r) => r.statusCode === 409);
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].body.reason).toBe('file-revision-conflict');
+    expect(typeof conflicts[0].body.currentRevision).toBe('string');
+    expect(conflicts[0].body.exists).toBe(true);
+  });
+
+  it('rejects stale revisions after an external change with the current revision', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'v1' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const stale = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalWrite('/repo/a.txt', 'external');
+    const writeRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'stale-write', expectedRevision: stale } }, writeRes);
+    expect(writeRes.statusCode).toBe(409);
+    expect(writeRes.body).toMatchObject({ reason: 'file-revision-conflict', exists: true });
+    expect(typeof writeRes.body.currentRevision).toBe('string');
+    expect(writeRes.body.currentRevision).not.toBe(stale);
+  });
+
+  it('conflicts with exists:false after external delete', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'v1' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const stale = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalDelete('/repo/a.txt');
+    const writeRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'resurrect', expectedRevision: stale } }, writeRes);
+    expect(writeRes.statusCode).toBe(409);
+    expect(writeRes.body).toMatchObject({ reason: 'file-revision-conflict', exists: false, currentRevision: null });
+  });
+
+  it('detects delete+recreate as a conflict for diverging writes', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'v1' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const stale = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalDelete('/repo/a.txt');
+    mem.externalWrite('/repo/a.txt', 'recreated');
+    const writeRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'diverged', expectedRevision: stale } }, writeRes);
+    expect(writeRes.statusCode).toBe(409);
+    expect(writeRes.body.exists).toBe(true);
+  });
+
+  it('serializes the new-file race: second create-only writer conflicts', async () => {
+    const mem = createMemoryFs({});
+    const { write } = registerReadWrite(mem.fsPromises);
+    const [firstRes, secondRes] = await Promise.all([
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/new.txt', content: 'first', expectedRevision: null } }, r); return r; })(),
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/new.txt', content: 'second', expectedRevision: null } }, r); return r; })(),
+    ]);
+    const successes = [firstRes, secondRes].filter((r) => r.statusCode === 200);
+    const conflicts = [firstRes, secondRes].filter((r) => r.statusCode === 409);
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].body.reason).toBe('file-revision-conflict');
+  });
+
+  it('treats identical-content saves as no-ops without conflict', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'same' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const stale = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalWrite('/repo/a.txt', 'same');
+    const writeRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'same', expectedRevision: stale } }, writeRes);
+    expect(writeRes.statusCode).toBe(200);
+    expect(writeRes.body.success).toBe(true);
+    expect(mem.fsPromises.rename).not.toHaveBeenCalled();
+  });
+
+  it('honors explicit overwrite over stale revisions and recreates deleted files', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'v1' });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const stale = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalWrite('/repo/a.txt', 'external');
+    const overwriteRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'forced', expectedRevision: stale, overwrite: true } }, overwriteRes);
+    expect(overwriteRes.statusCode).toBe(200);
+    expect(overwriteRes.body.success).toBe(true);
+    mem.externalDelete('/repo/a.txt');
+    const recreate = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'recreated', expectedRevision: stale, overwrite: true } }, recreate);
+    expect(recreate.statusCode).toBe(200);
+  });
+
+  it('preserves CRLF bytes and file mode across atomic replace', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'one\r\ntwo\r\n' });
+    const { write } = registerReadWrite(mem.fsPromises);
+    const writeRes = createMockResponse();
+    await write({ body: { path: '/repo/a.txt', content: 'a\r\nb\r\n' } }, writeRes);
+    expect(writeRes.statusCode).toBe(200);
+    expect(mem.store.get('/repo/a.txt')).toBe('a\r\nb\r\n');
+    expect(mem.calls.chmod.length).toBeGreaterThan(0);
+    expect(mem.calls.chmod[0][1] & 0o777).toBe(0o600);
+  });
+
+  it('exposes revisions on stat and read for guarded saves', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'hello' });
+    const { read, stat } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const statRes = createMockResponse();
+    await stat({ query: { path: '/repo/a.txt' } }, statRes);
+    expect(typeof readRes.getHeader('x-pichamber-file-revision')).toBe('string');
+    expect(typeof statRes.body.revision).toBe('string');
+    expect(statRes.body.revision).toBe(readRes.getHeader('x-pichamber-file-revision'));
+  });
+
+  it('serializes concurrent guarded writes through a symlink alias and the canonical path', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'base' });
+    // /repo/link.txt is a symlink alias of /repo/a.txt: realpath maps it even
+    // though the store only knows the canonical entry.
+    mem.fsPromises.realpath = vi.fn(async (targetPath) =>
+      targetPath === '/repo/link.txt' ? '/repo/a.txt' : targetPath);
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/link.txt' } }, readRes);
+    const baseRev = readRes.getHeader('x-pichamber-file-revision');
+    const [viaAlias, viaCanonical] = await Promise.all([
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/link.txt', content: 'alias-writer', expectedRevision: baseRev } }, r); return r; })(),
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/a.txt', content: 'canonical-writer', expectedRevision: baseRev } }, r); return r; })(),
+    ]);
+    const successes = [viaAlias, viaCanonical].filter((r) => r.statusCode === 200);
+    const conflicts = [viaAlias, viaCanonical].filter((r) => r.statusCode === 409);
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].body.reason).toBe('file-revision-conflict');
+    expect(typeof conflicts[0].body.currentRevision).toBe('string');
+  });
+
+  it('serializes create-only writes through a dangling symlink alias and its target', async () => {
+    const mem = createMemoryFs({});
+    // Dangling symlink: realpath resolves the alias name to the missing target.
+    mem.fsPromises.realpath = vi.fn(async (targetPath) =>
+      targetPath === '/repo/link.txt' ? '/repo/a.txt' : targetPath);
+    const { write } = registerReadWrite(mem.fsPromises);
+    const [viaAlias, viaTarget] = await Promise.all([
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/link.txt', content: 'alias-create', expectedRevision: null } }, r); return r; })(),
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/a.txt', content: 'target-create', expectedRevision: null } }, r); return r; })(),
+    ]);
+    const successes = [viaAlias, viaTarget].filter((r) => r.statusCode === 200);
+    const conflicts = [viaAlias, viaTarget].filter((r) => r.statusCode === 409);
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].body.reason).toBe('file-revision-conflict');
+    expect(conflicts[0].body.exists).toBe(true);
+  });
+
+  it('skips read+hash on stat when knownRevision still matches', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'hello' });
+    const { read, stat } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const baseRev = readRes.getHeader('x-pichamber-file-revision');
+    // The initial read consumes one readFile call; stat must add none.
+    const readCallsAfterRead = mem.fsPromises.readFile.mock.calls.length;
+    const statRes = createMockResponse();
+    await stat({ query: { path: '/repo/a.txt', knownRevision: baseRev } }, statRes);
+    expect(statRes.statusCode).toBe(200);
+    expect(statRes.body.revision).toBe(baseRev);
+    expect(statRes.body.exists).toBe(true);
+    // The cheap path must not read the file again.
+    expect(mem.fsPromises.readFile.mock.calls.length).toBe(readCallsAfterRead);
+  });
+
+  it('recomputes the revision when knownRevision no longer matches', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'hello' });
+    const { read, stat } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/a.txt' } }, readRes);
+    const baseRev = readRes.getHeader('x-pichamber-file-revision');
+    mem.externalWrite('/repo/a.txt', 'changed');
+    const statRes = createMockResponse();
+    await stat({ query: { path: '/repo/a.txt', knownRevision: baseRev } }, statRes);
+    expect(statRes.statusCode).toBe(200);
+    expect(statRes.body.revision).not.toBe(baseRev);
+    expect(typeof statRes.body.revision).toBe('string');
+  });
+
+  it('does not shortcut a hand-crafted revision whose hash contradicts the ceiling', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'tiny' });
+    const { stat } = registerReadWrite(mem.fsPromises);
+    // A revision claiming a hash for a size above the hash ceiling is
+    // inconsistent (clients must only echo server revisions). Size+mtime
+    // match, but the server must still recompute instead of echoing it back.
+    const fakeHash = 'a'.repeat(64);
+    const craftedRevision = `v1:${5 * 1024 * 1024 + 1}:1000:${fakeHash}`;
+    const statRes = createMockResponse();
+    await stat({ query: { path: '/repo/a.txt', knownRevision: craftedRevision } }, statRes);
+    expect(statRes.body.revision).not.toBe(craftedRevision);
+    expect(statRes.body.revision).toMatch(/^v1:4:1000:[0-9a-f]{64}$/);
+  });
+
+  it('serializes concurrent guarded writes through two symlink aliases of one file', async () => {
+    const mem = createMemoryFs({ '/repo/a.txt': 'base' });
+    mem.fsPromises.realpath = vi.fn(async (targetPath) => {
+      if (targetPath === '/repo/link-one.txt' || targetPath === '/repo/link-two.txt') return '/repo/a.txt';
+      return targetPath;
+    });
+    const { read, write } = registerReadWrite(mem.fsPromises);
+    const readRes = createMockResponse();
+    await read({ query: { path: '/repo/link-two.txt' } }, readRes);
+    const baseRev = readRes.getHeader('x-pichamber-file-revision');
+    const [first, second] = await Promise.all([
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/link-one.txt', content: 'one', expectedRevision: baseRev } }, r); return r; })(),
+      (async () => { const r = createMockResponse(); await write({ body: { path: '/repo/link-two.txt', content: 'two', expectedRevision: baseRev } }, r); return r; })(),
+    ]);
+    const successes = [first, second].filter((r) => r.statusCode === 200);
+    const conflicts = [first, second].filter((r) => r.statusCode === 409);
+    expect(successes).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].body.reason).toBe('file-revision-conflict');
   });
 });
 

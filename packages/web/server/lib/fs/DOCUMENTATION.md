@@ -14,6 +14,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `POST /api/fs/mkdir`
     - `POST /api/fs/clone`
     - `GET /api/fs/read`
+    - `GET /api/fs/stat`
     - `GET /api/fs/raw`
     - `GET /api/fs/serve/:path(*)`
     - `POST /api/fs/write`
@@ -31,6 +32,13 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
   - Supports fuzzy file and directory matching, hidden-file handling, fixed build-output exclusions, and optional `git check-ignore` filtering.
   - Git-ignore checks use bounded directory concurrency and a positive configurable timeout (`PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS`, default 2500 ms). Concurrent searches share identical in-flight checks. A failed or timed-out check fails the search instead of returning files that may be ignored.
   - Search reads through canonical paths for boundary enforcement, but result paths stay in the caller's requested path space so symlinked workspaces remain navigable.
+
+## File-save revisions (finding #8)
+- Revisions are opaque exact strings (`v1:<size>:<mtimeMs>[:<sha256>]`, 5 MiB hash ceiling). `null` means missing at read time; `undefined` means legacy/unknown and never guards a save.
+- `GET /api/fs/read` returns `x-pichamber-file-revision` plus `Cache-Control: no-store`; optional missing reads also return `x-pichamber-file-exists: false`.
+- `GET /api/fs/stat` returns `{ revision, exists }` and accepts `?knownRevision=` to echo the client revision when size+mtime (and hash-ceiling category) match, skipping read+hash.
+- `POST /api/fs/write` accepts `{ expectedRevision, overwrite }`. Omitting `expectedRevision` keeps legacy unconditional writes. `expectedRevision: null` (or `'missing'`) is create-only. `overwrite: true` is the explicit force path. Mismatches return HTTP 409 `{ reason: 'file-revision-conflict', currentRevision, exists, path }`. Identical content is an idempotent `{ noop: true }` success without rewrite. Writes serialize per canonical (realpath) file with re-keying for create/re-point races, preserve mode across atomic temp+rename, and never normalize line endings.
+- External writers that bypass the protocol are non-cooperating: last writer wins on disk, and the next cooperating save conflicts instead of silently overwriting.
 
 ## Composition contract with `index.js`
 - `index.js` provides composition-time dependencies only (platform primitives + callbacks such as `resolveProjectDirectory`, `normalizeDirectoryPath`, and `buildAugmentedPath`).
