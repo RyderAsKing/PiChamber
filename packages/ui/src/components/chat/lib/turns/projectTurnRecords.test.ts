@@ -116,6 +116,27 @@ describe('projectTurnRecords', () => {
         expect(projection.ungroupedMessageIds.size).toBe(0);
     });
 
+    test('settles the prior turn when a steer starts a new user turn', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1_000 });
+        const assistant = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2_000 });
+        const steer = createMessageEntry({ id: 'u2', role: 'user', createdAt: 3_000 });
+
+        const projection = projectTurnRecords([user, assistant, steer]);
+
+        expect(projection.turns).toHaveLength(2);
+        expect(projection.turns[0]?.stream).toEqual({
+            isStreaming: false,
+            isRetrying: false,
+            startedAt: 1_000,
+            completedAt: 3_000,
+            durationMs: 2_000,
+            settledReason: 'steered',
+        });
+        expect(projection.turns[0]?.isSteering).toBe(false);
+        expect(projection.turns[1]?.turnId).toBe('u2');
+        expect(projection.turns[1]?.isSteering).toBe(true);
+    });
+
     test('keeps out-of-order assistant replies attached to their parent user turn', () => {
         const user1 = createMessageEntry({ id: 'u1', role: 'user', createdAt: 1 });
         const assistant1 = createMessageEntry({ id: 'a1', role: 'assistant', parentID: 'u1', createdAt: 2 });

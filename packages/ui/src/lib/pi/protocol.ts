@@ -259,13 +259,45 @@ export interface PiPromptInput {
   thinking?: PiThinkingLevel;
   /** Server-side attachments the user has already uploaded. */
   attachments?: Array<{ id: string }>;
+  /**
+   * Stable client-generated send intent id (`kind + sessionId + operationId`).
+   * The daemon claims it before Pi activation so a lost reply can be
+   * recovered through the exact read-only send-receipt lookup without replay.
+   */
+  operationId?: string;
 }
 
 export interface PiPromptResult {
   accepted: true;
   /** The id the daemon assigned to the user message. */
   messageId: string;
+  /** Present when the daemon deduplicated an identical retry. */
+  deduplicated?: true;
 }
+
+/** Send kind for the exact `kind + sessionId + operationId` receipt identity. */
+export type PiSendKind = 'prompt' | 'steer' | 'followUp';
+
+/** Exact read-only receipt lookup identity. Never invokes Pi. */
+export interface PiSendReceiptInput {
+  sessionId: PiSessionId;
+  kind: PiSendKind;
+  operationId: string;
+}
+
+/**
+ * Exact receipt outcome:
+ * - `accepted` carries the original acceptance receipt.
+ * - `pending` means the claim is still being accepted.
+ * - `expired` means the retention window is gone; the outcome is unknown.
+ * - `unknown` means never seen (or rejected before Pi ran).
+ * Only `accepted` proves the send executed. Never replay on the others.
+ */
+export type PiSendReceiptResult =
+  | { status: 'accepted'; receipt: PiPromptResult }
+  | { status: 'pending' }
+  | { status: 'expired' }
+  | { status: 'unknown' };
 
 export interface PiAbortInput {
   sessionId: PiSessionId;

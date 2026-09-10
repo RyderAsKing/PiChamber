@@ -438,6 +438,171 @@ describe('Pi runtime route', () => {
     expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
   });
 
+  it('forwards the send operation id and reports a deduplicated receipt with consumed attachments', async () => {
+    const calls = [];
+    const consumed = [];
+    const attachmentStore = {
+      resolve: async (ids) => ids.map((id) => ({ id, name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' })),
+      consume: async (ids) => consumed.push(...ids),
+    };
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        // The daemon deduplicates: the second identical send returns the
+        // original receipt with deduplicated: true and never executes.
+        return { accepted: true, messageId: 'message-1', ...(calls.length > 1 ? { deduplicated: true } : {}) };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, attachmentStore });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    const send = () => fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'one intent', operationId: 'op-1', attachments: [{ id: 'attachment-1' }] }),
+    });
+    const first = await send();
+    expect(first.status).toBe(202);
+    await expect(first.json()).resolves.toEqual({ accepted: true, messageId: 'message-1' });
+    const duplicate = await send();
+    expect(duplicate.status).toBe(202);
+    await expect(duplicate.json()).resolves.toEqual({ accepted: true, messageId: 'message-1', deduplicated: true });
+    // Attachments resolve on both sends (retired entries resolve) and
+    // consumption stays idempotent.
+    expect(consumed).toEqual(['attachment-1', 'attachment-1']);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].payload.operationId).toBe('op-1');
+  });
+
+  it('rejects invalid send ids and maps payload mismatch (409) and expiry (410)', async () => {
+    const runtime = {
+      request: async (_command, payload) => {
+        if (payload.operationId === 'op-mismatch') {
+          const error = new Error('mismatch');
+          error.code = 'OPERATION_PAYLOAD_MISMATCH';
+          throw error;
+        }
+        if (payload.operationId === 'op-expired') {
+          const error = new Error('expired');
+          error.code = 'OPERATION_EXPIRED';
+          throw error;
+        }
+        return { accepted: true, messageId: 'message-1' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+
+    const invalid = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'bad id with spaces' }),
+    });
+    expect(invalid.status).toBe(400);
+    await expect(invalid.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
+
+    const invalidMessage = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', messageId: '' }),
+    });
+    expect(invalidMessage.status).toBe(400);
+    await expect(invalidMessage.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
+
+    const mismatch = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'op-mismatch' }),
+    });
+    expect(mismatch.status).toBe(409);
+    await expect(mismatch.json()).resolves.toEqual({ error: { code: 'OPERATION_PAYLOAD_MISMATCH' } });
+
+    const expired = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'op-expired' }),
+    });
+    expect(expired.status).toBe(410);
+    await expect(expired.json()).resolves.toEqual({ error: { code: 'OPERATION_EXPIRED' } });
+  });
+
+  it('exposes an exact send-receipt lookup without invoking Pi', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.sendReceipt') {
+          if (payload.operationId === 'op-accepted') {
+            return { status: 'accepted', receipt: { accepted: true, messageId: 'message-1' } };
+          }
+          return { status: payload.operationId === 'op-pending' ? 'pending' : payload.operationId === 'op-expired' ? 'expired' : 'unknown' };
+        }
+        return { accepted: true, messageId: 'message-1' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/session-1/send-receipt`;
+
+    const accepted = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'prompt', operationId: 'op-accepted' }),
+    });
+    expect(accepted.status).toBe(200);
+    await expect(accepted.json()).resolves.toEqual({ status: 'accepted', receipt: { accepted: true, messageId: 'message-1' } });
+
+    const pending = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'steer', operationId: 'op-pending' }),
+    });
+    expect(pending.status).toBe(200);
+    // Pending carries no receipt: the outcome is still being accepted.
+    await expect(pending.json()).resolves.toEqual({ status: 'pending' });
+
+    const expired = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'prompt', operationId: 'op-expired' }),
+    });
+    expect(expired.status).toBe(200);
+    await expect(expired.json()).resolves.toEqual({ status: 'expired' });
+
+    const unknown = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'followUp', operationId: 'op-unknown' }),
+    });
+    expect(unknown.status).toBe(200);
+    await expect(unknown.json()).resolves.toEqual({ status: 'unknown' });
+
+    expect(calls.filter((call) => call.command === 'sessions.sendReceipt')).toHaveLength(4);
+    expect(calls[0].payload).toEqual({ kind: 'prompt', sessionId: 'session-1', operationId: 'op-accepted' });
+
+    const invalidKind = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'promptx', operationId: 'op-accepted' }),
+    });
+    expect(invalidKind.status).toBe(400);
+
+    const invalidId = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'prompt', operationId: 'bad id' }),
+    });
+    expect(invalidId.status).toBe(400);
+  });
+
   it('streams binary attachments with bounded metadata and deletes unused uploads', async () => {
     const calls = [];
     const attachmentStore = {

@@ -1296,9 +1296,12 @@ export class PiSessionStore {
     text: string,
     delivery: 'prompt' | 'steer' | 'followUp',
     attachments?: Array<{ id: string }>,
-    options?: { knownEmptyTranscript?: boolean },
+    options?: { knownEmptyTranscript?: boolean; operationId?: string; directory?: string; runtimeKey?: string },
   ) {
     const expected = this.runtimeGeneration;
+    const runtimeKey = options?.runtimeKey ?? getRuntimeKey();
+    const scope = { directory: this.resolveSessionDirectory(sessionId, options?.directory), runtimeKey };
+    if (runtimeKey !== getRuntimeKey()) throw new Error('Runtime changed before sending message.');
     let existing = this.state.reducer.bySession.get(sessionId);
     const hasAuthoritativeCreatedEmptyTranscript =
       options?.knownEmptyTranscript === true
@@ -1310,14 +1313,16 @@ export class PiSessionStore {
     // exception: its creation detail authoritatively established an empty log.
     if ((!existing || existing.messages.size === 0) && !hasAuthoritativeCreatedEmptyTranscript) {
       await this.hydrate(sessionId, expected);
-      if (expected !== this.runtimeGeneration) return;
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
+        throw new Error('Runtime changed before sending message.');
+      }
       existing = this.state.reducer.bySession.get(sessionId);
     }
     // LAN HTTP contexts expose getRandomValues but not randomUUID. Prepare
     // the ID before publishing busy state so random-source failures cannot
     // strand a prompt that was never sent. Keep the existing UUID v4 format.
-    const uuid = createBrowserUuid();
-    const input = { sessionId, text, messageId: `msg_${uuid}`, ...(attachments?.length ? { attachments } : {}) };
+    const operationId = options?.operationId ?? createBrowserUuid();
+    const input = { sessionId, text, operationId, messageId: `msg_${operationId}`, ...(attachments?.length ? { attachments } : {}) };
     const nextSession: PiReducerSessionState = existing
       ? { ...existing, lifecycle: 'busy' }
       : {
@@ -1366,9 +1371,9 @@ export class PiSessionStore {
     this.emit(promptTopics);
     try {
       let result;
-      if (delivery === 'steer') result = await piClient.sendSteer(input, this.scope());
-      else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, this.scope());
-      else result = await piClient.sendPrompt(input, this.scope());
+      if (delivery === 'steer') result = await piClient.sendSteer(input, scope);
+      else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, scope);
+      else result = await piClient.sendPrompt(input, scope);
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
       clearRevertNavigation(sessionId);
@@ -1384,6 +1389,7 @@ export class PiSessionStore {
       return result;
     } catch (error) {
       recordMobileDiagnosticError('prompt-send', error);
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) throw error;
       if (isSessionInUseError(error)) {
         // Another PiChamber instance owns this session. Record the chrome
         // signal so the composer locks for this session until a later

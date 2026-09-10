@@ -149,6 +149,41 @@ const hydrateTurnRecord = (
     return turn;
 };
 
+const applySteeringBoundaries = (turns: TurnRecord[]): TurnRecord[] => {
+    let changed = false;
+    const nextTurns = [...turns];
+
+    for (let index = 1; index < turns.length; index += 1) {
+        const previous = nextTurns[index - 1];
+        const current = nextTurns[index];
+        const steerStartedAt = current.startedAt;
+        if (!previous.stream.isStreaming || typeof steerStartedAt !== 'number') {
+            continue;
+        }
+
+        const startedAt = previous.startedAt;
+        const durationMs = typeof startedAt === 'number' && steerStartedAt >= startedAt
+            ? steerStartedAt - startedAt
+            : undefined;
+        nextTurns[index - 1] = {
+            ...previous,
+            stream: {
+                ...previous.stream,
+                isStreaming: false,
+                completedAt: steerStartedAt,
+                durationMs,
+                settledReason: 'steered',
+            },
+            completedAt: steerStartedAt,
+            durationMs,
+        };
+        nextTurns[index] = current.isSteering ? current : { ...current, isSteering: true };
+        changed = true;
+    }
+
+    return changed ? nextTurns : turns;
+};
+
 const hydrateStableTurnRecords = (
     turns: TurnRecord[],
     effectiveOptions: ProjectTurnRecordsOptions,
@@ -218,6 +253,7 @@ export const projectTurnRecords = (
         const turnId = message.info.id;
         const turn: TurnRecord = {
             turnId,
+            isSteering: false,
             userMessageId: message.info.id,
             userMessage: message,
             headerMessageId: undefined,
@@ -263,7 +299,7 @@ export const projectTurnRecords = (
         groupedMessageIds.add(message.info.id);
     });
 
-    const stableTurns = hydrateStableTurnRecords(turns, effectiveOptions);
+    const stableTurns = applySteeringBoundaries(hydrateStableTurnRecords(turns, effectiveOptions));
     const projection = projectTurnIndexes(stableTurns);
     const ungroupedMessageIds = new Set<string>();
     messages.forEach((message) => {

@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import { getPiSessionStore, type PiSessionStoreState } from '@/apps/pi-session-store';
-import { piClient, PiRequestError } from '@/lib/pi/client';
+import { piClient, PiRequestError, PiSendUnconfirmedError } from '@/lib/pi/client';
 import type { PiReducerSessionState } from '@/lib/pi/event-reducer';
 import { createReducerPartMap } from '@/lib/pi/event-reducer';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
@@ -327,7 +327,12 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     expect(sendMessageCalls[0]?.[2]).toBe('cap-m');
     expect(sendMessageCalls[0]?.[7]).toBe('cap-v');
     expect(sendMessageCalls[0]?.[8]).toBe('normal');
-    expect(sendMessageCalls[0]?.[9]).toEqual({ target: target() });
+    // Follow-up dispatch: idle gate, but followUp delivery so a busy arrival
+    // follows up rather than SESSION_BUSY, with the stable queue id.
+    const firstOptions = sendMessageCalls[0]?.[9] as { target?: unknown; delivery?: unknown; operationId?: unknown };
+    expect(firstOptions?.target).toEqual(target());
+    expect(firstOptions?.delivery).toBe('followUp');
+    expect(typeof firstOptions?.operationId).toBe('string');
     expect(queueFor(target())).toHaveLength(0);
     expect(sendingFor(target())).toHaveLength(0);
   });
@@ -674,7 +679,10 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     expect(asInternal().state.sessionLoadErrorById.get('s1')?.code).toBe('INVALID_SESSION');
     // The healthy queue dispatched normally despite the failed neighbor.
     expect(sendMessageCalls.length).toBe(1);
-    expect(sendMessageCalls[0]?.[9]).toEqual({ target: target('s-ok') });
+    const healthyOptions = sendMessageCalls[0]?.[9] as { target?: unknown; delivery?: unknown; operationId?: unknown };
+    expect(healthyOptions?.target).toEqual(target('s-ok'));
+    expect(healthyOptions?.delivery).toBe('followUp');
+    expect(typeof healthyOptions?.operationId).toBe('string');
     expect(queueFor(target('s-ok'))).toHaveLength(0);
     // The invalid target's entry is retained for user inspection/removal.
     expect(queueFor(target('s1'))).toHaveLength(1);
@@ -948,6 +956,153 @@ describe('queued auto-send retry backoff', () => {
   });
 });
 
+describe('follow-up wire dispatch (red-first)', () => {
+  test('auto-send dispatches delivery followUp with the stable queue id as operationId', async () => {
+    hydrateResident('s1', 'idle');
+    await mountHook();
+
+    let capturedId: string | undefined;
+    await act(async () => {
+      enqueue(target(), { sendConfig: { providerID: 'cap-p', modelID: 'cap-m' } });
+      capturedId = queueFor(target())[0]?.id;
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(1);
+    const options = sendMessageCalls[0]?.[9] as { target?: unknown; delivery?: unknown; operationId?: unknown } | undefined;
+    expect(options?.target).toEqual(target());
+    expect(options?.delivery).toBe('followUp');
+    expect(options?.operationId).toBe(capturedId);
+  });
+
+  test('a failed follow-up holds without automatic retry and stays visible', async () => {
+    hydrateResident('s1', 'idle');
+    sendMessageImpl = async () => {
+      throw new Error('transport timeout — may still be processing');
+    };
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target());
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(1);
+    expect(queueFor(target())).toHaveLength(1);
+    expect(sendingFor(target())).toHaveLength(0);
+
+    // Past the legacy 2s backoff: a held follow-up must NOT auto-retry an
+    // ambiguous send. Recovery is an explicit Send now from the chips.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(1);
+    expect(queueFor(target())).toHaveLength(1);
+  });
+
+  test('captured variant absent stays absent — never falls back to mutable current variant', async () => {
+    hydrateResident('s1', 'idle');
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target(), { sendConfig: { providerID: 'cap-p', modelID: 'cap-m' } });
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(1);
+    // Resolved from captured config as-is; variant position is undefined.
+    expect(sendMessageCalls[0]?.[1]).toBe('cap-p');
+    expect(sendMessageCalls[0]?.[2]).toBe('cap-m');
+    expect(sendMessageCalls[0]?.[7]).toBe(undefined);
+  });
+});
+
+describe('durable failure hold (persisted attempt markers)', () => {
+  test('a confirmed failure persists a fixed label and later entries still send', async () => {
+    hydrateResident('s1', 'idle');
+    sendMessageImpl = async (...args) => {
+      const text = args[0] as string;
+      if (text === 'first') throw new Error('confirmed rejection');
+    };
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target(), { content: 'first' });
+      enqueue(target(), { content: 'second' });
+    });
+    await flush();
+    await flush();
+
+    // Both entries attempted once; the confirmed head holds with a fixed
+    // label while the unrelated later entry still dispatches.
+    expect(sendMessageCalls.length).toBe(2);
+    const remaining = queueFor(target());
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.content).toBe('first');
+    expect(remaining[0]?.deliveryAttempt).toBe(undefined);
+    expect(remaining[0]?.sendFailed).toBe(true);
+    expect(sendingFor(target())).toHaveLength(0);
+
+    // No retry-loop past backoff: the failed head stays, nothing resends.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    await flush();
+    expect(sendMessageCalls.length).toBe(2);
+    expect(queueFor(target())).toHaveLength(1);
+  });
+
+  test('an unconfirmed error retains its attempt and holds the queue (FIFO)', async () => {
+    hydrateResident('s1', 'idle');
+    sendMessageImpl = async () => {
+      throw new PiSendUnconfirmedError('DAEMON_TIMEOUT', 'transport lost before receipt');
+    };
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target(), { content: 'first' });
+      enqueue(target(), { content: 'second' });
+    });
+    await flush();
+
+    // Only the head attempted; the uncertain delivery holds later entries.
+    expect(sendMessageCalls.length).toBe(1);
+    const remaining = queueFor(target());
+    expect(remaining).toHaveLength(2);
+    expect(remaining[0]?.deliveryAttempt).toEqual({ kind: 'followUp', operationId: remaining[0]?.id });
+    expect(remaining[0]?.sendFailed).toBe(undefined);
+    expect(sendingFor(target())).toHaveLength(0);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    await flush();
+    expect(sendMessageCalls.length).toBe(1);
+    expect(queueFor(target())).toHaveLength(2);
+  });
+
+  test('a reloaded uncertain attempt never resends', async () => {
+    hydrateResident('s1', 'idle');
+    await mountHook();
+
+    // Simulates a reload after the attempt was persisted but before the send
+    // resolved: the entry carries kind + stable operationId, no in-flight flag.
+    await act(async () => {
+      enqueue(target(), { content: 'uncertain' });
+      const [entry] = queueFor(target());
+      useMessageQueueStore.getState().markDeliveryAttempt(target(), entry.id, 'followUp');
+    });
+    await flush();
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(0);
+    expect(queueFor(target())).toHaveLength(1);
+    expect(queueFor(target())[0]?.deliveryAttempt?.kind).toBe('followUp');
+  });
+});
+
 describe('buildQueuedAutoSendPayload', () => {
   test('returns only the first queued message for auto-send', () => {
     const queue: QueuedMessage[] = [
@@ -1039,6 +1194,8 @@ describe('buildQueuedAutoSendPayload', () => {
           sessionId: 'session-original',
           directory: '/repo',
         },
+        delivery: 'followUp',
+        operationId: 'queued-1',
       },
     ]);
   });

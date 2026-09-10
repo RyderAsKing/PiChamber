@@ -1,6 +1,7 @@
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { isPiThinkingLevel } from '@/lib/pi/thinking';
 import { sanitizeFilename } from '@/lib/pi/attachments';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import type { AttachedFile } from './session-ui-types';
 
 export function committedSessionSelection(sessionId: string) {
@@ -45,13 +46,23 @@ export async function routeMessage(params: {
     }>;
   }>;
   delivery?: 'steer' | 'followUp' | 'prompt';
+  operationId?: string;
   knownEmptyTranscript?: boolean;
 }): Promise<void> {
   const delivery =
     params.delivery === 'steer' || params.delivery === 'followUp'
       ? params.delivery
       : 'prompt';
+  const runtimeKey = params.runtimeKey ?? getRuntimeKey();
+  const assertRuntime = () => {
+    if (runtimeKey !== getRuntimeKey()) throw new Error('Runtime changed before sending message.');
+  };
+  assertRuntime();
   const sessionStore = getPiSessionStore();
+  // Model/thinking commits are runtime-guarded after each await. The daemon
+  // resolves the session by id, so no directory is forwarded here; if the
+  // parent store gains optional directory/runtime scope for these methods,
+  // forward the captured { directory, runtimeKey } instead of mutable focus.
   // Pi resets thinking to the model default during setModel. The reducer may
   // still report the old level when the model request resolves, so a model
   // change always invalidates the cached thinking value for this send.
@@ -68,6 +79,7 @@ export async function routeMessage(params: {
         params.providerID,
         params.modelID
       );
+      assertRuntime();
       modelChanged = true;
     }
   }
@@ -75,6 +87,7 @@ export async function routeMessage(params: {
     const currentThinking = committedSessionSelection(params.sessionId).thinking;
     if (modelChanged || currentThinking !== params.variant) {
       await sessionStore.setThinking(params.sessionId, params.variant);
+      assertRuntime();
     }
   }
   const outgoingFiles = [
@@ -100,6 +113,7 @@ export async function routeMessage(params: {
         if (typeof file.url === 'string' && file.url.startsWith('data:')) {
           const response = await fetch(file.url);
           const blob = await response.blob();
+          assertRuntime();
           const attachment = await sessionStore.uploadFile(blob, {
             filename: sanitizeFilename(file.filename),
             mime: file.mime,
@@ -112,26 +126,30 @@ export async function routeMessage(params: {
         );
       })
     );
+    assertRuntime();
     const promptAttachments = attachments.length > 0 ? attachments : undefined;
-    if (params.knownEmptyTranscript) {
-      await sessionStore.prompt(
-        params.sessionId,
-        params.content,
-        delivery,
-        promptAttachments,
-        { knownEmptyTranscript: true },
-      );
-    } else {
-      await sessionStore.prompt(
-        params.sessionId,
-        params.content,
-        delivery,
-        promptAttachments,
-      );
-    }
+    await sessionStore.prompt(
+      params.sessionId,
+      params.content,
+      delivery,
+      promptAttachments,
+      {
+        ...(params.knownEmptyTranscript ? { knownEmptyTranscript: true } : {}),
+        ...(params.operationId ? { operationId: params.operationId } : {}),
+        ...(params.directory ? { directory: params.directory } : {}),
+        runtimeKey,
+      },
+    );
   } catch (error) {
+    // An unconfirmed send may have been accepted before the transport was
+    // lost; the SDK may still own the refreshed uploads. Preserve them so
+    // Check-status recovery can reconcile through the original receipt.
+    // Matched by name (not instanceof) so partial `pi/client` mocks that
+    // omit the error class cannot break this module's import graph.
+    // Never delete an old runtime's uploads on a newly selected host.
+    if (typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'PiSendUnconfirmedError') throw error;
     await Promise.all(
-      refreshedIds.map((id) =>
+      (runtimeKey === getRuntimeKey() ? refreshedIds : []).map((id) =>
         sessionStore.deleteUpload(id).catch(() => undefined)
       )
     );

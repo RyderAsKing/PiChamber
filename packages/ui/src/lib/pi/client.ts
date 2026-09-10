@@ -22,7 +22,12 @@ import { runtimeUpload, type RuntimeUploadProgress } from '@/lib/runtime-upload'
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   type PiError,
+  type PiPromptInput,
+  type PiPromptResult,
   type PiProviderListResponse,
+  type PiSendKind,
+  type PiSendReceiptInput,
+  type PiSendReceiptResult,
   type PiProviderLoginInput,
   type PiProviderLoginResponse,
   type PiProviderLogoutInput,
@@ -52,8 +57,6 @@ import {
   type PiSessionTreeResponse,
   type PiAttachmentCreateInput,
   type PiAttachmentCreateResponse,
-  type PiPromptInput,
-  type PiPromptResult,
   type PiSetModelInput,
   type PiSetThinkingInput,
   type PiCompactInput,
@@ -86,6 +89,14 @@ interface JsonRequestInit<TBody> {
   query?: Record<string, string | number | boolean>;
   signal?: AbortSignal;
   runtimeKey?: string;
+  /**
+   * Per-request retry control. When `false`, transient 503/network retries
+   * are disabled and the request is attempted exactly once. Sends
+   * (prompt/steer/followUp) must pass `false`: an accepted send whose reply
+   * was lost cannot be retried across a daemon restart without risking a
+   * duplicate turn. All other callers keep the default transient retry.
+   */
+  retry?: boolean;
 }
 
 const jsonRequest = async <TBody, TResponse>(
@@ -103,9 +114,11 @@ const jsonRequest = async <TBody, TResponse>(
     : '';
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
+  const allowRetry = init.retry !== false;
+  const maxTransientRetries = allowRetry ? MAX_TRANSIENT_RETRIES : 0;
 
   let lastError: unknown;
-  for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt += 1) {
+  for (let attempt = 0; attempt <= maxTransientRetries; attempt += 1) {
     if (attempt > 0) {
       if (init.signal?.aborted) break;
       if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
@@ -138,7 +151,7 @@ const jsonRequest = async <TBody, TResponse>(
         const errorBody = (await response.json().catch(() => null)) as { error?: PiError } | null;
         const error: PiError = errorBody?.error ?? { code: 'DAEMON_REQUEST_FAILED' };
         const isTransient = response.status === 503 && (error.code === 'DAEMON_UNAVAILABLE' || error.code === 'DAEMON_TIMEOUT');
-        if (isTransient && attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+        if (isTransient && attempt < maxTransientRetries && !externalSignal?.aborted) {
           lastError = new PiRequestError(error.code, error.message, response.status);
           continue;
         }
@@ -164,7 +177,7 @@ const jsonRequest = async <TBody, TResponse>(
       if (isAbort) {
         throw err;
       }
-      if (attempt < MAX_TRANSIENT_RETRIES && !externalSignal?.aborted) {
+      if (attempt < maxTransientRetries && !externalSignal?.aborted) {
         continue;
       }
       throw err;
@@ -189,6 +202,68 @@ export class PiRequestError extends Error {
     if (status !== undefined) this.status = status;
   }
 }
+
+/**
+ * A send (prompt/steer/followUp) whose outcome is unknown. The request may
+ * have been accepted before a transport/network/timeout/5xx/runtime-change
+ * or malformed reply, so the caller must not assume failure and must not
+ * replay the send. When the send carried an `operationId`, the client has
+ * already attempted the exact read-only receipt lookup; `accepted` recovers
+ * through the original receipt, while every other outcome preserves this
+ * error. Definite server preflight rejections (4xx except 408 and
+ * `OPERATION_EXPIRED`) stay `PiRequestError` and are safe to surface
+ * directly. No prompt text or sensitive content is retained on the error.
+ */
+export class PiSendUnconfirmedError extends Error {
+  readonly code: string;
+  readonly status?: number;
+  constructor(code: string, message?: string, options?: { status?: number; cause?: unknown }) {
+    super(
+      message ?? `Pi send outcome unknown: ${code}`,
+      options?.cause !== undefined ? { cause: options.cause } : undefined,
+    );
+    this.name = 'PiSendUnconfirmedError';
+    this.code = code;
+    if (options?.status !== undefined) this.status = options.status;
+    if (options?.cause !== undefined && (this as { cause?: unknown }).cause === undefined) {
+      (this as { cause?: unknown }).cause = options.cause;
+    }
+  }
+}
+
+const isValidPromptResult = (value: unknown): value is PiPromptResult => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { accepted?: unknown; messageId?: unknown; deduplicated?: unknown };
+  if (candidate.accepted !== true) return false;
+  if (typeof candidate.messageId !== 'string' || candidate.messageId.length === 0) return false;
+  if (candidate.deduplicated !== undefined && candidate.deduplicated !== true) return false;
+  return true;
+};
+
+/** Definite preflight rejections stay `PiRequestError`; everything else is unconfirmed. */
+const isDefiniteSendRejection = (error: unknown): boolean => {
+  if (!(error instanceof PiRequestError)) return false;
+  const status = error.status;
+  if (typeof status !== 'number' || !Number.isInteger(status)) return false;
+  if (status < 400 || status > 499) return false;
+  if (status === 408) return false;
+  if (error.code === 'OPERATION_EXPIRED') return false;
+  return true;
+};
+
+const toSendUnconfirmedError = (error: unknown): PiSendUnconfirmedError => {
+  if (error instanceof PiSendUnconfirmedError) return error;
+  if (error instanceof PiRequestError) {
+    return new PiSendUnconfirmedError(error.code, error.message, { status: error.status, cause: error });
+  }
+  if (error instanceof DOMException && error.name === 'AbortError') {
+    return new PiSendUnconfirmedError('DAEMON_TIMEOUT', error.message || 'Send timed out', { cause: error });
+  }
+  if (error instanceof Error) {
+    return new PiSendUnconfirmedError('DAEMON_REQUEST_FAILED', error.message, { cause: error });
+  }
+  return new PiSendUnconfirmedError('DAEMON_REQUEST_FAILED', undefined, { cause: error });
+};
 
 /** Per-call directory scope. */
 export interface PiClientScope {
@@ -406,28 +481,138 @@ export class PiService {
 
   // ----- Session operations ----------------------------------------------
 
+  /**
+   * Send a prompt without transient retries. A lost reply means the daemon
+   * may have accepted the turn before a restart, so retrying would risk a
+   * duplicate turn. Unconfirmed transport/5xx/timeout/runtime/malformed
+   * failures attempt the exact read-only receipt lookup when `operationId`
+   * is present and return the original receipt only on `accepted`; every
+   * other outcome preserves the original failure as `PiSendUnconfirmedError`.
+   * Definite 4xx preflight rejections (except 408/`OPERATION_EXPIRED`) stay
+   * `PiRequestError`. No replay, no sensitive content in errors.
+   */
   async sendPrompt(input: PiPromptInput, scope?: PiClientScope): Promise<PiPromptResult> {
-    assertRuntimeUnchanged(scope);
-    return jsonRequest<PiPromptInput, PiPromptResult>(
+    return this.sendWithReceipt(
+      'prompt',
+      input,
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/prompt`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      scope,
     );
   }
 
   async sendSteer(input: PiPromptInput, scope?: PiClientScope): Promise<PiPromptResult> {
-    assertRuntimeUnchanged(scope);
-    return jsonRequest<PiPromptInput, PiPromptResult>(
+    return this.sendWithReceipt(
+      'steer',
+      input,
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/steer`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      scope,
     );
   }
 
   async sendFollowUp(input: PiPromptInput, scope?: PiClientScope): Promise<PiPromptResult> {
-    assertRuntimeUnchanged(scope);
-    return jsonRequest<PiPromptInput, PiPromptResult>(
+    return this.sendWithReceipt(
+      'followUp',
+      input,
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/follow-up`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      scope,
     );
+  }
+
+  /**
+   * Exact read-only receipt lookup for an uncertain send. POSTs
+   * `{ kind, operationId }` to `/api/pi/sessions/:id/send-receipt` with the
+   * directory scope; the daemon never invokes Pi and never replays the send.
+   */
+  async getSendReceipt(input: PiSendReceiptInput, scope?: PiClientScope): Promise<PiSendReceiptResult> {
+    assertRuntimeUnchanged(scope);
+    const directory = scope?.directory ?? this.currentDirectory;
+    const result = await jsonRequest<{ kind: PiSendKind; operationId: string }, unknown>(
+      `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/send-receipt`,
+      {
+        method: 'POST',
+        body: { kind: input.kind, operationId: input.operationId },
+        ...(directory ? { query: { directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+    assertRuntimeUnchanged(scope);
+    if (!result || typeof result !== 'object') {
+      throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send receipt');
+    }
+    const status = (result as { status?: unknown }).status;
+    if (status === 'accepted') {
+      const receipt = (result as { receipt?: unknown }).receipt;
+      if (!isValidPromptResult(receipt)) {
+        throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send receipt');
+      }
+      return { status: 'accepted', receipt };
+    }
+    if (status === 'pending' || status === 'expired' || status === 'unknown') {
+      return { status };
+    }
+    throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send receipt');
+  }
+
+  private async sendWithReceipt(
+    kind: PiSendKind,
+    input: PiPromptInput,
+    path: string,
+    scope?: PiClientScope,
+  ): Promise<PiPromptResult> {
+    try {
+      assertRuntimeUnchanged(scope);
+    } catch (error) {
+      throw toSendUnconfirmedError(error);
+    }
+    const directory = scope?.directory ?? this.currentDirectory;
+    try {
+      const result = await jsonRequest<PiPromptInput, unknown>(
+        path,
+        {
+          method: 'POST',
+          body: input,
+          ...(directory ? { query: { directory } } : {}),
+          ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+          retry: false,
+        },
+      );
+      if (!isValidPromptResult(result)) {
+        throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send response');
+      }
+      assertRuntimeUnchanged(scope);
+      return result;
+    } catch (error) {
+      if (isDefiniteSendRejection(error)) {
+        throw error;
+      }
+      const operationId = input.operationId;
+      if (typeof operationId === 'string' && operationId.length > 0) {
+        try {
+          assertRuntimeUnchanged(scope);
+          const getReceipt = this.getSendReceipt;
+          if (!getReceipt) {
+            throw new PiRequestError('DAEMON_UNAVAILABLE', 'Send receipt lookup unavailable');
+          }
+          const lookup: unknown = await getReceipt.call(
+            this,
+            { sessionId: input.sessionId, kind, operationId },
+            scope,
+          );
+          assertRuntimeUnchanged(scope);
+          if (
+            typeof lookup === 'object'
+            && lookup !== null
+            && (lookup as { status?: unknown }).status === 'accepted'
+            && isValidPromptResult((lookup as { receipt?: unknown }).receipt)
+          ) {
+            return (lookup as { receipt: PiPromptResult }).receipt;
+          }
+        } catch {
+          // A failed lookup never masks the original send outcome.
+        }
+      }
+      throw toSendUnconfirmedError(error);
+    }
   }
 
   async abortSession(input: PiAbortInput, scope?: PiClientScope): Promise<void> {

@@ -21,12 +21,15 @@ interface TurnWorkingHeaderProps {
     startedAt?: number;
     completedAt?: number;
     durationMs?: number;
+    liveStatusText?: string;
+    wasSteered?: boolean;
 }
 
 const LiveTurnStatus: React.FC<{
     isWorking: boolean;
     startedAt?: number;
-}> = React.memo(({ isWorking, startedAt }) => {
+    statusText?: string;
+}> = React.memo(({ isWorking, startedAt, statusText }) => {
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const { activeModel, working } = useAssistantStatus();
     const authoritativeStartedAt = useSessionActivityStartedAt(currentSessionId ?? '');
@@ -43,13 +46,15 @@ const LiveTurnStatus: React.FC<{
     return (
         <WorkingPlaceholder
             isWorking={isWorking || working.isWorking}
-            statusText={working.statusText}
-            isGenericStatus={working.isGenericStatus}
+            statusText={statusText ?? working.statusText}
+            isGenericStatus={statusText ? false : working.isGenericStatus}
             isWaitingForPermission={working.isWaitingForPermission}
             retryInfo={working.retryInfo}
             modelName={modelDisplayName}
             providerId={activeModel?.providerId ?? null}
-            startedAt={authoritativeStartedAt ?? startedAt ?? null}
+            startedAt={statusText
+                ? (startedAt ?? authoritativeStartedAt ?? null)
+                : (authoritativeStartedAt ?? startedAt ?? null)}
         />
     );
 });
@@ -66,10 +71,15 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
     startedAt,
     completedAt,
     durationMs,
+    liveStatusText,
+    wasSteered,
 }) => {
     const resolvedDurationMs = resolveTurnDurationMs({ startedAt, completedAt, durationMs });
-    const durationLabel = formatTurnDuration(resolvedDurationMs ?? 0);
-    const statusLabel = isLiveTurn ? 'Agent working' : `Worked for ${durationLabel}`;
+    const statusLabel = isLiveTurn
+        ? 'Agent working'
+        : resolvedDurationMs === null
+          ? null
+          : `Worked for ${formatTurnDuration(resolvedDurationMs)}${wasSteered ? ' · Steered' : ''}`;
     const activityId = `turn-${turnId}-activity`;
 
     return (
@@ -81,8 +91,8 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
             <div className="flex min-h-6 items-center gap-1 py-0.5">
                 <div className="flex min-w-0 items-center overflow-hidden">
                     {isLiveTurn ? (
-                        <LiveTurnStatus isWorking={isWorking} startedAt={startedAt} />
-                    ) : (
+                        <LiveTurnStatus isWorking={isWorking} startedAt={startedAt} statusText={liveStatusText} />
+                    ) : statusLabel ? (
                         <span
                             className="typography-markdown inline-flex min-w-0 items-center leading-5 text-muted-foreground"
                             role="status"
@@ -91,7 +101,7 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
                         >
                             {statusLabel}
                         </span>
-                    )}
+                    ) : null}
                 </div>
                 {hasActivity ? (
                     <Button

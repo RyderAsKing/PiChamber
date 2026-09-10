@@ -46,7 +46,9 @@ class FakeSession {
     }
   }
 
-  async prompt() {}
+  async prompt(text, options) {
+    options?.preflightResult?.(true);
+  }
 
   async sendUserMessage() {}
 

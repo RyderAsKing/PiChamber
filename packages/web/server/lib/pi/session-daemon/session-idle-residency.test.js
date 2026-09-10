@@ -87,7 +87,14 @@ class FakeSession {
     }
   }
 
-  async prompt() {}
+  async prompt(text, options) {
+    options?.preflightResult?.(true);
+    const deliverAs = options?.streamingBehavior;
+    this.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
+    if (this.pendingSend) {
+      await this.pendingSend;
+    }
+  }
 
   async sendUserMessage(text, options) {
     this.sent.push({ text, options });

@@ -24,6 +24,7 @@ class FakeSession {
     this.names = [];
     this.entries = [];
     this.sent = [];
+    this.promptCalls = [];
     this.aborted = 0;
     this.compacted = 0;
     this.model = { provider: 'test', id: 'model' };
@@ -65,7 +66,12 @@ class FakeSession {
     for (const listener of this.listeners) listener(event);
   }
 
-  async prompt() {}
+  async prompt(text, options) {
+    this.promptCalls.push({ text, options });
+    options?.preflightResult?.(true);
+    const deliverAs = options?.streamingBehavior;
+    this.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
+  }
 
   async sendUserMessage(text, options) { this.sent.push({ text, options }); }
 
@@ -2250,8 +2256,11 @@ describe('Pi session daemon spike', () => {
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
     let finishTurn;
-    session.sendUserMessage = (text, options) => {
-      session.sent.push({ text, options });
+    session.prompt = (text, options) => {
+      session.promptCalls.push({ text, options });
+      options?.preflightResult?.(true);
+      const deliverAs = options?.streamingBehavior;
+      session.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
       return new Promise((resolve) => {
         finishTurn = resolve;
       });
@@ -2290,8 +2299,11 @@ describe('Pi session daemon spike', () => {
     await writeFile(imageFile, Buffer.from('fake-png-data'));
     const session = new FakeSession('session-1', sessionFile);
     const finishSends = [];
-    session.sendUserMessage = (content, options) => {
-      session.sent.push({ text: content, options });
+    session.prompt = (text, options) => {
+      session.promptCalls.push({ text, options });
+      options?.preflightResult?.(true);
+      const deliverAs = options?.streamingBehavior;
+      session.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
       return new Promise((resolve) => finishSends.push(resolve));
     };
     daemon = createSessionDaemon({
@@ -2341,9 +2353,15 @@ describe('Pi session daemon spike', () => {
       },
     });
     expect(session.sent).toHaveLength(2);
-    expect(Array.isArray(session.sent[1].text)).toBe(true);
-    expect(session.sent[1].text[0]).toEqual({ type: 'text', text: 'what is this?' });
-    expect(session.sent[1].text[1]).toEqual({ type: 'image', mimeType: 'image/png', data: Buffer.from('fake-png-data').toString('base64') });
+    expect(session.promptCalls).toHaveLength(2);
+    expect(session.promptCalls[0]).toMatchObject({
+      text: 'first without a file',
+      options: expect.objectContaining({ expandPromptTemplates: false, source: 'extension' }),
+    });
+    expect(session.promptCalls[0].options.images).toBeUndefined();
+    expect(session.promptCalls[1].text).toBe('what is this?');
+    expect(session.promptCalls[1].options).toMatchObject({ expandPromptTemplates: false, source: 'extension' });
+    expect(session.promptCalls[1].options.images).toEqual([{ type: 'image', mimeType: 'image/png', data: Buffer.from('fake-png-data').toString('base64') }]);
     for (const finish of finishSends) finish();
     await client.close();
   });
@@ -2374,7 +2392,9 @@ describe('Pi session daemon spike', () => {
 
     expect(response.result.accepted).toBe(true);
     expect(session.sent).toHaveLength(1);
-    expect(session.sent[0].options).toBeUndefined();
+    // Requested delivery always travels as SDK `streamingBehavior`; the SDK
+    // ignores it while idle and starts a new turn.
+    expect(session.sent[0].options).toEqual({ deliverAs: 'followUp' });
     await client.close();
   });
 
@@ -2387,8 +2407,10 @@ describe('Pi session daemon spike', () => {
     let rejectFirst;
     let finishSecond;
     let sendCount = 0;
-    session.sendUserMessage = (text, options) => {
-      session.sent.push({ text, options });
+    session.prompt = (text, options) => {
+      session.promptCalls.push({ text, options });
+      options?.preflightResult?.(true);
+      session.sent.push({ text, options: options?.streamingBehavior ? { deliverAs: options.streamingBehavior } : undefined });
       sendCount += 1;
       if (sendCount === 1) return new Promise((_, reject) => { rejectFirst = reject; });
       return new Promise((resolve) => { finishSecond = resolve; });
@@ -2420,8 +2442,10 @@ describe('Pi session daemon spike', () => {
     const sessionFile = join(root, 'session-1.jsonl');
     await writeFile(sessionFile, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
     const session = new FakeSession('session-1', sessionFile);
-    session.sendUserMessage = (text, options) => {
-      session.sent.push({ text, options });
+    session.prompt = (text, options) => {
+      session.promptCalls.push({ text, options });
+      options?.preflightResult?.(true);
+      session.sent.push({ text, options: options?.streamingBehavior ? { deliverAs: options.streamingBehavior } : undefined });
       session.isStreaming = true;
       return Promise.reject(new Error('Stream ended without finish_reason'));
     };

@@ -138,6 +138,8 @@ const TurnItem: React.FC<TurnItemProps> = ({
                     startedAt={turn.startedAt}
                     completedAt={turn.completedAt}
                     durationMs={turn.durationMs}
+                    liveStatusText={turn.isSteering ? 'Steering agent' : undefined}
+                    wasSteered={turn.stream.settledReason === 'steered'}
                 />
             ) : null}
 

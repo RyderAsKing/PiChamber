@@ -45,6 +45,18 @@ export const isSessionAssistantWorking = (options: {
     options.connection === 'ready'
     && (options.authoritativeWorking || options.hasPendingAssistant);
 
+export const shouldShowTurnWorkingStatus = (options: {
+    isLastTurn: boolean;
+    sessionIsWorking: boolean;
+    turnIsInActiveStream: boolean;
+    activeStreamingMessageId: string | null | undefined;
+    isSteering?: boolean;
+}): boolean =>
+    options.turnIsInActiveStream
+    || (options.isLastTurn
+        && options.sessionIsWorking
+        && (options.isSteering === true || !options.activeStreamingMessageId));
+
 export const isTurnAssistantWorking = (options: {
     messageId: string;
     activeStreamingMessageId: string | null | undefined;

@@ -55,7 +55,9 @@ class ExtensibleFakeSession {
     this.reloadCount += 1;
   }
 
-  async prompt() {}
+  async prompt(text, options) {
+    options?.preflightResult?.(true);
+  }
 
   async navigateTree() {
     return { cancelled: false };

@@ -15,6 +15,7 @@ const { default: TurnActivityRail } = await import('./TurnActivityRail');
 
 const makeTurn = (activities: TurnRecord['activityParts']): TurnRecord => ({
     turnId: 'turn-1',
+    isSteering: false,
     userMessageId: 'user-1',
     userMessage: {
         info: { id: 'user-1', role: 'user' } as Message,

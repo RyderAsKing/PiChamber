@@ -40,7 +40,7 @@ class FakeSession {
     this.listeners = new Set();
     this.reloadCount = 0;
     this.reloadError = null;
-    this.promptImpl = async () => {};
+    this.promptImpl = async (text, options) => { options?.preflightResult?.(true); };
   }
   subscribe(l) { this.listeners.add(l); return () => this.listeners.delete(l); }
   emit(event) { for (const listener of this.listeners) listener(event); }
@@ -361,7 +361,10 @@ describe('prompt template daemon operations', () => {
   it('waits for an accepted prompt to finish before recreating the runtime', async () => {
     const session = new FakeSession();
     let finishPrompt;
-    session.promptImpl = () => new Promise((resolve) => { finishPrompt = resolve; });
+    session.promptImpl = (text, options) => {
+      options?.preflightResult?.(true);
+      return new Promise((resolve) => { finishPrompt = resolve; });
+    };
     const ctx = await startDaemon({ session });
     await ctx.request('resources.list', { directory: ctx.cwd });
     await expect(ctx.request('sessions.prompt', { sessionId: session.sessionId, text: '/hold', directory: ctx.cwd })).resolves.toMatchObject({ accepted: true });
@@ -383,7 +386,10 @@ describe('prompt template daemon operations', () => {
   it('defers reload while a non-streaming slash command is still executing', async () => {
     const session = new FakeSession();
     let finishPrompt;
-    session.promptImpl = () => new Promise((resolve) => { finishPrompt = resolve; });
+    session.promptImpl = (text, options) => {
+      options?.preflightResult?.(true);
+      return new Promise((resolve) => { finishPrompt = resolve; });
+    };
     const ctx = await startDaemon({ session });
     await ctx.request('resources.list', { directory: ctx.cwd });
     await ctx.request('sessions.prompt', { sessionId: session.sessionId, text: '/hold', directory: ctx.cwd });
