@@ -155,7 +155,7 @@ function connectDaemonClient(endpoint) {
     socket,
     messages,
     waitForMessage,
-    async authenticate(credentialOverride = credential, { sessionId, fromSequence } = {}) {
+    async authenticate(credentialOverride = credential, { sessionId, fromSequence, streamEpoch } = {}) {
       await new Promise((resolve, reject) => {
         if (socket.connecting === false && socket.pending === false) {
           return resolve();
@@ -168,6 +168,7 @@ function connectDaemonClient(endpoint) {
         credential: credentialOverride,
         ...(sessionId ? { sessionId } : {}),
         ...(fromSequence !== undefined ? { fromSequence } : {}),
+        ...(streamEpoch ? { streamEpoch } : {}),
       };
       socket.write(`${JSON.stringify(frame)}\n`);
       await waitForMessage((message) => message.kind === 'authenticated');
@@ -327,20 +328,24 @@ describe('session replay log bounds', () => {
 
 describe('daemon byte-bounded reconnect', () => {
   let daemon;
+  let latestEpoch;
   const temporaryRoots = [];
   const connectedClients = new Set();
 
   const connectLiveClient = async (endpoint) => {
     const client = connectDaemonClient(endpoint);
     connectedClients.add(client);
-    await client.authenticate();
+    const snapshot = await client.authenticate();
+    // Track the live daemon epoch so resuming clients can stamp their cursor
+    // (replay requires the stream-epoch marker).
+    latestEpoch = snapshot.streamEpoch;
     return client;
   };
 
   const connectResumingClient = async (endpoint, fromSequence) => {
     const client = connectDaemonClient(endpoint);
     connectedClients.add(client);
-    await client.authenticate(credential, { sessionId: 'pi-session-1', fromSequence });
+    await client.authenticate(credential, { sessionId: 'pi-session-1', fromSequence, streamEpoch: latestEpoch });
     return client;
   };
 

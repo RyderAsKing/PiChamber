@@ -15,7 +15,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { isCapacitorApp } from '@/lib/platform';
 import { recordMobileDiagnostic } from '@/lib/mobile-error-log';
-import { isPiEvent, PI_PUBLIC_PROTOCOL_VERSION, type PiSessionEvent } from './protocol';
+import { isPiEvent, PI_PUBLIC_PROTOCOL_VERSION, PI_STREAM_EPOCH_CAPABILITY, type PiSessionEvent } from './protocol';
 
 const DEFAULT_HEARTBEAT_TIMEOUT_MS = 30_000;
 const RECONNECT_BACKOFF_BASE_MS = 250;
@@ -23,6 +23,9 @@ const RECONNECT_BACKOFF_CAP_VISIBLE_MS = 5_000;
 const RECONNECT_BACKOFF_CAP_HIDDEN_OR_OFFLINE_MS = 60_000;
 const RECONNECT_BACKOFF_MAX_EXPONENT = 8;
 const WS_READY_TIMEOUT_MS = 2_000;
+/** Bounded authoritative health probe used to verify a foreign stream epoch
+ *  observed on the wire (and to classify native EventSource errors). */
+const DEFAULT_EPOCH_PROBE_TIMEOUT_MS = 5_000;
 
 const debug = (..._args: unknown[]): void => {
   // Keep diagnostics payload-free by default. A caller can observe lifecycle
@@ -30,7 +33,11 @@ const debug = (..._args: unknown[]): void => {
   void _args;
 };
 
-const resolveStreamQuery = (query: { fromSequence?: number; sessionId?: string }): Record<string, string> => {
+const resolveStreamQuery = (query: {
+  fromSequence?: number;
+  sessionId?: string;
+  streamEpoch?: string;
+}): Record<string, string> => {
   const params: Record<string, string> = {};
   if (typeof query.fromSequence === 'number' && Number.isFinite(query.fromSequence)) {
     params.fromSequence = String(Math.max(0, Math.floor(query.fromSequence)));
@@ -38,12 +45,23 @@ const resolveStreamQuery = (query: { fromSequence?: number; sessionId?: string }
   if (typeof query.sessionId === 'string' && query.sessionId.length > 0) {
     params.sessionId = query.sessionId;
   }
+  if (typeof query.streamEpoch === 'string' && query.streamEpoch.length > 0) {
+    // The epoch the replay cursor belongs to. The daemon compares it with its
+    // own stream lifetime: a cursor from a retired epoch can never be
+    // replayed, even when the new daemon's sequence numerically overtook it.
+    params.streamEpoch = query.streamEpoch;
+  }
+  // Capability negotiation. This client understands the restart-safe stream
+  // epoch; a server treats a subscriber without this marker as a legacy
+  // client and falls back to a snapshot baseline instead of replaying a
+  // cursor it cannot epoch-verify. The marker alone is non-secret and stable.
+  params.capabilities = PI_STREAM_EPOCH_CAPABILITY;
   return params;
 };
 
 const resolveStreamUrl = (
   transport: 'ws' | 'sse',
-  query: { fromSequence?: number; sessionId?: string },
+  query: { fromSequence?: number; sessionId?: string; streamEpoch?: string },
   urlAuthToken?: string,
 ): string => {
   const resolver = getRuntimeUrlResolver();
@@ -74,6 +92,11 @@ export interface PiStreamHandlers {
   onReconnect?: () => void;
   onDisconnect?: (reason: string) => void;
   onTransportSwitch?: () => void;
+  /** The stream observed a stream-epoch transition that an authoritative
+   *  health probe verified against the live daemon. The transport has
+   *  already reset its own replay cursor and retired the previous epoch
+   *  when this fires; unverified foreign epochs never reach it. */
+  onEpochChange?: (epoch: string) => void;
 }
 
 export interface PiStreamOptions {
@@ -82,6 +105,13 @@ export interface PiStreamOptions {
   transport?: 'auto' | 'ws' | 'sse';
   heartbeatTimeoutMs?: number;
   reconnectDelayMs?: number;
+  /** Stream-lifetime id the replay cursor was established under. Sent as the
+   *  `streamEpoch` subscribe parameter so the daemon can refuse to replay a
+   *  cursor from a retired epoch. When the transport itself verifies an epoch
+   *  transition, its own adopted epoch takes precedence. */
+  streamEpoch?: string;
+  /** Deadline for the authoritative probe that verifies a foreign epoch. */
+  epochProbeTimeoutMs?: number;
   signal?: AbortSignal;
   /** Runtime identity captured by the owner; old-runtime events are rejected. */
   runtimeKey?: string;
@@ -100,6 +130,9 @@ export const fetchPiRuntimeHealth = async (
   state: 'ready' | 'unavailable';
   protocolVersion: number;
   capabilities: string[];
+  /** Opaque stream-lifetime id of the live daemon process, when the runtime
+   *  advertises `events.streamEpoch`. */
+  streamEpoch?: string;
   error?: { code: string; message?: string };
 }> => {
   let response: Response;
@@ -137,7 +170,7 @@ export const fetchPiRuntimeHealth = async (
   }
 
   const payload = (await response.json().catch(() => null)) as
-    | { state?: unknown; protocolVersion?: unknown; capabilities?: unknown; error?: { code?: unknown; message?: unknown } }
+    | { state?: unknown; protocolVersion?: unknown; capabilities?: unknown; streamEpoch?: unknown; error?: { code?: unknown; message?: unknown } }
     | null;
   if (!payload || typeof payload !== 'object') {
     return {
@@ -149,12 +182,16 @@ export const fetchPiRuntimeHealth = async (
   }
 
   const errorCode = typeof payload.error?.code === 'string' ? payload.error.code : undefined;
+  const streamEpoch = typeof payload.streamEpoch === 'string' && payload.streamEpoch.length > 0
+    ? payload.streamEpoch
+    : undefined;
   return {
     state: payload.state === 'ready' ? 'ready' : 'unavailable',
     protocolVersion: typeof payload.protocolVersion === 'number' ? payload.protocolVersion : PI_PUBLIC_PROTOCOL_VERSION,
     capabilities: Array.isArray(payload.capabilities)
       ? payload.capabilities.filter((value): value is string => typeof value === 'string')
       : [],
+    ...(streamEpoch ? { streamEpoch } : {}),
     ...(errorCode
       ? { error: { code: errorCode, ...(typeof payload.error?.message === 'string' ? { message: payload.error.message } : {}) } }
       : {}),
@@ -374,6 +411,21 @@ export const createPiEventStream = (
   let activeAbort: ConnectionCleanup | null = null;
   let generation = 0;
   let healthyConnection = false;
+  const epochProbeTimeoutMs = options.epochProbeTimeoutMs ?? DEFAULT_EPOCH_PROBE_TIMEOUT_MS;
+  /** Stream lifetime observed on the wire. Resets with the replay cursor
+   *  whenever a health-verified epoch transition appears so `fromSequence`
+   *  never mixes two sequence spaces. */
+  let currentEpoch: string | null = null;
+  /** Epochs that a verified transition (or an authoritative rejection)
+   *  retired. Frames stamped with a retired epoch are dropped without
+   *  further probing — a retired lifetime can never downgrade the cursor. */
+  const retiredEpochs = new Set<string>();
+  let epochProbeInFlight = false;
+  let epochProbeController: AbortController | null = null;
+  /** The epoch the owner established for this stream (subscribe identity). */
+  const ownerEpoch = typeof options.streamEpoch === 'string' && options.streamEpoch.length > 0
+    ? options.streamEpoch
+    : null;
 
   const clearTimers = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -457,9 +509,81 @@ export const createPiEventStream = (
       handleDisconnect('runtime-change', connectionId);
       return;
     }
+    const eventEpoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0 ? event.streamEpoch : null;
+    if (eventEpoch && eventEpoch !== currentEpoch) {
+      if (retiredEpochs.has(eventEpoch)) {
+        // A retired daemon lifetime re-appeared on the wire: stale or
+        // replayed frame. Never deliver it and never downgrade the cursor.
+        recordMobileDiagnostic('stream-epoch', { code: 'retired-frame' });
+        return;
+      }
+      const reference = currentEpoch ?? ownerEpoch;
+      if (reference !== null && reference !== eventEpoch) {
+        // A foreign epoch on an established stream. The wire frame alone is
+        // not authoritative: verify it against the runtime health endpoint
+        // before resetting the replay cursor or notifying the owner.
+        if (epochProbeInFlight) return; // drop frames while the probe runs
+        void verifyForeignEpoch(event, eventEpoch, reference, connectionId);
+        return;
+      }
+      // First contact with no established baseline, or the owner-established
+      // epoch appearing on the wire (the owner health-verified it at attach).
+      // Never rewind: the daemon only replays strictly after the subscribe
+      // cursor, so the frame is at or ahead of it.
+      currentEpoch = eventEpoch;
+      lastSequence = Math.max(lastSequence, event.sequence);
+      if (reference === null) handlers.onEpochChange?.(eventEpoch);
+    }
     if (event.sequence > lastSequence) lastSequence = event.sequence;
     markActivity(connectionId);
     handlers.onEvent(event);
+  };
+
+  /** Authoritatively verify a foreign stream epoch before establishing it as
+   *  the new baseline. Only a live daemon health probe can confirm the
+   *  transition; anything else is dropped (and retired when contradicted),
+   *  and an unverifiable frame re-establishes the stream instead. */
+  const verifyForeignEpoch = async (
+    event: PiSessionEvent,
+    eventEpoch: string,
+    reference: string,
+    connectionId: number,
+  ): Promise<void> => {
+    epochProbeInFlight = true;
+    epochProbeController = new AbortController();
+    const timer = setTimeout(() => epochProbeController?.abort(), epochProbeTimeoutMs);
+    try {
+      const health = await fetchPiRuntimeHealth(epochProbeController.signal, expectedRuntimeKey);
+      if (disposed || signal.aborted || connectionId !== generation) return;
+      if (health.state === 'ready' && health.streamEpoch === eventEpoch) {
+        // Health verified the transition: retire the previous epoch, reset
+        // the replay cursor to the new sequence space, and notify the owner.
+        retiredEpochs.add(reference);
+        currentEpoch = eventEpoch;
+        lastSequence = event.sequence;
+        recordMobileDiagnostic('stream-epoch', { code: 'verified' });
+        handlers.onEpochChange?.(eventEpoch);
+        markActivity(connectionId);
+        handlers.onEvent(event);
+        return;
+      }
+      if (health.state === 'ready') {
+        // The live daemon contradicts the frame: it was emitted by a retired
+        // lifetime. Reject it without touching the cursor.
+        retiredEpochs.add(eventEpoch);
+        recordMobileDiagnostic('stream-epoch', { code: 'rejected' });
+        return;
+      }
+      // The probe could not confirm anything (unavailable/timeout). Do not
+      // adopt, do not reject wholesale: re-establish the stream under a
+      // fresh health gate through the normal reconnect loop.
+      recordMobileDiagnostic('stream-epoch', { code: 'unverified' });
+      handleDisconnect('epoch-unverified', connectionId);
+    } finally {
+      clearTimeout(timer);
+      epochProbeInFlight = false;
+      epochProbeController = null;
+    }
   };
 
   const connect = async (): Promise<void> => {
@@ -509,19 +633,23 @@ export const createPiEventStream = (
       }
       if (connectionId !== generation || disposed || signal.aborted || !isCurrentRuntime()) return;
     }
+    const subscribeEpoch = currentEpoch ?? ownerEpoch ?? undefined;
     const url = resolveStreamUrl(mode, {
       fromSequence: lastSequence,
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
     }, urlAuthToken);
     const onReady = () => markReady(connectionId);
     const onEvent = (event: PiSessionEvent) => handleEvent(event, connectionId);
     const onDisconnect = (reason: string) => handleDisconnect(reason, connectionId);
+    const subscribeQuery = resolveStreamQuery({
+      fromSequence: lastSequence,
+      ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
+    });
     activeAbort = mode === 'ws'
       ? createWsConnection(url, signal, onReady, onEvent, onDisconnect, WS_READY_TIMEOUT_MS)
-      : createSseConnection(resolveStreamQuery({
-          fromSequence: lastSequence,
-          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
-        }), signal, onReady, () => markActivity(connectionId), onEvent, onDisconnect);
+      : createSseConnection(subscribeQuery, signal, onReady, () => markActivity(connectionId), onEvent, onDisconnect);
   };
 
   const handleSystemResume = () => {
@@ -551,6 +679,8 @@ export const createPiEventStream = (
       }
       clearTimers();
       invalidateConnection();
+      epochProbeController?.abort();
+      epochProbeController = null;
       internalController.abort();
     },
     reconnect: (reason = 'manual') => {
@@ -560,9 +690,11 @@ export const createPiEventStream = (
       scheduleReconnect(reason);
     },
     get eventsUrl() {
+      const subscribeEpoch = currentEpoch ?? ownerEpoch ?? undefined;
       return resolveStreamUrl(mode, {
         fromSequence: lastSequence,
         ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+        ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
       });
     },
   };
