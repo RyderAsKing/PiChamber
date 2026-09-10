@@ -872,7 +872,7 @@ export const GitView: React.FC<GitViewProps> = ({
   const canShowBranchWorkflows = Boolean(currentBranch);
 
   React.useEffect(() => {
-    if (!currentDirectory || !git || !log?.all?.length || !currentBranch || !baseBranch || currentBranch === baseBranch) {
+    if (!currentDirectory || !git || !log?.all?.length || !currentBranch || !baseBranch || !branchScopeAvailable) {
       setHistoryBranchDivider(null);
       return;
     }
@@ -934,7 +934,7 @@ export const GitView: React.FC<GitViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [baseBranch, currentBranch, currentDirectory, git, log, logMaxCountLocal]);
+  }, [baseBranch, branchScopeAvailable, currentBranch, currentDirectory, git, log, logMaxCountLocal]);
 
   // Clear graph log when directory changes
   React.useEffect(() => {

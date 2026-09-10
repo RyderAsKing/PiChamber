@@ -1,28 +1,47 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  FileRevisionConflictError,
   FilesystemError,
-  isFilesystemError,
+  isFileRevisionConflict,
   parseFilesystemErrorReason,
-} from './files-errors';
+} from '@/lib/api/files-errors';
 
-describe('FilesystemError', () => {
-  test('retains a stable reason and HTTP status', () => {
-    const error = new FilesystemError('Access denied', {
-      reason: 'os-permission',
-      status: 403,
+describe('file revision conflict errors', () => {
+  test('carries typed conflict details for explicit overwrite workflows', () => {
+    const error = new FileRevisionConflictError('File has changed on disk', {
+      currentRevision: 'v1:8:2000:def',
+      exists: true,
+      path: '/repo/a.txt',
     });
-
-    expect(isFilesystemError(error)).toBe(true);
-    expect(error.name).toBe('FilesystemError');
-    expect(error.message).toBe('Access denied');
-    expect(error.reason).toBe('os-permission');
-    expect(error.status).toBe(403);
+    expect(error).toBeInstanceOf(FilesystemError);
+    expect(error.reason).toBe('file-revision-conflict');
+    expect(error.status).toBe(409);
+    expect(error.currentRevision).toBe('v1:8:2000:def');
+    expect(error.exists).toBe(true);
+    expect(error.filePath).toBe('/repo/a.txt');
+    expect(isFileRevisionConflict(error)).toBe(true);
   });
 
-  test('normalizes unsupported response reasons to unknown', () => {
+  test('represents deleted files with null revision', () => {
+    const error = new FileRevisionConflictError('File has changed on disk', {
+      currentRevision: null,
+      exists: false,
+      path: '/repo/gone.txt',
+    });
+    expect(error.exists).toBe(false);
+    expect(error.currentRevision).toBeNull();
+    expect(isFileRevisionConflict(error)).toBe(true);
+  });
+
+  test('rejects non-conflict errors', () => {
+    expect(isFileRevisionConflict(new FilesystemError('nope', { reason: 'unknown' }))).toBe(false);
+    expect(isFileRevisionConflict(new Error('nope'))).toBe(false);
+  });
+
+  test('parses the conflict reason from wire payloads', () => {
+    expect(parseFilesystemErrorReason('file-revision-conflict')).toBe('file-revision-conflict');
     expect(parseFilesystemErrorReason('os-permission')).toBe('os-permission');
-    expect(parseFilesystemErrorReason('made-up')).toBe('unknown');
-    expect(parseFilesystemErrorReason(undefined)).toBe('unknown');
+    expect(parseFilesystemErrorReason('bogus')).toBe('unknown');
   });
 });

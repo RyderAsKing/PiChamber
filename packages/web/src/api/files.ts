@@ -5,6 +5,7 @@ import type {
   FilesAPI,
 } from '@pichamber/ui/lib/api/types';
 import {
+  FileRevisionConflictError,
   FilesystemError,
   parseFilesystemErrorReason,
 } from '@pichamber/ui/lib/api/files-errors';
@@ -147,7 +148,7 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     };
   },
 
-  async statFile(path: string, options): Promise<{ path: string; isFile: boolean; size: number; mtimeMs?: number }> {
+  async statFile(path: string, options): Promise<{ path: string; isFile: boolean; size: number; mtimeMs?: number; revision?: string | null; exists?: boolean }> {
     const target = normalizePath(path);
     const params = new URLSearchParams({ path: target });
     if (options?.allowOutsideWorkspace) {
@@ -155,6 +156,11 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
     if (options?.outsideFileGrant) {
       params.set('outsideFileGrant', options.outsideFileGrant);
+    }
+    // Exact known revision: lets the server skip read+hash when metadata is
+    // unchanged. Never modified; the server echoes it back verbatim.
+    if (typeof options?.knownRevision === 'string' && options.knownRevision.length > 0) {
+      params.set('knownRevision', options.knownRevision);
     }
     const response = await runtimeFetch('/api/fs/stat', {
       query: params,
@@ -167,15 +173,20 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
 
     const result = await response.json().catch(() => ({}));
+    const exists = (result as { exists?: boolean }).exists !== false;
     return {
       path: typeof (result as { path?: string }).path === 'string' ? normalizePath((result as { path: string }).path) : target,
       isFile: Boolean((result as { isFile?: boolean }).isFile),
       size: typeof (result as { size?: number }).size === 'number' ? (result as { size: number }).size : 0,
       mtimeMs: typeof (result as { mtimeMs?: number }).mtimeMs === 'number' ? (result as { mtimeMs: number }).mtimeMs : undefined,
+      revision: typeof (result as { revision?: unknown }).revision === 'string'
+        ? (result as { revision: string }).revision
+        : (exists ? undefined : null),
+      exists,
     };
   },
 
-  async readFile(path: string, options): Promise<{ content: string; path: string }> {
+  async readFile(path: string, options): Promise<{ content: string; path: string; revision?: string | null; exists?: boolean }> {
     const target = normalizePath(path);
     const params = new URLSearchParams({ path: target });
     if (options?.allowOutsideWorkspace) {
@@ -199,26 +210,60 @@ export const createWebFilesAPI = ({ getDirectory }: WebFilesAPIOptions): FilesAP
     }
 
     const content = await response.text();
-    return { content, path: target };
+    // Opaque revision: retain exact, never trim or normalize. Missing
+    // optional reads surface as `null`; legacy servers without the header
+    // surface as `undefined` and must not be used for guarded saves.
+    const rawRevision = response.headers?.get?.('x-pichamber-file-revision');
+    const existsHeader = response.headers?.get?.('x-pichamber-file-exists');
+    const exists = existsHeader === 'false' ? false : true;
+    const revision = typeof rawRevision === 'string' && rawRevision.length > 0
+      ? rawRevision
+      : (exists ? undefined : null);
+    return { content, path: target, revision, exists };
   },
 
-  async writeFile(path: string, content: string): Promise<{ success: boolean; path: string }> {
+  async writeFile(path: string, content: string, options): Promise<{ success: boolean; path: string; revision?: string | null; noop?: boolean }> {
     const target = normalizePath(path);
+    const body: Record<string, unknown> = { path: target, content };
+    if (options && 'expectedRevision' in options) {
+      body.expectedRevision = options.expectedRevision ?? null;
+    }
+    if (options?.overwrite === true) {
+      body.overwrite = true;
+    }
     const response = await runtimeFetch('/api/fs/write', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...directoryHeaders(getDirectory) },
-      body: JSON.stringify({ path: target, content }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error((error as { error?: string }).error || 'Failed to write file');
+      const error = await response.json().catch(() => ({ error: response.statusText })) as {
+        error?: string;
+        reason?: unknown;
+        currentRevision?: unknown;
+        exists?: unknown;
+        path?: unknown;
+      };
+      if (response.status === 409 && parseFilesystemErrorReason(error.reason) === 'file-revision-conflict') {
+        throw new FileRevisionConflictError(error.error || 'File has changed on disk', {
+          currentRevision: typeof error.currentRevision === 'string' ? error.currentRevision : null,
+          exists: typeof error.exists === 'boolean' ? error.exists : undefined,
+          path: typeof error.path === 'string' ? error.path : target,
+          status: response.status,
+        });
+      }
+      throw new Error(error.error || 'Failed to write file');
     }
 
     const result = await response.json().catch(() => ({}));
     return {
       success: Boolean((result as { success?: boolean }).success),
       path: typeof (result as { path?: string }).path === 'string' ? normalizePath((result as { path: string }).path) : target,
+      revision: typeof (result as { revision?: unknown }).revision === 'string'
+        ? (result as { revision: string }).revision
+        : undefined,
+      noop: Boolean((result as { noop?: boolean }).noop) || undefined,
     };
   },
 

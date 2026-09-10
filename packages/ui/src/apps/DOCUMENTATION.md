@@ -75,10 +75,22 @@
 - Mobile commit/sync behavior stays visually scoped to the mobile surface: desktop commit-and-push fireworks are not triggered by `chrome="mobile"`.
 - The Files consolidation is not a startup-performance claim. Opening the mobile Files tab currently loads the full `FilesView` module, including editor/preview dependencies. A later split should move editor-heavy implementation behind an on-demand boundary so browsing a directory does not pay that cost before a file is opened.
 
+## Standalone diagram saves
+
+`components/views/DiagramView.tsx` uses the same guarded-write contract and
+`FileSaveConflictDialog` as the Files view. A conflict preserves the editor
+buffer and offers explicit reload, overwrite, and comparison. Reload discards
+edits only after a successful read, including when the disk bytes match the
+original editor prop. Overwrite captures the latest buffer at the click, and
+neither save path resets edits made while the write is pending. File/runtime
+switches invalidate pending completions and reset action ownership; a failed
+initial read offers no editable, unguarded fallback. Failed conflict reloads
+leave the dirty editor intact.
+
 ## Runtime Git Ownership
 
 - UI feature code consumes the injected `RuntimeAPIs.git` contract directly. The old `lib/gitApi.ts` forwarding layer was removed because it duplicated the runtime-vs-HTTP decision for every method. React surfaces resolve Git through `useRuntimeAPIs()`; non-React callers that can run before a provider exists keep a narrow `gitApiHttp` fallback at the call site.
-- `git/gitStatusPredicates.ts` and `git/gitChangeDescriptors.ts` define the shared staged, working, and new-file classification and change descriptors used across `GitView`, `ChangeRow`, and `DiffView`; untracked `?` entries remain working changes rather than staged changes.
+- `git/gitStatusPredicates.ts` and `git/gitChangeDescriptors.ts` define the shared staged, working, and new-file classification and change descriptors used across `GitView`, `ChangeRow`, and `DiffView`; untracked `?` entries remain working changes rather than staged changes. Branch-only history requests use the same resolvable-base gate as branch comparison controls, so a conventional `main` fallback that is absent locally and remotely never reaches the Git log API.
 - Diff presentation is modularized under `components/views/diff/`: scope filtering (`ChangeScopeSelector`), file list selection (`FileList`), diff presentation (`InlineDiffViewer`, `InlineImageDiffViewer`), per-file staging/revert controls (`FileDiffActions`), and stacked entry orchestration (`MultiFileDiffEntry`) isolate diff rendering concerns from `DiffView`.
 - Optional runtime capabilities such as commit-file diff and credential discovery fall back only for that capability; they do not reintroduce a broad compatibility adapter. Types come from `lib/api/types.ts`.
 
