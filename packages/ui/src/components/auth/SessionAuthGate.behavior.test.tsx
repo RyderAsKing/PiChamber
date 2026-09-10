@@ -261,6 +261,7 @@ mock.module('@/lib/runtime-fetch', () => ({
 
 mock.module('@/lib/runtime-auth', () => ({
   getRuntimeExtraHeadersSync: mock(() => ({})),
+  subscribeRuntimeAuthExpired: () => () => undefined,
 }));
 
 mock.module('@/lib/runtime-switch', () => ({
