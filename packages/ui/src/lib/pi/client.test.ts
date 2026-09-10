@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
-import { PiService, piClient, createScopedPiClient, PiRequestError } from "@/lib/pi/client"
+import { PiService, piClient, createScopedPiClient, PiRequestError, PiSendUnconfirmedError } from "@/lib/pi/client"
+import { getRuntimeKey } from "@/lib/runtime-switch"
 import { fetchPiRuntimeHealth } from "./transport"
 
 // Mock runtime-fetch to a stub that captures calls. We still need to mock
@@ -329,6 +330,283 @@ describe("PiService", () => {
     const providers = await client.listProviders()
     expect(providers.providers).toHaveLength(1)
     expect(providers.default).toEqual({ providerId: "p1", modelId: "m1" })
+  })
+})
+
+describe("send retry safety", () => {
+  test("a lost reply is attempted exactly once and throws PiSendUnconfirmedError", async () => {
+    installFetchMock(() => {
+      throw new TypeError("network down")
+    })
+    const client = new PiService()
+    try {
+      await client.sendPrompt({ sessionId: "s1", text: "hello" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+      expect((error as PiSendUnconfirmedError).cause).toBeInstanceOf(TypeError)
+    }
+    expect(recordedCalls()).toHaveLength(1)
+    expect(recordedCalls()[0].url).toBe("/api/pi/sessions/s1/prompt")
+  })
+
+  test("prompt/steer/followUp never retry network loss", async () => {
+    installFetchMock(() => {
+      throw new TypeError("network down")
+    })
+    const client = new PiService()
+    for (const send of [
+      () => client.sendPrompt({ sessionId: "s1", text: "a" }),
+      () => client.sendSteer({ sessionId: "s1", text: "b" }),
+      () => client.sendFollowUp({ sessionId: "s1", text: "c" }),
+    ]) {
+      try {
+        await send()
+        throw new Error("expected send to throw")
+      } catch (error) {
+        expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+      }
+    }
+    expect(recordedCalls()).toHaveLength(3)
+    expect(recordedCalls().map((call) => call.url)).toEqual([
+      "/api/pi/sessions/s1/prompt",
+      "/api/pi/sessions/s1/steer",
+      "/api/pi/sessions/s1/follow-up",
+    ])
+  })
+
+  test("sends do not retry DAEMON_TIMEOUT 503", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "DAEMON_TIMEOUT" } }, { status: 503 }))
+    const client = new PiService()
+    try {
+      await client.sendPrompt({ sessionId: "s1", text: "hello" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+      expect((error as PiSendUnconfirmedError).code).toBe("DAEMON_TIMEOUT")
+    }
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
+  test("non-send POSTs keep the existing transient retry", async () => {
+    let attempt = 0
+    installFetchMock(() => {
+      attempt += 1
+      if (attempt === 1) {
+        return jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 })
+      }
+      return jsonResponse({ directory: "/work" })
+    })
+    const client = new PiService()
+    expect(await client.selectProject("/work")).toEqual({ directory: "/work" })
+    expect(attempt).toBe(2)
+  })
+
+  test("definite 4xx stays PiRequestError without receipt lookup or retry", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "INVALID_PROMPT" } }, { status: 400 }))
+    const client = new PiService()
+    try {
+      await client.sendPrompt({ sessionId: "s1", text: "bad", operationId: "op-1" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiRequestError)
+      expect(error instanceof PiSendUnconfirmedError).toBe(false)
+    }
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
+  test("operation payload mismatch stays definite", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "OPERATION_PAYLOAD_MISMATCH" } }, { status: 409 }))
+    const client = new PiService()
+    try {
+      await client.sendPrompt({ sessionId: "s1", text: "other", operationId: "op-1" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiRequestError)
+      expect((error as PiRequestError).status).toBe(409)
+    }
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
+  test("408 and operation expiry are unconfirmed, not definite", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "DAEMON_TIMEOUT" } }, { status: 408 }))
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    }
+    expect(recordedCalls()).toHaveLength(1)
+    installFetchMock(() => jsonResponse({ error: { code: "OPERATION_EXPIRED" } }, { status: 410 }))
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: "op-old" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      // Expired retention means the outcome is unknown. The receipt lookup
+      // for the same expired id returns expired, so the original failure is
+      // preserved as unconfirmed instead of a definite rejection.
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    }
+  })
+
+  test("accepted receipt recovers a lost reply without replay", async () => {
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1/prompt") {
+        throw new TypeError("reply lost")
+      }
+      if (url.pathname === "/api/pi/sessions/s1/send-receipt") {
+        const body = JSON.parse(call.init?.body as string) as { kind?: unknown; operationId?: unknown }
+        expect(body).toEqual({ kind: "prompt", operationId: "op-1" })
+        return jsonResponse({ status: "accepted", receipt: { accepted: true, messageId: "m-1" } })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    const result = await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: "op-1" })
+    expect(result).toEqual({ accepted: true, messageId: "m-1" })
+    expect(recordedCalls()).toHaveLength(2)
+    expect(recordedCalls().filter((call) => call.url === "/api/pi/sessions/s1/prompt")).toHaveLength(1)
+    expect(recordedCalls()[1].url).toBe("/api/pi/sessions/s1/send-receipt")
+  })
+
+  test("unknown/expired/pending never replay and preserve the original error", async () => {
+    for (const status of ["unknown", "expired", "pending"] as const) {
+      installFetchMock((call) => {
+        const url = new URL(call.url, "http://localhost")
+        if (url.pathname === "/api/pi/sessions/s1/prompt") {
+          throw new TypeError(`lost-${status}`)
+        }
+        if (url.pathname === "/api/pi/sessions/s1/send-receipt") {
+          return jsonResponse({ status })
+        }
+        return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+      })
+      try {
+        await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: `op-${status}` })
+        throw new Error(`expected ${status} to throw`)
+      } catch (error) {
+        expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+        expect((error as PiSendUnconfirmedError).cause).toBeInstanceOf(TypeError)
+      }
+      expect(recordedCalls().filter((call) => call.url === "/api/pi/sessions/s1/prompt")).toHaveLength(1)
+      expect(recordedCalls()).toHaveLength(2)
+    }
+  })
+
+  test("a failed receipt lookup preserves the original send error", async () => {
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1/prompt") {
+        throw new TypeError("lost reply")
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: "op-1" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+      expect((error as PiSendUnconfirmedError).cause).toBeInstanceOf(TypeError)
+    }
+    expect(recordedCalls()).toHaveLength(2)
+  })
+
+  test("malformed accepted responses are never treated as success", async () => {
+    installFetchMock(() => jsonResponse({ accepted: true }))
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    }
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
+  test("malformed accepted receipt does not recover", async () => {
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1/prompt") {
+        throw new TypeError("lost")
+      }
+      return jsonResponse({ status: "accepted", receipt: { accepted: true } })
+    })
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: "op-1" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    }
+    expect(recordedCalls()).toHaveLength(2)
+  })
+
+  test("sends and receipt lookups forward the directory scope", async () => {
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1/prompt") {
+        expect(url.searchParams.get("directory")).toBe("/other")
+        return jsonResponse({ accepted: true, messageId: "m-1" }, { status: 202 })
+      }
+      if (url.pathname === "/api/pi/sessions/s1/send-receipt") {
+        expect(url.searchParams.get("directory")).toBe("/other")
+        const body = JSON.parse(call.init?.body as string) as Record<string, unknown>
+        expect(body).toEqual({ kind: "steer", operationId: "op-1" })
+        return jsonResponse({ status: "unknown" })
+      }
+      return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
+    })
+    const client = new PiService()
+    expect(await client.sendPrompt({ sessionId: "s1", text: "hello" }, { directory: "/other" })).toEqual({
+      accepted: true,
+      messageId: "m-1",
+    })
+    expect(await client.getSendReceipt({ sessionId: "s1", kind: "steer", operationId: "op-1" }, { directory: "/other" })).toEqual({
+      status: "unknown",
+    })
+    expect(recordedCalls()[0].url).toBe("/api/pi/sessions/s1/prompt?directory=%2Fother")
+    expect(recordedCalls()[1].url).toBe("/api/pi/sessions/s1/send-receipt?directory=%2Fother")
+  })
+
+  test("stale runtime keys reject without network use", async () => {
+    const current = getRuntimeKey()
+    const stale = `${current}::stale`
+    installFetchMock(() => jsonResponse({ accepted: true, messageId: "m-1" }))
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello" }, { runtimeKey: stale })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    }
+    try {
+      await new PiService().getSendReceipt({ sessionId: "s1", kind: "prompt", operationId: "op-1" }, { runtimeKey: stale })
+      throw new Error("expected getSendReceipt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiRequestError)
+    }
+    expect(recordedCalls()).toHaveLength(0)
+  })
+
+  test("a runtime switch during the send leaves the outcome unconfirmed", async () => {
+    const originalWindow = (globalThis as { window?: unknown }).window
+    const current = getRuntimeKey()
+    installFetchMock(() => {
+      ;(globalThis as Record<string, unknown>).window = {
+        __PICHAMBER_API_BASE_URL__: "https://switched.example.test",
+      }
+      return jsonResponse({ accepted: true, messageId: "m-1" })
+    })
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello" }, { runtimeKey: current })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+    } finally {
+      if (originalWindow === undefined) {
+        delete (globalThis as Record<string, unknown>).window
+      } else {
+        ;(globalThis as Record<string, unknown>).window = originalWindow
+      }
+    }
+    expect(recordedCalls()).toHaveLength(1)
   })
 })
 

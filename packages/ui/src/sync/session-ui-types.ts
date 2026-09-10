@@ -44,7 +44,11 @@ export type SendMessageOptions = {
   target?: CapturedSendTarget;
   sessionId?: string;
   directory?: string;
-  delivery?: 'steer';
+  delivery?: 'steer' | 'followUp' | 'prompt';
+  /** Stable queue id for queued follow-up/steer sends. The receipt key
+   *  includes delivery kind + operationId, so retries must reuse the same
+   *  kind. Forwarded unchanged to the daemon acceptance registry. */
+  operationId?: string;
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt;
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
   draftSnapshot?: NewSessionDraftState;

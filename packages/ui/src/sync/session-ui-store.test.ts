@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { PiSendUnconfirmedError } from '@/lib/pi/client';
 import { hydrateSessionFromDetail } from '@/lib/pi/event-reducer';
 import {
   draftBranchCheckoutReceiptMatches,
@@ -75,7 +76,7 @@ describe('routeMessage', () => {
     });
 
     expect(uploads).toEqual([{ filename: '__screen.png', mime: 'image/png', base64: 'AQID' }]);
-    expect(prompts).toEqual([['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }]]]);
+    expect(prompts).toEqual([['session-1', 'hello', 'prompt', [{ id: 'attachment-1' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
   });
 
   test('deletes compatibility refreshes when prompt dispatch fails', async () => {
@@ -93,6 +94,29 @@ describe('routeMessage', () => {
       files: [{ type: 'file', mime: 'text/plain', filename: 'legacy.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
     })).rejects.toThrow('prompt failed');
     expect(deleted).toEqual(['refreshed-1']);
+  });
+
+  test('preserves refreshed uploads when the send outcome is unknown', async () => {
+    const deleted: string[] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.uploadFile = async (file, input) => ({
+      id: 'refreshed-unknown', name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000,
+    });
+    store.deleteUpload = async (id) => { deleted.push(id); };
+    store.prompt = async () => { throw new PiSendUnconfirmedError('DAEMON_TIMEOUT', 'transport lost before receipt'); };
+
+    let caught: unknown;
+    try {
+      await routeMessage({
+        sessionId: 'session-legacy', directory: '/workspace', content: 'hello', providerID: 'provider', modelID: 'model',
+        files: [{ type: 'file', mime: 'text/plain', filename: 'legacy.txt', url: 'data:text/plain;base64,aGVsbG8=' }],
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect((caught as { name?: unknown } | null)?.name).toBe('PiSendUnconfirmedError');
+    expect(deleted).toEqual([]);
   });
 
   test('forwards ready attachment ids without uploading again', async () => {
@@ -117,7 +141,7 @@ describe('routeMessage', () => {
       }],
     });
 
-    expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }]]]);
+    expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
   });
 
   test('rejects pending and failed attachments before prompt dispatch', async () => {
@@ -161,7 +185,7 @@ describe('routeMessage', () => {
     });
 
     expect(uploads).toEqual([]);
-    expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined]]);
+    expect(prompts).toEqual([['session-2', 'How hard will it be for us to update @PiChamber/ entirely with this kind of UI: https://github.com/zeronsh/comet', 'prompt', undefined, { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
   });
 
   test('commits model then thinking before prompting', async () => {
@@ -485,7 +509,7 @@ describe('routeMessage', () => {
       'initial worktree prompt',
       'prompt',
       undefined,
-      { knownEmptyTranscript: true },
+      { directory: '/worktrees/new', knownEmptyTranscript: true, runtimeKey: getRuntimeKey() },
     ]]);
     expect(useSessionUIStore.getState().currentSessionId).toBe('session-other');
   });

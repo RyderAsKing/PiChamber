@@ -47,6 +47,35 @@ describe('prompt crypto compatibility', () => {
     });
   }
 
+  test('follow-up retries retain intent and message identity in the captured directory', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.commitHydratedSession(reducerSession({ sessionId: 's1' }));
+    internal.state = { ...internal.state, directory: '/other-project' };
+    const original = piClient.sendFollowUp;
+    const calls: Array<{ operationId?: string; messageId?: string; directory?: string }> = [];
+    piClient.sendFollowUp = async (input, scope) => {
+      calls.push({ operationId: input.operationId, messageId: input.messageId, directory: scope?.directory });
+      return { accepted: true, messageId: input.messageId! };
+    };
+    try {
+      for (let i = 0; i < 2; i++) {
+        await store.prompt('s1', 'follow up', 'followUp', undefined, {
+          knownEmptyTranscript: true,
+          operationId: 'follow-up-intent',
+          directory: '/repo',
+          runtimeKey: getRuntimeKey(),
+        });
+      }
+      expect(calls).toHaveLength(2);
+      expect(calls[0]).toEqual({ operationId: 'follow-up-intent', messageId: 'msg_follow-up-intent', directory: '/repo' });
+      expect(calls[1]).toEqual(calls[0]);
+    } finally {
+      piClient.sendFollowUp = original;
+      store.dispose();
+    }
+  });
+
   test('ID generation failure preserves idle state', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
