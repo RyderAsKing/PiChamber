@@ -75,6 +75,18 @@
 - Mobile commit/sync behavior stays visually scoped to the mobile surface: desktop commit-and-push fireworks are not triggered by `chrome="mobile"`.
 - The Files consolidation is not a startup-performance claim. Opening the mobile Files tab currently loads the full `FilesView` module, including editor/preview dependencies. A later split should move editor-heavy implementation behind an on-demand boundary so browsing a directory does not pay that cost before a file is opened.
 
+## Standalone diagram saves
+
+`components/views/DiagramView.tsx` uses the same guarded-write contract and
+`FileSaveConflictDialog` as the Files view. A conflict preserves the editor
+buffer and offers explicit reload, overwrite, and comparison. Reload discards
+edits only after a successful read, including when the disk bytes match the
+original editor prop. Overwrite captures the latest buffer at the click, and
+neither save path resets edits made while the write is pending. File/runtime
+switches invalidate pending completions and reset action ownership; a failed
+initial read offers no editable, unguarded fallback. Failed conflict reloads
+leave the dirty editor intact.
+
 ## Runtime Git Ownership
 
 - UI feature code consumes the injected `RuntimeAPIs.git` contract directly. The old `lib/gitApi.ts` forwarding layer was removed because it duplicated the runtime-vs-HTTP decision for every method. React surfaces resolve Git through `useRuntimeAPIs()`; non-React callers that can run before a provider exists keep a narrow `gitApiHttp` fallback at the call site.
