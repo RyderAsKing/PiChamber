@@ -63,7 +63,10 @@ Every event the public stream publishes carries a monotonically increasing
 daemon process start. The daemon advertises the `events.streamEpoch`
 capability and stamps health, events, snapshots, and session read responses
 (list, detail) with the epoch. Bootstrap and reconnect gate on the capability
-and fail visibly with `DAEMON_PROTOCOL_MISMATCH` when it is absent, because a daemon
+and reject marker-less list/detail responses with `DAEMON_PROTOCOL_MISMATCH` once
+that capability establishes an epoch; the store likewise rejects unstamped late
+responses and events because their daemon lifetime cannot be verified. This is
+fail-visible because a daemon
 restart resets the sequence space: a live cursor from the previous process
 would silently swallow every new event. Sequence comparisons are therefore
 epoch-scoped. The reducer stores the last

@@ -191,7 +191,7 @@ interface SessionDetail {
 interface StubOptions {
   selectProject?: (dir: string) => Promise<{ directory: string }>;
   listProjects?: () => Promise<unknown>;
-  listSessions?: (scope: { directory?: string }) => Promise<{ sessions: SessionListEntry[] }>;
+  listSessions?: (scope: { directory?: string }) => Promise<{ sessions: SessionListEntry[]; streamEpoch?: string }>;
   getSession?: (id: string) => Promise<unknown>;
   getSessionMessages?: (id: string, input: { before?: string; limit?: number }) => Promise<unknown>;
   health?: () => Promise<unknown>;
@@ -606,8 +606,21 @@ describe('PiSessionStore runtime-scoped sessions', () => {
 
   test('deep-link start with a directory hydrates the session once', async () => {
     const stubs = stubDaemons({
+      health: async () => ({
+        state: 'ready',
+        protocolVersion: 1,
+        capabilities: ['events.streamEpoch'],
+        streamEpoch: 'epoch-test-1',
+      }),
       listSessions: async () => ({
         sessions: [{ session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 }, updatedAt: 1 }],
+        streamEpoch: 'epoch-test-1',
+      }),
+      getSession: async () => ({
+        session: { id: 's1', directory: '/repo', createdAt: 1, updatedAt: 1 },
+        lastSequence: 0,
+        messages: [],
+        streamEpoch: 'epoch-test-1',
       }),
     });
     try {

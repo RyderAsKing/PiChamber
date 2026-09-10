@@ -94,6 +94,7 @@ describe("bootstrapPiDirectory", () => {
       if (url.pathname === "/api/pi/sessions" && call.init?.method === "GET") {
         return jsonResponse({
           sessions: [{ session: { id: "s1", directory: "/work" }, updatedAt: 1_000 }],
+          streamEpoch: "epoch-test-1",
         })
       }
       if (url.pathname === "/api/pi/sessions/s1" && call.init?.method === "GET") {
@@ -118,6 +119,7 @@ describe("bootstrapPiDirectory", () => {
           lifecycle: "busy",
           runStartedAt,
           serverNow,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
@@ -157,6 +159,7 @@ describe("bootstrapPiDirectory", () => {
           session: { id: "s1", directory: "/work" },
           messages: [],
           lastSequence: 4,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({ error: { code: "UNEXPECTED_REQUEST" } }, { status: 500 })
@@ -184,6 +187,26 @@ describe("bootstrapPiDirectory", () => {
     expect(calls.filter(({ url }) => new URL(url, "http://localhost").pathname === "/api/pi/sessions/s1")).toHaveLength(1)
     expect(result.lastSequence.get("s1")).toBe(4)
     expect(result.errors).toHaveLength(0)
+  })
+
+  test("fails visibly when an epoch-capable runtime omits the session-list epoch", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
+    })
+    installFetchMock(() => jsonResponse({ sessions: [] }))
+
+    const { bootstrapPiDirectory } = await import("./bootstrap")
+    const result = await bootstrapPiDirectory({
+      directory: "/work",
+      onEvent: () => undefined,
+    }, dependencies)
+
+    expect(result.phase).toBe("failed")
+    expect((result.errors[0]?.error as { code?: string }).code).toBe("DAEMON_PROTOCOL_MISMATCH")
+    expect(result.stream).toBeNull()
   })
 
   test("records session-list failures without aborting bootstrap", async () => {
