@@ -32,6 +32,40 @@ describe('TurnWorkingHeader', () => {
         expect(markup).not.toContain('data-turn-activity-toggle="true"');
     });
 
+    test('marks a turn that was ended by steering', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                hasActivity={false}
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                durationMs={15_800}
+                wasSteered
+            />,
+        );
+
+        expect(markup).toContain('Worked for 15.8s · Steered');
+    });
+
+    test('does not invent a settled duration before completion', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                hasActivity={false}
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                startedAt={1_000}
+            />,
+        );
+
+        expect(markup).not.toContain('Worked for');
+        expect(markup).not.toContain('0.1s');
+    });
+
     test('adds an accessible activity disclosure only when activity exists', () => {
         const markup = renderToStaticMarkup(
             <TurnWorkingHeader

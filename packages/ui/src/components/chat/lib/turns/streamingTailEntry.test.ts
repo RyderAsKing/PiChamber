@@ -42,6 +42,7 @@ const turnEntry = (assistant: ChatMessageEntry): StreamingTailEntry => {
         isLastTurn: true,
         turn: {
             turnId: 'user_1',
+            isSteering: false,
             userMessageId: 'user_1',
             userMessage: user,
             headerMessageId: assistant.info.id,
@@ -156,6 +157,7 @@ describe('buildLiveStreamingEntry', () => {
             isLastTurn: true,
             turn: {
                 turnId: 'user_1',
+                isSteering: false,
                 userMessageId: 'user_1',
                 userMessage: user,
                 headerMessageId: streaming.info.id,

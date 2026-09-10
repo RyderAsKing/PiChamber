@@ -359,7 +359,9 @@ export const adoptServerRunTiming = (
   if (now - clientStartedAt > MAX_TURN_AGE_MS || clientStartedAt > now + 60_000) return;
   const state = useSessionActivityTimingStore.getState();
   const existing = state.startedAt.get(sessionId);
-  if (existing === clientStartedAt) return;
+  // Busy/retry events can repeat within one run. Never let a later timestamp
+  // move an active counter forward before a live settle boundary.
+  if (existing !== undefined && clientStartedAt >= existing) return;
   const nextStarted = new Map(state.startedAt);
   nextStarted.set(sessionId, clientStartedAt);
   const nextSettled = new Map(state.settledMs);

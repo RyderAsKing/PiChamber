@@ -59,10 +59,13 @@ export interface TurnStreamState {
     startedAt?: number;
     completedAt?: number;
     durationMs?: number;
+    settledReason?: 'steered';
 }
 
 export interface TurnRecord {
     turnId: string;
+    /** A user turn that superseded an assistant which had not completed. */
+    isSteering: boolean;
     userMessageId: string;
     userMessage: ChatMessageEntry;
     headerMessageId?: string;

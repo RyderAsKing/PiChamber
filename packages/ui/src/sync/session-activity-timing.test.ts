@@ -282,6 +282,16 @@ describe('session activity timing', () => {
     }
   });
 
+  test('does not move an active turn start forward on a repeated busy event', () => {
+    const serverNow = Date.now();
+    adoptServerRunTiming('ses_a', serverNow - 30_000, serverNow);
+    const first = startedAt('ses_a');
+
+    adoptServerRunTiming('ses_a', serverNow - 100, serverNow);
+
+    expect(startedAt('ses_a')).toBe(first);
+  });
+
   test('a reload that re-adopts the same server start does not reset the counter', () => {
     const serverRunStartedAt = Date.now() - 15_000;
     const serverNow = Date.now();

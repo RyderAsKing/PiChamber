@@ -1,7 +1,11 @@
 import React from 'react';
 
 import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAutoFollow';
-import { isTurnAssistantWorking, resolveTurnStreamingAssistantId } from '../lib/turns/assistantWorkingState';
+import {
+  isTurnAssistantWorking,
+  resolveTurnStreamingAssistantId,
+  shouldShowTurnWorkingStatus,
+} from '../lib/turns/assistantWorkingState';
 import type { ChatMessageEntry, TurnGroupingContext, TurnRecord } from '../lib/turns/types';
 import type { StreamPhase } from '../message/types';
 import {
@@ -72,6 +76,7 @@ export const TurnBlock = React.memo(
     const turnIsInActiveStream = React.useMemo(() => {
       return turnContainsMessageId(turn, streamingAssistantMessageId);
     }, [turn, streamingAssistantMessageId]);
+    const turnOwnsAuthoritativeStream = turnContainsMessageId(turn, activeStreamingMessageId);
 
     const activityOwnerMessageId = React.useMemo(() => {
       if (turnIsInActiveStream && streamingAssistantMessageId) {
@@ -235,13 +240,20 @@ export const TurnBlock = React.memo(
     // Catalog busy and incomplete historical timestamps must not make settled
     // sessions pay the full remount cost on every navigation.
     const deferEarlierAssistantMessages = !turnContainsMessageId(turn, activeStreamingMessageId);
+    const showWorkingStatus = shouldShowTurnWorkingStatus({
+      isLastTurn,
+      sessionIsWorking,
+      turnIsInActiveStream: turn.stream.isStreaming && turnOwnsAuthoritativeStream,
+      activeStreamingMessageId,
+      isSteering: turn.isSteering,
+    });
 
     return (
       <TurnItem
         turn={turn}
         renderMessage={renderMessage}
         deferEarlierAssistantMessages={deferEarlierAssistantMessages}
-        showWorkingStatus={isLastTurn && (sessionIsWorking || turnIsInActiveStream)}
+        showWorkingStatus={showWorkingStatus}
         activeStreamingMessageId={activeStreamingMessageId}
         activeStreamingPhase={activeStreamingPhase}
         onActivityContentChange={onMessageContentChange}

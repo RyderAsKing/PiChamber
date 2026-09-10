@@ -6,6 +6,7 @@ import {
     isSessionAssistantWorking,
     isTurnAssistantWorking,
     resolveTurnStreamingAssistantId,
+    shouldShowTurnWorkingStatus,
 } from './assistantWorkingState';
 import type { ChatMessageEntry } from './types';
 
@@ -76,6 +77,28 @@ describe('assistantWorkingState', () => {
                 isRetrying: true,
             }),
         ).toBe(true);
+    });
+
+    test('keeps working status on the turn that owns the live stream after a steer', () => {
+        expect(shouldShowTurnWorkingStatus({
+            isLastTurn: false,
+            sessionIsWorking: true,
+            turnIsInActiveStream: true,
+            activeStreamingMessageId: 'a1',
+        })).toBe(true);
+        expect(shouldShowTurnWorkingStatus({
+            isLastTurn: true,
+            sessionIsWorking: true,
+            turnIsInActiveStream: false,
+            activeStreamingMessageId: 'a1',
+        })).toBe(false);
+        expect(shouldShowTurnWorkingStatus({
+            isLastTurn: true,
+            sessionIsWorking: true,
+            turnIsInActiveStream: false,
+            activeStreamingMessageId: 'a1',
+            isSteering: true,
+        })).toBe(true);
     });
 
     test('does not keep a completed last assistant working after the live stream ends', () => {
