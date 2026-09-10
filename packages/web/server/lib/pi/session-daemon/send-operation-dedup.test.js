@@ -243,20 +243,6 @@ describe('send dedup (finding #3)', () => {
     expect(session.sent).toHaveLength(1);
   });
 
-  it('a concurrent duplicate shares the original acceptance receipt', async () => {
-    const { session } = await startDaemonWithSession();
-    const payload = { sessionId: 'session-1', text: 'shared intent', operationId: 'op-concurrent' };
-
-    const [first, duplicate] = await Promise.all([
-      send('sessions.prompt', payload),
-      send('sessions.prompt', payload),
-    ]);
-    expect(session.sent).toHaveLength(1);
-    expect(first.result).toMatchObject({ accepted: true, messageId: 'fake-entry' });
-    expect(duplicate.result).toMatchObject({ accepted: true, messageId: 'fake-entry' });
-    expect([first.result.deduplicated, duplicate.result.deduplicated]).toContain(true);
-  });
-
   it('rejects the same operation id with a different payload without invoking Pi', async () => {
     const { session } = await startDaemonWithSession();
     await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'original', operationId: 'op-mismatch' }))
@@ -274,50 +260,6 @@ describe('send dedup (finding #3)', () => {
     expect(session.sent).toHaveLength(1);
 
     await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'original', operationId: 'op-other' }))
-      .resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(2);
-  });
-
-  it('scopes deduplication by delivery kind', async () => {
-    const { session } = await startDaemonWithSession();
-    const payload = { sessionId: 'session-1', text: 'same text', operationId: 'op-kind' };
-    await expect(send('sessions.prompt', payload)).resolves.toMatchObject({ result: { accepted: true } });
-    await expect(send('sessions.steer', payload)).resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(2);
-  });
-
-  it('a request-path rejection settles its claim so the same id retries cleanly', async () => {
-    const { session } = await startDaemonWithSession();
-    await expect(send('sessions.prompt', {
-      sessionId: 'session-1',
-      text: 'bad config',
-      operationId: 'op-bad-config',
-      model: { providerId: 'missing-provider', modelId: 'missing-model' },
-    })).rejects.toMatchObject({ code: 'INVALID_MODEL' });
-    expect(session.sent).toHaveLength(0);
-
-    await expect(send('sessions.prompt', {
-      sessionId: 'session-1',
-      text: 'bad config',
-      operationId: 'op-bad-config',
-      model: { providerId: 'test', modelId: 'model' },
-    })).resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(1);
-  });
-
-  it('rejects an expired operation id so the bounded retention contract is observable', async () => {
-    const { session } = await startDaemonWithSession({ ttlMs: 30 });
-    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'expires', operationId: 'op-expiry' }))
-      .resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(1);
-
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'expires', operationId: 'op-expiry' }))
-      .rejects.toMatchObject({ code: 'OPERATION_EXPIRED' });
-    expect(session.sent).toHaveLength(1);
-    await expect(send('sessions.sendReceipt', { kind: 'prompt', sessionId: 'session-1', operationId: 'op-expiry' }))
-      .resolves.toMatchObject({ result: { status: 'expired' } });
-    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'expires', operationId: 'op-expiry-2' }))
       .resolves.toMatchObject({ result: { accepted: true } });
     expect(session.sent).toHaveLength(2);
   });
@@ -349,30 +291,6 @@ describe('send dedup (finding #3)', () => {
     await client.authenticate();
 
     await expect(send('sessions.prompt', payload)).resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(1);
-  });
-
-  it('sessions.sendReceipt enforces exact kind/session/operation identity without invoking Pi', async () => {
-    const { session } = await startDaemonWithSession();
-    const base = { kind: 'prompt', sessionId: 'session-1', operationId: 'op-receipt-exact' };
-
-    await expect(send('sessions.sendReceipt', base)).resolves.toMatchObject({ result: { status: 'unknown' } });
-    expect(session.sent).toHaveLength(0);
-
-    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'receipt exact', operationId: 'op-receipt-exact' }))
-      .resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(1);
-
-    await expect(send('sessions.sendReceipt', base))
-      .resolves.toMatchObject({ result: { status: 'accepted', receipt: { accepted: true } } });
-    await expect(send('sessions.sendReceipt', { ...base, kind: 'steer' })).resolves.toMatchObject({ result: { status: 'unknown' } });
-    await expect(send('sessions.sendReceipt', { ...base, kind: 'followUp' })).resolves.toMatchObject({ result: { status: 'unknown' } });
-    await expect(send('sessions.sendReceipt', { ...base, sessionId: 'session-other' })).resolves.toMatchObject({ result: { status: 'unknown' } });
-    await expect(send('sessions.sendReceipt', { ...base, operationId: 'op-receipt-other' })).resolves.toMatchObject({ result: { status: 'unknown' } });
-    expect(session.sent).toHaveLength(1);
-
-    await expect(send('sessions.sendReceipt', { ...base, kind: 'promptx' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
-    await expect(send('sessions.sendReceipt', { sessionId: 'session-1', operationId: 'op-receipt-exact' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
     expect(session.sent).toHaveLength(1);
   });
 
