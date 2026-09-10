@@ -210,8 +210,8 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'chat.follow-up-behavior',
     page: 'chat',
     title: "Follow-up behavior",
-    description: "Choose what happens when you press Enter on a follow-up message while the agent is still responding.",
-    keywords: ['follow up', 'queue', 'steer', 'send immediately'],
+    description: "Choose what happens when you send a follow-up while the agent is still responding. Follow-up waits until the agent finishes; Steering is delivered at the next supported tool or turn boundary. Follow-ups stay on this device.",
+    keywords: ['follow up', 'follow-up', 'queue', 'steer', 'steering', 'send immediately', 'send now'],
   },
   {
     id: 'sessions.default-model',

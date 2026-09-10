@@ -1,8 +1,8 @@
 /**
- * The composer's send / queue / stop control.
+ * The composer's send / follow-up / stop control.
  *
  * Which one is shown depends on whether a turn is running: idle sends, a busy
- * session with content offers both queue (above) and stop, a busy session
+ * session with content offers both follow-up (above) and stop, a busy session
  * without content offers only stop.
  */
 
@@ -98,7 +98,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
                         currentSessionId && canSend ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
-                    aria-label={disabledReason || "Queue message"}
+                    aria-label={disabledReason || "Add follow-up"}
                     title={disabledReason || undefined}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />

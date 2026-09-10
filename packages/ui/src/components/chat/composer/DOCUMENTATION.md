@@ -102,9 +102,29 @@ and the send path reading the same grammar.
   focusing the view *before* setting the selection: CodeMirror reveals its
   drawn caret through a class it only writes while applying an update, so the
   selection has to be the update that follows the focus.
-- `submit/buildOutgoingMessage.ts` flattens queued messages, the composer text,
-  synthetic context, attachments, and skill instructions into Pi's
-  one-primary-plus-parts shape. The oldest queued message becomes primary.
+- `submit/buildOutgoingMessage.ts` flattens its inputs — at most one pending
+  follow-up plus optional composer text — synthetic context, attachments, and
+  skill instructions into Pi's one-primary-plus-parts shape. Callers never
+  merge: normal and steering submits pass `queued: []` with only the composer;
+  a single Send now passes one claimed follow-up with `composerText: null` and
+  `composerAttachments: []`, preserving the unrelated draft/uploads. Each
+  pending entry is a distinct follow-up with its queue-time provider/model/
+  agent/variant used as-is (an absent variant never falls back to the mutable
+  current variant). Both submit paths claim atomically via the shared
+  `messageQueueStore` claim before any await and complete only the captured id
+  after confirmed acceptance (via `completeQueuedSend`, the only remover
+  allowed while claimed); the transient claim releases in `finally`. Send now
+  records the persisted attempt (`kind: 'steer'` + stable queue id as
+  `operationId`) synchronously before delivery so a reload holds instead of
+  resending, always steers (`delivery: 'steer'`, typed `SendMessageOptions`
+  with no casts) irrespective of stale client idle — the daemon decides the
+  new turn. A confirmed rejection clears the attempt and persists a fixed
+  failure label (no retry-loop; Steer may still claim it); a
+  `PiSendUnconfirmedError` retains the attempt with no cross-kind resend —
+  recovery is Check status. The chips show Sending/Checking status, disable
+  edit/remove/send while sending, refuse claimed ids on the latest store, and
+  offer Check status (read-only receipt query, removes only on `accepted`)
+  for uncertain attempts instead of Steer.
 - Response-style injection (`@/lib/responseStyle`) is a first-user-prompt
   behavior. The submit gate reads the live `PiSessionStore` snapshot
   synchronously, before the settings-fetch await: new-session drafts always

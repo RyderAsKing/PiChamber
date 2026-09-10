@@ -5,10 +5,10 @@ import { useConfigStore } from "@/stores/useConfigStore";
 import { useUIStore } from "@/stores/useUIStore";
 import {
   createMessageQueueTarget,
-  getMessageQueueKey,
   useMessageQueueStore,
   type QueuedMessage,
 } from "@/stores/messageQueueStore";
+import { isQueuedSendUnconfirmedError } from "@/stores/queuedSendReceipt";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { isNewSessionDraftSendPending } from "@/sync/session-ui-draft-helpers";
 import { usePiSessionSnapshot } from "@/sync/pi-session-context";
@@ -176,8 +176,6 @@ const MAX_MOBILE_COMPOSER_LINES = 16;
  * bottom edge on the chat screen. A visual gap by design, not an estimate.
  */
 const MOBILE_COMPOSER_BOUND_GAP_PX = 4;
-const EMPTY_QUEUE: QueuedMessage[] = [];
-const EMPTY_SENDING_IDS: string[] = [];
 const COMPACT_CHAT_PLACEHOLDER_MAX_WIDTH = 560;
 
 type SubmitOptions = {
@@ -712,26 +710,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         currentSessionDirectoryForSync ?? currentDirectory,
       )
     : null;
-  const messageQueueKey = messageQueueTarget
-    ? getMessageQueueKey(messageQueueTarget)
-    : null;
   const followUpBehavior = useMessageQueueStore(
     (state) => state.followUpBehavior,
   );
-  const queuedMessages = useMessageQueueStore(
-    React.useCallback(
-      (state) => {
-        if (!messageQueueKey) return EMPTY_QUEUE;
-        return state.queuedMessages[messageQueueKey] ?? EMPTY_QUEUE;
-      },
-      [messageQueueKey],
-    ),
-  );
   const addToQueue = useMessageQueueStore((state) => state.addToQueue);
-  const clearQueue = useMessageQueueStore((state) => state.clearQueue);
-  const removeFromQueue = useMessageQueueStore(
-    (state) => state.removeFromQueue,
-  );
 
   // User message history for up/down arrow navigation.
   // Keep this on a narrow hook instead of full session message records.
@@ -832,7 +814,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   }, [pendingRevertText, consumePendingRevertText, message]);
 
   const hasContent = message.trim().length > 0 || attachedFiles.length > 0;
-  const hasQueuedMessages = queuedMessages.length > 0;
   const hasUsableModel = Boolean(currentProviderId && currentModelId);
   const attachmentsReady = areAttachmentsReadyToSend(attachedFiles);
   const attachmentGateMessage = hasPendingAttachmentUploads(attachedFiles)
@@ -841,8 +822,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         (attachedFiles.length > 0 && !attachmentsReady)
       ? "Retry or remove failed attachments"
       : null;
-  const canSend =
-    (hasContent || hasQueuedMessages) && hasUsableModel && attachmentsReady;
+  // Normal/steering submits carry only the composer; pending follow-ups are
+  // distinct entries dispatched via their own claim, so the send gate ignores
+  // them here. Each chip sends its own follow-up explicitly.
+  const canSend = hasContent && hasUsableModel && attachmentsReady;
 
   // Locked while a worktree is being created, a new-session draft send is
   // in flight, or the selected session is owned by another PiChamber
@@ -885,14 +868,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         sanitizeAttachmentsForSend(attachedFiles),
       );
     } catch {
-      toast.error("Attachment data could not be saved for the queue.");
+      toast.error("Attachment data could not be saved for the follow-up.");
       queueInFlightRef.current = false;
       return;
     }
 
     const messageToQueue = inputSnapshot.message.replace(/^\n+|\n+$/g, "");
+    // Capture the full send configuration with the follow-up: provider,
+    // model, agent, and variant travel with the entry and are used as-is at
+    // dispatch. A missing variant stays missing — it never falls back to the
+    // mutable current variant.
+    const queuedAgent = currentSessionId
+      ? (useSelectionStore.getState().getSessionAgentSelection(currentSessionId) ?? undefined)
+      : undefined;
 
-    addToQueue(messageQueueTarget, {
+    const added = addToQueue(messageQueueTarget, {
       content: messageToQueue,
       attachments:
         attachmentsToQueue.length > 0 ? attachmentsToQueue : undefined,
@@ -901,10 +891,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           ? {
               providerID: currentProviderId,
               modelID: currentModelId,
+              agent: queuedAgent,
               variant: currentVariant ?? undefined,
             }
           : undefined,
     });
+
+    if (!added) {
+      queueInFlightRef.current = false;
+      toast.error('Follow-up limit reached. Remove a pending message before adding another.');
+      return;
+    }
 
     // Clear input and attachments
     // Note: confirmedMentionsRef is NOT cleared here because queued messages
@@ -947,7 +944,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   }, []);
 
   const handleQueuedMessageSend = React.useCallback((messageId: string) => {
-    // Force-sending from the queue during a busy session counts as steer
+    // Send now for a single pending follow-up steers irrespective of stale
+    // client idle — the daemon determines whether this starts a new turn.
     void handleSubmitRef.current({
       queuedOnly: true,
       queuedMessageId: messageId,
@@ -965,62 +963,75 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const handleSubmit = async (options?: SubmitOptions) => {
     const queuedOnly = options?.queuedOnly ?? false;
     const queuedMessageId = options?.queuedMessageId;
-    const delivery =
-      options?.delivery === "steer" && sessionPhase !== "idle"
-        ? "steer"
-        : undefined;
+    // Send now steers irrespective of stale client idle; the daemon
+    // determines whether this starts a new turn or steers the running one.
+    const delivery = options?.delivery === "steer" ? "steer" : undefined;
     const capturedTarget = messageQueueTarget;
-    if (!areAttachmentsReadyToSend(attachedFiles)) {
-      if (hasPendingAttachmentUploads(attachedFiles))
-        toast.info("Uploading attachments…");
-      else toast.error("Retry or remove failed attachments");
-      return;
-    }
-    const inputSnapshot =
-      options?.presetText != null
-        ? {
-            message: options.presetText,
-            hasContent:
-              options.presetText.trim().length > 0 || attachedFiles.length > 0,
-          }
-        : getCurrentInputSnapshot();
-    // A queued item stays in the queue until its own send resolves, so the
-    // auto-send hook may already be delivering one of these. Merging it here
-    // would send the same message twice (the window is seconds over a relay).
-    const sendingIds = messageQueueTarget
-      ? (useMessageQueueStore.getState().sendingIds[
-          getMessageQueueKey(messageQueueTarget)
-        ] ?? EMPTY_SENDING_IDS)
-      : EMPTY_SENDING_IDS;
-    const queuedMessagesToSend = (
-      queuedMessageId
-        ? queuedMessages.filter((message) => message.id === queuedMessageId)
-        : queuedMessages
-    ).filter((message) => !sendingIds.includes(message.id));
-
+    // Atomic claim before ANY await, through shared store semantics with
+    // auto-send. The latest store is read here — never a stale React
+    // snapshot — and the entry is marked sending synchronously. A racing
+    // auto-send claims the same id and gets null, so one follow-up is never
+    // delivered twice.
+    let claimedFollowUp: QueuedMessage | null = null;
     if (queuedOnly) {
-      if (queuedMessagesToSend.length === 0 || !currentSessionId) return;
-    } else if (
-      (!inputSnapshot.hasContent && !hasQueuedMessages) ||
-      (!currentSessionId && !newSessionDraftOpen)
-    ) {
-      return;
+      if (!capturedTarget || !queuedMessageId) return;
+      claimedFollowUp = useMessageQueueStore
+        .getState()
+        .claimQueuedMessage(capturedTarget, queuedMessageId);
+      // A persisted uncertain attempt refuses the claim (Check status first —
+      // the receipt key includes kind, so no cross-kind Steer resend). A
+      // confirmed failure does not block an explicit claim.
+      if (!claimedFollowUp) return;
     }
+    try {
+      // Single Send now ignores unrelated composer draft/uploads and
+      // preserves the draft: no composer attachment gate here.
+      if (!queuedOnly && !areAttachmentsReadyToSend(attachedFiles)) {
+        if (hasPendingAttachmentUploads(attachedFiles))
+          toast.info("Uploading attachments…");
+        else toast.error("Retry or remove failed attachments");
+        return;
+      }
+      const inputSnapshot =
+        options?.presetText != null && !queuedOnly
+          ? {
+              message: options.presetText,
+              hasContent:
+                options.presetText.trim().length > 0 || attachedFiles.length > 0,
+            }
+          : queuedOnly
+            ? { message: "", hasContent: false }
+            : getCurrentInputSnapshot();
 
-    const capturedSendConfig = queuedOnly
-      ? queuedMessagesToSend[0]?.sendConfig
-      : undefined;
-    const providerIdToSend =
-      capturedSendConfig?.providerID ?? currentProviderId;
-    const modelIdToSend = capturedSendConfig?.modelID ?? currentModelId;
-    const agentNameToSend = capturedSendConfig?.agent;
-    const variantToSend = capturedSendConfig?.variant ?? currentVariant;
+      if (queuedOnly) {
+        if (!currentSessionId) return;
+      } else if (
+        !inputSnapshot.hasContent ||
+        (!currentSessionId && !newSessionDraftOpen)
+      ) {
+        // Normal submits never merge pending follow-ups: each pending entry
+        // is a distinct follow-up with its own captured configuration.
+        return;
+      }
 
-    if (!providerIdToSend || !modelIdToSend) {
-      console.warn("Cannot send message: provider or model not selected");
-      toast.error("Select a provider and model before sending a message.");
-      return;
-    }
+      const capturedSendConfig = queuedOnly
+        ? claimedFollowUp?.sendConfig
+        : undefined;
+      const providerIdToSend =
+        capturedSendConfig?.providerID ?? currentProviderId;
+      const modelIdToSend = capturedSendConfig?.modelID ?? currentModelId;
+      const agentNameToSend = capturedSendConfig?.agent;
+      // A captured follow-up without a variant stays variant-less: never
+      // fall back to the mutable current variant.
+      const variantToSend = queuedOnly
+        ? capturedSendConfig?.variant
+        : currentVariant;
+
+      if (!providerIdToSend || !modelIdToSend) {
+        console.warn("Cannot send message: provider or model not selected");
+        toast.error("Select a provider and model before sending a message.");
+        return;
+      }
 
     const draftAtSend = useSessionUIStore.getState().newSessionDraft;
     const isNewSessionSend =
@@ -1146,20 +1157,28 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       const branchCheckoutReceipt =
         draftBranchCheckout.getReceipt(branchIntent);
-      const sendMessageOptions = capturedTarget
-        ? { target: capturedTarget, ...(delivery ? { delivery } : {}) }
-        : delivery || branchCheckoutReceipt || worktreeCreationReceipt
-          ? {
-              ...(delivery ? { delivery } : {}),
-              ...(branchCheckoutReceipt ? { branchCheckoutReceipt } : {}),
-              ...(worktreeCreationReceipt
-                ? {
-                    worktreeCreationReceipt,
-                    draftSnapshot: draftAtSend,
-                  }
-                : {}),
-            }
-          : undefined;
+      // Single Send now always steers with its stable queue id as
+      // operationId; normal submits carry only their own delivery.
+      const sendMessageOptions = queuedOnly && capturedTarget && claimedFollowUp
+        ? {
+            target: capturedTarget,
+            delivery: "steer" as const,
+            operationId: claimedFollowUp.id,
+          }
+        : capturedTarget
+          ? { target: capturedTarget, ...(delivery ? { delivery } : {}) }
+          : delivery || branchCheckoutReceipt || worktreeCreationReceipt
+            ? {
+                ...(delivery ? { delivery } : {}),
+                ...(branchCheckoutReceipt ? { branchCheckoutReceipt } : {}),
+                ...(worktreeCreationReceipt
+                  ? {
+                      worktreeCreationReceipt,
+                      draftSnapshot: draftAtSend,
+                    }
+                  : {}),
+              }
+            : undefined;
 
       const syntheticParts = consumePendingSyntheticParts();
 
@@ -1168,15 +1187,30 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       );
 
       const outgoing = buildOutgoingMessage(
-        {
-          queued: queuedMessagesToSend,
-          composerText:
-            !queuedOnly && inputSnapshot.hasContent
-              ? inputSnapshot.message
-              : null,
-          composerAttachments: attachedFiles,
-          syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
-        },
+        queuedOnly && claimedFollowUp
+          ? {
+              // Distinct follow-up: the claimed entry alone, never merged
+              // with composer text/uploads. The composer draft stays intact.
+              queued: [
+                {
+                  content: claimedFollowUp.content,
+                  attachments: claimedFollowUp.attachments,
+                },
+              ],
+              composerText: null,
+              composerAttachments: [],
+              syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
+            }
+          : {
+              // Normal/steering submits carry only the composer — pending
+              // follow-ups stay queued for their own distinct dispatch.
+              queued: [],
+              composerText: inputSnapshot.hasContent
+                ? inputSnapshot.message
+                : null,
+              composerAttachments: attachedFiles,
+              syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
+            },
         {
           parseAgentMention: (text) => ({ text }),
           extractFileMentions: (text) => {
@@ -1308,6 +1342,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         (attachment) => attachment.id,
       );
 
+      if (queuedOnly && capturedTarget && claimedFollowUp) {
+        // Persist the uncertain-delivery attempt synchronously before the
+        // send can deliver, so a reload holds instead of resending. Steer
+        // kind + stable queue id as operationId; the receipt key includes
+        // kind, so recovery is Check status, never a cross-kind resend.
+        useMessageQueueStore.getState().markDeliveryAttempt(capturedTarget, claimedFollowUp.id, "steer");
+      }
+
       const sendPromise = sendMessage(
         primaryText,
         providerIdToSend,
@@ -1331,12 +1373,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       await sendPromise
         .then(() => {
-          if (capturedTarget && queuedMessageId) {
-            removeFromQueue(capturedTarget, queuedMessageId);
-          } else if (capturedTarget && hasQueuedMessages) {
-            clearQueue(capturedTarget);
+          if (queuedOnly && capturedTarget && claimedFollowUp) {
+            // Complete ONLY the captured follow-up id after confirmed
+            // acceptance via the completion path (the only remover allowed
+            // while claimed). Entries queued during the awaits stay for their
+            // own dispatch; normal sends never clear pending entries.
+            useMessageQueueStore.getState().completeQueuedSend(capturedTarget, claimedFollowUp.id);
           }
-          if (composerAttachmentIds.length > 0)
+          if (!queuedOnly && composerAttachmentIds.length > 0)
             detachAttachedFiles(composerAttachmentIds);
           if (!queuedOnly && capturedDraftIsCurrent()) {
             // Clear the captured draft after acceptance. If the user typed
@@ -1369,6 +1413,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           }
         })
         .catch((error: unknown) => {
+          if (queuedOnly && capturedTarget && claimedFollowUp) {
+            if (isQueuedSendUnconfirmedError(error)) {
+              // Uncertain delivery: retain the persisted attempt and hold.
+              // No cross-kind resend — recovery is Check status.
+              useMessageQueueStore.getState().markSendUnconfirmed(capturedTarget, claimedFollowUp.id, "steer");
+              console.warn("Follow-up send unconfirmed:", error);
+              toast.error("Follow-up status uncertain. Check status before retrying.");
+              return;
+            }
+            // Confirmed rejection: clear the attempt, persist a fixed failure
+            // label. No retry-loop; an explicit Steer may still claim it.
+            // Fall through for the specific user-facing toast below.
+            useMessageQueueStore.getState().markSendFailed(capturedTarget, claimedFollowUp.id);
+          }
           const rawMessage =
             error instanceof Error
               ? error.message
@@ -1442,6 +1500,14 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         && useSessionUIStore.getState().sendingNewSessionDraftId === draftAtSend.id
       ) {
         useSessionUIStore.getState().setSendingNewSessionDraftId(null);
+      }
+    }
+    } finally {
+      // Release the shared claim: success already removed the captured entry
+      // (clear is a no-op then); failure and early returns keep the entry
+      // visible for an explicit retry while unblocking other dispatches.
+      if (queuedOnly && capturedTarget && claimedFollowUp) {
+        useMessageQueueStore.getState().clearSending(capturedTarget, claimedFollowUp.id);
       }
     }
 

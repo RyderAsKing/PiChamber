@@ -1,5 +1,6 @@
 import React from 'react';
 import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
+import { isQueuedSendUnconfirmedError } from '@/stores/queuedSendReceipt';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -8,12 +9,14 @@ import { TOPIC_CATALOG, TOPIC_CHROME, isInvalidSessionError, type PiSessionStore
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { normalizePath } from '@/lib/pathNormalization';
+import { toast } from '@/components/ui';
 
 const RECENT_ABORT_WINDOW_MS = 2000;
 
-/** Hydration-demand backoff shares the per-target failure map under this
- *  sentinel message id, so demands reuse the same bounded backoff and
- *  retry scheduler as failed sends instead of a permanent one-shot set. */
+/** Hydration-demand backoff lives in the per-target failure map under this
+ *  sentinel message id, reusing the bounded backoff and retry scheduler.
+ *  Failed follow-up sends share the map but hold indefinitely (no schedule)
+ *  instead of retrying an ambiguous delivery — recovery is explicit. */
 const HYDRATE_DEMAND_FAILURE_ID = 'hydrate-demand';
 
 const AUTO_SEND_RETRY_BASE_DELAY_MS = 2000;
@@ -107,6 +110,11 @@ export const sendQueuedAutoSendPayload = (
   payload: QueuedAutoSendPayload,
   resolved: ResolvedQueuedSendConfig,
 ) => {
+  // Hands to the SDK only at the authoritative idle gate, but dispatches as
+  // delivery:'followUp' so a turn that went busy between gate and arrival
+  // follows up rather than failing SESSION_BUSY. The stable queue id travels
+  // as operationId so a receipt check can reconcile an uncertain delivery —
+  // never as an automatic retry.
   return useSessionUIStore.getState().sendMessage(
     payload.primaryText,
     resolved.providerID,
@@ -117,7 +125,11 @@ export const sendQueuedAutoSendPayload = (
     undefined,
     resolved.variant,
     'normal',
-    { target },
+    {
+      target,
+      delivery: 'followUp',
+      operationId: payload.queuedMessageId,
+    },
   );
 };
 
@@ -351,22 +363,44 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
         return;
       }
 
-      // Read the queue back at dispatch time and skip anything already being
-      // delivered, rather than trusting the render-time snapshot.
-      const payload = buildQueuedAutoSendPayload(useMessageQueueStore.getState().getSendableQueue(target));
-      if (!payload) {
+      // Read the latest store at claim time — never the render-time snapshot —
+      // and atomically mark sending before any await. A manual Send now claims
+      // through the same store semantics, so the loser sees null and skips.
+      // Persisted holds apply first: failed entries are skipped (they wait for
+      // an explicit Steer and never block later entries), while an earlier
+      // uncertain attempt or in-flight claim holds the whole queue (FIFO hold).
+      const peeked = useMessageQueueStore.getState().getAutoSendCandidate(target);
+      if (!peeked) {
         return;
       }
 
       const failure = sendFailuresRef.current.get(targetKey);
-      if (failure && failure.messageId !== payload.queuedMessageId) {
+      if (failure && failure.messageId !== peeked.id && failure.messageId !== HYDRATE_DEMAND_FAILURE_ID) {
         sendFailuresRef.current.delete(targetKey);
-      } else if (failure && isQueuedAutoSendBackedOff(failure, payload.queuedMessageId, Date.now())) {
-        retryScheduler.schedule(failure.nextAttemptAt);
+      } else if (failure && failure.messageId !== HYDRATE_DEMAND_FAILURE_ID && isQueuedAutoSendBackedOff(failure, peeked.id, Date.now())) {
+        // A held follow-up send never auto-retries an ambiguous transport
+        // failure — recovery is Check status (uncertain) or an explicit Send
+        // now (confirmed failure) from the chips.
+        if (Number.isFinite(failure.nextAttemptAt)) {
+          retryScheduler.schedule(failure.nextAttemptAt);
+        }
         return;
       }
 
-      // Use send config captured at queue time; fall back to current config
+      const claimed = useMessageQueueStore.getState().claimQueuedMessage(target, peeked.id);
+      if (!claimed) {
+        return;
+      }
+      const payload = buildQueuedAutoSendPayload([claimed]);
+      if (!payload) {
+        useMessageQueueStore.getState().clearSending(target, claimed.id);
+        return;
+      }
+
+      // Use send config captured at queue time as-is; fall back to current
+      // config only for legacy queues that predate capture. A captured entry
+      // without a variant stays variant-less — never falls back to the
+      // mutable current variant.
       const captured = payload.sendConfig;
       const resolved = captured?.providerID && captured?.modelID
         ? captured
@@ -374,16 +408,21 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       if (!resolved.providerID || !resolved.modelID) {
         // Legacy queues may predate captured send configuration. Config
         // hydration is asynchronous, so retry instead of stranding the item
-        // until an unrelated status or directory update happens.
+        // until an unrelated status or directory update happens. This retry
+        // precedes any send, so it cannot duplicate an ambiguous delivery.
+        // Release the claim so the retry re-claims from live state.
+        useMessageQueueStore.getState().clearSending(target, claimed.id);
         retryScheduler.schedule(Date.now() + AUTO_SEND_RETRY_BASE_DELAY_MS);
         return;
       }
 
       inFlightSessionsRef.current.add(targetKey);
-      // The ref only guards this hook. Publish the dispatch to the store so the
-      // composer cannot merge the same item into a parallel send while this one
-      // is still awaiting the server.
-      useMessageQueueStore.getState().markSending(target, payload.queuedMessageId);
+      // The claim above already published sending to the shared store, so a
+      // manual Send now racing this dispatch sees null and skips. Record the
+      // persisted attempt synchronously before the first await so a reload
+      // holds instead of resending an uncertain delivery. The local ref only
+      // guards concurrent hydration demands for this target.
+      useMessageQueueStore.getState().markDeliveryAttempt(target, claimed.id, 'followUp');
 
       try {
         await sendQueuedAutoSendPayload(target, payload, {
@@ -392,19 +431,39 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
           agent: resolved.agent,
           variant: resolved.variant,
         });
-        useMessageQueueStore.getState().removeFromQueue(target, payload.queuedMessageId);
+        // Remove ONLY the captured id after confirmed acceptance via the
+        // completion path (the only remover allowed while claimed). Entries
+        // queued during the await stay for their own distinct follow-up.
+        useMessageQueueStore.getState().completeQueuedSend(target, payload.queuedMessageId);
         sendFailuresRef.current.delete(targetKey);
       } catch (error) {
-        console.warn('[queue] queued auto-send failed:', error);
+        console.warn('[follow-up] auto-send failed:', error);
+        // Ambiguous transport failures must NOT auto-retry: the send may
+        // have reached the daemon despite the error, and a backoff retry
+        // would duplicate the follow-up. Hold visibly instead.
         const priorFailures = failure?.messageId === payload.queuedMessageId ? failure.failures : 0;
-        const failures = priorFailures + 1;
-        const nextAttemptAt = Date.now() + getQueuedAutoSendRetryDelayMs(failures);
         sendFailuresRef.current.set(targetKey, {
           messageId: payload.queuedMessageId,
-          failures,
-          nextAttemptAt,
+          failures: priorFailures + 1,
+          nextAttemptAt: Number.POSITIVE_INFINITY,
         });
-        retryScheduler.schedule(nextAttemptAt);
+        if (isQueuedSendUnconfirmedError(error)) {
+          // Uncertain delivery: retain the persisted attempt and hold the
+          // queue (FIFO). No cross-kind Steer resend — the receipt key
+          // includes kind. Recovery is Check status from the chips.
+          useMessageQueueStore.getState().markSendUnconfirmed(target, payload.queuedMessageId, 'followUp');
+          toast.error('Follow-up status uncertain. Check status before retrying.', {
+            id: `follow-up-unconfirmed:${targetKey}:${payload.queuedMessageId}`,
+          });
+        } else {
+          // Confirmed rejection: clear the attempt, persist a fixed failure
+          // label. No retry-loop; an explicit Steer may still claim it, and
+          // later unrelated entries remain auto-sendable.
+          useMessageQueueStore.getState().markSendFailed(target, payload.queuedMessageId);
+          toast.error('Follow-up message failed to send. Use Send now to retry.', {
+            id: `follow-up-failed:${targetKey}:${payload.queuedMessageId}`,
+          });
+        }
       } finally {
         inFlightSessionsRef.current.delete(targetKey);
         useMessageQueueStore.getState().clearSending(target, payload.queuedMessageId);

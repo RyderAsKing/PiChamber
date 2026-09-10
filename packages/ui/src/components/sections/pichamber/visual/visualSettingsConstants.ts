@@ -149,11 +149,11 @@ export const WEEK_START_OPTIONS: Option<'auto' | 'monday' | 'sunday'>[] = [
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
   {
     id: 'steer',
-    label: 'Steer',
+    label: 'Steering',
   },
   {
     id: 'queue',
-    label: 'Queue',
+    label: 'Follow-up',
   },
 ];
 

@@ -68,6 +68,7 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
             {shouldShow('followUpBehavior') && (
               <SettingsControlGroup
                 title={'Follow-up behavior'}
+                info={'Follow-up waits until the agent finishes, then sends. Steering is delivered at the next supported tool or turn boundary. Follow-ups stay on this device.'}
                 settingsItem="chat.follow-up-behavior"
               >
                 <SettingsRadioGroup aria-label={'Follow-up behavior'}>
