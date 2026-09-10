@@ -220,6 +220,27 @@ const registerClone = ({ fsPromises, spawn }) => {
   return getRoute('POST', '/api/fs/clone');
 };
 
+const registerFind = ({ fsPromises, spawn, resolveProjectDirectory = async () => ({ directory: '/repo' }) }) => {
+  const { app, getRoute } = createRouteRegistry();
+  registerFsRoutes(app, {
+    os: { homedir: () => '/home/user' },
+    path: path.posix,
+    fsPromises: {
+      realpath: async (targetPath) => targetPath,
+      stat: async () => ({ isDirectory: () => true }),
+      ...fsPromises,
+    },
+    spawn,
+    crypto: { randomUUID: () => 'job-0' },
+    normalizeDirectoryPath: (p) => p,
+    resolveProjectDirectory,
+    buildAugmentedPath: () => '/usr/bin',
+    resolveGitBinaryForSpawn: () => 'git',
+    pichamberUserConfigRoot: '/home/user/.config',
+  });
+  return getRoute('GET', '/api/fs/find');
+};
+
 const registerReveal = ({ fsPromises, spawn, platform = 'linux' }) => {
   const { app, getRoute } = createRouteRegistry();
   registerFsRoutes(app, {
@@ -896,6 +917,210 @@ describe('fs list symlink path space (issue 2627)', () => {
       expect(res.body).toEqual({ error: 'Access to directory denied', reason: 'os-permission' });
     });
   }
+});
+
+describe('/api/fs/find', () => {
+  it('searches the active workspace instead of failing during path resolution', async () => {
+    const handler = registerFind({
+      fsPromises: {
+        readdir: vi.fn(async (directory) => directory === '/repo'
+          ? [{ name: 'src', isDirectory: () => true, isFile: () => false }]
+          : [{ name: 'app.ts', isDirectory: () => false, isFile: () => true }]),
+      },
+      spawn: createSpawn().spawn,
+    });
+    const res = createMockResponse();
+
+    await handler({
+      query: {
+        directory: '/repo',
+        query: 'app',
+        limit: '80',
+        includeHidden: 'true',
+        respectGitignore: 'true',
+        type: 'file',
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({
+      files: [{
+        name: 'app.ts',
+        path: '/repo/src/app.ts',
+        relativePath: 'src/app.ts',
+        extension: 'ts',
+      }],
+    });
+  });
+
+  it('returns matching directories', async () => {
+    const handler = registerFind({
+      fsPromises: {
+        readdir: vi.fn(async (directory) => directory === '/repo'
+          ? [{ name: 'src', isDirectory: () => true, isFile: () => false }]
+          : []),
+      },
+      spawn: createSpawn().spawn,
+    });
+    const res = createMockResponse();
+
+    await handler({
+      query: {
+        directory: '/repo',
+        query: 'src',
+        type: 'directory',
+        respectGitignore: 'true',
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.files).toEqual([{
+      name: 'src',
+      path: '/repo/src',
+      relativePath: 'src',
+    }]);
+  });
+
+  it('does not return gitignored files', async () => {
+    const spawn = vi.fn((_command, _args, options) => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      queueMicrotask(() => {
+        if (options.cwd === '/repo') {
+          child.stdout.emit('data', Buffer.from('ignored.ts\n'));
+        }
+        child.emit('close', 0, null);
+      });
+      return child;
+    });
+    const handler = registerFind({
+      fsPromises: {
+        readdir: vi.fn(async () => [
+          { name: 'ignored.ts', isDirectory: () => false, isFile: () => true },
+          { name: 'visible.ts', isDirectory: () => false, isFile: () => true },
+        ]),
+      },
+      spawn,
+    });
+    const res = createMockResponse();
+
+    await handler({
+      query: {
+        directory: '/repo',
+        query: 'i',
+        type: 'file',
+        respectGitignore: 'true',
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.files.map((file) => file.name)).toEqual(['visible.ts']);
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps result paths in the requested symlink path space', async () => {
+    const handler = registerFind({
+      fsPromises: {
+        realpath: vi.fn(async (targetPath) => targetPath === '/repo-link' ? '/repo' : targetPath),
+        readdir: vi.fn(async () => [
+          { name: 'app.ts', isDirectory: () => false, isFile: () => true },
+        ]),
+      },
+      spawn: createSpawn().spawn,
+      resolveProjectDirectory: async () => ({ directory: '/repo-link' }),
+    });
+    const res = createMockResponse();
+
+    await handler({
+      query: {
+        directory: '/repo-link',
+        query: 'app',
+        type: 'file',
+        respectGitignore: 'true',
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.files[0]).toMatchObject({
+      path: '/repo-link/app.ts',
+      relativePath: 'app.ts',
+    });
+  });
+
+  it('shares gitignore checks across concurrent file and directory searches', async () => {
+    const deferred = createDeferredSpawn();
+    const handler = registerFind({
+      fsPromises: {
+        readdir: vi.fn(async () => [
+          { name: 'app.ts', isDirectory: () => false, isFile: () => true },
+        ]),
+      },
+      spawn: deferred.spawn,
+    });
+    const fileResponse = createMockResponse();
+    const directoryResponse = createMockResponse();
+
+    const fileSearch = handler({
+      query: { directory: '/repo', query: 'app', type: 'file', respectGitignore: 'true' },
+    }, fileResponse);
+    const directorySearch = handler({
+      query: { directory: '/repo', query: 'app', type: 'directory', respectGitignore: 'true' },
+    }, directoryResponse);
+
+    await vi.waitFor(() => expect(deferred.spawn).toHaveBeenCalledTimes(1));
+    deferred.closeNext();
+    await Promise.all([fileSearch, directorySearch]);
+
+    expect(fileResponse.statusCode).toBe(200);
+    expect(directoryResponse.statusCode).toBe(200);
+    expect(deferred.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds a stalled gitignore check instead of returning unfiltered files', async () => {
+    const previousTimeout = process.env.PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS;
+    process.env.PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS = '5';
+    let killed = false;
+    const spawn = vi.fn(() => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => { killed = true; };
+      return child;
+    });
+
+    try {
+      const handler = registerFind({
+        fsPromises: {
+          readdir: vi.fn(async () => [
+            { name: 'possibly-ignored.ts', isDirectory: () => false, isFile: () => true },
+          ]),
+        },
+        spawn,
+      });
+      const res = createMockResponse();
+
+      await handler({
+        query: {
+          directory: '/repo',
+          query: 'ignored',
+          type: 'file',
+          respectGitignore: 'true',
+        },
+      }, res);
+
+      expect(killed).toBe(true);
+      expect(res.statusCode).toBe(500);
+      expect(res.body.files).toBeUndefined();
+    } finally {
+      if (previousTimeout === undefined) {
+        delete process.env.PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS;
+      } else {
+        process.env.PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
 });
 
 describe('/api/fs/home', () => {

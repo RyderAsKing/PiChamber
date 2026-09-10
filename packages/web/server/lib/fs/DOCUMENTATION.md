@@ -5,7 +5,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 
 ## Entrypoints and structure
 - `packages/web/server/lib/fs/routes.js`: route registration and runtime-owned state for `/api/fs/*` endpoints.
-- `packages/web/server/lib/fs/search.js`: fuzzy filesystem search runtime used by non-FS routes (for example project icon discovery).
+- `packages/web/server/lib/fs/search.js`: bounded-concurrency fuzzy filesystem search runtime used by `GET /api/fs/find`.
 
 ## Public exports
 - `registerFsRoutes(app, dependencies)` from `routes.js`
@@ -23,11 +23,14 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `POST /api/fs/exec`
     - `GET /api/fs/exec/:jobId`
     - `GET /api/fs/list`
+    - `GET /api/fs/find`
   - Owns exec job queue state (`execJobs`) and lifecycle/TTL pruning.
   - Enforces workspace boundary checks with active project + worktree fallback support. An explicit `directory` query is authoritative over a stale runtime directory header, which lets user-confirmed directory-browser operations and project-local optional configuration probes scope themselves to the selected directory. `optional=true` converts only a missing file to an empty success; it never bypasses workspace policy.
-- `createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn })` from `search.js`
+- `createFsSearchRuntime({ fsPromises, path, spawn, resolveGitBinaryForSpawn, gitCheckIgnoreTimeoutMs })` from `search.js`
   - Returns `{ searchFilesystemFiles(rootPath, options) }`.
-  - Supports fuzzy matching, hidden-file handling, and optional `git check-ignore` filtering.
+  - Supports fuzzy file and directory matching, hidden-file handling, fixed build-output exclusions, and optional `git check-ignore` filtering.
+  - Git-ignore checks use bounded directory concurrency and a positive configurable timeout (`PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS`, default 2500 ms). Concurrent searches share identical in-flight checks. A failed or timed-out check fails the search instead of returning files that may be ignored.
+  - Search reads through canonical paths for boundary enforcement, but result paths stay in the caller's requested path space so symlinked workspaces remain navigable.
 
 ## Composition contract with `index.js`
 - `index.js` provides composition-time dependencies only (platform primitives + callbacks such as `resolveProjectDirectory`, `normalizeDirectoryPath`, and `buildAugmentedPath`).

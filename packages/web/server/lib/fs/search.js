@@ -95,9 +95,20 @@ const fuzzyMatchScoreNormalized = (normalizedQuery, candidate) => {
   return score;
 };
 
-export const createFsSearchRuntime = ({ fsPromises, path, spawn, resolveGitBinaryForSpawn }) => {
+export const createFsSearchRuntime = ({
+  fsPromises,
+  path,
+  spawn,
+  resolveGitBinaryForSpawn,
+  gitCheckIgnoreTimeoutMs = 2500,
+}) => {
+  const effectiveGitCheckIgnoreTimeoutMs = Number.isFinite(gitCheckIgnoreTimeoutMs) && gitCheckIgnoreTimeoutMs > 0
+    ? gitCheckIgnoreTimeoutMs
+    : 2500;
+  const inFlightGitignoreChecks = new Map();
+
   const searchFilesystemFiles = async (rootPath, options) => {
-    const { limit, query, includeHidden, respectGitignore } = options;
+    const { limit, query, includeHidden, respectGitignore, type } = options;
     const includeHiddenEntries = Boolean(includeHidden);
     const normalizedQuery = query.trim().toLowerCase();
     const matchAll = normalizedQuery.length === 0;
@@ -123,18 +134,47 @@ export const createFsSearchRuntime = ({ fsPromises, path, spawn, resolveGitBinar
               return { dir, dirents, ignoredPaths: new Set() };
             }
 
-            const result = await new Promise((resolve) => {
-              const child = spawn(resolveGitBinaryForSpawn(), ['check-ignore', '--', ...pathsToCheck], {
-                cwd: dir,
-                windowsHide: true,
-                stdio: ['ignore', 'pipe', 'pipe'],
-              });
+            const checkKey = `${dir}\0${pathsToCheck.join('\0')}`;
+            let check = inFlightGitignoreChecks.get(checkKey);
+            if (!check) {
+              check = new Promise((resolve, reject) => {
+                const child = spawn(resolveGitBinaryForSpawn(), ['check-ignore', '--', ...pathsToCheck], {
+                  cwd: dir,
+                  windowsHide: true,
+                  stdio: ['ignore', 'pipe', 'pipe'],
+                });
 
-              let stdout = '';
-              child.stdout.on('data', (data) => { stdout += data.toString(); });
-              child.on('close', () => resolve(stdout));
-              child.on('error', () => resolve(''));
-            });
+                let stdout = '';
+                let settled = false;
+                let timeout = null;
+                const finish = (callback) => {
+                  if (settled) return;
+                  settled = true;
+                  if (timeout) clearTimeout(timeout);
+                  callback();
+                };
+
+                timeout = setTimeout(() => {
+                  try {
+                    child.kill('SIGKILL');
+                  } catch {
+                  }
+                  finish(() => reject(new Error('Timed out while checking gitignore rules')));
+                }, effectiveGitCheckIgnoreTimeoutMs);
+
+                child.stdout?.on('data', (data) => { stdout += data.toString(); });
+                child.on('close', () => finish(() => resolve(stdout)));
+                child.on('error', (error) => finish(() => reject(error)));
+              });
+              inFlightGitignoreChecks.set(checkKey, check);
+              const clearCheck = () => {
+                if (inFlightGitignoreChecks.get(checkKey) === check) {
+                  inFlightGitignoreChecks.delete(checkKey);
+                }
+              };
+              check.then(clearCheck, clearCheck);
+            }
+            const result = await check;
 
             const ignoredNames = new Set(
               String(result)
@@ -144,8 +184,8 @@ export const createFsSearchRuntime = ({ fsPromises, path, spawn, resolveGitBinar
             );
 
             return { dir, dirents, ignoredPaths: ignoredNames };
-          } catch {
-            return { dir, dirents: await listDirectoryEntries(dir, fsPromises), ignoredPaths: new Set() };
+          } catch (error) {
+            throw new Error(`Failed to apply gitignore rules in ${dir}`, { cause: error });
           }
         })
       );
@@ -167,6 +207,21 @@ export const createFsSearchRuntime = ({ fsPromises, path, spawn, resolveGitBinar
             if (shouldSkipSearchDirectory(entryName, includeHiddenEntries)) {
               continue;
             }
+
+            if (type === 'directory') {
+              const relativePath = normalizeRelativeSearchPath(rootPath, entryPath, path);
+              const score = matchAll ? 0 : fuzzyMatchScoreNormalized(normalizedQuery, relativePath);
+              if (score !== null) {
+                candidates.push({
+                  name: entryName,
+                  path: entryPath,
+                  relativePath,
+                  extension: undefined,
+                  score,
+                });
+              }
+            }
+
             if (!visited.has(entryPath)) {
               visited.add(entryPath);
               queue.push(entryPath);
@@ -174,32 +229,22 @@ export const createFsSearchRuntime = ({ fsPromises, path, spawn, resolveGitBinar
             continue;
           }
 
-          if (!dirent.isFile()) {
+          if (!dirent.isFile() || type === 'directory') {
             continue;
           }
 
           const relativePath = normalizeRelativeSearchPath(rootPath, entryPath, path);
           const extension = entryName.includes('.') ? entryName.split('.').pop()?.toLowerCase() : undefined;
+          const score = matchAll ? 0 : fuzzyMatchScoreNormalized(normalizedQuery, relativePath);
 
-          if (matchAll) {
+          if (score !== null) {
             candidates.push({
               name: entryName,
               path: entryPath,
               relativePath,
               extension,
-              score: 0,
+              score,
             });
-          } else {
-            const score = fuzzyMatchScoreNormalized(normalizedQuery, relativePath);
-            if (score !== null) {
-              candidates.push({
-                name: entryName,
-                path: entryPath,
-                relativePath,
-                extension,
-                score,
-              });
-            }
           }
 
           if (candidates.length >= collectLimit) {
