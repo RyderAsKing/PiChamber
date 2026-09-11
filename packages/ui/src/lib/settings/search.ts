@@ -297,9 +297,17 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'sessions.desktop-minimize-to-tray',
     page: 'general',
-    title: "Minimize and close to the system tray",
-    description: "Keeps PiChamber running in the system tray when the main window is minimized or closed.",
-    keywords: ['desktop', 'tray', 'system tray', 'minimize', 'close', 'background', 'windows', 'linux'],
+    title: "Minimize to the system tray",
+    description: "Hides PiChamber in the system tray instead of leaving it in the taskbar when you minimize the window.",
+    keywords: ['desktop', 'tray', 'system tray', 'minimize', 'taskbar', 'background', 'windows', 'linux'],
+    isAvailable: (ctx) => ctx.isDesktopLocalOrigin && (ctx.isWindows || ctx.isLinux),
+  },
+  {
+    id: 'sessions.desktop-close-to-tray',
+    page: 'general',
+    title: "Close to the system tray",
+    description: "Keeps PiChamber running in the system tray when you close the main window. Turn this off to quit the app when the window closes.",
+    keywords: ['desktop', 'tray', 'system tray', 'close', 'quit', 'exit', 'background', 'windows', 'linux'],
     isAvailable: (ctx) => ctx.isDesktopLocalOrigin && (ctx.isWindows || ctx.isLinux),
   },
   {

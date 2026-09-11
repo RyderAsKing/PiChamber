@@ -68,11 +68,12 @@ describe('Pi UI settings store', () => {
     const { file, runtimeFile, store } = await makeStore();
     await Promise.all([
       store.write({ themeId: 'dark' }),
-      store.write({ projects: [{ id: 'one', path: '/one' }] }),
+      store.write({ projects: [{ id: 'one', path: '/one' }], desktopCloseToTrayEnabled: false }),
     ]);
     await expect(store.read()).resolves.toEqual({
       themeId: 'dark',
       projects: [{ id: 'one', path: '/one' }],
+      desktopCloseToTrayEnabled: false,
     });
     await expect(readJson(file)).resolves.toEqual({
       __pichamberSettingsScope: 'portable-v1',
@@ -80,6 +81,7 @@ describe('Pi UI settings store', () => {
     });
     await expect(readJson(runtimeFile)).resolves.toEqual({
       projects: [{ id: 'one', path: '/one' }],
+      desktopCloseToTrayEnabled: false,
     });
   });
 

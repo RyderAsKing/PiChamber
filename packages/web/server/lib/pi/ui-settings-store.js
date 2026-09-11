@@ -54,7 +54,7 @@ const LOCAL_FIELDS = new Set([
   'securityScopedBookmarks', 'pinnedDirectories', 'defaultGitIdentityId', 'openInAppId',
   'terminalShell', 'terminalLoginShells', 'desktopLanAccessEnabled',
   'desktopKeepAwakeEnabled', 'desktopProcessPerformanceRecordingEnabled',
-  'desktopMinimizeToTrayEnabled', 'desktopMacMenuBarEnabled',
+  'desktopMinimizeToTrayEnabled', 'desktopCloseToTrayEnabled', 'desktopMacMenuBarEnabled',
   'desktopWindowState', 'desktopLocalPort', 'desktopInstallId', 'desktopHosts',
   'desktopDefaultHostId', 'desktopInitialHostChoiceCompleted',
   'pwaAppName', 'pwaOrientation', 'mobileKeyboardMode',
