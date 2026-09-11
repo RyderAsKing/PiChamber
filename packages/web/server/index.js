@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createClientPairingRuntime } from './lib/client-auth/pairing.js';
 import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.js';
+import { createRevocationCoordinator } from './lib/client-auth/principal-tracker.js';
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
@@ -123,9 +124,17 @@ export async function startWebUiServer(options = {}) {
   const serverStartedAt = new Date().toISOString();
   const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
+  // Live credential revocation (#9): tracks authenticated SSE/terminal/dictation
+  // connections and closes a revoked principal's connections. The revoke route
+  // closes in-process immediately; the bounded poll converges with revocations
+  // committed by other processes sharing this data directory.
+  const liveRevocation = createRevocationCoordinator({
+    listRevokedClientIds: () => remoteClientAuthRuntime.listRevokedClientIds(),
+  });
+  liveRevocation.start();
   const clientPairingRuntime = createClientPairingRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('client-pairing-sessions.json'), remoteClientAuthRuntime });
   const tunnelAuthController = createTunnelAuth();
-  const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}) , clientAuthController: remoteClientAuthRuntime });
+  const uiAuthController = createUiAuth({ password: uiPassword, readSettingsFromDiskMigrated: async () => ({}), clientAuthController: remoteClientAuthRuntime, liveRevocation });
   // One daemon per server profile. The supervisor is created after HTTP
   // listen so the profile key uses the bound port; routes observe it through
   // the getter and report unavailable until it exists.
@@ -184,6 +193,7 @@ export async function startWebUiServer(options = {}) {
     uiAuthController,
     remoteClientAuthRuntime,
     clientPairingRuntime,
+    liveRevocation,
     readSettingsFromDiskMigrated: async () => ({}),
     normalizeTunnelSessionTtlMs: () => 8 * 60 * 60 * 1000,
     getPairingTransports: () => pairingTransports.getPairingTransports(),
@@ -215,7 +225,7 @@ export async function startWebUiServer(options = {}) {
   app.get('/api/pichamber/tunnel/doctor', requireTunnelAuth, async (req, res) => {
     try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
   });
-  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR });
+  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR, liveRevocation });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);
@@ -256,6 +266,9 @@ export async function startWebUiServer(options = {}) {
       await Promise.allSettled([
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
+        // Stop the revocation poll and close any remaining tracked live
+        // connections synchronously (bounded shutdown cleanup).
+        Promise.resolve(liveRevocation.dispose()),
         close(server),
       ]);
       uiAuthController.dispose?.();

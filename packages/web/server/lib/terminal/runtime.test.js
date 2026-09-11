@@ -563,4 +563,39 @@ describe('terminal runtime', () => {
       await new Promise((resolve) => server.close(resolve));
     }
   }, 15_000);
+
+  it('skips handleUpgrade when principal tracking throws', async () => {
+    const { WebSocketServer } = await import('ws');
+    const originalHandleUpgrade = WebSocketServer.prototype.handleUpgrade;
+    let handleUpgradeCalls = 0;
+    WebSocketServer.prototype.handleUpgrade = function () {
+      handleUpgradeCalls += 1;
+      return undefined;
+    };
+    const server = new EventEmitter();
+    const runtime = createRuntime(server, {
+      uiAuthController: {
+        enabled: true,
+        ensureSessionToken: async () => 'client:thrower',
+      },
+      isRequestOriginAllowed: async () => true,
+      rejectWebSocketUpgrade: () => {},
+      liveRevocation: {
+        getGeneration: () => 0,
+        trackLiveConnection: () => { throw new Error('tracker boom'); },
+      },
+    });
+    try {
+      const socket = new EventEmitter();
+      socket.destroyed = false;
+      socket.destroy = function () { this.destroyed = true; };
+      server.emit('upgrade', { url: '/api/terminal/ws', headers: {} }, socket, Buffer.alloc(0));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(socket.destroyed).toBe(true);
+      expect(handleUpgradeCalls).toBe(0);
+    } finally {
+      WebSocketServer.prototype.handleUpgrade = originalHandleUpgrade;
+      await runtime.shutdown();
+    }
+  });
 });

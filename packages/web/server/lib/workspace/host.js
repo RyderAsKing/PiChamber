@@ -53,7 +53,7 @@ const resolveProjectDirectory = async (req) => {
   }
 };
 
-export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthController, dataDir }) => {
+export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthController, dataDir, liveRevocation = null }) => {
   const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
   registerGitRoutes(app);
   registerFsRoutes(app, {
@@ -75,6 +75,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     fs,
     path,
     uiAuthController,
+    liveRevocation,
     buildAugmentedPath,
     searchPathFor,
     isExecutable,
@@ -86,6 +87,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     server,
     express,
     uiAuthController,
+    liveRevocation,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
     modelsDir: path.join(dataDir, 'speech-models'),

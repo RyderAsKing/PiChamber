@@ -391,6 +391,11 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     remoteClientAuthRuntime,
     clientPairingRuntime,
     readSettingsFromDiskMigrated,
+    // Live-revocation coordinator: closes the revoked principal's tracked
+    // live connections (SSE, terminal/dictation WebSocket) in this process
+    // immediately after the store write commits. Cross-process convergence
+    // is the coordinator's bounded poll, not this emitter.
+    liveRevocation = null,
     normalizeTunnelSessionTtlMs,
     // Returns the relay pairing candidate ({ type:'relay', relayUrl, serverId,
     // hostEncPubJwk, priority }) when the host relay is enabled, else null.
@@ -821,8 +826,13 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       if (!result.revoked) {
         return res.status(404).json({ revoked: false, error: 'Client not found' });
       }
+      // Close the revoked principal's live connections now that the store
+      // marks them revoked; new bearer/URL-token establishment is denied by
+      // the credential checks. The revoked device's own request may be the
+      // one being closed — the count reports what was torn down.
+      const closedConnections = liveRevocation?.clientRevoked?.(result.client.id) ?? 0;
       void reconcileRelay();
-      res.json(result);
+      res.json({ ...result, closedConnections });
     });
   });
 

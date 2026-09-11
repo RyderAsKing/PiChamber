@@ -245,6 +245,35 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     });
   };
 
+  // Establishment-time principal validation for credentials that cannot be
+  // re-checked from their bearer form — the encrypted URL token embeds the
+  // principal, so revocation must be re-checked against the store whenever
+  // such a token is used to establish a connection. This closes the
+  // mint/open race: a URL token minted moments before revocation is denied
+  // at open time even though its 60-second TTL has not elapsed.
+  const isClientValid = async (id) => {
+    if (typeof id !== 'string' || id.trim().length === 0) return false;
+    return withStoreMutation(async () => {
+      const store = await readStore();
+      const client = store.clients.find((entry) => entry.id === id);
+      if (!client || client.revokedAt) return false;
+      const expires = Date.parse(client.expiresAt || '');
+      return !Number.isFinite(expires) || expires > Date.now();
+    });
+  };
+
+  // Cross-process revocation propagation surface: the credential store is a
+  // file shared with other processes (pairing CLI), so a second process
+  // cannot emit revocations here. The live-revocation coordinator polls this
+  // bounded list and closes affected connections; a failed read must be
+  // retried by the caller, not treated as an authoritative empty result.
+  const listRevokedClientIds = async () => {
+    return withStoreMutation(async () => {
+      const store = await readStore();
+      return store.clients.filter((entry) => entry.revokedAt).map((entry) => entry.id);
+    });
+  };
+
   const authenticateBearerToken = async (token, req) => {
     if (typeof token !== 'string' || !token.startsWith(TOKEN_PREFIX)) {
       return null;
@@ -287,5 +316,7 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
     hasActiveRelayClients,
     purgeRevokedClients,
     revokeClient,
+    isClientValid,
+    listRevokedClientIds,
   };
 };
