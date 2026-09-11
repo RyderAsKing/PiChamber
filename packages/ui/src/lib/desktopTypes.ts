@@ -43,6 +43,7 @@ export type DesktopSettings = {
   desktopKeepAwakeEnabled?: boolean;
   desktopProcessPerformanceRecordingEnabled?: boolean;
   desktopMinimizeToTrayEnabled?: boolean;
+  desktopCloseToTrayEnabled?: boolean;
   desktopMacMenuBarEnabled?: boolean;
   desktopUiPassword?: string;
   projects?: ProjectEntry[];
@@ -178,6 +179,11 @@ export type KeepAwakeStatus = {
 };
 
 export type MinimizeToTrayStatus = {
+  supported: boolean;
+  enabled: boolean;
+};
+
+export type CloseToTrayStatus = {
   supported: boolean;
   enabled: boolean;
 };

@@ -7,6 +7,7 @@ import {
   isDesktopShell,
 } from './desktopBridge';
 import type {
+  CloseToTrayStatus,
   FetchDesktopInstalledAppsResult,
   KeepAwakeStatus,
   LaunchAtLoginStatus,
@@ -80,6 +81,40 @@ export const setDesktopMinimizeToTray = async (enabled: boolean): Promise<Minimi
     return result;
   } catch (error) {
     console.warn('Failed to set minimize to tray status', error);
+    return null;
+  }
+};
+
+export const getDesktopCloseToTray = async (): Promise<CloseToTrayStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<CloseToTrayStatus>('desktop_get_close_to_tray');
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to get close to tray status', error);
+    return null;
+  }
+};
+
+export const setDesktopCloseToTray = async (enabled: boolean): Promise<CloseToTrayStatus | null> => {
+  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+    return null;
+  }
+
+  try {
+    const result = await invokeDesktop<CloseToTrayStatus>('desktop_set_close_to_tray', { enabled });
+    if (!result || typeof result.supported !== 'boolean' || typeof result.enabled !== 'boolean') {
+      return null;
+    }
+    return result;
+  } catch (error) {
+    console.warn('Failed to set close to tray status', error);
     return null;
   }
 };

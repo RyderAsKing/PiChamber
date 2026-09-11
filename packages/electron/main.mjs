@@ -19,6 +19,11 @@ import {
 import { sanitizeRuntimeRequestHeaders } from './runtime-request-headers.mjs';
 import { resolveElectronUpdaterVersion } from './app-version.mjs';
 import { createProcessPerformanceRecorder } from './process-performance-recorder.mjs';
+import {
+  isTrayWindowBehaviorSupported,
+  readCloseToTrayEnabled,
+  readMinimizeToTrayEnabled,
+} from './desktop-window-behavior.mjs';
 import { assertUpdaterCapability, resolveLinuxPackageType } from './updater-capability.mjs';
 import {
   confirmLinuxAppImageUpdate,
@@ -332,19 +337,30 @@ const readDesktopKeepAwakeStatus = () => {
 };
 
 const readDesktopMinimizeToTrayStatus = () => {
-  const supported = process.platform === 'win32' || process.platform === 'linux';
+  const supported = isTrayWindowBehaviorSupported(process.platform);
   return {
     supported,
-    enabled: supported && readSettingsRoot().desktopMinimizeToTrayEnabled === true,
+    enabled: supported && readMinimizeToTrayEnabled(readSettingsRoot()),
   };
 };
 
-const shouldHideMainWindowToTray = (browserWindow) => {
-  if (process.platform !== 'win32' && process.platform !== 'linux') return false;
+const readDesktopCloseToTrayStatus = () => {
+  const supported = isTrayWindowBehaviorSupported(process.platform);
+  return {
+    supported,
+    enabled: supported && readCloseToTrayEnabled(readSettingsRoot()),
+  };
+};
+
+const shouldHideMainWindowToTray = (browserWindow, behavior) => {
+  if (!isTrayWindowBehaviorSupported(process.platform)) return false;
   if (!state.trayController) return false;
   if (!browserWindow || browserWindow.isDestroyed()) return false;
   if (browserWindow.__ocMiniChat === true) return false;
-  return readSettingsRoot().desktopMinimizeToTrayEnabled === true;
+  const settings = readSettingsRoot();
+  return behavior === 'close'
+    ? readCloseToTrayEnabled(settings)
+    : readMinimizeToTrayEnabled(settings);
 };
 
 const quitRisk = {
@@ -2369,6 +2385,15 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     browserWindow.on('focus', refreshTrafficLights);
   }
 
+  if (isTrayWindowBehaviorSupported(process.platform)) {
+    browserWindow.on('minimize', (event) => {
+      if (!shouldHideMainWindowToTray(browserWindow, 'minimize')) return;
+      debounceWindowStatePersist(browserWindow, true);
+      event.preventDefault();
+      browserWindow.hide();
+    });
+  }
+
   browserWindow.on('resize', () => {
     if (process.platform === 'darwin') {
       emitToWindow(browserWindow, 'pichamber:window-resized');
@@ -2387,10 +2412,18 @@ const createBrowserWindow = ({ label, restoreGeometry, url, runtimeConfig = {} }
     debounceWindowStatePersist(browserWindow, false);
   });
   browserWindow.on('close', (event) => {
-    if (!state.quitRequested && shouldHideMainWindowToTray(browserWindow)) {
+    if (!state.quitRequested && shouldHideMainWindowToTray(browserWindow, 'close')) {
       debounceWindowStatePersist(browserWindow, true);
       event.preventDefault();
       browserWindow.hide();
+      return;
+    }
+
+    const isMainWindow = state.mainWindow && browserWindow.id === state.mainWindow.id;
+    if (!state.quitRequested && isMainWindow && isTrayWindowBehaviorSupported(process.platform)) {
+      debounceWindowStatePersist(browserWindow, true);
+      event.preventDefault();
+      void requestQuitWithConfirmation();
       return;
     }
 
@@ -3652,13 +3685,27 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     }
 
     case 'desktop_set_minimize_to_tray': {
-      if (process.platform !== 'win32' && process.platform !== 'linux') return { supported: false, enabled: false };
+      if (!isTrayWindowBehaviorSupported(process.platform)) return { supported: false, enabled: false };
       const enabled = args.enabled === true;
       await mutateSettingsRoot((root) => {
         root.desktopMinimizeToTrayEnabled = enabled;
       });
       setupTray();
       return readDesktopMinimizeToTrayStatus();
+    }
+
+    case 'desktop_get_close_to_tray': {
+      return readDesktopCloseToTrayStatus();
+    }
+
+    case 'desktop_set_close_to_tray': {
+      if (!isTrayWindowBehaviorSupported(process.platform)) return { supported: false, enabled: false };
+      const enabled = args.enabled === true;
+      await mutateSettingsRoot((root) => {
+        root.desktopCloseToTrayEnabled = enabled;
+      });
+      setupTray();
+      return readDesktopCloseToTrayStatus();
     }
 
     case 'desktop_get_keep_awake': {
@@ -4429,7 +4476,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
 
     case 'desktop_minimize_current_window':
       if (browserWindow && !browserWindow.isDestroyed()) {
-        if (shouldHideMainWindowToTray(browserWindow)) {
+        if (shouldHideMainWindowToTray(browserWindow, 'minimize')) {
           debounceWindowStatePersist(browserWindow, true);
           browserWindow.hide();
         } else {

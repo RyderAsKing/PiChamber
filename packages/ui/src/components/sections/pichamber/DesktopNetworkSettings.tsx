@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
 import {
+  getDesktopCloseToTray,
   getDesktopLanAddress,
   getDesktopKeepAwake,
   getDesktopLaunchAtLogin,
@@ -11,6 +12,7 @@ import {
   isDesktopLocalOriginActive,
   isDesktopShell,
   restartDesktopApp,
+  setDesktopCloseToTray,
   setDesktopKeepAwake,
   setDesktopLaunchAtLogin,
   setDesktopMinimizeToTray,
@@ -45,6 +47,9 @@ export const DesktopNetworkSettings: React.FC = () => {
   const [minimizeToTraySupported, setMinimizeToTraySupported] = React.useState(false);
   const [minimizeToTrayEnabled, setMinimizeToTrayEnabled] = React.useState(false);
   const [isSavingMinimizeToTray, setIsSavingMinimizeToTray] = React.useState(false);
+  const [closeToTraySupported, setCloseToTraySupported] = React.useState(false);
+  const [closeToTrayEnabled, setCloseToTrayEnabled] = React.useState(true);
+  const [isSavingCloseToTray, setIsSavingCloseToTray] = React.useState(false);
   const [savedMacMenuBarEnabled, setSavedMacMenuBarEnabled] = React.useState(true);
   const [draftMacMenuBarEnabled, setDraftMacMenuBarEnabled] = React.useState(true);
   const [keepAwakeSupported, setKeepAwakeSupported] = React.useState(false);
@@ -146,6 +151,27 @@ export const DesktopNetworkSettings: React.FC = () => {
       }
       setMinimizeToTraySupported(status?.supported === true);
       setMinimizeToTrayEnabled(status?.enabled === true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLocalDesktop]);
+
+  React.useEffect(() => {
+    if (!isLocalDesktop) {
+      setCloseToTraySupported(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const status = await getDesktopCloseToTray();
+      if (cancelled) {
+        return;
+      }
+      setCloseToTraySupported(status?.supported === true);
+      setCloseToTrayEnabled(status?.enabled === true);
     })();
 
     return () => {
@@ -275,6 +301,33 @@ export const DesktopNetworkSettings: React.FC = () => {
     }
   }, [isSavingMinimizeToTray, minimizeToTrayEnabled, minimizeToTraySupported]);
 
+  const handleCloseToTrayToggle = React.useCallback(async () => {
+    if (!closeToTraySupported || isSavingCloseToTray) {
+      return;
+    }
+
+    const nextValue = !closeToTrayEnabled;
+    setCloseToTrayEnabled(nextValue);
+    setIsSavingCloseToTray(true);
+    setError(null);
+
+    try {
+      const status = await setDesktopCloseToTray(nextValue);
+      if (!status) {
+        throw new Error("Failed to update close behavior");
+      }
+      if (!status.supported) {
+        throw new Error("Closing to the system tray is not supported on this system");
+      }
+      setCloseToTrayEnabled(status.enabled);
+    } catch (cause) {
+      setCloseToTrayEnabled(!nextValue);
+      setError(cause instanceof Error ? cause.message : "Failed to update close behavior");
+    } finally {
+      setIsSavingCloseToTray(false);
+    }
+  }, [closeToTrayEnabled, closeToTraySupported, isSavingCloseToTray]);
+
   const handleKeepAwakeToggle = React.useCallback(async () => {
     if (!keepAwakeSupported || isSavingKeepAwake) {
       return;
@@ -346,7 +399,7 @@ export const DesktopNetworkSettings: React.FC = () => {
   return (
     <SettingsSection title={"Desktop Network Access"}>
       <div className="space-y-3">
-        {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || keepAwakeSupported) ? (
+        {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || closeToTraySupported || keepAwakeSupported) ? (
           <div className={SETTINGS_OPTION_STACK_CLASS}>
             {launchAtLoginSupported ? (
               <SettingsCheckboxRow
@@ -384,9 +437,24 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleMinimizeToTrayToggle();
                 }}
                 disabled={isSavingMinimizeToTray}
-                label={"Minimize and close to the system tray"}
-                info={"Keeps PiChamber running in the system tray when the main window is minimized or closed."}
-                ariaLabel={"Minimize and close PiChamber to the system tray"}
+                label={"Minimize to the system tray"}
+                info={"Hides PiChamber in the system tray instead of leaving it in the taskbar when you minimize the window."}
+                ariaLabel={"Minimize PiChamber to the system tray"}
+              />
+            ) : null}
+
+            {closeToTraySupported ? (
+              <SettingsCheckboxRow
+                settingsItem="sessions.desktop-close-to-tray"
+                checked={closeToTrayEnabled}
+                onChange={(checked) => {
+                  if (checked === closeToTrayEnabled) return;
+                  void handleCloseToTrayToggle();
+                }}
+                disabled={isSavingCloseToTray}
+                label={"Close to the system tray"}
+                info={"Keeps PiChamber running in the system tray when you close the main window. Turn this off to quit the app when the window closes."}
+                ariaLabel={"Close PiChamber to the system tray"}
               />
             ) : null}
 
