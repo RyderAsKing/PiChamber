@@ -137,10 +137,15 @@ export class TerminalTransport {
 
   async write(sessionId: string, data: string): Promise<void> {
     if (!data) return;
+    // Never replay input when a transport replacement interrupts the write.
+    const writeGeneration = this.generation;
+    const isReplaced = (): boolean => this.disposed || writeGeneration !== this.generation;
     await this.ensureConnected();
+    if (isReplaced()) throw new Error('Terminal runtime changed');
     if (this.send({ t: 'write', v: 3, s: sessionId, d: data })) return;
     this.closeSocket();
     await this.ensureConnected();
+    if (isReplaced()) throw new Error('Terminal runtime changed');
     if (!this.send({ t: 'write', v: 3, s: sessionId, d: data })) throw new Error('Terminal connection is unavailable');
   }
 
@@ -351,6 +356,31 @@ export class TerminalTransport {
 
 let transport = new TerminalTransport();
 
+// Mounted terminal views use this generation to reject stale callbacks and
+// reattach PTYs after the singleton transport is replaced.
+let terminalTransportGeneration = 0;
+const terminalGenerationListeners = new Set<() => void>();
+
+export const getTerminalTransportGeneration = (): number => terminalTransportGeneration;
+
+export const subscribeTerminalTransportGeneration = (listener: () => void): (() => void) => {
+  terminalGenerationListeners.add(listener);
+  return () => {
+    terminalGenerationListeners.delete(listener);
+  };
+};
+
+const bumpTerminalTransportGeneration = (): void => {
+  terminalTransportGeneration += 1;
+  for (const listener of [...terminalGenerationListeners]) {
+    try {
+      listener();
+    } catch {
+      // A listener throwing must not break transport replacement.
+    }
+  }
+};
+
 export async function createTerminalSession(options: CreateTerminalOptions): Promise<TerminalSession> {
   const response = await runtimeFetch('/api/terminal/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(options) });
   if (!response.ok) throw await responseError(response, 'Failed to create terminal session');
@@ -390,4 +420,8 @@ export async function forceKillTerminal(options: { sessionId?: string; cwd?: str
     for (const sessionId of result.killedSessionIds) if (typeof sessionId === 'string') transport.forget(sessionId);
   } else if (options.sessionId) transport.forget(options.sessionId);
 }
-export function disposeTerminalInputTransport(): void { transport.dispose(); transport = new TerminalTransport(); }
+export function resetTerminalTransport(): void {
+  transport.dispose();
+  transport = new TerminalTransport();
+  bumpTerminalTransportGeneration();
+}

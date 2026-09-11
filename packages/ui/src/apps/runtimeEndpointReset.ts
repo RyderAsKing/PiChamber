@@ -1,5 +1,5 @@
 import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
-import { disposeTerminalInputTransport } from '@/lib/terminalApi';
+import { resetTerminalTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -22,23 +22,19 @@ import { resetSessionOrdering } from '@/sync/session-ordering';
 import { resetSessionActivityTiming } from '@/sync/session-activity-timing';
 import { updateBrowserURL } from '@/lib/router';
 
-// Same-device transport switch (LAN⇄relay for one paired device): rebind the Pi transport
-// to the new transport WITHOUT tearing down connection/session state or remounting
-// the sync layer. `reconnectToRuntimeBaseUrl` swaps in a fresh Pi transport; the
-// caller then forces a re-render so PiSessionProvider receives it as a new `sdk` prop,
-// which re-runs its event-pipeline + bootstrap effects (keyed on `sdk`) to
-// reconnect over the new transport IN PLACE. Message-pagination refs, the open
-// session, and the whole view are preserved — no reconnecting screen, no flash,
-// no bounce back to the draft.
+// A same-device LAN⇄relay switch preserves the mounted sync and terminal state.
+// Resetting the terminal transport prompts mounted views to reattach their PTYs.
 export const reconnectAppForTransportSwitch = (): void => {
-  disposeTerminalInputTransport();
+  resetTerminalTransport();
 };
 
 export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedDetail): void => {
   useSessionUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
   useUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
-  disposeTerminalInputTransport();
+  // Clear ownership before the generation bump so mounted views cannot attach
+  // an old PTY ID on the new runtime.
   useTerminalStore.getState().clearAll();
+  resetTerminalTransport();
   // The previous runtime's cwd is not meaningful on the new host (for
   // example, a Windows path must never be sent to a WSL daemon). Clear it
   // before the new runtime's settings/project snapshot is applied.

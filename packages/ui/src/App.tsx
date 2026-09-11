@@ -7,6 +7,7 @@ import { RuntimeAPIProvider } from '@/contexts/RuntimeAPIProvider';
 import { getRegisteredRuntimeAPIs, registerRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { SyncAppEffects } from '@/apps/AppEffects';
 import { resetAppForRuntimeEndpointChange } from '@/apps/runtimeEndpointReset';
+import { resetTerminalTransport } from '@/lib/terminalApi';
 import { useAppFontEffects } from '@/apps/useAppFontEffects';
 import { PiSessionProvider } from '@/sync/pi-session-context';
 import { FireworksProvider } from '@/contexts/FireworksContext';
@@ -41,10 +42,12 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
 
   React.useEffect(() => {
     return subscribeRuntimeEndpointChanged((detail) => {
-      // A LAN↔relay change for the same instance only changes transport. The
-      // session store reconnects in place; a different runtime needs a full
-      // store reset so paths, sessions, and provider state cannot cross hosts.
-      if (detail.runtimeKey === detail.previousRuntimeKey) return;
+      // A same-runtime LAN↔relay change keeps session and terminal state.
+      // A different runtime clears state so IDs and paths cannot cross hosts.
+      if (detail.runtimeKey === detail.previousRuntimeKey) {
+        resetTerminalTransport();
+        return;
+      }
       resetAppForRuntimeEndpointChange(detail);
       setRuntimeEndpointEpoch((epoch) => epoch + 1);
     });
