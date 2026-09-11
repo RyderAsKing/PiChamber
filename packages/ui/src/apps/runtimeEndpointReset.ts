@@ -1,5 +1,5 @@
 import type { RuntimeEndpointChangedDetail } from '@/lib/runtime-switch';
-import { disposeTerminalInputTransport } from '@/lib/terminalApi';
+import { resetTerminalTransport } from '@/lib/terminalApi';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -30,15 +30,30 @@ import { updateBrowserURL } from '@/lib/router';
 // reconnect over the new transport IN PLACE. Message-pagination refs, the open
 // session, and the whole view are preserved — no reconnecting screen, no flash,
 // no bounce back to the draft.
+//
+// Terminal: resetting the transport bumps the explicit terminal generation
+// (see terminalApi). Mounted terminal consumers reattach the SAME runtime's
+// SAME PTY IDs once per generation — never recreating or killing the PTY.
+// Tabs, scrollback buffers, viewport dims, and xterm selection stay owned by
+// the terminal store/viewport refs and are preserved here. Auth/URL/relay
+// routing is unchanged (shared runtime-auth + resolver + openRuntimeWebSocket).
+// Pending input sent while the socket is down is dropped, not replayed.
 export const reconnectAppForTransportSwitch = (): void => {
-  disposeTerminalInputTransport();
+  resetTerminalTransport();
 };
 
 export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedDetail): void => {
   useSessionUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
   useUIStore.getState().prepareForRuntimeSwitch(detail.previousRuntimeKey);
-  disposeTerminalInputTransport();
+  // Different runtime: never reuse old PTY IDs. Clear tabs/buffers BEFORE
+  // bumping the terminal generation: the generation handler checks store
+  // ownership synchronously, so clearing first prevents reattaching old IDs
+  // on the new runtime. Resetting then bumps the generation (rejecting late
+  // callbacks/data from the old transport). A same-ID PTY on the new runtime
+  // is a different PTY. Listeners/timers of the old transport are released
+  // by dispose().
   useTerminalStore.getState().clearAll();
+  resetTerminalTransport();
   // The previous runtime's cwd is not meaningful on the new host (for
   // example, a Windows path must never be sent to a WSL daemon). Clear it
   // before the new runtime's settings/project snapshot is applied.

@@ -137,10 +137,20 @@ export class TerminalTransport {
 
   async write(sessionId: string, data: string): Promise<void> {
     if (!data) return;
+    // Drop pending input across a transport replacement instead of replaying
+    // it on the new socket: capture the generation and reject the write when
+    // a same-runtime switch (or different-runtime reset) intervened while the
+    // dial was in flight. Ordinary hidden/offline reconnect keeps its backoff
+    // in scheduleReconnect; this guard only rejects writes that straddled a
+    // replacement.
+    const writeGeneration = this.generation;
+    const isReplaced = (): boolean => this.disposed || writeGeneration !== this.generation;
     await this.ensureConnected();
+    if (isReplaced()) throw new Error('Terminal runtime changed');
     if (this.send({ t: 'write', v: 3, s: sessionId, d: data })) return;
     this.closeSocket();
     await this.ensureConnected();
+    if (isReplaced()) throw new Error('Terminal runtime changed');
     if (!this.send({ t: 'write', v: 3, s: sessionId, d: data })) throw new Error('Terminal connection is unavailable');
   }
 
@@ -351,6 +361,37 @@ export class TerminalTransport {
 
 let transport = new TerminalTransport();
 
+// Explicit terminal generation: bumped every time the underlying transport is
+// replaced (same-runtime transport switch or different-runtime switch).
+// Mounted consumers reattach same-runtime PTYs once per generation; stale
+// callbacks/connect/data from the previous transport are rejected by
+// generation guards in the UI layer. The generation never recreates or kills
+// PTYs itself — tabs, scrollback, and dims stay owned by the terminal store
+// and viewport refs. Auth/URL/relay routing is unchanged (shared
+// runtime-auth + resolver + openRuntimeWebSocket).
+let terminalTransportGeneration = 0;
+const terminalGenerationListeners = new Set<() => void>();
+
+export const getTerminalTransportGeneration = (): number => terminalTransportGeneration;
+
+export const subscribeTerminalTransportGeneration = (listener: () => void): (() => void) => {
+  terminalGenerationListeners.add(listener);
+  return () => {
+    terminalGenerationListeners.delete(listener);
+  };
+};
+
+const bumpTerminalTransportGeneration = (): void => {
+  terminalTransportGeneration += 1;
+  for (const listener of [...terminalGenerationListeners]) {
+    try {
+      listener();
+    } catch {
+      // A listener throwing must not break transport replacement.
+    }
+  }
+};
+
 export async function createTerminalSession(options: CreateTerminalOptions): Promise<TerminalSession> {
   const response = await runtimeFetch('/api/terminal/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(options) });
   if (!response.ok) throw await responseError(response, 'Failed to create terminal session');
@@ -390,4 +431,15 @@ export async function forceKillTerminal(options: { sessionId?: string; cwd?: str
     for (const sessionId of result.killedSessionIds) if (typeof sessionId === 'string') transport.forget(sessionId);
   } else if (options.sessionId) transport.forget(options.sessionId);
 }
-export function disposeTerminalInputTransport(): void { transport.dispose(); transport = new TerminalTransport(); }
+export function resetTerminalTransport(): void {
+  transport.dispose();
+  transport = new TerminalTransport();
+  // Same-runtime reattach and different-runtime reset both observe this:
+  // mounted streams resubscribe once (same runtime, same PTY IDs) while
+  // late callbacks from the disposed transport are ignored. Tabs,
+  // scrollback, and viewport dims are preserved by their owners — this only
+  // swaps the socket. Listeners/timers of the old transport were released
+  // by dispose(). Auth/URL/relay routing stays centralized in the default
+  // transport dependencies (runtime-auth + resolver + openRuntimeWebSocket).
+  bumpTerminalTransportGeneration();
+}

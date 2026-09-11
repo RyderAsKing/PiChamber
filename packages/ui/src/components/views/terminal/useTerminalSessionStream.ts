@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import type { TerminalStreamEvent, TerminalAPI, TerminalError, TerminalShell } from '@/lib/api/types';
+import { getTerminalTransportGeneration, subscribeTerminalTransportGeneration } from '@/lib/terminalApi';
 import { TerminalPreviewScanner, FALLBACK_TERMINAL_SIZE } from './terminalStreamHelpers';
 
 type TabIdentity = {
@@ -60,6 +61,18 @@ export function useTerminalSessionStream({
   const lastViewportSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
   const pendingTerminalCreatesRef = React.useRef(new Set<string>());
   const previewScannersRef = React.useRef(new Map<string, TerminalPreviewScanner>());
+  // Latest mount inputs for the transport-generation handler below. The
+  // handler must reattach the CURRENT tabs once per generation — never a
+  // stale closure — while tabs/scrollback/dims/selection stay owned by the
+  // store and viewport refs (no PTY restart, no buffer clear, no remount).
+  const tabsRef = React.useRef(tabs);
+  const hydratedRef = React.useRef(terminalHydrated);
+  const viewportOpenRef = React.useRef(hasOpenedTerminalViewport);
+  const terminalRef = React.useRef(terminal);
+  tabsRef.current = tabs;
+  hydratedRef.current = terminalHydrated;
+  viewportOpenRef.current = hasOpenedTerminalViewport;
+  terminalRef.current = terminal;
 
   const resetTerminalPreviewScan = React.useCallback(() => {
     const tabId = activeTabIdRef.current;
@@ -123,9 +136,19 @@ export function useTerminalSessionStream({
         return;
       }
 
+      // Explicit generation: reject old data/open/connect after a transport
+      // replacement. Events from the previous transport (same PTY ID, old
+      // socket) are dropped; only the current generation may write buffers.
+      const streamGeneration = getTerminalTransportGeneration();
+      const isCurrentStream = (): boolean =>
+        getTerminalTransportGeneration() === streamGeneration &&
+        directoryRef.current === directory &&
+        useTerminalStore.getState().getDirectoryState(directory)?.tabs.find((t) => t.id === tabId)
+          ?.terminalSessionId === terminalId;
+
       const subscription = terminal.connect(terminalId, {
         onEvent: (event: TerminalStreamEvent) => {
-          if (directoryRef.current !== directory) return;
+          if (!isCurrentStream()) return;
 
           switch (event.type) {
             case 'snapshot': {
@@ -189,7 +212,7 @@ export function useTerminalSessionStream({
           }
         },
         onError: (error: TerminalError, fatal?: boolean) => {
-          if (directoryRef.current !== directory) return;
+          if (!isCurrentStream()) return;
           const isActive = activeTabIdRef.current === tabId;
 
           if (!fatal) {
@@ -268,6 +291,75 @@ export function useTerminalSessionStream({
       }
     }
   }, [tabsKey, tabs, effectiveDirectory, terminalHydrated, hasOpenedTerminalViewport, startStream]);
+
+  // Same-runtime endpoint/transport switch: reattach existing server PTYs
+  // exactly once per generation. Tabs, scrollback, dims, and xterm selection
+  // stay owned by the store/viewport (no PTY restart, no buffer clear, no
+  // remount). Different-runtime switches cleared the store, so there is
+  // nothing to reattach — same-ID PTYs on the new runtime are never adopted.
+  // Pending input during the gap is dropped via isReconnectPending; ordinary
+  // hidden/offline backoff stays inside the transport. Old data/open/connect
+  // after replacement is rejected by the generation guard in startStream.
+  React.useEffect(() => {
+    const unsubscribeGeneration = subscribeTerminalTransportGeneration(() => {
+      if (!hydratedRef.current || !viewportOpenRef.current) return;
+      const directory = directoryRef.current;
+      if (!directory) return;
+      // Old transport is disposed: its unsubscribes are no-ops, so drop them
+      // without invoking stale closures, then resubscribe the current tabs.
+      subscriptionsRef.current.clear();
+      activeTerminalIdRef.current = null;
+      const currentTabs = tabsRef.current;
+      const currentTerminal = terminalRef.current;
+      if (!currentTerminal) return;
+      let needsReattach = false;
+      const ownedTabs: typeof currentTabs = [];
+      for (const tab of currentTabs) {
+        if (!tab.terminalSessionId) continue;
+        // Never attach IDs the store no longer owns (different-runtime clear
+        // or tab close/reassign raced the switch).
+        const owned = useTerminalStore
+          .getState()
+          .getDirectoryState(directory)
+          ?.tabs.find((t) => t.id === tab.id)?.terminalSessionId;
+        if (owned !== tab.terminalSessionId) continue;
+        ownedTabs.push(tab);
+        needsReattach = true;
+        try {
+          startStream(directory, tab.id, tab.terminalSessionId);
+        } catch {
+          /* reattach is best-effort; snapshot arrival clears the pending flag */
+        }
+      }
+      if (needsReattach) {
+        // Drop input typed during the disconnected interval; the active tab's
+        // snapshot clears this. Scrollback is not duplicated: replaceBuffer
+        // deduplicates by sequence and the store ignores stale sequences.
+        setIsReconnectPending(true);
+        setConnectionError(null);
+        setIsFatalError(false);
+        // Re-assert the last known viewport dims on the reattached PTYs. The
+        // server kept the PTY; this only repairs dims that changed mid-gap.
+        // Resize rides runtimeFetch (centralized auth), not the WS.
+        const size = lastViewportSizeRef.current;
+        if (size) {
+          // Resize only PTYs the store still owns. currentTabs may be stale
+          // (clearAll() ran before this synchronous bump without a
+          // re-render), so reusing it here would send old IDs to a different
+          // runtime. ownedTabs passed the same ownership check as reattach.
+          for (const tab of ownedTabs) {
+            if (!tab.terminalSessionId) continue;
+            void currentTerminal
+              .resize({ sessionId: tab.terminalSessionId, ...size })
+              .catch(() => {});
+          }
+        }
+      }
+    });
+    return () => {
+      unsubscribeGeneration();
+    };
+  }, [startStream]);
 
   React.useEffect(() => {
     let cancelled = false;
