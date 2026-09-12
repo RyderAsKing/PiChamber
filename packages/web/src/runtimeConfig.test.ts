@@ -19,10 +19,10 @@ vi.mock('@pichamber/ui/lib/desktopRelayRestore', () => ({ restoreDesktopRelayRun
 vi.mock('@pichamber/ui/lib/runtime-url', () => ({ configureRuntimeUrlResolver: vi.fn(() => ({})) }));
 vi.mock('./api', () => ({ createWebAPIs: vi.fn() }));
 
-import { setRuntimeBearerToken, setRuntimeExtraHeaders } from '@pichamber/ui/lib/runtime-auth';
+import { refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@pichamber/ui/lib/runtime-auth';
 import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
 import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
-import { createConfiguredWebAPIs, readRuntimeBootstrapConfig } from './runtimeConfig';
+import { createConfiguredWebAPIs, getDesktopRelayRestoreReady, readRuntimeBootstrapConfig } from './runtimeConfig';
 
 const originalWindow = globalThis.window;
 
@@ -93,6 +93,25 @@ describe('readRuntimeBootstrapConfig', () => {
 });
 
 describe('createConfiguredWebAPIs', () => {
+  test('waits for desktop credential restore before minting a URL token', async () => {
+    let finishRestore!: () => void;
+    const restoring = new Promise<void>((resolve) => { finishRestore = resolve; });
+    vi.mocked(restoreDesktopRelayRuntime).mockReturnValueOnce(restoring);
+
+    createConfiguredWebAPIs({
+      apiBaseUrl: 'http://127.0.0.1:10000',
+      clientToken: '',
+      localOrigin: 'http://127.0.0.1:10000',
+      relayHostId: '',
+    });
+
+    expect(refreshRuntimeUrlAuthToken).not.toHaveBeenCalled();
+    finishRestore();
+    await getDesktopRelayRestoreReady();
+    await Promise.resolve();
+    expect(refreshRuntimeUrlAuthToken).toHaveBeenCalledOnce();
+  });
+
   test('applies an explicit runtime bootstrap before restoring its relay host', () => {
     const bootstrap = {
       apiBaseUrl: 'https://remote.example.com',

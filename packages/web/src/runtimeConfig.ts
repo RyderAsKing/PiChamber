@@ -1,6 +1,6 @@
 import { getRuntimeExtraHeadersSync, refreshLocalRuntimeUrlAuthToken, refreshRuntimeUrlAuthToken, setRuntimeBearerToken, setRuntimeExtraHeaders } from '@pichamber/ui/lib/runtime-auth';
 import { installRuntimeFetchBridge } from '@pichamber/ui/lib/runtime-fetch';
-import { initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
+import { getRuntimeApiBaseUrl, initializeRuntimeEndpoint, switchRuntimeEndpoint } from '@pichamber/ui/lib/runtime-switch';
 import { restoreDesktopRelayRuntime } from '@pichamber/ui/lib/desktopRelayRestore';
 import { configureRuntimeUrlResolver } from '@pichamber/ui/lib/runtime-url';
 import type { RelayRuntimeDescriptor } from '@pichamber/ui/lib/relay/runtime-tunnel';
@@ -73,10 +73,6 @@ export const createConfiguredWebAPIs = (bootstrap?: RuntimeBootstrapConfig | nul
       relay,
     });
   }
-  void refreshRuntimeUrlAuthToken(apiBaseUrl || undefined).catch(() => {});
-  if (localOrigin && !sameOrigin(apiBaseUrl, localOrigin) && Object.keys(getRuntimeExtraHeadersSync()).length > 0) {
-    void refreshLocalRuntimeUrlAuthToken(localOrigin).catch(() => {});
-  }
   installRuntimeFetchBridge();
   // Desktop only: reconnect a relay-capable host now that the fetch bridge is
   // installed — either the host this window was opened for (injected id) or the
@@ -91,5 +87,14 @@ export const createConfiguredWebAPIs = (bootstrap?: RuntimeBootstrapConfig | nul
         // Never hold the app hostage: a stuck probe/tunnel gives up to the UI.
         new Promise<void>((resolve) => { window.setTimeout(resolve, 10_000); }),
       ]);
+  // Electron may replace an injected stale token or select another host during
+  // restore. Mint only after that decision so the request reaches the active
+  // endpoint with the active credential instead of producing a startup 401.
+  void desktopRelayRestoreReady.then(() => {
+    void refreshRuntimeUrlAuthToken(getRuntimeApiBaseUrl() || undefined).catch(() => {});
+    if (localOrigin && !sameOrigin(apiBaseUrl, localOrigin) && Object.keys(getRuntimeExtraHeadersSync()).length > 0) {
+      void refreshLocalRuntimeUrlAuthToken(localOrigin).catch(() => {});
+    }
+  });
   return createWebAPIs({ urls });
 };
