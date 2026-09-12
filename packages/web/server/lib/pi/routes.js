@@ -293,6 +293,9 @@ const projectSessionDetail = (value) => {
     ...(compaction ? { compaction } : {}),
     ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
     ...(Number.isFinite(value.serverNow) ? { serverNow: Math.floor(value.serverNow) } : {}),
+    ...(typeof value.streamEpoch === 'string' && value.streamEpoch.length > 0 && value.streamEpoch.length <= 128
+      ? { streamEpoch: value.streamEpoch }
+      : {}),
     ...projectExtensionSnapshotState(value),
   };
 };
@@ -542,7 +545,13 @@ export const projectEventFrame = (frame) => {
   if (!frame || frame.kind !== 'event' || typeof frame.event !== 'string' || !Number.isSafeInteger(frame.sequence)
     || !frame.payload || typeof frame.payload.sessionId !== 'string' || typeof frame.payload.directory !== 'string') return null;
   const { sessionId, directory } = frame.payload;
-  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory };
+  // The daemon's opaque stream-lifetime id. Passed through verbatim so clients
+  // can detect a daemon restart (sequence space reset) and reject stale-epoch
+  // events; old daemons omit it and the field stays undefined.
+  const streamEpoch = typeof frame.streamEpoch === 'string' && frame.streamEpoch.length > 0 && frame.streamEpoch.length <= 128
+    ? frame.streamEpoch
+    : undefined;
+  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory, ...(streamEpoch ? { streamEpoch } : {}) };
   switch (frame.event) {
     case 'session.snapshot': {
       const snapshot = frame.payload;
@@ -563,6 +572,7 @@ export const projectEventFrame = (frame) => {
         ...(Number.isFinite(snapshot.runStartedAt) ? { runStartedAt: Math.floor(snapshot.runStartedAt) } : {}),
         ...(Number.isFinite(snapshot.serverNow) ? { serverNow: Math.floor(snapshot.serverNow) } : {}),
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
+        ...(snapshot.resync === true ? { resync: true } : {}),
         ...extensionSnapshot,
       } } };
     }
@@ -905,6 +915,7 @@ export const registerPiRuntimeRoutes = (app, {
         protocolVersion: health.protocolVersion,
         state: 'ready',
         capabilities: Array.isArray(health.capabilities) ? health.capabilities : [],
+        ...(typeof health.streamEpoch === 'string' && health.streamEpoch ? { streamEpoch: health.streamEpoch } : {}),
       });
     } catch {
       res.status(503).json({ protocolVersion: 1, state: 'unavailable', error: { code: 'DAEMON_UNAVAILABLE' } });
@@ -1414,6 +1425,31 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    // Stream-lifetime identity of the replay cursor (capability negotiation).
+    // Epoch-aware clients stamp their subscribe with the epoch the cursor was
+    // established under; the daemon refuses to replay a cursor from a retired
+    // epoch even when its own sequence numerically overtook it. A marker-less
+    // legacy client without a cursor gets the snapshot baseline (initial
+    // attach with no replay to verify). A legacy client that supplies a
+    // cursor cannot be epoch-verified, so its cursor is rejected fail-visible
+    // instead of claiming a snapshot fallback is safe.
+    const rawStreamEpoch = req.query.streamEpoch;
+    const streamEpoch = typeof rawStreamEpoch === 'string' && rawStreamEpoch.length > 0 && rawStreamEpoch.length <= 128
+      ? rawStreamEpoch
+      : undefined;
+    if (rawStreamEpoch !== undefined && streamEpoch === undefined) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const rawCapabilities = req.query.capabilities;
+    const capabilities = typeof rawCapabilities === 'string' ? rawCapabilities.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(rawCapabilities) ? rawCapabilities.flatMap((v) => String(v).split(',').map((s) => s.trim())).filter(Boolean)
+      : [];
+    const hasEpochCapability = capabilities.includes('events.streamEpoch');
+    if (fromSequence !== undefined && (!hasEpochCapability || streamEpoch === undefined)) {
+      res.status(400).json({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
+      return;
+    }
     let close;
     try {
       const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
@@ -1428,7 +1464,7 @@ export const registerPiRuntimeRoutes = (app, {
         const event = projectEventFrame(frame);
         if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
       };
-      close = await runtime.subscribe({ sessionId, directory, fromSequence, onEvent: send, onError: () => res.end() });
+      close = await runtime.subscribe({ sessionId, directory, fromSequence, streamEpoch, onEvent: send, onError: () => res.end() });
       // Named heartbeat events are visible to native EventSource clients.
       // Comment-only SSE heartbeats keep proxies open but are hidden from the
       // EventSource API, so WKWebView cannot use them to detect a silent link.
@@ -1463,6 +1499,7 @@ export const registerPiRuntimeRoutes = (app, {
       });
       const archived = await archiveStore.read();
       res.json({
+        ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         sessions: projectSessionList(result?.sessions).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),

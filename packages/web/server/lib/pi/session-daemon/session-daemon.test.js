@@ -195,12 +195,12 @@ function connectClient(endpoint) {
 
   return {
     socket,
-    async authenticate(value = credential, { sessionId, fromSequence } = {}) {
+    async authenticate(value = credential, { sessionId, fromSequence, streamEpoch } = {}) {
       await new Promise((resolve, reject) => {
         socket.once('connect', resolve);
         socket.once('error', reject);
       });
-      socket.write(`${JSON.stringify({ kind: 'authenticate', credential: value, ...(sessionId ? { sessionId } : {}), ...(fromSequence !== undefined ? { fromSequence } : {}) })}\n`);
+      socket.write(`${JSON.stringify({ kind: 'authenticate', credential: value, ...(sessionId ? { sessionId } : {}), ...(fromSequence !== undefined ? { fromSequence } : {}), ...(streamEpoch ? { streamEpoch } : {}) })}\n`);
       await next((message) => message.kind === 'authenticated');
       if (fromSequence !== undefined) return undefined;
       return next((message) => message.kind === 'event' && message.event === 'session.snapshot');
@@ -378,12 +378,12 @@ describe('Pi session daemon spike', () => {
     await first.close();
 
     const replay = connectClient(endpoint);
-    await replay.authenticate(credential, { sessionId: 'pi-session-1', fromSequence: snapshot.sequence });
+    await replay.authenticate(credential, { sessionId: 'pi-session-1', fromSequence: snapshot.sequence, streamEpoch: snapshot.streamEpoch });
     await expect(replay.next((frame) => frame.event === 'assistant.message.delta')).resolves.toMatchObject({ sequence: delta.sequence, payload: { delta: 'replay' } });
     await replay.close();
 
     const stale = connectClient(endpoint);
-    await stale.authenticate(credential, { sessionId: 'pi-session-1', fromSequence: 0 });
+    await stale.authenticate(credential, { sessionId: 'pi-session-1', fromSequence: 0, streamEpoch: snapshot.streamEpoch });
     await expect(stale.next((frame) => frame.event === 'session.snapshot')).resolves.toMatchObject({ payload: { lastSequence: expect.any(Number) } });
     await stale.close();
   });
@@ -418,6 +418,7 @@ describe('Pi session daemon spike', () => {
     await late.authenticate(credential, {
       sessionId: 'pi-session-1',
       fromSequence: detail.result.lastSequence,
+      streamEpoch: detail.result.streamEpoch,
     });
     const firstDelta = first.next((frame) => frame.event === 'assistant.message.delta');
     const lateDelta = late.next((frame) => frame.event === 'assistant.message.delta');
@@ -447,6 +448,7 @@ describe('Pi session daemon spike', () => {
     await resumed.authenticate(credential, {
       sessionId: 'pi-session-1',
       fromSequence: lateDeltaFrame.sequence,
+      streamEpoch: detail.result.streamEpoch,
     });
     const resumedEndFrame = await resumed.next((frame) => frame.event === 'assistant.message.end');
     expect(resumedEndFrame.sequence).toBe(firstEndFrame.sequence);

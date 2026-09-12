@@ -495,7 +495,15 @@ export const createPiSessionDaemonSupervisor = ({
         const claimed = await claimDaemonOwnership(credential);
         if (isCompatibleBuild && claimed) {
           const ready = await probe(credential);
-          return { state: 'ready', reused: true, protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
+          return {
+            state: 'ready',
+            reused: true,
+            protocolVersion: PROTOCOL_VERSION,
+            capabilities: ready.health.capabilities ?? [],
+            ...(typeof ready.health.streamEpoch === 'string' && ready.health.streamEpoch.length > 0
+              ? { streamEpoch: ready.health.streamEpoch }
+              : {}),
+          };
         }
         // Replace an older protocol/build, and always replace a development
         // daemon so a source restart cannot keep running stale module code.
@@ -571,7 +579,15 @@ export const createPiSessionDaemonSupervisor = ({
       while (Date.now() < deadline) {
         try {
           const started = await probe(credential);
-          return { state: 'ready', reused: false, protocolVersion: PROTOCOL_VERSION, capabilities: started.health.capabilities ?? [] };
+          return {
+            state: 'ready',
+            reused: false,
+            protocolVersion: PROTOCOL_VERSION,
+            capabilities: started.health.capabilities ?? [],
+            ...(typeof started.health.streamEpoch === 'string' && started.health.streamEpoch.length > 0
+              ? { streamEpoch: started.health.streamEpoch }
+              : {}),
+          };
         } catch (error) {
           if (error instanceof PiSessionDaemonUnavailableError && isPermanentStartupFailure(error.code)) throw error;
           await wait(RETRY_DELAY_MS);
@@ -627,10 +643,10 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
-  const subscribe = async ({ sessionId, fromSequence, onEvent, onError }) => {
+  const subscribe = async ({ sessionId, fromSequence, streamEpoch, onEvent, onError }) => {
     try {
       const { credential } = await ensureReady();
-      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, onEvent, onError });
+      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'
@@ -643,7 +659,14 @@ export const createPiSessionDaemonSupervisor = ({
   const health = async () => {
     try {
       const { ready } = await ensureReady();
-      return { state: 'ready', protocolVersion: PROTOCOL_VERSION, capabilities: ready.health.capabilities ?? [] };
+      return {
+        state: 'ready',
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: ready.health.capabilities ?? [],
+        ...(typeof ready.health.streamEpoch === 'string' && ready.health.streamEpoch.length > 0
+          ? { streamEpoch: ready.health.streamEpoch }
+          : {}),
+      };
     } catch (error) {
       return {
         state: 'unavailable',

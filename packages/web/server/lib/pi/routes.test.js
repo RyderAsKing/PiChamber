@@ -1015,7 +1015,7 @@ describe('Pi runtime route', () => {
     const app = express();
     registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
     server = await listen(app);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=3&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
@@ -1066,6 +1066,30 @@ describe('Pi runtime route', () => {
     expect(text).toContain('event: heartbeat\ndata: {}\n\n');
   });
 
+  it('carries the streamEpoch subscribe marker end-to-end and rejects malformed values', async () => {
+    const seen = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['events.streamEpoch'] }),
+      subscribe: async (options) => {
+        seen.push({ streamEpoch: options.streamEpoch, fromSequence: options.fromSequence });
+        return () => {};
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/events`;
+    const ok = await fetch(`${base}?sessionId=pi-session-5&fromSequence=7&streamEpoch=epoch-abc123&capabilities=events.streamEpoch`);
+    await ok.body.cancel();
+    expect(ok.status).toBe(200);
+    expect(seen[0]).toEqual({ streamEpoch: 'epoch-abc123', fromSequence: 7 });
+
+    const malformed = await fetch(`${base}?streamEpoch=${'x'.repeat(129)}`);
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json()).error?.code).toBe('INVALID_ARGUMENT');
+  });
+
   it('projects session.updated titles onto the public event stream', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
@@ -1083,7 +1107,7 @@ describe('Pi runtime route', () => {
     const app = express();
     registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
     server = await listen(app);
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=7`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-5&fromSequence=7&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = response.body.getReader();
     const first = await reader.read();
     let text = new TextDecoder().decode(first.value);
@@ -1140,7 +1164,7 @@ describe('Pi runtime route', () => {
     const detailBody = await detail.json();
     expect(detailBody.messages[0].message.usage).toEqual(sampleUsage);
 
-    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage&fromSequence=0`);
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage&fromSequence=0&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = events.body.getReader();
     const first = await reader.read();
     const text = new TextDecoder().decode(first.value);
@@ -1201,7 +1225,7 @@ describe('Pi runtime route', () => {
     expect(detailBody.messages[0].message.usage).toBeUndefined();
     expect(detailBody.messages[1].message.usage).toBeUndefined();
 
-    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage-malformed&fromSequence=0`);
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?sessionId=pi-session-usage-malformed&fromSequence=0&capabilities=events.streamEpoch&streamEpoch=epoch-test`);
     const reader = events.body.getReader();
     const first = await reader.read();
     const text = new TextDecoder().decode(first.value);

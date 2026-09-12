@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { requestSessionDaemon } from './ipc-client.js';
+import { requestSessionDaemon, subscribeSessionDaemon } from './ipc-client.js';
 import { SESSION_DAEMON_MAX_FRAME_BYTES } from './ipc-protocol.js';
 
 const credential = 'test-private-credential';
@@ -85,4 +85,70 @@ describe('session daemon IPC client framing', () => {
     await expect(requestSessionDaemon({ endpoint, credential, command: 'runtime.health' }))
       .resolves.toEqual({ ok: true });
   });
+
+  it('stamps the subscribe authenticate frame with the cursor streamEpoch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-ipc-client-'));
+    roots.push(root);
+    const endpoint = endpointFor(root);
+    let seenAuthenticate;
+    const peers = new Set();
+    const server = createServer((socket) => {
+      peers.add(socket);
+      socket.on('error', () => {});
+      socket.on('close', () => peers.delete(socket));
+      let buffer = '';
+      socket.on('data', (chunk) => {
+        buffer += chunk.toString('utf8');
+        while (buffer.includes('\n')) {
+          const newline = buffer.indexOf('\n');
+          const line = buffer.slice(0, newline);
+          buffer = buffer.slice(newline + 1);
+          if (!line) continue;
+          const frame = JSON.parse(line);
+          if (frame.kind === 'authenticate') {
+            seenAuthenticate = frame;
+            socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'authenticated' })}\n`);
+            socket.write(`${JSON.stringify({
+              protocolVersion: 1,
+              kind: 'event',
+              event: 'session.snapshot',
+              sequence: 0,
+              streamEpoch: 'epoch-abc123',
+            })}\n`);
+          }
+        }
+      });
+    });
+    servers.push(server);
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ path: endpoint }, resolve);
+    });
+
+    const events = [];
+    const close = subscribeSessionDaemon({
+      endpoint,
+      credential,
+      sessionId: 'pi-session-1',
+      fromSequence: 7,
+      streamEpoch: 'epoch-abc123',
+      onEvent: (event) => events.push(event),
+      onError: () => {},
+    });
+    try {
+      for (let attempt = 0; attempt < 50 && events.length === 0; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(seenAuthenticate).toMatchObject({
+        credential,
+        sessionId: 'pi-session-1',
+        fromSequence: 7,
+        streamEpoch: 'epoch-abc123',
+      });
+      expect(events[0]).toMatchObject({ kind: 'event', streamEpoch: 'epoch-abc123' });
+    } finally {
+      close();
+      for (const peer of peers) peer.destroy();
+    }
+  }, 20_000);
 });

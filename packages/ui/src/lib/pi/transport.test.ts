@@ -320,3 +320,187 @@ describe("createPiEventStream", () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Stream-epoch cursor (finding #1: restart-safe stream epoch)
+// ---------------------------------------------------------------------------
+
+const epochEvent = (sequence: number, streamEpoch: string) => ({
+  ...event(sequence),
+  streamEpoch,
+})
+
+const jsonResponse = (body: unknown, status = 200): Response =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+
+describe("createPiEventStream epoch negotiation", () => {
+  beforeEach(() => {
+    runtimeKey = "runtime-a"
+    capacitor = false
+    streamUrls.length = 0
+    runtimeFetch.mockReset()
+    refreshRuntimeUrlAuthToken.mockReset()
+    openRuntimeWebSocket.mockReset()
+  })
+
+  test("stamps the subscribe query with the capability marker and the cursor epoch", async () => {
+    const encoder = new TextEncoder()
+    runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event(8))}\n\n`))
+      },
+    })))
+    const handle = (await import("./transport")).createPiEventStream({
+      onEvent: () => {},
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a" })
+
+    await flush()
+    const query = streamUrls[0]?.query
+    expect(query?.capabilities).toBe("events.streamEpoch")
+    expect(query?.streamEpoch).toBe("epoch-a")
+    expect(query?.fromSequence).toBe("7")
+    handle.dispose()
+  })
+
+  test("verifies a foreign epoch with an authoritative health probe before adopting it", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let healthCalls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        healthCalls += 1
+        return jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: Array<{ sequence: number; streamEpoch?: string }> = []
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push({ sequence: frame.sequence, streamEpoch: frame.streamEpoch }),
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    // A frame from a foreign epoch is not adopted from the wire alone.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-b"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(epochs).toEqual(["epoch-b"])
+    expect(received).toEqual([{ sequence: 8, streamEpoch: "epoch-b" }])
+
+    // The retired epoch re-appearing on the wire is dropped without probing.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(9, "epoch-a"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(received).toEqual([{ sequence: 8, streamEpoch: "epoch-b" }])
+
+    // Current-epoch frames flow normally; the next subscribe identity is
+    // the adopted epoch, not the retired one.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(10, "epoch-b"))}\n\n`))
+    await flush()
+    expect(received).toEqual([
+      { sequence: 8, streamEpoch: "epoch-b" },
+      { sequence: 10, streamEpoch: "epoch-b" },
+    ])
+    handle.reconnect()
+    // The reconnect runs after the base backoff (~250ms + jitter).
+    const queriesBefore = streamUrls.length
+    let reconnected = false
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      if (streamUrls.length > queriesBefore) {
+        reconnected = true
+        break
+      }
+    }
+    expect(reconnected).toBe(true)
+    const latestQuery = streamUrls[streamUrls.length - 1]?.query
+    expect(latestQuery?.streamEpoch).toBe("epoch-b")
+    expect(latestQuery?.fromSequence).toBe("10")
+    handle.dispose()
+  })
+
+  test("rejects a foreign epoch that authoritative health contradicts, without disconnecting", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    let healthCalls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        healthCalls += 1
+        return jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-a" })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: number[] = []
+    const epochs: string[] = []
+    const disconnects: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+      onEpochChange: (epoch) => epochs.push(epoch),
+      onDisconnect: (reason) => disconnects.push(reason),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    // Stale frame stamped with a retired epoch: dropped, no adoption, and
+    // the healthy stream is not torn down.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(99, "epoch-old"))}\n\n`))
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(99, "epoch-old"))}\n\n`))
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(epochs).toEqual([])
+    expect(received).toEqual([])
+    expect(disconnects).toEqual([])
+    // Current-epoch frames still flow.
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-a"))}\n\n`))
+    await flush()
+    expect(received).toEqual([8])
+    handle.dispose()
+  })
+
+  test("drops an unverifiable foreign epoch and re-establishes the stream", async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        return jsonResponse({ state: "unavailable", protocolVersion: 1, error: { code: "DAEMON_UNAVAILABLE" } })
+      }
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+
+    const received: number[] = []
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push(frame.sequence),
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    controllers[0]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(8, "epoch-b"))}\n\n`))
+    await flush()
+    await flush()
+    // No adoption without authoritative confirmation; the transport
+    // reconnects under a fresh health gate instead.
+    expect(epochs).toEqual([])
+    expect(received).toEqual([])
+    expect(runtimeFetch.mock.calls.filter((call: unknown[]) => call[0] === "/api/pi/events").length).toBeGreaterThanOrEqual(2)
+    handle.dispose()
+  })
+})

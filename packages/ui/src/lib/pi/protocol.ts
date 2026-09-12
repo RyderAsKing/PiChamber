@@ -39,6 +39,13 @@ import type {
 /** Public PiChamber protocol version. Bumped in lockstep with the daemon. */
 export const PI_PUBLIC_PROTOCOL_VERSION = 1 as const;
 
+/** Capability advertised by runtimes whose event stream carries a
+ *  restart-safe `streamEpoch` (an opaque random stream-lifetime id that
+ *  regenerates on every daemon process start). Clients must verify this
+ *  capability and fail visibly when it is absent: without it a daemon
+ *  restart silently resets the sequence space under live cursors. */
+export const PI_STREAM_EPOCH_CAPABILITY = 'events.streamEpoch' as const;
+
 /** Stable, non-secret error codes returned by the Pi runtime. */
 export type PiErrorCode =
   | 'DAEMON_UNAVAILABLE'
@@ -96,6 +103,9 @@ export interface PiRuntimeHealth {
   state: 'ready' | 'unavailable';
   /** Capability names the daemon currently advertises. */
   capabilities: string[];
+  /** Opaque stream-lifetime id of the live daemon process. Present when the
+   *  daemon advertises `events.streamEpoch`; regenerates on every restart. */
+  streamEpoch?: string;
   /** Set when `state === 'unavailable'`. */
   error?: PiError;
 }
@@ -133,6 +143,10 @@ export interface PiSessionListResponse {
   sessions: PiSessionListItem[];
   /** Optional cursor for paginated loading. */
   nextCursor?: string | null;
+  /** Opaque stream-lifetime id of the daemon that produced this response.
+   *  A value different from the client's established epoch means the
+   *  response predates a daemon restart and must not be committed. */
+  streamEpoch?: string;
 }
 
 export interface PiSessionCreateInput {
@@ -172,6 +186,10 @@ export interface PiSessionDetailResponse extends Pick<
   runStartedAt?: number;
   /** Server wall clock at the time the response was generated. */
   serverNow?: number;
+  /** Opaque stream-lifetime id of the daemon that produced this response.
+   *  A value different from the client's established epoch means the
+   *  response predates a daemon restart and must not be committed. */
+  streamEpoch?: string;
 }
 
 /** Metadata returned after a successful tree navigation. */
@@ -630,6 +648,11 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
   sessionId: PiSessionId;
   directory: string;
   payload: TPayload;
+  /** Opaque stream-lifetime id of the emitting daemon process. Present on
+   *  every event from a runtime advertising `events.streamEpoch`. A value
+   *  different from the client's established epoch means the daemon
+   *  restarted: only a snapshot may establish the new baseline. */
+  streamEpoch?: string;
 }
 
 export type PiSessionSnapshotEvent = PiEventEnvelope<
