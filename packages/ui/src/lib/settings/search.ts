@@ -206,7 +206,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Record Electron process performance",
     description: "Record Electron process CPU and memory samples to a local diagnostics file.",
     keywords: ['performance', 'diagnostics', 'memory', 'cpu', 'electron', 'process', 'recording'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
+    isAvailable: (ctx) => ctx.isDesktop,
   },
   {
     id: 'chat.draft-starters-visible',
@@ -292,7 +292,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Start PiChamber when you log in",
     description: "Starts the app in the background without opening a window. Use the desktop status icon to open it.",
     keywords: ['desktop', 'startup', 'login', 'launch', 'background', 'autostart'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
+    isAvailable: (ctx) => ctx.isDesktop,
   },
   {
     id: 'sessions.desktop-mac-menu-bar',
@@ -308,7 +308,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Minimize to the system tray",
     description: "Hides PiChamber in the system tray instead of leaving it in the taskbar when you minimize the window.",
     keywords: ['desktop', 'tray', 'system tray', 'minimize', 'taskbar', 'background', 'windows', 'linux'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin && (ctx.isWindows || ctx.isLinux),
+    isAvailable: (ctx) => ctx.isDesktop && (ctx.isWindows || ctx.isLinux),
   },
   {
     id: 'sessions.desktop-close-to-tray',
@@ -316,7 +316,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Close to the system tray",
     description: "Keeps PiChamber running in the system tray when you close the main window. Turn this off to quit the app when the window closes.",
     keywords: ['desktop', 'tray', 'system tray', 'close', 'quit', 'exit', 'background', 'windows', 'linux'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin && (ctx.isWindows || ctx.isLinux),
+    isAvailable: (ctx) => ctx.isDesktop && (ctx.isWindows || ctx.isLinux),
   },
   {
     id: 'sessions.desktop-keep-awake',
@@ -324,7 +324,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Keep computer awake while PiChamber is running",
     description: "Prevents system sleep so phones can keep reaching this app. The screen can still turn off.",
     keywords: ['desktop', 'sleep', 'awake', 'server', 'mobile', 'phone'],
-    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
+    isAvailable: (ctx) => ctx.isDesktop,
   },
   {
     id: 'sessions.desktop-ui-password',

@@ -69,6 +69,71 @@ describe("settings separation for snippets and prompt templates", () => {
     expect(content).toContain("case 'prompt-templates'");
   });
 
+  test("gates shell-local controls on the Electron shell rather than the active runtime", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const desktopSettings = readFileSync(
+      join(here, "../../components/sections/pichamber/DesktopNetworkSettings.tsx"),
+      "utf8",
+    );
+    const visualSettings = readFileSync(
+      join(here, "../../components/sections/pichamber/PiChamberVisualSettings.tsx"),
+      "utf8",
+    );
+    const desktopActions = readFileSync(join(here, "../desktopSystemActions.ts"), "utf8");
+
+    expect(desktopSettings).toContain("const isDesktop = isDesktopShell();");
+    expect(desktopSettings).toContain("const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();");
+    expect(visualSettings).toContain("const desktopDiagnostics = isDesktopShell();");
+
+    for (const action of [
+      "getDesktopLaunchAtLogin",
+      "setDesktopLaunchAtLogin",
+      "getDesktopMinimizeToTray",
+      "setDesktopMinimizeToTray",
+      "getDesktopCloseToTray",
+      "setDesktopCloseToTray",
+      "getDesktopKeepAwake",
+      "setDesktopKeepAwake",
+      "getDesktopProcessPerformanceRecording",
+      "setDesktopProcessPerformanceRecording",
+    ]) {
+      const actionStart = desktopActions.indexOf(`export const ${action}`);
+      expect(actionStart).toBeGreaterThanOrEqual(0);
+      expect(desktopActions.slice(actionStart, desktopActions.indexOf("};", actionStart)))
+        .not.toContain("isDesktopLocalOriginActive");
+    }
+  });
+
+  test("shows shell-local desktop settings for a remote Electron runtime", () => {
+    const remoteDesktopCtx = {
+      ...runtimeCtx,
+      isWeb: false,
+      isDesktop: true,
+      isWindows: true,
+    };
+
+    for (const query of [
+      "start at login",
+      "system tray",
+      "keep awake",
+      "electron process performance",
+    ]) {
+      expect(buildSettingsSearchResults({
+        query,
+        runtimeCtx: remoteDesktopCtx,
+        getPageTitle,
+      }).length).toBeGreaterThan(0);
+    }
+
+    for (const query of ["desktop ui password", "lan access", "menu bar", "update channel"]) {
+      expect(buildSettingsSearchResults({
+        query,
+        runtimeCtx: remoteDesktopCtx,
+        getPageTitle,
+      })).toHaveLength(0);
+    }
+  });
+
   test("returns separate search results and anchors", () => {
     const snippetResults = buildSettingsSearchResults({
       query: "create snippet",

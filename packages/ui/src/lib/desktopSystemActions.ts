@@ -18,7 +18,7 @@ import type {
 } from './desktopTypes';
 
 export const getDesktopLaunchAtLogin = async (): Promise<LaunchAtLoginStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -35,7 +35,7 @@ export const getDesktopLaunchAtLogin = async (): Promise<LaunchAtLoginStatus | n
 };
 
 export const setDesktopLaunchAtLogin = async (enabled: boolean): Promise<LaunchAtLoginStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -52,7 +52,7 @@ export const setDesktopLaunchAtLogin = async (enabled: boolean): Promise<LaunchA
 };
 
 export const getDesktopMinimizeToTray = async (): Promise<MinimizeToTrayStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -69,7 +69,7 @@ export const getDesktopMinimizeToTray = async (): Promise<MinimizeToTrayStatus |
 };
 
 export const setDesktopMinimizeToTray = async (enabled: boolean): Promise<MinimizeToTrayStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -86,7 +86,7 @@ export const setDesktopMinimizeToTray = async (enabled: boolean): Promise<Minimi
 };
 
 export const getDesktopCloseToTray = async (): Promise<CloseToTrayStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -103,7 +103,7 @@ export const getDesktopCloseToTray = async (): Promise<CloseToTrayStatus | null>
 };
 
 export const setDesktopCloseToTray = async (enabled: boolean): Promise<CloseToTrayStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -120,7 +120,7 @@ export const setDesktopCloseToTray = async (enabled: boolean): Promise<CloseToTr
 };
 
 export const getDesktopKeepAwake = async (): Promise<KeepAwakeStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -137,7 +137,7 @@ export const getDesktopKeepAwake = async (): Promise<KeepAwakeStatus | null> => 
 };
 
 export const setDesktopKeepAwake = async (enabled: boolean): Promise<KeepAwakeStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -154,7 +154,7 @@ export const setDesktopKeepAwake = async (enabled: boolean): Promise<KeepAwakeSt
 };
 
 export const getDesktopProcessPerformanceRecording = async (): Promise<ProcessPerformanceRecordingStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 
@@ -171,7 +171,7 @@ export const getDesktopProcessPerformanceRecording = async (): Promise<ProcessPe
 };
 
 export const setDesktopProcessPerformanceRecording = async (enabled: boolean): Promise<ProcessPerformanceRecordingStatus | null> => {
-  if (!canUseElectronDesktopIPC() || !isDesktopLocalOriginActive()) {
+  if (!canUseElectronDesktopIPC()) {
     return null;
   }
 

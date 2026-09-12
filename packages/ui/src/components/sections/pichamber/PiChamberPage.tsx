@@ -12,20 +12,9 @@ import { KeyboardShortcutsSettings } from './KeyboardShortcutsSettings';
 import { CommandTriggersSettings } from './CommandTriggersSettings';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { useDeviceInfo } from '@/lib/device';
-import { isDesktopLocalOriginActive, isDesktopShell, isWebRuntime } from '@/lib/desktop';
+import { isDesktopShell, isWebRuntime } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
-import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { PiChamberSection } from './types';
-
-const useRuntimeEndpointEpoch = (): number => {
-    const [epoch, setEpoch] = React.useState(0);
-
-    React.useEffect(() => {
-        return subscribeRuntimeEndpointChanged(() => setEpoch((current) => current + 1));
-    }, []);
-
-    return epoch;
-};
 
 interface PiChamberPageProps {
     /** Which section to display. If undefined, shows all sections (mobile/legacy behavior) */
@@ -35,10 +24,8 @@ interface PiChamberPageProps {
 export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
     
     const { isMobile } = useDeviceInfo();
-    const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
     const showAbout = isMobile && isWebRuntime();
-    void runtimeEndpointEpoch;
-    const showDesktopNetworkSettings = isDesktopShell() && isDesktopLocalOriginActive();
+    const showDesktopNetworkSettings = isDesktopShell();
 
     // If no section specified, show all (mobile/legacy behavior)
     if (!section) {
@@ -128,9 +115,7 @@ const ShortcutsSectionContent: React.FC = () => {
 // General section: app-level settings — startup/tray/network, access password,
 // passkeys, privacy, diagnostics.
 const GeneralSectionContent: React.FC = () => {
-    const runtimeEndpointEpoch = useRuntimeEndpointEpoch();
-    void runtimeEndpointEpoch;
-    const showDesktopNetworkSettings = isDesktopShell() && isDesktopLocalOriginActive();
+    const showDesktopNetworkSettings = isDesktopShell();
     // Passkeys only work against the browser's WebAuthn UI on the web surface —
     // desktop shell and the Capacitor app never show the login screen.
     const showPasskeySettings = isWebRuntime() && !isDesktopShell() && !isCapacitorApp();

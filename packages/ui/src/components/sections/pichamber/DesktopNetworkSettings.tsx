@@ -28,7 +28,8 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 
 export const DesktopNetworkSettings: React.FC = () => {
-  const isLocalDesktop = isDesktopShell() && isDesktopLocalOriginActive();
+  const isDesktop = isDesktopShell();
+  const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
   const isMacDesktop = isLocalDesktop
     && typeof window !== 'undefined'
     && window.__PICHAMBER_PLATFORM__ === 'darwin';
@@ -117,7 +118,7 @@ export const DesktopNetworkSettings: React.FC = () => {
   }, [isLocalDesktop]);
 
   React.useEffect(() => {
-    if (!isLocalDesktop) {
+    if (!isDesktop) {
       setLaunchAtLoginSupported(false);
       return;
     }
@@ -135,10 +136,10 @@ export const DesktopNetworkSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isDesktop]);
 
   React.useEffect(() => {
-    if (!isLocalDesktop) {
+    if (!isDesktop) {
       setMinimizeToTraySupported(false);
       return;
     }
@@ -156,10 +157,10 @@ export const DesktopNetworkSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isDesktop]);
 
   React.useEffect(() => {
-    if (!isLocalDesktop) {
+    if (!isDesktop) {
       setCloseToTraySupported(false);
       return;
     }
@@ -177,10 +178,10 @@ export const DesktopNetworkSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isDesktop]);
 
   React.useEffect(() => {
-    if (!isLocalDesktop) {
+    if (!isDesktop) {
       setKeepAwakeSupported(false);
       return;
     }
@@ -198,7 +199,7 @@ export const DesktopNetworkSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isDesktop]);
 
   React.useEffect(() => {
     if (!isLocalDesktop || !draftValue) {
@@ -392,13 +393,14 @@ export const DesktopNetworkSettings: React.FC = () => {
     }
   }, [draftMacMenuBarEnabled, draftPassword, draftValue, isDirty]);
 
-  if (!isLocalDesktop) {
+  if (!isDesktop) {
     return null;
   }
 
   return (
-    <SettingsSection title={"Desktop Network Access"}>
-      <div className="space-y-3">
+    <>
+      <SettingsSection title={"Desktop"}>
+        <div className="space-y-3">
         {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || closeToTraySupported || keepAwakeSupported) ? (
           <div className={SETTINGS_OPTION_STACK_CLASS}>
             {launchAtLoginSupported ? (
@@ -475,6 +477,15 @@ export const DesktopNetworkSettings: React.FC = () => {
           </div>
         ) : null}
 
+        {!isLocalDesktop && error ? (
+          <div className="typography-micro text-[var(--status-error)]">{error}</div>
+        ) : null}
+        </div>
+      </SettingsSection>
+
+      {isLocalDesktop ? (
+        <SettingsSection title={"Desktop Network Access"}>
+          <div className="space-y-3">
         <SettingsStackedField
           settingsItem="sessions.desktop-ui-password"
           label={(
@@ -556,7 +567,9 @@ export const DesktopNetworkSettings: React.FC = () => {
             {isSaving ? "Saving..." : "Save + Restart"}
           </Button>
         </div>
-      </div>
-    </SettingsSection>
+          </div>
+        </SettingsSection>
+      ) : null}
+    </>
   );
 };

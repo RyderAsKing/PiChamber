@@ -6,7 +6,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import {
     getDesktopProcessPerformanceRecording,
-    isDesktopLocalOriginActive,
     isDesktopShell,
     isWebRuntime,
     setDesktopProcessPerformanceRecording,
@@ -111,7 +110,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const dockBadgeEnabled = useUIStore(state => state.dockBadgeEnabled);
     const setDockBadgeEnabled = useUIStore(state => state.setDockBadgeEnabled);
     const perfHudEnabled = React.useSyncExternalStore(subscribePerfHudEnabled, isPerfHudEnabled, () => false);
-    const localDesktopDiagnostics = isDesktopShell() && isDesktopLocalOriginActive();
+    const desktopDiagnostics = isDesktopShell();
     const [processRecordingSupported, setProcessRecordingSupported] = React.useState(false);
     const [processRecordingEnabled, setProcessRecordingEnabled] = React.useState(false);
     const [processRecordingActive, setProcessRecordingActive] = React.useState(false);
@@ -175,7 +174,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const showDiagnostics = shouldShow('perfHud');
 
     React.useEffect(() => {
-        if (!showDiagnostics || !localDesktopDiagnostics) {
+        if (!showDiagnostics || !desktopDiagnostics) {
             setProcessRecordingSupported(false);
             setProcessRecordingEnabled(false);
             setProcessRecordingActive(false);
@@ -196,10 +195,10 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         return () => {
             cancelled = true;
         };
-    }, [localDesktopDiagnostics, showDiagnostics]);
+    }, [desktopDiagnostics, showDiagnostics]);
 
     React.useEffect(() => {
-        if (!showDiagnostics || !localDesktopDiagnostics || !processRecordingEnabled) return;
+        if (!showDiagnostics || !desktopDiagnostics || !processRecordingEnabled) return;
 
         let cancelled = false;
         const timer = window.setInterval(() => {
@@ -215,7 +214,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [localDesktopDiagnostics, processRecordingEnabled, showDiagnostics]);
+    }, [desktopDiagnostics, processRecordingEnabled, showDiagnostics]);
 
     const handleProcessRecordingEnabledChange = React.useCallback(async (enabled: boolean) => {
         if (!processRecordingSupported || processRecordingSaving) return;
