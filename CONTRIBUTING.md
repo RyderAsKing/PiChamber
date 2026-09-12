@@ -111,8 +111,8 @@ The source of truth for public docs is
 bun run docs:validate
 ```
 
-The docs website is maintained in the separate `pichamber-website` repository.
-Do not edit generated website copies in this repository.
+The separate `RyderAsKing/PiChamber-web` repository contains a hand-maintained
+documentation overview. It does not currently render this MDX collection.
 
 ## Validation
 
@@ -228,13 +228,44 @@ not upload iOS; use **Mobile Release** for TestFlight.
 
 The release workflow creates a draft, checks the changelog and package
 versions, verifies updater manifests, and publishes the draft after the desktop
-jobs succeed. Review the draft assets before making the release public.
+jobs and any enabled Android build succeed. Review the draft assets before making the release public.
+
+### Release candidates
+
+Use `X.Y.Z-rc.N` versions to test the next stable desktop release. The release
+workflow accepts stable versions and numbered RC versions only. It rejects
+other prerelease labels.
+
+To prepare the first candidate for `0.9.9`:
+
+1. Run `bun run version:bump 0.9.9-rc.1`.
+2. Add a dated `## [0.9.9-rc.1] - YYYY-MM-DD` changelog section.
+3. Run the normal release validation and merge the release commit to `main`.
+4. Push `v0.9.9-rc.1`, or dispatch the **Release** workflow with that version.
+
+GitHub marks the result as a prerelease. Electron users subscribe under
+Settings → About. The default Stable option reads only the `latest` updater
+channel. Release candidate checks `latest` first, then `rc`. This lets a
+subscriber update automatically from `0.9.9-rc.1` to `0.9.9-rc.2`, then to the
+final `0.9.9`, while remaining subscribed for the next RC cycle.
+
+If npm publication is enabled for an RC, the workflow publishes it under the
+`rc` dist-tag instead of `latest`. npm users opt in explicitly with
+`npm install -g @pi-chamber/web@rc` and return to stable with
+`npm install -g @pi-chamber/web@latest`; the Electron setting does not affect
+npm installations. Android artifacts are attached to the GitHub
+prerelease; iOS TestFlight remains a separate manual workflow.
+
+For another candidate, repeat the process with `0.9.9-rc.2`. For the final
+release, bump to `0.9.9`, add its stable changelog section, run validation, and
+publish `v0.9.9`. Do not reuse or move an existing RC tag.
 
 Release credentials are configured only in GitHub Actions secrets. Depending on
 the artifacts being published, the workflows use Apple signing and notarization
 secrets, `NPM_TOKEN`, Android signing secrets, iOS provisioning and App Store
-Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. Never put their values in a
-commit or issue.
+Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. The website token must be
+able to send repository dispatches to the private `RyderAsKing/PiChamber-web`
+repository. Never put secret values in a commit or issue.
 
 ## Community and support
 

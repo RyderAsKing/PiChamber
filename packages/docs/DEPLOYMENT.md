@@ -1,54 +1,26 @@
-# Docs Source Deployment
+# Docs source artifacts
 
-This repo publishes docs **source artifacts**.
-
-Rendering and hosting still happen in `pichamber-website` (`apps/docs`).
+`packages/docs` is the source of truth for PiChamber's task documentation. The repository validates and packages that source, but the current marketing website does not ingest or render the MDX collection.
 
 ## Workflow
 
-Use `.github/workflows/docs-source.yml`.
+`.github/workflows/docs-source.yml` runs on:
 
-Triggers:
+- pushes to `main` that change documentation source or validation tooling;
+- published GitHub releases;
+- manual `workflow_dispatch` runs.
 
-- push to `main` when docs source changes
-- release published
-- manual `workflow_dispatch`
+The workflow:
 
-Outputs:
+1. runs `bun run docs:validate`;
+2. creates `pichamber-docs-source-<sha>.tar.gz`;
+3. uploads the archive as a workflow artifact for 14 days;
+4. attaches the archive to a GitHub Release when the run has a release tag.
 
-- validates docs (`bun run docs:validate`)
-- creates `pichamber-docs-source-<sha>.tar.gz`
-- uploads archive as workflow artifact
-- on release/manual with tag, uploads archive to release assets
+The archive preserves the source at the triggering commit. It does not deploy a website.
 
-## Cross-repo sync trigger
+## Marketing website release updates
 
-After validating and packaging, the workflow sends a `repository_dispatch` event
-to `pichamber-website` so it re-syncs and redeploys the docs. This fires on
-**every** trigger above — push to `main` (docs changes), release, and manual
-`workflow_dispatch` — so a normal commit to docs auto-updates the live site.
+The separate private repository is `RyderAsKing/PiChamber-web`. Its download page uses a checked-in release manifest rather than these docs archives. Stable releases send that repository a `site_refresh_requested` event from `.github/workflows/release.yml`; release candidates do not.
 
-Required secret in this repo:
-
-- `PICHAMBER_WEBSITE_REPO_TOKEN` — a token with `contents: write` (classic
-  `repo` scope, or fine-grained with Contents: read & write) on
-  `pichamber/pichamber-website`. **Without it the dispatch step is skipped**
-  (it logs "not set" and exits cleanly), so the site will never auto-update.
-  This is the most common reason the pipeline silently does nothing.
-
-Event sent:
-
-- `event_type: docs_source_updated`
-
-Payload includes:
-
-- `source_repo`
-- `source_ref` — the ref the website checks out from `pichamber` (`main` on a
-  push, the tag on a release)
-- `archive_name`
-
-`pichamber-website`'s `deploy-docs.yml` listens for this event
-(`repository_dispatch: types: [docs_source_updated]`), checks out
-`pichamber` at `source_ref`, runs `docs:sync`, builds `apps/docs`, and deploys
-to Cloudflare Pages. That repo needs its own secrets: `PICHAMBER_REPO_TOKEN`
-(read access to this repo), `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_ACCOUNT_ID`.
+A future documentation site can consume these archives or check out `packages/docs` at the supplied release tag. Until that renderer exists, publish documentation changes in the app repository and link readers to the source pages on GitHub.

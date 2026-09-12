@@ -107,6 +107,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (typeof candidate.desktopMacMenuBarEnabled === 'boolean') {
     result.desktopMacMenuBarEnabled = candidate.desktopMacMenuBarEnabled;
   }
+  if (candidate.desktopUpdateChannel === 'stable' || candidate.desktopUpdateChannel === 'rc') {
+    result.desktopUpdateChannel = candidate.desktopUpdateChannel;
+  }
 
   const projects = sanitizeProjects(candidate.projects);
   if (projects) {

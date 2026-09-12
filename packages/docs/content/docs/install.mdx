@@ -35,6 +35,20 @@ yarn global add @pi-chamber/web
 
 Run `pichamber serve` after installation. In an interactive terminal, the command asks where the server should listen, which port to use, how to protect the UI, whether to serve the browser UI, and whether to run in the background. It shows a review before starting. The server creates and owns its local Pi session daemon automatically.
 
+To install a server release candidate from npm, request the `rc` dist-tag explicitly:
+
+```sh
+npm install -g @pi-chamber/web@rc
+```
+
+Re-run that command to install a newer RC. Return to stable with:
+
+```sh
+npm install -g @pi-chamber/web@latest
+```
+
+The desktop app's update-channel setting applies only to Electron and does not change an npm installation.
+
 For scripts, CI, and non-interactive shells, pass the setup flags explicitly:
 
 ```sh

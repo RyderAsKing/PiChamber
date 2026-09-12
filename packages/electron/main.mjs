@@ -32,7 +32,11 @@ import {
 } from './linux-appimage-update.mjs';
 import { installLinuxPackageUpdate, unescapeUpdaterInstallerPath } from './linux-package-update.mjs';
 import { checkForDesktopUpdate } from './updater-check.mjs';
-import { resolveUpdaterChannel } from './updater-channel.mjs';
+import {
+  compareReleaseVersions,
+  resolveDesktopUpdateChannel,
+  resolveUpdaterChecks,
+} from './updater-channel.mjs';
 import { resolveUpdaterFeed } from './updater-feed.mjs';
 import {
   buildLinuxInstalledApps,
@@ -2959,16 +2963,7 @@ const resolveInitialUrl = async () => {
   return { initialUrl, localOrigin, localUiUrl, bootOutcome, apiBaseUrl, clientToken, requestHeaders };
 };
 
-const compareSemver = (left, right) => {
-  const a = String(left || '').replace(/^v/, '').split('.').map((value) => Number.parseInt(value || '0', 10));
-  const b = String(right || '').replace(/^v/, '').split('.').map((value) => Number.parseInt(value || '0', 10));
-  const length = Math.max(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    const diff = (a[index] || 0) - (b[index] || 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-};
+let desktopUpdaterChecks = null;
 
 const setupAutoUpdater = () => {
   if (!app.isPackaged) {
@@ -2977,6 +2972,7 @@ const setupAutoUpdater = () => {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.allowPrerelease = false;
+  autoUpdater.allowDowngrade = false;
   autoUpdater.fullChangelog = true;
   autoUpdater.disableWebInstaller = false;
   autoUpdater.logger = log;
@@ -2984,17 +2980,21 @@ const setupAutoUpdater = () => {
   const testBuild = typeof __PICHAMBER_UPDATER_E2E_BUILD__ !== 'undefined'
     && __PICHAMBER_UPDATER_E2E_BUILD__ === true;
   const feed = resolveUpdaterFeed({ testBuild });
-  const updaterChannel = feed.provider === 'github'
-    ? resolveUpdaterChannel({ platform: process.platform, architecture: process.arch })
+  const updateChannel = resolveDesktopUpdateChannel(readSettingsRoot().desktopUpdateChannel);
+  desktopUpdaterChecks = feed.provider === 'github'
+    ? resolveUpdaterChecks({ updateChannel, platform: process.platform, architecture: process.arch })
     : null;
-  if (updaterChannel) {
-    autoUpdater.channel = updaterChannel;
+  const initialCheck = desktopUpdaterChecks?.[0];
+  if (initialCheck) {
+    autoUpdater.allowPrerelease = initialCheck.allowPrerelease;
+    autoUpdater.channel = initialCheck.channel;
+    autoUpdater.allowDowngrade = false;
   }
   autoUpdater.setFeedURL(feed);
   log.info('[electron] updater feed configured', {
     provider: feed.provider,
     target: feed.provider === 'github' ? `${feed.owner}/${feed.repo}` : feed.url,
-    channel: updaterChannel || 'latest',
+    channels: desktopUpdaterChecks?.map((check) => check.channel) || ['default'],
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -3034,7 +3034,7 @@ const parseRelevantChangelogNotes = async (fromVersion, toVersion) => {
     const relevant = [];
     for (const section of sections) {
       const version = section.split(']')[0];
-      if (compareSemver(version, fromVersion) > 0 && compareSemver(version, toVersion) <= 0) {
+      if (compareReleaseVersions(version, fromVersion) > 0 && compareReleaseVersions(version, toVersion) <= 0) {
         relevant.push(`## [${section}`.trim());
       }
     }
@@ -4176,11 +4176,20 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       const packageType = currentLinuxPackageType();
       assertUpdaterCapability({ packaged: app.isPackaged, packageType });
       const currentVersion = APP_VERSION;
+      if (desktopUpdaterChecks) {
+        const updateChannel = resolveDesktopUpdateChannel(readSettingsRoot().desktopUpdateChannel);
+        desktopUpdaterChecks = resolveUpdaterChecks({
+          updateChannel,
+          platform: process.platform,
+          architecture: process.arch,
+        });
+      }
       const { available, updateInfo, updateResult, nextVersion, pendingUpdate } = await checkForDesktopUpdate({
         autoUpdater,
         currentVersion,
         pendingUpdate: state.pendingUpdate,
-        compareVersions: compareSemver,
+        compareVersions: compareReleaseVersions,
+        updateChecks: desktopUpdaterChecks,
       });
       const body =
         (typeof updateInfo?.releaseNotes === 'string' && updateInfo.releaseNotes.trim() ? updateInfo.releaseNotes : null) ||

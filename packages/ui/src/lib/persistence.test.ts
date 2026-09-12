@@ -16,6 +16,7 @@ import {
   updateDesktopSettings,
 } from './persistence';
 import { switchRuntimeEndpoint } from './runtime-switch';
+import { sanitizeWebSettings } from './persistence/settingsSanitizers';
 
 type TestWindow = {
   __PICHAMBER_HOME__?: string;
@@ -919,5 +920,11 @@ describe('updateDesktopSettings', () => {
 
     expect(useUIStore.getState().autoSaveEnabled).toBe(true);
     expect(saveCalls.some((changes) => changes.autoSaveEnabled === true)).toBe(true);
+  });
+
+  test('keeps only supported desktop update channels from persisted settings', () => {
+    expect(sanitizeWebSettings({ desktopUpdateChannel: 'rc' })?.desktopUpdateChannel).toBe('rc');
+    expect(sanitizeWebSettings({ desktopUpdateChannel: 'stable' })?.desktopUpdateChannel).toBe('stable');
+    expect(sanitizeWebSettings({ desktopUpdateChannel: 'beta' })?.desktopUpdateChannel).toBeUndefined();
   });
 });

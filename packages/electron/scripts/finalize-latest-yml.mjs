@@ -5,10 +5,12 @@ import path from 'node:path';
 const dir = process.env.LATEST_YML_DIR;
 const repo = process.env.GH_REPO;
 const version = process.env.PICHAMBER_VERSION;
+const releaseChannel = process.env.PICHAMBER_RELEASE_CHANNEL || 'stable';
 
 if (!dir) throw new Error('LATEST_YML_DIR is required');
 if (!repo) throw new Error('GH_REPO is required');
 if (!version) throw new Error('PICHAMBER_VERSION is required');
+if (!['stable', 'rc'].includes(releaseChannel)) throw new Error('PICHAMBER_RELEASE_CHANNEL must be stable or rc');
 
 const parse = (content) => {
   const lines = content.split('\n');
@@ -79,14 +81,22 @@ const winArm64 = await read('latest-yml-aarch64-pc-windows-msvc', 'latest.yml');
 if (!winX64 || !winArm64) {
   throw new Error('Both x64 and arm64 Windows update manifests are required');
 }
-output['latest.yml'] = serialize(winX64);
-output['latest-arm64.yml'] = serialize(winArm64);
+if (releaseChannel === 'rc') {
+  output['rc.yml'] = serialize({
+    version: winX64.version,
+    files: [...winX64.files, ...winArm64.files],
+    releaseDate: winX64.releaseDate,
+  });
+} else {
+  output['latest.yml'] = serialize(winX64);
+  output['latest-arm64.yml'] = serialize(winArm64);
+}
 
 const macX64 = await read('latest-yml-x86_64-apple-darwin', 'latest-mac.yml');
 const macArm64 = await read('latest-yml-aarch64-apple-darwin', 'latest-mac.yml');
 if (macX64 || macArm64) {
   const base = macArm64 || macX64;
-  output['latest-mac.yml'] = serialize({
+  output[releaseChannel === 'rc' ? 'rc-mac.yml' : 'latest-mac.yml'] = serialize({
     version: base.version,
     files: [...(macArm64?.files || []), ...(macX64?.files || [])],
     releaseDate: base.releaseDate,

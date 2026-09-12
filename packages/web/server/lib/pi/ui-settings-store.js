@@ -55,6 +55,7 @@ const LOCAL_FIELDS = new Set([
   'terminalShell', 'terminalLoginShells', 'desktopLanAccessEnabled',
   'desktopKeepAwakeEnabled', 'desktopProcessPerformanceRecordingEnabled',
   'desktopMinimizeToTrayEnabled', 'desktopCloseToTrayEnabled', 'desktopMacMenuBarEnabled',
+  'desktopUpdateChannel',
   'desktopWindowState', 'desktopLocalPort', 'desktopInstallId', 'desktopHosts',
   'desktopDefaultHostId', 'desktopInitialHostChoiceCompleted',
   'pwaAppName', 'pwaOrientation', 'mobileKeyboardMode',
@@ -157,6 +158,11 @@ export const createPiUiSettingsStore = ({
 
   const write = async (changes) => {
     validateRecord(changes);
+    if (Object.hasOwn(changes, 'desktopUpdateChannel')
+      && changes.desktopUpdateChannel !== 'stable'
+      && changes.desktopUpdateChannel !== 'rc') {
+      throw new Error('UI_SETTINGS_INVALID');
+    }
     return runMutation(async () => {
       const current = await readLocked();
       const portableChanges = selectFields(changes, PORTABLE_FIELDS);

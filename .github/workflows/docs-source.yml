@@ -57,30 +57,3 @@ jobs:
           files: artifacts/${{ steps.archive.outputs.archive_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Trigger pichamber-website docs sync (optional)
-        if: ${{ github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
-        env:
-          WEBSITE_REPO: pichamber/pichamber-website
-          WEBSITE_TOKEN: ${{ secrets.PICHAMBER_WEBSITE_REPO_TOKEN }}
-          SOURCE_REF: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
-        run: |
-          if [ -z "$WEBSITE_TOKEN" ]; then
-            echo "PICHAMBER_WEBSITE_REPO_TOKEN not set; skip dispatch."
-            exit 0
-          fi
-
-          curl -sS -X POST \
-            -H "Authorization: Bearer $WEBSITE_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/$WEBSITE_REPO/dispatches \
-            -d @- <<JSON
-          {
-            "event_type": "docs_source_updated",
-            "client_payload": {
-              "source_repo": "${{ github.repository }}",
-              "source_ref": "$SOURCE_REF",
-              "archive_name": "${{ steps.archive.outputs.archive_name }}"
-            }
-          }
-          JSON
