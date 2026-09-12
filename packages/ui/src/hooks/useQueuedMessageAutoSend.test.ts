@@ -656,7 +656,7 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     expect(queueFor(target())).toHaveLength(0);
   });
 
-  test('a terminal invalid session hydrates once, then never re-demands; the queue entry is kept and other queues proceed', async () => {
+  test('a terminal invalid session hydrates once, clears its undeliverable queue, and other queues proceed', async () => {
     // A cold row for the doomed target plus a live-idle row for a healthy one.
     await act(async () => {
       asInternal().commitEvents([lifecycleEvent('s1', 'idle')]);
@@ -684,8 +684,9 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     expect(healthyOptions?.delivery).toBe('followUp');
     expect(typeof healthyOptions?.operationId).toBe('string');
     expect(queueFor(target('s-ok'))).toHaveLength(0);
-    // The invalid target's entry is retained for user inspection/removal.
-    expect(queueFor(target('s1'))).toHaveLength(1);
+    // Authoritative deletion cleanup removes the queue because this target
+    // can never accept another delivery.
+    expect(queueFor(target('s1'))).toHaveLength(0);
 
     // Backoff expiry, unrelated wakes, and connection chrome changes must
     // never produce another hydrate request for the terminal target.
@@ -700,7 +701,7 @@ describe('queued auto-send dispatch gate (mounted)', () => {
 
     expect(getSessionCalls).toEqual(['s1']);
     expect(sendMessageCalls.length).toBe(1);
-    expect(queueFor(target('s1'))).toHaveLength(1);
+    expect(queueFor(target('s1'))).toHaveLength(0);
   });
 
   test('an archived cold target is never auto-sent and never hydrated on demand', async () => {

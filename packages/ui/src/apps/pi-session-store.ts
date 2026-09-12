@@ -31,6 +31,7 @@ import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsSto
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, raiseSessionOrderingBaselines, removeSessionOrdering } from '@/sync/session-ordering';
 import { notifySessionTurnComplete } from '@/sync/notification-store';
+import { cleanupPersistedSessionState } from '@/sync/session-deletion-cleanup';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
 import {
   applyArchiveChange,
@@ -168,17 +169,17 @@ export class PiSessionStore {
    *  refresh has begun, or after a runtime switch) commit nothing. Cleared
    *  on `dispose` / `clear` / `resetForRuntime`. */
   private directoryRefreshGenerationByDirectory = new Map<string, number>();
-  /** Active catalog list operations (refresh/focus/open) — bounds the
-   *  delete-tombstone lifetime to in-flight RPCs so no unbounded history
-   *  survives after the last list settles. */
-  private catalogActiveListCount = 0;
-  /** Removals confirmed while a catalog list was in flight, keyed by session
-   *  id. Covers rows already absent locally (where a baseline snapshot alone
-   *  cannot see the deletion) so a stale listing cannot resurrect them.
-   *  Cleared when the last active list settles and on every runtime reset.
-   *  A delete confirmed before any list started is not tombstoned; it relies
-   *  on authoritative disappearance for unmutated rows, never on retained history. */
-  private catalogDeleteTombstones = new Set<PiSessionId>();
+  /** Committed deletions for the active runtime. A tombstone survives its
+   *  echo so an in-flight list, detail, or history response started before
+   *  the deletion cannot resurrect the session. Archive and directory moves
+   *  keep the session id and never enter this set. Cleared on runtime
+   *  switch, clear, and dispose alongside every other runtime-scoped map. */
+  private deletedSessionIds = new Set<PiSessionId>();
+  private static readonly MAX_DELETED_SESSION_TOMBSTONES = 4_096;
+  /** True when the session was authoritatively deleted on this runtime. */
+  isDeleted = (sessionId: PiSessionId): boolean => this.deletedSessionIds.has(sessionId);
+  /** Test seam: observe committed tombstones without reaching into privates. */
+  deletedSessionCountForTests = (): number => this.deletedSessionIds.size;
   private providerRefreshRevisionByDirectory = new Map<string, number>();
   private providerRefreshTaskByDirectory = new Map<string, Promise<void>>();
   private evictionScheduled = false;
@@ -382,12 +383,20 @@ export class PiSessionStore {
       await mapWithConcurrency(orderedResidents, PI_SYNC_RECOVERY_CONCURRENCY, async (sessionId) => {
         if (!passIsCurrent()) return;
         if (!this.recoveryResidents.has(sessionId)) return;
+        if (this.isDeleted(sessionId)) {
+          this.recoveryResidents.delete(sessionId);
+          return;
+        }
         const directory = this.resolveSessionDirectory(sessionId) ?? this.state.directory ?? undefined;
         if (!directory) return; // obligation retained until the session's directory is known
         try {
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (!passIsCurrent()) return;
           if (detail.session.id !== sessionId) return;
+          if (this.isDeleted(sessionId)) {
+            this.recoveryResidents.delete(sessionId);
+            return;
+          }
           // A stale-epoch response predates the daemon restart; keep the
           // obligation so the next pass re-reads from the current daemon.
           if (!this.isResponseEpochCurrent(detail) || !passIsCurrent()) return;
@@ -399,8 +408,15 @@ export class PiSessionStore {
             this.commitHydratedSession(this.sessionFromDetail(detail));
           }
           this.recoveryResidents.delete(sessionId);
-        } catch {
-          // Failure keeps the retry obligation; partial success is not empty.
+        } catch (error) {
+          if (passIsCurrent() && isInvalidSessionError(error)) {
+            // A replay miss can hide the deletion event. The authoritative
+            // detail 404 is equivalent evidence: commit the deletion and
+            // drain this resident instead of parking an impossible retry.
+            this.commitDeletion(sessionId, directory);
+            this.recoveryResidents.delete(sessionId);
+          }
+          // Other failures keep the retry obligation; partial success is not empty.
         }
         this.publishSyncRecoveryState();
       });
@@ -458,6 +474,106 @@ export class PiSessionStore {
       // stream-health signal or reconnect re-queues them.
     }
   }
+  /** Missed-deletion baseline entry point (see
+   *  `useAuthoritativeSessionCleanup`): a session present in an established
+   *  complete authoritative catalog baseline but omitted from a later
+   *  complete snapshot was deleted while no replay window covered it.
+   *  Funneling through the shared commit adds a tombstone so an in-flight
+   *  list, detail, or history response started before the daemon-side
+   *  deletion cannot resurrect the row. Idempotent for duplicates. */
+  commitMissedDeletion = (sessionId: PiSessionId, directory: string): boolean =>
+    this.commitDeletion(sessionId, directory);
+  /**
+   * Shared deletion commit. Every deletion path (local `remove()`, accepted
+   * `404` on hydrate, explicit `session.deleted` event, missed-deletion
+   * baseline) funnels through here so catalog, transcript, selection, live
+   * activity, and persisted drafts stay consistent. The tombstone is added
+   * first so late completions that started before the deletion cannot
+   * resurrect the row. Persisted cleanup is runtime+directory+session
+   * scoped; stale-runtime or global identities are ignored by the helper.
+   * The accepted-404 hydrate path passes `keepSelection` so the failed id
+   * stays selected and the chat keeps showing its load error while the
+   * tombstone still blocks resurrection.
+   */
+  private commitDeletion(
+    sessionId: PiSessionId,
+    directory?: string,
+    options?: { keepSelection?: boolean },
+  ): boolean {
+    if (!sessionId) return false;
+    const wasDeleted = this.deletedSessionIds.has(sessionId);
+    this.deletedSessionIds.add(sessionId);
+    let evictedTombstone: PiSessionId | undefined;
+    if (this.deletedSessionIds.size > PiSessionStore.MAX_DELETED_SESSION_TOMBSTONES) {
+      evictedTombstone = this.deletedSessionIds.values().next().value;
+      if (evictedTombstone) this.deletedSessionIds.delete(evictedTombstone);
+    }
+    const recordDirectory = directory
+      ?? this.state.catalog.byId.get(sessionId)?.directory
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
+      ?? this.state.reducer.bySession.get(sessionId)?.directory;
+    if (recordDirectory && recordDirectory !== 'global') {
+      try {
+        cleanupPersistedSessionState({ runtimeKey: getRuntimeKey(), directory: recordDirectory, sessionId });
+      } catch {
+        // Persisted cleanup is best-effort; the in-memory tombstone still guards resurrection.
+      }
+    }
+    removeSessionActivityTiming(sessionId);
+    removeSessionOrdering(sessionId);
+    clearRevertNavigation(sessionId);
+    this.navigationGenerationById.delete(sessionId);
+    this.historyInflightById.delete(sessionId);
+    this.hydrateInflightById.delete(sessionId);
+    this.restoringTranscriptById.delete(sessionId);
+    const hadResident = this.state.reducer.bySession.has(sessionId)
+      || this.hydratedSessionIds.has(sessionId)
+      || this.state.catalog.byId.has(sessionId)
+      || this.state.sessions.some((item) => item.session.id === sessionId);
+    const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
+    const selectedSessionId = !options?.keepSelection && this.state.selectedSessionId === sessionId
+      ? (sessions.find((item) => !item.session.archived)?.session.id ?? null)
+      : this.state.selectedSessionId;
+    const nextBySession = new Map(this.state.reducer.bySession);
+    nextBySession.delete(sessionId);
+    const nextLastSequence = new Map(this.state.reducer.lastSequence);
+    // Tombstones and retained deletion cursors share the same memory bound.
+    if (evictedTombstone) nextLastSequence.delete(evictedTombstone);
+    // Preserve the deletion cursor when the event already advanced it; otherwise keep the prior cursor.
+    const eventCursor = this.state.reducer.lastSequence.get(sessionId);
+    if (eventCursor !== undefined) nextLastSequence.set(sessionId, eventCursor);
+    else nextLastSequence.delete(sessionId);
+    this.hydratedSessionIds.delete(sessionId);
+    this.activityPhaseById.delete(sessionId);
+    this.pendingPromptById.delete(sessionId);
+    this.promptGenerationById.delete(sessionId);
+    this.lastAccessById.delete(sessionId);
+    const nextCatalog = removeRecord(this.state.catalog, sessionId);
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    const selectionChanged = selectedSessionId !== this.state.selectedSessionId;
+    if (!hadResident && wasDeleted && !catalogChanged && !selectionChanged) return false;
+    this.state = {
+      ...this.state,
+      sessions,
+      selectedSessionId,
+      hydratedSessionIds: new Set(this.hydratedSessionIds),
+      reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+      catalog: nextCatalog,
+    };
+    const topics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
+    return true;
+  }
+  /** Drop tombstoned sessions from an authoritative list response so a
+   *  request that started before a committed deletion cannot resurrect the
+   *  catalog row or re-enter the focused list. Tombstones are runtime-scoped
+   *  and cleared on runtime switch, so a same-ID session on another runtime
+   *  is unaffected. */
+  private filterDeletedListItems(sessions: PiSessionListItem[]): PiSessionListItem[] {
+    if (this.deletedSessionIds.size === 0) return sessions;
+    return sessions.filter((item) => !this.deletedSessionIds.has(item.session.id));
+  }
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
   private readonly catalogCache: PiSessionCatalogCache;
   private unsubscribeRuntime: () => void;
@@ -505,11 +621,7 @@ export class PiSessionStore {
   };
   private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
-    this.catalogDeleteTombstones.clear();
-    // `catalogActiveListCount` is intentionally left alone: in-flight lists
-    // from the previous runtime still own their `finally` decrement. Their
-    // commits are rejected by the generation guards; only tombstones (which
-    // belong to the old runtime) are dropped here.
+    this.deletedSessionIds.clear();
     this.runtimeGeneration += 1;
     this.focusGeneration += 1;
     this.pendingFocus = null;
@@ -536,13 +648,6 @@ export class PiSessionStore {
     this.stream = null;
     this.streamGeneration += 1;
     this.streamReadyRevision += 1;
-  }
-  private enterCatalogListOp(): void {
-    this.catalogActiveListCount += 1;
-  }
-  private exitCatalogListOp(): void {
-    this.catalogActiveListCount = Math.max(0, this.catalogActiveListCount - 1);
-    if (this.catalogActiveListCount === 0) this.catalogDeleteTombstones.clear();
   }
   /** Raise frozen ordering baselines from an authoritative directory snapshot.
    *  Monotonic: live ranks are never demoted. */
@@ -703,7 +808,6 @@ export class PiSessionStore {
     // survive it per session. Held in this operation's closure, so its
     // lifetime is exactly the RPC duration.
     const baseline = this.state.catalog;
-    this.enterCatalogListOp();
     const nextLoadingCatalog = markDirectoryLoading(this.state.catalog, normalized);
     if (nextLoadingCatalog !== this.state.catalog) {
       this.state = {
@@ -725,7 +829,8 @@ export class PiSessionStore {
       if (!this.isResponseEpochCurrent(result)) {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, result.sessions, Date.now(), this.catalogDeleteTombstones);
+      const listedSessions = this.filterDeletedListItems(result.sessions);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, listedSessions, Date.now(), this.deletedSessionIds);
       if (nextCatalog !== this.state.catalog) {
         this.state = { ...this.state, catalog: nextCatalog };
         this.emit([TOPIC_CATALOG]);
@@ -750,8 +855,6 @@ export class PiSessionStore {
       }
       if (topics.length > 0) this.emit(topics);
       return { ok: false, error: requestError };
-    } finally {
-      this.exitCatalogListOp();
     }
   }
 
@@ -936,7 +1039,6 @@ export class PiSessionStore {
     const runtimeKey = getRuntimeKey();
     const startedRuntimeGeneration = this.runtimeGeneration;
     const baseline = this.state.catalog;
-    this.enterCatalogListOp();
     const desiredSessionId = this.pendingPreferredSessionId;
     let resolvedDirectory = directory;
     try {
@@ -968,12 +1070,12 @@ export class PiSessionStore {
         this.failFocus(expected, result.error);
         return;
       }
-      const listPayload = result.payload;
+      const listPayload = { sessions: this.filterDeletedListItems(result.payload.sessions) };
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
       let matchedSession = desiredSessionId
         ? listPayload.sessions.find((item) => item.session.id === desiredSessionId)
         : undefined;
-      if (desiredSessionId && !matchedSession) {
+      if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory: resolvedDirectory, runtimeKey });
           if (detail?.session?.id) {
@@ -996,19 +1098,20 @@ export class PiSessionStore {
         }
       }
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
+      const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
       const nextSelectedSessionId = matchedSession?.session.id
-        ?? (desiredSessionId ? desiredSessionId : (
+        ?? (desiredCanRemainSelected ? desiredSessionId : (
           listPayload.sessions.find((item) => !item.session.archived)?.session.id
           ?? listPayload.sessions[0]?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.catalogDeleteTombstones);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.deletedSessionIds);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
         sessions: listPayload.sessions,
-        selectedSessionId: nextSelectedSessionId ?? this.state.selectedSessionId,
+        selectedSessionId: nextSelectedSessionId,
         sessionsListStatus: 'ready',
         focusPending: !!nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId),
         error: null,
@@ -1046,7 +1149,6 @@ export class PiSessionStore {
         this.failFocus(expected, asError(error));
       }
     } finally {
-      this.exitCatalogListOp();
       if (expected === this.focusGeneration && this.pendingFocus?.expected === expected) {
         this.pendingFocus = null;
       }
@@ -1169,6 +1271,9 @@ export class PiSessionStore {
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
+    // This is a same-runtime cluster rebuild, not a runtime switch. Keep
+    // deletion tombstones so late reads from the displaced cluster cannot
+    // resurrect sessions that were already authoritatively removed.
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
@@ -1189,7 +1294,6 @@ export class PiSessionStore {
     this.emitChrome();
     const runtimeKey = getRuntimeKey();
     const baseline = this.state.catalog;
-    this.enterCatalogListOp();
     try {
       const selected = await piClient.selectProject(directory, { runtimeKey });
       if (expected !== this.runtimeGeneration) return;
@@ -1216,9 +1320,12 @@ export class PiSessionStore {
       if (!this.isResponseEpochCurrent(result)) {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
+      // Filter tombstones once, before matched-session lookup, so a deleted
+      // session can neither be matched, selected, nor re-entered the catalog.
+      const listedSessions = this.filterDeletedListItems(result.sessions);
       const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
-      let matchedSession = desiredSessionId ? result.sessions.find((item) => item.session.id === desiredSessionId) : undefined;
-      if (desiredSessionId && !matchedSession) {
+      let matchedSession = desiredSessionId ? listedSessions.find((item) => item.session.id === desiredSessionId) : undefined;
+      if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory, runtimeKey });
           if (detail?.session?.directory && detail.session.directory !== directory) {
@@ -1227,7 +1334,7 @@ export class PiSessionStore {
             return;
           }
           if (detail?.session?.id) {
-            result.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
+            listedSessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch {
@@ -1235,10 +1342,11 @@ export class PiSessionStore {
           // load error so the chat can leave the logo instead of spinning.
         }
       }
+      const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
       const selectedSessionId = matchedSession?.session.id
-        ?? (desiredSessionId ? desiredSessionId : (
-          result.sessions.find((item) => !item.session.archived)?.session.id
-          ?? result.sessions[0]?.session.id
+        ?? (desiredCanRemainSelected ? desiredSessionId : (
+          listedSessions.find((item) => !item.session.archived)?.session.id
+          ?? listedSessions[0]?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
@@ -1247,11 +1355,11 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, result.sessions, Date.now(), this.catalogDeleteTombstones);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
-        sessions: result.sessions,
+        sessions: listedSessions,
         selectedSessionId,
         connection: 'ready',
         catalog: nextCatalog,
@@ -1263,12 +1371,10 @@ export class PiSessionStore {
       if (selectedSessionId) {
         await this.hydrate(selectedSessionId, expected, undefined, {
           initialHealth,
-          initialSessions: result.sessions,
+          initialSessions: listedSessions,
         });
       }
-    } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); } finally {
-      this.exitCatalogListOp();
-    }
+    } catch (error) { if (expected === this.runtimeGeneration) this.reportError(error); }
   }
 
   async select(sessionId: PiSessionId, targetDirectory?: string): Promise<void> {
@@ -1456,42 +1562,13 @@ export class PiSessionStore {
     const expected = this.runtimeGeneration;
     const runtimeKey = getRuntimeKey();
     const sessionDir = this.resolveSessionDirectory(sessionId, directory);
+    // `deleteSession` treats 404 as success, so an already-deleted session still commits locally.
     await piClient.deleteSession({ sessionId, ignoreMissing: true }, sessionDir ? this.scope(sessionDir) : this.scope());
     if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
-    // Record the removal while any list is in flight so a stale listing that
-    // still contains the id cannot resurrect it — including rows that were
-    // already absent locally (baseline snapshots alone cannot see those).
-    if (this.catalogActiveListCount > 0) this.catalogDeleteTombstones.add(sessionId);
-    removeSessionActivityTiming(sessionId);
-    removeSessionOrdering(sessionId);
-    clearRevertNavigation(sessionId);
-    this.navigationGenerationById.delete(sessionId);
-    this.historyInflightById.delete(sessionId);
-    const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
-    const selectedSessionId = this.state.selectedSessionId === sessionId ? sessions.find((item) => !item.session.archived)?.session.id ?? null : this.state.selectedSessionId;
-    const nextBySession = new Map(this.state.reducer.bySession);
-    nextBySession.delete(sessionId);
-    const nextLastSequence = new Map(this.state.reducer.lastSequence);
-    nextLastSequence.delete(sessionId);
-    this.hydratedSessionIds.delete(sessionId);
-    this.activityPhaseById.delete(sessionId);
-    this.pendingPromptById.delete(sessionId);
-    this.promptGenerationById.delete(sessionId);
-    this.lastAccessById.delete(sessionId);
-    const nextCatalog = removeRecord(this.state.catalog, sessionId);
-    const catalogChanged = nextCatalog !== this.state.catalog;
-    this.state = {
-      ...this.state,
-      sessions,
-      selectedSessionId,
-      hydratedSessionIds: new Set(this.hydratedSessionIds),
-      reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
-      catalog: nextCatalog,
-    };
-    const removeTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
-    if (catalogChanged) removeTopics.push(TOPIC_CATALOG);
-    this.emit(removeTopics);
-    if (selectedSessionId && selectedSessionId !== this.state.selectedSessionId) await this.hydrate(selectedSessionId, expected);
+    const selectedBefore = this.state.selectedSessionId;
+    this.commitDeletion(sessionId, sessionDir);
+    const selectedAfter = this.state.selectedSessionId;
+    if (selectedAfter && selectedAfter !== selectedBefore) await this.hydrate(selectedAfter, expected);
   }
   async fork(sessionId: string, messageId?: string) {
     // Capture original title before fork so we can label the new branch.
@@ -1843,6 +1920,9 @@ export class PiSessionStore {
     if (inFlight) return inFlight;
     const resident = this.state.reducer.bySession.get(sessionId);
     if (!resident?.hasMoreBefore || !resident.beforeCursor) return false;
+    // A committed deletion is authoritative; never start (or continue) a
+    // history page for a tombstoned session.
+    if (this.isDeleted(sessionId)) return false;
     const expectedRuntime = this.runtimeGeneration;
     const expectedNavigation = this.navigationGenerationById.get(sessionId) ?? 0;
     const expectedCursor = resident.beforeCursor;
@@ -1855,6 +1935,9 @@ export class PiSessionStore {
       if ((this.navigationGenerationById.get(sessionId) ?? 0) !== expectedNavigation) return false;
       const current = this.state.reducer.bySession.get(sessionId);
       if (!current || current.beforeCursor !== expectedCursor || detail.session.id !== sessionId) return false;
+      // A deletion committed while the page request was in flight wins over
+      // the response; merging here would resurrect the transcript row.
+      if (this.isDeleted(sessionId)) return false;
       // A page generated by a previous daemon process predates the current
       // stream epoch; its sequence space and cursor are incompatible.
       if (!this.isResponseEpochCurrent(detail)) return false;
@@ -1980,6 +2063,8 @@ export class PiSessionStore {
   }
 
   private commitHydratedSession(hydratedSession: PiReducerSessionState, buffered: readonly PiSessionEvent[] = []) {
+    // A committed deletion is authoritative: a late hydrate must not resurrect the row.
+    if (this.isDeleted(hydratedSession.sessionId)) return;
     this.cadence.flush();
     const existingSession = this.state.reducer.bySession.get(hydratedSession.sessionId);
     const session = this.mergeHydratedSession(hydratedSession, existingSession);
@@ -2058,6 +2143,9 @@ export class PiSessionStore {
     },
   ) {
     if (expected !== this.runtimeGeneration) return;
+    // A committed deletion is authoritative: never start (or re-share) a
+    // detail fetch for a tombstoned session.
+    if (this.isDeleted(sessionId)) return;
     const inflight = this.hydrateInflightById.get(sessionId);
     if (inflight) return inflight;
     const pending = this.hydrateUnshared(sessionId, expected, known, options).finally(() => {
@@ -2078,6 +2166,9 @@ export class PiSessionStore {
     },
   ) {
     if (expected !== this.runtimeGeneration) return;
+    // A deletion committed while this hydrate was queued is authoritative;
+    // fetching would only serve a response the commit below must reject.
+    if (this.isDeleted(sessionId)) return;
     const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
     const directory = sessionDir || this.directory();
     const runtimeKey = getRuntimeKey();
@@ -2107,6 +2198,9 @@ export class PiSessionStore {
         // A detail generated by a previous daemon process predates the
         // current stream epoch; committing it would write a foreign cursor.
         if (!this.isResponseEpochCurrent(detail)) return;
+        // A deletion committed while the detail request was in flight wins
+        // over the response; committing here would resurrect the row.
+        if (this.isDeleted(sessionId)) return;
         if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
         if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
           adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
@@ -2177,6 +2271,11 @@ export class PiSessionStore {
             bootstrap.stream?.dispose();
             return;
           }
+          if (this.isDeleted(sessionId)) {
+            // The deletion landed while this detail fetch was in flight.
+            bootstrap.stream?.dispose();
+            return;
+          }
           // The detail predates the current stream epoch.
           if (!this.isResponseEpochCurrent(detail)) {
             bootstrap.stream?.dispose();
@@ -2192,6 +2291,12 @@ export class PiSessionStore {
           this.stream = bootstrap.stream;
           ready = true;
           if (expected === this.runtimeGeneration && (isInvalidSessionError(error) || isSessionInUseError(error))) {
+            // An accepted 404 means the daemon no longer has the session:
+            // commit the deletion (tombstone + persisted cleanup) directly
+            // instead of depending on an event echo that may already have
+            // been replayed or missed. The failed id stays selected so the
+            // chat surfaces its load error.
+            if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
             this.failSessionLoad(sessionId, error);
             return;
           }
@@ -2201,6 +2306,10 @@ export class PiSessionStore {
         }
       }
       if (hydratedSession.sessionId !== sessionId) {
+        bootstrap.stream?.dispose();
+        return;
+      }
+      if (this.isDeleted(sessionId)) {
         bootstrap.stream?.dispose();
         return;
       }
@@ -2214,6 +2323,12 @@ export class PiSessionStore {
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
       if (isInvalidSessionError(error) || isSessionInUseError(error)) {
+        // An accepted 404 means the daemon no longer has the session:
+        // commit the deletion (tombstone + persisted cleanup) directly
+        // instead of depending on an event echo that may already have
+        // been replayed or missed. The failed id stays selected so the
+        // chat surfaces its load error.
+        if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
         this.failSessionLoad(sessionId, error);
         return;
       }
@@ -2222,6 +2337,7 @@ export class PiSessionStore {
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
+          if (this.isDeleted(sessionId)) return;
           if (!this.isResponseEpochCurrent(detail)) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
@@ -2554,9 +2670,20 @@ export class PiSessionStore {
     const restoreIds = new Set<PiSessionId>();
     const touchedSessionIds = new Set<PiSessionId>();
     const extensionCatalogChanges = new Map<string, { providers: boolean; resources: boolean; commands: boolean }>();
-    // Events accepted this batch mirror into the catalog; rejected stale-epoch
-    // events must not (see applyCatalogFromEvents).
+    // Events accepted this batch mirror into the catalog; rejected, skipped,
+    // and tombstoned events must not (see applyCatalogFromEvents).
     const acceptedEvents: PiSessionEvent[] = [];
+    const deletedIds = new Map<PiSessionId, string>();
+    const deletedInBatchByEpoch = new Map<string | undefined, Set<PiSessionId>>();
+    for (const event of events) {
+      if (event.name !== 'session.deleted') continue;
+      const epoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0
+        ? event.streamEpoch
+        : undefined;
+      const ids = deletedInBatchByEpoch.get(epoch) ?? new Set<PiSessionId>();
+      ids.add(event.sessionId);
+      deletedInBatchByEpoch.set(epoch, ids);
+    }
     let epochChangedResidents: Set<PiSessionId> | null = null;
     for (const event of events) {
       // Verified stream-epoch handling. Events stamped with a retired epoch
@@ -2588,11 +2715,42 @@ export class PiSessionStore {
         }
         touchedSessionIds.clear();
         extensionCatalogChanges.clear();
+        // Deletions accepted from the displaced epoch must not commit after
+        // the reducer baseline resets to the new daemon lifetime.
+        deletedIds.clear();
         acceptedEvents.length = 0;
         applied = false;
         touched = false;
       }
       if (eventEpoch) this.adoptStreamEpoch(eventEpoch);
+      // Tombstone filter. Once a deletion is committed — by the local
+      // initiator or an earlier echo — every later event for that session is
+      // stale. Epoch handling runs first so an establishing snapshot still
+      // advances the daemon lifetime even when its session remains deleted.
+      if (this.deletedSessionIds.has(event.sessionId)) continue;
+      // Authoritative deletion bypasses transcript restore and activity promotion. The reducer
+      // already tombstones the row and advances the cursor; the catalog/session cleanup below
+      // reuses the shared deletion commit so late completions cannot resurrect it.
+      if (event.name === 'session.deleted') {
+        const result = applyPiEvent(working, event);
+        working = result.state;
+        if (!result.didApply) continue;
+        applied = true;
+        touchedSessionIds.add(event.sessionId);
+        acceptedEvents.push(event);
+        // Track directory for scoped persisted cleanup; do not restore or promote.
+        deletedIds.set(event.sessionId, event.directory);
+        // Drop any pending restore for this session; a hydrate started before the deletion
+        // must not repopulate the transcript after the tombstone lands.
+        restoreIds.delete(event.sessionId);
+        this.restoringTranscriptById.delete(event.sessionId);
+        continue;
+      }
+      // A later event in this same batch deletes this session; the batch's
+      // end state is deletion, so pre-deletion events must not apply into
+      // the reducer (where they would briefly resurrect the row) or mirror
+      // catalog state that the deletion commit is about to remove.
+      if (deletedInBatchByEpoch.get(eventEpoch)?.has(event.sessionId)) continue;
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
       const result = applyPiEvent(working, event);
@@ -2654,11 +2812,19 @@ export class PiSessionStore {
       reducer: working,
       ...(epochChangedResidents ? { hydratedSessionIds: new Set(this.hydratedSessionIds) } : {}),
     };
+    // Commit authoritative deletions through the shared path so catalog,
+    // sessions, selection, and persisted drafts stay consistent and the
+    // tombstone guards late completions. The reducer already carries each
+    // deletion cursor; `commitDeletion` preserves it.
+    for (const [deletedId, deletedDirectory] of deletedIds) {
+      this.commitDeletion(deletedId, deletedDirectory);
+    }
     // Mirror accepted events into the catalog. Lifecycle transitions flip
     // a row's `lifecycle`; `session.updated` and the first remote user
     // message fill title. Last-prompt recency is owned by `prompt()` locally
     // and by user-message starts from other devices. Only events accepted
-    // this batch mirror — a stale-epoch event must not resurrect a catalog row here.
+    // this batch mirror — a tombstoned or same-batch-deleted session, or a
+    // stale-epoch event, must not resurrect a catalog row here.
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
     if (catalogChanged) {
@@ -2719,6 +2885,10 @@ export class PiSessionStore {
   ): PiSessionCatalogState {
     let catalog = this.state.catalog;
     for (const event of events) {
+      // Defensive tombstone filter (commitEvents already filters accepted
+      // events): a committed deletion owns the catalog row, so no buffered
+      // or late event may stub or touch it again.
+      if (this.deletedSessionIds.has(event.sessionId)) continue;
       const reducerSession = working.bySession.get(event.sessionId);
       const reducerLifecycle = reducerSession?.lifecycle;
       const stubLifecycle = lifecycleFromEvent(event);

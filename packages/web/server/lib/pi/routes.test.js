@@ -55,6 +55,26 @@ describe('Pi runtime route', () => {
     });
   });
 
+  it('projects explicit and legacy deletion frames as session.deleted', () => {
+    const common = {
+      protocolVersion: 1,
+      kind: 'event',
+      sequence: 9,
+      payload: { sessionId: 'pi-session-deleted', directory: '/workspace' },
+    };
+    expect(projectEventFrame({ ...common, event: 'session.deleted' })).toMatchObject({
+      name: 'session.deleted',
+      sessionId: 'pi-session-deleted',
+      directory: '/workspace',
+      payload: {},
+    });
+    expect(projectEventFrame({
+      ...common,
+      event: 'session.lifecycle',
+      payload: { ...common.payload, state: 'idle', deleted: true },
+    })).toMatchObject({ name: 'session.deleted', payload: {} });
+  });
+
   afterEach(async () => {
     await close(server);
     server = undefined;

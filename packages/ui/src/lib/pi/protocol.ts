@@ -610,6 +610,7 @@ export interface PiAttachmentCreateResponse {
 export type PiEventName =
   | 'session.snapshot'
   | 'session.lifecycle'
+  | 'session.deleted'
   | 'session.updated'
   | 'session.tree.updated'
   | 'assistant.message.start'
@@ -677,6 +678,13 @@ export type PiSessionUpdatedEvent = PiEventEnvelope<
 
 /** A Pi label/bookmark changed; mounted tree consumers should refetch. */
 export type PiSessionTreeUpdatedEvent = PiEventEnvelope<'session.tree.updated', Record<string, never>>;
+
+/** Authoritative session deletion. Every connected and replaying client must
+ *  drop the catalog row, transcript, live activity, and caches for this
+ *  session. Archive and directory moves keep the session id and never emit
+ *  this event. Empty payload keeps the wire shape stable and idempotent:
+ *  applying the same deletion twice is a no-op. */
+export type PiSessionDeletedEvent = PiEventEnvelope<'session.deleted', Record<string, never>>;
 
 export interface PiMessageStartPayload {
   messageId: string;
@@ -1005,6 +1013,7 @@ export type PiExtensionErrorEvent = PiEventEnvelope<
 export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
+  | PiSessionDeletedEvent
   | PiSessionUpdatedEvent
   | PiSessionTreeUpdatedEvent
   | PiAssistantMessageStartEvent
@@ -1042,6 +1051,7 @@ export type PiSessionEvent =
 export const PI_EVENT_KINDS = [
   'session.snapshot',
   'session.lifecycle',
+  'session.deleted',
   'session.updated',
   'session.tree.updated',
   'assistant.message.start',
