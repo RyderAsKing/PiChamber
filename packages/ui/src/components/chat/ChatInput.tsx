@@ -62,6 +62,7 @@ import { PendingChangesBar } from "./PendingChangesBar";
 import { useChatSurfaceMode } from "./chatSurfaceContext";
 import { useCurrentSessionActivity } from "@/hooks/useSessionActivity";
 import { toast } from "@/components/ui";
+import { isMobileConnectionUncertain, useMobileConnectionUncertain } from "@/apps/mobile/mobileRecoveryStatus";
 import { useTabletLayout } from "@/lib/device";
 import { useHardwareKeyboard } from "@/lib/hardwareKeyboard";
 import type { MobileControlsPanel } from "./mobileControlsUtils";
@@ -816,16 +817,31 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const hasContent = message.trim().length > 0 || attachedFiles.length > 0;
   const hasUsableModel = Boolean(currentProviderId && currentModelId);
   const attachmentsReady = areAttachmentsReadyToSend(attachedFiles);
-  const attachmentGateMessage = hasPendingAttachmentUploads(attachedFiles)
-    ? "Uploading attachments…"
-    : hasFailedAttachmentUploads(attachedFiles) ||
-        (attachedFiles.length > 0 && !attachmentsReady)
-      ? "Retry or remove failed attachments"
-      : null;
+  // Reactive mobile recovery gate (see handleSubmit/handleQueueMessage for
+  // the imperative guards): while the native transport is uncertain the
+  // shell shows stale readonly content — disable send AND queue so neither
+  // replays a mutation into an unverified endpoint. Typing stays enabled so
+  // drafts remain local. Desktop/web never set this flag.
+  const isConnectionUncertain = useMobileConnectionUncertain();
+  const connectionUncertainMessage = isConnectionUncertain
+    ? "Connection lost. Waiting to reconnect — your draft is kept."
+    : null;
+  const attachmentGateMessage =
+    connectionUncertainMessage ??
+    (hasPendingAttachmentUploads(attachedFiles)
+      ? "Uploading attachments…"
+      : hasFailedAttachmentUploads(attachedFiles) ||
+          (attachedFiles.length > 0 && !attachmentsReady)
+        ? "Retry or remove failed attachments"
+        : null);
   // Normal/steering submits carry only the composer; pending follow-ups are
   // distinct entries dispatched via their own claim, so the send gate ignores
   // them here. Each chip sends its own follow-up explicitly.
-  const canSend = hasContent && hasUsableModel && attachmentsReady;
+  const canSend =
+    hasContent &&
+    hasUsableModel &&
+    attachmentsReady &&
+    !isConnectionUncertain;
 
   // Locked while a worktree is being created, a new-session draft send is
   // in flight, or the selected session is owned by another PiChamber
@@ -851,6 +867,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // Add message to queue instead of sending
   const queueInFlightRef = React.useRef(false);
   const handleQueueMessage = React.useCallback(async () => {
+    // Same uncertain-transport gate as handleSubmit: never enqueue a mutation
+    // into an unverified endpoint — the draft stays local and queued auto-send
+    // stays paused until a verified healthy probe (see MobileApp).
+    if (isMobileConnectionUncertain()) {
+      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      return;
+    }
     const inputSnapshot = getCurrentInputSnapshot();
     if (
       queueInFlightRef.current ||
@@ -961,6 +984,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   };
 
   const handleSubmit = async (options?: SubmitOptions) => {
+    // Mobile temporary-unreachable recovery: the transport is uncertain and the
+    // shell is showing stale readonly content. Never replay a mutation into an
+    // unverified endpoint — keep the draft local and let the banner retry.
+    // Queued prompts stay queued (auto-send is disabled while uncertain) and
+    // drain only after a verified healthy probe.
+    if (isMobileConnectionUncertain()) {
+      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      return;
+    }
     const queuedOnly = options?.queuedOnly ?? false;
     const queuedMessageId = options?.queuedMessageId;
     // Send now steers irrespective of stale client idle; the daemon

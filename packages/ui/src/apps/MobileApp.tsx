@@ -2,6 +2,7 @@ import React from 'react';
 
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { Button } from '@/components/ui/button';
+import { Icon } from '@/components/icon/Icon';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SessionDialogs } from '@/components/session/SessionDialogs';
@@ -36,6 +37,9 @@ import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { MobileConnectionWelcome, type MobileConnectionNotice } from './MobileConnectionWelcome';
 import { MobileShell } from './MobileShell';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
+import { MobileConnectionRecovery, isHiddenNow, isOfflineNow } from './mobile/mobileConnectionRecovery';
+import { setMobileConnectionUncertain, useMobileConnectionUncertain } from './mobile/mobileRecoveryStatus';
+import { subscribeRuntimeAuthExpired } from '@/lib/runtime-auth';
 import { isCapacitorMobileApp, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
 import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from './runtimeEndpointReset';
 import { useAppFontEffects } from './useAppFontEffects';
@@ -64,6 +68,17 @@ export function MobileApp({ apis }: MobileAppProps) {
   const [connectionEpoch, setConnectionEpoch] = React.useState(0);
   const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
   const [showConnectionRecovery, setShowConnectionRecovery] = React.useState(false);
+  // Temporary-unreachable recovery (endpoint retained, stale content kept).
+  // 'idle' = healthy or explicitly disconnected; 'recovering' = paced retries
+  // with the endpoint retained; 'exhausted' = bounded retries gave up but the
+  // endpoint is still retained for a manual retry. Explicit disconnect (no
+  // endpoint), auth-invalid (login/repair flow), and no-candidate all leave
+  // recovery via cancel + endpoint clear instead of retrying.
+  const [recoveryPhase, setRecoveryPhase] = React.useState<'idle' | 'recovering' | 'exhausted'>('idle');
+  const isUncertain = useMobileConnectionUncertain();
+  const recoveryRef = React.useRef<MobileConnectionRecovery | null>(null);
+  const recoveryPhaseRef = React.useRef(recoveryPhase);
+  recoveryPhaseRef.current = recoveryPhase;
   // Cold-launch auto-connect to the last instance: 'pending'/'attempting' hold the
   // splash so we don't flash the connect screen; 'done' means we either connected or
   // exhausted the attempt (then the connect screen shows).
@@ -80,6 +95,100 @@ export function MobileApp({ apis }: MobileAppProps) {
   const isNativeMobileApp = React.useMemo(() => isCapacitorMobileApp(), []);
   const lastNativeResumeSyncEventAtRef = React.useRef(0);
   const nativeResumeValidationSeqRef = React.useRef(0);
+  const autoConnectInFlightRef = React.useRef(false);
+
+  // Temporary-unreachable recovery controller. One instance per mount; the
+  // probe reuses reprobeActiveConnection (verified candidate failover,
+  // direct/relay preference, temporary-tunnel cleanup), so this layer never
+  // opens raw transports. Retains the endpoint, saved row, stale content,
+  // drafts, and local session while retrying; explicit disconnect/host switch
+  // cancels via generation + runtime identity. Native EventSource recovery
+  // stays owned by the Pi transport/store and is never disposed here.
+  React.useEffect(() => {
+    const recovery = new MobileConnectionRecovery(
+      () => reprobeActiveConnection(),
+      {
+        onHealthy: (outcome) => {
+          setRecoveryPhase('idle');
+          setMobileConnectionUncertain(false);
+          if (outcome === 'unchanged') {
+            void useConfigStore.getState().initializeApp();
+            const snapshot = useConfigStore.getState();
+            if (snapshot.providers.length === 0) void snapshot.loadProviders({ source: 'mobileApp:recovery' });
+          }
+        },
+        onAuthExpired: () => {
+          setRecoveryPhase('idle');
+          setMobileConnectionUncertain(false);
+          setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
+          switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
+          setConnectionEpoch((value) => value + 1);
+        },
+        onNoConnection: () => {
+          setRecoveryPhase('idle');
+          setMobileConnectionUncertain(false);
+          switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
+          setConnectionEpoch((value) => value + 1);
+        },
+        onExhausted: () => {
+          // Bounded retries gave up: keep the endpoint, saved row, stale
+          // content, and drafts. Uncertainty stays true so the composer
+          // keeps blocking sends instead of replaying them. A genuine
+          // online/foreground/manual wake restarts a fresh bounded cycle;
+          // offline/hidden wakes never restart (no background loops).
+          setRecoveryPhase('exhausted');
+        },
+      },
+      () => `${getRuntimeKey()}|${getRuntimeApiBaseUrl()}`,
+    );
+    recoveryRef.current = recovery;
+    return () => {
+      recovery.cancel();
+      recoveryRef.current = null;
+    };
+  }, []);
+
+  const startTemporaryRecovery = React.useCallback(() => {
+    if (!isNativeMobileApp || !getRuntimeApiBaseUrl()) return;
+    const recovery = recoveryRef.current;
+    if (!recovery) return;
+    // Wake a paused/backoff cycle instead of restarting it: restart would
+    // reset the bounded attempt count and burn the delayed-wifi grace.
+    if (recovery.isRunning) {
+      recovery.retryNow();
+      return;
+    }
+    setRecoveryPhase('recovering');
+    setMobileConnectionUncertain(true);
+    recovery.start();
+  }, [isNativeMobileApp]);
+
+  const cancelTemporaryRecovery = React.useCallback(() => {
+    recoveryRef.current?.cancel();
+    setRecoveryPhase('idle');
+    setMobileConnectionUncertain(false);
+  }, []);
+
+  const disconnectToConnectScreen = React.useCallback((notice: MobileConnectionNotice | null) => {
+    // Explicit disconnect: cancel recovery (generation bump rejects any late
+    // probe), clear uncertainty (composer unmounts to the connect screen),
+    // and clear the endpoint. Stale stores are reset by the endpoint-change
+    // subscription; recovery never clears them itself.
+    recoveryRef.current?.cancel();
+    setRecoveryPhase('idle');
+    setMobileConnectionUncertain(false);
+    if (notice) setAutoConnectNotice(notice);
+    switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
+    setConnectionEpoch((value) => value + 1);
+  }, []);
+
+  const dispatchThrottledSystemResume = React.useCallback(() => {
+    const now = Date.now();
+    if (now - lastNativeResumeSyncEventAtRef.current >= NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS) {
+      lastNativeResumeSyncEventAtRef.current = now;
+      window.dispatchEvent(new Event('pichamber:system-resume'));
+    }
+  }, []);
 
   const handleNativeResume = React.useCallback(() => {
     const apiBaseUrl = getRuntimeApiBaseUrl();
@@ -92,8 +201,45 @@ export function MobileApp({ apis }: MobileAppProps) {
       // reachable. When a resume/online signal arrives, silently retry the last
       // saved instance instead of dead-ending on the connect screen until the
       // user restarts the app. Success fires runtime-endpoint-changed, which
-      // re-bootstraps everything.
-      void autoConnectLastInstance();
+      // re-bootstraps everything. Dedup duplicate lifecycle flaps: one retry
+      // owns the outcome.
+      if (autoConnectInFlightRef.current) return;
+      autoConnectInFlightRef.current = true;
+      void autoConnectLastInstance()
+        .catch(() => undefined)
+        .finally(() => {
+          autoConnectInFlightRef.current = false;
+        });
+      return;
+    }
+
+    // A recovery cycle is already pacing retries: wake it (deduped inside
+    // the controller) instead of starting a parallel probe that could
+    // double-switch transports.
+    if (recoveryRef.current?.isRunning) {
+      recoveryRef.current.retryNow();
+      dispatchThrottledSystemResume();
+      return;
+    }
+    // Exhausted (bounded retries gave up, endpoint retained): a genuine
+    // online/foreground wake restarts a fresh bounded cycle so a long outage
+    // wakes promptly. Offline/hidden wakes never restart (no background
+    // loops); duplicate wakes collapse because the restarted cycle owns the
+    // single in-flight probe token.
+    if (recoveryPhaseRef.current === 'exhausted') {
+      if (isOfflineNow() || isHiddenNow()) return;
+      setRecoveryPhase('recovering');
+      setMobileConnectionUncertain(true);
+      recoveryRef.current?.start();
+      dispatchThrottledSystemResume();
+      return;
+    }
+
+    // Offline/hidden idle resume: hold without burning a probe against a
+    // known-dead network. Entering paced recovery installs the controller's
+    // online/visible wake so the genuine wake fires promptly.
+    if (isOfflineNow() || isHiddenNow()) {
+      startTemporaryRecovery();
       return;
     }
 
@@ -101,49 +247,37 @@ export function MobileApp({ apis }: MobileAppProps) {
     // changed while the app slept, so hot-switch LAN⇄relay if a better transport
     // is now reachable — no re-pairing. A 'switched' outcome already fired the
     // runtime-endpoint-changed subscription (which re-bootstraps the app), so we
-    // only refresh in place when the transport is 'unchanged'.
+    // only refresh in place when the transport is 'unchanged'. The probe goes
+    // through the controller's single-owner token: a duplicate resume/
+    // startup/manual probe in flight returns null and commits nothing.
     const refreshInPlace = () => {
       void initializeApp();
       if (providersCount === 0) void loadProviders({ source: 'mobileApp:nativeResume' });
     };
-    const disconnect = () => {
-      switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
-      setConnectionEpoch((value) => value + 1);
-    };
 
-    void reprobeActiveConnection().then((outcome) => {
+    const recovery = recoveryRef.current;
+    if (!recovery) return;
+    void recovery.probeOnce().then((outcome) => {
+      if (outcome === null) return;
       if (nativeResumeValidationSeqRef.current !== validationSeq) return;
+      // Runtime switches and disconnects while the probe is pending are
+      // rejected inside probeOnce via its generation and identity checks.
       if (outcome === 'no-connection') {
-        disconnect();
+        disconnectToConnectScreen(null);
         return;
       }
       if (outcome === 'needs-login') {
-        // Token explicitly rejected (revoked/expired) — tell the user why they
-        // land back on the connect screen instead of silently bouncing them.
-        setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
-        disconnect();
+        // Token explicitly rejected (revoked/expired) — enter the existing
+        // repair/login path, never the bounded network retry loop.
+        disconnectToConnectScreen({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
         return;
       }
       if (outcome === 'unreachable') {
-        // Right after a resume or Wi-Fi switch the network is often still
-        // settling (on Android without a SIM there is NO connectivity at all for
-        // a few seconds), so a single fast probe races the network coming up.
-        // Retry once after a grace period before tearing the connection down.
-        window.setTimeout(() => {
-          if (nativeResumeValidationSeqRef.current !== validationSeq) return;
-          void reprobeActiveConnection().then((retry) => {
-            if (nativeResumeValidationSeqRef.current !== validationSeq) return;
-            if (retry === 'switched') return;
-            if (retry === 'unchanged') {
-              refreshInPlace();
-              return;
-            }
-            if (retry === 'needs-login') {
-              setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
-            }
-            disconnect();
-          });
-        }, 4000);
+        // Temporarily unreachable (resume race, delayed wifi, dead LAN):
+        // retain the endpoint/row/content/drafts and enter paced recovery.
+        // The first backoff slot (1s) covers the network-settling grace that
+        // the old single 4s retry handled; delayed wifi wakes via online.
+        startTemporaryRecovery();
         return;
       }
       if (outcome === 'switched') return;
@@ -151,12 +285,8 @@ export function MobileApp({ apis }: MobileAppProps) {
       refreshInPlace();
     });
 
-    const now = Date.now();
-    if (now - lastNativeResumeSyncEventAtRef.current >= NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS) {
-      lastNativeResumeSyncEventAtRef.current = now;
-      window.dispatchEvent(new Event('pichamber:system-resume'));
-    }
-  }, [initializeApp, loadProviders, providersCount]);
+    dispatchThrottledSystemResume();
+  }, [disconnectToConnectScreen, dispatchThrottledSystemResume, initializeApp, loadProviders, providersCount, startTemporaryRecovery]);
 
   useNativeMobileChrome();
   useNativeMobileLifecycle(handleNativeResume);
@@ -168,14 +298,31 @@ export function MobileApp({ apis }: MobileAppProps) {
   // app — no visibility/appState event ever fires, so the app would sit on a dead
   // LAN transport instead of hot-switching to relay. The webview's `online` event
   // fires on connectivity changes (new Wi-Fi, cellular back, airplane off), so
-  // run the same re-probe then. Debounced: the first seconds after `online` the
-  // route is often not usable yet, and rapid offline/online flaps must collapse
-  // into one probe. iOS also gets this (harmless — same seq-guarded operation the
-  // resume path runs; a concurrent duplicate supersedes via the seq ref).
+  // run the same re-probe then. While a recovery cycle is pacing, wake it
+  // directly (deduped inside the controller) so delayed wifi fires the first
+  // retry immediately instead of waiting out the debounce. An exhausted cycle
+  // restarts as a fresh bounded cycle on this genuine online wake (unless
+  // hidden — no hidden loops). Otherwise debounce:
+  // the first seconds after `online` the route is often not usable yet, and
+  // rapid offline/online flaps must collapse into one probe.
   React.useEffect(() => {
     if (!isNativeMobileApp) return;
     let timer: number | undefined;
     const handleOnline = () => {
+      // Recovery owns its own online/visible wake listeners during backoff;
+      // this only shortens the MobileApp-level debounce for the idle path.
+      // A running cycle wakes immediately (deduped).
+      if (recoveryRef.current?.isRunning) {
+        recoveryRef.current.retryNow();
+        return;
+      }
+      if (recoveryPhaseRef.current === 'exhausted') {
+        if (isHiddenNow()) return;
+        setRecoveryPhase('recovering');
+        setMobileConnectionUncertain(true);
+        recoveryRef.current?.start();
+        return;
+      }
       window.clearTimeout(timer);
       timer = window.setTimeout(() => handleNativeResume(), 1500);
     };
@@ -185,6 +332,24 @@ export function MobileApp({ apis }: MobileAppProps) {
       window.clearTimeout(timer);
     };
   }, [isNativeMobileApp, handleNativeResume]);
+
+  // Established auth-expired flow for the native shell. Long-lived Pi
+  // transport stops retrying on a confirmed 401 and notifies via
+  // `subscribeRuntimeAuthExpired`; the shell must handle it immediately:
+  // cancel recovery (generation rejects any late probe so a runtime
+  // switch/disconnect cannot late side effect), preserve drafts and saved
+  // credentials per contract (the saved row stays; only the active endpoint
+  // clears), and enter the re-pair/login notice. No store clearing here.
+  React.useEffect(() => {
+    if (!isNativeMobileApp) return;
+    return subscribeRuntimeAuthExpired(() => {
+      if (!getRuntimeApiBaseUrl()) return;
+      disconnectToConnectScreen({
+        kind: 'auth-expired',
+        label: getAutoConnectTargetLabel() ?? '',
+      });
+    });
+  }, [disconnectToConnectScreen, isNativeMobileApp]);
 
   React.useEffect(() => {
     registerRuntimeAPIs(apis);
@@ -209,10 +374,19 @@ export function MobileApp({ apis }: MobileAppProps) {
         // then reconnect without remounting — so the message
         // pagination refs, the open session, and the whole view are preserved.
         // No key bump, no flash, no bounce to the draft.
+        // The recovery cycle (if running) resolves via its onHealthy callback
+        // after the probe returns; do not cancel it here or the healthy signal
+        // would be lost.
         reconnectAppForTransportSwitch();
         bumpTransportSwitch();
         return;
       }
+      // Explicit disconnect or host switch: abandon recovery so a late probe
+      // for the old endpoint cannot undo it (generation + runtime identity
+      // already reject it, this clears the banner/uncertainty immediately).
+      recoveryRef.current?.cancel();
+      setRecoveryPhase('idle');
+      setMobileConnectionUncertain(false);
       resetAppForRuntimeEndpointChange(detail);
       setRuntimeEndpointEpoch((epoch) => epoch + 1);
       setConnectionEpoch((epoch) => epoch + 1);
@@ -264,7 +438,9 @@ export function MobileApp({ apis }: MobileAppProps) {
   // for 8s while bootstrap failed, then show a vague "unable to reach server"
   // screen. Classify the failure with a fast re-probe instead: unreachable or
   // rejected auth drops straight to the connect screen with a banner saying
-  // why; a switched/alive transport lets bootstrap proceed as usual.
+  // why; a switched/alive transport lets bootstrap proceed as usual. The
+  // probe goes through the controller's single-owner token so a concurrent
+  // resume/startup duplicate commits nothing (returns null).
   React.useEffect(() => {
     // NOTE: do NOT gate on isConnected here — the persisted store can claim a
     // stale `isConnected: true` at mount, which would skip the classification
@@ -276,8 +452,10 @@ export function MobileApp({ apis }: MobileAppProps) {
       switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
       setConnectionEpoch((value) => value + 1);
     };
-    void reprobeActiveConnection().then(async (outcome) => {
-      if (cancelled) return;
+    const recovery = recoveryRef.current;
+    if (!recovery) return;
+    void recovery.probeOnce().then(async (outcome) => {
+      if (cancelled || outcome === null) return;
       // A genuinely live connection established itself while we probed.
       if (outcome === 'switched' || outcome === 'unchanged') return;
       const label = getAutoConnectTargetLabel();
@@ -450,6 +628,12 @@ export function MobileApp({ apis }: MobileAppProps) {
   }, [clearError, error]);
 
   React.useEffect(() => {
+    // Recovery owns its own banner while pacing: the generic splash/error
+    // path must not cover the retained shell with a loader.
+    if (isNativeMobileApp && recoveryPhase !== 'idle') {
+      setShowConnectionRecovery(false);
+      return;
+    }
     // Native: only while an instance is selected and reconnecting. Browser: the
     // runtime is same-origin (no explicit base URL), so any not-connected spell
     // counts — the splash holds until this fires, then the error screen shows.
@@ -465,7 +649,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       setShowConnectionRecovery(true);
     }, isNativeMobileApp ? 4000 : 8000);
     return () => window.clearTimeout(timeout);
-  }, [isConnected, isNativeMobileApp, connectionEpoch, runtimeEndpointEpoch]);
+  }, [isConnected, isNativeMobileApp, connectionEpoch, recoveryPhase, runtimeEndpointEpoch]);
 
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
@@ -490,6 +674,33 @@ export function MobileApp({ apis }: MobileAppProps) {
   // UI doesn't reload on every network blip.
   const isReconnecting = !isConnected && connectionPhase === 'reconnecting';
 
+  // No runtime endpoint on native = explicitly disconnected (last instance
+  // deleted, revoked token, unreachable). The connect screen is the only valid
+  // UI then — regardless of what a stale isConnected flag claims (the store can
+  // be poisoned by a bootstrap that ran against the webview's own origin).
+  const hasRuntimeEndpoint = Boolean(getRuntimeApiBaseUrl());
+  // Temporary-unreachable recovery retains the endpoint/row/content/drafts and
+  // keeps the shell mounted (stale readonly) instead of blanking to a loader.
+  // Distinct states: no endpoint = user disconnected; recovering = pacing
+  // retries; exhausted = bounded retries gave up (genuine online/foreground/
+  // manual wake restarts a fresh bounded cycle); otherwise
+  // synced (or initial connecting/reconnecting).
+  const inTemporaryRecovery = isNativeMobileApp && hasRuntimeEndpoint && recoveryPhase !== 'idle';
+  const recoveryLabel = getAutoConnectTargetLabel() ?? '';
+  const handleRecoveryRetryNow = React.useCallback(() => {
+    const recovery = recoveryRef.current;
+    if (!recovery) return;
+    if (recoveryPhaseRef.current === 'exhausted') {
+      recovery.retryNow();
+      if (recovery.isRunning) setRecoveryPhase('recovering');
+      return;
+    }
+    startTemporaryRecovery();
+  }, [startTemporaryRecovery]);
+  const handleRecoverySwitchServer = React.useCallback(() => {
+    disconnectToConnectScreen(null);
+  }, [disconnectToConnectScreen]);
+
   // Hold a logo splash until the UI web font is loaded, so the first UI the user sees
   // already uses the real font instead of flashing the fallback and reflowing (FOUT).
   if (!fontsReady) {
@@ -500,13 +711,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     );
   }
 
-  // No runtime endpoint on native = explicitly disconnected (last instance
-  // deleted, revoked token, unreachable). The connect screen is the only valid
-  // UI then — regardless of what a stale isConnected flag claims (the store can
-  // be poisoned by a bootstrap that ran against the webview's own origin).
-  const hasRuntimeEndpoint = Boolean(getRuntimeApiBaseUrl());
-
-  if (isNativeMobileApp && (!hasRuntimeEndpoint || (!isConnected && !isReconnecting))) {
+  if (isNativeMobileApp && !inTemporaryRecovery && (!hasRuntimeEndpoint || (!isConnected && !isReconnecting))) {
     // A runtime endpoint is already selected (first connect or switching instances):
     // show a loader while it re-bootstraps instead of flashing the onboarding screen.
     if (hasRuntimeEndpoint) {
@@ -526,8 +731,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
-                    setConnectionEpoch((value) => value + 1);
+                    disconnectToConnectScreen(null);
                   }}
                 >
                   {"Use another server"}
@@ -607,9 +811,50 @@ export function MobileApp({ apis }: MobileAppProps) {
                     <PiChamberLogo width={120} height={120} isAnimated />
                   </div>
                 ) : null}
-                <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized} />
+                {/* Queued auto-send stays disabled while the transport is
+                    uncertain: queued prompts remain local and drain only after
+                    a verified healthy probe, never as a silent replay of an
+                    uncertain mutation. */}
+                <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized && !isUncertain} />
+                {inTemporaryRecovery ? (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className={recoveryPhase === 'exhausted'
+                      ? 'flex items-center gap-3 border-b border-[color-mix(in_srgb,var(--status-error)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] px-4 py-2.5'
+                      : 'flex items-center gap-3 border-b border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-4 py-2.5'}
+                  >
+                    <span className={recoveryPhase === 'exhausted'
+                      ? 'flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-error)_16%,transparent)] text-[var(--status-error)]'
+                      : 'flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-[var(--status-warning)]'}
+                    >
+                      <Icon name={recoveryPhase === 'exhausted' ? 'cloud-off' : 'loader-4'} className={recoveryPhase === 'exhausted' ? 'size-[18px]' : 'size-[18px] animate-spin'} />
+                    </span>
+                    <span className="min-w-0 flex-1 text-left">
+                      <span className="block truncate typography-ui-label text-foreground">
+                        {recoveryPhase === 'exhausted'
+                          ? (recoveryLabel ? `Couldn't reach ${recoveryLabel}` : 'Server unreachable')
+                          : 'Reconnecting…'}
+                      </span>
+                      <span className="block truncate typography-small text-muted-foreground">
+                        {recoveryPhase === 'exhausted'
+                          ? 'Chats and drafts are kept. Check the server, then try again.'
+                          : 'Keeping chats and drafts. Retrying automatically.'}
+                      </span>
+                    </span>
+                    <Button type="button" size="sm" onClick={handleRecoveryRetryNow}>
+                      {recoveryPhase === 'exhausted' ? 'Try again' : 'Retry now'}
+                    </Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={handleRecoverySwitchServer}>
+                      {'Use another server'}
+                    </Button>
+                  </div>
+                ) : null}
                 <MobileAppUpdateToast />
                 <MobileShell onActiveConnectionDeleted={() => {
+                  // Deleting the active connection is an explicit disconnect:
+                  // abandon recovery so no late probe can resurrect it.
+                  cancelTemporaryRecovery();
                   switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
                   setConnectionEpoch((value) => value + 1);
                 }} />

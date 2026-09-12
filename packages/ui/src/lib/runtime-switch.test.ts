@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   getRuntimeApiBaseUrl,
+  getRuntimeEndpointGeneration,
   getRuntimeKey,
   subscribeRuntimeEndpointChanged,
   subscribeRuntimeEndpointWillChange,
@@ -62,14 +63,23 @@ describe('runtime endpoint switching', () => {
         observed.push(['changed', getRuntimeKey(), detail.runtimeKey]);
       });
 
+      const generationBefore = getRuntimeEndpointGeneration();
       switchRuntimeEndpoint({ apiBaseUrl: 'https://runtime-b.example', runtimeKey: 'runtime-b' });
 
+      expect(getRuntimeEndpointGeneration()).toBe(generationBefore + 1);
       expect(observed).toEqual([
         ['will-change', 'runtime-a', 'runtime-a'],
         ['changed', 'runtime-b', 'runtime-b'],
       ]);
       unsubscribeWillChange();
       unsubscribeChanged();
+
+      const sameEndpointGeneration = getRuntimeEndpointGeneration();
+      switchRuntimeEndpoint({
+        apiBaseUrl: 'https://runtime-b.example',
+        runtimeKey: 'runtime-b',
+      });
+      expect(getRuntimeEndpointGeneration()).toBe(sameEndpointGeneration + 1);
     } finally {
       globalThis.fetch = previousFetch;
       if (previousWindow) {
