@@ -643,10 +643,12 @@ export const createPiSessionDaemonSupervisor = ({
     }
   };
 
-  const subscribe = async ({ sessionId, fromSequence, streamEpoch, onEvent, onError }) => {
+  const subscribe = async ({ sessionId, fromSequence, streamEpoch, onEvent, onError, signal }) => {
     try {
+      if (signal?.aborted) return () => {};
       const { credential } = await ensureReady();
-      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError });
+      if (signal?.aborted) return () => {};
+      return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError, signal });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
         error instanceof SessionDaemonClientError && error.code !== 'DAEMON_CONNECTION_REFUSED'

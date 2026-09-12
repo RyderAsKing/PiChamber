@@ -21,6 +21,11 @@ import {
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId } from './session-daemon/send-operation-registry.js';
+import {
+  DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
+  createPiEventStreamRegistry,
+  openPiEventStream,
+} from './event-stream.js';
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
@@ -814,7 +819,9 @@ export const registerPiRuntimeRoutes = (app, {
   resolveUpdatePackageManager = resolveTrustedUpdatePackageManager,
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
+  eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
+  const eventStreamRegistry = createPiEventStreamRegistry();
   app.get('/api/pi/ui-settings', async (_req, res) => {
     try {
       res.json(await uiSettingsStore.read());
@@ -1416,7 +1423,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  app.get('/api/pi/events', async (req, res) => {
+  app.get('/api/pi/events', (req, res) => {
     const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId.length > 0 ? req.query.sessionId : undefined;
     const directory = typeof req.query.directory === 'string' && req.query.directory.length > 0 ? req.query.directory : undefined;
     const rawCursor = req.query.fromSequence;
@@ -1450,7 +1457,6 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
       return;
     }
-    let close;
     try {
       const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
       if (typeof runtime.subscribe !== 'function') throw protocolMismatch();
@@ -1460,29 +1466,26 @@ export const registerPiRuntimeRoutes = (app, {
         Connection: 'keep-alive',
       });
       res.flushHeaders?.();
-      const send = (frame) => {
-        const event = projectEventFrame(frame);
-        if (event) res.write(`data: ${JSON.stringify(event)}\n\n`);
-      };
-      close = await runtime.subscribe({ sessionId, directory, fromSequence, streamEpoch, onEvent: send, onError: () => res.end() });
-      // Named heartbeat events are visible to native EventSource clients.
-      // Comment-only SSE heartbeats keep proxies open but are hidden from the
-      // EventSource API, so WKWebView cannot use them to detect a silent link.
-      // Send one immediately so an empty replay still proves the connection is
-      // healthy before the client resets its reconnect backoff.
-      const sendHeartbeat = () => res.write('event: heartbeat\ndata: {}\n\n');
-      sendHeartbeat();
-      const heartbeat = setInterval(sendHeartbeat, eventHeartbeatMs);
-      const cleanup = () => {
-        clearInterval(heartbeat);
-        close?.();
-      };
-      req.once('close', cleanup);
-      res.once('close', cleanup);
+      // event-stream.js owns the connection lifecycle: cleanup installed before
+      // subscribe opens, idempotent close on disconnect/error/shutdown, bounded
+      // socket buffering with a recoverable disconnect, and heartbeat
+      // suppression on dead responses.
+      openPiEventStream({
+        req,
+        res,
+        subscribe: (handlers) => runtime.subscribe({ sessionId, directory, fromSequence, streamEpoch, ...handlers }),
+        projectFrame: projectEventFrame,
+        heartbeatMs: eventHeartbeatMs,
+        maxBufferedBytes: eventStreamMaxBufferedBytes,
+        registry: eventStreamRegistry,
+        respondWithError: (error) => {
+          if (!res.headersSent) writeDaemonError(res, error);
+          else if (!res.writableEnded && !res.destroyed) res.end();
+        },
+      });
     } catch (error) {
       if (!res.headersSent) writeDaemonError(res, error);
-      else res.end();
-      close?.();
+      else if (!res.writableEnded && !res.destroyed) res.end();
     }
   });
 
@@ -1845,5 +1848,9 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
-  return { dispose: () => attachmentStore.dispose?.() };
+  return {
+    dispose: () => attachmentStore.dispose?.(),
+    /** End every live event stream (active or still opening) during shutdown. */
+    closeEventStreams: () => eventStreamRegistry.closeAll(),
+  };
 };
