@@ -92,6 +92,7 @@ describe("reconnectPiSession", () => {
           session: { id: "s1", directory: "/work" },
           messages: [],
           lastSequence: 12,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -142,6 +143,7 @@ describe("reconnectPiSession", () => {
           lifecycle: "busy",
           runStartedAt: 1_000,
           serverNow: 2_000,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -183,6 +185,7 @@ describe("reconnectPiSession", () => {
           session: { id: "s1", directory: "/work" },
           messages: [],
           lastSequence: 12,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -259,6 +262,7 @@ describe("reconnectPiSession", () => {
           session: { id: "s1", directory: "/work" },
           messages: [],
           lastSequence: 12,
+          streamEpoch: "epoch-new",
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -298,6 +302,7 @@ describe("reconnectPiSession", () => {
           session: { id: "s1", directory: "/work" },
           messages: [],
           lastSequence: 12,
+          streamEpoch: "epoch-test-1",
         })
       }
       return jsonResponse({}, { status: 500 })
@@ -314,6 +319,35 @@ describe("reconnectPiSession", () => {
     expect(result.epochChanged).toBeUndefined()
     expect(result.lastSequence).toBe(40)
     expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.streamEpoch).toBe("epoch-test-1")
+  })
+
+  test("a session detail without the advertised stream epoch fails visibly", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
+    })
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("failed")
+    expect(result.error?.code).toBe("DAEMON_PROTOCOL_MISMATCH")
+    expect(result.stream).toBeNull()
   })
 
   test("a session detail stamped with a retired epoch is rejected", async () => {

@@ -19,6 +19,23 @@ export const TOPIC_CHROME = 'chrome';
 export type PiConnectionState = 'loading' | 'ready' | 'unavailable' | 'error';
 export type PiSessionsListStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
+/** Synchronization readiness is separate from transport connectivity.
+ *  `connection: 'ready'` means the stream/health is alive — a heartbeat is
+ *  NOT proof that the cluster's baseline is current. `syncReadiness` is
+ *  `'recovering'` while reconnect recovery obligations (directory catalog
+ *  reconciliations and affected resident re-hydrations after a replay miss
+ *  or stream-epoch change) are still outstanding. */
+export type PiSyncReadiness = 'ready' | 'recovering';
+
+/** Outstanding reconnect-recovery scopes, mirrored into state for
+ *  observability. A failed scope stays listed: partial success is never
+ *  reported as complete, and the obligation is retried on later recovery
+ *  passes. */
+export interface PiSyncRecoveryScopes {
+  directories: readonly string[];
+  residents: readonly PiSessionId[];
+}
+
 export interface PiSessionStoreState {
   /** Currently focused project directory. Switching folders updates this without
    *  disposing the live event stream or clearing the resident session cluster. */
@@ -56,6 +73,10 @@ export interface PiSessionStoreState {
    *  `pi-session-catalog.ts` for membership, lifecycle, and reference-
    *  hygiene rules. */
   catalog: PiSessionCatalogState;
+  /** Sync readiness, separate from `connection`. See `PiSyncReadiness`. */
+  syncReadiness: PiSyncReadiness;
+  /** Outstanding reconnect-recovery obligations. See `PiSyncRecoveryScopes`. */
+  syncRecovery: PiSyncRecoveryScopes;
 }
 
 export type Listener = () => void;
@@ -64,6 +85,15 @@ export type Listener = () => void;
  *  transcripts can be evicted; `lastSequence` survives the eviction so
  *  reconnect/rehydrate resumes without rewinding past accepted events. */
 export const PI_TRANSCRIPT_EVICTION_SOFT_CAP = 16;
+
+/** Bounded concurrency for reconnect-recovery residents (matches the
+ *  catalog refresh scheduler). */
+export const PI_SYNC_RECOVERY_CONCURRENCY = 2;
+
+/** Bounded automatic retry passes per recovery cycle. A scope that keeps
+ *  failing stays recorded as an obligation and is retried on the next
+ *  stream-health signal or reconnect instead of looping forever. */
+export const PI_SYNC_RECOVERY_MAX_ATTEMPTS = 5;
 
 /** Single automatic retry delay for transient focus-list failures. Short
  *  enough that the chat loader does not visibly stall, long enough that we

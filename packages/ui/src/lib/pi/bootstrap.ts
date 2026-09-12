@@ -226,9 +226,19 @@ export const bootstrapPiDirectory = async (
         directory: options.directory,
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
       }));
+      if (typeof list.streamEpoch !== 'string' || list.streamEpoch.length === 0) {
+        throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Session list omitted the current stream epoch');
+      }
+      if (list.streamEpoch !== result.streamEpoch) {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
+      }
       seedSessionList(list.sessions);
     } catch (error) {
       result.errors.push({ phase: 'session-list', error: toError(error) });
+      if (error instanceof PiRequestError && error.code === 'DAEMON_PROTOCOL_MISMATCH') {
+        result.phase = 'failed';
+        return result;
+      }
     }
   }
 
@@ -241,6 +251,12 @@ export const bootstrapPiDirectory = async (
         directory: options.directory,
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
       }));
+      if (typeof detail.streamEpoch !== 'string' || detail.streamEpoch.length === 0) {
+        throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Session detail omitted the current stream epoch');
+      }
+      if (detail.streamEpoch !== result.streamEpoch) {
+        throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session detail predates the current stream epoch');
+      }
       result.selectedSessionTiming = {
         sessionId: detail.session.id,
         isStreaming: detail.isStreaming,
@@ -253,6 +269,10 @@ export const bootstrapPiDirectory = async (
       result.lastSequence.set(detail.session.id, detail.lastSequence);
     } catch (error) {
       result.errors.push({ phase: 'session-hydrate', error: toError(error) });
+      if (error instanceof PiRequestError && error.code === 'DAEMON_PROTOCOL_MISMATCH') {
+        result.phase = 'failed';
+        return result;
+      }
     }
   }
 
