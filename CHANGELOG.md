@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-09-12
+
+Desktop update channels, stream-epoch-bound sends, and startup-recovery hardening since 0.9.7.
+
+- **Desktop update channels with RC subscriptions (#137).** Settings → About now offers Stable versus Release candidate while the Local instance is active. Stable reads only the `latest` updater manifests; Release candidate checks `latest` first, then `rc`, so it receives numbered RC builds and then the final stable. The subscription is host-local in `runtime-state.json` (`desktopUpdateChannel: stable | rc`, default `stable`), rejects unknown values, and is searchable in Settings. The release workflow publishes separate `latest*` and `rc*` manifests (`rc-mac.yml`, `rc.yml`, `rc-linux.yml`, `rc-linux-arm64.yml`), marks RC GitHub releases as prereleases, and publishes opt-in npm RCs under the `rc` dist-tag (`npm install -g @pi-chamber/web@rc`); the Electron setting does not affect npm installs (`updater-channel`, `updater-check`, `finalize-latest-yml`, `release.yml`, `ui-settings-store`, `DesktopUpdateChannelSettings`, `AboutSettings`, `install.mdx`).
+- **Stable launches wire to the website; RCs stay quiet.** Stable releases require `PICHAMBER_WEBSITE_REPO_TOKEN` and send `site_refresh_requested` to `RyderAsKing/PiChamber-web`; prereleases skip the dispatch and docs sync. The docs-source workflow now only validates and archives `packages/docs` without auto-syncing a website (`release.yml`, `docs-source.yml`, `DEPLOYMENT.md`).
+- **Sends bind to the stream epoch (#138).** Prompt, steer, and follow-up intents now carry the health-verified `streamEpoch`, and send identity is `kind + session + operationId + streamEpoch`. A missing, changed, or retired epoch becomes `STALE_STREAM_EPOCH` (HTTP 409) / `PiSendUnconfirmedError` instead of executing under the wrong daemon lifetime. Receipt lookups include the epoch and never invoke Pi; queued and composer sends hold for explicit Check-status review instead of cross-epoch replay (`send-operation-registry`, `session-daemon`, `routes`, `client`, `transport`, `messageQueueStore`, `useQueuedMessageAutoSend`, `ChatInput`).
+- **Startup replay starts from a snapshot baseline.** Pre-bootstrap recovery streams omit `fromSequence`/`streamEpoch` until an epoch is established, and health preserves the restart-safe epoch so cursors stay scoped to the current daemon lifetime (`transport`, `client`).
+- **Persisted session directories are revalidated.** Startup no longer trusts a stale persisted directory hint: web/desktop rediscover the session by id against the connected runtime, native mobile confirms against its authoritative catalog restore, and a failed lookup falls back to a current project without carrying the unverified session id (`pi-session-store`, `pi-session-context`, `last-session-cache`, `sync/DOCUMENTATION.md`).
+- **Desktop credentials restore before URL-token minting.** Web bootstrap waits for `restoreDesktopRelayRuntime` before minting runtime URL auth tokens, so startup uses the active endpoint and credential instead of producing a startup 401 from a stale injected token (`runtimeConfig`).
+- **Shell settings stay visible on remote runtimes.** Launch at login, tray, keep-awake, and performance-recording desktop settings remain available when the local Electron window uses a remote PiChamber runtime; only network-access controls stay local-only (`DesktopNetworkSettings`, `PiChamberPage`, `main.mjs`, `README.md`).
+- **Release-branch workflow documented.** `CONTRIBUTING.md` now describes `release/X.Y.Z` stabilization branches, numbered `-rc.N` candidates, and cherry-pick forward-ports instead of merging the release branch back to `main`.
+
 ## [0.9.7] - 2026-09-12
 
 A stability release for live connections, reconnects, and session recovery.
