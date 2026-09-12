@@ -89,6 +89,22 @@ describe("PiService", () => {
     expect(JSON.parse(call.init?.body as string)).toEqual({ directory: "/chosen" })
   })
 
+  test("health preserves the restart-safe stream epoch", async () => {
+    installFetchMock(() => jsonResponse({
+      protocolVersion: 1,
+      state: "ready",
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-client-health",
+    }))
+
+    expect(await new PiService().health()).toEqual({
+      protocolVersion: 1,
+      state: "ready",
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-client-health",
+    })
+  })
+
   test("getSessionMessages forwards the page cursor, limit, and owning directory", async () => {
     installFetchMock(() => jsonResponse({
       session: { id: "s1", directory: "/other", createdAt: 1, updatedAt: 2 },

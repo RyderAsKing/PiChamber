@@ -519,9 +519,15 @@ export const createPiEventStream = (
 
   let disposed = false;
   let attempt = 0;
+  const ownerEpoch = typeof options.streamEpoch === 'string' && options.streamEpoch.length > 0
+    ? options.streamEpoch
+    : null;
+  // A cursor is meaningful only inside an established stream epoch. The
+  // pre-bootstrap recovery stream has neither, so its first request must omit
+  // `fromSequence` and let the daemon provide a snapshot baseline.
   let lastSequence = typeof options.fromSequence === 'number' && Number.isFinite(options.fromSequence)
     ? Math.max(0, Math.floor(options.fromSequence))
-    : 0;
+    : ownerEpoch ? 0 : undefined;
   // The Pi event endpoint is SSE-only. WebSocket remains available only when
   // explicitly requested by a runtime that provides a matching upgrade path.
   let mode: 'ws' | 'sse' = options.transport === 'ws' ? 'ws' : 'sse';
@@ -546,11 +552,6 @@ export const createPiEventStream = (
   const retiredEpochs = new Set<string>();
   let epochProbeInFlight = false;
   let epochProbeController: AbortController | null = null;
-  /** The epoch the owner established for this stream (subscribe identity). */
-  const ownerEpoch = typeof options.streamEpoch === 'string' && options.streamEpoch.length > 0
-    ? options.streamEpoch
-    : null;
-
   const clearTimers = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
@@ -688,10 +689,10 @@ export const createPiEventStream = (
       // Never rewind: the daemon only replays strictly after the subscribe
       // cursor, so the frame is at or ahead of it.
       currentEpoch = eventEpoch;
-      lastSequence = Math.max(lastSequence, event.sequence);
+      lastSequence = Math.max(lastSequence ?? 0, event.sequence);
       if (reference === null) handlers.onEpochChange?.(eventEpoch);
     }
-    if (event.sequence > lastSequence) lastSequence = event.sequence;
+    if (lastSequence === undefined || event.sequence > lastSequence) lastSequence = event.sequence;
     markActivity(connectionId);
     handlers.onEvent(event);
   };
@@ -812,7 +813,7 @@ export const createPiEventStream = (
     }
     const subscribeEpoch = currentEpoch ?? ownerEpoch ?? undefined;
     const url = resolveStreamUrl(mode, {
-      fromSequence: lastSequence,
+      ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
     }, urlAuthToken);
@@ -820,7 +821,7 @@ export const createPiEventStream = (
     const onEvent = (event: PiSessionEvent) => handleEvent(event, connectionId);
     const onDisconnect = (reason: string) => handleDisconnect(reason, connectionId);
     const subscribeQuery = resolveStreamQuery({
-      fromSequence: lastSequence,
+      ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
       ...(options.sessionId ? { sessionId: options.sessionId } : {}),
       ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
     });
@@ -900,7 +901,7 @@ export const createPiEventStream = (
     get eventsUrl() {
       const subscribeEpoch = currentEpoch ?? ownerEpoch ?? undefined;
       return resolveStreamUrl(mode, {
-        fromSequence: lastSequence,
+        ...(lastSequence !== undefined ? { fromSequence: lastSequence } : {}),
         ...(options.sessionId ? { sessionId: options.sessionId } : {}),
         ...(subscribeEpoch ? { streamEpoch: subscribeEpoch } : {}),
       });

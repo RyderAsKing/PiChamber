@@ -52,6 +52,21 @@ describe("createPiEventStream", () => {
   })
 
 
+  test("omits the replay cursor until a stream epoch has been established", async () => {
+    runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({
+      start() {},
+    }), { status: 200, headers: { "content-type": "text/event-stream" } }))
+
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({ onEvent: () => {} })
+    await flush()
+
+    const initial = streamUrls.find((entry) => entry.transport === "sse")
+    expect(initial?.query.fromSequence).toBeUndefined()
+    expect(initial?.query.streamEpoch).toBeUndefined()
+    handle.dispose()
+  })
+
   test("uses SSE directly in auto mode and preserves the snapshot cursor", async () => {
     const encoder = new TextEncoder()
     runtimeFetch.mockResolvedValueOnce(new Response(new ReadableStream({

@@ -305,6 +305,7 @@ export class PiService {
         protocolVersion: health.protocolVersion,
         state: 'ready',
         capabilities: health.capabilities,
+        ...(health.streamEpoch ? { streamEpoch: health.streamEpoch } : {}),
       };
     }
     return {
