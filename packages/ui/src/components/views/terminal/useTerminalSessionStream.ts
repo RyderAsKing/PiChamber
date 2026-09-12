@@ -1,6 +1,7 @@
 import React from 'react';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import type { TerminalStreamEvent, TerminalAPI, TerminalError, TerminalShell } from '@/lib/api/types';
+import { getTerminalTransportGeneration, subscribeTerminalTransportGeneration } from '@/lib/terminalApi';
 import { TerminalPreviewScanner, FALLBACK_TERMINAL_SIZE } from './terminalStreamHelpers';
 
 type TabIdentity = {
@@ -60,6 +61,14 @@ export function useTerminalSessionStream({
   const lastViewportSizeRef = React.useRef<{ cols: number; rows: number } | null>(null);
   const pendingTerminalCreatesRef = React.useRef(new Set<string>());
   const previewScannersRef = React.useRef(new Map<string, TerminalPreviewScanner>());
+  const tabsRef = React.useRef(tabs);
+  const hydratedRef = React.useRef(terminalHydrated);
+  const viewportOpenRef = React.useRef(hasOpenedTerminalViewport);
+  const terminalRef = React.useRef(terminal);
+  tabsRef.current = tabs;
+  hydratedRef.current = terminalHydrated;
+  viewportOpenRef.current = hasOpenedTerminalViewport;
+  terminalRef.current = terminal;
 
   const resetTerminalPreviewScan = React.useCallback(() => {
     const tabId = activeTabIdRef.current;
@@ -123,9 +132,16 @@ export function useTerminalSessionStream({
         return;
       }
 
+      const streamGeneration = getTerminalTransportGeneration();
+      const isCurrentStream = (): boolean =>
+        getTerminalTransportGeneration() === streamGeneration &&
+        directoryRef.current === directory &&
+        useTerminalStore.getState().getDirectoryState(directory)?.tabs.find((t) => t.id === tabId)
+          ?.terminalSessionId === terminalId;
+
       const subscription = terminal.connect(terminalId, {
         onEvent: (event: TerminalStreamEvent) => {
-          if (directoryRef.current !== directory) return;
+          if (!isCurrentStream()) return;
 
           switch (event.type) {
             case 'snapshot': {
@@ -189,7 +205,7 @@ export function useTerminalSessionStream({
           }
         },
         onError: (error: TerminalError, fatal?: boolean) => {
-          if (directoryRef.current !== directory) return;
+          if (!isCurrentStream()) return;
           const isActive = activeTabIdRef.current === tabId;
 
           if (!fatal) {
@@ -268,6 +284,46 @@ export function useTerminalSessionStream({
       }
     }
   }, [tabsKey, tabs, effectiveDirectory, terminalHydrated, hasOpenedTerminalViewport, startStream]);
+
+  React.useEffect(() => {
+    return subscribeTerminalTransportGeneration(() => {
+      if (!hydratedRef.current || !viewportOpenRef.current) return;
+      const directory = directoryRef.current;
+      if (!directory) return;
+
+      const ownedTabs: Array<{ id: string; terminalSessionId: string }> = [];
+      for (const tab of tabsRef.current) {
+        if (!tab.terminalSessionId) continue;
+        const owned = useTerminalStore
+          .getState()
+          .getDirectoryState(directory)
+          ?.tabs.find((candidate) => candidate.id === tab.id)?.terminalSessionId;
+        if (owned === tab.terminalSessionId) {
+          ownedTabs.push({ id: tab.id, terminalSessionId: tab.terminalSessionId });
+        }
+      }
+
+      // resetTerminalTransport already disposed these subscriptions.
+      subscriptionsRef.current.clear();
+      activeTerminalIdRef.current = null;
+      if (ownedTabs.length === 0) return;
+
+      // Set the input gate before connect can synchronously deliver a snapshot.
+      setIsReconnectPending(true);
+      setConnectionError(null);
+      setIsFatalError(false);
+      for (const tab of ownedTabs) {
+        startStream(directory, tab.id, tab.terminalSessionId);
+      }
+
+      const size = lastViewportSizeRef.current;
+      if (size) {
+        for (const tab of ownedTabs) {
+          void terminalRef.current.resize({ sessionId: tab.terminalSessionId, ...size }).catch(() => {});
+        }
+      }
+    });
+  }, [startStream]);
 
   React.useEffect(() => {
     let cancelled = false;
