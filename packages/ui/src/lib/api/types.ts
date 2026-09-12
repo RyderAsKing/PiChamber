@@ -642,6 +642,7 @@ export interface SettingsPayload {
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
   notificationMode?: 'always' | 'hidden-only';
+  desktopUpdateChannel?: 'stable' | 'rc';
   autoDeleteEnabled?: boolean;
   autoSaveEnabled?: boolean;
   autoDeleteAfterDays?: number;

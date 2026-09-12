@@ -45,6 +45,7 @@ export type DesktopSettings = {
   desktopMinimizeToTrayEnabled?: boolean;
   desktopCloseToTrayEnabled?: boolean;
   desktopMacMenuBarEnabled?: boolean;
+  desktopUpdateChannel?: 'stable' | 'rc';
   desktopUiPassword?: string;
   projects?: ProjectEntry[];
   activeProjectId?: string;
