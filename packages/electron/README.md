@@ -37,6 +37,8 @@ Desktop PNG/ICO/ICNS brand assets, the Linux hicolor icon set, web favicons, and
 
 GitHub Releases for this package are produced by `.github/workflows/release.yml`. Desktop artifacts are built on every release. Android artifacts are built for version tags and can be enabled on a manual dispatch; npm publication is opt-in, and iOS TestFlight uses the separate Mobile Release workflow. See `CONTRIBUTING.md` for the version and tag steps.
 
+Desktop users choose the updater channel under Settings → About while the Local instance is active. The default `stable` subscription reads only the `latest` manifests. The `release candidate` subscription checks `latest` first, then `rc`, so it receives numbered RC builds and their final stable release. The preference is local to the desktop host in `runtime-state.json`; invalid or missing values fall back to `stable`. The release workflow publishes separate `latest*` and `rc*` manifests so stable subscribers cannot receive an RC.
+
 ### Linux distribution
 
 Linux releases include `.deb`, `.rpm`, and AppImage artifacts for x64 and arm64. The `.deb` package is the recommended choice for Debian-family distributions and `.rpm` is recommended for Fedora-family distributions. Package-manager installations retain Electron's normal Chromium sandbox and use the package-specific updater.

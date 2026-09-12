@@ -186,6 +186,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['api key', 'server url', 'audio transcriptions'],
   },
   {
+    id: 'about.update-channel',
+    page: 'about',
+    title: "Update channel",
+    description: "Choose stable releases only or subscribe to release candidates.",
+    keywords: ['updates', 'release candidate', 'rc', 'electron', 'prerelease'],
+    isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
+  },
+  {
     id: 'general.performance-overlay',
     page: 'general',
     title: "Performance overlay",

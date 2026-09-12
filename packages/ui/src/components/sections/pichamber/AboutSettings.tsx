@@ -9,6 +9,7 @@ import { Icon } from "@/components/icon/Icon";
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { InstanceServiceUrls } from './InstanceServiceUrls';
+import { DesktopUpdateChannelSettings } from './DesktopUpdateChannelSettings';
 import {
   SettingsSection,
   SETTINGS_BRAND_TITLE_CLASS,
@@ -279,6 +280,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           runtimeType={updateStore.runtimeType}
         />
       </SettingsSection>
+      <DesktopUpdateChannelSettings />
       <AboutDetails />
     </>
   );
