@@ -26,16 +26,24 @@ const createFixture = ({ includeArm64 = true } = {}) => {
     fs.mkdirSync(path.join(artifacts, 'latest-yml-aarch64-pc-windows-msvc'), { recursive: true });
     fs.writeFileSync(path.join(artifacts, 'latest-yml-aarch64-pc-windows-msvc', 'latest.yml'), manifest('arm64'));
   }
+  for (const [target, architecture] of [
+    ['latest-yml-x86_64-apple-darwin', 'x64'],
+    ['latest-yml-aarch64-apple-darwin', 'arm64'],
+  ]) {
+    fs.mkdirSync(path.join(artifacts, target), { recursive: true });
+    fs.writeFileSync(path.join(artifacts, target, 'latest-mac.yml'), manifest(architecture));
+  }
   fs.mkdirSync(output);
   return { root, artifacts, output };
 };
 
-const environment = ({ artifacts, output }) => ({
+const environment = ({ artifacts, output }, releaseChannel = 'stable') => ({
   ...process.env,
   LATEST_YML_DIR: artifacts,
   RUNNER_TEMP: output,
   GH_REPO: 'RyderAsKing/PiChamber',
   PICHAMBER_VERSION: '1.2.3',
+  PICHAMBER_RELEASE_CHANNEL: releaseChannel,
 });
 
 test('writes separate x64 and ARM64 Windows update channels', (context) => {
@@ -50,6 +58,22 @@ test('writes separate x64 and ARM64 Windows update channels', (context) => {
   assert.doesNotMatch(x64, /win-arm64\.exe/);
   assert.match(arm64, /win-arm64\.exe/);
   assert.doesNotMatch(arm64, /win-x64\.exe/);
+});
+
+test('combines both Windows architectures into the rc channel', (context) => {
+  const fixture = createFixture();
+  context.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+  execFileSync(process.execPath, [script], { env: environment(fixture, 'rc') });
+
+  const rc = fs.readFileSync(path.join(fixture.output, 'rc.yml'), 'utf8');
+  const mac = fs.readFileSync(path.join(fixture.output, 'rc-mac.yml'), 'utf8');
+  assert.match(rc, /win-x64\.exe/);
+  assert.match(rc, /win-arm64\.exe/);
+  assert.match(mac, /win-x64\.exe/);
+  assert.match(mac, /win-arm64\.exe/);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'latest.yml')), false);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'latest-arm64.yml')), false);
 });
 
 test('fails instead of publishing an incomplete Windows channel set', (context) => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { checkForDesktopUpdate } from './updater-check.mjs';
+import { compareReleaseVersions } from './updater-channel.mjs';
 
 const compareVersions = (left, right) => left.localeCompare(right, undefined, { numeric: true });
 
@@ -44,4 +45,72 @@ test('authoritative no-update result clears pending update', async () => {
   });
   assert.equal(result.available, false);
   assert.equal(result.pendingUpdate, null);
+});
+
+test('checks stable before rc and disables downgrade after each channel assignment', async () => {
+  const configured = [];
+  const autoUpdater = {
+    allowPrerelease: false,
+    allowDowngrade: false,
+    _channel: null,
+    set channel(value) {
+      this._channel = value;
+      this.allowDowngrade = true;
+    },
+    get channel() {
+      return this._channel;
+    },
+    async checkForUpdates() {
+      configured.push({
+        channel: this.channel,
+        allowPrerelease: this.allowPrerelease,
+        allowDowngrade: this.allowDowngrade,
+      });
+      return { updateInfo: { version: this.channel === 'rc' ? '0.9.9-rc.2' : '0.9.8' } };
+    },
+  };
+
+  const result = await checkForDesktopUpdate({
+    autoUpdater,
+    currentVersion: '0.9.9-rc.1',
+    pendingUpdate: null,
+    compareVersions,
+    updateChecks: [
+      { channel: 'latest', allowPrerelease: false },
+      { channel: 'rc', allowPrerelease: true },
+    ],
+  });
+
+  assert.deepEqual(configured, [
+    { channel: 'latest', allowPrerelease: false, allowDowngrade: false },
+    { channel: 'rc', allowPrerelease: true, allowDowngrade: false },
+  ]);
+  assert.equal(result.available, true);
+  assert.equal(result.nextVersion, '0.9.9-rc.2');
+});
+
+test('a final stable release takes precedence over another rc update', async () => {
+  const checkedChannels = [];
+  const autoUpdater = {
+    set channel(value) { this._channel = value; },
+    get channel() { return this._channel; },
+    async checkForUpdates() {
+      checkedChannels.push(this.channel);
+      return { updateInfo: { version: '0.9.9' } };
+    },
+  };
+
+  const result = await checkForDesktopUpdate({
+    autoUpdater,
+    currentVersion: '0.9.9-rc.2',
+    pendingUpdate: null,
+    compareVersions: compareReleaseVersions,
+    updateChecks: [
+      { channel: 'latest', allowPrerelease: false },
+      { channel: 'rc', allowPrerelease: true },
+    ],
+  });
+
+  assert.deepEqual(checkedChannels, ['latest']);
+  assert.equal(result.nextVersion, '0.9.9');
 });

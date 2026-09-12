@@ -40,6 +40,8 @@ jobs:
       release_id: ${{ steps.create_release.outputs.id }}
       release_upload_url: ${{ steps.create_release.outputs.upload_url }}
       version: ${{ steps.get_version.outputs.version }}
+      is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
+      release_channel: ${{ steps.get_version.outputs.release_channel }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -49,13 +51,30 @@ jobs:
           RELEASE_INPUT_VERSION: ${{ github.event.inputs.version }}
           RELEASE_REF: ${{ github.ref }}
         run: |
+          set -euo pipefail
           if [[ -n "$RELEASE_INPUT_VERSION" ]]; then
-            echo "version=$RELEASE_INPUT_VERSION" >> "$GITHUB_OUTPUT"
-          elif [[ "$RELEASE_REF" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            VERSION="$RELEASE_INPUT_VERSION"
+          elif [[ "$RELEASE_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
           else
-            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+            echo "Unable to resolve a release version." >&2
+            exit 1
           fi
+
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            IS_PRERELEASE=false
+            RELEASE_CHANNEL=stable
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$ ]]; then
+            IS_PRERELEASE=true
+            RELEASE_CHANNEL=rc
+          else
+            echo "Version must be X.Y.Z or X.Y.Z-rc.N with N >= 1; found: $VERSION" >&2
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "release_channel=$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
 
       - name: Extract changelog for release
         env:
@@ -81,10 +100,13 @@ jobs:
 
       - name: Create GitHub Release
         id: create_release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.get_version.outputs.version }}
           draft: true
+          prerelease: ${{ steps.get_version.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ steps.get_version.outputs.is_prerelease == 'true' && 'false' || 'true' }}
           generate_release_notes: false
           body_path: artifacts/release-notes.md
           name: PiChamber v${{ steps.get_version.outputs.version }}
@@ -147,9 +169,15 @@ jobs:
       - name: Publish exact npm tarball
         if: ${{ github.event.inputs.dry_run != 'true' }}
         working-directory: packages/web
-        run: npm publish "${{ steps.npm_pack.outputs.tarball }}" --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          IS_PRERELEASE: ${{ needs.create-release.outputs.is_prerelease }}
+        run: |
+          if [[ "$IS_PRERELEASE" == "true" ]]; then
+            npm publish "${{ steps.npm_pack.outputs.tarball }}" --access public --tag rc
+          else
+            npm publish "${{ steps.npm_pack.outputs.tarball }}" --access public
+          fi
 
       - name: Verify npm registry tarball integrity
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -335,6 +363,7 @@ jobs:
           done
 
       - name: Upload DMG / ZIP / blockmaps to release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
@@ -418,6 +447,7 @@ jobs:
           node ./scripts/verify-update-manifest.mjs "dist/latest.yml" "$INSTALLER" "$VERSION"
 
       - name: Upload installer to release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
@@ -553,8 +583,14 @@ jobs:
             "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.AppImage" \
             "$VERSION"
 
-      - name: Upload Linux desktop artifacts and manifests to release
-        if: ${{ github.event.inputs.dry_run != 'true' }}
+      - name: Prepare RC Linux manifests
+        if: ${{ needs.create-release.outputs.is_prerelease == 'true' }}
+        run: |
+          cp artifacts/x64/latest-linux.yml artifacts/x64/rc-linux.yml
+          cp artifacts/arm64/latest-linux-arm64.yml artifacts/arm64/rc-linux-arm64.yml
+
+      - name: Upload stable Linux desktop artifacts and manifests to release
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
@@ -567,6 +603,23 @@ jobs:
             artifacts/arm64/*.deb
             artifacts/arm64/*.rpm
             artifacts/arm64/latest-linux-arm64.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload RC Linux desktop artifacts and manifests to release
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease == 'true' }}
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: v${{ needs.create-release.outputs.version }}
+          files: |
+            artifacts/x64/PiChamber-${{ needs.create-release.outputs.version }}-linux-x86_64.AppImage
+            artifacts/x64/*.deb
+            artifacts/x64/*.rpm
+            artifacts/x64/rc-linux.yml
+            artifacts/arm64/PiChamber-${{ needs.create-release.outputs.version }}-linux-arm64.AppImage
+            artifacts/arm64/*.deb
+            artifacts/arm64/*.rpm
+            artifacts/arm64/rc-linux-arm64.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -592,9 +645,11 @@ jobs:
           LATEST_YML_DIR: ${{ github.workspace }}/artifacts
           GH_REPO: ${{ github.repository }}
           PICHAMBER_VERSION: ${{ needs.create-release.outputs.version }}
+          PICHAMBER_RELEASE_CHANNEL: ${{ needs.create-release.outputs.release_channel }}
         run: node packages/electron/scripts/finalize-latest-yml.mjs
 
-      - name: Upload combined manifests to release
+      - name: Upload stable combined manifests to release
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
@@ -602,6 +657,17 @@ jobs:
             ${{ runner.temp }}/latest-mac.yml
             ${{ runner.temp }}/latest.yml
             ${{ runner.temp }}/latest-arm64.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload RC combined manifests to release
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease == 'true' }}
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: v${{ needs.create-release.outputs.version }}
+          files: |
+            ${{ runner.temp }}/rc-mac.yml
+            ${{ runner.temp }}/rc.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -619,7 +685,7 @@ jobs:
     secrets: inherit
 
   finalize-release:
-    needs: [create-release, publish-npm, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, combine-electron-manifests]
+    needs: [create-release, publish-npm, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, combine-electron-manifests, mobile-release]
     if: >-
       ${{
         always() &&
@@ -629,7 +695,8 @@ jobs:
         needs.build-desktop-electron-windows.result == 'success' &&
         needs.build-desktop-electron-linux.result == 'success' &&
         needs.publish-electron-linux.result == 'success' &&
-        needs.combine-electron-manifests.result == 'success'
+        needs.combine-electron-manifests.result == 'success' &&
+        (needs.mobile-release.result == 'success' || needs.mobile-release.result == 'skipped')
       }}
     runs-on: ubuntu-latest
     steps:
@@ -643,11 +710,12 @@ jobs:
           node - <<'NODE'
           (async () => {
           const { REPOSITORY: repo, VERSION: version, GITHUB_TOKEN: token } = process.env;
+          const prerelease = version.includes('-rc.');
           const expected = [
             `PiChamber-${version}-linux-x86_64.AppImage`,
-            'latest-linux.yml',
+            prerelease ? 'rc-linux.yml' : 'latest-linux.yml',
             `PiChamber-${version}-linux-arm64.AppImage`,
-            'latest-linux-arm64.yml',
+            prerelease ? 'rc-linux-arm64.yml' : 'latest-linux-arm64.yml',
           ];
           const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/v${version}`, {
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
@@ -678,14 +746,18 @@ jobs:
           NODE
 
       - name: Publish release
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.create-release.outputs.version }}
           draft: false
+          prerelease: ${{ needs.create-release.outputs.is_prerelease == 'true' }}
+          make_latest: ${{ needs.create-release.outputs.is_prerelease == 'true' && 'false' || 'true' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trigger pichamber-website site refresh (optional)
+        if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease != 'true' }}
         env:
           WEBSITE_REPO: pichamber/pichamber-website
           WEBSITE_TOKEN: ${{ secrets.PICHAMBER_WEBSITE_REPO_TOKEN }}

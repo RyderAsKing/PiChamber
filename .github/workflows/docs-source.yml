@@ -59,7 +59,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trigger pichamber-website docs sync (optional)
-        if: ${{ github.event_name == 'push' || github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'release' && github.event.release.prerelease != true) }}
         env:
           WEBSITE_REPO: pichamber/pichamber-website
           WEBSITE_TOKEN: ${{ secrets.PICHAMBER_WEBSITE_REPO_TOKEN }}
