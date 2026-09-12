@@ -75,7 +75,7 @@ import type {
   PiSessionId,
   PiThinkingLevel,
 } from './types';
-import { fetchPiRuntimeHealth } from './transport';
+import { fetchPiRuntimeHealth, getObservedPiStreamEpoch } from './transport';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_TRANSIENT_RETRIES = 1;
@@ -247,7 +247,7 @@ const isDefiniteSendRejection = (error: unknown): boolean => {
   if (typeof status !== 'number' || !Number.isInteger(status)) return false;
   if (status < 400 || status > 499) return false;
   if (status === 408) return false;
-  if (error.code === 'OPERATION_EXPIRED') return false;
+  if (error.code === 'OPERATION_EXPIRED' || error.code === 'STALE_STREAM_EPOCH') return false;
   return true;
 };
 
@@ -271,6 +271,9 @@ export interface PiClientScope {
   directory?: string;
   /** Runtime key captured at call time so a runtime switch can reject stale work. */
   runtimeKey?: string;
+  /** Expected daemon lifetime for a queued send. Ordinary sends capture the
+   * latest health-verified epoch at the Pi client call boundary. */
+  streamEpoch?: string;
 }
 
 const assertRuntimeUnchanged = (scope?: PiClientScope): void => {
@@ -278,6 +281,14 @@ const assertRuntimeUnchanged = (scope?: PiClientScope): void => {
   if (scope.runtimeKey !== getRuntimeKey()) {
     throw new PiRequestError('DAEMON_UNAVAILABLE', 'Runtime changed during request');
   }
+};
+
+const assertSendEpochCurrent = (runtimeKey: string, streamEpoch: string | undefined): string => {
+  const current = getObservedPiStreamEpoch(runtimeKey);
+  if (!streamEpoch || !current || streamEpoch !== current) {
+    throw new PiRequestError('STALE_STREAM_EPOCH', 'The Pi runtime restarted before this send could be verified.', 409);
+  }
+  return streamEpoch;
 };
 
 // ---------------------------------------------------------------------------
@@ -525,18 +536,21 @@ export class PiService {
    * directory scope; the daemon never invokes Pi and never replays the send.
    */
   async getSendReceipt(input: PiSendReceiptInput, scope?: PiClientScope): Promise<PiSendReceiptResult> {
-    assertRuntimeUnchanged(scope);
+    const runtimeKey = scope?.runtimeKey ?? getRuntimeKey();
+    assertRuntimeUnchanged({ ...scope, runtimeKey });
+    const streamEpoch = assertSendEpochCurrent(runtimeKey, input.streamEpoch ?? scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey));
     const directory = scope?.directory ?? this.currentDirectory;
-    const result = await jsonRequest<{ kind: PiSendKind; operationId: string }, unknown>(
+    const result = await jsonRequest<{ kind: PiSendKind; operationId: string; streamEpoch: string }, unknown>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/send-receipt`,
       {
         method: 'POST',
-        body: { kind: input.kind, operationId: input.operationId },
+        body: { kind: input.kind, operationId: input.operationId, streamEpoch },
         ...(directory ? { query: { directory } } : {}),
-        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+        runtimeKey,
       },
     );
-    assertRuntimeUnchanged(scope);
+    assertRuntimeUnchanged({ ...scope, runtimeKey });
+    assertSendEpochCurrent(runtimeKey, streamEpoch);
     if (!result || typeof result !== 'object') {
       throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send receipt');
     }
@@ -560,46 +574,53 @@ export class PiService {
     path: string,
     scope?: PiClientScope,
   ): Promise<PiPromptResult> {
+    const runtimeKey = scope?.runtimeKey ?? getRuntimeKey();
+    let streamEpoch: string;
     try {
-      assertRuntimeUnchanged(scope);
+      assertRuntimeUnchanged({ ...scope, runtimeKey });
+      streamEpoch = assertSendEpochCurrent(runtimeKey, scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey));
     } catch (error) {
       throw toSendUnconfirmedError(error);
     }
     const directory = scope?.directory ?? this.currentDirectory;
     try {
-      const result = await jsonRequest<PiPromptInput, unknown>(
+      const result = await jsonRequest<PiPromptInput & { streamEpoch: string }, unknown>(
         path,
         {
           method: 'POST',
-          body: input,
+          body: { ...input, streamEpoch },
           ...(directory ? { query: { directory } } : {}),
-          ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+          runtimeKey,
           retry: false,
         },
       );
       if (!isValidPromptResult(result)) {
         throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send response');
       }
-      assertRuntimeUnchanged(scope);
+      assertRuntimeUnchanged({ ...scope, runtimeKey });
+      assertSendEpochCurrent(runtimeKey, streamEpoch);
       return result;
     } catch (error) {
+      if (error instanceof PiRequestError && error.code === 'STALE_STREAM_EPOCH') {
+        throw toSendUnconfirmedError(error);
+      }
       if (isDefiniteSendRejection(error)) {
         throw error;
       }
       const operationId = input.operationId;
       if (typeof operationId === 'string' && operationId.length > 0) {
         try {
-          assertRuntimeUnchanged(scope);
+          assertRuntimeUnchanged({ ...scope, runtimeKey });
           const getReceipt = this.getSendReceipt;
           if (!getReceipt) {
             throw new PiRequestError('DAEMON_UNAVAILABLE', 'Send receipt lookup unavailable');
           }
           const lookup: unknown = await getReceipt.call(
             this,
-            { sessionId: input.sessionId, kind, operationId },
-            scope,
+            { sessionId: input.sessionId, kind, operationId, streamEpoch },
+            { ...scope, runtimeKey, streamEpoch },
           );
-          assertRuntimeUnchanged(scope);
+          assertRuntimeUnchanged({ ...scope, runtimeKey });
           if (
             typeof lookup === 'object'
             && lookup !== null

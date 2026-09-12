@@ -47,6 +47,7 @@ export async function routeMessage(params: {
   }>;
   delivery?: 'steer' | 'followUp' | 'prompt';
   operationId?: string;
+  streamEpoch?: string;
   knownEmptyTranscript?: boolean;
 }): Promise<void> {
   const delivery =
@@ -136,6 +137,7 @@ export async function routeMessage(params: {
       {
         ...(params.knownEmptyTranscript ? { knownEmptyTranscript: true } : {}),
         ...(params.operationId ? { operationId: params.operationId } : {}),
+        ...(params.streamEpoch ? { streamEpoch: params.streamEpoch } : {}),
         ...(params.directory ? { directory: params.directory } : {}),
         runtimeKey,
       },

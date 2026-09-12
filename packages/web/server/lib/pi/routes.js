@@ -20,7 +20,7 @@ import {
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
-import { isValidSendOperationId } from './session-daemon/send-operation-registry.js';
+import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -64,7 +64,7 @@ const writeDaemonError = (res, error) => {
       ? 502
     : code === 'INVALID_SESSION'
       ? 404
-      : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH'
+      : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
         ? 409
         : code === 'OPERATION_EXPIRED'
           ? 410
@@ -1695,7 +1695,8 @@ export const registerPiRuntimeRoutes = (app, {
   for (const [suffix, command] of [['prompt', 'sessions.prompt'], ['steer', 'sessions.steer'], ['follow-up', 'sessions.followUp']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       let payload = req.body && typeof req.body === 'object' ? req.body : {};
-      if (payload.operationId !== undefined && !isValidSendOperationId(payload.operationId)) {
+      if (!isValidStreamEpoch(payload.streamEpoch)
+        || (payload.operationId !== undefined && !isValidSendOperationId(payload.operationId))) {
         res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
         return;
       }
@@ -1735,9 +1736,10 @@ export const registerPiRuntimeRoutes = (app, {
   }
 
   // Exact read-only receipt lookup for an uncertain send. The client passes
-  // the full `kind + sessionId + operationId` identity; the daemon never
+  // the full `kind + sessionId + operationId + streamEpoch` identity; the daemon never
   // invokes Pi and never mutates the registry except bounded expiry
-  // eviction. No epoch is required in this split (see stream-epoch branch).
+  // eviction. Missing epoch deliberately returns unknown: it cannot identify
+  // a daemon lifetime and therefore cannot prove acceptance.
   app.post('/api/pi/sessions/:sessionId/send-receipt', async (req, res) => {
     const sessionId = sessionIdFrom(req);
     if (!sessionId) {
@@ -1747,7 +1749,10 @@ export const registerPiRuntimeRoutes = (app, {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const kind = body.kind;
     const operationId = body.operationId;
-    if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp') || !isValidSendOperationId(operationId)) {
+    const streamEpoch = body.streamEpoch;
+    if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp')
+      || !isValidSendOperationId(operationId)
+      || (streamEpoch !== undefined && !isValidStreamEpoch(streamEpoch))) {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
@@ -1756,6 +1761,7 @@ export const registerPiRuntimeRoutes = (app, {
         kind,
         sessionId,
         operationId,
+        ...(streamEpoch !== undefined ? { streamEpoch } : {}),
       });
       if (!result || typeof result !== 'object' || !['accepted', 'pending', 'expired', 'unknown'].includes(result.status)) {
         throw protocolMismatch();

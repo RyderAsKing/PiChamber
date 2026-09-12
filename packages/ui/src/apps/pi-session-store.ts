@@ -1692,11 +1692,15 @@ export class PiSessionStore {
     text: string,
     delivery: 'prompt' | 'steer' | 'followUp',
     attachments?: Array<{ id: string }>,
-    options?: { knownEmptyTranscript?: boolean; operationId?: string; directory?: string; runtimeKey?: string },
+    options?: { knownEmptyTranscript?: boolean; operationId?: string; streamEpoch?: string; directory?: string; runtimeKey?: string },
   ) {
     const expected = this.runtimeGeneration;
     const runtimeKey = options?.runtimeKey ?? getRuntimeKey();
-    const scope = { directory: this.resolveSessionDirectory(sessionId, options?.directory), runtimeKey };
+    const scope = {
+      directory: this.resolveSessionDirectory(sessionId, options?.directory),
+      runtimeKey,
+      ...(options?.streamEpoch ? { streamEpoch: options.streamEpoch } : {}),
+    };
     if (runtimeKey !== getRuntimeKey()) throw new Error('Runtime changed before sending message.');
     let existing = this.state.reducer.bySession.get(sessionId);
     const hasAuthoritativeCreatedEmptyTranscript =

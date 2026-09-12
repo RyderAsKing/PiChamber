@@ -5,6 +5,8 @@ import type { AttachedFile } from './types/sessionTypes';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { piClient } from '@/lib/pi/client';
+import { getObservedPiStreamEpoch } from '@/lib/pi/transport';
+import { createBrowserUuid } from '@/lib/uuid';
 import { normalizePath } from '@/lib/pathNormalization';
 
 export type FollowUpBehavior = 'steer' | 'queue';
@@ -50,6 +52,9 @@ export interface QueuedDeliveryAttempt {
     kind: QueuedDeliveryKind;
     /** Stable queue id used as operationId for the send. */
     operationId: string;
+    /** Opaque daemon lifetime captured before dispatch. Optional only for
+     * persisted entries written before epoch-bound sends. */
+    streamEpoch?: string;
 }
 
 export interface QueuedMessage {
@@ -164,7 +169,7 @@ interface MessageQueueActions {
      *  exposes no synchronous flush helper, so no additional flush is performed
      *  here and no new persistence abstraction is introduced.
      */
-    markDeliveryAttempt: (target: MessageQueueTarget, messageId: string, kind: QueuedDeliveryKind) => void;
+    markDeliveryAttempt: (target: MessageQueueTarget, messageId: string, kind: QueuedDeliveryKind) => QueuedDeliveryAttempt | null;
     /**
      * Record a confirmed rejection: clears the uncertain attempt, persists a
      *  fixed failure label. Auto-send skips the entry without retry-looping;
@@ -177,6 +182,11 @@ interface MessageQueueActions {
      *  label and never replays the send.
      */
     markSendUnconfirmed: (target: MessageQueueTarget, messageId: string, kind: QueuedDeliveryKind) => void;
+    /** Replace a held uncertain intent only after an explicit user decision.
+     * Generates a new operation id and clears the old attempt; automatic
+     * scanners never call this. Returns the new id, or null without a current
+     * runtime epoch. */
+    requeueWithNewIntent: (target: MessageQueueTarget, messageId: string) => string | null;
     /**
      * Remove a claimed entry after confirmed acceptance and release its
      *  transient sending claim atomically. The only path that may remove an
@@ -441,7 +451,11 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                 },
 
                 markDeliveryAttempt: (target, messageId, kind) => {
+                    if (target.runtimeKey !== getRuntimeKey()) return null;
+                    const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+                    if (!streamEpoch) return null;
                     const key = getMessageQueueKey(target);
+                    let attempt: QueuedDeliveryAttempt | null = null;
                     set((state) => {
                         const queue = state.queuedMessages[key];
                         if (!queue) return state;
@@ -449,15 +463,21 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (index === -1) return state;
                         const current = queue[index];
                         const existing = current.deliveryAttempt;
-                        if (existing?.kind === kind && existing?.operationId === messageId && !current.sendFailed) return state;
+                        if (existing?.kind === kind && existing.operationId === messageId
+                            && existing.streamEpoch === streamEpoch && !current.sendFailed) {
+                            attempt = existing;
+                            return state;
+                        }
+                        attempt = { kind, operationId: messageId, streamEpoch };
                         const nextQueue = queue.slice();
                         nextQueue[index] = {
                             ...current,
-                            deliveryAttempt: { kind, operationId: messageId },
+                            deliveryAttempt: attempt,
                             sendFailed: undefined,
                         };
                         return { queuedMessages: { ...state.queuedMessages, [key]: nextQueue } };
                     });
+                    return attempt;
                 },
 
                 markSendFailed: (target, messageId) => {
@@ -487,12 +507,39 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const current = queue[index];
                         if (current.deliveryAttempt) return state;
                         const nextQueue = queue.slice();
+                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
                         nextQueue[index] = {
                             ...current,
-                            deliveryAttempt: { kind, operationId: messageId },
+                            deliveryAttempt: {
+                                kind,
+                                operationId: messageId,
+                                ...(streamEpoch ? { streamEpoch } : {}),
+                            },
                         };
                         return { queuedMessages: { ...state.queuedMessages, [key]: nextQueue } };
                     });
+                },
+
+                requeueWithNewIntent: (target, messageId) => {
+                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey)) return null;
+                    const key = getMessageQueueKey(target);
+                    const newId = `queued-${createBrowserUuid()}`;
+                    let requeued = false;
+                    set((state) => {
+                        if ((state.sendingIds[key] ?? []).includes(messageId)) return state;
+                        const queue = state.queuedMessages[key];
+                        if (!queue) return state;
+                        const index = queue.findIndex((message) => message.id === messageId);
+                        if (index === -1 || !queue[index].deliveryAttempt) return state;
+                        const { deliveryAttempt: _attempt, sendFailed: _failed, ...rest } = queue[index];
+                        void _attempt;
+                        void _failed;
+                        const nextQueue = queue.slice();
+                        nextQueue[index] = { ...rest, id: newId };
+                        requeued = true;
+                        return { queuedMessages: { ...state.queuedMessages, [key]: nextQueue } };
+                    });
+                    return requeued ? newId : null;
                 },
 
                 completeQueuedSend: (target, messageId) => {
@@ -540,6 +587,8 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (sending.includes(messageId)) return state;
                         const found = queue.find((message) => message.id === messageId);
                         if (!found) return state;
+                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+                        if (target.runtimeKey !== getRuntimeKey() || !streamEpoch) return state;
                         // An uncertain attempt holds: Check status first. A
                         // cross-kind resend cannot dedupe (receipt key includes
                         // kind). A confirmed failure does not block an explicit claim.
@@ -555,6 +604,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     const state = get();
                     const queue = state.queuedMessages[key] ?? [];
                     const sending = state.sendingIds[key] ?? [];
+                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey)) return null;
                     for (const message of queue) {
                         // FIFO hold: an earlier uncertain or in-flight delivery
                         // blocks later entries to preserve order and avoid

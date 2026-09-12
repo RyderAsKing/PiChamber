@@ -15,6 +15,7 @@ import {
 } from '@/stores/messageQueueStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import { observePiStreamEpoch } from '@/lib/pi/transport';
 
 // ---------------------------------------------------------------------------
 // Mocks — only the send boundary and config resolution. The queue store, the
@@ -282,6 +283,7 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  observePiStreamEpoch(getRuntimeKey(), 'epoch-auto');
   sendMessageCalls.length = 0;
   sendMessageImpl = async () => undefined;
   abortFlags = new Map();
@@ -974,6 +976,7 @@ describe('follow-up wire dispatch (red-first)', () => {
     expect(options?.target).toEqual(target());
     expect(options?.delivery).toBe('followUp');
     expect(options?.operationId).toBe(capturedId);
+    expect((options as { streamEpoch?: unknown })?.streamEpoch).toBe('epoch-auto');
   });
 
   test('a failed follow-up holds without automatic retry and stays visible', async () => {
@@ -1072,7 +1075,7 @@ describe('durable failure hold (persisted attempt markers)', () => {
     expect(sendMessageCalls.length).toBe(1);
     const remaining = queueFor(target());
     expect(remaining).toHaveLength(2);
-    expect(remaining[0]?.deliveryAttempt).toEqual({ kind: 'followUp', operationId: remaining[0]?.id });
+    expect(remaining[0]?.deliveryAttempt).toEqual({ kind: 'followUp', operationId: remaining[0]?.id, streamEpoch: 'epoch-auto' });
     expect(remaining[0]?.sendFailed).toBe(undefined);
     expect(sendingFor(target())).toHaveLength(0);
 
@@ -1082,6 +1085,22 @@ describe('durable failure hold (persisted attempt markers)', () => {
     await flush();
     expect(sendMessageCalls.length).toBe(1);
     expect(queueFor(target())).toHaveLength(2);
+  });
+
+  test('a stale-epoch attempt never resends', async () => {
+    hydrateResident('s1', 'idle');
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target(), { content: 'stale' });
+      const [entry] = queueFor(target());
+      useMessageQueueStore.getState().markDeliveryAttempt(target(), entry.id, 'followUp');
+      observePiStreamEpoch(getRuntimeKey(), 'epoch-restarted');
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(0);
+    expect(queueFor(target())[0]?.deliveryAttempt?.streamEpoch).toBe('epoch-auto');
   });
 
   test('a reloaded uncertain attempt never resends', async () => {

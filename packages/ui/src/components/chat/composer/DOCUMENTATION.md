@@ -115,13 +115,13 @@ and the send path reading the same grammar.
   after confirmed acceptance (via `completeQueuedSend`, the only remover
   allowed while claimed); the transient claim releases in `finally`. Send now
   records the persisted attempt (`kind: 'steer'` + stable queue id as
-  `operationId`) synchronously before delivery so a reload holds instead of
+  `operationId` + current `streamEpoch`) synchronously before delivery so a reload holds instead of
   resending, always steers (`delivery: 'steer'`, typed `SendMessageOptions`
   with no casts) irrespective of stale client idle — the daemon decides the
   new turn. A confirmed rejection clears the attempt and persists a fixed
   failure label (no retry-loop; Steer may still claim it); a
-  `PiSendUnconfirmedError` retains the attempt with no cross-kind resend —
-  recovery is Check status. The chips show Sending/Checking status, disable
+  `PiSendUnconfirmedError` or epoch change retains the attempt with no
+  cross-kind or cross-epoch resend. Recovery is Check status. The chips show Sending/Checking status, disable
   edit/remove/send while sending, refuse claimed ids on the latest store, and
   offer Check status (read-only receipt query, removes only on `accepted`)
   for uncertain attempts instead of Steer.

@@ -49,6 +49,8 @@ export type SendMessageOptions = {
    *  includes delivery kind + operationId, so retries must reuse the same
    *  kind. Forwarded unchanged to the daemon acceptance registry. */
   operationId?: string;
+  /** Daemon lifetime captured with a queued delivery attempt. */
+  streamEpoch?: string;
   branchCheckoutReceipt?: DraftBranchCheckoutReceipt;
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
   draftSnapshot?: NewSessionDraftState;

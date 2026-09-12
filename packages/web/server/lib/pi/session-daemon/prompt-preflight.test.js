@@ -169,12 +169,15 @@ describe('prompt preflight acceptance', () => {
   const daemons = [];
   let client;
   let currentEndpoint;
+  let currentStreamEpoch;
 
   const send = async (command, payload) => {
     const connection = connectClient(currentEndpoint);
     await connection.authenticate();
     try {
-      return await connection.request(command, payload);
+      return await connection.request(command, payload.operationId
+        ? { ...payload, streamEpoch: currentStreamEpoch }
+        : payload);
     } finally {
       await connection.close().catch(() => {});
     }
@@ -207,6 +210,7 @@ describe('prompt preflight acceptance', () => {
     currentEndpoint = endpoint;
     client = connectClient(endpoint);
     await client.authenticate();
+    currentStreamEpoch = (await client.request('runtime.health')).result.streamEpoch;
     if (openSession) await client.request('sessions.open', { sessionId: 'session-1' });
     return { session, endpoint, root, sessionFile };
   };

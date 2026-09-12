@@ -58,6 +58,9 @@ export type PiErrorCode =
   | 'SESSION_CREATE_CANCELLED'
   | 'INVALID_PROMPT'
   | 'SESSION_BUSY'
+  | 'STALE_STREAM_EPOCH'
+  | 'OPERATION_PAYLOAD_MISMATCH'
+  | 'OPERATION_EXPIRED'
   | 'SESSION_NOT_RUNNING'
   | 'INVALID_MODEL'
   | 'SESSION_INTERRUPTED'
@@ -278,9 +281,10 @@ export interface PiPromptInput {
   /** Server-side attachments the user has already uploaded. */
   attachments?: Array<{ id: string }>;
   /**
-   * Stable client-generated send intent id (`kind + sessionId + operationId`).
-   * The daemon claims it before Pi activation so a lost reply can be
-   * recovered through the exact read-only send-receipt lookup without replay.
+   * Stable client-generated send intent id. The full identity is
+   * `kind + sessionId + operationId + streamEpoch`; the daemon claims it
+   * before Pi activation so a lost reply can be recovered through the exact
+   * read-only send-receipt lookup without replay across daemon lifetimes.
    */
   operationId?: string;
 }
@@ -293,7 +297,7 @@ export interface PiPromptResult {
   deduplicated?: true;
 }
 
-/** Send kind for the exact `kind + sessionId + operationId` receipt identity. */
+/** Send kind for the epoch-bound receipt identity. */
 export type PiSendKind = 'prompt' | 'steer' | 'followUp';
 
 /** Exact read-only receipt lookup identity. Never invokes Pi. */
@@ -301,6 +305,9 @@ export interface PiSendReceiptInput {
   sessionId: PiSessionId;
   kind: PiSendKind;
   operationId: string;
+  /** Epoch captured for the original send. Omit only when no exact identity
+   * is available; the daemon then returns `unknown`. */
+  streamEpoch?: string;
 }
 
 /**

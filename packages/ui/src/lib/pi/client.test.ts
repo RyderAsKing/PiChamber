@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { PiService, piClient, createScopedPiClient, PiRequestError, PiSendUnconfirmedError } from "@/lib/pi/client"
 import { getRuntimeKey } from "@/lib/runtime-switch"
-import { fetchPiRuntimeHealth } from "./transport"
+import { fetchPiRuntimeHealth, observePiStreamEpoch } from "./transport"
 
 // Mock runtime-fetch to a stub that captures calls. We still need to mock
 // the underlying globalThis.fetch so the client actually issues requests.
@@ -33,6 +33,7 @@ const recordedCalls = (): FetchCall[] => calls
 
 describe("PiService", () => {
   beforeEach(() => {
+    observePiStreamEpoch(getRuntimeKey(), "epoch-client")
     installFetchMock((call) => {
       const url = new URL(call.url, "http://localhost")
       if (url.pathname === "/api/pi/runtime") {
@@ -350,6 +351,10 @@ describe("PiService", () => {
 })
 
 describe("send retry safety", () => {
+  beforeEach(() => {
+    observePiStreamEpoch(getRuntimeKey(), "epoch-client")
+  })
+
   test("a lost reply is attempted exactly once and throws PiSendUnconfirmedError", async () => {
     installFetchMock(() => {
       throw new TypeError("network down")
@@ -444,6 +449,21 @@ describe("send retry safety", () => {
     expect(recordedCalls()).toHaveLength(1)
   })
 
+  test("stale stream epochs hold without replay or cross-epoch receipt lookup", async () => {
+    installFetchMock((call) => {
+      expect(JSON.parse(call.init?.body as string)).toMatchObject({ streamEpoch: "epoch-client" })
+      return jsonResponse({ error: { code: "STALE_STREAM_EPOCH" } }, { status: 409 })
+    })
+    try {
+      await new PiService().sendPrompt({ sessionId: "s1", text: "hello", operationId: "op-stale" })
+      throw new Error("expected sendPrompt to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiSendUnconfirmedError)
+      expect((error as PiSendUnconfirmedError).code).toBe("STALE_STREAM_EPOCH")
+    }
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
   test("408 and operation expiry are unconfirmed, not definite", async () => {
     installFetchMock(() => jsonResponse({ error: { code: "DAEMON_TIMEOUT" } }, { status: 408 }))
     try {
@@ -473,7 +493,7 @@ describe("send retry safety", () => {
       }
       if (url.pathname === "/api/pi/sessions/s1/send-receipt") {
         const body = JSON.parse(call.init?.body as string) as { kind?: unknown; operationId?: unknown }
-        expect(body).toEqual({ kind: "prompt", operationId: "op-1" })
+        expect(body).toEqual({ kind: "prompt", operationId: "op-1", streamEpoch: "epoch-client" })
         return jsonResponse({ status: "accepted", receipt: { accepted: true, messageId: "m-1" } })
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
@@ -565,7 +585,7 @@ describe("send retry safety", () => {
       if (url.pathname === "/api/pi/sessions/s1/send-receipt") {
         expect(url.searchParams.get("directory")).toBe("/other")
         const body = JSON.parse(call.init?.body as string) as Record<string, unknown>
-        expect(body).toEqual({ kind: "steer", operationId: "op-1" })
+        expect(body).toEqual({ kind: "steer", operationId: "op-1", streamEpoch: "epoch-client" })
         return jsonResponse({ status: "unknown" })
       }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })

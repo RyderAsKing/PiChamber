@@ -172,18 +172,23 @@ Sends (`sendPrompt`/`sendSteer`/`sendFollowUp`) are attempted exactly once
 (`retry: false` in `jsonRequest`): transient 503/network retries remain for
 GETs and other calls, but an accepted send whose reply was lost across a
 daemon restart must never auto-retry. Callers label each intent with a stable
-`PiPromptInput.operationId`; `PiPromptResult.deduplicated` marks daemon
-deduplication. `PiService.getSendReceipt({ sessionId, kind, operationId })`
-POSTs the exact `{ kind, operationId }` to
+`PiPromptInput.operationId`; the client captures the active runtime's latest
+health-verified `streamEpoch` at the send boundary, and
+`PiPromptResult.deduplicated` marks same-epoch daemon deduplication.
+`PiService.getSendReceipt({ sessionId, kind, operationId, streamEpoch })`
+POSTs the exact `{ kind, operationId, streamEpoch }` to
 `/api/pi/sessions/:id/send-receipt` with the directory scope (`?directory=`)
 and never invokes Pi. On unconfirmed transport/5xx/timeout/runtime-change/
 malformed failures the client attempts that read-only lookup when
 `operationId` is present and returns the original receipt only on `accepted`
 (`pending`/`expired`/`unknown` or a failed lookup preserves the original
 failure as `PiSendUnconfirmedError` with `cause` and never replays the send).
-Definite 4xx preflight rejections (except 408 and `OPERATION_EXPIRED`) stay
-`PiRequestError`. Sends and receipt lookups forward the directory scope and
-guard the runtime key before and after; no prompt text is logged.
+Definite 4xx preflight rejections (except 408, `OPERATION_EXPIRED`, and
+`STALE_STREAM_EPOCH`) stay `PiRequestError`. A missing or changed epoch and a
+server `STALE_STREAM_EPOCH` become `PiSendUnconfirmedError`, so queued callers
+hold for explicit history/status review instead of replaying under the new
+daemon lifetime. Sends and receipt lookups forward the directory scope and
+guard both runtime key and epoch before and after; no prompt text is logged.
 
 ## Mounted UI ownership
 

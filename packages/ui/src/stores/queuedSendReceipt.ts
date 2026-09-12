@@ -1,4 +1,5 @@
 import { PiSendUnconfirmedError, piClient } from '@/lib/pi/client';
+import { getObservedPiStreamEpoch } from '@/lib/pi/transport';
 import type { MessageQueueTarget, QueuedDeliveryAttempt } from './messageQueueStore';
 
 /** Receipt outcome for a persisted uncertain delivery attempt. */
@@ -31,10 +32,13 @@ export const queryQueuedSendReceipt = async (
   attempt: QueuedDeliveryAttempt,
 ): Promise<QueuedReceiptStatus> => {
   try {
+    const currentEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+    if (!attempt.streamEpoch || attempt.streamEpoch !== currentEpoch) return 'unknown';
     const result = await piClient.getSendReceipt({
       sessionId: target.sessionId,
       kind: attempt.kind,
       operationId: attempt.operationId,
+      streamEpoch: attempt.streamEpoch,
     }, {
       directory: target.directory,
       runtimeKey: target.runtimeKey,
