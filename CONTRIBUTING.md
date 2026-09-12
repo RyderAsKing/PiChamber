@@ -210,16 +210,16 @@ also builds the Android release artifact. Publishing `@pi-chamber/web` is
 explicit through the Release workflow, and iOS TestFlight uses the separate
 Mobile Release workflow.
 
-To prepare version `X.Y.Z`:
+To start version `X.Y.Z`:
 
-1. Run `bun run version:bump X.Y.Z`. This updates the root, UI, web, and
-   Electron manifests. It intentionally does not change `packages/mobile`.
-2. Move the notes from `CHANGELOG.md` under `[Unreleased]` into a dated heading
-   exactly named `## [X.Y.Z] - YYYY-MM-DD`.
-3. Run `bun run release:prepare`, `bun run docs:validate`, and the focused
-   release checks for the platforms being published.
-4. Merge the release commit to `main`.
-5. Push `vX.Y.Z`, or dispatch the **Release** workflow with `version=X.Y.Z`.
+1. Cut a temporary branch `release/X.Y.Z` from `main`. It lives until the
+   stable release publishes, then delete it. `main` keeps moving meanwhile;
+   expect small manual resolution when forward-porting fixes.
+2. Never merge the release branch back into `main`: that would drag `-rc`
+   versions and RC changelog sections along. Forward-port fixes with
+   cherry-picks instead (see Stable release below).
+3. Stabilize with release candidates on that branch, then finish the stable
+   release on `main`.
 
 A tag builds and uploads desktop artifacts and Android artifacts. To publish the
 npm package, dispatch the workflow with `publish_npm=true`. To build Android
@@ -236,12 +236,24 @@ Use `X.Y.Z-rc.N` versions to test the next stable desktop release. The release
 workflow accepts stable versions and numbered RC versions only. It rejects
 other prerelease labels.
 
-To prepare the first candidate for `0.9.9`:
+To prepare candidate `0.9.9-rc.1` on branch `release/0.9.9`:
 
-1. Run `bun run version:bump 0.9.9-rc.1`.
-2. Add a dated `## [0.9.9-rc.1] - YYYY-MM-DD` changelog section.
-3. Run the normal release validation and merge the release commit to `main`.
-4. Push `v0.9.9-rc.1`, or dispatch the **Release** workflow with that version.
+1. On `release/0.9.9`, run `bun run version:bump 0.9.9-rc.1`. This updates
+   the root, UI, web, and Electron manifests. It intentionally does not
+   change `packages/mobile`.
+2. Add a dated `## [0.9.9-rc.1] - YYYY-MM-DD` changelog section on the
+   release branch.
+3. Run `bun run release:prepare`, `bun run docs:validate`, and the focused
+   release checks for the platforms being published.
+4. Push `v0.9.9-rc.1` from the release branch so the tag points at the
+   release-branch commit, or dispatch the **Release** workflow with
+   `version=0.9.9-rc.1` while selecting `release/0.9.9` as the run branch.
+   Dispatching from `main` fails the version check because `main` never
+   carries `-rc` versions.
+
+Fix stabilization issues on branches cut from the release branch and open
+PRs back into it. For another candidate, repeat from the release-branch tip
+with `0.9.9-rc.2`. Do not reuse or move an existing RC tag.
 
 GitHub marks the result as a prerelease. Electron users subscribe under
 Settings → About. The default Stable option reads only the `latest` updater
@@ -256,9 +268,21 @@ If npm publication is enabled for an RC, the workflow publishes it under the
 npm installations. Android artifacts are attached to the GitHub
 prerelease; iOS TestFlight remains a separate manual workflow.
 
-For another candidate, repeat the process with `0.9.9-rc.2`. For the final
-release, bump to `0.9.9`, add its stable changelog section, run validation, and
-publish `v0.9.9`. Do not reuse or move an existing RC tag.
+### Stable release
+
+1. Forward-port the fix commits from `release/X.Y.Z` to `main` with
+   cherry-picks (not a merge). Resolve drift manually.
+2. On `main`, run `bun run version:bump X.Y.Z` and write the consolidated
+   `## [X.Y.Z] - YYYY-MM-DD` changelog section covering the release plus
+   stabilization fixes. Move applicable notes from `CHANGELOG.md` under
+   `[Unreleased]` into that dated heading, exactly named. RC sections stay
+   on the release branch; `main` gets one final section.
+3. Run `bun run release:prepare`, `bun run docs:validate`, and the focused
+   release checks for the platforms being published.
+4. Merge the stable release commit to `main`.
+5. Push `vX.Y.Z` from `main`, or dispatch the **Release** workflow with
+   `version=X.Y.Z` from `main`. Delete the temporary `release/X.Y.Z`
+   branch after the stable release publishes.
 
 Release credentials are configured only in GitHub Actions secrets. Depending on
 the artifacts being published, the workflows use Apple signing and notarization
