@@ -453,9 +453,9 @@ describe('Pi runtime route', () => {
     const upload = await fetch(`${base}/attachments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: 'note.txt', mime: 'text/plain', base64: 'YWJj' }) });
     expect(upload.status).toBe(201);
     await expect(upload.json()).resolves.toEqual({ attachment: { id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, expiresAt: 3_600_000 } });
-    const prompt = await fetch(`${base}/sessions/session-1/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'read this', attachments: [{ id: 'attachment-1' }] }) });
+    const prompt = await fetch(`${base}/sessions/session-1/prompt`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'read this', streamEpoch: 'epoch-routes', attachments: [{ id: 'attachment-1' }] }) });
     expect(prompt.status).toBe(202);
-    expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
+    expect(calls).toEqual([{ command: 'sessions.prompt', payload: { sessionId: 'session-1', text: 'read this', streamEpoch: 'epoch-routes', attachments: [{ id: 'attachment-1', name: 'note.txt', mime: 'text/plain', size: 3, path: '/private/upload' }] } }]);
   });
 
   it('forwards the send operation id and reports a deduplicated receipt with consumed attachments', async () => {
@@ -482,7 +482,7 @@ describe('Pi runtime route', () => {
     const send = () => fetch(`${base}/sessions/session-1/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'one intent', operationId: 'op-1', attachments: [{ id: 'attachment-1' }] }),
+      body: JSON.stringify({ text: 'one intent', operationId: 'op-1', streamEpoch: 'epoch-routes', attachments: [{ id: 'attachment-1' }] }),
     });
     const first = await send();
     expect(first.status).toBe(202);
@@ -497,9 +497,14 @@ describe('Pi runtime route', () => {
     expect(calls[1].payload.operationId).toBe('op-1');
   });
 
-  it('rejects invalid send ids and maps payload mismatch (409) and expiry (410)', async () => {
+  it('rejects invalid send ids and maps stale epoch/payload mismatch (409) and expiry (410)', async () => {
     const runtime = {
       request: async (_command, payload) => {
+        if (payload.operationId === 'op-stale') {
+          const error = new Error('stale');
+          error.code = 'STALE_STREAM_EPOCH';
+          throw error;
+        }
         if (payload.operationId === 'op-mismatch') {
           const error = new Error('mismatch');
           error.code = 'OPERATION_PAYLOAD_MISMATCH';
@@ -522,7 +527,7 @@ describe('Pi runtime route', () => {
     const invalid = await fetch(`${base}/sessions/session-1/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'hello', operationId: 'bad id with spaces' }),
+      body: JSON.stringify({ text: 'hello', operationId: 'bad id with spaces', streamEpoch: 'epoch-routes' }),
     });
     expect(invalid.status).toBe(400);
     await expect(invalid.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
@@ -535,10 +540,25 @@ describe('Pi runtime route', () => {
     expect(invalidMessage.status).toBe(400);
     await expect(invalidMessage.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
 
+    const missingEpoch = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'op-missing-epoch' }),
+    });
+    expect(missingEpoch.status).toBe(400);
+
+    const stale = await fetch(`${base}/sessions/session-1/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'hello', operationId: 'op-stale', streamEpoch: 'epoch-retired' }),
+    });
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({ error: { code: 'STALE_STREAM_EPOCH' } });
+
     const mismatch = await fetch(`${base}/sessions/session-1/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'hello', operationId: 'op-mismatch' }),
+      body: JSON.stringify({ text: 'hello', operationId: 'op-mismatch', streamEpoch: 'epoch-routes' }),
     });
     expect(mismatch.status).toBe(409);
     await expect(mismatch.json()).resolves.toEqual({ error: { code: 'OPERATION_PAYLOAD_MISMATCH' } });
@@ -546,7 +566,7 @@ describe('Pi runtime route', () => {
     const expired = await fetch(`${base}/sessions/session-1/prompt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'hello', operationId: 'op-expired' }),
+      body: JSON.stringify({ text: 'hello', operationId: 'op-expired', streamEpoch: 'epoch-routes' }),
     });
     expect(expired.status).toBe(410);
     await expect(expired.json()).resolves.toEqual({ error: { code: 'OPERATION_EXPIRED' } });
@@ -575,7 +595,7 @@ describe('Pi runtime route', () => {
     const accepted = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'prompt', operationId: 'op-accepted' }),
+      body: JSON.stringify({ kind: 'prompt', operationId: 'op-accepted', streamEpoch: 'epoch-routes' }),
     });
     expect(accepted.status).toBe(200);
     await expect(accepted.json()).resolves.toEqual({ status: 'accepted', receipt: { accepted: true, messageId: 'message-1' } });
@@ -583,7 +603,7 @@ describe('Pi runtime route', () => {
     const pending = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'steer', operationId: 'op-pending' }),
+      body: JSON.stringify({ kind: 'steer', operationId: 'op-pending', streamEpoch: 'epoch-routes' }),
     });
     expect(pending.status).toBe(200);
     // Pending carries no receipt: the outcome is still being accepted.
@@ -592,7 +612,7 @@ describe('Pi runtime route', () => {
     const expired = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'prompt', operationId: 'op-expired' }),
+      body: JSON.stringify({ kind: 'prompt', operationId: 'op-expired', streamEpoch: 'epoch-routes' }),
     });
     expect(expired.status).toBe(200);
     await expect(expired.json()).resolves.toEqual({ status: 'expired' });
@@ -600,13 +620,21 @@ describe('Pi runtime route', () => {
     const unknown = await fetch(base, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind: 'followUp', operationId: 'op-unknown' }),
+      body: JSON.stringify({ kind: 'followUp', operationId: 'op-unknown', streamEpoch: 'epoch-routes' }),
     });
     expect(unknown.status).toBe(200);
     await expect(unknown.json()).resolves.toEqual({ status: 'unknown' });
 
-    expect(calls.filter((call) => call.command === 'sessions.sendReceipt')).toHaveLength(4);
-    expect(calls[0].payload).toEqual({ kind: 'prompt', sessionId: 'session-1', operationId: 'op-accepted' });
+    const missingEpoch = await fetch(base, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'followUp', operationId: 'op-no-epoch' }),
+    });
+    expect(missingEpoch.status).toBe(200);
+    await expect(missingEpoch.json()).resolves.toEqual({ status: 'unknown' });
+
+    expect(calls.filter((call) => call.command === 'sessions.sendReceipt')).toHaveLength(5);
+    expect(calls[0].payload).toEqual({ kind: 'prompt', sessionId: 'session-1', operationId: 'op-accepted', streamEpoch: 'epoch-routes' });
 
     const invalidKind = await fetch(base, {
       method: 'POST',
@@ -810,13 +838,13 @@ describe('Pi runtime route', () => {
       extensionStatuses: [{ key: 'mode', text: 'mode:economy/xhigh' }],
     });
     const promptResponse = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-4/prompt`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello', streamEpoch: 'epoch-routes' }),
     });
     expect(promptResponse.status).toBe(202);
     await expect(promptResponse.json()).resolves.toEqual({ accepted: true, messageId: 'entry-2' });
     expect(calls).toEqual([
       { command: 'sessions.open', payload: { sessionId: 'pi-session-4' } },
-      { command: 'sessions.prompt', payload: { sessionId: 'pi-session-4', text: 'hello' } },
+      { command: 'sessions.prompt', payload: { sessionId: 'pi-session-4', text: 'hello', streamEpoch: 'epoch-routes' } },
     ]);
   });
 
@@ -902,7 +930,7 @@ describe('Pi runtime route', () => {
     expect((await fetch(`${base}/fork`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', messageId: 'entry-1' }) })).status).toBe(201);
     expect((await fetch(`${base}/clone`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other' }) })).status).toBe(201);
     for (const suffix of ['prompt', 'steer', 'follow-up']) {
-      expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello' }) })).status).toBe(202);
+      expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', text: 'hello', streamEpoch: 'epoch-routes' }) })).status).toBe(202);
     }
     for (const [suffix, body] of [['abort', {}], ['model', { model: { providerId: 'test', modelId: 'model' } }], ['thinking', { thinking: 'high' }]]) {
       expect((await fetch(`${base}/${suffix}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: 'other', ...body }) })).status).toBe(204);

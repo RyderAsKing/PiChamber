@@ -38,6 +38,7 @@ import { createSessionReplayLog } from './session-replay.js';
 import {
   createSendOperationRegistry,
   isValidSendOperationId,
+  isValidStreamEpoch,
   stableFingerprint,
 } from './send-operation-registry.js';
 import { resolveEffectiveRetryLimitFromDataDir as resolveEffectiveRetryLimit } from './session-retry-limits.js';
@@ -322,14 +323,11 @@ export function createSessionDaemon({
   const activeSessionInputs = new Map();
   // Send-intent deduplication (finding #3): one stable operation id per send
   // intent; the registry is the authoritative execution boundary before Pi.
-  // Identity is `kind + sessionId + operationId`: the same id on a different
-  // kind or session is a different intent, never a payload mismatch.
-  // Retention is bounded (ttlMs/maxEntries, tombstones capped) and in-memory
-  // per daemon process — a restart loses receipts, which is the documented
-  // crash window. This split performs no stream-epoch guard and no
-  // per-session config/acceptance lock; every claim settles so pending
-  // duplicates never hang.
-  const sendOperations = createSendOperationRegistry({ ttlMs: sendOperationTtlMs });
+  // Identity is `kind + sessionId + operationId + streamEpoch`. The epoch is
+  // checked before activation, so an intent captured before a daemon restart
+  // cannot execute in the replacement process. Retention remains bounded and
+  // in-memory; every claim settles so pending duplicates never hang.
+  const sendOperations = createSendOperationRegistry({ streamEpoch, ttlMs: sendOperationTtlMs });
   const pendingResourceReloads = new Set();
   const resourceReloadsByRuntime = new Map();
   let resourceReloadQueue = Promise.resolve();
@@ -2760,7 +2758,15 @@ export function createSessionDaemon({
     }
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
     const kind = delivery ?? 'prompt';
-    // Finding #3: claim the stable operation id at the authoritative
+    if (payload.operationId !== undefined || payload.streamEpoch !== undefined) {
+      if (!isValidStreamEpoch(payload.streamEpoch)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send stream epoch is invalid.');
+      }
+      if (payload.streamEpoch !== streamEpoch) {
+        throw new SessionDaemonProtocolError('STALE_STREAM_EPOCH', 'The send belongs to a retired daemon stream epoch.');
+      }
+    }
+    // Claim the stable operation id at the authoritative
     // execution boundary — before Pi activation and before any attachment
     // side effect. A duplicate returns the original receipt; a payload
     // mismatch (same kind + session + id, different text/model/thinking/
@@ -2777,8 +2783,12 @@ export function createSessionDaemon({
         kind,
         sessionId: payload.sessionId,
         operationId: payload.operationId,
+        streamEpoch: payload.streamEpoch,
         fingerprint: stableFingerprint(sendOperationFingerprint({ kind, payload })),
       });
+      if (claimed.outcome === 'stale') {
+        throw new SessionDaemonProtocolError('STALE_STREAM_EPOCH', 'The send belongs to a retired daemon stream epoch.');
+      }
       if (claimed.outcome === 'mismatch') {
         throw new SessionDaemonProtocolError('OPERATION_PAYLOAD_MISMATCH', 'This operation id was already used with a different payload.');
       }
@@ -3782,7 +3792,7 @@ export function createSessionDaemon({
       }
       case 'sessions.sendReceipt': {
         // Exact read-only receipt lookup for an uncertain send. Requires the
-        // full `kind + sessionId + operationId` identity; never invokes Pi,
+        // full `kind + sessionId + operationId + streamEpoch` identity; never invokes Pi,
         // never mutates the registry except bounded expiry eviction inside
         // `query()`. Returns `accepted` (retained receipt), `pending`
         // (still-accepting claim), `expired` (seen but retention gone —
@@ -3793,12 +3803,14 @@ export function createSessionDaemon({
         const kind = payload.kind;
         const sessionId = payload.sessionId;
         const operationId = payload.operationId;
+        const requestedEpoch = payload.streamEpoch;
         if ((kind !== 'prompt' && kind !== 'steer' && kind !== 'followUp')
           || typeof sessionId !== 'string' || sessionId.length === 0
-          || !isValidSendOperationId(operationId)) {
+          || !isValidSendOperationId(operationId)
+          || (requestedEpoch !== undefined && !isValidStreamEpoch(requestedEpoch))) {
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The send receipt lookup is invalid.');
         }
-        const lookup = sendOperations.query({ kind, sessionId, operationId });
+        const lookup = sendOperations.query({ kind, sessionId, operationId, streamEpoch: requestedEpoch });
         if (lookup.status === 'accepted') {
           writeFrame(socket, {
             protocolVersion: PROTOCOL_VERSION,

@@ -177,6 +177,7 @@ describe('send dedup (finding #3)', () => {
   const daemons = [];
   let client;
   let currentEndpoint;
+  let currentStreamEpoch;
 
   // The daemon destroys a request connection on a rejected command, so each
   // send uses its own short-lived authenticated connection.
@@ -184,7 +185,10 @@ describe('send dedup (finding #3)', () => {
     const connection = connectClient(currentEndpoint);
     await connection.authenticate();
     try {
-      return await connection.request(command, payload);
+      const epochBound = ['sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt'].includes(command)
+        ? { ...payload, streamEpoch: payload.streamEpoch ?? currentStreamEpoch }
+        : payload;
+      return await connection.request(command, epochBound);
     } finally {
       await connection.close().catch(() => {});
     }
@@ -221,6 +225,8 @@ describe('send dedup (finding #3)', () => {
     currentEndpoint = endpoint;
     client = connectClient(endpoint);
     await client.authenticate();
+    const health = await client.request('runtime.health');
+    currentStreamEpoch = health.result.streamEpoch;
     if (openSession) await client.request('sessions.open', { sessionId: 'session-1' });
     return { session, endpoint, root, sessionFile };
   };
@@ -264,10 +270,11 @@ describe('send dedup (finding #3)', () => {
     expect(session.sent).toHaveLength(2);
   });
 
-  it('treats a daemon restart as the explicit crash window: a replayed id re-executes on the new daemon', async () => {
+  it('rejects an old-epoch id after a daemon restart without re-executing it', async () => {
     const first = await startDaemonWithSession();
     const { sessionFile, root } = first;
-    const payload = { sessionId: 'session-1', text: 'across restart', operationId: 'op-restart' };
+    const oldEpoch = currentStreamEpoch;
+    const payload = { sessionId: 'session-1', text: 'across restart', operationId: 'op-restart', streamEpoch: oldEpoch };
     await expect(send('sessions.prompt', payload)).resolves.toMatchObject({ result: { accepted: true } });
     expect(first.session.sent).toHaveLength(1);
     await client.close();
@@ -289,9 +296,12 @@ describe('send dedup (finding #3)', () => {
     await daemon.start();
     client = connectClient(endpoint);
     await client.authenticate();
+    const health = await client.request('runtime.health');
+    currentStreamEpoch = health.result.streamEpoch;
+    expect(currentStreamEpoch).not.toBe(oldEpoch);
 
-    await expect(send('sessions.prompt', payload)).resolves.toMatchObject({ result: { accepted: true } });
-    expect(session.sent).toHaveLength(1);
+    await expect(send('sessions.prompt', payload)).rejects.toMatchObject({ code: 'STALE_STREAM_EPOCH' });
+    expect(session.sent).toHaveLength(0);
   });
 
   it('sessions.sendReceipt tracks pending then accepted then expired with no false guarantee', async () => {

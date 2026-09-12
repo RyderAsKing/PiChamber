@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 import { piClient } from '@/lib/pi/client';
 import type { PiSendReceiptResult } from '@/lib/pi/protocol';
+import { observePiStreamEpoch } from '@/lib/pi/transport';
+import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   createMessageQueueTarget,
   getMessageQueueKey,
@@ -12,9 +14,10 @@ import {
 } from './queuedSendReceipt';
 import { PiSendUnconfirmedError } from '@/lib/pi/client';
 
-const target = createMessageQueueTarget('session-1', '/repo', 'runtime-a')!;
+const target = createMessageQueueTarget('session-1', '/repo', getRuntimeKey())!;
 
 beforeEach(() => {
+  observePiStreamEpoch(getRuntimeKey(), 'epoch-receipt');
   useMessageQueueStore.setState({ queuedMessages: {}, quarantinedLegacyMessages: {}, sendingIds: {} });
 });
 

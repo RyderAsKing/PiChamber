@@ -38,6 +38,26 @@ const DEFAULT_HEALTH_RESET_MS = 30_000;
  *  observed on the wire (and to classify native EventSource errors). */
 const DEFAULT_EPOCH_PROBE_TIMEOUT_MS = 5_000;
 
+const observedStreamEpochByRuntime = new Map<string, string>();
+const MAX_OBSERVED_RUNTIME_EPOCHS = 8;
+
+/** Latest health-verified daemon epoch for one runtime. Send identities use
+ * this at call time and reject a missing or changed lifetime. */
+export const observePiStreamEpoch = (runtimeKey: string, epoch: string): void => {
+  if (!runtimeKey || !epoch || epoch.length > 128) return;
+  observedStreamEpochByRuntime.delete(runtimeKey);
+  observedStreamEpochByRuntime.set(runtimeKey, epoch);
+  while (observedStreamEpochByRuntime.size > MAX_OBSERVED_RUNTIME_EPOCHS) {
+    const oldest = observedStreamEpochByRuntime.keys().next();
+    if (oldest.done) break;
+    observedStreamEpochByRuntime.delete(oldest.value);
+  }
+};
+
+export const getObservedPiStreamEpoch = (runtimeKey: string = getRuntimeKey()): string | undefined => (
+  observedStreamEpochByRuntime.get(runtimeKey)
+);
+
 const debug = (..._args: unknown[]): void => {
   // Keep diagnostics payload-free by default. A caller can observe lifecycle
   // callbacks without making the hot path retain prompt or transcript data.
@@ -157,6 +177,7 @@ export const fetchPiRuntimeHealth = async (
   streamEpoch?: string;
   error?: { code: string; message?: string };
 }> => {
+  const requestRuntimeKey = runtimeKey ?? getRuntimeKey();
   let response: Response;
   try {
     response = await runtimeFetch(resolveHealthPath(), signal ? { signal } : {});
@@ -170,7 +191,7 @@ export const fetchPiRuntimeHealth = async (
     };
   }
 
-  if (runtimeKey && runtimeKey !== getRuntimeKey()) {
+  if (requestRuntimeKey !== getRuntimeKey()) {
     return {
       state: 'unavailable',
       protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
@@ -204,9 +225,12 @@ export const fetchPiRuntimeHealth = async (
   }
 
   const errorCode = typeof payload.error?.code === 'string' ? payload.error.code : undefined;
-  const streamEpoch = typeof payload.streamEpoch === 'string' && payload.streamEpoch.length > 0
+  const streamEpoch = typeof payload.streamEpoch === 'string' && payload.streamEpoch.length > 0 && payload.streamEpoch.length <= 128
     ? payload.streamEpoch
     : undefined;
+  if (payload.state === 'ready' && streamEpoch) {
+    observePiStreamEpoch(requestRuntimeKey, streamEpoch);
+  }
   return {
     state: payload.state === 'ready' ? 'ready' : 'unavailable',
     protocolVersion: typeof payload.protocolVersion === 'number' ? payload.protocolVersion : PI_PUBLIC_PROTOCOL_VERSION,

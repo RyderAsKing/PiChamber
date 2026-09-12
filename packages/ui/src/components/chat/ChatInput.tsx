@@ -10,6 +10,7 @@ import {
 } from "@/stores/messageQueueStore";
 import { isQueuedSendUnconfirmedError } from "@/stores/queuedSendReceipt";
 import { useSessionUIStore } from "@/sync/session-ui-store";
+import type { SendMessageOptions } from "@/sync/session-ui-types";
 import { isNewSessionDraftSendPending } from "@/sync/session-ui-draft-helpers";
 import { usePiSessionSnapshot } from "@/sync/pi-session-context";
 import { getPiSessionStore } from "@/apps/pi-session-store";
@@ -1191,7 +1192,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         draftBranchCheckout.getReceipt(branchIntent);
       // Single Send now always steers with its stable queue id as
       // operationId; normal submits carry only their own delivery.
-      const sendMessageOptions = queuedOnly && capturedTarget && claimedFollowUp
+      const sendMessageOptions: SendMessageOptions | undefined = queuedOnly && capturedTarget && claimedFollowUp
         ? {
             target: capturedTarget,
             delivery: "steer" as const,
@@ -1326,7 +1327,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         && parsedCommand
         && !isLocalSlashCommand(parsedCommand.name)
       );
-      const effectiveSendMessageOptions = isNewDraftExtensionCommand
+      let effectiveSendMessageOptions = isNewDraftExtensionCommand
         ? { ...sendMessageOptions, initialInputKind: 'extension-command' as const }
         : sendMessageOptions;
 
@@ -1379,7 +1380,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // send can deliver, so a reload holds instead of resending. Steer
         // kind + stable queue id as operationId; the receipt key includes
         // kind, so recovery is Check status, never a cross-kind resend.
-        useMessageQueueStore.getState().markDeliveryAttempt(capturedTarget, claimedFollowUp.id, "steer");
+        const attempt = useMessageQueueStore.getState().markDeliveryAttempt(capturedTarget, claimedFollowUp.id, "steer");
+        if (!attempt?.streamEpoch) {
+          useMessageQueueStore.getState().markSendUnconfirmed(capturedTarget, claimedFollowUp.id, "steer");
+          toast.error("Follow-up status uncertain. Check status before retrying.");
+          return;
+        }
+        effectiveSendMessageOptions = {
+          ...effectiveSendMessageOptions,
+          streamEpoch: attempt.streamEpoch,
+        };
       }
 
       const sendPromise = sendMessage(

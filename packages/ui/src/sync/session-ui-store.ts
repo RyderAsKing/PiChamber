@@ -588,6 +588,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         files,
         delivery: options?.delivery,
         operationId: options?.operationId,
+        streamEpoch: options?.streamEpoch,
         knownEmptyTranscript: true,
         additionalParts: mergedAdditionalParts?.map((p) => ({
           text: p.text,
@@ -650,6 +651,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       files,
       delivery: options?.delivery,
       operationId: options?.operationId,
+      streamEpoch: options?.streamEpoch,
       additionalParts: additionalParts?.map((p) => ({
         text: p.text,
         synthetic: p.synthetic,

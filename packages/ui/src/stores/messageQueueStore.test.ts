@@ -7,6 +7,8 @@ import {
   useMessageQueueStore,
 } from "./messageQueueStore"
 import { piClient } from "@/lib/pi/client"
+import { getObservedPiStreamEpoch, observePiStreamEpoch } from "@/lib/pi/transport"
+import { getRuntimeKey } from "@/lib/runtime-switch"
 import type { AttachedFile } from "./types/sessionTypes"
 
 const readyAttachment = (localId: string, attachmentId: string): AttachedFile => ({
@@ -21,6 +23,8 @@ const readyAttachment = (localId: string, attachmentId: string): AttachedFile =>
 })
 
 beforeEach(() => {
+  observePiStreamEpoch(getRuntimeKey(), "epoch-current")
+  observePiStreamEpoch("runtime-a", "epoch-a")
   useMessageQueueStore.setState({ queuedMessages: {}, quarantinedLegacyMessages: {}, sendingIds: {} })
 })
 
@@ -111,7 +115,7 @@ describe("message queue runtime ownership", () => {
       expect(deleted).toEqual([])
       const retained = useMessageQueueStore.getState().getQueueForTarget(target)
       expect(retained).toHaveLength(20)
-      expect(retained[0]?.deliveryAttempt).toEqual({ kind: "followUp", operationId: retained[0]!.id })
+      expect(retained[0]?.deliveryAttempt).toEqual({ kind: "followUp", operationId: retained[0]!.id, streamEpoch: "epoch-current" })
       expect(retained[0]?.attachments?.[0]?.uploadState?.status).toBe("ready")
       const retainedUpload = retained[0]?.attachments?.[0]?.uploadState
       expect(retainedUpload && "attachmentId" in retainedUpload ? retainedUpload.attachmentId : undefined).toBe("att-0")
@@ -123,7 +127,7 @@ describe("message queue runtime ownership", () => {
 
 describe("atomic follow-up claims", () => {
   test("duplicate claim for the same id returns null for the second claimant", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
 
@@ -137,7 +141,7 @@ describe("atomic follow-up claims", () => {
   })
 
   test("auto candidate returns the oldest sendable; a claim hides it from later claimants", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     useMessageQueueStore.getState().addToQueue(target, { content: "second" })
 
@@ -151,7 +155,7 @@ describe("atomic follow-up claims", () => {
   })
 
   test("claim reads the latest store, not a stale snapshot", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const staleSnapshot = useMessageQueueStore.getState().getQueueForTarget(target)
     expect(staleSnapshot).toHaveLength(1)
@@ -167,7 +171,7 @@ describe("atomic follow-up claims", () => {
   })
 
   test("completing only the captured id preserves entries queued during awaits", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
     const claimed = useMessageQueueStore.getState().claimQueuedMessage(target, first.id)
@@ -187,7 +191,7 @@ describe("atomic follow-up claims", () => {
   })
 
   test("clearSending releases the claim so an explicit retry can proceed", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
     expect(useMessageQueueStore.getState().claimQueuedMessage(target, first.id)?.id).toBe(first.id)
@@ -197,7 +201,7 @@ describe("atomic follow-up claims", () => {
   })
 
   test("captured sendConfig is preserved as-is; absent variant stays absent", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, {
       content: "first",
       sendConfig: { providerID: "cap-p", modelID: "cap-m" },
@@ -257,13 +261,13 @@ describe("in-flight queued sends", () => {
 
 describe("durable delivery attempts", () => {
   test("markDeliveryAttempt persists kind + stable operationId and blocks claims", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
 
     useMessageQueueStore.getState().markDeliveryAttempt(target, first.id, "followUp")
     const stored = useMessageQueueStore.getState().getQueueForTarget(target)[0]
-    expect(stored?.deliveryAttempt).toEqual({ kind: "followUp", operationId: first.id })
+    expect(stored?.deliveryAttempt).toEqual({ kind: "followUp", operationId: first.id, streamEpoch: "epoch-current" })
     expect(stored?.sendFailed).toBe(undefined)
     // An uncertain attempt refuses a new claim: Check status first, never a
     // cross-kind resend (receipt key includes kind).
@@ -272,7 +276,7 @@ describe("durable delivery attempts", () => {
   })
 
   test("confirmed rejection clears the attempt but persists a fixed failure label", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
     useMessageQueueStore.getState().markDeliveryAttempt(target, first.id, "steer")
@@ -286,20 +290,44 @@ describe("durable delivery attempts", () => {
   })
 
   test("unconfirmed error retains the attempt for reload hold", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
     useMessageQueueStore.getState().markDeliveryAttempt(target, first.id, "followUp")
 
     useMessageQueueStore.getState().markSendUnconfirmed(target, first.id, "followUp")
     const stored = useMessageQueueStore.getState().getQueueForTarget(target)[0]
-    expect(stored?.deliveryAttempt).toEqual({ kind: "followUp", operationId: first.id })
+    expect(stored?.deliveryAttempt).toEqual({ kind: "followUp", operationId: first.id, streamEpoch: "epoch-current" })
     expect(stored?.sendFailed).toBe(undefined)
     expect(useMessageQueueStore.getState().getAutoSendCandidate(target)).toBeNull()
   })
 
+  test("missing or stale epochs hold until an explicit new intent is created", () => {
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
+    useMessageQueueStore.getState().addToQueue(target, { content: "first" })
+    const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
+    useMessageQueueStore.setState((state) => ({
+      queuedMessages: {
+        ...state.queuedMessages,
+        [getMessageQueueKey(target)]: [{ ...first, deliveryAttempt: { kind: "followUp", operationId: first.id } }],
+      },
+    }))
+
+    expect(useMessageQueueStore.getState().claimQueuedMessage(target, first.id)).toBeNull()
+    expect(useMessageQueueStore.getState().getAutoSendCandidate(target)).toBeNull()
+
+    const newId = useMessageQueueStore.getState().requeueWithNewIntent(target, first.id)
+    expect(newId).not.toBeNull()
+    expect(newId).not.toBe(first.id)
+    const requeued = useMessageQueueStore.getState().getQueueForTarget(target)[0]
+    expect(requeued?.id).toBe(newId)
+    expect(requeued?.deliveryAttempt).toBeUndefined()
+    expect(getObservedPiStreamEpoch(target.runtimeKey)).toBe("epoch-current")
+    expect(useMessageQueueStore.getState().getAutoSendCandidate(target)?.id).toBe(newId)
+  })
+
   test("auto candidate skips a failed head but holds behind an uncertain head (FIFO)", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     useMessageQueueStore.getState().addToQueue(target, { content: "second" })
     const [first, second] = useMessageQueueStore.getState().getQueueForTarget(target)
@@ -318,7 +346,7 @@ describe("durable delivery attempts", () => {
   })
 
   test("pop and remove refuse a sending id; completion removes it", () => {
-    const target = createMessageQueueTarget("session-1", "/repo", "runtime-a")!
+    const target = createMessageQueueTarget("session-1", "/repo", getRuntimeKey())!
     useMessageQueueStore.getState().addToQueue(target, { content: "first" })
     const [first] = useMessageQueueStore.getState().getQueueForTarget(target)
     expect(useMessageQueueStore.getState().claimQueuedMessage(target, first.id)?.id).toBe(first.id)

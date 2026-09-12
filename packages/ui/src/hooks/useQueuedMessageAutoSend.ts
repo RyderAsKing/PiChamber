@@ -109,6 +109,7 @@ export const sendQueuedAutoSendPayload = (
   target: MessageQueueTarget,
   payload: QueuedAutoSendPayload,
   resolved: ResolvedQueuedSendConfig,
+  streamEpoch?: string,
 ) => {
   // Hands to the SDK only at the authoritative idle gate, but dispatches as
   // delivery:'followUp' so a turn that went busy between gate and arrival
@@ -129,6 +130,7 @@ export const sendQueuedAutoSendPayload = (
       target,
       delivery: 'followUp',
       operationId: payload.queuedMessageId,
+      ...(streamEpoch ? { streamEpoch } : {}),
     },
   );
 };
@@ -422,7 +424,12 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       // persisted attempt synchronously before the first await so a reload
       // holds instead of resending an uncertain delivery. The local ref only
       // guards concurrent hydration demands for this target.
-      useMessageQueueStore.getState().markDeliveryAttempt(target, claimed.id, 'followUp');
+      const attempt = useMessageQueueStore.getState().markDeliveryAttempt(target, claimed.id, 'followUp');
+      if (!attempt?.streamEpoch) {
+        inFlightSessionsRef.current.delete(targetKey);
+        useMessageQueueStore.getState().clearSending(target, claimed.id);
+        return;
+      }
 
       try {
         await sendQueuedAutoSendPayload(target, payload, {
@@ -430,7 +437,7 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
           modelID: resolved.modelID,
           agent: resolved.agent,
           variant: resolved.variant,
-        });
+        }, attempt.streamEpoch);
         // Remove ONLY the captured id after confirmed acceptance via the
         // completion path (the only remover allowed while claimed). Entries
         // queued during the await stay for their own distinct follow-up.

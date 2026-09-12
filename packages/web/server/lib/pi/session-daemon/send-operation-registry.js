@@ -24,13 +24,10 @@
  * - The same id with a different payload (text, model, thinking, message id,
  *   or attachments) is rejected as `OPERATION_PAYLOAD_MISMATCH` — a
  *   duplicated id never silently executes unrelated work. Identity is
- *   `kind + sessionId + operationId`: the same id on a different session or
- *   delivery kind is a different intent and executes independently (never a
- *   mismatch). `streamEpoch` (stamped only by the stream-epoch split)
- *   is intentionally NOT fingerprinted, so adding or omitting it on a retry
- *   in the same lifetime never causes a mismatch. This split performs no
- *   epoch guard; the stream-epoch branch enforces `STALE_STREAM_EPOCH`
- *   before the claim.
+ *   `kind + sessionId + operationId + streamEpoch`: the same id on a
+ *   different session or delivery kind is a different intent. An epoch that
+ *   does not match this daemon lifetime is rejected as `stale` before a claim
+ *   is created, so a post-restart retry cannot execute.
  *
  * Retention is bounded and explicit: accepted receipts are kept for `ttlMs`
  * and at most `maxEntries` accepted receipts are retained (oldest evicted).
@@ -51,10 +48,8 @@
  * are not auto-expired: a leaked claim occupies one of `maxPending` slots
  * until restart instead of risking a duplicate execution. The registry is
  * in-memory per daemon process: a daemon restart loses receipts, which is
- * the documented crash-window — a client retry across a restart may
- * re-execute an accepted intent, and clients must not replay uncertain
- * sends across restarts (the stream-epoch split adds a verified-epoch guard
- * for this window; this split documents the raw window without it). After `ttlMs` the receipt is
+ * the documented receipt-loss window. The required epoch prevents an old
+ * intent from being claimed by the replacement process. After `ttlMs` the receipt is
  * gone: a retry with the same id is rejected as expired, never a silent
  * deduplicated success nor an automatic re-execution — callers must treat
  * the retention window as the only safe retry window and use a new
@@ -74,6 +69,10 @@ export const isValidSendOperationId = (value) => (
   typeof value === 'string' && SEND_OPERATION_ID_PATTERN.test(value)
 );
 
+export const isValidStreamEpoch = (value) => (
+  typeof value === 'string' && value.length > 0 && value.length <= 128
+);
+
 /** Deterministic stringify so payload fingerprints are order-independent. */
 export const stableFingerprint = (value) => {
   if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null);
@@ -82,15 +81,17 @@ export const stableFingerprint = (value) => {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableFingerprint(value[key])}`).join(',')}}`;
 };
 
-const entryKey = ({ kind, sessionId, operationId }) => `${kind}\u0000${sessionId}\u0000${operationId}`;
+const entryKey = ({ kind, sessionId, operationId, streamEpoch }) => `${kind}\u0000${sessionId}\u0000${operationId}\u0000${streamEpoch}`;
 
 export const createSendOperationRegistry = ({
+  streamEpoch,
   now = () => Date.now(),
   ttlMs = 10 * 60 * 1_000,
   maxEntries = 1_024,
   maxPending = 256,
   pendingTtlMs = 30_000,
 } = {}) => {
+  if (!isValidStreamEpoch(streamEpoch)) throw new Error('send operation streamEpoch must be an opaque string no longer than 128 characters');
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) throw new Error('send operation ttlMs must be positive');
   if (!Number.isFinite(maxEntries) || maxEntries <= 0) throw new Error('send operation maxEntries must be positive');
   if (!Number.isFinite(maxPending) || maxPending <= 0) throw new Error('send operation maxPending must be positive');
@@ -153,8 +154,9 @@ export const createSendOperationRegistry = ({
     }
   };
 
-  const claim = ({ kind, sessionId, operationId, fingerprint }) => {
-    const key = entryKey({ kind, sessionId, operationId });
+  const claim = ({ kind, sessionId, operationId, streamEpoch: requestedEpoch, fingerprint }) => {
+    if (!isValidStreamEpoch(requestedEpoch) || requestedEpoch !== streamEpoch) return { outcome: 'stale' };
+    const key = entryKey({ kind, sessionId, operationId, streamEpoch: requestedEpoch });
     evictExpired();
     const existing = entries.get(key);
     if (existing) {
@@ -209,18 +211,18 @@ export const createSendOperationRegistry = ({
     return { outcome: 'new', entry };
   };
 
-  const getReceipt = ({ kind, sessionId, operationId }) => {
+  const getReceipt = ({ kind, sessionId, operationId, streamEpoch: requestedEpoch }) => {
     evictExpired();
+    if (!isValidStreamEpoch(requestedEpoch)) return undefined;
     if (typeof kind === 'string' && kind.length > 0) {
-      const entry = entries.get(entryKey({ kind, sessionId, operationId }));
+      const entry = entries.get(entryKey({ kind, sessionId, operationId, streamEpoch: requestedEpoch }));
       if (entry?.state === 'accepted') return { receipt: entry.receipt, fingerprint: entry.fingerprint };
       return undefined;
     }
     for (const [key, entry] of entries) {
       if (entry.state !== 'accepted') continue;
-      // Keys are `kind + NUL + sessionId + NUL + operationId`; match the
-      // session+operation suffix when the caller did not specify a kind.
-      if (key.endsWith(`\u0000${sessionId}\u0000${operationId}`)) {
+      // Keys are `kind + NUL + sessionId + NUL + operationId + NUL + epoch`.
+      if (key.endsWith(`\u0000${sessionId}\u0000${operationId}\u0000${requestedEpoch}`)) {
         return { receipt: entry.receipt, fingerprint: entry.fingerprint, kind: key.slice(0, key.indexOf('\u0000')) };
       }
     }
@@ -228,20 +230,21 @@ export const createSendOperationRegistry = ({
   };
 
   // Exact-identity receipt lookup for `sessions.sendReceipt`: requires the
-  // full `kind + sessionId + operationId` key. Returns one of
+  // full `kind + sessionId + operationId + streamEpoch` key. Returns one of
   // `accepted` (retained receipt), `pending` (still-accepting claim),
   // `expired` (seen but retention gone — outcome unknown, never assume
   // success), or `unknown` (never seen in this retention window, evicted
   // tombstone pressure, post-restart, or rejected before Pi ran so nothing
   // executed). Never returns a receipt after expiry.
-  const query = ({ kind, sessionId, operationId }) => {
+  const query = ({ kind, sessionId, operationId, streamEpoch: requestedEpoch }) => {
     evictExpired();
     if (typeof kind !== 'string' || kind.length === 0
       || typeof sessionId !== 'string' || sessionId.length === 0
-      || typeof operationId !== 'string' || operationId.length === 0) {
+      || typeof operationId !== 'string' || operationId.length === 0
+      || !isValidStreamEpoch(requestedEpoch)) {
       return { status: 'unknown' };
     }
-    const key = entryKey({ kind, sessionId, operationId });
+    const key = entryKey({ kind, sessionId, operationId, streamEpoch: requestedEpoch });
     const entry = entries.get(key);
     if (entry?.state === 'accepted') {
       return { status: 'accepted', receipt: entry.receipt, fingerprint: entry.fingerprint };
