@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Live credential revocation (#9).** Revoking a device now ends its live access, not just future requests. A successfully authenticated SSE event stream (`/api/pi/events`), terminal WebSocket, or dictation WebSocket — direct or through the private relay — is registered at the auth-owning boundary under the principal derived from its verified credential (never a client-supplied ID). The revoke route closes the revoked principal's tracked connections synchronously within the request and reports `closedConnections`; global sign-out (`/auth/reset`) closes all tracked connections alongside the JWT-secret rotation. Already-minted URL tokens fail at establishment (mint/open race) because every upgrade and SSE establishment re-validates the embedded principal against the credential store and current signing secret, while the 60-second token TTL keeps gating establishment only — never a connection's lifetime. Because the credential store is a file shared with other processes (pairing CLI) and no cross-process emitter exists, propagation from another process is a bounded poll (default 15 s, retried on read failure) of the revoked-ID list; tracking cleans up on natural close, failed or still-pending upgrades, and shutdown, with a failing close isolated so it cannot strand other connections (`client-auth/principal-tracker.js`, `client-auth/remote-clients.js`, `client-auth/DOCUMENTATION.md`, `ui-auth/ui-auth.js`, `server/core-routes.js`, `terminal/runtime.js`, `stt/runtime.js`, `workspace/host.js`, `server/index.js`).
+
 ## [0.9.6] - 2026-09-10
 
 Send reliability, revision-safe file saves, and file-search correctness release.

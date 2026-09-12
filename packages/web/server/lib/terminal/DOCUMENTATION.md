@@ -38,6 +38,8 @@ HTTP remains the authenticated command plane for create, resize, appearance upda
 
 The WebSocket path must remain in both `isUrlAuthWebSocketPath` and relay `ALLOWED_WS_PATHS`. The client must use `getRuntimeUrlResolver().websocket()` and `openRuntimeWebSocket`; direct local URLs or raw browser WebSockets break relay and URL-token authentication.
 
+This runtime owns the WebSocket's auth and connection lifetime: the upgrade re-validates the principal (credential store or signing secret) at establishment, so an already-minted URL token minted before a revocation or global sign-out is denied at open; the coordinator generation is captured before the auth/origin awaits and passed at track time, so a revocation racing verification reject-closes without trusting the principal and `handleUpgrade` is skipped for inactive entries. After the upgrade the connection is registered with the live-revocation coordinator under the authenticated principal, so a later revocation closes the socket within the documented latency guarantee. The 60-second URL token TTL gates establishment only — it never schedules a connection's death. Resource bounds (50 per principal / 1000 global) reject-close with `close('over-limit')` without evicting unrelated sockets. See `../client-auth/DOCUMENTATION.md`.
+
 ## Verification
 
 Run:

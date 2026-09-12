@@ -2,6 +2,8 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
+import { createPrincipalTracker } from '../client-auth/principal-tracker.js';
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-ui-auth-test-'));
 process.env.PICHAMBER_DATA_DIR = dataDir;
@@ -298,5 +300,252 @@ describe('ui auth client credential seam', () => {
     const expiresAt = Date.parse(createClientInput.expiresAt);
     expect(expiresAt).toBeGreaterThanOrEqual(before + 122_000);
     expect(expiresAt).toBeLessThanOrEqual(Date.now() + 124_000);
+  });
+});
+
+describe('ui auth live revocation', () => {
+  const createRealClientAuth = async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-ui-auth-revoke-'));
+    const remoteClientAuthRuntime = (await import('../client-auth/remote-clients.js')).createRemoteClientAuthRuntime({
+      fsPromises: fs.promises,
+      path,
+      crypto,
+      storePath: path.join(dir, 'remote-clients.json'),
+    });
+    return { dir, remoteClientAuthRuntime };
+  };
+
+  const createEventStreamResponse = () => {
+    const res = createResponse();
+    res.destroyed = false;
+    res.writableEnded = false;
+    res.destroyCalls = 0;
+    res.destroy = () => {
+      res.destroyCalls += 1;
+      res.destroyed = true;
+    };
+    return res;
+  };
+
+  const eventStreamReq = (headers = {}) => ({
+    method: 'GET',
+    path: '/api/pi/events',
+    url: '/api/pi/events',
+    headers,
+  });
+
+  it('denies an already-minted URL token at establishment after revocation (mint/open race)', async () => {
+    const { dir, remoteClientAuthRuntime } = await createRealClientAuth();
+    try {
+      const created = await remoteClientAuthRuntime.createClient({ label: 'Phone' });
+      const createUiAuth = await loadCreateUiAuth();
+      const auth = createUiAuth({
+        password: 'secret',
+        clientAuthController: remoteClientAuthRuntime,
+      });
+
+      const mintRes = createResponse();
+      await auth.handleUrlAuthToken({
+        method: 'POST',
+        path: '/auth/url-token',
+        headers: { authorization: `Bearer ${created.token}`, accept: 'application/json' },
+      }, mintRes);
+      const urlToken = mintRes.body.token;
+      expect(urlToken.startsWith('oc_url_')).toBe(true);
+
+      // Establishment still works before revocation.
+      const wsPath = '/api/terminal/ws';
+      const beforeRevoke = {
+        method: 'GET',
+        path: wsPath,
+        url: `${wsPath}?oc_url_token=${encodeURIComponent(urlToken)}`,
+        headers: { connection: 'Upgrade', upgrade: 'websocket' },
+      };
+      expect(await auth.ensureSessionToken(beforeRevoke, createResponse())).toBe(`client:${created.client.id}`);
+
+      // Revoke, then try to open with the token minted moments earlier.
+      await remoteClientAuthRuntime.revokeClient(created.client.id);
+      for (const path of ['/api/terminal/ws', '/api/stt/ws']) {
+        const openReq = {
+          method: 'GET',
+          path,
+          url: `${path}?oc_url_token=${encodeURIComponent(urlToken)}`,
+          headers: { connection: 'Upgrade', upgrade: 'websocket' },
+        };
+        expect(await auth.ensureSessionToken(openReq, createResponse())).toBe(null);
+      }
+      const sseReq = {
+        method: 'GET',
+        path: '/api/pi/events',
+        url: `/api/pi/events?oc_url_token=${encodeURIComponent(urlToken)}`,
+        headers: {},
+      };
+      const sseRes = createResponse();
+      let opened = false;
+      await auth.requireAuth(sseReq, sseRes, () => { opened = true; });
+      expect(opened).toBe(false);
+      expect(sseRes.statusCode).toBe(401);
+      auth.dispose();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('tracks authenticated SSE connections under the verified principal and closes them on revocation', async () => {
+    const { dir, remoteClientAuthRuntime } = await createRealClientAuth();
+    try {
+      const revokedDevice = await remoteClientAuthRuntime.createClient({ label: 'Phone' });
+      const otherDevice = await remoteClientAuthRuntime.createClient({ label: 'Tablet' });
+      const createUiAuth = await loadCreateUiAuth();
+      const tracker = createPrincipalTracker();
+      const liveRevocation = {
+        trackLiveConnection: ({ principal, close }) => tracker.track({ principal, close }),
+        clientRevoked: (clientId) => tracker.closePrincipal(`client:${clientId}`, 'credential-revoked'),
+        revokeAllLive: (reason) => tracker.closeAll(reason),
+      };
+      const auth = createUiAuth({
+        password: 'secret',
+        clientAuthController: remoteClientAuthRuntime,
+        liveRevocation,
+      });
+
+      const revokedRes = createEventStreamResponse();
+      const otherRes = createEventStreamResponse();
+      await auth.requireAuth(eventStreamReq({ authorization: `Bearer ${revokedDevice.token}` }), revokedRes, () => {});
+      await auth.requireAuth(eventStreamReq({ authorization: `Bearer ${otherDevice.token}` }), otherRes, () => {});
+
+      // Both streams are tracked under their store-derived principal — never
+      // under a client-supplied ID.
+      expect(tracker.countPrincipal(`client:${revokedDevice.client.id}`)).toBe(1);
+      expect(tracker.countPrincipal(`client:${otherDevice.client.id}`)).toBe(1);
+      expect(revokedRes.destroyCalls).toBe(0);
+
+      // The auth-owning revoke route: store write, then immediate close.
+      await remoteClientAuthRuntime.revokeClient(revokedDevice.client.id);
+      expect(liveRevocation.clientRevoked(revokedDevice.client.id)).toBe(1);
+
+      expect(revokedRes.destroyCalls).toBe(1);
+      // The other device keeps its live connection.
+      expect(otherRes.destroyCalls).toBe(0);
+      expect(tracker.countPrincipal(`client:${otherDevice.client.id}`)).toBe(1);
+
+      // A revoked device cannot reconnect.
+      const reconnectRes = createResponse();
+      let reconnected = false;
+      await auth.requireAuth(eventStreamReq({ authorization: `Bearer ${revokedDevice.token}` }), reconnectRes, () => { reconnected = true; });
+      expect(reconnected).toBe(false);
+      expect(reconnectRes.statusCode).toBe(401);
+
+      auth.dispose();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('closes tracked live connections when global sign-out is requested', async () => {
+    const { dir, remoteClientAuthRuntime } = await createRealClientAuth();
+    try {
+      const created = await remoteClientAuthRuntime.createClient({ label: 'Phone' });
+      const createUiAuth = await loadCreateUiAuth();
+      const tracker = createPrincipalTracker();
+      const closed = [];
+      const liveRevocation = {
+        trackLiveConnection: ({ principal, close }) => tracker.track({
+          principal,
+          close: (reason) => {
+            closed.push({ principal, reason });
+            // Forward to the transport close the auth boundary registered.
+            close(reason);
+          },
+        }),
+        revokeAllLive: (reason) => tracker.closeAll(reason),
+      };
+      const auth = createUiAuth({
+        password: 'secret',
+        clientAuthController: remoteClientAuthRuntime,
+        liveRevocation,
+      });
+
+      const loginRes = createResponse();
+      await auth.handleSessionCreate({ method: 'POST', headers: {}, body: { password: 'secret' } }, loginRes);
+      const sessionCookie = String(loginRes.getHeader('set-cookie') || '').split(';', 1)[0];
+
+      const sseRes = createEventStreamResponse();
+      await auth.requireAuth(eventStreamReq({ cookie: sessionCookie }), sseRes, () => {});
+
+      const resetRes = createResponse();
+      await auth.requireSessionAuth({ method: 'POST', path: '/auth/reset', headers: { cookie: sessionCookie } }, resetRes, async () => {
+        await auth.handleResetAuth({ method: 'POST', path: '/auth/reset', headers: { cookie: sessionCookie } }, resetRes);
+      });
+      expect(resetRes.body.signedOutEverywhere).toBe(true);
+      expect(closed).toEqual([{ principal: expect.any(String), reason: 'signout-everywhere' }]);
+      expect(sseRes.destroyCalls).toBe(1);
+
+      // The rotated signing secret denies the old session immediately.
+      const afterRes = createResponse();
+      let afterCalled = false;
+      await auth.requireAuth(eventStreamReq({ cookie: sessionCookie }), afterRes, () => { afterCalled = true; });
+      expect(afterCalled).toBe(false);
+      expect(afterRes.statusCode).toBe(401);
+      auth.dispose();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('passes the pre-verify generation to the tracker so a racing global invalidation is rejected', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const seen = [];
+    let generation = 7;
+    const liveRevocation = {
+      getGeneration: () => generation,
+      trackLiveConnection: ({ principal, close, generation: atTrack }) => {
+        seen.push({ principal, generation: atTrack });
+        return { end: () => {}, revoke: () => false, active: true };
+      },
+    };
+    const auth = createUiAuth({
+      password: 'secret',
+      clientAuthController: { authenticateBearerToken: async () => null },
+      liveRevocation,
+    });
+    const loginRes = createResponse();
+    await auth.handleSessionCreate({ method: 'POST', headers: {}, body: { password: 'secret' } }, loginRes);
+    const sessionCookie = String(loginRes.getHeader('set-cookie') || '').split(';', 1)[0];
+    // Generation is captured before verification; a rotation racing the
+    // await would bump the coordinator, so the captured value must match
+    // the pre-verify snapshot, not a post-verify reread.
+    generation = 7;
+    await auth.requireAuth(eventStreamReq({ cookie: sessionCookie }), createResponse(), () => {});
+    expect(seen).toHaveLength(1);
+    expect(seen[0].generation).toBe(7);
+    auth.dispose();
+  });
+
+  it('refuses global sign-out while PICHAMBER_JWT_SECRET is set without closing live connections', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const previous = process.env.PICHAMBER_JWT_SECRET;
+    process.env.PICHAMBER_JWT_SECRET = 'env-secret-for-test';
+    try {
+      let revokeCalls = 0;
+      const liveRevocation = {
+        trackLiveConnection: () => ({ end: () => {}, revoke: () => false, active: true }),
+        revokeAllLive: () => { revokeCalls += 1; return 0; },
+      };
+      const auth = createUiAuth({
+        password: 'secret',
+        clientAuthController: { authenticateBearerToken: async () => null },
+        liveRevocation,
+      });
+      const res = createResponse();
+      await auth.handleResetAuth({ method: 'POST', headers: {} }, res);
+      expect(res.statusCode).toBe(400);
+      expect(String(res.body?.error || '')).toMatch(/PICHAMBER_JWT_SECRET/);
+      expect(revokeCalls).toBe(0);
+      auth.dispose();
+    } finally {
+      if (previous === undefined) delete process.env.PICHAMBER_JWT_SECRET;
+      else process.env.PICHAMBER_JWT_SECRET = previous;
+    }
   });
 });
