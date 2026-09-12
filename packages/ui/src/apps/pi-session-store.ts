@@ -872,7 +872,8 @@ export class PiSessionStore {
   async start(options: {
     directory?: string | null;
     sessionId?: PiSessionId | null;
-    /** The caller already knows the session belongs to `directory`. */
+    /** Whether `directory` is authoritative for this session. Set false for
+     *  persisted startup hints that must be revalidated against the runtime. */
     sessionDirectoryKnown?: boolean;
   } = {}): Promise<void> {
     // Once the cluster is attached on this runtime (or has reached
@@ -892,24 +893,35 @@ export class PiSessionStore {
     }
     try {
       const requestedDirectory = typeof options.directory === 'string' && options.directory.trim() ? options.directory : null;
-      // A provided cwd is enough to attach. `open` lists that folder, hydrates
-      // the id once, and only then `getSession`s if the id lives elsewhere.
-      // Probing `getSession` here first downloaded the whole transcript just
-      // to learn `directory`, then `open` downloaded it again.
-      if (requestedDirectory) {
+      // A caller-provided authoritative cwd is enough to attach. `open` lists
+      // that folder, hydrates the id once, and only then `getSession`s if the
+      // id lives elsewhere. Persisted startup directories are different: the
+      // connected host may have moved or may use another filesystem, so find
+      // the session without scoping the lookup to that stale hint.
+      const mustValidateSessionDirectory = Boolean(options.sessionId && options.sessionDirectoryKnown === false);
+      if (requestedDirectory && !mustValidateSessionDirectory) {
         await this.open(requestedDirectory, options.sessionId);
         return;
       }
-      if (options.sessionId && !options.sessionDirectoryKnown) {
+      if (options.sessionId && (!options.sessionDirectoryKnown || mustValidateSessionDirectory)) {
         try {
-          const detail = await piClient.getSession(options.sessionId, { directory: requestedDirectory ?? undefined, runtimeKey: getRuntimeKey() });
+          const detail = await piClient.getSession(options.sessionId, {
+            ...(mustValidateSessionDirectory ? {} : { directory: requestedDirectory ?? undefined }),
+            runtimeKey: getRuntimeKey(),
+          });
           if (detail?.session?.directory) {
             await this.open(detail.session.directory, options.sessionId);
             return;
           }
         } catch {
-          // Session lookup failed, fall through to directory resolution
+          // Session lookup failed, fall through to a current project without
+          // carrying an unverified persisted session id into that directory.
         }
+      }
+      const fallbackSessionId = mustValidateSessionDirectory ? undefined : options.sessionId;
+      if (requestedDirectory) {
+        await this.open(requestedDirectory, fallbackSessionId);
+        return;
       }
       const projects = await piClient.listProjects({ runtimeKey: getRuntimeKey() });
       const directory = projects.projects.find((project) => project.selected)?.directory ?? projects.projects[0]?.directory;
@@ -917,7 +929,7 @@ export class PiSessionStore {
         await this.connectWithoutProject();
         return;
       }
-      await this.open(directory, options.sessionId);
+      await this.open(directory, fallbackSessionId);
     } catch (error) { this.reportError(error); }
   }
 

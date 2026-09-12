@@ -604,6 +604,53 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     store.dispose();
   });
 
+  test('persisted restore discovers the authoritative session directory before using a stale fallback', async () => {
+    const selectedDirectories: string[] = [];
+    const stubs = stubDaemons({
+      selectProject: async (directory) => {
+        selectedDirectories.push(directory);
+        return { directory };
+      },
+      health: async () => ({
+        state: 'ready',
+        protocolVersion: 1,
+        capabilities: ['events.streamEpoch'],
+        streamEpoch: 'epoch-test-1',
+      }),
+      listSessions: async ({ directory }) => {
+        if (directory === 'C:/stale-client-home') {
+          throw new PiRequestError('INVALID_ARGUMENT', 'The directory path does not exist');
+        }
+        return {
+          sessions: [{ session: { id: 's1', directory: '/server/repo', createdAt: 1, updatedAt: 1 }, updatedAt: 1 }],
+          streamEpoch: 'epoch-test-1',
+        };
+      },
+      getSession: async () => ({
+        session: { id: 's1', directory: '/server/repo', createdAt: 1, updatedAt: 1 },
+        lastSequence: 0,
+        messages: [],
+        isStreaming: false,
+        lifecycle: 'idle',
+        streamEpoch: 'epoch-test-1',
+      }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.start({
+        directory: 'C:/stale-client-home',
+        sessionId: 's1',
+        sessionDirectoryKnown: false,
+      });
+      expect(selectedDirectories).toEqual(['/server/repo']);
+      expect(store.getState().directory).toBe('/server/repo');
+      expect(store.getState().connection).toBe('ready');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('deep-link start with a directory hydrates the session once', async () => {
     const stubs = stubDaemons({
       health: async () => ({
@@ -733,12 +780,16 @@ describe('PiSessionStore runtime-scoped sessions', () => {
   test('an initial daemon failure reconnects through a background recovery stream', async () => {
     const originalFetch = globalThis.fetch;
     const encoder = new TextEncoder();
-    globalThis.fetch = (async () => new Response(new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(': recovery-ready\n\n'));
-        controller.close();
-      },
-    }), { status: 200, headers: { 'content-type': 'text/event-stream' } })) as typeof fetch;
+    const recoveryUrls: string[] = [];
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      recoveryUrls.push(input instanceof Request ? input.url : input.toString());
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(': recovery-ready\n\n'));
+          controller.close();
+        },
+      }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    }) as typeof fetch;
     const stubs = stubDaemons({
       listProjects: async () => ({ projects: [] }),
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
@@ -752,6 +803,10 @@ describe('PiSessionStore runtime-scoped sessions', () => {
       expect(internal.stream).not.toBeNull();
 
       await tickMicrotasks(16);
+      const recoveryUrl = new URL(recoveryUrls[0], 'http://runtime.test');
+      expect(recoveryUrl.pathname).toBe('/api/pi/events');
+      expect(recoveryUrl.searchParams.has('fromSequence')).toBe(false);
+      expect(recoveryUrl.searchParams.has('streamEpoch')).toBe(false);
       expect(store.getState().connection).toBe('ready');
       expect(store.getState().error).toBeNull();
     } finally {

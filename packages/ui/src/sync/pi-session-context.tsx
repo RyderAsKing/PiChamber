@@ -50,9 +50,8 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
         const persisted = readLastActiveSession(getRuntimeKey());
         if (persisted?.sessionId) {
           void store.start({
-            ...(persisted.directory ? { directory: persisted.directory } : {}),
             sessionId: persisted.sessionId,
-            ...(persisted.directory ? { sessionDirectoryKnown: true } : {}),
+            sessionDirectoryKnown: false,
           });
           return;
         }
@@ -82,9 +81,9 @@ export const PiSessionProvider = ({ children, directory }: { children: ReactNode
       const persisted = readLastActiveSession(getRuntimeKey());
       if (persisted?.sessionId) {
         void store.start({
-          directory: persisted.directory ?? targetDirectory,
+          directory: targetDirectory,
           sessionId: persisted.sessionId,
-          ...(persisted.directory ? { sessionDirectoryKnown: true } : {}),
+          sessionDirectoryKnown: false,
         });
         return;
       }

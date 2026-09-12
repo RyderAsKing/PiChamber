@@ -2,9 +2,9 @@ import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 
 // Persisted "last active session" per runtime (server instance), so a cold
 // app launch can reopen the session the user had open the last time this
-// instance was connected. This is startup-continuity context ONLY — callers
-// must confirm the session still exists against an authoritative snapshot
-// before opening it (see the MobileApp restore effect).
+// instance was connected. This is startup-continuity context ONLY. Native
+// mobile confirms it against an authoritative catalog snapshot; web and
+// desktop rediscover the session without trusting the persisted directory.
 const STORAGE_KEY = "oc.lastSession.v1"
 const MAX_RUNTIME_ENTRIES = 8
 
