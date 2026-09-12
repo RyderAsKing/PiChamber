@@ -433,6 +433,11 @@ export const buildRuntimeAuthHeaders = async (headers?: HeadersInit): Promise<He
 
 const RUNTIME_AUTH_EXPIRED_EVENT = 'pichamber:auth-expired';
 
+export const notifyRuntimeAuthExpired = (): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(RUNTIME_AUTH_EXPIRED_EVENT));
+};
+
 export const subscribeRuntimeAuthExpired = (listener: () => void): (() => void) => {
   if (typeof window === 'undefined') return () => undefined;
   window.addEventListener(RUNTIME_AUTH_EXPIRED_EVENT, listener);

@@ -22,6 +22,7 @@ import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { notifyRuntimeAuthExpired } from '@/lib/runtime-auth';
 import { getPiSessionCatalogCache, type PiSessionCatalogCache } from '@/sync/pi-session-catalog-cache';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
@@ -332,6 +333,7 @@ export class PiSessionStore {
     let recoveryStream: PiStreamHandle | null = null;
     recoveryStream = createPiEventStream({
       onEvent: () => {},
+      onAuthRequired: () => this.handleStreamAuthRequired(),
       onReconnect: () => {
         if (
           expected !== this.runtimeGeneration
@@ -354,6 +356,14 @@ export class PiSessionStore {
       runtimeKey,
     });
     this.stream = recoveryStream;
+  }
+  /** A known authorization failure (401/403) stopped the stream's retry
+   *  loop. Surface the existing auth flow (the mounted gate re-checks the
+   *  session and shows its unlock screen) without clearing any local work:
+   *  transcripts, drafts, and optimistic state all survive the report. */
+  private handleStreamAuthRequired(): void {
+    this.reportError(new PiRequestError('DAEMON_AUTH_FAILED', 'The Pi runtime rejected the client authorization.'));
+    notifyRuntimeAuthExpired();
   }
   /**
    * A single session could not be hydrated. The cluster stays `ready` so
@@ -1819,6 +1829,7 @@ export class PiSessionStore {
         onEvent,
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
+        onAuthRequired: () => this.handleStreamAuthRequired(),
       });
       if (expected !== this.runtimeGeneration) {
         bootstrap.stream?.dispose();
@@ -1935,6 +1946,7 @@ export class PiSessionStore {
         onEvent: (event) => this.apply(event),
         onStreamDisconnect: () => void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey),
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, replacementStreamGeneration),
+        onAuthRequired: () => this.handleStreamAuthRequired(),
       });
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
         result.stream?.dispose();

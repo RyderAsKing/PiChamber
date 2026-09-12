@@ -110,6 +110,8 @@ export interface PiBootstrapOptions {
   onStreamReconnect?: () => void;
   /** Called when the underlying stream switches transport. */
   onTransportSwitch?: () => void;
+  /** A known authorization failure stopped the underlying stream. */
+  onAuthRequired?: () => void;
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
   /** Runtime identity captured by the caller. */
@@ -268,6 +270,7 @@ export const bootstrapPiDirectory = async (
         onDisconnect: (reason) => options.onStreamDisconnect?.(reason),
         onReconnect: () => options.onStreamReconnect?.(),
         onTransportSwitch: () => options.onTransportSwitch?.(),
+        onAuthRequired: () => options.onAuthRequired?.(),
       },
       {
         ...(typeof streamFromSequence === 'number' && streamFromSequence >= 0 ? { fromSequence: streamFromSequence } : {}),

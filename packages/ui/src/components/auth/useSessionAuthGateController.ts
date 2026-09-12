@@ -1,7 +1,7 @@
 import React from 'react';
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { toast } from '@/components/ui';
-import { getRuntimeExtraHeadersSync } from '@/lib/runtime-auth';
+import { getRuntimeExtraHeadersSync, subscribeRuntimeAuthExpired } from '@/lib/runtime-auth';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { isDesktopShell } from '@/lib/desktop';
 import {
@@ -224,6 +224,20 @@ export function useSessionAuthGateController() {
     }
     void checkStatus();
   }, [checkStatus, skipAuth]);
+
+  React.useEffect(() => {
+    if (skipAuth) {
+      return;
+    }
+
+    // Long-lived transports stop retrying on a known authorization failure
+    // and notify this gate. Re-check the session status so the mounted flow
+    // (password/passkey unlock) takes over; local UI state is preserved.
+    return subscribeRuntimeAuthExpired(() => {
+      resetTransientRetry();
+      void checkStatus();
+    });
+  }, [checkStatus, resetTransientRetry, skipAuth]);
 
   React.useEffect(() => {
     if (skipAuth) {

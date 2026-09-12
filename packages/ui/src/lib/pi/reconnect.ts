@@ -90,6 +90,9 @@ export interface PiReconnectOptions {
   /** The stream observed a health-verified stream-epoch transition
    *  (daemon restart). */
   onEpochChange?: (epoch: string) => void;
+  /** A known authorization failure (401/403) stopped the stream's retry
+   *  loop; the existing auth flow owns recovery. */
+  onAuthRequired?: () => void;
   /** Stream-lifetime id the caller's replay cursor was established under.
    *  When the verified daemon epoch differs, the cursor belongs to a retired
    *  sequence space and the snapshot's baseline is used verbatim. */
@@ -256,6 +259,7 @@ export const reconnectPiSession = async (
         onReconnect: () => options.onStreamReconnect?.(),
         onTransportSwitch: () => options.onTransportSwitch?.(),
         onEpochChange: (epoch) => options.onEpochChange?.(epoch),
+        onAuthRequired: () => options.onAuthRequired?.(),
       },
       {
         fromSequence: result.lastSequence,
