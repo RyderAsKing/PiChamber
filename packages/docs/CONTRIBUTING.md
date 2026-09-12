@@ -12,10 +12,9 @@ internal specification.
 - `DEPLOYMENT.md` describes packaging and the cross-repository sync event.
 
 English is the current source language. This repository currently carries
-English pages only. Add a translation only after checking the active locale list
-in `pichamber-website/apps/docs/astro.config.mjs` and confirming that a
-maintainer will keep the translated page current. Do not copy legacy or
-removed-runtime pages into a new locale.
+English pages only. Add a translation only after a documentation renderer and
+active locale list exist and a maintainer agrees to keep the translated page
+current. Do not copy legacy or removed-runtime pages into a new locale.
 
 ## Voice and structure
 
@@ -121,17 +120,14 @@ This checks:
 
 The validation command does not build the separate website repository.
 
-## Sync to the docs website
+## Package docs source
 
-Rendering and deployment happen in the separate `pichamber-website` repository.
-After changing docs here:
+PiChamber does not currently have a documentation renderer that consumes this
+MDX collection. The private `RyderAsKing/PiChamber-web` repository has a
+hand-maintained overview page, not the previously documented Astro/Starlight
+site.
 
-1. run `bun run docs:validate`;
-2. copy `packages/docs/content/docs/` recursively to
-   `pichamber-website/apps/docs/src/content/docs/`;
-3. map `packages/docs/sidebar.config.json` into the website Starlight config;
-4. run the website repository's checks and build.
-
-The `Docs Source` workflow packages this directory on docs changes, releases,
-and manual dispatches. When `PICHAMBER_WEBSITE_REPO_TOKEN` is configured, it
-sends a `repository_dispatch` event so the website can sync and deploy.
+The `Docs Source` workflow validates and packages this directory on docs
+changes, releases, and manual dispatches. It uploads the archive as a workflow
+artifact and attaches it to tagged releases. Keep links to these source pages
+working until a dedicated renderer is implemented.

@@ -76,6 +76,16 @@ jobs:
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "release_channel=$RELEASE_CHANNEL" >> "$GITHUB_OUTPUT"
 
+      - name: Verify stable website refresh configuration
+        if: ${{ github.event.inputs.dry_run != 'true' && steps.get_version.outputs.is_prerelease != 'true' }}
+        env:
+          WEBSITE_TOKEN: ${{ secrets.PICHAMBER_WEBSITE_REPO_TOKEN }}
+        run: |
+          if [ -z "$WEBSITE_TOKEN" ]; then
+            echo "PICHAMBER_WEBSITE_REPO_TOKEN is required for stable releases." >&2
+            exit 1
+          fi
+
       - name: Extract changelog for release
         env:
           VERSION: ${{ steps.get_version.outputs.version }}
@@ -759,15 +769,10 @@ jobs:
       - name: Trigger pichamber-website site refresh (optional)
         if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease != 'true' }}
         env:
-          WEBSITE_REPO: pichamber/pichamber-website
+          WEBSITE_REPO: RyderAsKing/PiChamber-web
           WEBSITE_TOKEN: ${{ secrets.PICHAMBER_WEBSITE_REPO_TOKEN }}
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
-          if [ -z "$WEBSITE_TOKEN" ]; then
-            echo "PICHAMBER_WEBSITE_REPO_TOKEN not set; skip site refresh dispatch."
-            exit 0
-          fi
-
           curl --fail-with-body -sS -X POST \
             -H "Authorization: Bearer $WEBSITE_TOKEN" \
             -H "Accept: application/vnd.github+json" \

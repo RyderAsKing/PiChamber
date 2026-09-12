@@ -111,8 +111,8 @@ The source of truth for public docs is
 bun run docs:validate
 ```
 
-The docs website is maintained in the separate `pichamber-website` repository.
-Do not edit generated website copies in this repository.
+The separate `RyderAsKing/PiChamber-web` repository contains a hand-maintained
+documentation overview. It does not currently render this MDX collection.
 
 ## Validation
 
@@ -263,8 +263,9 @@ publish `v0.9.9`. Do not reuse or move an existing RC tag.
 Release credentials are configured only in GitHub Actions secrets. Depending on
 the artifacts being published, the workflows use Apple signing and notarization
 secrets, `NPM_TOKEN`, Android signing secrets, iOS provisioning and App Store
-Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. Never put their values in a
-commit or issue.
+Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. The website token must be
+able to send repository dispatches to the private `RyderAsKing/PiChamber-web`
+repository. Never put secret values in a commit or issue.
 
 ## Community and support
 
