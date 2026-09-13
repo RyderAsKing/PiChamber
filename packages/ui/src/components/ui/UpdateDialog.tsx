@@ -128,6 +128,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   const [webUpdateState, setWebUpdateState] = useState<WebUpdateState>('idle');
   const [webError, setWebError] = useState<string | null>(null);
   const [webCommands, setWebCommands] = useState<string[] | null>(null);
+  const [webTarget, setWebTarget] = useState<{ version?: string; channel?: 'stable' | 'rc' }>({});
 
   const releaseUrl = info?.version
     ? (info.releaseUrl || `${GITHUB_RELEASES_URL}/tag/v${info.version}`)
@@ -141,6 +142,8 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   const isWebRuntime = runtimeType === 'web';
   const isMobileRuntime = runtimeType === 'mobile';
   const updateCommand = info?.updateCommand || 'pichamber update';
+  const displayedVersion = webTarget.version || info?.version;
+  const displayedChannel = webTarget.channel || info?.channel;
 
   // Reset state when dialog closes
   useEffect(() => {
@@ -148,6 +151,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
       setWebUpdateState('idle');
       setWebError(null);
       setWebCommands(null);
+      setWebTarget({});
     }
   }, [open]);
 
@@ -166,6 +170,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     setWebUpdateState('updating');
     setWebError(null);
     setWebCommands(null);
+    setWebTarget({});
 
     const result = await installWebUpdate();
 
@@ -175,6 +180,8 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
       setWebCommands(result.commands ?? null);
       return;
     }
+
+    setWebTarget({ version: result.targetVersion, channel: result.channel });
 
     if (result.jobId) {
       const outcome = await waitForUpdateJob(result.jobId, setWebUpdateState);
@@ -253,18 +260,23 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           </DialogTitle>
 
           {/* Version Diff */}
-          {(info?.currentVersion || info?.version) && (
+          {(info?.currentVersion || displayedVersion) && (
             <div className="flex items-center gap-2 font-mono text-sm ml-3">
               {info?.currentVersion && (
                 <span className="text-muted-foreground">{info.currentVersion}</span>
               )}
-              {info?.currentVersion && info?.version && (
+              {info?.currentVersion && displayedVersion && (
                 <span className="text-muted-foreground/50">→</span>
               )}
-              {info?.version && (
-                <span className="text-[var(--primary-base)] font-medium">{info.version}</span>
+              {displayedVersion && (
+                <span className="text-[var(--primary-base)] font-medium">{displayedVersion}</span>
               )}
             </div>
+          )}
+          {isWebRuntime && displayedChannel && (
+            <span className="ml-3 typography-meta text-muted-foreground">
+              {displayedChannel === 'rc' ? "RC subscription" : "Stable subscription"}
+            </span>
           )}
         </div>
 

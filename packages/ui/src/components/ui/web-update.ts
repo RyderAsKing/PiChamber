@@ -8,6 +8,8 @@ export type InstallWebUpdateResult = {
   autoRestart?: boolean;
   jobId?: string;
   commands?: string[];
+  channel?: 'stable' | 'rc';
+  targetVersion?: string;
 };
 
 type WebUpdateJob = {
@@ -41,6 +43,8 @@ export async function installWebUpdate(): Promise<InstallWebUpdateResult> {
       success: true,
       autoRestart: data.autoRestart !== false,
       jobId: typeof data.jobId === 'string' ? data.jobId : undefined,
+      channel: data.channel === 'rc' ? 'rc' : data.channel === 'stable' ? 'stable' : undefined,
+      targetVersion: typeof data.targetVersion === 'string' ? data.targetVersion : undefined,
     };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : undefined };

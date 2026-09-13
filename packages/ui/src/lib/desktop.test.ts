@@ -2,8 +2,10 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   getDesktopProcessPerformanceRecording,
+  getDesktopUpdateChannel,
   isBrowserClientRuntime,
   setDesktopProcessPerformanceRecording,
+  setDesktopUpdateChannel,
 } from './desktop';
 
 const withLocalDesktopBridge = async <T>(
@@ -58,6 +60,29 @@ describe('desktop process performance recording', () => {
   test('rejects malformed recorder status', async () => {
     await withLocalDesktopBridge(() => ({ supported: true, enabled: true }), async () => {
       expect(await getDesktopProcessPerformanceRecording()).toBeNull();
+    });
+  });
+});
+
+describe('desktop update channel', () => {
+  test('reads and updates the Electron-host channel through desktop IPC', async () => {
+    const calls: Array<{ command: string; args: Record<string, unknown> }> = [];
+    await withLocalDesktopBridge((command, args) => {
+      calls.push({ command, args });
+      return command === 'desktop_get_update_channel' ? 'stable' : 'rc';
+    }, async () => {
+      expect(await getDesktopUpdateChannel()).toBe('stable');
+      expect(await setDesktopUpdateChannel('rc')).toBe('rc');
+    });
+    expect(calls).toEqual([
+      { command: 'desktop_get_update_channel', args: {} },
+      { command: 'desktop_set_update_channel', args: { channel: 'rc' } },
+    ]);
+  });
+
+  test('rejects a malformed desktop response', async () => {
+    await withLocalDesktopBridge(() => 'nightly', async () => {
+      await expect(setDesktopUpdateChannel('stable')).rejects.toThrow('Unable to save');
     });
   });
 });

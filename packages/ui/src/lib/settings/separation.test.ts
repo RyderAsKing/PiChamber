@@ -104,7 +104,23 @@ describe("settings separation for snippets and prompt templates", () => {
     }
   });
 
-  test("shows shell-local desktop settings for a remote Electron runtime", () => {
+  test("shows only the desktop app channel for the local Electron instance", () => {
+    const localDesktopCtx = {
+      ...runtimeCtx,
+      isWeb: false,
+      isDesktop: true,
+      isDesktopLocalOrigin: true,
+    };
+    const results = buildSettingsSearchResults({
+      query: "update channel",
+      runtimeCtx: localDesktopCtx,
+      getPageTitle,
+    });
+    expect(results.some((result) => result.title === "Desktop app update channel")).toBe(true);
+    expect(results.some((result) => result.title === "Server update channel")).toBe(false);
+  });
+
+  test("shows shell-local desktop settings and the server channel for a remote Electron runtime", () => {
     const remoteDesktopCtx = {
       ...runtimeCtx,
       isWeb: false,
@@ -125,7 +141,19 @@ describe("settings separation for snippets and prompt templates", () => {
       }).length).toBeGreaterThan(0);
     }
 
-    for (const query of ["desktop ui password", "lan access", "menu bar", "update channel"]) {
+    expect(buildSettingsSearchResults({
+      query: "server update channel",
+      runtimeCtx: remoteDesktopCtx,
+      getPageTitle,
+    }).some((result) => result.title === "Server update channel")).toBe(true);
+
+    expect(buildSettingsSearchResults({
+      query: "desktop app update channel",
+      runtimeCtx: remoteDesktopCtx,
+      getPageTitle,
+    }).some((result) => result.title === "Desktop app update channel")).toBe(true);
+
+    for (const query of ["desktop ui password", "lan access", "menu bar"]) {
       expect(buildSettingsSearchResults({
         query,
         runtimeCtx: remoteDesktopCtx,

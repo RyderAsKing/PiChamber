@@ -60,6 +60,7 @@ import { Icon } from "@/components/icon/Icon";
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { subscribeServerUpdateChannelChanged } from '@/lib/server-update-events';
 import { useShallow } from 'zustand/react/shallow';
 import type { IconName } from "@/components/icon/icons";
 import { toast } from '@/components/ui';
@@ -310,6 +311,7 @@ export const Header: React.FC<HeaderProps> = ({
         nextSuggestedCheckInSec: typeof data.nextSuggestedCheckInSec === 'number' ? data.nextSuggestedCheckInSec : undefined,
         packageManager: data.packageManager,
         updateCommand: data.updateCommand,
+        channel: data.channel === 'rc' ? 'rc' : 'stable',
       });
     } catch (error) {
       setRemoteUpdateInfo(null);
@@ -318,6 +320,10 @@ export const Header: React.FC<HeaderProps> = ({
       setRemoteUpdateChecking(false);
     }
   }, [currentInstanceIsLocal]);
+
+  React.useEffect(() => subscribeServerUpdateChannelChanged(() => {
+    if (!currentInstanceIsLocal) void checkRemoteInstanceUpdate();
+  }), [checkRemoteInstanceUpdate, currentInstanceIsLocal]);
 
   React.useEffect(() => {
     setRemoteUpdateInfo(null);

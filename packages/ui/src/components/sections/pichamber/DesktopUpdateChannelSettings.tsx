@@ -7,78 +7,167 @@ import {
   SETTINGS_SELECT_SIZE,
 } from '@/components/sections/shared/SettingsSection';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
+import {
+  getDesktopUpdateChannel,
+  isDesktopLocalOriginActive,
+  isDesktopShell,
+  setDesktopUpdateChannel,
+} from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { notifyServerUpdateChannelChanged } from '@/lib/server-update-events';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 
-type DesktopUpdateChannel = 'stable' | 'rc';
+type UpdateChannel = 'stable' | 'rc';
+type ServerUpdateSettings = { serverUpdateChannel?: unknown };
 
-const parseDesktopUpdateChannel = (value: unknown): DesktopUpdateChannel => value === 'rc' ? 'rc' : 'stable';
+const parseUpdateChannel = (value: unknown): UpdateChannel => value === 'rc' ? 'rc' : 'stable';
+
+const UpdateChannelSelect: React.FC<{
+  channel: UpdateChannel;
+  disabled: boolean;
+  label: string;
+  onChange: (channel: string) => void;
+}> = ({ channel, disabled, label, onChange }) => (
+  <Select value={channel} onValueChange={onChange} disabled={disabled}>
+    <SelectTrigger
+      size={SETTINGS_SELECT_SIZE}
+      className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
+      aria-label={label}
+    >
+      <SelectValue />
+    </SelectTrigger>
+    <SelectContent>
+      <SelectItem value="stable">Stable</SelectItem>
+      <SelectItem value="rc">Release candidate</SelectItem>
+    </SelectContent>
+  </Select>
+);
 
 export const DesktopUpdateChannelSettings: React.FC = () => {
-  const isLocalDesktop = isDesktopShell() && isDesktopLocalOriginActive();
-  const [channel, setChannel] = React.useState<DesktopUpdateChannel>('stable');
-  const [loading, setLoading] = React.useState(isLocalDesktop);
-  const [saving, setSaving] = React.useState(false);
-  const [loadError, setLoadError] = React.useState<string | null>(null);
+  const isDesktop = isDesktopShell();
+  const [runtimeEpoch, setRuntimeEpoch] = React.useState(0);
+  const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
+  const [desktopChannel, setDesktopChannel] = React.useState<UpdateChannel>('stable');
+  const [serverChannel, setServerChannel] = React.useState<UpdateChannel>('stable');
+  const [desktopLoading, setDesktopLoading] = React.useState(isDesktop);
+  const [serverLoading, setServerLoading] = React.useState(isDesktop && !isLocalDesktop);
+  const [desktopSaving, setDesktopSaving] = React.useState(false);
+  const [serverSaving, setServerSaving] = React.useState(false);
+  const [desktopError, setDesktopError] = React.useState<string | null>(null);
+  const [serverError, setServerError] = React.useState<string | null>(null);
+  const serverOperationRef = React.useRef(0);
+
+  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    setRuntimeEpoch((value) => value + 1);
+  }), []);
 
   React.useEffect(() => {
-    if (!isLocalDesktop) return;
+    if (!isDesktop) return;
     let cancelled = false;
-
-    void (async () => {
-      try {
-        const response = await runtimeFetch('/api/pi/ui-settings', {
-          method: 'GET',
-          headers: { Accept: 'application/json' },
-        });
-        if (!response.ok) throw new Error('Unable to load the update channel.');
-        const settings = await response.json().catch(() => null) as { desktopUpdateChannel?: unknown } | null;
-        if (!settings) throw new Error('Unable to load the update channel.');
+    setDesktopLoading(true);
+    void getDesktopUpdateChannel()
+      .then((channel) => {
         if (!cancelled) {
-          setChannel(parseDesktopUpdateChannel(settings.desktopUpdateChannel));
-          setLoadError(null);
+          setDesktopChannel(channel);
+          setDesktopError(null);
         }
-      } catch (error) {
-        if (!cancelled) {
-          setLoadError(error instanceof Error ? error.message : 'Unable to load the update channel.');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-
+      })
+      .catch((error) => {
+        if (!cancelled) setDesktopError(error instanceof Error ? error.message : 'Unable to load the desktop update channel.');
+      })
+      .finally(() => {
+        if (!cancelled) setDesktopLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isDesktop]);
 
-  if (!isLocalDesktop) return null;
-
-  const changeChannel = (nextChannel: string) => {
-    const parsed = parseDesktopUpdateChannel(nextChannel);
-    const previous = channel;
-    setChannel(parsed);
-    setSaving(true);
-    setLoadError(null);
-    useUpdateStore.getState().reset();
+  React.useEffect(() => {
+    const operation = ++serverOperationRef.current;
+    if (!isDesktop || isLocalDesktop) {
+      setServerLoading(false);
+      setServerError(null);
+      return;
+    }
+    setServerLoading(true);
+    setServerSaving(false);
 
     void (async () => {
       try {
-        await updateDesktopSettings({ desktopUpdateChannel: parsed }, { immediate: true });
         const response = await runtimeFetch('/api/pi/ui-settings', {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
-        if (!response.ok) throw new Error('Unable to save the update channel.');
-        const settings = await response.json().catch(() => null) as { desktopUpdateChannel?: unknown } | null;
-        if (settings?.desktopUpdateChannel !== parsed) throw new Error('Unable to save the update channel.');
+        if (!response.ok) throw new Error('Unable to load the server update channel.');
+        const settings = await response.json().catch(() => null) as ServerUpdateSettings | null;
+        if (!settings) throw new Error('Unable to load the server update channel.');
+        if (serverOperationRef.current === operation) {
+          setServerChannel(parseUpdateChannel(settings.serverUpdateChannel));
+          setServerError(null);
+        }
       } catch (error) {
-        setChannel(previous);
-        setLoadError(error instanceof Error ? error.message : 'Unable to save the update channel.');
+        if (serverOperationRef.current === operation) {
+          setServerError(error instanceof Error ? error.message : 'Unable to load the server update channel.');
+        }
       } finally {
-        setSaving(false);
+        if (serverOperationRef.current === operation) setServerLoading(false);
+      }
+    })();
+  }, [isDesktop, isLocalDesktop, runtimeEpoch]);
+
+  if (!isDesktop) return null;
+
+  const changeDesktopChannel = (nextChannel: string) => {
+    const parsed = parseUpdateChannel(nextChannel);
+    const previous = desktopChannel;
+    setDesktopChannel(parsed);
+    setDesktopSaving(true);
+    setDesktopError(null);
+
+    void setDesktopUpdateChannel(parsed)
+      .then((saved) => {
+        setDesktopChannel(saved);
+        useUpdateStore.getState().reset();
+        void useUpdateStore.getState().checkForUpdates();
+      })
+      .catch((error) => {
+        setDesktopChannel(previous);
+        setDesktopError(error instanceof Error ? error.message : 'Unable to save the desktop update channel.');
+      })
+      .finally(() => setDesktopSaving(false));
+  };
+
+  const changeServerChannel = (nextChannel: string) => {
+    const parsed = parseUpdateChannel(nextChannel);
+    const previous = serverChannel;
+    const operation = ++serverOperationRef.current;
+    setServerChannel(parsed);
+    setServerSaving(true);
+    setServerError(null);
+
+    void (async () => {
+      try {
+        await updateDesktopSettings({ serverUpdateChannel: parsed }, { immediate: true });
+        const response = await runtimeFetch('/api/pi/ui-settings', {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+        });
+        if (!response.ok) throw new Error('Unable to save the server update channel.');
+        const settings = await response.json().catch(() => null) as ServerUpdateSettings | null;
+        if (settings?.serverUpdateChannel !== parsed) throw new Error('Unable to save the server update channel.');
+        if (serverOperationRef.current === operation) {
+          notifyServerUpdateChannelChanged();
+        }
+      } catch (error) {
+        if (serverOperationRef.current === operation) {
+          setServerChannel(previous);
+          setServerError(error instanceof Error ? error.message : 'Unable to save the server update channel.');
+        }
+      } finally {
+        if (serverOperationRef.current === operation) setServerSaving(false);
       }
     })();
   };
@@ -86,25 +175,34 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
   return (
     <SettingsSection title="Updates">
       <SettingsFieldRow
-        label="Update channel"
-        info="Stable receives production releases only. Release candidate also receives RC builds before they become stable."
-        description={loadError ? <span className="text-[var(--status-error)]">{loadError}</span> : undefined}
-        settingsItem="about.update-channel"
+        label="Desktop app update channel"
+        info="Stable receives production desktop releases only. Release candidate also receives desktop RC builds before they become stable."
+        description={desktopError ? <span className="text-[var(--status-error)]">{desktopError}</span> : undefined}
+        settingsItem="about.desktop-update-channel"
       >
-        <Select value={channel} onValueChange={changeChannel} disabled={loading || saving}>
-          <SelectTrigger
-            size={SETTINGS_SELECT_SIZE}
-            className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
-            aria-label="Update channel"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="stable">Stable</SelectItem>
-            <SelectItem value="rc">Release candidate</SelectItem>
-          </SelectContent>
-        </Select>
+        <UpdateChannelSelect
+          channel={desktopChannel}
+          disabled={desktopLoading || desktopSaving}
+          label="Desktop app update channel"
+          onChange={changeDesktopChannel}
+        />
       </SettingsFieldRow>
+
+      {!isLocalDesktop && (
+        <SettingsFieldRow
+          label="Server update channel"
+          info="Stable receives production server releases only. Release candidate also receives server RC builds before they become stable."
+          description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
+          settingsItem="about.server-update-channel"
+        >
+          <UpdateChannelSelect
+            channel={serverChannel}
+            disabled={serverLoading || serverSaving}
+            label="Server update channel"
+            onChange={changeServerChannel}
+          />
+        </SettingsFieldRow>
+      )}
     </SettingsSection>
   );
 };

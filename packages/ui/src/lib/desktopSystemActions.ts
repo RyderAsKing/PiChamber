@@ -314,6 +314,19 @@ export const stopAccessingDirectory = async (
   return { success: true };
 };
 
+export const getDesktopUpdateChannel = async (): Promise<'stable' | 'rc'> => {
+  if (!hasDesktopInvoke()) return 'stable';
+  const channel = await invokeDesktop<unknown>('desktop_get_update_channel');
+  return channel === 'rc' ? 'rc' : 'stable';
+};
+
+export const setDesktopUpdateChannel = async (channel: 'stable' | 'rc'): Promise<'stable' | 'rc'> => {
+  if (!hasDesktopInvoke()) throw new Error('Desktop update settings are unavailable.');
+  const saved = await invokeDesktop<unknown>('desktop_set_update_channel', { channel });
+  if (saved !== 'stable' && saved !== 'rc') throw new Error('Unable to save the desktop update channel.');
+  return saved;
+};
+
 export const checkForDesktopUpdates = async (): Promise<UpdateInfo | null> => {
   if (!hasDesktopInvoke()) {
     return null;

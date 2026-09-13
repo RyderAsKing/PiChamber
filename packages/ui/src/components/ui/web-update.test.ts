@@ -16,6 +16,24 @@ beforeEach(() => {
 });
 
 describe('web update errors', () => {
+  test('preserves the pinned server channel and target', async () => {
+    fetchImplementation = async () => new Response(JSON.stringify({
+      success: true,
+      autoRestart: true,
+      jobId: '10000000-0000-4000-8000-000000000001',
+      channel: 'rc',
+      targetVersion: '2.0.0-rc.3',
+    }), { status: 202 });
+
+    expect(await installWebUpdate()).toEqual({
+      success: true,
+      autoRestart: true,
+      jobId: '10000000-0000-4000-8000-000000000001',
+      channel: 'rc',
+      targetVersion: '2.0.0-rc.3',
+    });
+  });
+
   test('preserves deployment-specific manual commands', async () => {
     fetchImplementation = async () => new Response(JSON.stringify({
       success: false,

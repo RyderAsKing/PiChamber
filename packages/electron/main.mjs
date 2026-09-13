@@ -3649,6 +3649,19 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
     case 'desktop_get_app_version':
       return APP_VERSION;
 
+    case 'desktop_get_update_channel':
+      return resolveDesktopUpdateChannel(readSettingsRoot().desktopUpdateChannel);
+
+    case 'desktop_set_update_channel': {
+      if (args.channel !== 'stable' && args.channel !== 'rc') {
+        throw new Error('Invalid desktop update channel');
+      }
+      await mutateSettingsRoot((root) => {
+        root.desktopUpdateChannel = args.channel;
+      });
+      return resolveDesktopUpdateChannel(readSettingsRoot().desktopUpdateChannel);
+    }
+
     case 'desktop_get_launch_at_login': {
       if (process.platform === 'linux') {
         return { supported: true, enabled: await readLinuxAutostartEnabled() };
