@@ -42,9 +42,9 @@ npm install -g @pi-chamber/web@rc
 ```
 
 After installation, connect to that server from Electron and select **Server
-update channel → Release candidate** in Settings → About. `pichamber update` then checks
-for a newer stable release first and, when there is none, the latest numbered
-RC. Return the server to stable by selecting **Stable**. The CLI can override
+update channel → Release candidate** in Settings → About. `pichamber update` then
+compares the latest stable and numbered RC releases and offers the higher
+version. Return the server to stable by selecting **Stable**. The CLI can override
 that saved default for one run with `pichamber update --channel stable` or
 `pichamber update --channel rc`.
 

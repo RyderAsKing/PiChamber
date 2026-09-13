@@ -820,10 +820,17 @@ async function getRegistryUpdateTarget(currentVersion, channel) {
       ? releaseCandidate
       : null;
     if (normalizeServerUpdateChannel(channel) === 'rc') {
-      if (stableVersion && compareVersions(stableVersion, currentVersion) > 0) {
-        return { version: stableVersion, releaseChannel: 'stable' };
-      }
-      if (rcVersion) return { version: rcVersion, releaseChannel: 'rc' };
+      const stableTarget = stableVersion
+        ? { version: stableVersion, releaseChannel: 'stable' }
+        : null;
+      const rcTarget = rcVersion
+        ? { version: rcVersion, releaseChannel: 'rc' }
+        : null;
+      if (!stableTarget) return rcTarget;
+      if (!rcTarget) return stableTarget;
+      return compareVersions(rcTarget.version, stableTarget.version) > 0
+        ? rcTarget
+        : stableTarget;
     }
     return stableVersion ? { version: stableVersion, releaseChannel: 'stable' } : null;
   } catch {

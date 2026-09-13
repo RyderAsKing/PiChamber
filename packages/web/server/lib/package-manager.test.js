@@ -98,7 +98,7 @@ describe('checkForUpdates (no hosted API by default)', () => {
     });
   });
 
-  it('selects a newer RC after confirming there is no newer stable release', async () => {
+  it('selects a newer RC when the latest stable matches the current version', async () => {
     await withNoHostedApi(async () => {
       fetchMock
         .when('registry.npmjs.org', {
@@ -111,12 +111,38 @@ describe('checkForUpdates (no hosted API by default)', () => {
     });
   });
 
-  it('offers a newer stable release before the next RC', async () => {
+  it('selects an RC when it is newer than the latest stable release', async () => {
     await withNoHostedApi(async () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
           json: async () => officialRegistryPackage('2.0.0', '2.1.0-rc.1'),
+        })
+        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.1.0-rc.1', channel: 'rc' });
+    });
+  });
+
+  it('selects a final stable release over its prerelease', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('2.1.0', '2.1.0-rc.2'),
+        })
+        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.1.0', channel: 'rc' });
+    });
+  });
+
+  it('selects stable when the RC dist-tag is older', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('2.0.0', '1.9.0-rc.5'),
         })
         .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
       const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
@@ -134,6 +160,17 @@ describe('checkForUpdates (no hosted API by default)', () => {
         .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
       const result = await checkForUpdates({ currentVersion: '2.0.0-rc.2', channel: 'rc' });
       expect(result).toMatchObject({ available: true, version: '2.0.0-rc.10' });
+    });
+  });
+
+  it('keeps stable subscribers on the latest stable release', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock.when('registry.npmjs.org', {
+        ok: true,
+        json: async () => officialRegistryPackage('1.9.10', '2.0.0-rc.1'),
+      });
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'stable' });
+      expect(result).toMatchObject({ available: false, version: '1.9.10', channel: 'stable' });
     });
   });
 
@@ -221,6 +258,36 @@ describe('checkForUpdates (no hosted API by default)', () => {
       const hostedCall = fetchMock.calls.find((call) => call.url.includes('updates.example.test'));
       expect(JSON.parse(hostedCall.options.body)).toMatchObject({ channel: 'stable' });
       expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
+    } finally {
+      if (typeof previous === 'string') {
+        process.env.PICHAMBER_UPDATE_API_URL = previous;
+      } else {
+        delete process.env.PICHAMBER_UPDATE_API_URL;
+      }
+    }
+  });
+
+  it('requests hosted notes for the higher RC target', async () => {
+    const previous = process.env.PICHAMBER_UPDATE_API_URL;
+    process.env.PICHAMBER_UPDATE_API_URL = 'https://updates.example.test/api/check';
+    try {
+      fetchMock
+        .when('updates.example.test', {
+          ok: true,
+          json: async () => ({
+            latestVersion: '2.1.0-rc.1',
+            updateAvailable: true,
+          }),
+        })
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('2.0.0', '2.1.0-rc.1'),
+        });
+
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.1.0-rc.1', channel: 'rc' });
+      const hostedCall = fetchMock.calls.find((call) => call.url.includes('updates.example.test'));
+      expect(JSON.parse(hostedCall.options.body)).toMatchObject({ channel: 'rc' });
     } finally {
       if (typeof previous === 'string') {
         process.env.PICHAMBER_UPDATE_API_URL = previous;

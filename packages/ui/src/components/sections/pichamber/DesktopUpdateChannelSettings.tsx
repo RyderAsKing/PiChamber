@@ -187,7 +187,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
     <SettingsSection title="Updates">
       <SettingsFieldRow
         label="Desktop app update channel"
-        info="Stable receives production desktop releases only. Release candidate checks stable releases first, then desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
+        info="Stable receives production desktop releases only. Release candidate offers the highest available version across stable and desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
         description={desktopError ? <span className="text-[var(--status-error)]">{desktopError}</span> : undefined}
         settingsItem="about.desktop-update-channel"
       >
@@ -202,7 +202,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
       {!isLocalDesktop && (
         <SettingsFieldRow
           label={serverChannelLabel}
-          info="Stable receives production server releases only. Release candidate checks stable releases first, then server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
+          info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
           description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
           settingsItem="about.server-update-channel"
         >

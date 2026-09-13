@@ -58,8 +58,8 @@ pichamber update --yes
 pichamber update --channel rc
 ```
 
-The `rc` channel checks for a newer stable release first, then a newer numbered
-release candidate. The installer pins the exact version selected by the check,
+The `rc` channel compares the latest stable and numbered release candidate and
+offers the higher version. The installer pins the exact version selected by the check,
 so a moving npm dist-tag cannot change a running update job.
 
 The update command only replaces a trusted global package-manager install.
