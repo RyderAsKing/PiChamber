@@ -11,6 +11,7 @@ import { Icon } from "@/components/icon/Icon";
 import type { UpdateInfo, UpdateProgress } from '@/lib/desktop';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { openExternalUrl } from '@/lib/url';
+import { getRuntimeEndpointGeneration } from '@/lib/runtime-switch';
 import {
   installWebUpdate,
   waitForUpdateApplied,
@@ -167,12 +168,14 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     await openExternalUrl(url);
   }, []);
   const handleWebUpdate = useCallback(async () => {
+    const runtimeGeneration = getRuntimeEndpointGeneration();
     setWebUpdateState('updating');
     setWebError(null);
     setWebCommands(null);
     setWebTarget({});
 
     const result = await installWebUpdate();
+    if (getRuntimeEndpointGeneration() !== runtimeGeneration) return;
 
     if (!result.success) {
       setWebUpdateState('error');
@@ -184,7 +187,16 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     setWebTarget({ version: result.targetVersion, channel: result.channel });
 
     if (result.jobId) {
-      const outcome = await waitForUpdateJob(result.jobId, setWebUpdateState);
+      const outcome = await waitForUpdateJob(
+        result.jobId,
+        (state) => {
+          if (getRuntimeEndpointGeneration() === runtimeGeneration) setWebUpdateState(state);
+        },
+        undefined,
+        undefined,
+        runtimeGeneration,
+      );
+      if (outcome.stale || getRuntimeEndpointGeneration() !== runtimeGeneration) return;
       if (outcome.applied) {
         window.location.reload();
         return;
@@ -197,13 +209,14 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     // Older servers do not return a job ID. Keep the version-based reconnect
     // path so a newer mobile or desktop client can still update them.
     setWebUpdateState(result.autoRestart ? 'restarting' : 'reconnecting');
-    const applied = await waitForUpdateApplied(info?.currentVersion);
-    if (applied) {
+    const outcome = await waitForUpdateApplied(info?.currentVersion, undefined, undefined, runtimeGeneration);
+    if (outcome.stale || getRuntimeEndpointGeneration() !== runtimeGeneration) return;
+    if (outcome.applied) {
       window.location.reload();
       return;
     }
     setWebUpdateState('error');
-    setWebError("Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
+    setWebError(outcome.error || "Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
   }, [info?.currentVersion]);
 
   const handleMobileUpdate = useCallback(() => {

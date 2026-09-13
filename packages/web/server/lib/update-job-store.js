@@ -8,6 +8,7 @@ import { withCrossProcessLock } from './server/cross-process-lock.js';
 const UPDATE_JOB_STATES = new Set(['queued', 'installing', 'verifying', 'restarting', 'complete', 'failed']);
 const ACTIVE_UPDATE_STATES = new Set(['queued', 'installing', 'verifying', 'restarting']);
 const UPDATE_JOB_MAX_AGE_MS = 30 * 60 * 1000;
+const UPDATE_JOB_STARTUP_GRACE_MS = 30 * 1000;
 const UPDATE_JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const UPDATE_CHANNELS = new Set(['stable', 'rc']);
 
@@ -39,6 +40,7 @@ export const createUpdateJobStore = ({
   now = () => Date.now(),
   createId = randomUUID,
   maxAgeMs = UPDATE_JOB_MAX_AGE_MS,
+  startupGraceMs = UPDATE_JOB_STARTUP_GRACE_MS,
   processLike = process,
 } = {}) => {
   const lockFile = `${file}.lock`;
@@ -63,6 +65,37 @@ export const createUpdateJobStore = ({
     return job;
   };
 
+  const reconcileActiveJob = async (job, timestamp) => {
+    if (!job || !ACTIVE_UPDATE_STATES.has(job.state)) return job;
+
+    const age = timestamp - job.updatedAt;
+    if (!Number.isInteger(job.workerPid) || job.workerPid <= 0) {
+      const graceMs = job.state === 'queued' ? Math.min(startupGraceMs, maxAgeMs) : maxAgeMs;
+      if (age >= 0 && age <= graceMs) return job;
+      return writeFileValue({
+        ...job,
+        state: 'failed',
+        updatedAt: timestamp,
+        error: job.state === 'queued'
+          ? 'The update worker did not start within the allowed time. Run: pichamber update'
+          : 'The update worker stopped before recording its process ID. Run: pichamber update',
+      });
+    }
+
+    try {
+      processLike.kill(job.workerPid, 0);
+      return job;
+    } catch (error) {
+      if (error?.code === 'EPERM') return job;
+      return writeFileValue({
+        ...job,
+        state: 'failed',
+        updatedAt: timestamp,
+        error: 'The update worker exited before the update completed. Run: pichamber update',
+      });
+    }
+  };
+
   const claim = async ({ previousVersion, targetVersion, packageManager, channel } = {}) => withCrossProcessLock(lockFile, async () => {
     let current = null;
     try {
@@ -71,21 +104,8 @@ export const createUpdateJobStore = ({
       if (error?.code !== 'UPDATE_JOB_INVALID') throw error;
     }
     const timestamp = now();
-    const age = current ? timestamp - current.updatedAt : 0;
-    let workerAlive = false;
-    if (Number.isInteger(current?.workerPid) && current.workerPid > 0) {
-      try {
-        processLike.kill(current.workerPid, 0);
-        workerAlive = true;
-      } catch (error) {
-        workerAlive = error?.code === 'EPERM';
-      }
-    }
-    if (
-      current
-      && ACTIVE_UPDATE_STATES.has(current.state)
-      && (workerAlive || (!current.workerPid && age >= 0 && age <= maxAgeMs))
-    ) {
+    current = await reconcileActiveJob(current, timestamp);
+    if (current && ACTIVE_UPDATE_STATES.has(current.state)) {
       return { job: current, created: false };
     }
 
@@ -113,6 +133,11 @@ export const createUpdateJobStore = ({
         throw error;
       }
       if (changes.state !== undefined && !UPDATE_JOB_STATES.has(changes.state)) throw invalidJobError();
+      if (!ACTIVE_UPDATE_STATES.has(current.state) && changes.state !== undefined && changes.state !== current.state) {
+        const error = new Error('Update job is already in a terminal state.');
+        error.code = 'UPDATE_JOB_NOT_ACTIVE';
+        throw error;
+      }
       if (changes.channel !== undefined && !UPDATE_CHANNELS.has(changes.channel)) throw invalidJobError();
       const next = { ...current, updatedAt: now() };
       for (const key of ['state', 'previousVersion', 'targetVersion', 'currentVersion', 'packageManager', 'channel']) {
@@ -131,8 +156,11 @@ export const createUpdateJobStore = ({
 
   const read = async (id) => {
     if (id !== undefined && !UPDATE_JOB_ID_PATTERN.test(id)) return null;
-    const job = await readFileValue();
-    return !job || (id !== undefined && job.id !== id) ? null : job;
+    return withCrossProcessLock(lockFile, async () => {
+      const job = await readFileValue();
+      if (!job || (id !== undefined && job.id !== id)) return null;
+      return reconcileActiveJob(job, now());
+    });
   };
 
   return { claim, read, update };

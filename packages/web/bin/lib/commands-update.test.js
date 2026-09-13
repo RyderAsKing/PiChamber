@@ -121,7 +121,26 @@ describe('update command', () => {
     });
   });
 
-  it('reports a version mismatch as a warning', async () => {
+  it('persists terminal success before returning JSON output', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn(() => true);
+      const updateUpdateJob = vi.fn(async () => {});
+      const { updateCommand } = createTestUpdateCommand({ updateUpdateJob });
+
+      try {
+        await updateCommand({ json: true });
+        expect(updateUpdateJob).toHaveBeenLastCalledWith(
+          '10000000-0000-4000-8000-000000000001',
+          expect.objectContaining({ state: 'complete', currentVersion: '9.9.9' }),
+        );
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+    });
+  });
+
+  it('fails verification without restarting the startup service', async () => {
     await withTempPiChamberDataDir(async () => {
       const output = [];
       const originalWrite = process.stdout.write;
@@ -129,8 +148,11 @@ describe('update command', () => {
         output.push(String(chunk));
         return true;
       });
-      const { updateCommand } = createTestUpdateCommand({
+      const updateUpdateJob = vi.fn(async () => {});
+      const { updateCommand, restartUserStartupService } = createTestUpdateCommand({
         getCurrentVersion: vi.fn().mockReturnValueOnce('1.0.0').mockReturnValue('1.0.0'),
+        isUserStartupServiceActive: () => true,
+        updateUpdateJob,
       });
 
       try {
@@ -141,6 +163,11 @@ describe('update command', () => {
           currentVersion: '1.0.0',
           versionVerified: false,
         });
+        expect(restartUserStartupService).not.toHaveBeenCalled();
+        expect(updateUpdateJob).toHaveBeenLastCalledWith(
+          '10000000-0000-4000-8000-000000000001',
+          expect.objectContaining({ state: 'failed', currentVersion: '1.0.0' }),
+        );
       } finally {
         process.stdout.write = originalWrite;
       }
@@ -246,17 +273,35 @@ describe('update command', () => {
     });
   });
 
-  it('does not run a second package-manager update while another job is active', async () => {
+  it('reports the existing job target and channel when update work is deduplicated', async () => {
     await withTempPiChamberDataDir(async () => {
+      const output = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
       const claimUpdateJob = vi.fn(async () => ({
         created: false,
-        job: { id: '10000000-0000-4000-8000-000000000001', state: 'installing' },
+        job: {
+          id: '10000000-0000-4000-8000-000000000001',
+          state: 'installing',
+          previousVersion: '0.9.0',
+          targetVersion: '10.0.0-rc.2',
+          channel: 'rc',
+        },
       }));
       const { updateCommand, executeUpdate } = createTestUpdateCommand({ claimUpdateJob });
 
-      await updateCommand({ quiet: true });
-
-      expect(executeUpdate).not.toHaveBeenCalled();
+      try {
+        await updateCommand({ json: true, channel: 'stable' });
+        expect(JSON.parse(output.join(''))).toMatchObject({
+          status: 'in-progress',
+          previousVersion: '0.9.0',
+          latestVersion: '10.0.0-rc.2',
+          channel: 'rc',
+        });
+        expect(executeUpdate).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.write = originalWrite;
+      }
     });
   });
 
@@ -286,12 +331,16 @@ describe('update command', () => {
     });
   });
 
-  it('reports the deployment reason in JSON mode', async () => {
+  it.each([false, true])('reports and persists deployment rejection in JSON mode (worker: %s)', async (updateWorker) => {
     await withTempPiChamberDataDir(async () => {
+      const jobId = '10000000-0000-4000-8000-000000000001';
+      const updateUpdateJob = vi.fn(async () => {});
       const output = [];
       const originalWrite = process.stdout.write;
       process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
       const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        updateUpdateJob,
+        readUpdateJob: vi.fn(async () => ({ id: jobId, state: 'queued', targetVersion: '9.9.9' })),
         getUpdateCapability: () => ({
           supported: false,
           code: 'DOCKER_DEPLOYMENT',
@@ -300,12 +349,23 @@ describe('update command', () => {
       });
 
       try {
-        await updateCommand({ json: true });
+        const result = await updateCommand({ json: true, updateWorker, updateJobId: updateWorker ? jobId : undefined });
+        expect(result.exitCode).toBe(1);
         expect(JSON.parse(output.join(''))).toMatchObject({
+          status: 'error',
           updated: false,
           code: 'DOCKER_DEPLOYMENT',
           error: 'Recreate the container from the newer image.',
         });
+        if (updateWorker) {
+          expect(updateUpdateJob).toHaveBeenCalledExactlyOnceWith(jobId, {
+            state: 'failed',
+            error: 'Recreate the container from the newer image.',
+          });
+          expect(updateUpdateJob.mock.invocationCallOrder[0]).toBeLessThan(process.stdout.write.mock.invocationCallOrder[0]);
+        } else {
+          expect(updateUpdateJob).not.toHaveBeenCalled();
+        }
         expect(executeUpdate).not.toHaveBeenCalled();
       } finally {
         process.stdout.write = originalWrite;

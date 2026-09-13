@@ -1,4 +1,5 @@
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { getRuntimeEndpointGeneration } from '@/lib/runtime-switch';
 
 export type WebUpdateState = 'idle' | 'updating' | 'restarting' | 'reconnecting' | 'error';
 
@@ -19,6 +20,8 @@ type WebUpdateJob = {
 
 const WEB_UPDATE_POLL_INTERVAL_MS = 2000;
 const WEB_UPDATE_MAX_WAIT_MS = 10 * 60 * 1000;
+
+type UpdateObservationResult = { applied: boolean; error?: string; stale?: boolean };
 
 export async function installWebUpdate(): Promise<InstallWebUpdateResult> {
   try {
@@ -51,49 +54,48 @@ export async function installWebUpdate(): Promise<InstallWebUpdateResult> {
   }
 }
 
-async function isServerReachable(): Promise<boolean> {
-  try {
-    const response = await runtimeFetch('/health', {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function waitForUpdateApplied(
   previousVersion?: string,
   maxAttempts = Math.ceil(WEB_UPDATE_MAX_WAIT_MS / WEB_UPDATE_POLL_INTERVAL_MS),
   intervalMs = WEB_UPDATE_POLL_INTERVAL_MS,
-): Promise<boolean> {
+  runtimeGeneration = getRuntimeEndpointGeneration(),
+): Promise<UpdateObservationResult> {
   for (let i = 0; i < maxAttempts; i++) {
+    if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
     try {
       const response = await runtimeFetch('/api/pi/update-check', {
         method: 'GET',
         headers: { Accept: 'application/json' },
       });
+      if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
       if (response.ok) {
         const data = await response.json().catch(() => null);
-        if (data && data.available === false) return true;
+        if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
+        if (typeof data?.error === 'string' && data.error.length > 0) {
+          return { applied: false, error: data.error };
+        }
+        if (data && data.available === false) return { applied: true };
         if (
           data
           && typeof data.currentVersion === 'string'
           && typeof previousVersion === 'string'
           && data.currentVersion !== previousVersion
         ) {
-          return true;
+          return { applied: true };
         }
-      } else if ((response.status === 401 || response.status === 403) && await isServerReachable()) {
-        return true;
+      } else if (response.status === 401 || response.status === 403) {
+        return {
+          applied: false,
+          error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+        };
       }
     } catch {
+      if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
       // The server may be restarting.
     }
     await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
-  return false;
+  return { applied: false };
 }
 
 export async function waitForUpdateJob(
@@ -101,31 +103,40 @@ export async function waitForUpdateJob(
   onState: (state: WebUpdateState) => void,
   maxAttempts = Math.ceil(WEB_UPDATE_MAX_WAIT_MS / WEB_UPDATE_POLL_INTERVAL_MS),
   intervalMs = WEB_UPDATE_POLL_INTERVAL_MS,
-): Promise<{ applied: boolean; error?: string }> {
+  runtimeGeneration = getRuntimeEndpointGeneration(),
+): Promise<UpdateObservationResult> {
   for (let i = 0; i < maxAttempts; i++) {
+    if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
     try {
       const response = await runtimeFetch(`/api/pi/update-install/${encodeURIComponent(jobId)}`, {
         method: 'GET',
         headers: { Accept: 'application/json' },
       });
+      if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
       if (response.ok) {
         const job = await response.json().catch(() => null) as WebUpdateJob | null;
+        if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
         if (job?.state === 'complete') return { applied: true };
         if (job?.state === 'failed') return { applied: false, error: job.error || 'Update failed' };
         if (job?.state === 'restarting') onState('restarting');
         else if (job?.state === 'queued' || job?.state === 'installing' || job?.state === 'verifying') onState('updating');
-      } else if ((response.status === 401 || response.status === 403) && await isServerReachable()) {
-        return { applied: true };
+      } else if (response.status === 401 || response.status === 403) {
+        return {
+          applied: false,
+          error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+        };
       } else if (response.status === 404) {
         return { applied: false, error: 'The server lost the update status. Check the installed version or run: pichamber update' };
       } else if (response.status === 503) {
         const data = await response.json().catch(() => null) as { error?: string } | null;
+        if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
         if (data?.error === 'Update status is unavailable') return { applied: false, error: data.error };
         onState('reconnecting');
       } else {
         onState('reconnecting');
       }
     } catch {
+      if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
       onState('reconnecting');
     }
     await new Promise(resolve => setTimeout(resolve, intervalMs));

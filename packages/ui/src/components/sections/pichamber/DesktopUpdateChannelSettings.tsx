@@ -15,7 +15,7 @@ import {
 } from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { notifyServerUpdateChannelChanged } from '@/lib/server-update-events';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 
@@ -23,6 +23,14 @@ type UpdateChannel = 'stable' | 'rc';
 type ServerUpdateSettings = { serverUpdateChannel?: unknown };
 
 const parseUpdateChannel = (value: unknown): UpdateChannel => value === 'rc' ? 'rc' : 'stable';
+
+const getServerIdentity = (): string => {
+  try {
+    return new URL(getRuntimeApiBaseUrl()).host || 'connected server';
+  } catch {
+    return 'connected server';
+  }
+};
 
 const UpdateChannelSelect: React.FC<{
   channel: UpdateChannel;
@@ -49,6 +57,8 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
   const isDesktop = isDesktopShell();
   const [runtimeEpoch, setRuntimeEpoch] = React.useState(0);
   const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
+  const serverIdentity = getServerIdentity();
+  const serverChannelLabel = `Server update channel (${serverIdentity})`;
   const [desktopChannel, setDesktopChannel] = React.useState<UpdateChannel>('stable');
   const [serverChannel, setServerChannel] = React.useState<UpdateChannel>('stable');
   const [desktopLoading, setDesktopLoading] = React.useState(isDesktop);
@@ -60,6 +70,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
   const serverOperationRef = React.useRef(0);
 
   React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    serverOperationRef.current += 1;
     setRuntimeEpoch((value) => value + 1);
   }), []);
 
@@ -176,7 +187,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
     <SettingsSection title="Updates">
       <SettingsFieldRow
         label="Desktop app update channel"
-        info="Stable receives production desktop releases only. Release candidate also receives desktop RC builds before they become stable."
+        info="Stable receives production desktop releases only. Release candidate checks stable releases first, then desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
         description={desktopError ? <span className="text-[var(--status-error)]">{desktopError}</span> : undefined}
         settingsItem="about.desktop-update-channel"
       >
@@ -190,15 +201,15 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
 
       {!isLocalDesktop && (
         <SettingsFieldRow
-          label="Server update channel"
-          info="Stable receives production server releases only. Release candidate also receives server RC builds before they become stable."
+          label={serverChannelLabel}
+          info="Stable receives production server releases only. Release candidate checks stable releases first, then server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
           description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
           settingsItem="about.server-update-channel"
         >
           <UpdateChannelSelect
             channel={serverChannel}
             disabled={serverLoading || serverSaving}
-            label="Server update channel"
+            label={serverChannelLabel}
             onChange={changeServerChannel}
           />
         </SettingsFieldRow>

@@ -1,17 +1,22 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 let fetchCalls = 0;
+let runtimeGeneration = 0;
 let fetchImplementation: () => Promise<Response> = async () => new Response();
 const runtimeFetch = async () => {
   fetchCalls += 1;
   return fetchImplementation();
 };
 mock.module('@/lib/runtime-fetch', () => ({ runtimeFetch }));
+mock.module('@/lib/runtime-switch', () => ({
+  getRuntimeEndpointGeneration: () => runtimeGeneration,
+}));
 
-const { installWebUpdate, waitForUpdateJob } = await import('./web-update');
+const { installWebUpdate, waitForUpdateApplied, waitForUpdateJob } = await import('./web-update');
 
 beforeEach(() => {
   fetchCalls = 0;
+  runtimeGeneration = 0;
   fetchImplementation = async () => new Response();
 });
 
@@ -47,6 +52,48 @@ describe('web update errors', () => {
       error: 'Restart the custom unit manually.',
       commands: ['pichamber update', 'systemctl --user restart custom.service'],
     });
+  });
+});
+
+describe('web update fallback polling', () => {
+  for (const currentVersion of ['1.0.0', '2.0.0']) {
+    test(`rejects version-check errors even with currentVersion ${currentVersion}`, async () => {
+      fetchImplementation = async () => new Response(JSON.stringify({
+        available: false,
+        currentVersion,
+        error: 'Unable to determine versions',
+      }), { status: 200 });
+
+      expect(await waitForUpdateApplied('1.0.0', 100, 0)).toEqual({
+        applied: false,
+        error: 'Unable to determine versions',
+      });
+      expect(fetchCalls).toBe(1);
+    });
+  }
+
+  for (const available of [false, true]) {
+    test(`accepts successful legacy version checks with available ${available}`, async () => {
+      fetchImplementation = async () => new Response(JSON.stringify({
+        available,
+        currentVersion: '2.0.0',
+      }), { status: 200 });
+
+      expect(await waitForUpdateApplied('1.0.0', 100, 0)).toEqual({ applied: true });
+      expect(fetchCalls).toBe(1);
+    });
+  }
+
+  test('reports lost authentication as an unknown outcome', async () => {
+    fetchImplementation = async () => new Response(null, { status: 403 });
+
+    const result = await waitForUpdateApplied('1.0.0', 100, 0);
+
+    expect(result).toEqual({
+      applied: false,
+      error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+    });
+    expect(fetchCalls).toBe(1);
   });
 });
 
@@ -103,6 +150,42 @@ describe('web update job polling', () => {
 
     expect(result.applied).toBe(false);
     expect(result.error).toContain('lost the update status');
+    expect(fetchCalls).toBe(1);
+  });
+
+  test('reports lost authentication as an unknown outcome instead of success', async () => {
+    fetchImplementation = async () => new Response(null, { status: 401 });
+
+    const result = await waitForUpdateJob(
+      '10000000-0000-4000-8000-000000000001',
+      () => {},
+      100,
+      0,
+    );
+
+    expect(result).toEqual({
+      applied: false,
+      error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+    });
+    expect(fetchCalls).toBe(1);
+  });
+
+  test('stops following a job when the active runtime changes', async () => {
+    fetchImplementation = async () => {
+      runtimeGeneration += 1;
+      return new Response(JSON.stringify({ state: 'complete' }), { status: 200 });
+    };
+    const states: string[] = [];
+
+    const result = await waitForUpdateJob(
+      '10000000-0000-4000-8000-000000000001',
+      (state) => states.push(state),
+      100,
+      0,
+    );
+
+    expect(result).toEqual({ applied: false, stale: true });
+    expect(states).toEqual([]);
     expect(fetchCalls).toBe(1);
   });
 });

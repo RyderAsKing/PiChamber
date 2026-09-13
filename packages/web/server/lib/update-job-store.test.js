@@ -28,7 +28,7 @@ describe('update job store', () => {
     await store.claim({ previousVersion: '1.0.0', targetVersion: '2.0.0-rc.2', packageManager: 'npm', channel: 'rc' });
     await store.update(id, { state: 'installing' });
 
-    await expect(createUpdateJobStore({ file }).read(id)).resolves.toMatchObject({
+    await expect(createUpdateJobStore({ file, now: () => 100 }).read(id)).resolves.toMatchObject({
       id,
       state: 'installing',
       previousVersion: '1.0.0',
@@ -73,6 +73,41 @@ describe('update job store', () => {
     expect(second.job.id).not.toBe(first.job.id);
   });
 
+  it('marks an active job failed when its worker has exited', async () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    const { store } = await createStore({
+      createId: () => id,
+      now: () => 100,
+      processLike: { kill: () => { const error = new Error('missing'); error.code = 'ESRCH'; throw error; } },
+    });
+    const first = await store.claim();
+    await store.update(first.job.id, { state: 'installing', workerPid: 12345 });
+
+    await expect(store.read(id)).resolves.toMatchObject({
+      id,
+      state: 'failed',
+      error: expect.stringContaining('worker exited'),
+    });
+  });
+
+  it('fails a queued job when its worker does not start within the grace period', async () => {
+    let timestamp = 100;
+    const id = '10000000-0000-4000-8000-000000000001';
+    const { store } = await createStore({
+      createId: () => id,
+      now: () => timestamp,
+      startupGraceMs: 30_000,
+    });
+    await store.claim();
+    timestamp += 30_001;
+
+    await expect(store.read(id)).resolves.toMatchObject({
+      id,
+      state: 'failed',
+      error: expect.stringContaining('did not start'),
+    });
+  });
+
   it('allows retry immediately when a claimed worker has exited', async () => {
     let sequence = 0;
     const ids = [
@@ -91,6 +126,17 @@ describe('update job store', () => {
 
     expect(retried.created).toBe(true);
     expect(retried.job.id).toBe(ids[1]);
+  });
+
+  it('does not let a delayed worker reactivate a failed job', async () => {
+    const id = '10000000-0000-4000-8000-000000000001';
+    const { store } = await createStore({ createId: () => id, now: () => 100 });
+    await store.claim();
+    await store.update(id, { state: 'failed', error: 'Worker startup timed out' });
+
+    await expect(store.update(id, { state: 'installing', workerPid: 12345 })).rejects.toMatchObject({
+      code: 'UPDATE_JOB_NOT_ACTIVE',
+    });
   });
 
   it('protects job identity and start time from status patches', async () => {

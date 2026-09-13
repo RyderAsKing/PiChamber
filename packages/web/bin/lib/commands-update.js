@@ -111,6 +111,7 @@ function createUpdateCommand({
     }
 
     if (!updateInfo.available) {
+      await writeJob({ state: 'complete', currentVersion, targetVersion: updateInfo.version || currentVersion });
       if (isJsonMode(options)) {
         printJson({
           currentVersion,
@@ -129,7 +130,6 @@ function createUpdateCommand({
       } else if (isQuietMode(options)) {
         process.stdout.write(`up-to-date ${currentVersion}\n`);
       }
-      await writeJob({ state: 'complete', currentVersion, targetVersion: updateInfo.version || currentVersion });
       return;
     }
 
@@ -137,7 +137,9 @@ function createUpdateCommand({
     if (!capability.supported) {
       updateSpin?.error('This deployment requires a manual update');
       if (isJsonMode(options)) {
+        await writeJob({ state: 'failed', error: capability.error });
         printJson({
+          status: 'error',
           currentVersion,
           latestVersion: updateInfo.version || 'latest',
           updated: false,
@@ -145,7 +147,7 @@ function createUpdateCommand({
           error: capability.error,
           channel,
         });
-        return;
+        return { exitCode: EXIT_CODE.GENERAL_ERROR };
       }
       if (showOutput) clackOutro('update skipped');
       throw new Error(capability.error);
@@ -227,7 +229,14 @@ function createUpdateCommand({
       if (!claimed.created) {
         updateSpin?.clear();
         if (isJsonMode(options)) {
-          printJson({ status: 'in-progress', updated: false, jobId: claimed.job.id, previousVersion: currentVersion, latestVersion, channel: claimed.job.channel || channel });
+          printJson({
+            status: 'in-progress',
+            updated: false,
+            jobId: claimed.job.id,
+            previousVersion: claimed.job.previousVersion || currentVersion,
+            latestVersion: claimed.job.targetVersion || latestVersion,
+            channel: claimed.job.channel || channel,
+          });
         } else if (showOutput) {
           logStatus('info', 'another PiChamber update is already in progress');
           clackOutro('update already running');
@@ -270,8 +279,17 @@ function createUpdateCommand({
     await writeJob({ state: 'verifying', currentVersion: installedVersion });
     const restartResults = [];
     let startupServiceRestarted = false;
+    const versionVerified = installedVersion === latestVersion;
+    const messages = [];
+    if (!versionVerified) {
+      messages.push({
+        level: 'warning',
+        code: 'VERSION_MISMATCH',
+        message: `Package manager completed, but this install reports ${installedVersion} instead of ${latestVersion}. Run pichamber update again or reinstall ${latestVersion} before restarting the server.`,
+      });
+    }
 
-    if (startupServiceActive) {
+    if (versionVerified && startupServiceActive) {
       await writeJob({ state: 'restarting' });
       updateSpin?.message('Restarting systemd service...');
       try {
@@ -289,7 +307,7 @@ function createUpdateCommand({
         }
         throw new Error(msg);
       }
-    } else if (runningInstances.length > 0) {
+    } else if (versionVerified && runningInstances.length > 0) {
       await writeJob({ state: 'restarting' });
       updateSpin?.message(`Restarting ${runningInstances.length} running instance(s)...`);
       for (const instance of runningInstances) {
@@ -334,15 +352,6 @@ function createUpdateCommand({
 
     const restartedCount = restartResults.filter((entry) => entry.ok).length;
     const failedRestartCount = restartResults.length - restartedCount;
-    const versionVerified = installedVersion === latestVersion;
-    const messages = [];
-    if (!versionVerified) {
-      messages.push({
-        level: 'warning',
-        code: 'VERSION_MISMATCH',
-        message: `Package manager completed, but this install reports ${installedVersion} instead of ${latestVersion}.`,
-      });
-    }
     if (failedRestartCount > 0) {
       messages.push({
         level: 'warning',
@@ -367,6 +376,11 @@ function createUpdateCommand({
       restartResults,
       messages,
     };
+    await writeJob({
+      state: messages.length > 0 ? 'failed' : 'complete',
+      currentVersion: installedVersion,
+      error: messages.length > 0 ? messages.map((message) => message.message).join(' ') : undefined,
+    });
     if (isJsonMode(options)) {
       printJson(resultPayload);
       return { exitCode };
@@ -380,11 +394,6 @@ function createUpdateCommand({
     } else if (isQuietMode(options)) {
       process.stdout.write(`updated ${currentVersion} -> ${installedVersion} restarted:${restartedCount} failed:${failedRestartCount}\n`);
     }
-    await writeJob({
-      state: messages.length > 0 ? 'failed' : 'complete',
-      currentVersion: installedVersion,
-      error: messages.length > 0 ? messages.map((message) => message.message).join(' ') : undefined,
-    });
     return { exitCode };
     } catch (error) {
       try {
