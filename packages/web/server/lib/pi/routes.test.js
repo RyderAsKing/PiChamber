@@ -134,8 +134,9 @@ describe('Pi runtime route', () => {
       },
       listCustomThemes: async () => [{ metadata: { id: 'custom' } }],
       updateChecker: async () => ({ available: false, currentVersion: '1.0.0' }),
-      resolveUpdatePackageManager: () => 'npm',
-      updateLauncher: () => ({ success: true }),
+      updateCapabilityResolver: () => ({ supported: true, code: 'SUPPORTED', packageManager: 'npm' }),
+      updateLauncher: () => ({ success: true, jobId: '10000000-0000-4000-8000-000000000001', state: 'queued' }),
+      updateJobReader: async (id) => ({ id, state: 'installing', startedAt: 1, updatedAt: 2 }),
     });
     server = await listen(app);
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -151,15 +152,55 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/api/pi/themes`)).json()).resolves.toEqual({ themes: [{ metadata: { id: 'custom' } }] });
     await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
     const installResponse = await fetch(`${base}/api/pi/update-install`, { method: 'POST' });
-    expect(installResponse.status).toBe(200);
-    await expect(installResponse.json()).resolves.toEqual({ success: true, autoRestart: true });
+    expect(installResponse.status).toBe(202);
+    await expect(installResponse.json()).resolves.toEqual({
+      success: true,
+      autoRestart: true,
+      jobId: '10000000-0000-4000-8000-000000000001',
+      state: 'queued',
+    });
+    const statusResponse = await fetch(`${base}/api/pi/update-install/10000000-0000-4000-8000-000000000001`);
+    expect(statusResponse.status).toBe(200);
+    await expect(statusResponse.json()).resolves.toMatchObject({ state: 'installing' });
+  });
+
+  it('returns updater launch failures and missing job status explicitly', async () => {
+    const app = express();
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      updateCapabilityResolver: () => ({ supported: true, code: 'SUPPORTED', packageManager: 'npm' }),
+      currentVersionReader: () => '1.0.0',
+      updateLauncher: async (options) => ({
+        success: false,
+        jobId: '10000000-0000-4000-8000-000000000001',
+        error: `Could not start ${options.packageManager} updater for ${options.previousVersion}`,
+      }),
+      updateJobReader: async () => null,
+    });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const installResponse = await fetch(`${base}/api/pi/update-install`, { method: 'POST' });
+    expect(installResponse.status).toBe(409);
+    await expect(installResponse.json()).resolves.toMatchObject({
+      success: false,
+      jobId: '10000000-0000-4000-8000-000000000001',
+      error: 'Could not start npm updater for 1.0.0',
+    });
+
+    const statusResponse = await fetch(`${base}/api/pi/update-install/10000000-0000-4000-8000-000000000001`);
+    expect(statusResponse.status).toBe(404);
   });
 
   it('rejects web updates when the current install is not owned by a trusted package manager', async () => {
     const app = express();
     registerPiRuntimeRoutes(app, {
       getPiSessionDaemonRuntime: () => null,
-      resolveUpdatePackageManager: () => null,
+      updateCapabilityResolver: () => ({
+        supported: false,
+        code: 'UNSUPPORTED_INSTALL',
+        error: 'This PiChamber copy is not a supported global package-manager install.',
+      }),
       updateLauncher: () => { throw new Error('must not run'); },
     });
     server = await listen(app);
@@ -168,7 +209,9 @@ describe('Pi runtime route', () => {
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
       success: false,
-      error: 'This PiChamber copy is not a supported global package-manager install. Run: pichamber update',
+      code: 'UNSUPPORTED_INSTALL',
+      error: 'This PiChamber copy is not a supported global package-manager install.',
+      commands: [],
     });
   });
 

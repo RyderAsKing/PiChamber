@@ -66,7 +66,7 @@ export function createTerminalRuntime({
       const args = loginShell ? getTerminalShellLoginArgs(executable) : [];
       if (!args) throw new Error(`Terminal shell "${resolvedShell.id}" does not support login mode`);
       try {
-        const env = { ...process.env, PATH: buildAugmentedPath(), TERM: 'xterm-256color', COLORTERM: 'truecolor', COLORFGBG: themeMode === 'light' ? '0;15' : '15;0' };
+        const env = { ...process.env, PATH: buildAugmentedPath(), TERM: 'xterm-256color', COLORTERM: 'truecolor', COLORFGBG: themeMode === 'light' ? '0;15' : '15;0', PICHAMBER_SERVER_TERMINAL: '1' };
         // The daemon's IPC fd is closed inside the PTY. An explicit override is
         // required because bun-pty also inherits Bun's native process environment.
         env.NODE_CHANNEL_FD = '';
