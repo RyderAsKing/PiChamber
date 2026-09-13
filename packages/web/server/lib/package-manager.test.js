@@ -9,9 +9,13 @@ vi.mock('node:child_process', () => ({
 const {
   checkForUpdates,
   detectPackageManager,
+  detectSystemdServiceContext,
   executeUpdate,
   getCurrentVersion,
+  getInstalledVersion,
+  getUpdateCapability,
   launchUpdateCommand,
+  isInsidePiChamberSystemdService,
   resolveTrustedUpdatePackageManager,
 } = await import('./package-manager.js');
 
@@ -360,27 +364,200 @@ describe('package-manager ownership detection', () => {
 describe('getCurrentVersion', () => {
   it('is exported for the CLI update command', () => {
     expect(typeof getCurrentVersion).toBe('function');
+    expect(typeof getInstalledVersion).toBe('function');
     expect(getCurrentVersion()).toMatch(/^\d+\.\d+\.\d+|unknown$/);
   });
 });
 
-describe('launchUpdateCommand', () => {
-  it('starts the CLI updater detached so the live server can respond before shutdown', () => {
-    const unref = vi.fn();
-    const spawnProcess = vi.fn(() => ({ unref }));
+describe('update capability reporting', () => {
+  const trustedDetails = {
+    packageManager: 'npm',
+    reason: 'install-path-owner',
+    packagePath: '/home/test/node_modules/@pi-chamber/web',
+    globalNodeModulesRoot: '/home/test/node_modules',
+  };
 
-    expect(launchUpdateCommand({ isContainer: false, isSystemd: false, spawnProcess })).toEqual({ success: true });
+  it('gives deployment-specific instructions for containers and source checkouts', () => {
+    expect(getUpdateCapability({ isContainer: true })).toMatchObject({
+      supported: false,
+      code: 'DOCKER_DEPLOYMENT',
+    });
+    expect(getUpdateCapability({
+      isContainer: false,
+      packagePath: '/work/PiChamber/packages/web',
+      existsSync: (candidate) => ['/work/PiChamber/package.json', '/work/PiChamber/packages/ui'].includes(candidate),
+      systemdContext: null,
+    })).toMatchObject({
+      supported: false,
+      code: 'SOURCE_CHECKOUT',
+    });
+  });
+
+  it('reports the exact custom user unit and restart command for servers and browser terminals', () => {
+    const contextOptions = {
+      platform: 'linux',
+      env: {},
+      readFileSync: () => '0::/user.slice/user-1000.slice/user@1000.service/app.slice/my-pichamber.service',
+    };
+    expect(detectSystemdServiceContext(contextOptions)).toEqual({
+      unit: 'my-pichamber.service',
+      scope: 'user',
+      managed: false,
+    });
+    const capability = getUpdateCapability({
+      ...contextOptions,
+      isContainer: false,
+      serverProcess: true,
+      packagePath: trustedDetails.packagePath,
+      details: trustedDetails,
+      installWritable: true,
+    });
+    expect(capability).toMatchObject({ supported: false, code: 'CUSTOM_SYSTEMD_UNIT' });
+    expect(capability.error).toContain('systemctl --user restart my-pichamber.service');
+  });
+
+  it('ignores ancestor user-manager services when the process belongs to a session scope', () => {
+    expect(detectSystemdServiceContext({
+      platform: 'linux',
+      env: {},
+      readFileSync: () => '0::/user.slice/user-1000.slice/user@1000.service/session.slice/session-2.scope',
+    })).toBeNull();
+  });
+
+  it('does not mistake an ordinary SSH service for a custom PiChamber deployment', () => {
+    expect(getUpdateCapability({
+      isContainer: false,
+      serverProcess: false,
+      platform: 'linux',
+      env: { INVOCATION_ID: 'ssh-invocation' },
+      readFileSync: () => '0::/system.slice/ssh.service',
+      packagePath: trustedDetails.packagePath,
+      details: trustedDetails,
+      installWritable: true,
+    })).toEqual({ supported: true, code: 'SUPPORTED', packageManager: 'npm' });
+  });
+
+  it('distinguishes ownership failures from unsupported installs', () => {
+    expect(getUpdateCapability({
+      isContainer: false,
+      systemdContext: null,
+      packagePath: trustedDetails.packagePath,
+      details: trustedDetails,
+      installWritable: false,
+    })).toMatchObject({ supported: false, code: 'INSTALL_OWNERSHIP_MISMATCH' });
+    expect(getUpdateCapability({
+      isContainer: false,
+      systemdContext: null,
+      packagePath: '/temporary/pichamber',
+      existsSync: () => false,
+      details: { packageManager: 'npm', reason: 'default-fallback' },
+    })).toMatchObject({ supported: false, code: 'UNSUPPORTED_INSTALL' });
+  });
+});
+
+describe('launchUpdateCommand', () => {
+  const job = { id: '10000000-0000-4000-8000-000000000001', state: 'queued' };
+  const jobOptions = () => ({
+    claimUpdateJob: vi.fn(async () => ({ job, created: true })),
+    updateUpdateJob: vi.fn(async () => job),
+  });
+
+  it('starts the CLI updater detached so the live server can respond before shutdown', async () => {
+    const unref = vi.fn();
+    const once = vi.fn();
+    const spawnProcess = vi.fn(() => ({ once, unref }));
+
+    await expect(launchUpdateCommand({
+      isContainer: false,
+      isSystemd: false,
+      spawnProcess,
+      ...jobOptions(),
+    })).resolves.toMatchObject({ success: true, jobId: job.id, state: 'queued' });
     expect(spawnProcess).toHaveBeenCalledWith(
       process.execPath,
-      [expect.stringMatching(/bin[\\/]cli\.js$/), 'update', '--quiet'],
+      [expect.stringMatching(/bin[\\/]cli\.js$/), 'update', '--yes', '--quiet', '--update-worker', '--update-job-id', job.id],
       { detached: true, stdio: 'ignore', windowsHide: true },
     );
+    expect(once).toHaveBeenCalledWith('error', expect.any(Function));
     expect(unref).toHaveBeenCalledOnce();
   });
 
-  it('refuses deployment types that the CLI cannot safely replace in-process', () => {
-    expect(launchUpdateCommand({ isContainer: true, isSystemd: false }).success).toBe(false);
-    expect(launchUpdateCommand({ isContainer: false, isSystemd: true }).success).toBe(false);
+  it('starts a transient worker outside the PiChamber systemd unit', async () => {
+    const runProcess = vi.fn(() => ({ status: 0 }));
+
+    await expect(launchUpdateCommand({
+      isContainer: false,
+      isSystemd: true,
+      isRoot: false,
+      runProcess,
+      env: {
+        HOME: '/home/test',
+        PATH: '/test/bin',
+        PICHAMBER_DATA_DIR: '/home/test/.config/pichamber',
+        PICHAMBER_PACKAGE_MANAGER: 'npm',
+        PICHAMBER_UI_PASSWORD: 'must-not-be-forwarded',
+      },
+      ...jobOptions(),
+    })).resolves.toMatchObject({ success: true, jobId: job.id });
+
+    expect(runProcess).toHaveBeenCalledWith(
+      'systemd-run',
+      expect.arrayContaining([
+        '--user',
+        expect.stringMatching(/^--unit=pichamber-update-/),
+        '--collect',
+        '--setenv=PICHAMBER_PACKAGE_MANAGER=npm',
+        '--',
+        process.execPath,
+        expect.stringMatching(/bin[\\/]cli\.js$/),
+        'update',
+        '--update-worker',
+        '--update-job-id',
+        job.id,
+      ]),
+      expect.objectContaining({ stdio: 'pipe' }),
+    );
+    expect(runProcess.mock.calls[0][1].join(' ')).not.toContain('must-not-be-forwarded');
+  });
+
+  it('records a failed job when systemd cannot start the worker', async () => {
+    const updateUpdateJob = vi.fn(async () => job);
+    const result = await launchUpdateCommand({
+      isContainer: false,
+      isSystemd: true,
+      runProcess: () => ({ status: 1 }),
+      ...jobOptions(),
+      updateUpdateJob,
+    });
+
+    expect(result).toMatchObject({ success: false, jobId: job.id });
+    expect(updateUpdateJob).toHaveBeenCalledWith(job.id, expect.objectContaining({ state: 'failed' }));
+  });
+
+  it('refuses container replacement without creating a job', async () => {
+    await expect(launchUpdateCommand({ isContainer: true })).resolves.toMatchObject({ success: false });
+  });
+});
+
+describe('isInsidePiChamberSystemdService', () => {
+  it('does not treat a generic systemd invocation such as SSH as PiChamber-owned', () => {
+    expect(isInsidePiChamberSystemdService({
+      platform: 'linux',
+      env: { INVOCATION_ID: 'ssh-service-invocation' },
+      readFileSync: () => '0::/system.slice/ssh.service',
+    })).toBe(false);
+  });
+
+  it('recognizes generated units and their child terminals', () => {
+    expect(isInsidePiChamberSystemdService({
+      platform: 'linux',
+      env: { PICHAMBER_SYSTEMD_UNIT: 'pichamber.service' },
+    })).toBe(true);
+    expect(isInsidePiChamberSystemdService({
+      platform: 'linux',
+      env: {},
+      readFileSync: () => '0::/user.slice/user-1000.slice/user@1000.service/app.slice/pichamber.service',
+    })).toBe(true);
   });
 });
 

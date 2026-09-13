@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { claimUpdateJob, updateUpdateJob } from './update-job-store.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -477,6 +479,132 @@ export function resolveTrustedUpdatePackageManager(details = detectPackageManage
   return null;
 }
 
+function isSourceCheckout(packagePath, existsSync = fs.existsSync) {
+  const parent = path.dirname(packagePath);
+  if (path.basename(packagePath) !== 'web' || path.basename(parent) !== 'packages') return false;
+  const repositoryRoot = path.dirname(parent);
+  return existsSync(path.join(repositoryRoot, 'package.json'))
+    && existsSync(path.join(repositoryRoot, 'packages', 'ui'));
+}
+
+export function detectSystemdServiceContext(options = {}) {
+  const env = options.env || process.env;
+  const markedUnit = env.PICHAMBER_SYSTEMD_UNIT === 'pichamber.service'
+    ? env.PICHAMBER_SYSTEMD_UNIT
+    : null;
+  if (markedUnit) {
+    const isRoot = options.isRoot ?? (typeof process.getuid === 'function' && process.getuid() === 0);
+    return { unit: markedUnit, scope: isRoot ? 'system' : 'user', managed: markedUnit === 'pichamber.service' };
+  }
+  if ((options.platform || process.platform) !== 'linux') return null;
+  try {
+    const cgroup = (options.readFileSync || fs.readFileSync)('/proc/self/cgroup', 'utf8');
+    for (const line of cgroup.split(/\r?\n/)) {
+      const cgroupPath = line.slice(line.lastIndexOf(':') + 1);
+      const unit = cgroupPath.split('/').filter(Boolean).at(-1);
+      if (!unit || !/^[A-Za-z0-9_.@-]+\.service$/.test(unit)) continue;
+      return {
+        unit,
+        scope: cgroupPath.includes('/user.slice/') ? 'user' : 'system',
+        managed: unit === 'pichamber.service',
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function canWriteOwnedInstall(details, options = {}) {
+  if (typeof options.installWritable === 'boolean') return options.installWritable;
+  const target = details.globalNodeModulesRoot || path.dirname(details.packagePath || '');
+  if (!target) return false;
+  try {
+    (options.accessSync || fs.accessSync)(target, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function customSystemdRestartCommand(context) {
+  return context.scope === 'user'
+    ? `systemctl --user restart ${context.unit}`
+    : `systemctl restart ${context.unit}`;
+}
+
+function customSystemdGuidance(context) {
+  if (context.unit.toLowerCase().includes('pichamber')) {
+    return `PiChamber is running under the custom systemd unit ${context.unit}. Automatic restart is supported only for pichamber.service. From a normal terminal, run: pichamber update. Then run: ${customSystemdRestartCommand(context)}`;
+  }
+  return `PiChamber is running inside ${context.unit}, but PiChamber cannot verify that this is the server's owning unit. From a normal terminal, run: pichamber update. Then restart PiChamber using your deployment configuration. Do not restart ${context.unit} unless you have verified that it is your PiChamber unit.`;
+}
+
+export function getUpdateCapability(options = {}) {
+  const env = options.env || process.env;
+  const isContainer = options.isContainer ?? (
+    fs.existsSync('/.dockerenv')
+    || fs.existsSync('/run/.containerenv')
+    || Boolean(env.CONTAINER)
+    || Boolean(env.container)
+  );
+  if (isContainer) {
+    return {
+      supported: false,
+      code: 'DOCKER_DEPLOYMENT',
+      error: 'PiChamber is running in a container and cannot replace its own image. Pull or build the newer image with your deployment tool, then recreate the container.',
+    };
+  }
+
+  const packagePath = options.packagePath || getCurrentPackagePath();
+  const context = options.systemdContext === undefined
+    ? detectSystemdServiceContext(options)
+    : options.systemdContext;
+  const shouldReportCustomUnit = context && !context.managed && (
+    options.serverProcess === true || env.PICHAMBER_SERVER_TERMINAL === '1'
+  );
+  if (isSourceCheckout(packagePath, options.existsSync)) {
+    const knownPiChamberUnit = shouldReportCustomUnit && context.unit.toLowerCase().includes('pichamber');
+    const restart = knownPiChamberUnit
+      ? ` Then restart ${context.unit} with: ${customSystemdRestartCommand(context)}`
+      : '';
+    return {
+      supported: false,
+      code: 'SOURCE_CHECKOUT',
+      error: `This PiChamber server is running from a source checkout and cannot update itself. Update the checkout, rebuild the web package, and restart the server.${restart}`,
+      commands: knownPiChamberUnit ? [customSystemdRestartCommand(context)] : [],
+    };
+  }
+  if (shouldReportCustomUnit) {
+    return {
+      supported: false,
+      code: 'CUSTOM_SYSTEMD_UNIT',
+      error: customSystemdGuidance(context),
+      commands: context.unit.toLowerCase().includes('pichamber')
+        ? ['pichamber update', customSystemdRestartCommand(context)]
+        : ['pichamber update'],
+    };
+  }
+
+  const details = options.details || detectPackageManagerDetails();
+  const packageManager = resolveTrustedUpdatePackageManager(details);
+  if (packageManager && canWriteOwnedInstall(details, options)) {
+    return { supported: true, code: 'SUPPORTED', packageManager };
+  }
+  if (packageManager || String(details?.reason || '').includes('visible-install')) {
+    return {
+      supported: false,
+      code: 'INSTALL_OWNERSHIP_MISMATCH',
+      error: 'This account cannot update the PiChamber installation used by the server. Run pichamber update as the account that installed PiChamber, or reinstall the global package under the service account and run pichamber startup enable again.',
+    };
+  }
+  return {
+    supported: false,
+    code: 'UNSUPPORTED_INSTALL',
+    error: 'This PiChamber copy is not a supported global package-manager install. Install @pi-chamber/web globally with Bun, npm, pnpm, or Yarn, then run pichamber startup enable again.',
+  };
+}
+
 function detectPackageManagerFromInstallPath(pkgPath) {
   if (!pkgPath) return null;
   const normalized = pkgPath.replace(/\\/g, '/').toLowerCase();
@@ -618,6 +746,22 @@ export function getCurrentVersion() {
   } catch {
     return 'unknown';
   }
+}
+
+export function getInstalledVersion(pm) {
+  const candidates = [
+    ...getOwnedPackagePathsFromGlobalBins(pm),
+    ...getGlobalNodeModulesRoots(pm).map(getPackagePathForGlobalRoot),
+  ];
+  for (const packagePath of getUniquePaths(candidates)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(packagePath, 'package.json'), 'utf8'));
+      if (pkg?.name === PACKAGE_NAME && typeof pkg.version === 'string') return pkg.version;
+    } catch {
+      // Try the next package-manager-owned path.
+    }
+  }
+  return getCurrentVersion();
 }
 
 function getNpmRepositoryUrl(data) {
@@ -775,34 +919,94 @@ export async function checkForUpdates(options = {}) {
 /**
  * Execute the update (used by CLI)
  */
-export function launchUpdateCommand(options = {}) {
-  const isContainer = options.isContainer ?? (fs.existsSync('/.dockerenv') || Boolean(process.env.CONTAINER) || process.env.container === 'docker');
-  const isSystemd = options.isSystemd ?? Boolean(process.env.INVOCATION_ID || process.env.PICHAMBER_SYSTEMD_UNIT);
+export function isInsidePiChamberSystemdService(options = {}) {
+  const env = options.env || process.env;
+  if (env.PICHAMBER_SYSTEMD_UNIT === 'pichamber.service') return true;
+  if ((options.platform || process.platform) !== 'linux') return false;
+  try {
+    const cgroup = (options.readFileSync || fs.readFileSync)('/proc/self/cgroup', 'utf8');
+    return /(?:^|\/)pichamber\.service(?:\/|$)/m.test(cgroup);
+  } catch {
+    return false;
+  }
+}
+
+function updateWorkerArgs(cliPath, jobId) {
+  return [cliPath, 'update', '--yes', '--quiet', '--update-worker', '--update-job-id', jobId];
+}
+
+function systemdRunArgs(cliPath, jobId, options = {}) {
+  const isRoot = options.isRoot ?? (typeof process.getuid === 'function' && process.getuid() === 0);
+  const args = [];
+  if (!isRoot) args.push('--user');
+  args.push(`--unit=pichamber-update-${jobId.replaceAll('-', '')}`, '--collect', '--quiet', '--property=Type=exec');
+  const env = options.env || process.env;
+  for (const key of ['HOME', 'PATH', 'PICHAMBER_DATA_DIR', 'PICHAMBER_PACKAGE_MANAGER']) {
+    const value = env[key];
+    if (typeof value === 'string' && value.length > 0) args.push(`--setenv=${key}=${value}`);
+  }
+  args.push('--', process.execPath, ...updateWorkerArgs(cliPath, jobId));
+  return args;
+}
+
+export async function launchUpdateCommand(options = {}) {
+  const isContainer = options.isContainer ?? (
+    fs.existsSync('/.dockerenv')
+    || fs.existsSync('/run/.containerenv')
+    || Boolean(process.env.CONTAINER)
+    || Boolean(process.env.container)
+  );
   if (isContainer) {
     return {
       success: false,
-      error: 'Docker deployments must be updated by deploying a new container image. Run: pichamber update',
-    };
-  }
-  if (isSystemd) {
-    return {
-      success: false,
-      error: 'This PiChamber server runs as a systemd service. Run from a terminal: pichamber update',
+      error: 'Docker deployments must be updated by deploying a new container image.',
     };
   }
 
+  const claimJob = options.claimUpdateJob || claimUpdateJob;
+  const updateJob = options.updateUpdateJob || updateUpdateJob;
+  const claimed = await claimJob({
+    previousVersion: options.previousVersion,
+    targetVersion: options.targetVersion,
+    packageManager: options.packageManager,
+  });
+  if (!claimed.created) {
+    return { success: true, jobId: claimed.job.id, state: claimed.job.state, existing: true };
+  }
+
+  const jobId = claimed.job.id;
   const cliPath = path.resolve(__dirname, '..', '..', 'bin', 'cli.js');
+  const insideSystemd = options.isSystemd ?? isInsidePiChamberSystemdService(options);
   try {
-    const child = (options.spawnProcess || spawn)(process.execPath, [cliPath, 'update', '--quiet'], {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
-    child.once?.('error', () => {});
-    child.unref();
-    return { success: true };
-  } catch {
-    return { success: false, error: 'Could not start the updater. Run: pichamber update' };
+    if (insideSystemd) {
+      const result = (options.runProcess || spawnSync)('systemd-run', systemdRunArgs(cliPath, jobId, options), {
+        encoding: 'utf8',
+        stdio: 'pipe',
+        windowsHide: true,
+      });
+      if (result.error || result.status !== 0) {
+        const error = 'Could not start the systemd update worker. Run: pichamber update';
+        await updateJob(jobId, { state: 'failed', error });
+        return { success: false, jobId, error };
+      }
+    } else {
+      const child = (options.spawnProcess || spawn)(process.execPath, updateWorkerArgs(cliPath, jobId), {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.once?.('error', (cause) => {
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        void updateJob(jobId, { state: 'failed', error: `Could not start the updater: ${detail}` });
+      });
+      child.unref();
+    }
+    return { success: true, jobId, state: claimed.job.state };
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    const error = `Could not start the updater: ${detail}`;
+    await updateJob(jobId, { state: 'failed', error });
+    return { success: false, jobId, error };
   }
 }
 
