@@ -24,6 +24,11 @@ type ServerUpdateSettings = { serverUpdateChannel?: unknown };
 
 const parseUpdateChannel = (value: unknown): UpdateChannel => value === 'rc' ? 'rc' : 'stable';
 
+const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
+  stable: 'Stable',
+  rc: 'Release candidate',
+};
+
 const getServerIdentity = (): string => {
   try {
     return new URL(getRuntimeApiBaseUrl()).host || 'connected server';
@@ -44,11 +49,11 @@ const UpdateChannelSelect: React.FC<{
       className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
       aria-label={label}
     >
-      <SelectValue />
+      <SelectValue>{(value) => UPDATE_CHANNEL_LABELS[parseUpdateChannel(value)]}</SelectValue>
     </SelectTrigger>
     <SelectContent>
-      <SelectItem value="stable">Stable</SelectItem>
-      <SelectItem value="rc">Release candidate</SelectItem>
+      <SelectItem value="stable">{UPDATE_CHANNEL_LABELS.stable}</SelectItem>
+      <SelectItem value="rc">{UPDATE_CHANNEL_LABELS.rc}</SelectItem>
     </SelectContent>
   </Select>
 );
@@ -201,9 +206,9 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
 
       {!isLocalDesktop && (
         <SettingsFieldRow
-          label={serverChannelLabel}
+          label="Server update channel"
           info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
-          description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
+          description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : serverIdentity}
           settingsItem="about.server-update-channel"
         >
           <UpdateChannelSelect
