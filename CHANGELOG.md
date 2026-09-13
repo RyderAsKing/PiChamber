@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.9-rc.2] - 2026-09-13
+
+- **Update channel settings show full channel names.** The Desktop app and Server update channel dropdowns now display `Stable` / `Release candidate` in the closed trigger instead of the raw `stable` / `rc` values. The server row keeps a single-line label with the connected host shown underneath, so both Updates rows share the same shape (`DesktopUpdateChannelSettings`).
+
 ## [0.9.9-rc.1] - 2026-09-13
 
 Predictable server updates with transient workers and pollable jobs since 0.9.8.
