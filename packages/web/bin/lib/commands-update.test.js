@@ -37,11 +37,24 @@ function createTestUpdateCommand(overrides = {}) {
     discoverInstances: overrides.discoverInstances,
     requestShutdown: overrides.requestShutdown,
     stopProcess: overrides.stopProcess,
+    claimUpdateJob: overrides.claimUpdateJob || vi.fn(async () => ({
+      created: true,
+      job: { id: '10000000-0000-4000-8000-000000000001', state: 'queued' },
+    })),
+    updateUpdateJob: overrides.updateUpdateJob || vi.fn(async () => {}),
     importFromFilePath: vi.fn(async () => ({
       checkForUpdates: overrides.checkForUpdates || vi.fn(async () => ({ available: true, version: '9.9.9' })),
-      resolveTrustedUpdatePackageManager: overrides.resolveTrustedUpdatePackageManager || vi.fn(() => 'npm'),
+      getUpdateCapability: overrides.getUpdateCapability || (() => {
+        const packageManager = (overrides.resolveTrustedUpdatePackageManager || (() => 'npm'))();
+        return packageManager
+          ? { supported: true, code: 'SUPPORTED', packageManager }
+          : { supported: false, code: 'UNSUPPORTED_INSTALL', error: 'This PiChamber copy requires a manual update.' };
+      }),
       executeUpdate,
       getCurrentVersion,
+      getInstalledVersion: overrides.getInstalledVersion || getCurrentVersion,
+      isInsidePiChamberSystemdService: overrides.isInsidePiChamberSystemdService || (() => false),
+      launchUpdateCommand: overrides.launchUpdateCommand,
     })),
   });
   return { updateCommand, executeUpdate, serveCommand, restartUserStartupService };
@@ -167,14 +180,81 @@ describe('update command', () => {
     });
   });
 
-  it('skips in-app update when running inside a systemd service unit', async () => {
+  it('delegates an update from the PiChamber systemd unit to a transient worker', async () => {
     await withTempPiChamberDataDir(async () => {
+      const launchUpdateCommand = vi.fn(async () => ({
+        success: true,
+        jobId: '10000000-0000-4000-8000-000000000001',
+      }));
       const { updateCommand, executeUpdate } = createTestUpdateCommand({
         isInsideSystemdService: () => true,
+        launchUpdateCommand,
       });
 
-      await expect(updateCommand({ quiet: true })).rejects.toThrow('pichamber update cannot replace this process while it is running as a systemd service');
+      await updateCommand({ quiet: true });
+
+      expect(launchUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
+        previousVersion: '1.0.0',
+        targetVersion: '9.9.9',
+        packageManager: 'npm',
+        isSystemd: true,
+      }));
       expect(executeUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('does not run a second package-manager update while another job is active', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const claimUpdateJob = vi.fn(async () => ({
+        created: false,
+        job: { id: '10000000-0000-4000-8000-000000000001', state: 'installing' },
+      }));
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({ claimUpdateJob });
+
+      await updateCommand({ quiet: true });
+
+      expect(executeUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('records worker progress and completion around installation', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const updateUpdateJob = vi.fn(async () => {});
+      const { updateCommand } = createTestUpdateCommand({ updateUpdateJob });
+      const jobId = '10000000-0000-4000-8000-000000000001';
+
+      await updateCommand({ quiet: true, updateWorker: true, updateJobId: jobId });
+
+      expect(updateUpdateJob).toHaveBeenCalledWith(jobId, expect.objectContaining({ state: 'installing' }));
+      expect(updateUpdateJob).toHaveBeenCalledWith(jobId, expect.objectContaining({ state: 'verifying' }));
+      expect(updateUpdateJob).toHaveBeenLastCalledWith(jobId, expect.objectContaining({ state: 'complete' }));
+    });
+  });
+
+  it('reports the deployment reason in JSON mode', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const output = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        getUpdateCapability: () => ({
+          supported: false,
+          code: 'DOCKER_DEPLOYMENT',
+          error: 'Recreate the container from the newer image.',
+        }),
+      });
+
+      try {
+        await updateCommand({ json: true });
+        expect(JSON.parse(output.join(''))).toMatchObject({
+          updated: false,
+          code: 'DOCKER_DEPLOYMENT',
+          error: 'Recreate the container from the newer image.',
+        });
+        expect(executeUpdate).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.write = originalWrite;
+      }
     });
   });
 
@@ -184,7 +264,7 @@ describe('update command', () => {
         resolveTrustedUpdatePackageManager: vi.fn(() => null),
       });
 
-      await expect(updateCommand({ quiet: true })).rejects.toThrow('This PiChamber copy is not a global package-manager install.');
+      await expect(updateCommand({ quiet: true })).rejects.toThrow('This PiChamber copy requires a manual update.');
       expect(executeUpdate).not.toHaveBeenCalled();
     });
   });

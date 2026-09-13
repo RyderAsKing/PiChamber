@@ -105,6 +105,8 @@ function parseArgs(argv = process.argv.slice(2)) {
     lastAssistant: false,
     withStatus: false,
     yes: false,
+    updateWorker: false,
+    updateJobId: undefined,
   };
 
   const removedFlagErrors = [];
@@ -412,6 +414,18 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'y':
         options.yes = true;
         break;
+      case 'update-worker':
+        options.updateWorker = true;
+        break;
+      case 'update-job-id': {
+        const { value, nextIndex } = consumeValue(i, inlineValue);
+        i = nextIndex;
+        if (typeof value !== 'string' || value.length === 0) {
+          throw new TunnelCliError('Missing value for --update-job-id.', EXIT_CODE.USAGE_ERROR);
+        }
+        options.updateJobId = value;
+        break;
+      }
       case 'help':
       case 'h':
         helpRequested = true;

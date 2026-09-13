@@ -129,6 +129,7 @@ function shouldPersistStartupEnv(key, value) {
     'HISTFILE',
     'HISTFILESIZE',
     'HISTSIZE',
+    'INVOCATION_ID',
     'LINES',
     'OLDPWD',
     'PROMPT',
@@ -138,6 +139,8 @@ function shouldPersistStartupEnv(key, value) {
     'PS3',
     'PS4',
     'PWD',
+    'PICHAMBER_SERVER_TERMINAL',
+    'PICHAMBER_SYSTEMD_UNIT',
     'PYENV_VERSION',
     'SHLVL',
     'TERM',
@@ -286,6 +289,7 @@ After=network-online.target
 
 [Service]
 Type=simple
+Environment=PICHAMBER_SYSTEMD_UNIT=pichamber.service
 EnvironmentFile=-${systemdEscapeArg(envFilePath)}
 ExecStart="${systemdEscapeArg(process.execPath)}" ${args}
 WorkingDirectory=${workingDir}

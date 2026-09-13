@@ -1,4 +1,3 @@
-import fs from 'fs';
 import { EXIT_CODE } from './cli-errors.js';
 import { requestServerShutdown } from './cli-http.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
@@ -11,6 +10,10 @@ import {
   isUserStartupServiceActive as defaultIsUserStartupServiceActive,
   restartUserStartupService as defaultRestartUserStartupService,
 } from './cli-startup.js';
+import {
+  claimUpdateJob as defaultClaimUpdateJob,
+  updateUpdateJob as defaultUpdateUpdateJob,
+} from '../../server/lib/update-job-store.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -26,25 +29,18 @@ import {
   logStatus,
 } from '../cli-output.js';
 
-const UNOWNED_INSTALL_MESSAGE = [
-  'This PiChamber copy is not a global package-manager install.',
-  'Install one copy, then update that same copy:',
-  '  bun add -g @pi-chamber/web',
-  '  npm install -g @pi-chamber/web',
-  '  pnpm add -g @pi-chamber/web',
-  '  yarn global add @pi-chamber/web',
-].join('\n');
-
 function createUpdateCommand({
   importFromFilePath,
   packageManagerPath,
   serveCommand,
-  isInsideSystemdService = () => Boolean(process.env.INVOCATION_ID) || Boolean(process.env.PICHAMBER_SYSTEMD_UNIT),
+  isInsideSystemdService,
   isUserStartupServiceActive = defaultIsUserStartupServiceActive,
   restartUserStartupService = defaultRestartUserStartupService,
   discoverInstances = discoverRunningInstances,
   requestShutdown = requestServerShutdown,
   stopProcess = stopInstanceProcess,
+  claimUpdateJob = defaultClaimUpdateJob,
+  updateUpdateJob = defaultUpdateUpdateJob,
 }) {
   return async function updateCommand(options = {}) {
     const showOutput = shouldRenderHumanOutput(options);
@@ -53,10 +49,20 @@ function createUpdateCommand({
     const {
       checkForUpdates,
       executeUpdate,
-      resolveTrustedUpdatePackageManager,
+      getUpdateCapability,
       getCurrentVersion,
+      getInstalledVersion,
+      isInsidePiChamberSystemdService,
+      launchUpdateCommand,
     } = await importFromFilePath(packageManagerPath);
 
+    let jobId = options.updateJobId;
+    const writeJob = async (changes) => {
+      if (!jobId) return;
+      await updateUpdateJob(jobId, changes);
+    };
+
+    try {
     const currentVersion = getCurrentVersion();
 
     if (showOutput) {
@@ -96,67 +102,27 @@ function createUpdateCommand({
       } else if (isQuietMode(options)) {
         process.stdout.write(`up-to-date ${currentVersion}\n`);
       }
+      await writeJob({ state: 'complete', currentVersion, targetVersion: updateInfo.version || currentVersion });
       return;
     }
 
-    const isContainer =
-      fs.existsSync('/.dockerenv') ||
-      Boolean(process.env.CONTAINER) ||
-      process.env.container === 'docker';
-
-    if (isContainer) {
-      const msg = 'Docker deployments must be updated using container image deployment (e.g. docker pull) rather than in-app replacement.';
-      updateSpin?.error('Docker deployment detected');
+    const capability = getUpdateCapability();
+    if (!capability.supported) {
+      updateSpin?.error('This deployment requires a manual update');
       if (isJsonMode(options)) {
         printJson({
           currentVersion,
           latestVersion: updateInfo.version || 'latest',
           updated: false,
-          error: msg,
+          code: capability.code,
+          error: capability.error,
         });
         return;
       }
-      if (showOutput) {
-        clackOutro('update skipped');
-      }
-      throw new Error(msg);
+      if (showOutput) clackOutro('update skipped');
+      throw new Error(capability.error);
     }
-
-    if (isInsideSystemdService()) {
-      const msg = 'pichamber update cannot replace this process while it is running as a systemd service. Run it from a terminal instead.';
-      updateSpin?.error('systemd service deployment detected');
-      if (isJsonMode(options)) {
-        printJson({
-          currentVersion,
-          latestVersion: updateInfo.version || 'latest',
-          updated: false,
-          error: msg,
-        });
-        return;
-      }
-      if (showOutput) {
-        clackOutro('update skipped');
-      }
-      throw new Error(msg);
-    }
-
-    const pm = resolveTrustedUpdatePackageManager();
-    if (!pm) {
-      updateSpin?.error('No global package-manager install');
-      if (isJsonMode(options)) {
-        printJson({
-          currentVersion,
-          latestVersion: updateInfo.version || 'latest',
-          updated: false,
-          error: UNOWNED_INSTALL_MESSAGE,
-        });
-        return;
-      }
-      if (showOutput) {
-        clackOutro('update skipped');
-      }
-      throw new Error(UNOWNED_INSTALL_MESSAGE);
-    }
+    const pm = capability.packageManager;
 
     const latestVersion = updateInfo.version || 'latest';
     const startupServiceActive = isUserStartupServiceActive();
@@ -181,10 +147,66 @@ function createUpdateCommand({
       }
     }
 
+    const insideManagedService = typeof isInsideSystemdService === 'function'
+      ? isInsideSystemdService()
+      : isInsidePiChamberSystemdService?.() === true;
+    if (insideManagedService && options.updateWorker !== true) {
+      updateSpin?.start('Starting systemd update worker...');
+      if (typeof launchUpdateCommand !== 'function') {
+        throw new Error('The systemd update worker is unavailable.');
+      }
+      const launched = await launchUpdateCommand({
+        previousVersion: currentVersion,
+        targetVersion: latestVersion,
+        packageManager: pm,
+        isSystemd: true,
+      });
+      if (!launched.success) throw new Error(launched.error || 'Could not start the systemd update worker.');
+      updateSpin?.clear();
+      if (isJsonMode(options)) {
+        printJson({ status: 'started', updated: false, jobId: launched.jobId, previousVersion: currentVersion, latestVersion });
+      } else if (showOutput) {
+        logStatus('success', 'systemd update worker started');
+        clackOutro('the server will restart when the update is installed');
+      } else if (isQuietMode(options)) {
+        process.stdout.write(`update-started ${currentVersion} -> ${latestVersion} job:${launched.jobId}\n`);
+      }
+      return;
+    }
+
+    if (!jobId) {
+      if (typeof claimUpdateJob !== 'function') throw new Error('Update coordination is unavailable.');
+      const claimed = await claimUpdateJob({
+        previousVersion: currentVersion,
+        targetVersion: latestVersion,
+        packageManager: pm,
+      });
+      if (!claimed.created) {
+        updateSpin?.clear();
+        if (isJsonMode(options)) {
+          printJson({ status: 'in-progress', updated: false, jobId: claimed.job.id, previousVersion: currentVersion, latestVersion });
+        } else if (showOutput) {
+          logStatus('info', 'another PiChamber update is already in progress');
+          clackOutro('update already running');
+        } else if (isQuietMode(options)) {
+          process.stdout.write(`update-in-progress job:${claimed.job.id}\n`);
+        }
+        return;
+      }
+      jobId = claimed.job.id;
+    }
+
     if (showOutput && !updateSpin) {
       logStatus('info', `updating ${currentVersion} -> ${latestVersion} with ${pm}`);
     }
     updateSpin?.start(`Updating ${currentVersion} -> ${latestVersion}...`);
+    await writeJob({
+      state: 'installing',
+      previousVersion: currentVersion,
+      targetVersion: latestVersion,
+      packageManager: pm,
+      workerPid: process.pid,
+    });
 
     const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
     if (!result.success) {
@@ -195,18 +217,25 @@ function createUpdateCommand({
       throw new Error(`Update failed with exit code ${result.exitCode}`);
     }
 
-    const installedVersion = getCurrentVersion();
+    const installedVersion = typeof getInstalledVersion === 'function'
+      ? getInstalledVersion(pm)
+      : getCurrentVersion();
+    await writeJob({ state: 'verifying', currentVersion: installedVersion });
     const restartResults = [];
     let startupServiceRestarted = false;
 
     if (startupServiceActive) {
-      updateSpin?.message('Restarting systemd user service...');
+      await writeJob({ state: 'restarting' });
+      updateSpin?.message('Restarting systemd service...');
       try {
         restartUserStartupService();
         startupServiceRestarted = true;
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
-        const msg = `Package updated but failed to restart pichamber.service. Run: systemctl --user restart pichamber.service (${detail})`;
+        const systemctl = typeof process.getuid === 'function' && process.getuid() === 0
+          ? 'systemctl restart pichamber.service'
+          : 'systemctl --user restart pichamber.service';
+        const msg = `Package updated but failed to restart pichamber.service. Run: ${systemctl} (${detail})`;
         updateSpin?.error('Startup service restart failed');
         if (showOutput) {
           clackOutro('update incomplete');
@@ -214,6 +243,7 @@ function createUpdateCommand({
         throw new Error(msg);
       }
     } else if (runningInstances.length > 0) {
+      await writeJob({ state: 'restarting' });
       updateSpin?.message(`Restarting ${runningInstances.length} running instance(s)...`);
       for (const instance of runningInstances) {
         const storedOptions = readInstanceOptions(instance.instanceFilePath) || { port: instance.port };
@@ -302,7 +332,20 @@ function createUpdateCommand({
     } else if (isQuietMode(options)) {
       process.stdout.write(`updated ${currentVersion} -> ${installedVersion} restarted:${restartedCount} failed:${failedRestartCount}\n`);
     }
+    await writeJob({
+      state: messages.length > 0 ? 'failed' : 'complete',
+      currentVersion: installedVersion,
+      error: messages.length > 0 ? messages.map((message) => message.message).join(' ') : undefined,
+    });
     return { exitCode };
+    } catch (error) {
+      try {
+        await writeJob({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        // Preserve the update failure when status persistence also fails.
+      }
+      throw error;
+    }
   };
 }
 

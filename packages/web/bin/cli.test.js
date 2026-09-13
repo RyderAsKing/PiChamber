@@ -321,6 +321,10 @@ describe('cli args', () => {
     expect(parseArgs([]).explicitCommand).toBe(false);
     expect(parseArgs(['update', '--yes']).options.yes).toBe(true);
     expect(parseArgs(['update', '-y']).options.yes).toBe(true);
+    expect(parseArgs(['update', '--update-worker', '--update-job-id', 'job-id']).options).toMatchObject({
+      updateWorker: true,
+      updateJobId: 'job-id',
+    });
   });
 
   it('rejects invalid log line counts instead of silently using the default', () => {
