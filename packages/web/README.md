@@ -60,7 +60,10 @@ so terminal and in-app updates survive the server restart and report status afte
 clients reconnect. Foreground instances must be stopped and started manually.
 Desktop users must relaunch the updated app. Hosted and mobile clients use their
 connected server's SDK, so updating only the client does not update its model
-catalog.
+catalog. When a trusted hosted update response does not provide release notes,
+the server reads the selected version's GitHub release body, then falls back to
+`CHANGELOG.md` from that version tag. This keeps stable and RC notes tied to the
+package version chosen from the npm registry.
 
 ## Development
 

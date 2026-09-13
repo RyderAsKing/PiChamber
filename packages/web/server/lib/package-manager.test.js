@@ -84,30 +84,45 @@ describe('checkForUpdates (no hosted API by default)', () => {
           ok: true,
           json: async () => officialRegistryPackage('1.10.0'),
         })
-        .when('raw.githubusercontent.com', {
+        .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0', {
           ok: true,
-          text: async () => '## [1.10.0] - 2026-05-01\n\n- New!',
+          json: async () => ({ body: '## [1.10.0] - 2026-05-01\n\n- New!' }),
         });
 
       const result = await checkForUpdates({ currentVersion: '1.9.10' });
       expect(result.available).toBe(true);
       expect(result.version).toBe('1.10.0');
+      expect(result.body).toContain('New!');
       expect(result.releaseUrl).toBe('https://github.com/RyderAsKing/PiChamber/releases/tag/v1.10.0');
+      expect(fetchMock.calls.map((c) => c.url)).toContain(
+        'https://api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v1.10.0',
+      );
       // No requests to api.pichamber.dev when the override is absent.
       expect(fetchMock.calls.map((c) => c.url).some((u) => u.includes('api.pichamber.dev'))).toBe(false);
     });
   });
 
-  it('selects a newer RC when the latest stable matches the current version', async () => {
+  it('selects a newer RC and returns its GitHub release notes', async () => {
     await withNoHostedApi(async () => {
       fetchMock
         .when('registry.npmjs.org', {
           ok: true,
           json: async () => officialRegistryPackage('1.9.10', '2.0.0-rc.2'),
         })
-        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
-      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
-      expect(result).toMatchObject({ available: true, version: '2.0.0-rc.2', channel: 'rc' });
+        .when('api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v2.0.0-rc.2', {
+          ok: true,
+          json: async () => ({
+            body: '## [2.0.0-rc.2] - 2026-05-02\n\n- Second candidate',
+          }),
+        });
+      const result = await checkForUpdates({ currentVersion: '2.0.0-rc.1', channel: 'rc' });
+      expect(result).toMatchObject({
+        available: true,
+        version: '2.0.0-rc.2',
+        channel: 'rc',
+        body: expect.stringContaining('Second candidate'),
+      });
+      expect(result.body).not.toContain('First candidate');
     });
   });
 
