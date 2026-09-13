@@ -20,6 +20,7 @@ export type UpdateInfo = {
   nextSuggestedCheckInSec?: number;
   packageManager?: string;
   updateCommand?: string;
+  channel?: 'stable' | 'rc';
 };
 
 export type UpdateProgress = {
@@ -46,6 +47,7 @@ export type DesktopSettings = {
   desktopCloseToTrayEnabled?: boolean;
   desktopMacMenuBarEnabled?: boolean;
   desktopUpdateChannel?: 'stable' | 'rc';
+  serverUpdateChannel?: 'stable' | 'rc';
   desktopUiPassword?: string;
   projects?: ProjectEntry[];
   activeProjectId?: string;

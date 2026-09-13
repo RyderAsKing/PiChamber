@@ -59,7 +59,8 @@ import {
 import { Icon } from "@/components/icon/Icon";
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
-import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { getRuntimeApiBaseUrl, getRuntimeEndpointGeneration, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { subscribeServerUpdateChannelChanged } from '@/lib/server-update-events';
 import { useShallow } from 'zustand/react/shallow';
 import type { IconName } from "@/components/icon/icons";
 import { toast } from '@/components/ui';
@@ -239,12 +240,15 @@ export const Header: React.FC<HeaderProps> = ({
   const [remoteUpdateInfo, setRemoteUpdateInfo] = React.useState<UpdateInfo | null>(null);
   const [remoteUpdateChecking, setRemoteUpdateChecking] = React.useState(false);
   const [remoteUpdateError, setRemoteUpdateError] = React.useState<string | null>(null);
+  const remoteUpdateRequestRef = React.useRef(0);
   const compactCurrentInstanceLabel = React.useMemo(() => formatCompactHeaderLabel(currentInstanceLabel), [currentInstanceLabel]);
 
   const refreshCurrentInstanceLabel = React.useCallback(async () => {
     if (typeof window === 'undefined' || !isDesktopApp) {
       return;
     }
+    const endpointGeneration = getRuntimeEndpointGeneration();
+    const isCurrentEndpoint = () => getRuntimeEndpointGeneration() === endpointGeneration;
 
     try {
       if (isDesktopLocalOriginActive()) {
@@ -257,6 +261,7 @@ export const Header: React.FC<HeaderProps> = ({
       // Same resolution the host switcher's own header uses, so the button and
       // the panel it opens can never disagree about which instance this is.
       const cfg = await desktopHostsGet();
+      if (!isCurrentEndpoint()) return;
       const localOrigin = getLocalDesktopOrigin();
       const resolved = resolveCurrentDesktopHost([buildLocalDesktopHost(localOrigin), ...cfg.hosts]);
 
@@ -268,8 +273,10 @@ export const Header: React.FC<HeaderProps> = ({
 
       setCurrentInstanceLabel(redactSensitiveUrl(resolved.label.trim() || 'Instance'));
     } catch {
-      setCurrentInstanceLabel('Local');
-      setCurrentInstanceIsLocal(true);
+      if (isCurrentEndpoint()) {
+        setCurrentInstanceLabel('Local');
+        setCurrentInstanceIsLocal(true);
+      }
     }
   }, [isDesktopApp]);
 
@@ -278,11 +285,23 @@ export const Header: React.FC<HeaderProps> = ({
     // Switching instances does not remount the header, so without this the
     // button would keep naming the instance the window left behind.
     return subscribeRuntimeEndpointChanged(() => {
+      remoteUpdateRequestRef.current += 1;
+      setRemoteUpdateInfo(null);
+      setRemoteUpdateError(null);
+      setRemoteUpdateChecking(false);
+      setRemoteUpdateDialogOpen(false);
       void refreshCurrentInstanceLabel();
     });
   }, [refreshCurrentInstanceLabel]);
 
   const checkRemoteInstanceUpdate = React.useCallback(async () => {
+    const requestId = remoteUpdateRequestRef.current + 1;
+    remoteUpdateRequestRef.current = requestId;
+    const endpointGeneration = getRuntimeEndpointGeneration();
+    const isCurrentRequest = () => (
+      remoteUpdateRequestRef.current === requestId
+      && getRuntimeEndpointGeneration() === endpointGeneration
+    );
     if (currentInstanceIsLocal) {
       setRemoteUpdateInfo(null);
       setRemoteUpdateError(null);
@@ -302,6 +321,7 @@ export const Header: React.FC<HeaderProps> = ({
         throw new Error(`Server responded with ${response.status}`);
       }
       const data = await response.json();
+      if (!isCurrentRequest()) return;
       setRemoteUpdateInfo({
         available: data.available ?? false,
         version: data.version,
@@ -310,18 +330,26 @@ export const Header: React.FC<HeaderProps> = ({
         nextSuggestedCheckInSec: typeof data.nextSuggestedCheckInSec === 'number' ? data.nextSuggestedCheckInSec : undefined,
         packageManager: data.packageManager,
         updateCommand: data.updateCommand,
+        channel: data.channel === 'rc' ? 'rc' : 'stable',
       });
     } catch (error) {
+      if (!isCurrentRequest()) return;
       setRemoteUpdateInfo(null);
       setRemoteUpdateError(error instanceof Error ? error.message : "Failed to check remote instance updates");
     } finally {
-      setRemoteUpdateChecking(false);
+      if (isCurrentRequest()) setRemoteUpdateChecking(false);
     }
   }, [currentInstanceIsLocal]);
 
+  React.useEffect(() => subscribeServerUpdateChannelChanged(() => {
+    if (!currentInstanceIsLocal) void checkRemoteInstanceUpdate();
+  }), [checkRemoteInstanceUpdate, currentInstanceIsLocal]);
+
   React.useEffect(() => {
+    remoteUpdateRequestRef.current += 1;
     setRemoteUpdateInfo(null);
     setRemoteUpdateError(null);
+    setRemoteUpdateChecking(false);
     setRemoteUpdateDialogOpen(false);
   }, [currentInstanceIsLocal, currentInstanceLabel]);
 

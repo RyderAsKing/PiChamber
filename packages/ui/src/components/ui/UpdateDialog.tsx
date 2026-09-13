@@ -8,13 +8,16 @@ import { Button } from '@/components/ui/button';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { SimpleMarkdownRenderer } from '@/components/chat/MarkdownRenderer';
 import { Icon } from "@/components/icon/Icon";
-import { cn } from '@/lib/utils';
 import type { UpdateInfo, UpdateProgress } from '@/lib/desktop';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { openExternalUrl } from '@/lib/url';
-import { runtimeFetch } from '@/lib/runtime-fetch';
-
-type WebUpdateState = 'idle' | 'updating' | 'restarting' | 'reconnecting' | 'error';
+import { getRuntimeEndpointGeneration } from '@/lib/runtime-switch';
+import {
+  installWebUpdate,
+  waitForUpdateApplied,
+  waitForUpdateJob,
+  type WebUpdateState,
+} from './web-update';
 
 interface UpdateDialogProps {
   open: boolean;
@@ -110,84 +113,6 @@ function parseChangelogSections(body: string): ChangelogSection[] {
   });
 }
 
-type InstallWebUpdateResult = {
-  success: boolean;
-  error?: string;
-  autoRestart?: boolean;
-};
-
-const WEB_UPDATE_POLL_INTERVAL_MS = 2000;
-const WEB_UPDATE_MAX_WAIT_MS = 10 * 60 * 1000;
-
-async function installWebUpdate(): Promise<InstallWebUpdateResult> {
-  try {
-    const response = await runtimeFetch('/api/pi/update-install', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      return { success: false, error: data.error || `Server error: ${response.status}` };
-    }
-
-    const data = await response.json().catch(() => ({}));
-    return {
-      success: true,
-      autoRestart: data.autoRestart !== false,
-    };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : undefined };
-  }
-}
-
-async function isServerReachable(): Promise<boolean> {
-  try {
-    const response = await runtimeFetch('/health', {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
-async function waitForUpdateApplied(
-  previousVersion?: string,
-  maxAttempts = Math.ceil(WEB_UPDATE_MAX_WAIT_MS / WEB_UPDATE_POLL_INTERVAL_MS),
-  intervalMs = WEB_UPDATE_POLL_INTERVAL_MS,
-): Promise<boolean> {
-  for (let i = 0; i < maxAttempts; i++) {
-    try {
-      const response = await runtimeFetch('/api/pi/update-check', {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-      if (response.ok) {
-        const data = await response.json().catch(() => null);
-        if (data && data.available === false) {
-          return true;
-        }
-        if (
-          data &&
-          typeof data.currentVersion === 'string' &&
-          typeof previousVersion === 'string' &&
-          data.currentVersion !== previousVersion
-        ) {
-          return true;
-        }
-      } else if ((response.status === 401 || response.status === 403) && await isServerReachable()) {
-        return true;
-      }
-    } catch {
-      // Server may be restarting
-    }
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
-  }
-  return false;
-}
-
 export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   open,
   onOpenChange,
@@ -200,9 +125,11 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   onRestart,
   runtimeType = 'desktop',
 }) => {
-  const [copied, setCopied] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
   const [webUpdateState, setWebUpdateState] = useState<WebUpdateState>('idle');
   const [webError, setWebError] = useState<string | null>(null);
+  const [webCommands, setWebCommands] = useState<string[] | null>(null);
+  const [webTarget, setWebTarget] = useState<{ version?: string; channel?: 'stable' | 'rc' }>({});
 
   const releaseUrl = info?.version
     ? (info.releaseUrl || `${GITHUB_RELEASES_URL}/tag/v${info.version}`)
@@ -216,20 +143,24 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   const isWebRuntime = runtimeType === 'web';
   const isMobileRuntime = runtimeType === 'mobile';
   const updateCommand = info?.updateCommand || 'pichamber update';
+  const displayedVersion = webTarget.version || info?.version;
+  const displayedChannel = webTarget.channel || info?.channel;
 
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
       setWebUpdateState('idle');
       setWebError(null);
+      setWebCommands(null);
+      setWebTarget({});
     }
   }, [open]);
 
-  const handleCopyCommand = async () => {
-    const result = await copyTextToClipboard(updateCommand);
+  const handleCopyCommand = async (command = updateCommand) => {
+    const result = await copyTextToClipboard(command);
     if (result.ok) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopiedCommand(command);
+      setTimeout(() => setCopiedCommand(null), 2000);
     }
   };
 
@@ -237,32 +168,55 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     await openExternalUrl(url);
   }, []);
   const handleWebUpdate = useCallback(async () => {
+    const runtimeGeneration = getRuntimeEndpointGeneration();
     setWebUpdateState('updating');
     setWebError(null);
+    setWebCommands(null);
+    setWebTarget({});
 
     const result = await installWebUpdate();
+    if (getRuntimeEndpointGeneration() !== runtimeGeneration) return;
 
     if (!result.success) {
       setWebUpdateState('error');
       setWebError(result.error || "Update failed");
+      setWebCommands(result.commands ?? null);
       return;
     }
 
-    if (result.autoRestart) {
-      setWebUpdateState('restarting');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
+    setWebTarget({ version: result.targetVersion, channel: result.channel });
 
-    setWebUpdateState('reconnecting');
-
-    const applied = await waitForUpdateApplied(info?.currentVersion);
-
-    if (applied) {
-      window.location.reload();
-    } else {
+    if (result.jobId) {
+      const outcome = await waitForUpdateJob(
+        result.jobId,
+        (state) => {
+          if (getRuntimeEndpointGeneration() === runtimeGeneration) setWebUpdateState(state);
+        },
+        undefined,
+        undefined,
+        runtimeGeneration,
+      );
+      if (outcome.stale || getRuntimeEndpointGeneration() !== runtimeGeneration) return;
+      if (outcome.applied) {
+        window.location.reload();
+        return;
+      }
       setWebUpdateState('error');
-      setWebError("Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
+      setWebError(outcome.error || "Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
+      return;
     }
+
+    // Older servers do not return a job ID. Keep the version-based reconnect
+    // path so a newer mobile or desktop client can still update them.
+    setWebUpdateState(result.autoRestart ? 'restarting' : 'reconnecting');
+    const outcome = await waitForUpdateApplied(info?.currentVersion, undefined, undefined, runtimeGeneration);
+    if (outcome.stale || getRuntimeEndpointGeneration() !== runtimeGeneration) return;
+    if (outcome.applied) {
+      window.location.reload();
+      return;
+    }
+    setWebUpdateState('error');
+    setWebError(outcome.error || "Update is taking longer than expected. Wait a bit and refresh, or run: pichamber update");
   }, [info?.currentVersion]);
 
   const handleMobileUpdate = useCallback(() => {
@@ -319,18 +273,23 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           </DialogTitle>
 
           {/* Version Diff */}
-          {(info?.currentVersion || info?.version) && (
+          {(info?.currentVersion || displayedVersion) && (
             <div className="flex items-center gap-2 font-mono text-sm ml-3">
               {info?.currentVersion && (
                 <span className="text-muted-foreground">{info.currentVersion}</span>
               )}
-              {info?.currentVersion && info?.version && (
+              {info?.currentVersion && displayedVersion && (
                 <span className="text-muted-foreground/50">→</span>
               )}
-              {info?.version && (
-                <span className="text-[var(--primary-base)] font-medium">{info.version}</span>
+              {displayedVersion && (
+                <span className="text-[var(--primary-base)] font-medium">{displayedVersion}</span>
               )}
             </div>
+          )}
+          {isWebRuntime && displayedChannel && (
+            <span className="ml-3 typography-meta text-muted-foreground">
+              {displayedChannel === 'rc' ? "RC subscription" : "Stable subscription"}
+            </span>
           )}
         </div>
 
@@ -410,34 +369,41 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             </div>
           )}
 
+          {/* Error display */}
+          {(error || webError) && (
+            <div className="p-3 mt-4 bg-[var(--status-error-background)] border border-[var(--status-error-border)] rounded-lg">
+              <p className="text-sm text-[var(--status-error)]">{error || webError}</p>
+            </div>
+          )}
+
           {/* Web runtime fallback command */}
-          {isWebRuntime && webUpdateState === 'error' && (
+          {isWebRuntime && webUpdateState === 'error' && (webCommands ?? [updateCommand]).length > 0 && (
             <div className="space-y-2 mt-4">
               <div className="flex items-center gap-2 typography-meta text-muted-foreground">
                 <Icon name="terminal" className="h-4 w-4" />
-                <span>{"Or update via terminal:"}</span>
+                <span>{webCommands ? "Run these commands:" : "Or update via terminal:"}</span>
               </div>
-              <div className="flex items-center gap-2 p-1 pl-3 bg-[var(--surface-elevated)]/50 rounded-md border border-[var(--surface-subtle)]">
-                <code className="flex-1 font-mono text-sm text-foreground overflow-x-auto whitespace-nowrap">
-                  {updateCommand}
-                </code>
-                <button
-                  onClick={handleCopyCommand}
-                  className={cn(
-                    'flex items-center justify-center p-2 rounded',
-                    'text-muted-foreground hover:text-foreground hover:bg-[var(--interactive-hover)]',
-                    'transition-colors',
-                    copied && 'text-[var(--status-success)]'
-                  )}
-                  title={copied ? "Copied!" : "Copy command"}
-                >
-                  {copied ? (
-                    <Icon name="check" className="h-4 w-4" />
-                  ) : (
-                    <Icon name="clipboard" className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
+              {(webCommands ?? [updateCommand]).map((command) => (
+                <div key={command} className="flex items-center gap-2 p-1 pl-3 bg-[var(--surface-elevated)]/50 rounded-md border border-[var(--surface-subtle)]">
+                  <code className="flex-1 font-mono text-sm text-foreground overflow-x-auto whitespace-nowrap">
+                    {command}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void handleCopyCommand(command)}
+                    className={copiedCommand === command ? 'text-[var(--status-success)]' : undefined}
+                    title={copiedCommand === command ? "Copied!" : "Copy command"}
+                    aria-label={copiedCommand === command ? "Copied!" : "Copy command"}
+                  >
+                    {copiedCommand === command ? (
+                      <Icon name="check" className="h-4 w-4" />
+                    ) : (
+                      <Icon name="clipboard" className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -457,12 +423,6 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             </div>
           )}
 
-          {/* Error display */}
-          {(error || webError) && (
-            <div className="p-3 mt-4 bg-[var(--status-error-background)] border border-[var(--status-error-border)] rounded-lg">
-              <p className="text-sm text-[var(--status-error)]">{error || webError}</p>
-            </div>
-          )}
         </div>
 
         {/* Action Footer */}

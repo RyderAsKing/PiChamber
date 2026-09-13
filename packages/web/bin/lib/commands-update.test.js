@@ -37,11 +37,27 @@ function createTestUpdateCommand(overrides = {}) {
     discoverInstances: overrides.discoverInstances,
     requestShutdown: overrides.requestShutdown,
     stopProcess: overrides.stopProcess,
+    claimUpdateJob: overrides.claimUpdateJob || vi.fn(async () => ({
+      created: true,
+      job: { id: '10000000-0000-4000-8000-000000000001', state: 'queued' },
+    })),
+    readUpdateJob: overrides.readUpdateJob || vi.fn(async () => null),
+    updateUpdateJob: overrides.updateUpdateJob || vi.fn(async () => {}),
+    readServerUpdateChannel: overrides.readServerUpdateChannel || vi.fn(async () => 'stable'),
     importFromFilePath: vi.fn(async () => ({
       checkForUpdates: overrides.checkForUpdates || vi.fn(async () => ({ available: true, version: '9.9.9' })),
-      resolveTrustedUpdatePackageManager: overrides.resolveTrustedUpdatePackageManager || vi.fn(() => 'npm'),
+      getUpdateCapability: overrides.getUpdateCapability || (() => {
+        const packageManager = (overrides.resolveTrustedUpdatePackageManager || (() => 'npm'))();
+        return packageManager
+          ? { supported: true, code: 'SUPPORTED', packageManager }
+          : { supported: false, code: 'UNSUPPORTED_INSTALL', error: 'This PiChamber copy requires a manual update.' };
+      }),
       executeUpdate,
       getCurrentVersion,
+      getInstalledVersion: overrides.getInstalledVersion || getCurrentVersion,
+      isInsidePiChamberSystemdService: overrides.isInsidePiChamberSystemdService || (() => false),
+      launchUpdateCommand: overrides.launchUpdateCommand,
+      normalizeServerUpdateChannel: (value) => value === 'rc' ? 'rc' : 'stable',
     })),
   });
   return { updateCommand, executeUpdate, serveCommand, restartUserStartupService };
@@ -57,10 +73,25 @@ describe('update command', () => {
       try {
         await updateCommand({ json: true });
 
-        expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true });
+        expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true, targetVersion: '9.9.9' });
       } finally {
         process.stdout.write = originalWrite;
       }
+    });
+  });
+
+  it('uses the saved server channel unless the CLI supplies an override', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const checkForUpdates = vi.fn(async ({ channel }) => ({ available: false, version: '1.0.0', channel }));
+      const readServerUpdateChannel = vi.fn(async () => 'rc');
+      const { updateCommand } = createTestUpdateCommand({ checkForUpdates, readServerUpdateChannel });
+
+      await updateCommand({ quiet: true });
+      await updateCommand({ quiet: true, channel: 'stable' });
+
+      expect(checkForUpdates).toHaveBeenNthCalledWith(1, { channel: 'rc' });
+      expect(checkForUpdates).toHaveBeenNthCalledWith(2, { channel: 'stable' });
+      expect(readServerUpdateChannel).toHaveBeenCalledOnce();
     });
   });
 
@@ -90,7 +121,26 @@ describe('update command', () => {
     });
   });
 
-  it('reports a version mismatch as a warning', async () => {
+  it('persists terminal success before returning JSON output', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn(() => true);
+      const updateUpdateJob = vi.fn(async () => {});
+      const { updateCommand } = createTestUpdateCommand({ updateUpdateJob });
+
+      try {
+        await updateCommand({ json: true });
+        expect(updateUpdateJob).toHaveBeenLastCalledWith(
+          '10000000-0000-4000-8000-000000000001',
+          expect.objectContaining({ state: 'complete', currentVersion: '9.9.9' }),
+        );
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+    });
+  });
+
+  it('fails verification without restarting the startup service', async () => {
     await withTempPiChamberDataDir(async () => {
       const output = [];
       const originalWrite = process.stdout.write;
@@ -98,8 +148,11 @@ describe('update command', () => {
         output.push(String(chunk));
         return true;
       });
-      const { updateCommand } = createTestUpdateCommand({
+      const updateUpdateJob = vi.fn(async () => {});
+      const { updateCommand, restartUserStartupService } = createTestUpdateCommand({
         getCurrentVersion: vi.fn().mockReturnValueOnce('1.0.0').mockReturnValue('1.0.0'),
+        isUserStartupServiceActive: () => true,
+        updateUpdateJob,
       });
 
       try {
@@ -110,6 +163,11 @@ describe('update command', () => {
           currentVersion: '1.0.0',
           versionVerified: false,
         });
+        expect(restartUserStartupService).not.toHaveBeenCalled();
+        expect(updateUpdateJob).toHaveBeenLastCalledWith(
+          '10000000-0000-4000-8000-000000000001',
+          expect.objectContaining({ state: 'failed', currentVersion: '1.0.0' }),
+        );
       } finally {
         process.stdout.write = originalWrite;
       }
@@ -161,20 +219,157 @@ describe('update command', () => {
       });
 
       await expect(updateCommand({ quiet: true })).rejects.toThrow('Update failed with exit code 1');
-      expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true });
+      expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true, targetVersion: '9.9.9' });
       expect(serveCommand).not.toHaveBeenCalled();
       expect(restartUserStartupService).not.toHaveBeenCalled();
     });
   });
 
-  it('skips in-app update when running inside a systemd service unit', async () => {
+  it('delegates an update from the PiChamber systemd unit to a transient worker', async () => {
     await withTempPiChamberDataDir(async () => {
+      const launchUpdateCommand = vi.fn(async () => ({
+        success: true,
+        jobId: '10000000-0000-4000-8000-000000000001',
+      }));
       const { updateCommand, executeUpdate } = createTestUpdateCommand({
         isInsideSystemdService: () => true,
+        launchUpdateCommand,
       });
 
-      await expect(updateCommand({ quiet: true })).rejects.toThrow('pichamber update cannot replace this process while it is running as a systemd service');
+      await updateCommand({ quiet: true });
+
+      expect(launchUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
+        previousVersion: '1.0.0',
+        targetVersion: '9.9.9',
+        packageManager: 'npm',
+        isSystemd: true,
+      }));
       expect(executeUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  it('reports an existing systemd update job without claiming that it started another worker', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const output = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        isInsideSystemdService: () => true,
+        launchUpdateCommand: vi.fn(async () => ({
+          success: true,
+          existing: true,
+          jobId: '10000000-0000-4000-8000-000000000001',
+          channel: 'rc',
+          targetVersion: '9.9.9',
+        })),
+      });
+      try {
+        await updateCommand({ json: true, channel: 'rc' });
+        expect(JSON.parse(output.join(''))).toMatchObject({ status: 'in-progress', channel: 'rc' });
+        expect(executeUpdate).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+    });
+  });
+
+  it('reports the existing job target and channel when update work is deduplicated', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const output = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
+      const claimUpdateJob = vi.fn(async () => ({
+        created: false,
+        job: {
+          id: '10000000-0000-4000-8000-000000000001',
+          state: 'installing',
+          previousVersion: '0.9.0',
+          targetVersion: '10.0.0-rc.2',
+          channel: 'rc',
+        },
+      }));
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({ claimUpdateJob });
+
+      try {
+        await updateCommand({ json: true, channel: 'stable' });
+        expect(JSON.parse(output.join(''))).toMatchObject({
+          status: 'in-progress',
+          previousVersion: '0.9.0',
+          latestVersion: '10.0.0-rc.2',
+          channel: 'rc',
+        });
+        expect(executeUpdate).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.write = originalWrite;
+      }
+    });
+  });
+
+  it('records worker progress and completion around installation', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const updateUpdateJob = vi.fn(async () => {});
+      const checkForUpdates = vi.fn(async () => ({ available: true, version: '10.0.0' }));
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        updateUpdateJob,
+        checkForUpdates,
+        readUpdateJob: vi.fn(async () => ({
+          id: '10000000-0000-4000-8000-000000000001',
+          state: 'queued',
+          targetVersion: '9.9.9',
+          channel: 'rc',
+        })),
+      });
+      const jobId = '10000000-0000-4000-8000-000000000001';
+
+      await updateCommand({ quiet: true, updateWorker: true, updateJobId: jobId });
+
+      expect(checkForUpdates).not.toHaveBeenCalled();
+      expect(executeUpdate).toHaveBeenCalledWith('npm', { silent: true, targetVersion: '9.9.9' });
+      expect(updateUpdateJob).toHaveBeenCalledWith(jobId, expect.objectContaining({ state: 'installing', channel: 'rc' }));
+      expect(updateUpdateJob).toHaveBeenCalledWith(jobId, expect.objectContaining({ state: 'verifying' }));
+      expect(updateUpdateJob).toHaveBeenLastCalledWith(jobId, expect.objectContaining({ state: 'complete' }));
+    });
+  });
+
+  it.each([false, true])('reports and persists deployment rejection in JSON mode (worker: %s)', async (updateWorker) => {
+    await withTempPiChamberDataDir(async () => {
+      const jobId = '10000000-0000-4000-8000-000000000001';
+      const updateUpdateJob = vi.fn(async () => {});
+      const output = [];
+      const originalWrite = process.stdout.write;
+      process.stdout.write = vi.fn((chunk) => { output.push(String(chunk)); return true; });
+      const { updateCommand, executeUpdate } = createTestUpdateCommand({
+        updateUpdateJob,
+        readUpdateJob: vi.fn(async () => ({ id: jobId, state: 'queued', targetVersion: '9.9.9' })),
+        getUpdateCapability: () => ({
+          supported: false,
+          code: 'DOCKER_DEPLOYMENT',
+          error: 'Recreate the container from the newer image.',
+        }),
+      });
+
+      try {
+        const result = await updateCommand({ json: true, updateWorker, updateJobId: updateWorker ? jobId : undefined });
+        expect(result.exitCode).toBe(1);
+        expect(JSON.parse(output.join(''))).toMatchObject({
+          status: 'error',
+          updated: false,
+          code: 'DOCKER_DEPLOYMENT',
+          error: 'Recreate the container from the newer image.',
+        });
+        if (updateWorker) {
+          expect(updateUpdateJob).toHaveBeenCalledExactlyOnceWith(jobId, {
+            state: 'failed',
+            error: 'Recreate the container from the newer image.',
+          });
+          expect(updateUpdateJob.mock.invocationCallOrder[0]).toBeLessThan(process.stdout.write.mock.invocationCallOrder[0]);
+        } else {
+          expect(updateUpdateJob).not.toHaveBeenCalled();
+        }
+        expect(executeUpdate).not.toHaveBeenCalled();
+      } finally {
+        process.stdout.write = originalWrite;
+      }
     });
   });
 
@@ -184,7 +379,7 @@ describe('update command', () => {
         resolveTrustedUpdatePackageManager: vi.fn(() => null),
       });
 
-      await expect(updateCommand({ quiet: true })).rejects.toThrow('This PiChamber copy is not a global package-manager install.');
+      await expect(updateCommand({ quiet: true })).rejects.toThrow('This PiChamber copy requires a manual update.');
       expect(executeUpdate).not.toHaveBeenCalled();
     });
   });

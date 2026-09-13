@@ -50,20 +50,37 @@ pichamber update
 
 In an interactive terminal, the CLI reviews the current version, target version,
 package manager, and restart plan before it changes the install. Use `--yes` or
-`-y` to skip the confirmation:
+`-y` to skip the confirmation. The saved server update channel defaults to
+`stable`; use `--channel` for a one-time override without changing that default:
 
 ```sh
 pichamber update --yes
+pichamber update --channel rc
 ```
 
-The update command only replaces a trusted global package-manager install. It
-refuses in-place replacement for Docker deployments, systemd-owned processes,
-and other installs whose package manager cannot be identified. After a package
-update it verifies the installed version and reports instances that could not
-restart.
+The `rc` channel compares the latest stable and numbered release candidate and
+offers the higher version. The installer pins the exact version selected by the check,
+so a moving npm dist-tag cannot change a running update job.
+
+The update command only replaces a trusted global package-manager install.
+For a server managed by `pichamber startup enable`, it runs the installer in a
+temporary systemd unit and restarts `pichamber.service` after verifying the new
+version. This also works from PiChamber's browser terminal. Deployments that
+cannot update themselves stop before changing the installation and explain the
+required action:
+
+- Containers must pull or build the newer image and recreate the container.
+- Source checkouts must update their checkout, rebuild the web package, and
+  restart the server.
+- Custom systemd units must run `pichamber update` from a normal terminal and
+  then restart the unit with the command shown in the error.
+- An installation owned by another account must be updated by that account, or
+  reinstalled under the account that runs the service.
+
+After a package update, the command reports instances that could not restart.
 
 Use `--json` for a machine-readable result. The result includes the previous,
-installed, and latest versions, the package manager, restart counts, and any
+installed, and latest versions, the selected channel, the package manager, restart counts, and any
 version-mismatch or partial-restart warnings. `--quiet` prints one concise
 result line without the review. A version mismatch or failed restart also
 returns a non-zero exit code, even when the package manager completed.

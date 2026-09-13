@@ -110,6 +110,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (candidate.desktopUpdateChannel === 'stable' || candidate.desktopUpdateChannel === 'rc') {
     result.desktopUpdateChannel = candidate.desktopUpdateChannel;
   }
+  if (candidate.serverUpdateChannel === 'stable' || candidate.serverUpdateChannel === 'rc') {
+    result.serverUpdateChannel = candidate.serverUpdateChannel;
+  }
 
   const projects = sanitizeProjects(candidate.projects);
   if (projects) {

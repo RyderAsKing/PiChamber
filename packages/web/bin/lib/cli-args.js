@@ -105,6 +105,8 @@ function parseArgs(argv = process.argv.slice(2)) {
     lastAssistant: false,
     withStatus: false,
     yes: false,
+    updateWorker: false,
+    updateJobId: undefined,
   };
 
   const removedFlagErrors = [];
@@ -412,6 +414,27 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'y':
         options.yes = true;
         break;
+      case 'channel': {
+        const { value, nextIndex } = consumeValue(i, inlineValue);
+        i = nextIndex;
+        if (value !== 'stable' && value !== 'rc') {
+          throw new TunnelCliError('--channel must be stable or rc.', EXIT_CODE.USAGE_ERROR);
+        }
+        options.channel = value;
+        break;
+      }
+      case 'update-worker':
+        options.updateWorker = true;
+        break;
+      case 'update-job-id': {
+        const { value, nextIndex } = consumeValue(i, inlineValue);
+        i = nextIndex;
+        if (typeof value !== 'string' || value.length === 0) {
+          throw new TunnelCliError('Missing value for --update-job-id.', EXIT_CODE.USAGE_ERROR);
+        }
+        options.updateJobId = value;
+        break;
+      }
       case 'help':
       case 'h':
         helpRequested = true;
@@ -465,6 +488,10 @@ function parseArgs(argv = process.argv.slice(2)) {
   const tunnelAction = command === 'tunnel' ? (positional[2] || null) : null;
   const startupAction = command === 'startup' ? (positional[1] || 'status') : null;
 
+  if (options.channel && command !== 'update') {
+    throw new TunnelCliError('--channel can only be used with pichamber update.', EXIT_CODE.USAGE_ERROR);
+  }
+
   if (options.lan && typeof options.host !== 'string') {
     options.host = '0.0.0.0';
   }
@@ -517,6 +544,7 @@ OPTIONS:
   --foreground            Run server in foreground (use with systemd/process managers)
   --no-daemon             Alias for --foreground
   -y, --yes               Confirm update without prompting
+  --channel <stable|rc>    Override the saved server update channel
   -h, --help              Show help
   -v, --version           Show version
 
@@ -727,7 +755,7 @@ function generateCompletionScript(shell) {
     return `# Bash completion for pichamber tunnel
 # Add to ~/.bashrc: eval "$(pichamber tunnel completion bash)"
 _pichamber_tunnel() {
-  local cur prev commands tunnel_commands profile_commands common_flags start_flags
+  local cur prev commands tunnel_commands profile_commands common_flags start_flags update_flags
   COMPREPLY=()
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
@@ -737,9 +765,19 @@ _pichamber_tunnel() {
   profile_commands="list show add remove"
   common_flags="--port --host --lan --ui-password --api-only --foreground --no-daemon --json --all --help --version --plain --quiet --yes"
   start_flags="--provider --mode --profile --config --token --token-file --token-stdin --hostname --connect-ttl --session-ttl --qr --no-qr --dry-run --show-secrets"
+  update_flags="--channel --yes"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- "\${cur}") )
+    return 0
+  fi
+
+  if [[ "\${COMP_WORDS[1]}" == "update" ]]; then
+    if [[ "\${prev}" == "--channel" ]]; then
+      COMPREPLY=( $(compgen -W "stable rc" -- "\${cur}") )
+      return 0
+    fi
+    COMPREPLY=( $(compgen -W "\${update_flags} \${common_flags}" -- "\${cur}") )
     return 0
   fi
 
@@ -821,6 +859,9 @@ _pichamber() {
       ;;
     args)
       case \$words[1] in
+        update)
+          _arguments '--channel[override the saved server update channel]:channel:(stable rc)' '--yes[skip confirmation]'
+          ;;
         tunnel)
           if (( CURRENT == 2 )); then
             _describe 'tunnel command' tunnel_commands
@@ -855,6 +896,8 @@ complete -c pichamber -n '__fish_use_subcommand' -a 'logs' -d 'Tail logs'
 complete -c pichamber -n '__fish_use_subcommand' -a 'connect-url' -d 'Generate a client pairing URL'
 complete -c pichamber -n '__fish_use_subcommand' -a 'update' -d 'Check for updates'
 complete -c pichamber -n '__fish_use_subcommand' -a 'version' -d 'Show installed version'
+
+complete -c pichamber -n '__fish_seen_subcommand_from update' -l channel -a 'stable rc' -d 'Override the saved server update channel'
 
 complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'help' -d 'Show tunnel help'
 complete -c pichamber -n '__fish_seen_subcommand_from tunnel; and not __fish_seen_subcommand_from help providers ready doctor status start stop profile completion' -a 'providers' -d 'Show providers'

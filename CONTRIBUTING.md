@@ -257,9 +257,10 @@ with `0.9.9-rc.2`. Do not reuse or move an existing RC tag.
 
 GitHub marks the result as a prerelease. Electron users subscribe under
 Settings → About. The default Stable option reads only the `latest` updater
-channel. Release candidate checks `latest` first, then `rc`. This lets a
-subscriber update automatically from `0.9.9-rc.1` to `0.9.9-rc.2`, then to the
-final `0.9.9`, while remaining subscribed for the next RC cycle.
+channel. Release candidate compares `latest` and `rc` and offers the higher
+version. This lets a subscriber update automatically from `0.9.9-rc.1` to
+`0.9.9-rc.2`, then to the final `0.9.9`, while remaining subscribed for the
+next RC cycle.
 
 If npm publication is enabled for an RC, the workflow publishes it under the
 `rc` dist-tag instead of `latest`. npm users opt in explicitly with

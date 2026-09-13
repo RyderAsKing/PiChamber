@@ -85,20 +85,22 @@ describe('Pi UI settings store', () => {
     });
   });
 
-  it('persists the desktop update subscription locally and rejects unknown channels', async () => {
+  it('persists desktop and server update subscriptions locally and rejects unknown channels', async () => {
     const { file, runtimeFile, store } = await makeStore();
 
-    await expect(store.write({ themeId: 'dark', desktopUpdateChannel: 'rc' })).resolves.toMatchObject({
+    await expect(store.write({ themeId: 'dark', desktopUpdateChannel: 'rc', serverUpdateChannel: 'stable' })).resolves.toMatchObject({
       themeId: 'dark',
       desktopUpdateChannel: 'rc',
+      serverUpdateChannel: 'stable',
     });
     await expect(readJson(file)).resolves.toEqual({
       __pichamberSettingsScope: 'portable-v1',
       themeId: 'dark',
     });
-    await expect(readJson(runtimeFile)).resolves.toEqual({ desktopUpdateChannel: 'rc' });
+    await expect(readJson(runtimeFile)).resolves.toEqual({ desktopUpdateChannel: 'rc', serverUpdateChannel: 'stable' });
     await expect(store.write({ desktopUpdateChannel: 'beta' })).rejects.toThrow('UI_SETTINGS_INVALID');
-    await expect(store.read()).resolves.toMatchObject({ desktopUpdateChannel: 'rc' });
+    await expect(store.write({ serverUpdateChannel: 'nightly' })).rejects.toThrow('UI_SETTINGS_INVALID');
+    await expect(store.read()).resolves.toMatchObject({ desktopUpdateChannel: 'rc', serverUpdateChannel: 'stable' });
   });
 
   it('rejects prototype-polluting keys', async () => {

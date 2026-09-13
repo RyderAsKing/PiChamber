@@ -922,9 +922,11 @@ describe('updateDesktopSettings', () => {
     expect(saveCalls.some((changes) => changes.autoSaveEnabled === true)).toBe(true);
   });
 
-  test('keeps only supported desktop update channels from persisted settings', () => {
+  test('keeps only supported desktop and server update channels from persisted settings', () => {
     expect(sanitizeWebSettings({ desktopUpdateChannel: 'rc' })?.desktopUpdateChannel).toBe('rc');
     expect(sanitizeWebSettings({ desktopUpdateChannel: 'stable' })?.desktopUpdateChannel).toBe('stable');
     expect(sanitizeWebSettings({ desktopUpdateChannel: 'beta' })?.desktopUpdateChannel).toBeUndefined();
+    expect(sanitizeWebSettings({ serverUpdateChannel: 'rc' })?.serverUpdateChannel).toBe('rc');
+    expect(sanitizeWebSettings({ serverUpdateChannel: 'nightly' })?.serverUpdateChannel).toBeUndefined();
   });
 });

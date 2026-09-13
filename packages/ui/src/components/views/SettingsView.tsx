@@ -9,6 +9,7 @@ import type { PiChamberSection } from "@/components/sections/pichamber/types";
 import { useMobileAppActions } from "@/apps/mobileAppContext";
 import { useDeviceInfo } from "@/lib/device";
 import { isDesktopLocalOriginActive, isDesktopShell } from "@/lib/desktop";
+import { subscribeRuntimeEndpointChanged } from "@/lib/runtime-switch";
 import { isWindowsArm64 as isWindowsArm64Platform } from "@/lib/platform";
 import { Icon } from "@/components/icon/Icon";
 import {
@@ -76,11 +77,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [isMobile, setSettingsPage, settingsSlug]);
 
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const [runtimeEndpointEpoch, setRuntimeEndpointEpoch] = React.useState(0);
+
+  React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
+    setRuntimeEndpointEpoch((value) => value + 1);
+  }), []);
 
   const isDesktopApp = React.useMemo(() => isDesktopShell(), []);
   const isDesktopLocalOrigin = React.useMemo(
     () => isDesktopShell() && isDesktopLocalOriginActive(),
-    [],
+    [runtimeEndpointEpoch],
   );
   const isMac = React.useMemo(
     () =>

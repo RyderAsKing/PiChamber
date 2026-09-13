@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **RC updates select the highest available release.** Desktop and server RC subscriptions now compare the stable and numbered RC channel heads and offer the higher semantic version instead of requiring an intermediate stable update first. Stable subscriptions remain stable-only, and final releases continue to outrank prereleases of the same version (`updater-check`, `package-manager`, `DesktopUpdateChannelSettings`).
+
 ## [0.9.8] - 2026-09-12
 
 Desktop update channels, stream-epoch-bound sends, and startup-recovery hardening since 0.9.7.

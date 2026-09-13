@@ -7,10 +7,13 @@ import { createPiArchiveStore } from './archive-store.js';
 import { createPiAttachmentStore } from './attachment-store.js';
 import {
   checkForUpdates,
+  getCurrentVersion,
+  getUpdateCapability,
   launchUpdateCommand,
-  resolveTrustedUpdatePackageManager,
+  normalizeServerUpdateChannel,
 } from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
+import { readUpdateJob } from '../update-job-store.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
@@ -823,7 +826,9 @@ export const registerPiRuntimeRoutes = (app, {
   listCustomThemes = listPiCustomThemes,
   updateChecker = checkForUpdates,
   updateLauncher = launchUpdateCommand,
-  resolveUpdatePackageManager = resolveTrustedUpdatePackageManager,
+  currentVersionReader = getCurrentVersion,
+  updateJobReader = readUpdateJob,
+  updateCapabilityResolver = getUpdateCapability,
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
@@ -873,35 +878,94 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  const readServerUpdateChannel = async () => {
+    const settings = await uiSettingsStore.read();
+    return normalizeServerUpdateChannel(settings.serverUpdateChannel);
+  };
+
   app.get('/api/pi/update-check', async (req, res) => {
     try {
+      const appType = typeof req.query.appType === 'string' ? req.query.appType : undefined;
+      const channel = appType === undefined || appType === 'web'
+        ? await readServerUpdateChannel()
+        : 'stable';
       res.json(await updateChecker({
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
-        appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
+        appType,
+        deviceClass: typeof req.query.deviceClass === 'string' ? req.query.deviceClass : undefined,
+        arch: typeof req.query.arch === 'string' ? req.query.arch : undefined,
         platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
         instanceMode: typeof req.query.instanceMode === 'string' ? req.query.instanceMode : undefined,
+        channel,
       }));
     } catch {
       res.status(503).json({ error: 'Update check unavailable' });
     }
   });
 
-  app.post('/api/pi/update-install', (_req, res) => {
-    const packageManager = resolveUpdatePackageManager();
-    if (!packageManager) {
+  app.post('/api/pi/update-install', async (_req, res) => {
+    const capability = updateCapabilityResolver({ serverProcess: true });
+    if (!capability.supported) {
       res.status(409).json({
         success: false,
-        error: 'This PiChamber copy is not a supported global package-manager install. Run: pichamber update',
+        code: capability.code,
+        error: capability.error,
+        commands: capability.commands || [],
       });
       return;
     }
 
-    const result = updateLauncher();
-    if (!result.success) {
-      res.status(409).json({ success: false, error: result.error });
-      return;
+    try {
+      const previousVersion = currentVersionReader();
+      const channel = await readServerUpdateChannel();
+      const updateInfo = await updateChecker({
+        currentVersion: previousVersion,
+        appType: 'web',
+        instanceMode: 'server',
+        channel,
+      });
+      if (updateInfo.error) {
+        res.status(503).json({ success: false, error: updateInfo.error });
+        return;
+      }
+      if (!updateInfo.available || typeof updateInfo.version !== 'string') {
+        res.status(409).json({ success: false, code: 'UP_TO_DATE', error: 'This PiChamber server is already up to date.', commands: [] });
+        return;
+      }
+      const result = await updateLauncher({
+        packageManager: capability.packageManager,
+        previousVersion,
+        targetVersion: updateInfo.version,
+        channel,
+      });
+      if (!result.success) {
+        res.status(409).json({ success: false, jobId: result.jobId, error: result.error });
+        return;
+      }
+      res.status(result.existing ? 200 : 202).json({
+        success: true,
+        autoRestart: true,
+        jobId: result.jobId,
+        state: result.state,
+        channel: result.channel || channel,
+        targetVersion: result.targetVersion || updateInfo.version,
+      });
+    } catch {
+      res.status(500).json({ success: false, error: 'Could not start the updater. Run: pichamber update' });
     }
-    res.json({ success: true, autoRestart: true });
+  });
+
+  app.get('/api/pi/update-install/:jobId', async (req, res) => {
+    try {
+      const job = await updateJobReader(req.params.jobId);
+      if (!job) {
+        res.status(404).json({ error: 'Update job was not found' });
+        return;
+      }
+      res.json(job);
+    } catch {
+      res.status(503).json({ error: 'Update status is unavailable' });
+    }
   });
 
   app.get('/api/pi/runtime', async (_req, res) => {

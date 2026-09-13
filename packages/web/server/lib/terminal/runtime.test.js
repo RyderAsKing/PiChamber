@@ -154,6 +154,7 @@ describe('terminal runtime', () => {
       expect(harness.processes[0].options.cwd).toBe('/repo');
       expect(harness.processes[0].options.env.COLORFGBG).toBe('0;15');
       expect(harness.processes[0].options.env.NODE_CHANNEL_FD).toBe('');
+      expect(harness.processes[0].options.env.PICHAMBER_SERVER_TERMINAL).toBe('1');
       expect(harness.processes[0].options.env).not.toHaveProperty('ARGV0');
       expect(harness.processes[0].options.env).not.toHaveProperty('ELECTRON_RUN_AS_NODE');
       if (process.platform === 'linux') {

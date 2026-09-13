@@ -127,6 +127,7 @@ async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: strin
           : undefined,
       packageManager: data.packageManager,
       updateCommand: data.updateCommand,
+      channel: data.channel === 'rc' ? 'rc' : 'stable',
     };
   } catch (error) {
     console.warn('Failed to check for updates:', error);
