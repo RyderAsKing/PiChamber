@@ -31,7 +31,7 @@ import {
   recoverLinuxAppImageUpdate,
 } from './linux-appimage-update.mjs';
 import { installLinuxPackageUpdate, unescapeUpdaterInstallerPath } from './linux-package-update.mjs';
-import { checkForDesktopUpdate } from './updater-check.mjs';
+import { createDesktopUpdateCoordinator } from './updater-check.mjs';
 import {
   compareReleaseVersions,
   resolveDesktopUpdateChannel,
@@ -294,6 +294,12 @@ const state = {
   lastFocusedWindowId: null,
   keepAwakeBlockerId: null,
 };
+
+const desktopUpdateCoordinator = createDesktopUpdateCoordinator({
+  autoUpdater,
+  state,
+  compareVersions: compareReleaseVersions,
+});
 
 const processPerformanceRecorder = createProcessPerformanceRecorder({
   outputDirectory: path.join(app.getPath('userData'), 'performance'),
@@ -3014,9 +3020,6 @@ const setupAutoUpdater = () => {
   autoUpdater.on('update-downloaded', (info) => {
     log.info(`[electron] update-downloaded version=${info?.version || 'unknown'}`);
     setTaskbarProgress(-1);
-    if (state.pendingUpdate) {
-      state.pendingUpdate.downloaded = true;
-    }
   });
 
   autoUpdater.on('error', (err) => {
@@ -4197,17 +4200,13 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
           architecture: process.arch,
         });
       }
-      const { available, updateInfo, updateResult, nextVersion, pendingUpdate } = await checkForDesktopUpdate({
-        autoUpdater,
+      const { available, updateInfo, nextVersion } = await desktopUpdateCoordinator.check({
         currentVersion,
-        pendingUpdate: state.pendingUpdate,
-        compareVersions: compareReleaseVersions,
         updateChecks: desktopUpdaterChecks,
       });
       const body =
         (typeof updateInfo?.releaseNotes === 'string' && updateInfo.releaseNotes.trim() ? updateInfo.releaseNotes : null) ||
         await parseRelevantChangelogNotes(currentVersion, nextVersion);
-      state.pendingUpdate = pendingUpdate;
       return {
         available,
         currentVersion,
@@ -4221,9 +4220,6 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
 
     case 'desktop_download_and_install_update':
       assertUpdaterCapability({ packaged: app.isPackaged, packageType: currentLinuxPackageType() });
-      if (!state.pendingUpdate) {
-        throw new Error('No pending update');
-      }
       setTaskbarProgress(0.01);
       emitToAllWindows('pichamber:update-progress', mapUpdaterProgressEvent({
         event: 'Started',
@@ -4232,29 +4228,7 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         },
       }));
       try {
-        if (!state.pendingUpdate.electronUpdate) {
-          throw new Error('Electron updater metadata is not available for this build');
-        }
-        if (!state.pendingUpdate.downloaded) {
-          await new Promise((resolve, reject) => {
-            let settled = false;
-            const cleanup = () => {
-              autoUpdater.off('update-downloaded', onDownloaded);
-              autoUpdater.off('error', onError);
-            };
-            const finish = (callback, value) => {
-              if (settled) return;
-              settled = true;
-              cleanup();
-              callback(value);
-            };
-            const onDownloaded = () => finish(resolve, null);
-            const onError = (error) => finish(reject, error);
-            autoUpdater.on('update-downloaded', onDownloaded);
-            autoUpdater.on('error', onError);
-            Promise.resolve(autoUpdater.downloadUpdate()).catch((error) => finish(reject, error));
-          });
-        }
+        await desktopUpdateCoordinator.download();
         emitToAllWindows('pichamber:update-progress', mapUpdaterProgressEvent({
           event: 'Finished',
           data: {},

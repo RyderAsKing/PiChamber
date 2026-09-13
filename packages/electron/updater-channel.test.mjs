@@ -28,7 +28,7 @@ test('the persisted update subscription defaults invalid and missing values to s
   assert.equal(resolveDesktopUpdateChannel(undefined), 'stable');
 });
 
-test('rc subscribers check stable before checking the rc channel', () => {
+test('rc subscribers probe both stable and rc channels', () => {
   assert.equal(isReleaseCandidateVersion('0.9.9-rc.1'), true);
   assert.equal(isReleaseCandidateVersion('0.9.9-beta.1'), false);
   assert.deepEqual(resolveUpdaterChecks({
