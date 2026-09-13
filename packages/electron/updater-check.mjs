@@ -1,5 +1,74 @@
 const MISSING_UPDATE_FEED_RE =
   /\b(?:HttpError:\s*404|status code 404|404 Not Found)\b/i;
+const CHANGELOG_BASE_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber';
+const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
+
+export const formatUpdaterReleaseNotes = (releaseNotes, options = {}) => {
+  if (typeof releaseNotes === 'string') {
+    return releaseNotes.trim() || null;
+  }
+  if (!Array.isArray(releaseNotes)) return null;
+
+  const { fromVersion, toVersion, compareVersions } = options;
+  const sections = releaseNotes.flatMap((releaseNote) => {
+    const note = typeof releaseNote?.note === 'string' ? releaseNote.note.trim() : '';
+    if (!note) return [];
+    const version = typeof releaseNote?.version === 'string' ? releaseNote.version.trim() : '';
+    if (
+      version
+      && typeof compareVersions === 'function'
+      && (compareVersions(version, fromVersion) <= 0 || compareVersions(version, toVersion) > 0)
+    ) {
+      return [];
+    }
+    if (/^##\s+\[/m.test(note)) return [note];
+    return [version ? `## [${version}]\n\n${note}` : note];
+  });
+  return sections.length > 0 ? sections.join('\n\n') : null;
+};
+
+export const fetchRelevantChangelogNotes = async ({
+  fromVersion,
+  toVersion,
+  compareVersions,
+  fetchImpl = globalThis.fetch,
+}) => {
+  const tag = `v${encodeURIComponent(toVersion)}`;
+  try {
+    const response = await fetchImpl(`${GITHUB_RELEASES_API_URL}/tags/${tag}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'pichamber-update-check',
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.ok) {
+      const release = await response.json();
+      const body = typeof release?.body === 'string' ? release.body.trim() : '';
+      if (body) return body;
+    }
+  } catch {
+  }
+
+  try {
+    const response = await fetchImpl(`${CHANGELOG_BASE_URL}/${tag}/CHANGELOG.md`, {
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) return null;
+    const changelog = await response.text();
+    const sections = changelog.split(/^##\s+\[/m).slice(1);
+    const relevant = [];
+    for (const section of sections) {
+      const version = section.split(']')[0];
+      if (compareVersions(version, fromVersion) > 0 && compareVersions(version, toVersion) <= 0) {
+        relevant.push(`## [${section}`.trim());
+      }
+    }
+    return relevant.length > 0 ? relevant.join('\n\n') : null;
+  } catch {
+    return null;
+  }
+};
 
 export const isMissingUpdateFeedError = (error) => {
   const message = error instanceof Error ? error.message : String(error ?? '');

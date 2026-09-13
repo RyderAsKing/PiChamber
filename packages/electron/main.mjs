@@ -31,7 +31,11 @@ import {
   recoverLinuxAppImageUpdate,
 } from './linux-appimage-update.mjs';
 import { installLinuxPackageUpdate, unescapeUpdaterInstallerPath } from './linux-package-update.mjs';
-import { createDesktopUpdateCoordinator } from './updater-check.mjs';
+import {
+  createDesktopUpdateCoordinator,
+  fetchRelevantChangelogNotes,
+  formatUpdaterReleaseNotes,
+} from './updater-check.mjs';
 import {
   compareReleaseVersions,
   resolveDesktopUpdateChannel,
@@ -256,7 +260,6 @@ const LOCAL_DESKTOP_CLIENT_DEDUPE_KEY = 'desktop-local';
 // connecting to someone else's server).
 const REMOTE_DESKTOP_CLIENT_KIND = 'desktop';
 const ENV_OVERRIDE_HOST_ID = '__env';
-const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/CHANGELOG.md';
 const GITHUB_BUG_REPORT_URL = 'https://github.com/RyderAsKing/PiChamber/issues/new?template=bug_report.yml';
 const GITHUB_FEATURE_REQUEST_URL = 'https://github.com/RyderAsKing/PiChamber/issues/new?template=feature_request.yml';
 const INSTALLED_APPS_CACHE_TTL_SECS = 60 * 60 * 24;
@@ -3028,25 +3031,6 @@ const setupAutoUpdater = () => {
   });
 };
 
-const parseRelevantChangelogNotes = async (fromVersion, toVersion) => {
-  try {
-    const response = await fetch(CHANGELOG_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!response.ok) return null;
-    const changelog = await response.text();
-    const sections = changelog.split(/^##\s+\[/m).slice(1);
-    const relevant = [];
-    for (const section of sections) {
-      const version = section.split(']')[0];
-      if (compareReleaseVersions(version, fromVersion) > 0 && compareReleaseVersions(version, toVersion) <= 0) {
-        relevant.push(`## [${section}`.trim());
-      }
-    }
-    return relevant.length > 0 ? relevant.join('\n\n') : null;
-  } catch {
-    return null;
-  }
-};
-
 const buildInstalledAppsCachePath = () => path.join(path.dirname(settingsFilePath()), INSTALLED_APPS_CACHE_FILE);
 
 // Async variants. sips + mdfind via spawnSync blocked the Electron main event
@@ -4205,8 +4189,16 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         updateChecks: desktopUpdaterChecks,
       });
       const body =
-        (typeof updateInfo?.releaseNotes === 'string' && updateInfo.releaseNotes.trim() ? updateInfo.releaseNotes : null) ||
-        await parseRelevantChangelogNotes(currentVersion, nextVersion);
+        formatUpdaterReleaseNotes(updateInfo?.releaseNotes, {
+          fromVersion: currentVersion,
+          toVersion: nextVersion,
+          compareVersions: compareReleaseVersions,
+        }) ||
+        await fetchRelevantChangelogNotes({
+          fromVersion: currentVersion,
+          toVersion: nextVersion,
+          compareVersions: compareReleaseVersions,
+        });
       return {
         available,
         currentVersion,

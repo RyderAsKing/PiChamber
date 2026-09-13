@@ -12,7 +12,7 @@ const PACKAGE_NAME = '@pi-chamber/web';
 const PACKAGE_PATH_SEGMENTS = PACKAGE_NAME.split('/');
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/${encodeURIComponent(PACKAGE_NAME)}`;
 const OFFICIAL_GITHUB_REPO = 'ryderasking/pichamber';
-const CHANGELOG_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber/main/CHANGELOG.md';
+const CHANGELOG_BASE_URL = 'https://raw.githubusercontent.com/RyderAsKing/PiChamber';
 const GITHUB_RELEASES_URL = 'https://github.com/RyderAsKing/PiChamber/releases';
 const GITHUB_RELEASES_API_URL = 'https://api.github.com/repos/RyderAsKing/PiChamber/releases';
 let cachedDetectedPm = null;
@@ -888,8 +888,25 @@ function compareVersions(left, right) {
  * Fetch changelog notes between versions
  */
 async function fetchChangelogNotes(fromVersion, toVersion) {
+  const tag = `v${encodeURIComponent(toVersion)}`;
   try {
-    const response = await fetch(CHANGELOG_URL, {
+    const response = await fetch(`${GITHUB_RELEASES_API_URL}/tags/${tag}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'pichamber-update-check',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (response.ok) {
+      const release = await response.json();
+      const body = typeof release?.body === 'string' ? release.body.trim() : '';
+      if (body) return body;
+    }
+  } catch {
+  }
+
+  try {
+    const response = await fetch(`${CHANGELOG_BASE_URL}/${tag}/CHANGELOG.md`, {
       signal: AbortSignal.timeout(10000),
     });
 
@@ -899,9 +916,10 @@ async function fetchChangelogNotes(fromVersion, toVersion) {
     const sections = changelog.split(/^## /m).slice(1);
 
     const relevantSections = sections.filter((section) => {
-      const match = section.match(/^\[(\d+\.\d+\.\d+)\]/);
-      if (!match) return false;
-      return compareVersions(match[1], fromVersion) > 0 && compareVersions(match[1], toVersion) <= 0;
+      const match = section.match(/^\[([^\]]+)\]/);
+      const version = match?.[1];
+      if (!version || !SEMVER_PATTERN.test(version)) return false;
+      return compareVersions(version, fromVersion) > 0 && compareVersions(version, toVersion) <= 0;
     });
 
     if (relevantSections.length === 0) return undefined;
