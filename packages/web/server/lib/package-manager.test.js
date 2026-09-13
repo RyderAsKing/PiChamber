@@ -19,9 +19,9 @@ const {
   resolveTrustedUpdatePackageManager,
 } = await import('./package-manager.js');
 
-function officialRegistryPackage(latest) {
+function officialRegistryPackage(latest, rc) {
   return {
-    'dist-tags': { latest },
+    'dist-tags': { latest, ...(rc ? { rc } : {}) },
     repository: { url: 'git+https://github.com/RyderAsKing/PiChamber.git' },
   };
 }
@@ -95,6 +95,45 @@ describe('checkForUpdates (no hosted API by default)', () => {
       expect(result.releaseUrl).toBe('https://github.com/RyderAsKing/PiChamber/releases/tag/v1.10.0');
       // No requests to api.pichamber.dev when the override is absent.
       expect(fetchMock.calls.map((c) => c.url).some((u) => u.includes('api.pichamber.dev'))).toBe(false);
+    });
+  });
+
+  it('selects a newer RC after confirming there is no newer stable release', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('1.9.10', '2.0.0-rc.2'),
+        })
+        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.0.0-rc.2', channel: 'rc' });
+    });
+  });
+
+  it('offers a newer stable release before the next RC', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('2.0.0', '2.1.0-rc.1'),
+        })
+        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
+      const result = await checkForUpdates({ currentVersion: '1.9.10', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.0.0', channel: 'rc' });
+    });
+  });
+
+  it('compares numbered release candidates using semver precedence', async () => {
+    await withNoHostedApi(async () => {
+      fetchMock
+        .when('registry.npmjs.org', {
+          ok: true,
+          json: async () => officialRegistryPackage('1.9.10', '2.0.0-rc.10'),
+        })
+        .when('raw.githubusercontent.com', { ok: true, text: async () => '' });
+      const result = await checkForUpdates({ currentVersion: '2.0.0-rc.2', channel: 'rc' });
+      expect(result).toMatchObject({ available: true, version: '2.0.0-rc.10' });
     });
   });
 
@@ -179,6 +218,8 @@ describe('checkForUpdates (no hosted API by default)', () => {
       expect(result.version).toBe('1.11.0');
       const urls = fetchMock.calls.map((c) => c.url);
       expect(urls.some((u) => u.includes('updates.example.test'))).toBe(true);
+      const hostedCall = fetchMock.calls.find((call) => call.url.includes('updates.example.test'));
+      expect(JSON.parse(hostedCall.options.body)).toMatchObject({ channel: 'stable' });
       expect(urls.some((u) => u.includes('api.pichamber.dev'))).toBe(false);
     } finally {
       if (typeof previous === 'string') {
@@ -482,6 +523,22 @@ describe('launchUpdateCommand', () => {
     expect(unref).toHaveBeenCalledOnce();
   });
 
+  it('pins the selected channel and target in the worker job', async () => {
+    const options = jobOptions();
+    await launchUpdateCommand({
+      isContainer: false,
+      isSystemd: false,
+      targetVersion: '2.0.0-rc.3',
+      channel: 'rc',
+      spawnProcess: () => ({ once: vi.fn(), unref: vi.fn() }),
+      ...options,
+    });
+    expect(options.claimUpdateJob).toHaveBeenCalledWith(expect.objectContaining({
+      targetVersion: '2.0.0-rc.3',
+      channel: 'rc',
+    }));
+  });
+
   it('starts a transient worker outside the PiChamber systemd unit', async () => {
     const runProcess = vi.fn(() => ({ status: 0 }));
 
@@ -572,11 +629,19 @@ describe('CLI update exports', () => {
     const { spawnSync } = await import('node:child_process');
     spawnSync.mockClear();
 
-    expect(executeUpdate('npm', { silent: true })).toEqual({ success: true, exitCode: 0 });
+    expect(executeUpdate('npm', { silent: true, targetVersion: '2.0.0-rc.3' })).toEqual({ success: true, exitCode: 0 });
     expect(spawnSync).toHaveBeenLastCalledWith(
-      expect.stringContaining('@pi-chamber/web@latest'),
+      expect.stringContaining('@pi-chamber/web@2.0.0-rc.3'),
       expect.objectContaining({ shell: true, stdio: 'ignore' }),
     );
+  });
+
+  it('rejects an unsafe package target before spawning a package manager', async () => {
+    const { spawnSync } = await import('node:child_process');
+    spawnSync.mockClear();
+    expect(() => executeUpdate('npm', { silent: true, targetVersion: 'latest; touch /tmp/nope' }))
+      .toThrow('Update target version is invalid.');
+    expect(spawnSync).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,7 @@ import {
   getCurrentVersion,
   getUpdateCapability,
   launchUpdateCommand,
+  normalizeServerUpdateChannel,
 } from '../package-manager.js';
 import { listPiCustomThemes } from './custom-themes.js';
 import { readUpdateJob } from '../update-job-store.js';
@@ -877,13 +878,25 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  const readServerUpdateChannel = async () => {
+    const settings = await uiSettingsStore.read();
+    return normalizeServerUpdateChannel(settings.serverUpdateChannel);
+  };
+
   app.get('/api/pi/update-check', async (req, res) => {
     try {
+      const appType = typeof req.query.appType === 'string' ? req.query.appType : undefined;
+      const channel = appType === undefined || appType === 'web'
+        ? await readServerUpdateChannel()
+        : 'stable';
       res.json(await updateChecker({
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
-        appType: typeof req.query.appType === 'string' ? req.query.appType : undefined,
+        appType,
+        deviceClass: typeof req.query.deviceClass === 'string' ? req.query.deviceClass : undefined,
+        arch: typeof req.query.arch === 'string' ? req.query.arch : undefined,
         platform: typeof req.query.platform === 'string' ? req.query.platform : undefined,
         instanceMode: typeof req.query.instanceMode === 'string' ? req.query.instanceMode : undefined,
+        channel,
       }));
     } catch {
       res.status(503).json({ error: 'Update check unavailable' });
@@ -903,7 +916,28 @@ export const registerPiRuntimeRoutes = (app, {
     }
 
     try {
-      const result = await updateLauncher({ packageManager: capability.packageManager, previousVersion: currentVersionReader() });
+      const previousVersion = currentVersionReader();
+      const channel = await readServerUpdateChannel();
+      const updateInfo = await updateChecker({
+        currentVersion: previousVersion,
+        appType: 'web',
+        instanceMode: 'server',
+        channel,
+      });
+      if (updateInfo.error) {
+        res.status(503).json({ success: false, error: updateInfo.error });
+        return;
+      }
+      if (!updateInfo.available || typeof updateInfo.version !== 'string') {
+        res.status(409).json({ success: false, code: 'UP_TO_DATE', error: 'This PiChamber server is already up to date.', commands: [] });
+        return;
+      }
+      const result = await updateLauncher({
+        packageManager: capability.packageManager,
+        previousVersion,
+        targetVersion: updateInfo.version,
+        channel,
+      });
       if (!result.success) {
         res.status(409).json({ success: false, jobId: result.jobId, error: result.error });
         return;
@@ -913,6 +947,8 @@ export const registerPiRuntimeRoutes = (app, {
         autoRestart: true,
         jobId: result.jobId,
         state: result.state,
+        channel: result.channel || channel,
+        targetVersion: result.targetVersion || updateInfo.version,
       });
     } catch {
       res.status(500).json({ success: false, error: 'Could not start the updater. Run: pichamber update' });

@@ -23,6 +23,12 @@ const TRUSTED_UPDATE_REASONS = new Set([
   'cached',
 ]);
 const UPDATE_PACKAGE_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun']);
+const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+const RELEASE_CANDIDATE_PATTERN = /^\d+\.\d+\.\d+-rc\.[1-9]\d*$/;
+
+export function normalizeServerUpdateChannel(value) {
+  return value === 'rc' ? 'rc' : 'stable';
+}
 
 function getSpawnSyncBaseOptions() {
   return process.platform === 'win32' ? { windowsHide: true } : {};
@@ -116,7 +122,7 @@ async function checkForUpdatesFromApi(currentVersion, options = {}) {
       deviceClass: normalizeDeviceClass(options.deviceClass),
       platform,
       arch,
-      channel: 'stable',
+      channel: normalizeServerUpdateChannel(options.channel),
       currentVersion,
       instanceMode: options.instanceMode || 'unknown',
     };
@@ -721,17 +727,21 @@ function isPackageInstalledWith(pm) {
 /**
  * Get the update command for the detected package manager
  */
-export function getUpdateCommand(pm = detectPackageManager()) {
+export function getUpdateCommand(pm = detectPackageManager(), targetVersion) {
+  if (!SEMVER_PATTERN.test(String(targetVersion))) {
+    throw new Error('Update target version is invalid.');
+  }
+  const packageSpec = `${PACKAGE_NAME}@${targetVersion}`;
   const pmCommand = quoteCommand(resolvePackageManagerCommand(pm));
   switch (pm) {
     case 'pnpm':
-      return `${pmCommand} add -g ${PACKAGE_NAME}@latest`;
+      return `${pmCommand} add -g ${packageSpec}`;
     case 'yarn':
-      return `${pmCommand} global add ${PACKAGE_NAME}@latest`;
+      return `${pmCommand} global add ${packageSpec}`;
     case 'bun':
-      return `${pmCommand} add -g ${PACKAGE_NAME}@latest`;
+      return `${pmCommand} add -g ${packageSpec}`;
     default:
-      return `${pmCommand} install -g ${PACKAGE_NAME}@latest`;
+      return `${pmCommand} install -g ${packageSpec}`;
   }
 }
 
@@ -786,7 +796,7 @@ function isOfficialPiChamberRegistryPackage(data) {
  * Fetch latest version from npm only when `@pi-chamber/web` is this project's package.
  * Dist-tag alone is not enough if an unrelated package occupies the name.
  */
-async function getLatestVersion() {
+async function getRegistryUpdateTarget(currentVersion, channel) {
   try {
     const response = await fetch(NPM_REGISTRY_URL, {
       headers: { Accept: 'application/json' },
@@ -802,7 +812,20 @@ async function getLatestVersion() {
       return null;
     }
     const latest = data['dist-tags']?.latest;
-    return typeof latest === 'string' && latest.length > 0 ? latest : null;
+    const releaseCandidate = data['dist-tags']?.rc;
+    const stableVersion = typeof latest === 'string' && SEMVER_PATTERN.test(latest) && !latest.includes('-')
+      ? latest
+      : null;
+    const rcVersion = typeof releaseCandidate === 'string' && RELEASE_CANDIDATE_PATTERN.test(releaseCandidate)
+      ? releaseCandidate
+      : null;
+    if (normalizeServerUpdateChannel(channel) === 'rc') {
+      if (stableVersion && compareVersions(stableVersion, currentVersion) > 0) {
+        return { version: stableVersion, releaseChannel: 'stable' };
+      }
+      if (rcVersion) return { version: rcVersion, releaseChannel: 'rc' };
+    }
+    return stableVersion ? { version: stableVersion, releaseChannel: 'stable' } : null;
   } catch {
     return null;
   }
@@ -812,35 +835,46 @@ async function getLatestVersion() {
  * Compare semver-like version strings.
  */
 function parseVersionForComparison(value) {
-  const normalized = String(value || '').replace(/^v/, '').split('+')[0];
-  const prereleaseIndex = normalized.indexOf('-');
-  const core = prereleaseIndex >= 0 ? normalized.slice(0, prereleaseIndex) : normalized;
-  const parts = core.split('.').map((part) => {
-    const parsed = Number.parseInt(part || '0', 10);
-    return Number.isFinite(parsed) ? parsed : 0;
-  });
-
+  const match = SEMVER_PATTERN.exec(String(value || '').replace(/^v/, ''));
+  if (!match) return null;
   return {
-    parts,
-    prerelease: prereleaseIndex >= 0,
+    core: match.slice(1, 4).map(Number),
+    prerelease: match[4]?.split('.') || null,
   };
+}
+
+function comparePrerelease(left, right) {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    if (left[index] === undefined) return -1;
+    if (right[index] === undefined) return 1;
+    const leftNumeric = /^\d+$/.test(left[index]);
+    const rightNumeric = /^\d+$/.test(right[index]);
+    if (leftNumeric && rightNumeric) {
+      const difference = Number(left[index]) - Number(right[index]);
+      if (difference !== 0) return difference;
+    } else if (leftNumeric !== rightNumeric) {
+      return leftNumeric ? -1 : 1;
+    } else {
+      const difference = left[index].localeCompare(right[index]);
+      if (difference !== 0) return difference;
+    }
+  }
+  return 0;
 }
 
 function compareVersions(left, right) {
   const a = parseVersionForComparison(left);
   const b = parseVersionForComparison(right);
-  const length = Math.max(a.parts.length, b.parts.length);
-
-  for (let index = 0; index < length; index += 1) {
-    const diff = (a.parts[index] || 0) - (b.parts[index] || 0);
-    if (diff !== 0) return diff;
+  if (!a || !b) return String(left || '').localeCompare(String(right || ''), undefined, { numeric: true });
+  for (let index = 0; index < a.core.length; index += 1) {
+    const difference = a.core[index] - b.core[index];
+    if (difference !== 0) return difference;
   }
-
-  if (a.prerelease !== b.prerelease) {
-    return a.prerelease ? -1 : 1;
-  }
-
-  return 0;
+  return comparePrerelease(a.prerelease, b.prerelease);
 }
 
 /**
@@ -878,18 +912,26 @@ export async function checkForUpdates(options = {}) {
   const pm = detectPackageManager();
   const appType = normalizeAppType(options.appType);
   const platform = normalizePlatform(options.platform);
-  const latestVersion = await getLatestVersion();
+  const channel = normalizeServerUpdateChannel(options.channel);
+  const target = currentVersion === 'unknown'
+    ? null
+    : await getRegistryUpdateTarget(currentVersion, channel);
+  const latestVersion = target?.version;
 
   if (!latestVersion || currentVersion === 'unknown') {
     return {
       available: false,
       currentVersion,
+      channel,
       error: 'Unable to determine versions',
     };
   }
 
   const available = compareVersions(latestVersion, currentVersion) > 0;
-  const remote = await checkForUpdatesFromApi(currentVersion, options);
+  const remote = await checkForUpdatesFromApi(currentVersion, {
+    ...options,
+    channel: target.releaseChannel,
+  });
   const trustedRemote = remote?.version === latestVersion ? remote : null;
   let changelog = trustedRemote?.body;
   let downloadUrl;
@@ -906,6 +948,7 @@ export async function checkForUpdates(options = {}) {
     available,
     version: latestVersion,
     currentVersion,
+    channel,
     body: changelog,
     releaseUrl: `${GITHUB_RELEASES_URL}/tag/v${latestVersion}`,
     downloadUrl,
@@ -969,9 +1012,17 @@ export async function launchUpdateCommand(options = {}) {
     previousVersion: options.previousVersion,
     targetVersion: options.targetVersion,
     packageManager: options.packageManager,
+    channel: normalizeServerUpdateChannel(options.channel),
   });
   if (!claimed.created) {
-    return { success: true, jobId: claimed.job.id, state: claimed.job.state, existing: true };
+    return {
+      success: true,
+      jobId: claimed.job.id,
+      state: claimed.job.state,
+      channel: claimed.job.channel,
+      targetVersion: claimed.job.targetVersion,
+      existing: true,
+    };
   }
 
   const jobId = claimed.job.id;
@@ -1001,7 +1052,13 @@ export async function launchUpdateCommand(options = {}) {
       });
       child.unref();
     }
-    return { success: true, jobId, state: claimed.job.state };
+    return {
+      success: true,
+      jobId,
+      state: claimed.job.state,
+      channel: claimed.job.channel,
+      targetVersion: claimed.job.targetVersion,
+    };
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);
     const error = `Could not start the updater: ${detail}`;
@@ -1011,7 +1068,7 @@ export async function launchUpdateCommand(options = {}) {
 }
 
 export function executeUpdate(pm = detectPackageManager(), options = {}) {
-  const command = getUpdateCommand(pm);
+  const command = getUpdateCommand(pm, options.targetVersion);
   if (!options?.silent) {
     console.log(`Updating ${PACKAGE_NAME} using ${pm}...`);
     console.log(`Running: ${command}`);

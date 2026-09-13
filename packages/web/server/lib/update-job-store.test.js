@@ -25,15 +25,16 @@ describe('update job store', () => {
     const id = '10000000-0000-4000-8000-000000000001';
     const { file, store } = await createStore({ createId: () => id, now: () => 100 });
 
-    await store.claim({ previousVersion: '1.0.0', targetVersion: '2.0.0', packageManager: 'npm' });
+    await store.claim({ previousVersion: '1.0.0', targetVersion: '2.0.0-rc.2', packageManager: 'npm', channel: 'rc' });
     await store.update(id, { state: 'installing' });
 
     await expect(createUpdateJobStore({ file }).read(id)).resolves.toMatchObject({
       id,
       state: 'installing',
       previousVersion: '1.0.0',
-      targetVersion: '2.0.0',
+      targetVersion: '2.0.0-rc.2',
       packageManager: 'npm',
+      channel: 'rc',
     });
     expect(await readFile(file, 'utf8')).not.toContain('password');
   });

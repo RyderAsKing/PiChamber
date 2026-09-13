@@ -12,8 +12,10 @@ import {
 } from './cli-startup.js';
 import {
   claimUpdateJob as defaultClaimUpdateJob,
+  readUpdateJob as defaultReadUpdateJob,
   updateUpdateJob as defaultUpdateUpdateJob,
 } from '../../server/lib/update-job-store.js';
+import { createPiUiSettingsStore } from '../../server/lib/pi/ui-settings-store.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -29,6 +31,11 @@ import {
   logStatus,
 } from '../cli-output.js';
 
+const readConfiguredServerUpdateChannel = async () => {
+  const settings = await createPiUiSettingsStore().read();
+  return settings.serverUpdateChannel;
+};
+
 function createUpdateCommand({
   importFromFilePath,
   packageManagerPath,
@@ -40,7 +47,9 @@ function createUpdateCommand({
   requestShutdown = requestServerShutdown,
   stopProcess = stopInstanceProcess,
   claimUpdateJob = defaultClaimUpdateJob,
+  readUpdateJob = defaultReadUpdateJob,
   updateUpdateJob = defaultUpdateUpdateJob,
+  readServerUpdateChannel = readConfiguredServerUpdateChannel,
 }) {
   return async function updateCommand(options = {}) {
     const showOutput = shouldRenderHumanOutput(options);
@@ -54,6 +63,7 @@ function createUpdateCommand({
       getInstalledVersion,
       isInsidePiChamberSystemdService,
       launchUpdateCommand,
+      normalizeServerUpdateChannel,
     } = await importFromFilePath(packageManagerPath);
 
     let jobId = options.updateJobId;
@@ -64,6 +74,15 @@ function createUpdateCommand({
 
     try {
     const currentVersion = getCurrentVersion();
+    const workerJob = options.updateWorker === true && jobId
+      ? await readUpdateJob(jobId)
+      : null;
+    if (options.updateWorker === true && (!workerJob || !workerJob.targetVersion)) {
+      throw new Error('The persisted update job is unavailable.');
+    }
+    const channel = normalizeServerUpdateChannel(
+      workerJob ? workerJob.channel : (options.channel ?? await readServerUpdateChannel()),
+    );
 
     if (showOutput) {
       clackIntro('PiChamber Update');
@@ -75,7 +94,14 @@ function createUpdateCommand({
 
     updateSpin?.start('Checking for updates...');
 
-    const updateInfo = await checkForUpdates();
+    const updateInfo = workerJob
+      ? {
+          available: workerJob.targetVersion !== currentVersion,
+          version: workerJob.targetVersion,
+          currentVersion,
+          channel,
+        }
+      : await checkForUpdates({ channel });
     if (updateInfo.error) {
       updateSpin?.error('Update check failed');
       if (showOutput) {
@@ -89,6 +115,7 @@ function createUpdateCommand({
         printJson({
           currentVersion,
           latestVersion: updateInfo.version || currentVersion,
+          channel,
           updated: false,
         });
         return;
@@ -116,6 +143,7 @@ function createUpdateCommand({
           updated: false,
           code: capability.code,
           error: capability.error,
+          channel,
         });
         return;
       }
@@ -124,7 +152,10 @@ function createUpdateCommand({
     }
     const pm = capability.packageManager;
 
-    const latestVersion = updateInfo.version || 'latest';
+    if (typeof updateInfo.version !== 'string' || updateInfo.version.length === 0) {
+      throw new Error('Update target version is unavailable.');
+    }
+    const latestVersion = updateInfo.version;
     const startupServiceActive = isUserStartupServiceActive();
     const runningInstances = startupServiceActive ? [] : await discoverInstances();
 
@@ -132,6 +163,7 @@ function createUpdateCommand({
       updateSpin?.clear();
       logStatus('info', 'Review update', [
         `Version: ${currentVersion} -> ${latestVersion}`,
+        `Channel: ${channel}`,
         `Package manager: ${pm}`,
         startupServiceActive
           ? 'Restart: startup service'
@@ -159,17 +191,27 @@ function createUpdateCommand({
         previousVersion: currentVersion,
         targetVersion: latestVersion,
         packageManager: pm,
+        channel,
         isSystemd: true,
       });
       if (!launched.success) throw new Error(launched.error || 'Could not start the systemd update worker.');
       updateSpin?.clear();
       if (isJsonMode(options)) {
-        printJson({ status: 'started', updated: false, jobId: launched.jobId, previousVersion: currentVersion, latestVersion });
+        printJson({
+          status: launched.existing ? 'in-progress' : 'started',
+          updated: false,
+          jobId: launched.jobId,
+          previousVersion: currentVersion,
+          latestVersion: launched.targetVersion || latestVersion,
+          channel: launched.channel || channel,
+        });
       } else if (showOutput) {
-        logStatus('success', 'systemd update worker started');
-        clackOutro('the server will restart when the update is installed');
+        logStatus('success', launched.existing ? 'an update is already in progress' : 'systemd update worker started');
+        clackOutro(launched.existing ? 'using the existing update job' : 'the server will restart when the update is installed');
       } else if (isQuietMode(options)) {
-        process.stdout.write(`update-started ${currentVersion} -> ${latestVersion} job:${launched.jobId}\n`);
+        process.stdout.write(launched.existing
+          ? `update-in-progress job:${launched.jobId}\n`
+          : `update-started ${currentVersion} -> ${latestVersion} job:${launched.jobId}\n`);
       }
       return;
     }
@@ -180,11 +222,12 @@ function createUpdateCommand({
         previousVersion: currentVersion,
         targetVersion: latestVersion,
         packageManager: pm,
+        channel,
       });
       if (!claimed.created) {
         updateSpin?.clear();
         if (isJsonMode(options)) {
-          printJson({ status: 'in-progress', updated: false, jobId: claimed.job.id, previousVersion: currentVersion, latestVersion });
+          printJson({ status: 'in-progress', updated: false, jobId: claimed.job.id, previousVersion: currentVersion, latestVersion, channel: claimed.job.channel || channel });
         } else if (showOutput) {
           logStatus('info', 'another PiChamber update is already in progress');
           clackOutro('update already running');
@@ -205,10 +248,14 @@ function createUpdateCommand({
       previousVersion: currentVersion,
       targetVersion: latestVersion,
       packageManager: pm,
+      channel,
       workerPid: process.pid,
     });
 
-    const result = executeUpdate(pm, { silent: isJsonMode(options) || isQuietMode(options) });
+    const result = executeUpdate(pm, {
+      silent: isJsonMode(options) || isQuietMode(options),
+      targetVersion: latestVersion,
+    });
     if (!result.success) {
       updateSpin?.error('Update failed');
       if (showOutput) {
@@ -287,7 +334,7 @@ function createUpdateCommand({
 
     const restartedCount = restartResults.filter((entry) => entry.ok).length;
     const failedRestartCount = restartResults.length - restartedCount;
-    const versionVerified = latestVersion === 'latest' || installedVersion === latestVersion;
+    const versionVerified = installedVersion === latestVersion;
     const messages = [];
     if (!versionVerified) {
       messages.push({
@@ -311,6 +358,7 @@ function createUpdateCommand({
       previousVersion: currentVersion,
       currentVersion: installedVersion,
       latestVersion,
+      channel,
       versionVerified,
       updated: installedVersion !== currentVersion || versionVerified,
       packageManager: pm,

@@ -9,6 +9,7 @@ const UPDATE_JOB_STATES = new Set(['queued', 'installing', 'verifying', 'restart
 const ACTIVE_UPDATE_STATES = new Set(['queued', 'installing', 'verifying', 'restarting']);
 const UPDATE_JOB_MAX_AGE_MS = 30 * 60 * 1000;
 const UPDATE_JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UPDATE_CHANNELS = new Set(['stable', 'rc']);
 
 const invalidJobError = () => {
   const error = new Error('Update status is invalid.');
@@ -30,6 +31,7 @@ const isValidJob = (job) => (
   && UPDATE_JOB_STATES.has(job.state)
   && Number.isFinite(job.startedAt)
   && Number.isFinite(job.updatedAt)
+  && (job.channel === undefined || UPDATE_CHANNELS.has(job.channel))
 );
 
 export const createUpdateJobStore = ({
@@ -61,7 +63,7 @@ export const createUpdateJobStore = ({
     return job;
   };
 
-  const claim = async ({ previousVersion, targetVersion, packageManager } = {}) => withCrossProcessLock(lockFile, async () => {
+  const claim = async ({ previousVersion, targetVersion, packageManager, channel } = {}) => withCrossProcessLock(lockFile, async () => {
     let current = null;
     try {
       current = await readFileValue();
@@ -93,6 +95,7 @@ export const createUpdateJobStore = ({
       previousVersion: typeof previousVersion === 'string' ? previousVersion : undefined,
       targetVersion: typeof targetVersion === 'string' ? targetVersion : undefined,
       packageManager: typeof packageManager === 'string' ? packageManager : undefined,
+      channel: UPDATE_CHANNELS.has(channel) ? channel : 'stable',
       startedAt: timestamp,
       updatedAt: timestamp,
     };
@@ -110,8 +113,9 @@ export const createUpdateJobStore = ({
         throw error;
       }
       if (changes.state !== undefined && !UPDATE_JOB_STATES.has(changes.state)) throw invalidJobError();
+      if (changes.channel !== undefined && !UPDATE_CHANNELS.has(changes.channel)) throw invalidJobError();
       const next = { ...current, updatedAt: now() };
-      for (const key of ['state', 'previousVersion', 'targetVersion', 'currentVersion', 'packageManager']) {
+      for (const key of ['state', 'previousVersion', 'targetVersion', 'currentVersion', 'packageManager', 'channel']) {
         if (typeof changes[key] === 'string' && changes[key].length > 0) next[key] = changes[key];
       }
       if (Number.isInteger(changes.workerPid) && changes.workerPid > 0) next.workerPid = changes.workerPid;

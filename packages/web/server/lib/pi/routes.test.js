@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 
 import { projectEventFrame, registerPiRuntimeRoutes } from './routes.js';
@@ -118,8 +118,16 @@ describe('Pi runtime route', () => {
   });
 
   it('serves PiChamber UI settings, session folders, custom themes, and update metadata without removed routes', async () => {
-    let settings = { themeMode: 'dark' };
+    let settings = { themeMode: 'dark', serverUpdateChannel: 'rc' };
     let sessionFolders = { exists: false };
+    const updateChecker = vi.fn(async (options) => options.instanceMode === 'server'
+      ? { available: true, currentVersion: '1.0.0', version: '1.1.0-rc.2', channel: 'rc' }
+      : { available: false, currentVersion: '1.0.0', channel: options.channel });
+    const updateLauncher = vi.fn(() => ({
+      success: true,
+      jobId: '10000000-0000-4000-8000-000000000001',
+      state: 'queued',
+    }));
     const app = express();
     app.use(express.json());
     registerPiRuntimeRoutes(app, {
@@ -133,24 +141,25 @@ describe('Pi runtime route', () => {
         write: async (snapshot) => (sessionFolders = { exists: true, ...snapshot }),
       },
       listCustomThemes: async () => [{ metadata: { id: 'custom' } }],
-      updateChecker: async () => ({ available: false, currentVersion: '1.0.0' }),
+      updateChecker,
       updateCapabilityResolver: () => ({ supported: true, code: 'SUPPORTED', packageManager: 'npm' }),
-      updateLauncher: () => ({ success: true, jobId: '10000000-0000-4000-8000-000000000001', state: 'queued' }),
+      updateLauncher,
       updateJobReader: async (id) => ({ id, state: 'installing', startedAt: 1, updatedAt: 2 }),
     });
     server = await listen(app);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    await expect((await fetch(`${base}/api/pi/ui-settings`)).json()).resolves.toEqual({ themeMode: 'dark' });
+    await expect((await fetch(`${base}/api/pi/ui-settings`)).json()).resolves.toEqual({ themeMode: 'dark', serverUpdateChannel: 'rc' });
     await expect((await fetch(`${base}/api/pi/ui-settings`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: 'en' }),
-    })).json()).resolves.toEqual({ themeMode: 'dark', language: 'en' });
+    })).json()).resolves.toEqual({ themeMode: 'dark', serverUpdateChannel: 'rc', language: 'en' });
     await expect((await fetch(`${base}/api/pi/session-folders`)).json()).resolves.toEqual({ exists: false });
     await expect((await fetch(`${base}/api/pi/session-folders`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version: 1, foldersMap: {}, collapsedFolderIds: [], updatedAt: 1 }),
     })).json()).resolves.toEqual({ exists: true, version: 1, foldersMap: {}, collapsedFolderIds: [], updatedAt: 1 });
     await expect((await fetch(`${base}/api/pi/themes`)).json()).resolves.toEqual({ themes: [{ metadata: { id: 'custom' } }] });
-    await expect((await fetch(`${base}/api/pi/update-check`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0' });
+    await expect((await fetch(`${base}/api/pi/update-check?appType=web`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'rc' });
+    await expect((await fetch(`${base}/api/pi/update-check?appType=mobile-capacitor`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'stable' });
     const installResponse = await fetch(`${base}/api/pi/update-install`, { method: 'POST' });
     expect(installResponse.status).toBe(202);
     await expect(installResponse.json()).resolves.toEqual({
@@ -158,7 +167,14 @@ describe('Pi runtime route', () => {
       autoRestart: true,
       jobId: '10000000-0000-4000-8000-000000000001',
       state: 'queued',
+      channel: 'rc',
+      targetVersion: '1.1.0-rc.2',
     });
+    expect(updateChecker).toHaveBeenCalledWith(expect.objectContaining({ channel: 'rc', instanceMode: 'server' }));
+    expect(updateLauncher).toHaveBeenCalledWith(expect.objectContaining({
+      channel: 'rc',
+      targetVersion: '1.1.0-rc.2',
+    }));
     const statusResponse = await fetch(`${base}/api/pi/update-install/10000000-0000-4000-8000-000000000001`);
     expect(statusResponse.status).toBe(200);
     await expect(statusResponse.json()).resolves.toMatchObject({ state: 'installing' });
@@ -170,6 +186,8 @@ describe('Pi runtime route', () => {
       getPiSessionDaemonRuntime: () => null,
       updateCapabilityResolver: () => ({ supported: true, code: 'SUPPORTED', packageManager: 'npm' }),
       currentVersionReader: () => '1.0.0',
+      uiSettingsStore: { read: async () => ({ serverUpdateChannel: 'stable' }), write: async () => ({}) },
+      updateChecker: async () => ({ available: true, version: '2.0.0', currentVersion: '1.0.0', channel: 'stable' }),
       updateLauncher: async (options) => ({
         success: false,
         jobId: '10000000-0000-4000-8000-000000000001',
