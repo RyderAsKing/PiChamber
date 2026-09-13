@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.9-rc.3] - 2026-09-13
+
+- **Update dialogs show release notes for desktop and server releases.** Desktop updates now consume electron-updater's full-changelog arrays and limit them to the selected version range. When updater or hosted notes are absent, desktop and server checks read the exact GitHub release body before falling back to the selected tag's `CHANGELOG.md`; the fallback parser accepts numbered RC versions instead of silently dropping them (`updater-check`, `main.mjs`, `package-manager`).
+
 ## [0.9.9-rc.2] - 2026-09-13
 
 - **Update channel settings show full channel names.** The Desktop app and Server update channel dropdowns now display `Stable` / `Release candidate` in the closed trigger instead of the raw `stable` / `rc` values. The server row keeps a single-line label with the connected host shown underneath, so both Updates rows share the same shape (`DesktopUpdateChannelSettings`).

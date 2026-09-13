@@ -1,6 +1,6 @@
 {
   "name": "@pichamber/electron",
-  "version": "0.9.9-rc.2",
+  "version": "0.9.9-rc.3",
   "private": true,
   "description": "PiChamber desktop application for Pi Coding Agent",
   "author": {
