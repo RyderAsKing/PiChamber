@@ -41,13 +41,20 @@ To install a server release candidate from npm, request the `rc` dist-tag explic
 npm install -g @pi-chamber/web@rc
 ```
 
-Re-run that command to install a newer RC. Return to stable with:
+After installation, connect to that server from Electron and select **Server
+update channel → Release candidate** in Settings → About. `pichamber update` then checks
+for a newer stable release first and, when there is none, the latest numbered
+RC. Return the server to stable by selecting **Stable**. The CLI can override
+that saved default for one run with `pichamber update --channel stable` or
+`pichamber update --channel rc`.
 
-```sh
-npm install -g @pi-chamber/web@latest
-```
-
-The desktop app's update-channel setting applies only to Electron and does not change an npm installation.
+**Desktop app update channel** remains visible in the same Settings section.
+That separate setting controls the local Electron package and never changes a
+server's npm installation. When Electron uses its Local instance, only the
+desktop app channel is shown; when it connects to a server, both channels are
+shown. Native mobile
+application updates remain on the stable application channel; the server
+preference controls only package updates for the connected server.
 
 For scripts, CI, and non-interactive shells, pass the setup flags explicitly:
 

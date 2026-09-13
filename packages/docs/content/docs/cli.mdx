@@ -50,11 +50,17 @@ pichamber update
 
 In an interactive terminal, the CLI reviews the current version, target version,
 package manager, and restart plan before it changes the install. Use `--yes` or
-`-y` to skip the confirmation:
+`-y` to skip the confirmation. The saved server update channel defaults to
+`stable`; use `--channel` for a one-time override without changing that default:
 
 ```sh
 pichamber update --yes
+pichamber update --channel rc
 ```
+
+The `rc` channel checks for a newer stable release first, then a newer numbered
+release candidate. The installer pins the exact version selected by the check,
+so a moving npm dist-tag cannot change a running update job.
 
 The update command only replaces a trusted global package-manager install.
 For a server managed by `pichamber startup enable`, it runs the installer in a
@@ -74,7 +80,7 @@ required action:
 After a package update, the command reports instances that could not restart.
 
 Use `--json` for a machine-readable result. The result includes the previous,
-installed, and latest versions, the package manager, restart counts, and any
+installed, and latest versions, the selected channel, the package manager, restart counts, and any
 version-mismatch or partial-restart warnings. `--quiet` prints one concise
 result line without the review. A version mismatch or failed restart also
 returns a non-zero exit code, even when the package manager completed.
