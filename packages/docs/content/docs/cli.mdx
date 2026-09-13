@@ -56,11 +56,22 @@ package manager, and restart plan before it changes the install. Use `--yes` or
 pichamber update --yes
 ```
 
-The update command only replaces a trusted global package-manager install. It
-refuses in-place replacement for Docker deployments, systemd-owned processes,
-and other installs whose package manager cannot be identified. After a package
-update it verifies the installed version and reports instances that could not
-restart.
+The update command only replaces a trusted global package-manager install.
+For a server managed by `pichamber startup enable`, it runs the installer in a
+temporary systemd unit and restarts `pichamber.service` after verifying the new
+version. This also works from PiChamber's browser terminal. Deployments that
+cannot update themselves stop before changing the installation and explain the
+required action:
+
+- Containers must pull or build the newer image and recreate the container.
+- Source checkouts must update their checkout, rebuild the web package, and
+  restart the server.
+- Custom systemd units must run `pichamber update` from a normal terminal and
+  then restart the unit with the command shown in the error.
+- An installation owned by another account must be updated by that account, or
+  reinstalled under the account that runs the service.
+
+After a package update, the command reports instances that could not restart.
 
 Use `--json` for a machine-readable result. The result includes the previous,
 installed, and latest versions, the package manager, restart counts, and any
