@@ -1,81 +1,84 @@
 # @pi-chamber/web
 
-PiChamber's web server and browser UI for the Pi coding-agent runtime.
+PiChamber server and browser UI for the [Pi coding agent](https://pi.dev). It serves the browser workspace and authenticated Pi routes, and owns its per-profile Pi session daemon.
 
-## Run
+## Requirements
 
-```bash
+Node.js 22 or newer, or Bun.
+
+## Install
+
+```sh
+bun add -g @pi-chamber/web
+```
+
+Other package managers:
+
+```sh
+npm install -g @pi-chamber/web
+pnpm add -g @pi-chamber/web
+yarn global add @pi-chamber/web
+```
+
+Run without installing:
+
+```sh
+bunx @pi-chamber/web serve
+npx @pi-chamber/web serve
+pnpm dlx @pi-chamber/web serve
+```
+
+## Quick start
+
+In an interactive terminal:
+
+```sh
 pichamber serve
 ```
 
-In an interactive terminal, `pichamber serve` guides you through access, port,
-authentication, browser UI versus API-only content, and background versus
-foreground process mode. It shows a review before starting. The server starts
-warming the local Pi session daemon as soon as HTTP is listening, serves the
-browser UI, and exposes authenticated Pi routes under `/api/pi/*`. HTTP
-readiness does not wait for Pi provider/model initialization; early Pi requests
-share the supervisor's in-flight startup.
+The command walks through access, port, authentication, browser UI versus API-only, and background versus foreground mode, then shows a review before starting. Open the printed URL. Bare `pichamber` starts with default settings without the wizard.
 
 For scripts and non-interactive shells, pass the setup flags explicitly:
 
-```bash
-pichamber serve --port 3000 --ui-password <password>
-pichamber serve --port 8080 --lan --ui-password <password>
-pichamber serve --port 3000 --api-only --ui-password <password>
-pichamber connect-url --port 3000 --qr
-pichamber stop --port 3000
+```sh
+pichamber serve --port 3000 --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --lan --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --api-only --ui-password "choose-a-strong-password"
 ```
 
-`--quiet` and `--json` never prompt. Use `pichamber stop --force` when a broad
-stop should skip confirmation, and `pichamber logs --no-follow` for a one-time
-log tail. Use `pichamber update --yes` to update without the interactive review.
+## Commands
 
-Use `--api-only` for a host intended to be paired from a PiChamber desktop or mobile client. LAN-bound servers require a UI password unless the explicit unsafe-development override is set.
+Run `pichamber --help` for the current flags.
 
-See the [CLI guide](../docs/content/docs/cli.mdx) for guided startup, updates,
-tunnels, logs, pairing, and machine-readable output.
+| Command | What it does |
+| --- | --- |
+| `serve` | Start the server (guided setup in interactive terminals, with a review before starting) |
+| `status` | Show running instances |
+| `logs` | Tail logs (`--no-follow` for a one-time tail) |
+| `stop` / `restart` | Stop or restart instances (broad stops confirm when more than one is affected; `--force` skips) |
+| `startup` | Run at login or boot (`enable` is guided; `status` / `disable` to inspect or remove) |
+| `tunnel` | Expose the server via Cloudflare Tunnel (`start` is guided; profiles cover repeatable runs) |
+| `connect-url` | Create a one-time pairing link for another client (`--qr` in interactive terminals; starts the server if needed) |
+| `update` | Install updates (reviews before changing anything; `--yes` skips confirmation, `--channel stable\|rc` overrides once) |
+| `version` | Print the installed version |
 
-## Runtime contract
+## Scripts and automation
 
-- Pi session state and actions are served only through `/api/pi/*`. Session detail responses carry a bounded transcript tail; older history is available from `GET /api/pi/sessions/:sessionId/messages` with the opaque before-cursor returned by the previous page.
-- `POST /api/pi/attachments` accepts raw `application/octet-stream` bodies with bounded `X-PiChamber-Filename` and `X-PiChamber-Mime` metadata. It returns opaque attachment metadata plus `expiresAt`; filesystem paths remain private. The legacy base64 JSON body remains available for persisted clients. `DELETE /api/pi/attachments/:id` removes an unused upload. Prompt routes accept at most 20 attachment IDs and retire accepted uploads from the active 32-upload map while retaining their files until the one-hour expiry.
-- PiChamber-owned UI settings, snippets, custom themes, and updates use `/api/pi/ui-settings`, `/api/pi/snippets`, `/api/pi/themes`, `/api/pi/update-check`, `/api/pi/update-install`, and `/api/pi/update-install/:jobId`. Starting an update returns a persisted job ID; clients poll that job on the originating server across its restart, and concurrent requests reuse the active job. Polling stops if the client switches servers. Lost authentication leaves the outcome unknown until the client reauthenticates. For older servers without update jobs, fallback version polling reports version-check errors instead of treating them as successful updates. Status reads fail abandoned jobs after a bounded startup grace period or when the recorded worker exits. The settings route merges portable preferences from `settings.json` with host and device values from `runtime-state.json`; writes split fields through explicit allowlists. Electron and server update-channel subscriptions are separate host-local fields, each accepts only `stable` or `rc`, and each defaults to `stable`. The server RC channel compares `latest` and `rc` and selects the higher version; update jobs pin the selected version so restart or a moving dist-tag cannot change their target. Pi-owned resource, trust, and provider-catalog changes are saved without interrupting active sessions and report deferred runtime activation when an idle edge is required. A flat legacy file migrates on first access. A scoped portable file never contributes paths, project registrations, device values, or secrets. Removed `/api/config/*` and `/api/pichamber/*` aliases are not required. Snippets persist in the PiChamber data root (`snippets.json`) and expand through literal `#name` replacement; Pi prompt templates remain Pi-owned `/name` commands in Pi's global and trusted-project prompt directories, discovered through the active runtime's resource loader and exposed through `/api/pi/resources`, `/api/pi/resources/prompts`, and `/api/pi/commands`. Pi skills invoke as `/skill:name` (bare `/name` never invokes a skill) and extension commands use their registered `/name` (including Pi-generated suffixes); `/api/pi/commands` exposes prompts as `name`, skills as `skill:name`, and extensions under their invocation names, executed via Pi's `session.prompt()` with extension-first precedence. Snippet, prompt-template, skill, and extension-command concepts stay distinct with separate Settings pages, stores, persistence, and caches; they share only `/` autocomplete presentation. New-session starters are pinned Pi prompt templates that insert `/name ` for editing (never submit or expand in PiChamber); legacy skill starters are removed without conversion.
-- Final-only speech-to-text uses authenticated `/api/stt/*` routes and `/api/stt/ws`. Local model inference runs in a forked worker, while remote provider credentials remain in server configuration.
-- Browser and paired clients authenticate with UI sessions or scoped client credentials.
-- `connect-url` creates a one-time pairing link; credentials are not written to URLs or logs.
-- The server owns its per-profile Pi daemon lifecycle (installed web, development web, and desktop use separate namespaces) and stops only its own daemon during shutdown.
+`--quiet` and `--json` never prompt, and non-interactive shells never prompt either. Supply required values as flags. `--json` emits JSON only; `--quiet` keeps one concise result line.
 
-## SDK updates
+## Security
 
-This release pins Pi SDK `0.85.1`, including an updated bundled OpenCode model
-catalog. Existing Pi sessions, credentials, settings, and custom models stay in
-place; no manual migration or cache deletion is needed. Custom model additions
-and overrides still apply to the updated catalog. If a saved default points to a
-removed model, select an available replacement; the upgrade does not rewrite
-your saved defaults or chat history.
+Servers reachable beyond this machine require a UI password. Pass `--ui-password` (omit the value to generate one) or set `PICHAMBER_UI_PASSWORD`. Prefer `--lan` only on a trusted network.
 
-The normal update command restarts managed background instances. Linux servers
-configured by `pichamber startup enable` run updates in a transient systemd unit,
-so terminal and in-app updates survive the server restart and report status after
-clients reconnect. Foreground instances must be stopped and started manually.
-Desktop users must relaunch the updated app. Hosted and mobile clients use their
-connected server's SDK, so updating only the client does not update its model
-catalog. When a trusted hosted update response does not provide release notes,
-the server reads the selected version's GitHub release body, then falls back to
-`CHANGELOG.md` from that version tag. This keeps stable and RC notes tied to the
-package version chosen from the npm registry.
+## Docs
 
-## Development
+Full guides live in the PiChamber repository:
 
-```bash
-bun run --cwd packages/web build
-bun run --cwd packages/web type-check
-bun run --cwd packages/web test
-```
+- [Install](https://github.com/RyderAsKing/PiChamber/blob/main/packages/docs/content/docs/install.mdx)
+- [Quick start](https://github.com/RyderAsKing/PiChamber/blob/main/packages/docs/content/docs/quickstart.mdx)
+- [CLI guide](https://github.com/RyderAsKing/PiChamber/blob/main/packages/docs/content/docs/cli.mdx)
+- [Releases](https://github.com/RyderAsKing/PiChamber/releases/latest)
 
-Build flags:
+## License
 
-- `VITE_REACT_COMPILER=1` re-enables the `babel-plugin-react-compiler` pass for
-  release builds. It is opt-in because the pass costs ~25s of the ~52s
-  production build; the default build ships without compiler memoization.
-- `VITE_ENABLE_REACT_SCAN=1` injects the react-scan dev script into the page.
+MIT. See [LICENSE](https://github.com/RyderAsKing/PiChamber/blob/main/LICENSE).
