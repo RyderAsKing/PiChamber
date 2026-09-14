@@ -4189,12 +4189,12 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
         updateChecks: desktopUpdaterChecks,
       });
       const body =
-        formatUpdaterReleaseNotes(updateInfo?.releaseNotes, {
+        await fetchRelevantChangelogNotes({
           fromVersion: currentVersion,
           toVersion: nextVersion,
           compareVersions: compareReleaseVersions,
         }) ||
-        await fetchRelevantChangelogNotes({
+        formatUpdaterReleaseNotes(updateInfo?.releaseNotes, {
           fromVersion: currentVersion,
           toVersion: nextVersion,
           compareVersions: compareReleaseVersions,

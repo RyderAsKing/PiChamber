@@ -29,42 +29,40 @@ test('formats full changelog release-note arrays for the update dialog', () => {
   );
 });
 
-test('fetches RC notes from the exact GitHub release', async () => {
-  let requestedUrl;
-  const notes = await fetchRelevantChangelogNotes({
-    fromVersion: '0.9.9-rc.1',
-    toVersion: '0.9.9-rc.2',
+test('rejects rendered GitHub Atom HTML instead of passing it to the Markdown renderer', () => {
+  const options = {
+    fromVersion: '0.9.9',
+    toVersion: '1.0.0',
     compareVersions: compareReleaseVersions,
-    fetchImpl: async (url) => {
-      requestedUrl = url;
-      return {
-        ok: true,
-        json: async () => ({ body: '## [0.9.9-rc.2] - 2026-03-11\n\n- Second candidate' }),
-      };
-    },
-  });
+  };
 
   assert.equal(
-    requestedUrl,
-    'https://api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v0.9.9-rc.2',
+    formatUpdaterReleaseNotes('<h2>[1.0.0]</h2><p>Release notes</p>', options),
+    null,
   );
-  assert.match(notes, /Second candidate/);
+  assert.equal(
+    formatUpdaterReleaseNotes([
+      { version: '1.0.0', note: '<h2>[1.0.0]</h2><p>Release notes</p>' },
+    ], options),
+    null,
+  );
 });
 
-test('falls back to the target tag changelog when the GitHub release has no notes', async () => {
+test('reads the full RC range from the target tag changelog', async () => {
   const requestedUrls = [];
   const notes = await fetchRelevantChangelogNotes({
     fromVersion: '0.9.9-rc.1',
-    toVersion: '0.9.9-rc.2',
+    toVersion: '0.9.9-rc.3',
     compareVersions: compareReleaseVersions,
     fetchImpl: async (url) => {
       requestedUrls.push(url);
-      if (url.includes('api.github.com')) {
-        return { ok: true, json: async () => ({ body: '' }) };
-      }
       return {
         ok: true,
         text: async () => [
+          '## [0.9.9-rc.3] - 2026-03-12',
+          '',
+          '- Third candidate',
+          '',
           '## [0.9.9-rc.2] - 2026-03-11',
           '',
           '- Second candidate',
@@ -78,11 +76,34 @@ test('falls back to the target tag changelog when the GitHub release has no note
   });
 
   assert.deepEqual(requestedUrls, [
-    'https://api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v0.9.9-rc.2',
-    'https://raw.githubusercontent.com/RyderAsKing/PiChamber/v0.9.9-rc.2/CHANGELOG.md',
+    'https://raw.githubusercontent.com/RyderAsKing/PiChamber/v0.9.9-rc.3/CHANGELOG.md',
   ]);
+  assert.match(notes, /Third candidate/);
   assert.match(notes, /Second candidate/);
   assert.doesNotMatch(notes, /First candidate/);
+});
+
+test('falls back to the exact GitHub release when the tagged changelog is unavailable', async () => {
+  const requestedUrls = [];
+  const notes = await fetchRelevantChangelogNotes({
+    fromVersion: '0.9.9-rc.1',
+    toVersion: '0.9.9-rc.2',
+    compareVersions: compareReleaseVersions,
+    fetchImpl: async (url) => {
+      requestedUrls.push(url);
+      if (url.includes('raw.githubusercontent.com')) return { ok: false };
+      return {
+        ok: true,
+        json: async () => ({ body: '## [0.9.9-rc.2] - 2026-03-11\n\n- Second candidate' }),
+      };
+    },
+  });
+
+  assert.deepEqual(requestedUrls, [
+    'https://raw.githubusercontent.com/RyderAsKing/PiChamber/v0.9.9-rc.2/CHANGELOG.md',
+    'https://api.github.com/repos/RyderAsKing/PiChamber/releases/tags/v0.9.9-rc.2',
+  ]);
+  assert.match(notes, /Second candidate/);
 });
 
 test('signals failed checks', async () => {
