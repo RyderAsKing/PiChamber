@@ -47,6 +47,7 @@ mock.module('@/hooks/usePwaManifestSync', () => ({ usePwaManifestSync: () => und
 mock.module('@/hooks/useQueuedMessageAutoSend', () => ({ useQueuedMessageAutoSend: () => undefined }));
 mock.module('@/hooks/useSessionAutoCleanup', () => ({ useSessionAutoCleanup: () => undefined }));
 mock.module('@/hooks/useWindowControlsOverlayLayout', () => ({ useWindowControlsOverlayLayout: () => undefined }));
+mock.module('@/hooks/useDesktopMenuActions', () => ({ useDesktopMenuActions: () => undefined }));
 mock.module('@/sync/notification-store', () => ({ markSessionViewed: () => undefined }));
 mock.module('@/apps/pi-session-store', () => ({ getPiSessionStore: () => piStore }));
 mock.module('@/sync/session-ui-store', () => ({

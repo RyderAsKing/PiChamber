@@ -4,6 +4,7 @@ import { usePwaManifestSync } from '@/hooks/usePwaManifestSync';
 import { useQueuedMessageAutoSend } from '@/hooks/useQueuedMessageAutoSend';
 import { useSessionAutoCleanup } from '@/hooks/useSessionAutoCleanup';
 import { useWindowControlsOverlayLayout } from '@/hooks/useWindowControlsOverlayLayout';
+import { useDesktopMenuActions } from '@/hooks/useDesktopMenuActions';
 import { markSessionViewed } from '@/sync/notification-store';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -184,6 +185,7 @@ export function SyncAppEffects({ embeddedBackgroundWorkEnabled }: {
   usePwaManifestSync();
   useWindowControlsOverlayLayout();
   useKeyboardShortcuts();
+  useDesktopMenuActions();
 
   return (
     <>
