@@ -277,6 +277,7 @@ interface SettingsFieldRowProps {
   children: React.ReactNode;
   settingsItem?: string;
   className?: string;
+  labelClassName?: string;
   controlClassName?: string;
   /** Align control to the trailing edge on desktop. @default true */
   alignEnd?: boolean;
@@ -293,6 +294,7 @@ export const SettingsFieldRow: React.FC<SettingsFieldRowProps> = ({
   children,
   settingsItem,
   className,
+  labelClassName,
   controlClassName,
   alignEnd = true,
 }) => {
@@ -304,7 +306,7 @@ export const SettingsFieldRow: React.FC<SettingsFieldRowProps> = ({
         className,
       )}
     >
-      <div className="min-w-0 @xl:w-56 @xl:shrink-0">
+      <div className={cn('min-w-0 @xl:w-56 @xl:shrink-0', labelClassName)}>
         <div className="flex items-center gap-1.5">
           <div className={SETTINGS_FIELD_LABEL_CLASS}>{label}</div>
           {info != null ? <SettingsInfoHint>{info}</SettingsInfoHint> : null}

@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { isDesktopLocalOriginActive, isElectronShell } from '@/lib/desktop';
+import type { UpdateInfo } from '@/lib/desktop';
 import { InstanceServiceUrls } from './InstanceServiceUrls';
 import { DesktopUpdateChannelSettings } from './DesktopUpdateChannelSettings';
 import {
@@ -21,16 +23,23 @@ const PI_URL = 'https://pi.dev/';
 
 const MIN_CHECKING_DURATION = 800; // ms
 
+declare const __APP_VERSION__: string | undefined;
+
+type UpdateTarget = 'client' | 'server';
+
 type AboutSettingsProps = {
   initialUpdateDialogOpen?: boolean;
 };
 
 export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialogOpen = false }) => {
-  const [updateDialogOpen, setUpdateDialogOpen] = React.useState(initialUpdateDialogOpen);
+  const [updateDialogTarget, setUpdateDialogTarget] = React.useState<UpdateTarget | null>(
+    initialUpdateDialogOpen ? 'client' : null,
+  );
   const [showChecking, setShowChecking] = React.useState(false);
   const [piChamberVersion, setPiChamberVersion] = React.useState<string | null>(null);
   const updateStore = useUpdateStore(useShallow((s) => ({
     info: s.info,
+    serverInfo: s.serverInfo,
     checking: s.checking,
     available: s.available,
     error: s.error,
@@ -43,8 +52,20 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     restartToUpdate: s.restartToUpdate,
   })));
   const { isMobile } = useDeviceInfo();
-
+  const isRemoteDesktop = isElectronShell() && !isDesktopLocalOriginActive();
   const currentVersion = piChamberVersion || updateStore.info?.currentVersion || 'unknown';
+  const clientVersion = updateStore.info?.currentVersion
+    || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown');
+  const serverVersion = updateStore.serverInfo?.currentVersion || piChamberVersion || 'unknown';
+  const clientUpdateAvailable = updateStore.available;
+  const serverUpdateAvailable = isRemoteDesktop && (updateStore.serverInfo?.available ?? false);
+  const anyUpdateAvailable = clientUpdateAvailable || serverUpdateAvailable;
+  const activeUpdateInfo = updateDialogTarget === 'server'
+    ? updateStore.serverInfo
+    : updateStore.info;
+  const activeRuntimeType = updateDialogTarget === 'server'
+    ? 'web'
+    : updateStore.runtimeType;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -86,14 +107,16 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
       const timer = setTimeout(() => {
         setShowChecking(false);
         // Show toast if check completed with no update available
-        if (didInitiateCheck.current && !updateStore.available && !updateStore.error) {
-          toast.success("You are on the latest version");
+        if (didInitiateCheck.current) {
+          if (!anyUpdateAvailable && !updateStore.error) {
+            toast.success("You are on the latest version");
+          }
           didInitiateCheck.current = false;
         }
       }, MIN_CHECKING_DURATION);
       return () => clearTimeout(timer);
     }
-  }, [ updateStore.checking, showChecking, updateStore.available, updateStore.error]);
+  }, [updateStore.checking, showChecking, anyUpdateAvailable, updateStore.error]);
 
   const isChecking = updateStore.checking || showChecking;
 
@@ -129,7 +152,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               type="button"
               variant="default"
               size="sm"
-              onClick={() => setUpdateDialogOpen(true)}
+              onClick={() => setUpdateDialogTarget('client')}
               className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
             >
               <Icon name="download" className="size-4" />
@@ -175,16 +198,16 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         </p>
 
         <UpdateDialog
-          open={updateDialogOpen}
-          onOpenChange={setUpdateDialogOpen}
-          info={updateStore.info}
+          open={updateDialogTarget !== null}
+          onOpenChange={(open) => { if (!open) setUpdateDialogTarget(null); }}
+          info={activeUpdateInfo}
           downloading={updateStore.downloading}
           downloaded={updateStore.downloaded}
           progress={updateStore.progress}
           error={updateStore.error}
           onDownload={updateStore.downloadUpdate}
           onRestart={updateStore.restartToUpdate}
-          runtimeType={updateStore.runtimeType}
+          runtimeType={activeRuntimeType}
         />
       </div>
     );
@@ -198,7 +221,25 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
           <div className="flex min-w-0 flex-col">
             <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
-            <span className="typography-meta text-muted-foreground font-mono">{currentVersion}</span>
+            {isRemoteDesktop ? (
+              <div className="flex flex-wrap items-center gap-2 typography-meta text-muted-foreground">
+                <AboutVersionTarget
+                  label="Client"
+                  version={clientVersion}
+                  updateInfo={updateStore.info}
+                  onOpen={() => setUpdateDialogTarget('client')}
+                />
+                <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+                <AboutVersionTarget
+                  label="Server"
+                  version={serverVersion}
+                  updateInfo={updateStore.serverInfo}
+                  onOpen={() => setUpdateDialogTarget('server')}
+                />
+              </div>
+            ) : (
+              <span className="typography-meta text-muted-foreground font-mono">{currentVersion}</span>
+            )}
           </div>
           
           <div className="flex items-center gap-3">
@@ -209,17 +250,21 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               </div>
             )}
 
-            {!updateStore.checking && updateStore.available && (
+            {!updateStore.checking && !isRemoteDesktop && updateStore.available && (
               <Button size="sm"
                 variant="default"
-                onClick={() => setUpdateDialogOpen(true)}
+                onClick={() => setUpdateDialogTarget('client')}
               >
                 <Icon name="download" className="h-4 w-4 mr-1" />
                 {`Update to ${updateStore.info?.version || ''}`}
               </Button>
             )}
 
-            {!updateStore.checking && !updateStore.available && !updateStore.error && (
+            {!updateStore.checking && isRemoteDesktop && anyUpdateAvailable && (
+              <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
+            )}
+
+            {!updateStore.checking && !anyUpdateAvailable && !updateStore.error && (
               <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
             )}
 
@@ -268,21 +313,54 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         </div>
 
         <UpdateDialog
-          open={updateDialogOpen}
-          onOpenChange={setUpdateDialogOpen}
-          info={updateStore.info}
-          downloading={updateStore.downloading}
-          downloaded={updateStore.downloaded}
-          progress={updateStore.progress}
+          open={updateDialogTarget !== null}
+          onOpenChange={(open) => { if (!open) setUpdateDialogTarget(null); }}
+          info={activeUpdateInfo}
+          downloading={updateDialogTarget === 'client' && updateStore.downloading}
+          downloaded={updateDialogTarget === 'client' && updateStore.downloaded}
+          progress={updateDialogTarget === 'client' ? updateStore.progress : null}
           error={updateStore.error}
           onDownload={updateStore.downloadUpdate}
           onRestart={updateStore.restartToUpdate}
-          runtimeType={updateStore.runtimeType}
+          runtimeType={activeRuntimeType}
         />
       </SettingsSection>
       <DesktopUpdateChannelSettings />
       <AboutDetails />
     </>
+  );
+};
+
+type AboutVersionTargetProps = {
+  label: 'Client' | 'Server';
+  version: string;
+  updateInfo: UpdateInfo | null;
+  onOpen: () => void;
+};
+
+const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
+  label,
+  version,
+  updateInfo,
+  onOpen,
+}) => {
+  if (!updateInfo?.available) {
+    return <span className="font-mono">{`${label} ${version}`}</span>;
+  }
+
+  const updaterLabel = `Open ${label.toLowerCase()} updater${updateInfo.version ? ` for ${updateInfo.version}` : ''}`;
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      onClick={onOpen}
+      className="normal-case font-mono text-[var(--primary-base)]"
+      aria-label={updaterLabel}
+      title={updaterLabel}
+    >
+      <span>{`${label} ${version}`}</span>
+      <Icon name="arrow-up" className="size-3.5" aria-hidden="true" />
+    </Button>
   );
 };
 

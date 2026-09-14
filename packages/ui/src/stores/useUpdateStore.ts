@@ -20,6 +20,7 @@ type UpdateState = {
   downloading: boolean;
   downloaded: boolean;
   info: UpdateInfo | null;
+  serverInfo: UpdateInfo | null;
   progress: UpdateProgress | null;
   error: string | null;
   runtimeType: 'desktop' | 'web' | 'mobile' | null;
@@ -152,6 +153,7 @@ const initialState: UpdateState = {
   downloading: false,
   downloaded: false,
   info: null,
+  serverInfo: null,
   progress: null,
   error: null,
   runtimeType: null,
@@ -174,18 +176,21 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
 
       if (runtime === 'desktop') {
         const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined;
+        const isRemoteDesktop = !isDesktopLocalOriginActive();
         const [desktopResult, apiResult] = await Promise.allSettled([
           checkForDesktopUpdates(),
-          checkForWebUpdates('desktop', appVersion),
+          isRemoteDesktop
+            ? checkForWebUpdates('web')
+            : checkForWebUpdates('desktop', appVersion),
         ]);
         const desktopInfo = desktopResult.status === 'fulfilled' ? desktopResult.value : null;
-        suggestedSec = apiResult.status === 'fulfilled'
-          ? (apiResult.value?.nextSuggestedCheckInSec ?? null)
-          : null;
+        const apiInfo = apiResult.status === 'fulfilled' ? apiResult.value : null;
+        suggestedSec = apiInfo?.nextSuggestedCheckInSec ?? null;
         set({
           checking: false,
           available: desktopInfo?.available ?? false,
           info: desktopInfo,
+          serverInfo: isRemoteDesktop ? apiInfo : null,
           lastChecked: Date.now(),
           nextCheckInSec: suggestedSec,
         });
@@ -204,6 +209,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         checking: false,
         available: info?.available ?? false,
         info,
+        serverInfo: null,
         lastChecked: Date.now(),
         nextCheckInSec: suggestedSec,
       });
@@ -282,7 +288,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
 
   dismiss: () => {
-    set({ available: false, downloaded: false, info: null });
+    set({ available: false, downloaded: false, info: null, serverInfo: null });
   },
 
   reset: () => {

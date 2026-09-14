@@ -13,6 +13,13 @@ import {
   isDesktopShell,
   setDesktopUpdateChannel,
 } from '@/lib/desktop';
+import {
+  buildLocalDesktopHost,
+  getLocalDesktopOrigin,
+  LOCAL_HOST_ID,
+  resolveCurrentDesktopHost,
+} from '@/lib/desktopCurrentHost';
+import { desktopHostsGet, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
@@ -29,12 +36,9 @@ const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   rc: 'Release candidate',
 };
 
-const getServerIdentity = (): string => {
-  try {
-    return new URL(getRuntimeApiBaseUrl()).host || 'connected server';
-  } catch {
-    return 'connected server';
-  }
+const getServerUrlFallback = (): string => {
+  const runtimeUrl = getRuntimeApiBaseUrl().trim();
+  return runtimeUrl ? redactSensitiveUrl(runtimeUrl) : 'Server';
 };
 
 const UpdateChannelSelect: React.FC<{
@@ -62,7 +66,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
   const isDesktop = isDesktopShell();
   const [runtimeEpoch, setRuntimeEpoch] = React.useState(0);
   const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
-  const serverIdentity = getServerIdentity();
+  const [serverIdentity, setServerIdentity] = React.useState(getServerUrlFallback);
   const serverChannelLabel = `Server update channel (${serverIdentity})`;
   const [desktopChannel, setDesktopChannel] = React.useState<UpdateChannel>('stable');
   const [serverChannel, setServerChannel] = React.useState<UpdateChannel>('stable');
@@ -78,6 +82,34 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
     serverOperationRef.current += 1;
     setRuntimeEpoch((value) => value + 1);
   }), []);
+
+  React.useEffect(() => {
+    if (!isDesktop || isLocalDesktop) return;
+    let cancelled = false;
+    const fallback = getServerUrlFallback();
+    setServerIdentity(fallback);
+
+    void desktopHostsGet()
+      .then((config) => {
+        if (cancelled) return;
+        const localOrigin = getLocalDesktopOrigin();
+        const resolved = resolveCurrentDesktopHost([
+          buildLocalDesktopHost(localOrigin),
+          ...config.hosts,
+        ]);
+        const savedLabel = resolved.id === LOCAL_HOST_ID || resolved.id === 'custom'
+          ? ''
+          : resolved.label.trim();
+        setServerIdentity(redactSensitiveUrl(savedLabel || fallback));
+      })
+      .catch(() => {
+        if (!cancelled) setServerIdentity(fallback);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isDesktop, isLocalDesktop, runtimeEpoch]);
 
   React.useEffect(() => {
     if (!isDesktop) return;
@@ -195,6 +227,8 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
         info="Stable receives production desktop releases only. Release candidate offers the highest available version across stable and desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
         description={desktopError ? <span className="text-[var(--status-error)]">{desktopError}</span> : undefined}
         settingsItem="about.desktop-update-channel"
+        labelClassName="@xl:w-auto"
+        controlClassName="@xl:flex-1"
       >
         <UpdateChannelSelect
           channel={desktopChannel}
@@ -206,10 +240,16 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
 
       {!isLocalDesktop && (
         <SettingsFieldRow
-          label="Server update channel"
+          label={(
+            <span className="@xl:whitespace-nowrap">
+              Server update channel <span className="font-normal text-muted-foreground">· {serverIdentity}</span>
+            </span>
+          )}
           info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
-          description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : serverIdentity}
+          description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
           settingsItem="about.server-update-channel"
+          labelClassName="@xl:w-auto"
+          controlClassName="@xl:flex-1"
         >
           <UpdateChannelSelect
             channel={serverChannel}
