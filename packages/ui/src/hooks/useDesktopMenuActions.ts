@@ -143,7 +143,7 @@ export function useDesktopMenuActions(): void {
     if (!isElectronShell()) return;
 
     let disposed = false;
-    let unsubscribe = () => undefined;
+    let unsubscribe: () => void = () => undefined;
     void subscribeToDesktopMenuEvents(getDesktopBridge(), {
       onAction: handleAction,
       onCheckForUpdates: handleCheckForUpdates,
