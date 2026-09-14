@@ -25,15 +25,16 @@ export function getNextCycleId(orderedIds: readonly string[], currentId: string 
 type SessionWithDirectory = Session & { directory?: string | null };
 
 /**
- * Global folder switch (Ctrl+Shift+F): same effect as clicking the next
- * folder in the left folder picker. Points the active project at the next
- * registered project in sidebar order, then selects a session in that folder
+ * Global folder switch (Ctrl+Shift+F, or the application menu): same effect
+ * as clicking a folder in the left folder picker. Points the active project at
+ * the target project in sidebar order, then selects a session in that folder
  * or opens a draft when the folder is empty. Wraps; never includes `__home__`
- * (the sidebar never lists it).
+ * (the sidebar never lists it). The optional direction lets the application
+ * menu move backward while the keyboard shortcut keeps moving forward.
  *
  * Returns true when it acted, false when there was nothing to cycle.
  */
-export function cycleSessionFolder(): boolean {
+export function cycleSessionFolder(direction: 1 | -1 = 1): boolean {
   const projectsState = useProjectsStore.getState();
   const projects = projectsState.projects;
   if (projects.length <= 1) {
@@ -51,7 +52,11 @@ export function cycleSessionFolder(): boolean {
     )?.id ?? null;
   }
 
-  const nextId = getNextCycleId(orderedIds, currentId);
+  const nextId = direction === 1
+    ? getNextCycleId(orderedIds, currentId)
+    : orderedIds[
+      ((currentId ? orderedIds.indexOf(currentId) : 0) - 1 + orderedIds.length) % orderedIds.length
+    ] ?? null;
   if (!nextId) {
     return false;
   }

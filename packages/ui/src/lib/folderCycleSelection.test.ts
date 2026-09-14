@@ -81,6 +81,20 @@ describe('cycleSessionFolder sidebar selection', () => {
     expect(useSidebarSpaceStore.getState().selectedWorktreePath).toBeNull();
   });
 
+  test('cycles backward for the application menu previous-project action', () => {
+    useProjectsStore.setState({ activeProjectId: projectB.id });
+    useSidebarSpaceStore.setState({ selectedSpaceId: projectB.id, selectedWorktreePath: null });
+
+    expect(cycleSessionFolder(-1)).toBe(true);
+
+    expect(useProjectsStore.getState().activeProjectId).toBe(projectA.id);
+    expect(useSidebarSpaceStore.getState().selectedSpaceId).toBe(projectA.id);
+    expect(openNewSessionDraftCalls).toEqual([{
+      selectedProjectId: projectA.id,
+      directoryOverride: projectA.path,
+    }]);
+  });
+
   test('leaves the space selection alone when there is nothing to cycle', () => {
     useProjectsStore.setState({
       projects: [projectA],
