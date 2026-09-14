@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-14
+
+Desktop menu repairs, separate client and server update status, and clearer npm guidance since 0.9.9.
+
+- **Electron application menu actions work again (#140).** Renderer-owned menu commands now reach the full desktop UI through the preload event bridge, restoring About, Settings, update checks, the command palette, session and project navigation, theme controls, sidebars, terminal actions, help, diagnostics, and mini-chat. Native Electron roles remain in the main process, invalid payloads are ignored, and listener cleanup covers partial setup and unmounts (`useDesktopMenuActions`, `desktopMenuEvents`, `AppEffects`, `folderCycle`).
+- **Remote desktop shows client and server updates separately.** About now reports both versions, checks each update feed, marks the outdated target, and opens the matching updater instead of combining desktop-client and connected-server state. Update channel rows use the saved server label when available and keep local desktop installs as one update target (`AboutSettings`, `DesktopUpdateChannelSettings`, `SettingsSection`, `useUpdateStore`).
+- **The npm package README is easier to use.** `@pi-chamber/web` now leads with runtime requirements, package-manager install and one-shot commands, guided and non-interactive serve examples, a concise command table, automation guarantees, and security guidance (`packages/web/README.md`).
+
 ## [0.9.9] - 2026-09-14
 
 Predictable server updates with transient workers and pollable jobs since 0.9.8.
