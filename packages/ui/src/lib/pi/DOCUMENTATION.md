@@ -123,9 +123,13 @@ use event sequence for deduplication. Cadence folding uses the same merge so
 a frame of cumulative chunks cannot concatenate into stuttering markdown.
 `assistant.message.end` writes the canonical `text`/`thinking` onto the
 rendered parts; message-level fields alone are not what the chat paints. When
-that assistant produced tool calls, the end frame carries `continuing: true`,
-so the reducer keeps the turn's live message ownership across the
-message-end/tool-start boundary and does not flash a settled footer. An errored
+that assistant produced tool calls, the end frame carries `continuing: true`.
+That frame ends a text segment, not the turn, so the reducer keeps
+`message.streaming:true` and the turn's live `streamingMessages` ownership
+across the message-end/tool-start boundary and does not flash a settled
+footer. Only a terminal `assistant.message.end` (non-continuing, non-error)
+or a terminal lifecycle (`idle`/`error`/`interrupted`) settles the message.
+An errored
 message end also keeps that ownership until Pi publishes retry or a terminal
 lifecycle. Retry metadata survives Pi's preparatory `busy` frame and the next
 assistant start, then clears only when text, thinking, or tool output proves the
