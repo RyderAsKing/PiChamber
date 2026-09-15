@@ -4,15 +4,12 @@ import net from 'net';
 import os from 'os';
 import path from 'path';
 import {
-  NO_SUPPORTED_RUNTIME_MESSAGE,
-  findSupportedNodeExecutable,
-  getPreferredServerRuntime,
+  assertCurrentRuntimeSupported,
   isSupportedNodeVersion,
-  parseNodeMajorVersion,
   resolveServerExecutable,
 } from './server-runtime.js';
 
-function fakeSpawnSync({ nodeVersion = null, nodeStatus = 0, bunStatus = 0 } = {}) {
+function fakeSpawnSync({ nodeVersion = null, nodeStatus = 0, bunVersion = '1.4.2', bunStatus = 0 } = {}) {
   return (bin) => {
     const normalized = String(bin);
     if (normalized === 'node' || normalized.endsWith('/node') || normalized === '/mock/node') {
@@ -20,7 +17,8 @@ function fakeSpawnSync({ nodeVersion = null, nodeStatus = 0, bunStatus = 0 } = {
       return { status: 0, stdout: `${nodeVersion}\n` };
     }
     if (normalized.includes('bun')) {
-      return bunStatus === 0 ? { status: 0, stdout: '1.3.14\n' } : { status: 1, stdout: '' };
+      if (bunStatus !== 0 || bunVersion === null) return { status: 1, stdout: '' };
+      return { status: 0, stdout: `${bunVersion}\n` };
     }
     return { status: 1, stdout: '' };
   };
@@ -74,111 +72,95 @@ function createReadyChild(pid, readyPort, delayMs = 10) {
   return child;
 }
 
-describe('parseNodeMajorVersion', () => {
-  it('parses common version shapes', () => {
-    expect(parseNodeMajorVersion('v22.14.0')).toBe(22);
-    expect(parseNodeMajorVersion('22.1.0')).toBe(22);
-    expect(parseNodeMajorVersion('v20.19.0\n')).toBe(20);
-    expect(parseNodeMajorVersion('')).toBeNull();
-    expect(parseNodeMajorVersion(null)).toBeNull();
+describe('stable version checks', () => {
+  it('accepts stable Node 22.19.0 and newer', () => {
+    expect(isSupportedNodeVersion('v22.19.0')).toBe(true);
+    expect(isSupportedNodeVersion('v22.19.1')).toBe(true);
+    expect(isSupportedNodeVersion('v24.14.1')).toBe(true);
+    expect(isSupportedNodeVersion('v22.18.9')).toBe(false);
+    expect(isSupportedNodeVersion('v22.14.0')).toBe(false);
+    expect(isSupportedNodeVersion('v20.19.0')).toBe(false);
   });
 
-  it('accepts Node 22 and newer', () => {
-    expect(isSupportedNodeVersion('v22.0.0')).toBe(true);
-    expect(isSupportedNodeVersion('v24.14.1')).toBe(true);
-    expect(isSupportedNodeVersion('v20.19.0')).toBe(false);
+  it('rejects malformed and prerelease shapes', () => {
+    expect(isSupportedNodeVersion('v22')).toBe(false);
+    expect(isSupportedNodeVersion('not-a-version')).toBe(false);
+    expect(isSupportedNodeVersion('v22.19.0-rc.1')).toBe(false);
   });
 });
 
-describe('getPreferredServerRuntime', () => {
-  it('prefers the current Node executable on supported Node', () => {
+describe('background runtime selection', () => {
+  it('prefers the current Node executable without probing PATH', () => {
     const spawnSyncFn = () => {
       throw new Error('should not probe when current Node is supported');
     };
-    expect(getPreferredServerRuntime({
+    expect(resolveServerExecutable({
       isBun: false,
-      nodeVersion: 'v22.14.0',
+      nodeVersion: 'v24.14.1',
       execPath: '/usr/bin/node',
       spawnSyncFn,
-    })).toBe('node');
-    expect(findSupportedNodeExecutable({
-      isBun: false,
-      nodeVersion: 'v22.14.0',
-      execPath: '/usr/bin/node',
-      spawnSyncFn,
-    })).toBe('/usr/bin/node');
+      env: {},
+    })).toEqual({ runtime: 'node', executable: '/usr/bin/node' });
   });
 
   it('selects PATH Node under a Bun parent when Node is available', () => {
-    const spawnSyncFn = fakeSpawnSync({ nodeVersion: 'v22.17.0', bunStatus: 0 });
-    expect(getPreferredServerRuntime({
-      isBun: true,
-      nodeVersion: 'v22.10.0',
-      execPath: '/home/user/.bun/bin/bun',
-      bunBin: '/home/user/.bun/bin/bun',
-      spawnSyncFn,
-    })).toBe('node');
+    const spawnSyncFn = fakeSpawnSync({ nodeVersion: 'v22.19.0', bunVersion: '1.4.2', bunStatus: 0 });
     const resolved = resolveServerExecutable({
       isBun: true,
-      nodeVersion: 'v22.10.0',
-      execPath: '/home/user/.bun/bin/bun',
-      bunBin: '/home/user/.bun/bin/bun',
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.4.2',
+      execPath: '/mock/bun',
+      bunBin: '/mock/bun',
       spawnSyncFn,
+      env: {},
     });
     expect(resolved).toEqual({ runtime: 'node', executable: 'node' });
     expect(resolved.executable).not.toContain('bun');
   });
 
-  it('falls back to Bun when Node is missing', () => {
-    const spawnSyncFn = fakeSpawnSync({ nodeVersion: null, bunStatus: 0 });
-    expect(getPreferredServerRuntime({
-      isBun: true,
-      execPath: '/home/user/.bun/bin/bun',
-      bunBin: '/mock/bun',
-      spawnSyncFn,
-    })).toBe('bun');
+  it('falls back to current Bun with no runtimes on PATH', () => {
+    const spawnSyncFn = () => ({ status: 1, stdout: '' });
     expect(resolveServerExecutable({
       isBun: true,
-      execPath: '/home/user/.bun/bin/bun',
-      bunBin: '/mock/bun',
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.4.2',
+      execPath: '/mock/current-bun',
       spawnSyncFn,
-    })).toEqual({ runtime: 'bun', executable: '/mock/bun' });
+      env: {},
+    })).toEqual({ runtime: 'bun', executable: '/mock/current-bun' });
   });
 
-  it('falls back to Bun when Node is older than 22', () => {
-    const spawnSyncFn = fakeSpawnSync({ nodeVersion: 'v20.19.0', bunStatus: 0 });
-    expect(getPreferredServerRuntime({
-      isBun: false,
-      nodeVersion: 'v20.19.0',
-      execPath: '/usr/bin/node',
-      bunBin: 'bun',
-      spawnSyncFn,
-    })).toBe('bun');
+  it('falls back to Bun when Node is older than 22.19.0', () => {
+    const spawnSyncFn = fakeSpawnSync({ nodeVersion: 'v20.19.0', bunVersion: '1.4.2', bunStatus: 0 });
     expect(resolveServerExecutable({
       isBun: false,
       nodeVersion: 'v20.19.0',
       execPath: '/usr/bin/node',
       bunBin: 'bun',
       spawnSyncFn,
+      env: {},
     })).toEqual({ runtime: 'bun', executable: 'bun' });
   });
 
   it('fails deterministically when neither runtime is usable', () => {
-    const spawnSyncFn = fakeSpawnSync({ nodeVersion: null, bunStatus: 1 });
-    expect(() => getPreferredServerRuntime({
-      isBun: false,
-      nodeVersion: 'v20.19.0',
-      execPath: '/usr/bin/node',
-      bunBin: '/mock/bun',
-      spawnSyncFn,
-    })).toThrow(NO_SUPPORTED_RUNTIME_MESSAGE);
+    const spawnSyncFn = fakeSpawnSync({ nodeVersion: null, bunStatus: 1, bunVersion: null });
     expect(() => resolveServerExecutable({
       isBun: false,
       nodeVersion: 'v20.19.0',
       execPath: '/usr/bin/node',
       bunBin: '/mock/bun',
       spawnSyncFn,
-    })).toThrow(NO_SUPPORTED_RUNTIME_MESSAGE);
+      env: {},
+    })).toThrow(/No supported server runtime/);
+  });
+
+  it('rejects old Bun even when it emulates new Node', () => {
+    expect(() => assertCurrentRuntimeSupported({
+      isBun: true,
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.3.14',
+      execPath: '/mock/bun',
+    })).toThrow(/Bun 1\.3\.14/);
   });
 });
 
@@ -252,7 +234,7 @@ describe('serve executable selection', () => {
       const serve = createServeCommand({
         serverPath: path.join(os.tmpdir(), 'fake-server-index.js'),
         resolveServerExecutable: () => {
-          throw new Error(NO_SUPPORTED_RUNTIME_MESSAGE);
+          throw new Error('No supported server runtime found. Install Node.js 22.19.0 or newer, or Bun 1.4.0 or newer.');
         },
         spawnFn: () => {
           throw new Error('should not spawn without a runtime');
@@ -268,7 +250,64 @@ describe('serve executable selection', () => {
         suppressQuietOutput: true,
         suppressUiPasswordWarning: true,
         suppressStartupSummary: true,
-      })).rejects.toThrow(NO_SUPPORTED_RUNTIME_MESSAGE);
+      })).rejects.toThrow(/No supported server runtime/);
     });
+  });
+});
+
+describe('foreground current-runtime validation', () => {
+  it('rejects unsupported current runtime without probing PATH', async () => {
+    await withTempPiChamberDataDir(async () => {
+      const { createServeCommand } = await import('./commands-serve.js');
+      const port = await allocateLoopbackPort();
+      let resolveCalls = 0;
+      let spawnCalls = 0;
+      const serve = createServeCommand({
+        serverPath: path.join(os.tmpdir(), 'fake-server-index.js'),
+        resolveServerExecutable: () => {
+          resolveCalls += 1;
+          throw new Error('foreground must not probe PATH runtimes');
+        },
+        assertCurrentRuntime: () => {
+          throw new Error('Unsupported server runtime: Node.js v20.19.0 is not supported. Install Node.js 22.19.0 or newer, or Bun 1.4.0 or newer.');
+        },
+        spawnFn: () => {
+          spawnCalls += 1;
+          throw new Error('foreground must stay inline and never spawn');
+        },
+        setForegroundServerActive() {},
+        setForegroundShutdown() {},
+      });
+      await expect(serve({
+        explicitPort: true,
+        port,
+        host: '127.0.0.1',
+        foreground: true,
+        quiet: true,
+        suppressQuietOutput: true,
+        suppressUiPasswordWarning: true,
+        suppressStartupSummary: true,
+      })).rejects.toThrow(/Unsupported server runtime/);
+      expect(resolveCalls).toBe(0);
+      expect(spawnCalls).toBe(0);
+    });
+  });
+
+  it('validates supported absolute Bun exec without PATH runtimes', () => {
+    expect(assertCurrentRuntimeSupported({
+      isBun: true,
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.4.2',
+      execPath: '/mock/current-bun',
+    })).toEqual({ runtime: 'bun', executable: '/mock/current-bun' });
+  });
+
+  it('rejects old Bun foreground even when emulated Node looks new', () => {
+    expect(() => assertCurrentRuntimeSupported({
+      isBun: true,
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.3.14',
+      execPath: '/mock/old-bun',
+    })).toThrow(/Bun 1\.3\.14/);
   });
 });

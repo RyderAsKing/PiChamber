@@ -6,6 +6,7 @@ import { DEFAULT_PORT } from './cli-args.js';
 import { EXIT_CODE, TunnelCliError } from './cli-errors.js';
 import { getDataDir } from './cli-paths.js';
 import { assertAuthenticatedNetworkExposure, hasUiPasswordConfigured, resolveServeUiPassword } from './cli-network.js';
+import { assertCurrentRuntimeSupported as defaultAssertCurrentRuntimeSupported } from './server-runtime.js';
 
 const STARTUP_SERVICE_ID = 'dev.pichamber.web';
 
@@ -364,7 +365,14 @@ function getStartupStatus() {
   };
 }
 
-function enableStartupService(options = {}) {
+function enableStartupService(options = {}, deps = {}) {
+  const assertCurrentRuntime = typeof deps.assertCurrentRuntime === 'function'
+    ? deps.assertCurrentRuntime
+    : defaultAssertCurrentRuntimeSupported;
+  // Startup services reuse the current executable (`process.execPath`) inline
+  // under the service manager. Validate the current runtime before
+  // persisting any service files so an unsupported runtime never enables.
+  assertCurrentRuntime();
   const paths = getStartupServicePaths();
   if (!paths.servicePath) {
     throw new TunnelCliError(`Startup integration is not supported on ${paths.platform}.`, EXIT_CODE.USAGE_ERROR);
