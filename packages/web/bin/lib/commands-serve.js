@@ -9,6 +9,7 @@ import { ensureLogsDir, getLogFilePath } from './cli-paths.js';
 import { rotateLogFile } from './cli-log-files.js';
 import { discoverPiChamberInstanceOnPort, isDesktopRuntimeForPort } from './cli-lifecycle.js';
 import { getPidFilePath, getInstanceFilePath, writePidFile, writeInstanceOptions, removePidFile, removeInstanceFile, isProcessRunning, terminateProcessTree } from './cli-process.js';
+import { resolveServerExecutable as defaultResolveServerExecutable } from './server-runtime.js';
 import { isNetworkExposedBindHost } from '../../server/lib/security/bind-host.js';
 import {
   intro as clackIntro,
@@ -171,8 +172,8 @@ async function collectInteractiveServeOptions(options, prompts = servePromptApi)
 
 function createServeCommand({
   serverPath,
-  bunBin,
-  getPreferredServerRuntime,
+  resolveServerExecutable = defaultResolveServerExecutable,
+  spawnFn = spawn,
   setForegroundServerActive,
   setForegroundShutdown,
 }) {
@@ -254,8 +255,7 @@ async function serveCommand(options) {
       }
     }
 
-    const preferredRuntime = getPreferredServerRuntime();
-    const runtimeBin = preferredRuntime === 'bun' ? bunBin : process.execPath;
+    const runtimeBin = resolveServerExecutable().executable;
 
     ensureLogsDir();
     const initialLogPort = targetPort === 0 ? 'auto' : String(targetPort);
@@ -439,7 +439,7 @@ async function serveCommand(options) {
 
     const serveSpin = showOutput ? createSpinner(options) : null;
 
-    const child = spawn(runtimeBin, serverArgs, {
+    const child = spawnFn(runtimeBin, serverArgs, {
       detached: true,
       windowsHide: true,
       stdio: ['ignore', logFd, logFd, 'ipc'],

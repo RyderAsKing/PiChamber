@@ -6,6 +6,8 @@ PiChamber server and browser UI for the [Pi coding agent](https://pi.dev). It se
 
 Node.js 22 or newer, or Bun.
 
+Background `pichamber serve` prefers Node.js 22 or newer and falls back to Bun when no supported Node is on PATH. Foreground mode runs in the current process. Startup services reuse the runtime executable that ran `startup enable` (the Node or Bun binary, not the package manager). Docker images launch via Bun in the image entrypoint, but background `serve` still applies the same automatic selection when a supported Node is installed in the container.
+
 ## Install
 
 ```sh
