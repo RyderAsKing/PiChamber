@@ -386,6 +386,26 @@ describe("applyPiEvent", () => {
     expect(state.bySession.get("sess-1")?.lifecycle).toBe("error")
   })
 
+  test("session.error shows one terminal error across a multi-message tool turn", () => {
+    let state = applyPiEvent(createReducerState(), assistantStart()).state
+    state = applyPiEvent(state, baseEvent("assistant.message.end", 2, {
+      messageId: "m1", text: "Calling tools", continuing: true,
+    })).state
+    state = applyPiEvent(state, baseEvent("assistant.message.start", 3, {
+      messageId: "m2", role: "assistant", parentId: "u1", startedAt: 2_000,
+    })).state
+    state = applyPiEvent(state, baseEvent("session.error", 4, {
+      code: "ASSISTANT_ERROR", message: "The usage limit has been reached",
+    })).state
+
+    const session = state.bySession.get("sess-1")
+    const terminalErrors = [...(session?.messages.values() ?? [])]
+      .filter((message) => message.error?.message === "The usage limit has been reached")
+    expect(terminalErrors.map((message) => message.id)).toEqual(["m2"])
+    expect(session?.messages.get("m1")?.streaming).toBe(false)
+    expect(session?.messages.get("m2")?.streaming).toBe(false)
+  })
+
   test("session.error completes running tools on the interrupted assistant", () => {
     let state = applyPiEvent(createReducerState(), assistantStart()).state
     state = applyPiEvent(state, baseEvent("session.tool.start", 2, {
