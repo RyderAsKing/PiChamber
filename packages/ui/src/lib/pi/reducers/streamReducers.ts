@@ -124,7 +124,18 @@ export const reduceMessageEnd = (
   message.thinking = typeof payload.thinking === 'string' ? payload.thinking : thinking;
   finalizeAssembledParts(session, message.id, 'text', message.text);
   finalizeAssembledParts(session, message.id, 'thinking', message.thinking);
-  message.streaming = false;
+  // `continuing:true` ends a text segment, not the turn: Pi will execute
+  // tool calls on the same assistant message. Keep `streaming:true` and live
+  // ownership so the projection stays live across the message-end/tool-start
+  // boundary and the frozen tail does not hold a completed snapshot.
+  // Terminal and errored ends still settle.
+  if (payload.continuing === true && !payload.error) {
+    message.streaming = true;
+    session.streamingMessages.add(message.id);
+    session.streamingMessages.add(payload.messageId);
+  } else {
+    message.streaming = false;
+  }
   if (typeof payload.durationMs === 'number') {
     message.durationMs = payload.durationMs;
   } else if (typeof message.createdAt === 'number' && message.createdAt > 0) {
