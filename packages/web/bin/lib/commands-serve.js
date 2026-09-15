@@ -9,7 +9,7 @@ import { ensureLogsDir, getLogFilePath } from './cli-paths.js';
 import { rotateLogFile } from './cli-log-files.js';
 import { discoverPiChamberInstanceOnPort, isDesktopRuntimeForPort } from './cli-lifecycle.js';
 import { getPidFilePath, getInstanceFilePath, writePidFile, writeInstanceOptions, removePidFile, removeInstanceFile, isProcessRunning, terminateProcessTree } from './cli-process.js';
-import { resolveServerExecutable as defaultResolveServerExecutable } from './server-runtime.js';
+import { resolveServerExecutable as defaultResolveServerExecutable, assertCurrentRuntimeSupported as defaultAssertCurrentRuntimeSupported } from './server-runtime.js';
 import { isNetworkExposedBindHost } from '../../server/lib/security/bind-host.js';
 import {
   intro as clackIntro,
@@ -173,6 +173,7 @@ async function collectInteractiveServeOptions(options, prompts = servePromptApi)
 function createServeCommand({
   serverPath,
   resolveServerExecutable = defaultResolveServerExecutable,
+  assertCurrentRuntime = defaultAssertCurrentRuntimeSupported,
   spawnFn = spawn,
   setForegroundServerActive,
   setForegroundShutdown,
@@ -255,7 +256,10 @@ async function serveCommand(options) {
       }
     }
 
-    const runtimeBin = resolveServerExecutable().executable;
+    // Foreground validates its own executable without probing or switching.
+    const runtimeBin = options.foreground
+      ? assertCurrentRuntime().executable
+      : resolveServerExecutable().executable;
 
     ensureLogsDir();
     const initialLogPort = targetPort === 0 ? 'auto' : String(targetPort);

@@ -146,7 +146,7 @@ describe('dev server lifecycle (isolated fixtures, never the prod server)', () =
 
   it('fails explicitly when the resolver has no supported runtime', () => {
     expect(() => startDevServerChild({
-      resolveFn: () => { throw new Error('No supported server runtime found. Install Node.js 22 or newer, or Bun.'); },
+      resolveFn: () => { throw new Error('No supported server runtime found. Install Node.js 22.19.0 or newer, or Bun 1.4.0 or newer.'); },
       spawnFn: () => { throw new Error('should not spawn without a runtime'); },
       serverPath: '/tmp/fake-dev-server-index.js',
       serverArgs: ['--port', '3902'],

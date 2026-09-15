@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "private": false,
   "type": "module",
+  "engines": {
+    "node": ">=22.19.0",
+    "bun": ">=1.4.0"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/RyderAsKing/PiChamber.git"
@@ -24,6 +28,7 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint \"./src/**/*.{ts,tsx}\" --config ../../eslint.config.js",
     "test": "vitest run",
+    "test:runtime": "vitest run server/lib/pi/session-daemon/pi-runtime-smoke.test.js",
     "start": "node bin/cli.js serve"
   },
   "dependencies": {

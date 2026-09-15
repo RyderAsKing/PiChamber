@@ -32,6 +32,36 @@ describe('systemd startup activation', () => {
   });
 });
 
+describe('startup runtime validation', () => {
+  it('rejects enable on unsupported current runtime before persisting', async () => {
+    const { enableStartupService } = await import('./cli-startup.js');
+    const assertCurrentRuntime = () => {
+      throw new Error('Unsupported server runtime: Node.js v20.19.0 is not supported. Install Node.js 22.19.0 or newer, or Bun 1.4.0 or newer.');
+    };
+    expect(() => enableStartupService(
+      { port: 3000, host: '127.0.0.1' },
+      { assertCurrentRuntime },
+    )).toThrow(/Unsupported server runtime/);
+  });
+
+  it('rejects old Bun enable even when emulated Node looks new', async () => {
+    const { assertCurrentRuntimeSupported } = await import('./server-runtime.js');
+    expect(() => assertCurrentRuntimeSupported({
+      isBun: true,
+      nodeVersion: 'v26.3.0',
+      bunVersion: '1.3.14',
+      execPath: '/mock/old-bun',
+    })).toThrow(/Bun 1\.3\.14/);
+  });
+
+  it('keeps status usable on old runtimes (no current validation)', async () => {
+    const { getStartupStatus } = await import('./cli-startup.js');
+    // Status never validates the current runtime so help/status/stop stay
+    // usable when serve/startup enable would fail.
+    expect(() => getStartupStatus()).not.toThrow(/Unsupported server runtime/);
+  });
+});
+
 describe('startup service paths', () => {
   const originalPlatform = process.platform;
   const originalGetuid = process.getuid;

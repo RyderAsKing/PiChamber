@@ -12,10 +12,12 @@ proposal.
 
 ## Prerequisites
 
-- Bun 1.3.14, as declared by the root `package.json`
-- Node.js 22 or newer
+- Bun >=1.4.0 (1.4.2 recommended, as declared by the root `package.json` `packageManager`)
+- Node.js >=22.19.0 (24 LTS recommended; `.nvmrc` pins 24)
 - Git
 - A supported operating system for the package you are changing
+
+Server needs Node.js 22.19 or newer or Bun 1.4 or newer. Background `serve` and dev servers pick Node first with Bun fallback. Foreground `serve` runs in the current runtime with no PATH lookup. Startup services reuse the pinned runtime from `startup enable`. Docker images launch from pinned Bun 1.4.2. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server. Runtime smoke runs with `bun run test:runtime`. It defaults to the current runtime and accepts an absolute override in `PICHAMBER_TEST_RUNTIME`. PR checks and release call the reusable runtime-smoke workflow on Linux across Node 22.19, Node 24, Bun 1.4.0, and Bun 1.4.2. See `packages/web/bin/lib/DOCUMENTATION.md` for version rules and probing.
 
 You do not need to install a separate Pi CLI for development. The web package
 uses the pinned Pi SDK dependency and the desktop app starts the web server in
@@ -143,7 +145,7 @@ bun run dead-code
 `dead-code` is non-blocking. Read its report when you add, delete, rename, or
 change exports. `bun run doctor` checks the React source tree for common issues.
 
-Before a release, `bun run release:prepare` runs the build, type-check, and lint
+Before a release, `bun run release:prepare` runs runtime smoke first, then the build, type-check, and lint
 steps. `bun run release:test` exercises the native macOS Electron packaging
 path. Windows and Linux packaging run on their native GitHub Actions runners;
 use the desktop smoke workflow for those targets.

@@ -62,7 +62,7 @@ Coordinates are normalized `0..1`, not pixels. Prefer `tap` for simple taps; do 
 
 - macOS host.
 - Xcode installed; use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` if `xcode-select` points at CommandLineTools.
-- Node 22+ (the workspace minimum).
+- Node >=22.19.0 (24 LTS recommended; the workspace minimum).
 - At least one simulator can be booted with `xcrun simctl`.
 
 ## Anti-Patterns

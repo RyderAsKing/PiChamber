@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Pin supported runtimes to Node.js >=22.19.0 (24 LTS recommended) and Bun >=1.4.0 (1.4.2 recommended) with Node-first background selection, pinned startup runtime, bundled Electron Node, and mobile-connects-backend docs. CI pins Bun 1.4.2 and Node 24; Docker uses Bun 1.4.2. Linux x64 is supported on Node 24 and Bun 1.4.0/1.4.2 with Pi 0.85.1.
+
 ## [1.0.0] - 2026-09-14
 
 Desktop menu repairs, separate client and server update status, and clearer npm guidance since 0.9.9.

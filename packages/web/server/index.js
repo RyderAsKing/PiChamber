@@ -31,6 +31,7 @@ import {
 } from './lib/server/core-routes.js';
 import { createTunnelAuth } from './lib/server/tunnel-auth.js';
 import { createUiAuth } from './lib/ui-auth/ui-auth.js';
+import { assertCurrentRuntimeSupported as defaultAssertCurrentRuntimeSupported } from './lib/server/runtime-requirements.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -104,6 +105,11 @@ export async function gracefulShutdown({ exitProcess = false } = {}) {
 }
 
 export async function startWebUiServer(options = {}) {
+  // Enforce the actual current runtime before any resource allocation so
+  // direct CLI foreground and Electron in-process hosts are checked via the
+  // real process versions. Never probe an external Node binary here: under
+  // Bun `process.version` emulates Node and must not mask an old Bun.
+  defaultAssertCurrentRuntimeSupported();
   warnIgnoredTunnelOptions(options);
   const port = Number.isInteger(options.port) && options.port >= 0 ? options.port : DEFAULT_PORT;
   const host = typeof options.host === 'string' && options.host.trim() ? options.host.trim() : (process.env.PICHAMBER_HOST || '127.0.0.1');

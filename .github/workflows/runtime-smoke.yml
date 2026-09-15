@@ -1,0 +1,49 @@
+name: Runtime compatibility
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-smoke:
+    name: ${{ matrix.runtime }} ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: node
+            version: '22.19.0'
+            node: '22.19.0'
+            bun: '1.4.2'
+          - runtime: node
+            version: '24'
+            node: '24'
+            bun: '1.4.2'
+          - runtime: bun
+            version: '1.4.0'
+            node: '24'
+            bun: '1.4.0'
+          - runtime: bun
+            version: '1.4.2'
+            node: '24'
+            bun: '1.4.2'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ matrix.bun }}
+      - run: bun install --frozen-lockfile
+      - name: Test the explicit runtime, not the automatic Node-first selection
+        env:
+          TEST_RUNTIME: ${{ matrix.runtime }}
+        run: |
+          export PICHAMBER_TEST_RUNTIME="$(command -v "$TEST_RUNTIME")"
+          "$PICHAMBER_TEST_RUNTIME" --version
+          bun run test:runtime
