@@ -2,7 +2,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import { spawnSync } from 'child_process';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { isModuleCliExecution } from './cli-entry.js';
 import { EXIT_CODE, TunnelCliError } from './lib/cli-errors.js';
@@ -61,6 +60,10 @@ import {
   getOpenchamberProcessState,
 } from './lib/cli-process.js';
 import {
+  getBunBinary,
+  resolveServerExecutable as sharedResolveServerExecutable,
+} from './lib/server-runtime.js';
+import {
   intro as clackIntro, outro as clackOutro, cancel as clackCancel,
   isJsonMode,
   isQuietMode,
@@ -107,37 +110,10 @@ function importFromFilePath(filePath) {
   return import(pathToFileURL(filePath).href);
 }
 
-function getBunBinary() {
-  if (typeof process.env.BUN_BINARY === 'string' && process.env.BUN_BINARY.trim().length > 0) {
-    return process.env.BUN_BINARY.trim();
-  }
-  if (typeof process.env.BUN_INSTALL === 'string' && process.env.BUN_INSTALL.trim().length > 0) {
-    return path.join(process.env.BUN_INSTALL.trim(), 'bin', 'bun');
-  }
-  return 'bun';
-}
-
 const BUN_BIN = getBunBinary();
 
-function isBunRuntime() {
-  return typeof globalThis.Bun !== 'undefined';
-}
-
-function isBunInstalled() {
-  try {
-    const result = spawnSync(BUN_BIN, ['--version'], {
-      stdio: 'ignore',
-      env: process.env,
-      windowsHide: true,
-    });
-    return result.status === 0;
-  } catch {
-    return false;
-  }
-}
-
-function getPreferredServerRuntime() {
-  return isBunInstalled() ? 'bun' : 'node';
+function resolveServerExecutable() {
+  return sharedResolveServerExecutable({ bunBin: BUN_BIN });
 }
 
 const commands = {
@@ -160,8 +136,7 @@ const commands = {
 
 commands.serve = createServeCommand({
   serverPath: path.join(__dirname, '..', 'server', 'index.js'),
-  bunBin: BUN_BIN,
-  getPreferredServerRuntime,
+  resolveServerExecutable,
   setForegroundServerActive(value) { foregroundServerActive = value; },
   setForegroundShutdown(handler) { foregroundShutdown = handler; },
 });
