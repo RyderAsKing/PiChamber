@@ -67,41 +67,6 @@ type EventStreamStatus =
   | 'offline'
   | 'error';
 
-const LEGACY_DEFAULT_NOTIFICATION_TEMPLATES = {
-  completion: { title: '{agent_name} is ready', message: '{last_message}' },
-  error: { title: 'Tool error', message: '{last_message}' },
-  question: { title: '{agent_name} needs input', message: '{last_message}' },
-  subtask: { title: 'Subtask complete', message: '{last_message}' },
-} as const;
-
-const EMPTY_NOTIFICATION_TEMPLATES = {
-  completion: { title: '', message: '' },
-  error: { title: '', message: '' },
-  question: { title: '', message: '' },
-  subtask: { title: '', message: '' },
-} as const;
-
-const isSameTemplateValue = (
-  a: { title: string; message: string } | undefined,
-  b: { title: string; message: string }
-) => {
-  if (!a) return false;
-  return a.title === b.title && a.message === b.message;
-};
-
-const isLegacyDefaultTemplates = (value: unknown): boolean => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const candidate = value as Record<string, { title: string; message: string } | undefined>;
-  return (
-    isSameTemplateValue(candidate.completion, LEGACY_DEFAULT_NOTIFICATION_TEMPLATES.completion)
-    && isSameTemplateValue(candidate.error, LEGACY_DEFAULT_NOTIFICATION_TEMPLATES.error)
-    && isSameTemplateValue(candidate.question, LEGACY_DEFAULT_NOTIFICATION_TEMPLATES.question)
-    && isSameTemplateValue(candidate.subtask, LEGACY_DEFAULT_NOTIFICATION_TEMPLATES.subtask)
-  );
-};
-
 const LEFT_SIDEBAR_MIN_WIDTH = 280;
 const activeMainTabByRuntime = new Map<string, MainTab>();
 
@@ -188,22 +153,12 @@ interface UIStore {
   isImagePreviewOpen: boolean;
   nativeNotificationsEnabled: boolean;
   notificationMode: 'always' | 'hidden-only';
-  notifyOnSubtasks: boolean;
   // Desktop dock badge showing the count of sessions with unseen activity (macOS).
   dockBadgeEnabled: boolean;
 
   // Event toggles (which events trigger notifications)
   notifyOnCompletion: boolean;
   notifyOnError: boolean;
-  notifyOnQuestion: boolean;
-
-  // Per-event notification templates
-  notificationTemplates: {
-    completion: { title: string; message: string };
-    error: { title: string; message: string };
-    question: { title: string; message: string };
-    subtask: { title: string; message: string };
-  };
 
   // Summarization settings
   summarizeLastMessage: boolean;
@@ -324,14 +279,9 @@ interface UIStore {
   setNativeNotificationsEnabled: (value: boolean) => void;
   setNotificationMode: (mode: 'always' | 'hidden-only') => void;
   setShowTerminalQuickKeysOnDesktop: (value: boolean) => void;
-  setNotifyOnSubtasks: (value: boolean) => void;
   setDockBadgeEnabled: (value: boolean) => void;
   setNotifyOnCompletion: (value: boolean) => void;
   setNotifyOnError: (value: boolean) => void;
-  setNotifyOnQuestion: (value: boolean) => void;
-  setNotificationTemplates: (
-    templates: UIStore['notificationTemplates'] | ((current: UIStore['notificationTemplates']) => UIStore['notificationTemplates']),
-  ) => void;
   setSummarizeLastMessage: (value: boolean) => void;
   setSummaryThreshold: (value: number) => void;
   setSummaryLength: (value: number) => void;
@@ -423,19 +373,11 @@ export const useUIStore = create<UIStore>()(
         isImagePreviewOpen: false,
         nativeNotificationsEnabled: false,
         notificationMode: 'hidden-only',
-        notifyOnSubtasks: true,
         dockBadgeEnabled: true,
 
         // Event toggles (which events trigger notifications)
         notifyOnCompletion: true,
         notifyOnError: true,
-        notifyOnQuestion: true,
-        notificationTemplates: {
-          completion: { ...EMPTY_NOTIFICATION_TEMPLATES.completion },
-          error: { ...EMPTY_NOTIFICATION_TEMPLATES.error },
-          question: { ...EMPTY_NOTIFICATION_TEMPLATES.question },
-          subtask: { ...EMPTY_NOTIFICATION_TEMPLATES.subtask },
-        },
 
         // Summarization settings
         summarizeLastMessage: false,
@@ -1419,24 +1361,12 @@ export const useUIStore = create<UIStore>()(
           set({ showTerminalQuickKeysOnDesktop: value });
         },
 
-        setNotifyOnSubtasks: (value) => {
-          set({ notifyOnSubtasks: value });
-        },
-
         setDockBadgeEnabled: (value) => {
           set({ dockBadgeEnabled: value });
         },
 
         setNotifyOnCompletion: (value) => { set({ notifyOnCompletion: value }); },
         setNotifyOnError: (value) => { set({ notifyOnError: value }); },
-        setNotifyOnQuestion: (value) => { set({ notifyOnQuestion: value }); },
-        setNotificationTemplates: (templates) => {
-          set((state) => ({
-            notificationTemplates: typeof templates === 'function'
-              ? templates(state.notificationTemplates)
-              : templates,
-          }));
-        },
         setSummarizeLastMessage: (value) => { set({ summarizeLastMessage: value }); },
         setSummaryThreshold: (value) => { set({ summaryThreshold: value }); },
         setSummaryLength: (value) => { set({ summaryLength: value }); },
@@ -1493,12 +1423,20 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 19,
+        version: 20,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v19 -> v20: retire notification templates and event toggles that
+          // are not part of the completion/error notification contract.
+          if (version < 20) {
+            delete state.notifyOnSubtasks;
+            delete state.notifyOnQuestion;
+            delete state.notificationTemplates;
+          }
 
           // v18 -> v19: retire obsolete presentation/chat preferences. Saved
           // values are stripped so they cannot restore retired behavior.
@@ -1614,18 +1552,6 @@ export const useUIStore = create<UIStore>()(
             }
             if (typeof state.todoPanelHeight !== 'number' || !Number.isFinite(state.todoPanelHeight)) {
               state.todoPanelHeight = 259;
-            }
-          }
-
-          // v0 -> v1: reset legacy notification templates
-          if (version < 1) {
-            if (isLegacyDefaultTemplates(state.notificationTemplates)) {
-              state.notificationTemplates = {
-                completion: { ...EMPTY_NOTIFICATION_TEMPLATES.completion },
-                error: { ...EMPTY_NOTIFICATION_TEMPLATES.error },
-                question: { ...EMPTY_NOTIFICATION_TEMPLATES.question },
-                subtask: { ...EMPTY_NOTIFICATION_TEMPLATES.subtask },
-              };
             }
           }
 
@@ -1770,12 +1696,9 @@ export const useUIStore = create<UIStore>()(
           nativeNotificationsEnabled: state.nativeNotificationsEnabled,
           notificationMode: state.notificationMode,
           showTerminalQuickKeysOnDesktop: state.showTerminalQuickKeysOnDesktop,
-          notifyOnSubtasks: state.notifyOnSubtasks,
           dockBadgeEnabled: state.dockBadgeEnabled,
           notifyOnCompletion: state.notifyOnCompletion,
           notifyOnError: state.notifyOnError,
-          notifyOnQuestion: state.notifyOnQuestion,
-          notificationTemplates: state.notificationTemplates,
           summarizeLastMessage: state.summarizeLastMessage,
           summaryThreshold: state.summaryThreshold,
           summaryLength: state.summaryLength,

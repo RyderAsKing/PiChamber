@@ -10,7 +10,6 @@ import { useNotificationStore } from '@/sync/notification-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionPinnedStore, getPinnedSessionKey } from '@/stores/useSessionPinnedStore';
 import { useSessionOrderingStore, resetSessionOrdering } from '@/sync/session-ordering';
-import { useUIStore } from '@/stores/useUIStore';
 
 const item = (id: string, directory: string, overrides?: { updatedAt?: number; title?: string; parentId?: string | null }) => ({
   session: {
@@ -92,18 +91,13 @@ describe('buildMobileWidgetSnapshot', () => {
       useSessionPinnedStore.setState({ ids: new Set([pinnedKey]), touchedAt: { [pinnedKey]: Date.now() } });
     }
     useSessionOrderingStore.setState({ rankById: new Map() });
-    try {
-      useUIStore.setState({ notifyOnSubtasks: false });
-    } catch {
-      // notifyOnSubtasks default already excludes subtask attention.
-    }
 
     const snapshot = buildMobileWidgetSnapshot();
 
     expect(snapshot.runtimeKey).toBe(getRuntimeKey());
-    // With subtask notifications muted, only the top-level unread counts;
-    // the subtask row is excluded from both attention and the recent list.
-    expect(snapshot.attentionCount).toBe(1);
+    // Subtask unread activity contributes to attention, while subtask rows stay
+    // excluded from the recent top-level session list.
+    expect(snapshot.attentionCount).toBe(2);
     // Top-level only (child excluded), capped at 6, pinned first.
     expect(snapshot.recentSessions.length).toBe(6);
     expect(snapshot.recentSessions[0]?.id).toBe('s-6');

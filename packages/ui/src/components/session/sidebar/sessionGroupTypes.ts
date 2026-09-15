@@ -62,7 +62,6 @@ export type SessionGroupSectionProps = {
   openSidebarMenuKey: string | null;
   activeActivitySessionIds: Set<string>;
   unreadActivitySessionIds: Set<string>;
-  notifyOnSubtasks: boolean;
   onToggleCollapsedGroup: (groupKey: string) => void;
   dragHandleProps?: SortableDragHandleProps | null;
   compactBodyPadding?: boolean;

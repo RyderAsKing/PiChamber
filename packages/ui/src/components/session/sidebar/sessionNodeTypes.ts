@@ -23,7 +23,6 @@ export type SessionNodeItemProps = {
   expandedParents: Set<string>;
   hasSessionSearchQuery: boolean;
   normalizedSessionSearchQuery: string;
-  notifyOnSubtasks: boolean;
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   editTitle: string;

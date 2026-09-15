@@ -1,7 +1,6 @@
 import type { Session } from '@/lib/chat/types';
 
 import type { ProjectEntry } from '@/lib/api/types';
-import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { liveSessionRecordToUiSession } from '@/sync/pi-session-catalog';
@@ -17,14 +16,13 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
  * shell pulls this snapshot via `window.__PICHAMBER_WIDGET_SNAPSHOT__()` on
  * background/activate, writes it to the shared App Group, and reloads the widget timelines
  * (see SceneDelegate.writeWidgetSnapshot). Mirrors the sidebar's attention logic so the
- * widget's "needs attention" mark matches the in-app unread dot exactly:
- *   needsAttention = unseenCount > 0 && (!isSubtask || notifyOnSubtasks)
+ * widget's "needs attention" mark matches the in-app unread dot exactly.
  */
 
 export interface MobileWidgetSession {
   id: string;
   title: string;
-  /** True when the session needs attention (unread + honouring the subtask setting). */
+  /** True when the session has unseen activity. */
   unread: boolean;
   /** Project label for the session's directory (matched project name, else folder name). */
   project: string;
@@ -83,7 +81,6 @@ export const buildMobileWidgetSnapshot = (): MobileWidgetSnapshot => {
     sessions.push(liveSessionRecordToUiSession(record));
   }
   const unseenBySession = useNotificationStore.getState().index.session.unseenCount;
-  const notifyOnSubtasks = useUIStore.getState().notifyOnSubtasks;
   const projects = useProjectsStore.getState().projects;
   const pinnedSessionIds = useSessionPinnedStore.getState().ids;
   const sessionOrderRanks = useSessionOrderingStore.getState().rankById;
@@ -94,7 +91,7 @@ export const buildMobileWidgetSnapshot = (): MobileWidgetSnapshot => {
   for (const session of sessions) {
     const isSubtask = parentIdOf(session) !== null;
     const unseenCount = unseenBySession[session.id] ?? 0;
-    const needsAttention = unseenCount > 0 && (!isSubtask || notifyOnSubtasks);
+    const needsAttention = unseenCount > 0;
     if (needsAttention) {
       attentionCount += 1;
     }
