@@ -4,12 +4,13 @@
   "description": "PiChamber monorepo workspace for web, ui, and desktop runtimes",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.2",
   "workspaces": [
     "packages/*"
   ],
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.19.0",
+    "bun": ">=1.4.0"
   },
   "keywords": [
     "ai",
@@ -39,6 +40,7 @@
     "lint:mobile": "bun run --cwd packages/mobile lint",
     "test": "bun run test:web && bun run test:ui && bun run test:electron",
     "test:web": "bun run --cwd packages/web test",
+    "test:runtime": "bun run --cwd packages/web test:runtime",
     "test:ui": "bun run --cwd packages/ui test",
     "test:electron": "bun run --cwd packages/electron test:architecture && bun run --cwd packages/electron test:updater",
     "clean": "rm -rf dist packages/*/dist packages/electron/dist-bundle packages/electron/resources/web-dist",
@@ -79,7 +81,7 @@
     "icons:generate": "bun run scripts/generate-icon-sprite.mjs",
     "icons:brand": "bun scripts/generate-brand-icons.mjs",
     "version:bump": "node scripts/bump-version.mjs",
-    "release:prepare": "bun run build && bun run type-check && bun run lint",
+    "release:prepare": "bun run test:runtime && bun run build && bun run type-check && bun run lint",
     "release:test": "./scripts/test-release-build.sh",
     "release:test:intel": "./scripts/test-release-build.sh x86_64",
     "release:test:arm": "./scripts/test-release-build.sh aarch64",
