@@ -42,16 +42,7 @@ the current process for systemd or another process manager.
 
 ## Server runtime
 
-Background servers prefer Node.js 22 or newer and fall back to Bun when no
-supported Node is on PATH. The choice is automatic and stays correct when the
-CLI itself is launched through Bun. Foreground servers run in the current
-process with no extra runtime choice. Startup services reuse the runtime
-executable that ran `startup enable` (the Node or Bun binary, not the package
-manager). Docker images launch via Bun in the image entrypoint, but background
-`serve` still applies the same automatic selection when a supported Node is
-installed in the container. Dev
-servers (`dev:server`, `dev:server:watch`) use the same Node first order while
-builds and package management stay on Bun.
+Server needs Node.js 22.19 or newer (24 recommended) or Bun 1.4 or newer (1.4.2 recommended). Background servers pick Node first with Bun fallback. Foreground servers run in the current runtime. Startup services reuse the pinned runtime from `startup enable`. Docker images launch from pinned Bun 1.4.2. Dev servers use the same Node-first order while builds stay on Bun. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server.
 
 ## Update PiChamber
 
