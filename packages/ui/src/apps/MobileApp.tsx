@@ -654,8 +654,8 @@ export function MobileApp({ apis }: MobileAppProps) {
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
   useRouter();
-  // APNs is the only notification channel on the native app (background-capable,
-  // focus-suppressed server-side via the visibility beacon). Local notifications are
+  // Remote APNs/FCM push is the only notification channel on the native app. It works in
+  // the background, while the native shell suppresses foreground presentation. Local notifications are
   // intentionally disabled — they can't tell foreground from background in a WKWebView
   // (document.hasFocus() is unreliable) and leaked while the app was open; the in-app SSE
   // notification dispatch is no-op'd for native in renderMobileApp.

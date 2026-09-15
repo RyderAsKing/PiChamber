@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const { runtimeFetchMock } = vi.hoisted(() => ({
+  runtimeFetchMock: vi.fn(async () => new Response('{"ok":true,"publicKey":"key"}', { status: 200 })),
+}));
+vi.mock('@pichamber/ui/lib/runtime-fetch', () => ({ runtimeFetch: runtimeFetchMock }));
+
 type MockNotificationConstructor = {
   new (title: string, options?: NotificationOptions): Notification;
   permission: NotificationPermission;
@@ -49,6 +54,20 @@ afterEach(() => {
 });
 
 describe('web notifications API', () => {
+  it('provides the push API used by browser and native-mobile registration', async () => {
+    const { createWebPushAPI } = await import('./push');
+    const push = createWebPushAPI();
+
+    await expect(push.getVapidPublicKey()).resolves.toEqual({ ok: true, publicKey: 'key' });
+    await expect(push.registerApnsToken({ token: 'token', platform: 'ios' })).resolves.toEqual({ ok: true, publicKey: 'key' });
+
+    expect(runtimeFetchMock).toHaveBeenNthCalledWith(1, '/api/push/vapid-public-key', undefined);
+    expect(runtimeFetchMock).toHaveBeenNthCalledWith(2, '/api/push/apns-token', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ token: 'token', platform: 'ios' }),
+    }));
+  });
+
   it('deduplicates repeated foreground notifications by tag', async () => {
     installWindowMock();
     const created: Array<{ title: string; options?: NotificationOptions }> = [];
@@ -57,8 +76,8 @@ describe('web notifications API', () => {
     const { createWebNotificationsAPI } = await import('./notifications');
     const api = createWebNotificationsAPI();
 
-    await expect(api.notifyAgentCompletion({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
-    await expect(api.notifyAgentCompletion({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
+    await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
+    await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
 
     expect(created).toHaveLength(1);
     expect(created[0]?.title).toBe('Ready');
@@ -99,7 +118,7 @@ describe('web notifications API', () => {
     const { createWebNotificationsAPI } = await import('./notifications');
     const api = createWebNotificationsAPI();
 
-    await expect(api.notifyAgentCompletion({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
+    await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
 
     expect(showNotification).not.toHaveBeenCalled();
     expect(created).toHaveLength(0);
@@ -107,7 +126,7 @@ describe('web notifications API', () => {
     visibilityState = 'visible';
     focused = true;
 
-    await expect(api.notifyAgentCompletion({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
+    await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
 
     expect(showNotification).toHaveBeenCalledTimes(1);
     expect(showNotification).toHaveBeenCalledWith('Ready', expect.objectContaining({ body: 'Done', tag: 'ready-session' }));

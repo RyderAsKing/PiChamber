@@ -5,10 +5,9 @@ import { getClientPlatform } from '@/lib/platform';
 import { useUIStore } from '@/stores/useUIStore';
 
 /**
- * Registers the native iOS APNs device token with the connected server so the app can
- * receive remote push even when suspended/closed. Delivery goes through the central relay
- * (server posts generic text → relay signs+sends) — see
- * `packages/web/server/lib/notifications/APNS.md`.
+ * Registers the native APNs or FCM device token with the connected server so the app can
+ * receive remote push while suspended or closed. The server sends generic completion/error
+ * text through the PiChamber push relay.
  *
  * Lazy-imports `@capacitor/push-notifications` (only present in the Capacitor shell),
  * mirroring the other `@capacitor/*` integrations in MobileApp. On `registration` the
@@ -77,7 +76,7 @@ export const useNativePushRegistration = (options: { enabled: boolean }): void =
         });
 
         const registrationErrorHandle = await PushNotifications.addListener('registrationError', (error) => {
-          console.warn('[Push] APNs registration error:', error);
+          console.warn('[Push] Native registration error:', error);
         });
 
         // Note: notification-tap handling lives in the deep-link layer (`useDeepLinkSource`

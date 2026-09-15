@@ -5,6 +5,8 @@
 // state. Replaces the old sessionAttentionStates polling system.
 // ---------------------------------------------------------------------------
 
+import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry'
+import { useUIStore } from '@/stores/useUIStore'
 import { create } from "zustand"
 
 // ---------------------------------------------------------------------------
@@ -149,15 +151,52 @@ export function markSessionViewed(sessionId: string) {
   useNotificationStore.getState().markSessionViewed(sessionId)
 }
 
-export function notifySessionTurnComplete(sessionId: string, directory?: string) {
+export function notifySessionTurnComplete(
+  sessionId: string,
+  directory?: string,
+  options?: { error?: { message?: string; code?: string } },
+) {
   const current = useNotificationStore.getState()
   if ((current.index.session.unseenCount[sessionId] ?? 0) > 0) return
-  current.append({
+  current.append(options?.error ? {
+    type: 'error',
+    session: sessionId,
+    directory,
+    error: options.error,
+    time: Date.now(),
+    viewed: false,
+  } : {
     type: 'turn-complete',
     session: sessionId,
     directory,
     time: Date.now(),
     viewed: false,
+  })
+}
+
+export function dispatchSessionNotification(input: {
+  sessionId: string
+  directory?: string
+  sequence: number
+  title?: string
+  kind: 'completion' | 'error'
+}) {
+  const settings = useUIStore.getState()
+  if (!settings.nativeNotificationsEnabled) return
+  if (input.kind === 'completion' && !settings.notifyOnCompletion) return
+  if (input.kind === 'error' && !settings.notifyOnError) return
+
+  const notifications = getRegisteredRuntimeAPIs()?.notifications
+  if (!notifications) return
+  const body = input.title?.trim() || 'Open PiChamber to review the session.'
+  void notifications.notify({
+    title: input.kind === 'error' ? 'Work failed' : 'Work completed',
+    body,
+    tag: `pichamber:${input.kind}:${input.sessionId}:${input.sequence}`,
+    kind: input.kind,
+    sessionId: input.sessionId,
+    directory: input.directory,
+    requireHidden: settings.notificationMode !== 'always',
   })
 }
 

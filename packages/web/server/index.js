@@ -3,7 +3,9 @@ import compression from 'compression';
 import express from 'express';
 import fs from 'node:fs';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import os from 'node:os';
+import webPush from 'web-push';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +15,10 @@ import { createRevocationCoordinator } from './lib/client-auth/principal-tracker
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
+import { createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
+import { createNotificationDeliveryRuntime } from './lib/notifications/delivery-runtime.js';
+import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
+import { registerNotificationRoutes } from './lib/notifications/routes.js';
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import {
@@ -145,6 +151,14 @@ export async function startWebUiServer(options = {}) {
   // listen so the profile key uses the bound port; routes observe it through
   // the getter and report unavailable until it exists.
   let piSessionDaemonRuntime = null;
+  let notificationWatcher = null;
+  const uiSettingsStore = createPiUiSettingsStore();
+  const notificationDelivery = createNotificationDeliveryRuntime({
+    dataDir: PICHAMBER_DATA_DIR,
+    webPush,
+    crypto,
+    onDesktopNotification: options.onDesktopNotification,
+  });
   const tunnelService = createTunnelService({
     dataDir: PICHAMBER_DATA_DIR,
     getPort: () => {
@@ -207,7 +221,11 @@ export async function startWebUiServer(options = {}) {
     getServerId: async () => null,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
-  const piRuntimeRoutes = registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => piSessionDaemonRuntime });
+  const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
+    getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
+    uiSettingsStore,
+  });
+  registerNotificationRoutes(app, { uiAuthController, delivery: notificationDelivery });
   // Cloudflare Tunnel external access (manual token + quick modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
@@ -248,12 +266,21 @@ export async function startWebUiServer(options = {}) {
       profileKey: piSessionDaemonRuntime.paths.profileKey,
     });
   }
-  // Warm the detached daemon as soon as HTTP is listening. Requests arriving
-  // during cold start share the supervisor's startPromise; server readiness
-  // itself never waits for provider/model initialization in the child.
-  void piSessionDaemonRuntime.start().catch((error) => {
-    console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
+  // Warm startup creates the daemon credential before subscriptions can read
+  // it. The watcher then owns transport retries independently of browsers so
+  // native background push keeps working after reconnects.
+  notificationWatcher = createPiNotificationWatcher({
+    supervisor: piSessionDaemonRuntime,
+    uiSettingsStore,
+    delivery: notificationDelivery,
   });
+  void piSessionDaemonRuntime.start()
+    .catch((error) => {
+      console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
+    })
+    .finally(() => {
+      if (!stopped) return notificationWatcher?.start();
+    });
   const controller = {
     expressApp: app,
     httpServer: server,
@@ -274,6 +301,7 @@ export async function startWebUiServer(options = {}) {
       liveRevocation.dispose();
       piRuntimeRoutes.closeEventStreams();
       await Promise.allSettled([
+        notificationWatcher?.stop(),
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
         close(server),

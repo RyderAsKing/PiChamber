@@ -12,6 +12,7 @@ import { createWebFilesAPI } from './files';
 import { createWebSettingsAPI } from './settings';
 import { createWebPermissionsAPI } from './permissions';
 import { createWebNotificationsAPI } from './notifications';
+import { createWebPushAPI } from './push';
 import { createWebToolsAPI } from './tools';
 import { createWebClientAuthAPI } from './clientAuth';
 
@@ -42,6 +43,7 @@ export const createWebAPIs = (options: WebAPIsOptions = {}): RuntimeAPIs => {
     settings: createWebSettingsAPI(),
     permissions: createWebPermissionsAPI(),
     notifications: createWebNotificationsAPI(),
+    push: createWebPushAPI(),
     clientAuth: createWebClientAuthAPI(),
     tools: createWebToolsAPI(),
   };

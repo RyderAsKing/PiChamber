@@ -63,8 +63,8 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
     throw new Error('Root element not found');
   }
 
-  // The native Capacitor app delivers notifications via APNs only (background, server-side
-  // focus-gated). Disable the in-app notification dispatch on native with a no-op
+  // The native Capacitor app delivers background notifications through APNs/FCM push.
+  // Disable the in-app notification dispatch on native with a no-op
   // notifications API: scheduling local notifications can't tell foreground from background
   // in a WKWebView and leaked while the app was open. (The Web Notifications API the web
   // runtime uses also doesn't display inside a WKWebView.)
@@ -75,7 +75,7 @@ export function renderMobileApp(apis?: RuntimeAPIs) {
     throw new Error('Runtime APIs not registered');
   }
   const resolvedApis = isNativeShell
-    ? { ...registered, notifications: { notifyAgentCompletion: async () => false, canNotify: () => false } }
+    ? { ...registered, notifications: { notify: async () => false, canNotify: () => false } }
     : registered;
 
   // Auth gating differs by shell: the native Capacitor app authenticates via

@@ -30,7 +30,7 @@ import { useConfigStore } from '@/stores/useConfigStore';
 import { invalidateSkillsLoadCache, useSkillsStore } from '@/stores/useSkillsStore';
 import { adoptServerRunTiming, observeSessionActivityTiming, removeSessionActivityTiming } from '@/sync/session-activity-timing';
 import { observeSessionActivityEvent, raiseSessionOrderingBaselines, removeSessionOrdering } from '@/sync/session-ordering';
-import { notifySessionTurnComplete } from '@/sync/notification-store';
+import { dispatchSessionNotification, notifySessionTurnComplete } from '@/sync/notification-store';
 import { cleanupPersistedSessionState } from '@/sync/session-deletion-cleanup';
 import { clearAllRevertNavigations, clearRevertNavigation, getRevertNavigation, setRevertNavigation } from '@/sync/revert-navigation-store';
 import {
@@ -2545,7 +2545,15 @@ export class PiSessionStore {
           (event.payload as { serverNow?: number }).serverNow,
         );
       }
-      this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled', { notifyIfSettled: true });
+      this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled', {
+        notification: !isRunning && (event.payload.state === 'idle' || event.payload.state === 'error')
+          ? {
+              kind: event.payload.state === 'error' ? 'error' : 'completion',
+              sequence: event.sequence,
+              directory: event.directory,
+            }
+          : undefined,
+      });
     } else if (event.name === 'session.snapshot') {
       const snapshot = event.payload.snapshot as {
         isStreaming?: boolean;
@@ -2562,8 +2570,17 @@ export class PiSessionStore {
       this.promoteSession(event.sessionId, isRunning ? 'active' : 'settled');
     } else if (event.name === 'assistant.message.start') {
       this.promoteSession(event.sessionId, 'active');
-    } else if (event.name === 'session.interrupted' || event.name === 'session.error') {
-      this.promoteSession(event.sessionId, 'settled', { notifyIfSettled: true });
+    } else if (event.name === 'session.interrupted') {
+      this.promoteSession(event.sessionId, 'settled');
+    } else if (event.name === 'session.error') {
+      this.promoteSession(event.sessionId, 'settled', {
+        notification: {
+          kind: 'error',
+          sequence: event.sequence,
+          directory: event.directory,
+          error: { code: event.payload.code, message: event.payload.message },
+        },
+      });
     }
   }
 
@@ -2596,19 +2613,46 @@ export class PiSessionStore {
   private promoteSession(
     sessionId: PiSessionId,
     phase: 'active' | 'settled',
-    options?: { notifyIfSettled?: boolean; reorder?: boolean },
+    options?: {
+      notifyIfSettled?: boolean
+      reorder?: boolean
+      notification?: {
+        kind: 'completion' | 'error'
+        sequence: number
+        directory?: string
+        error?: { code?: string; message?: string }
+      }
+    },
   ) {
     const previous = this.activityPhaseById.get(sessionId);
     this.activityPhaseById.set(sessionId, phase);
     observeSessionActivityTiming(sessionId, phase);
     if (options?.reorder) observeSessionActivityEvent(sessionId, phase);
-    if (
-      phase === 'settled'
-      && options?.notifyIfSettled
+    const notification = options?.notification;
+    const shouldNotify = phase === 'settled'
       && previous === 'active'
-      && this.state.selectedSessionId !== sessionId
-    ) {
-      notifySessionTurnComplete(sessionId, this.state.directory ?? undefined);
+      && (options?.notifyIfSettled || notification !== undefined);
+    if (!shouldNotify) return;
+
+    const directory = notification?.directory
+      ?? this.state.catalog.byId.get(sessionId)?.directory
+      ?? this.state.directory
+      ?? undefined;
+    if (this.state.selectedSessionId !== sessionId) {
+      notifySessionTurnComplete(
+        sessionId,
+        directory,
+        notification?.kind === 'error' ? { error: notification.error ?? {} } : undefined,
+      );
+    }
+    if (notification) {
+      dispatchSessionNotification({
+        sessionId,
+        directory,
+        sequence: notification.sequence,
+        kind: notification.kind,
+        title: this.state.catalog.byId.get(sessionId)?.title,
+      });
     }
   }
 

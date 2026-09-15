@@ -3,42 +3,13 @@ import { useUIStore } from '@/stores/useUIStore';
 import { isDesktopShell } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { getClientPlatform } from '@/lib/platform';
 import {
   SettingsSection,
-  SettingsTwoColumn,
   SettingsCheckboxRow,
-  SettingsGroupTitle,
   SETTINGS_OPTION_STACK_CLASS,
 } from '@/components/sections/shared/SettingsSection';
-
-const DEFAULT_NOTIFICATION_TEMPLATES = {
-  completion: {
-    titleKey: "{agent_name} is ready",
-    messageKey: "{model_name} completed the task",
-  },
-  error: {
-    titleKey: "Tool error",
-    messageKey: "{last_message}",
-  },
-  question: {
-    titleKey: "Input needed",
-    messageKey: "{last_message}",
-  },
-  subtask: {
-    titleKey: "{agent_name} is ready",
-    messageKey: "{model_name} completed the task",
-  },
-} as const;
-type NotificationTemplateEvent = keyof typeof DEFAULT_NOTIFICATION_TEMPLATES;
-const TEMPLATE_EVENT_LABELS = {
-  completion: "completion",
-  subtask: "Subagent Completion",
-  error: "error",
-  question: "question",
-} as const satisfies Record<NotificationTemplateEvent, string>;
 
 export const NotificationSettings: React.FC = () => {
   const isDesktop = React.useMemo(() => isDesktopShell(), []);
@@ -55,16 +26,10 @@ export const NotificationSettings: React.FC = () => {
   const setNativeNotificationsEnabled = useUIStore(state => state.setNativeNotificationsEnabled);
   const notificationMode = useUIStore(state => state.notificationMode);
   const setNotificationMode = useUIStore(state => state.setNotificationMode);
-  const notifyOnSubtasks = useUIStore(state => state.notifyOnSubtasks);
-  const setNotifyOnSubtasks = useUIStore(state => state.setNotifyOnSubtasks);
   const notifyOnCompletion = useUIStore(state => state.notifyOnCompletion);
   const setNotifyOnCompletion = useUIStore(state => state.setNotifyOnCompletion);
   const notifyOnError = useUIStore(state => state.notifyOnError);
   const setNotifyOnError = useUIStore(state => state.setNotifyOnError);
-  const notifyOnQuestion = useUIStore(state => state.notifyOnQuestion);
-  const setNotifyOnQuestion = useUIStore(state => state.setNotifyOnQuestion);
-  const notificationTemplates = useUIStore(state => state.notificationTemplates);
-  const setNotificationTemplates = useUIStore(state => state.setNotificationTemplates);
 
   const [notificationPermission, setNotificationPermission] = React.useState<NotificationPermission>('default');
   const [pushSupported, setPushSupported] = React.useState(false);
@@ -143,20 +108,6 @@ export const NotificationSettings: React.FC = () => {
   };
 
   const canShowNotifications = isDesktop || isNativeApp || (isBrowser && typeof Notification !== 'undefined' && Notification.permission === 'granted');
-
-  const updateTemplate = (
-    event: 'completion' | 'error' | 'question' | 'subtask',
-    field: 'title' | 'message',
-    value: string,
-  ) => {
-    setNotificationTemplates((current) => ({
-      ...current,
-      [event]: {
-        ...current[event],
-        [field]: value,
-      },
-    }));
-  };
 
   const base64UrlToUint8Array = (base64Url: string): Uint8Array<ArrayBuffer> => {
     const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
@@ -307,9 +258,9 @@ export const NotificationSettings: React.FC = () => {
     }
 
     try {
-      const success = await apis.notifications.notifyAgentCompletion({
-        title: "Test Notification",
-        body: "This is a test notification from PiChamber.",
+      const success = await apis.notifications.notify({
+        title: "Test notification",
+        body: "Notifications are working.",
         tag: 'pichamber-test',
       });
 
@@ -453,7 +404,7 @@ export const NotificationSettings: React.FC = () => {
     <>
         <SettingsSection
           settingsItem="notifications.delivery"
-          title={"Notification Delivery"}
+          title={"Notification delivery"}
           divider={false}
         >
           <div className={SETTINGS_OPTION_STACK_CLASS}>
@@ -462,7 +413,7 @@ export const NotificationSettings: React.FC = () => {
               onChange={(checked) => {
                 void handleToggleChange(checked);
               }}
-              label={"Enable Notifications"}
+              label={"Enable notifications"}
               info={
                 isBrowser
                   ? "Your browser may ask for permission the first time."
@@ -479,7 +430,7 @@ export const NotificationSettings: React.FC = () => {
                 <SettingsCheckboxRow
                   checked={notificationMode === 'always'}
                   onChange={(checked) => setNotificationMode(checked ? 'always' : 'hidden-only')}
-                  label={"Notify While App is Focused"}
+                  label={"Notify while app is focused"}
                   ariaLabel={"Notify while app is focused"}
                 />
 
@@ -517,86 +468,24 @@ export const NotificationSettings: React.FC = () => {
           <>
             <SettingsSection
               settingsItem="notifications.events"
-              title={"Notification Events"}
+              title={"Notification events"}
             >
               <div className={SETTINGS_OPTION_STACK_CLASS}>
                 <SettingsCheckboxRow
                   checked={notifyOnCompletion}
                   onChange={setNotifyOnCompletion}
-                  label={"Agent Completion"}
-                  ariaLabel={"Agent completion"}
-                />
-
-                <SettingsCheckboxRow
-                  checked={notifyOnSubtasks}
-                  onChange={setNotifyOnSubtasks}
-                  label={"Subagent Completion"}
-                  ariaLabel={"Subagent completion"}
+                  label={"Work completed"}
+                  ariaLabel={"Notify when work is completed"}
                 />
 
                 <SettingsCheckboxRow
                   checked={notifyOnError}
                   onChange={setNotifyOnError}
-                  label={"Agent Errors"}
-                  ariaLabel={"Agent errors"}
-                />
-
-                <SettingsCheckboxRow
-                  checked={notifyOnQuestion}
-                  onChange={setNotifyOnQuestion}
-                  label={"Agent Questions"}
-                  ariaLabel={"Agent questions"}
+                  label={"Errors"}
+                  ariaLabel={"Notify when work fails"}
                 />
               </div>
             </SettingsSection>
-
-            {!isNativeApp && (
-            <SettingsSection
-              title={"Notification Templates"}
-              description={(
-                <>
-                  {"Variables:"}{' '}
-                  <code className="text-[var(--primary-base)]">{'{project_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{worktree}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{branch}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{session_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{agent_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{model_name}'}</code>{' '}
-                  <code className="text-[var(--primary-base)]">{'{last_message}'}</code>
-                </>
-              )}
-            >
-              <SettingsTwoColumn className="gap-2 md:grid-cols-2 md:gap-3 lg:gap-3">
-                {(['completion', 'subtask', 'error', 'question'] as const).map((event: NotificationTemplateEvent) => (
-                  <section key={event} className="p-2">
-                    <SettingsGroupTitle className="capitalize">
-                      {TEMPLATE_EVENT_LABELS[event]}
-                    </SettingsGroupTitle>
-                    <div className="mt-1.5 space-y-2">
-                      <div>
-                        <label className="typography-micro text-muted-foreground block mb-1">{"Title"}</label>
-                        <Input
-                          value={notificationTemplates[event].title}
-                          onChange={(e) => updateTemplate(event, 'title', e.target.value)}
-                          className="h-7"
-                          placeholder={DEFAULT_NOTIFICATION_TEMPLATES[event].titleKey}
-                        />
-                      </div>
-                      <div>
-                        <label className="typography-micro text-muted-foreground block mb-1">{"Message"}</label>
-                        <Input
-                          value={notificationTemplates[event].message}
-                          onChange={(e) => updateTemplate(event, 'message', e.target.value)}
-                          className="h-7"
-                          placeholder={DEFAULT_NOTIFICATION_TEMPLATES[event].messageKey}
-                        />
-                      </div>
-                    </div>
-                  </section>
-                ))}
-              </SettingsTwoColumn>
-            </SettingsSection>
-            )}
 
           </>
         )}
@@ -604,7 +493,7 @@ export const NotificationSettings: React.FC = () => {
         {isBrowser && (
           <SettingsSection
             settingsItem="notifications.push"
-            title={"Background Push Notifications"}
+            title={"Background push notifications"}
           >
             <SettingsCheckboxRow
               checked={pushSupported ? pushSubscribed : false}
