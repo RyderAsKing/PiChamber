@@ -558,7 +558,8 @@ export function getUpdateCapability(options = {}) {
     return {
       supported: false,
       code: 'DOCKER_DEPLOYMENT',
-      error: 'PiChamber is running in a container and cannot replace its own image. Pull or build the newer image with your deployment tool, then recreate the container.',
+      error: 'PiChamber is running in a container and cannot replace its own image. In the directory with your compose file, pull the newer image and recreate the container. Config, sessions, SSH keys, and workspaces persist in the mounted volumes.',
+      commands: ['docker compose pull', 'docker compose up -d'],
     };
   }
 
@@ -1027,7 +1028,7 @@ export async function launchUpdateCommand(options = {}) {
   if (isContainer) {
     return {
       success: false,
-      error: 'Docker deployments must be updated by deploying a new container image.',
+      error: 'Docker deployments must be updated by pulling a new image and recreating the container.',
     };
   }
 

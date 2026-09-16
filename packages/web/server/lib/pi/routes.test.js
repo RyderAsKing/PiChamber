@@ -233,6 +233,30 @@ describe('Pi runtime route', () => {
     });
   });
 
+  it('returns compose pull commands when the server is a Docker deployment', async () => {
+    const app = express();
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => null,
+      updateCapabilityResolver: () => ({
+        supported: false,
+        code: 'DOCKER_DEPLOYMENT',
+        error: 'Pull the newer image and recreate the container.',
+        commands: ['docker compose pull', 'docker compose up -d'],
+      }),
+      updateLauncher: () => { throw new Error('must not run'); },
+    });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/update-install`, { method: 'POST' });
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      code: 'DOCKER_DEPLOYMENT',
+      error: 'Pull the newer image and recreate the container.',
+      commands: ['docker compose pull', 'docker compose up -d'],
+    });
+  });
+
   it('generates a task name with the configured small model without exposing model details', async () => {
     const calls = [];
     const app = express();
