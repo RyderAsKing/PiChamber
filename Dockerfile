@@ -36,13 +36,17 @@ RUN userdel bun \
   && useradd -u 1000 -g 1000 -m -s /bin/bash pichamber \
   && chown -R pichamber:pichamber /home/pichamber
 
-# Switch to pichamber user
-USER pichamber
+RUN mkdir -p /home/pichamber/.local /home/pichamber/.config /home/pichamber/.ssh \
+  /home/pichamber/.pi/agent /home/pichamber/workspaces \
+  && chown -R pichamber:pichamber /home/pichamber
 
-RUN mkdir -p /home/pichamber/.local /home/pichamber/.config /home/pichamber/.ssh
+LABEL org.opencontainers.image.source="https://github.com/RyderAsKing/PiChamber" \
+  org.opencontainers.image.title="PiChamber" \
+  org.opencontainers.image.description="PiChamber server"
 
-# cloudflared 2026.3.0 - update digest explicitly when upgrading
-COPY --from=cloudflare/cloudflared@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+# cloudflared 2026.3.0 — pin this tag when upgrading. BuildKit selects the
+# matching-arch digest from the multi-arch index (do not pin a single-platform digest).
+COPY --from=cloudflare/cloudflared:2026.3.0 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
 ENV NODE_ENV=production
 
@@ -57,5 +61,8 @@ COPY --from=builder /app/packages/web/server ./packages/web/server
 COPY --from=builder /app/packages/web/dist ./packages/web/dist
 
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["bun", "-e", "fetch('http://127.0.0.1:3000/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"]
 
 ENTRYPOINT ["sh", "/home/pichamber/pichamber-entrypoint.sh"]

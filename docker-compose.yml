@@ -1,27 +1,36 @@
 services:
   pichamber:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: pichamber
+    image: ghcr.io/ryderasking/pichamber:${PICHAMBER_VERSION:-latest}
+    init: true
     ports:
-      - "3000:3000"
+      - "${PICHAMBER_BIND_ADDRESS:-127.0.0.1}:${PICHAMBER_HOST_PORT:-3000}:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./data/pichamber:/home/pichamber/.config/pichamber
-      - ./data/pi/agent:/home/pichamber/.pi/agent
-      - ./data/ssh:/home/pichamber/.ssh
-      - ./data/workspaces:/home/pichamber/workspaces
+      - ${PICHAMBER_DATA_DIR:-./data}/pichamber:/home/pichamber/.config/pichamber
+      - ${PICHAMBER_DATA_DIR:-./data}/pi/agent:/home/pichamber/.pi/agent
+      - ${PICHAMBER_DATA_DIR:-./data}/ssh:/home/pichamber/.ssh
+      - ${PICHAMBER_DATA_DIR:-./data}/workspaces:/home/pichamber/workspaces
     environment:
-      # Docker binds PiChamber to 0.0.0.0 for port mapping, so UI auth is required.
-      # Set this before starting, for example:
-      #   PICHAMBER_UI_PASSWORD="$(openssl rand -base64 24)" docker compose up -d
-      PICHAMBER_UI_PASSWORD: ${PICHAMBER_UI_PASSWORD:?Set PICHAMBER_UI_PASSWORD before exposing PiChamber through Docker}
-    # PICHAMBER_HOST: 0.0.0.0  # Bind address (default in Docker entrypoint: 0.0.0.0)
+      # Docker binds PiChamber inside the container to 0.0.0.0 for port mapping,
+      # so UI auth remains required even when the host port is loopback-only.
+      PICHAMBER_UI_PASSWORD: ${PICHAMBER_UI_PASSWORD:?Set PICHAMBER_UI_PASSWORD before starting PiChamber}
+    # PICHAMBER_HOST: 0.0.0.0  # Container bind address (default in the entrypoint)
     # PICHAMBER_TUNNEL_PROVIDER: cloudflare
     # PICHAMBER_TUNNEL_MODE: quick  # quick | managed-remote | managed-local
     # PICHAMBER_TUNNEL_HOSTNAME: app.example.com  # required for managed-remote
     # PICHAMBER_TUNNEL_TOKEN: your_cloudflare_token  # required for managed-remote
     # PICHAMBER_TUNNEL_CONFIG: /home/pichamber/.cloudflared/config.yml  # optional for managed-local
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then((response) => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     restart: unless-stopped
