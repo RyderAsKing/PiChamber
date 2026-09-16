@@ -9,16 +9,8 @@ type AppearanceSlice = {
   showDeletionDialog: boolean;
   nativeNotificationsEnabled: boolean;
   notificationMode: 'always' | 'hidden-only';
-  notifyOnSubtasks: boolean;
   notifyOnCompletion: boolean;
   notifyOnError: boolean;
-  notifyOnQuestion: boolean;
-  notificationTemplates: {
-    completion: { title: string; message: string };
-    error: { title: string; message: string };
-    question: { title: string; message: string };
-    subtask: { title: string; message: string };
-  };
   summarizeLastMessage: boolean;
   summaryThreshold: number;
   summaryLength: number;
@@ -53,11 +45,8 @@ export const startAppearanceAutoSave = (): (() => void) => {
     showDeletionDialog: useUIStore.getState().showDeletionDialog,
     nativeNotificationsEnabled: useUIStore.getState().nativeNotificationsEnabled,
     notificationMode: useUIStore.getState().notificationMode,
-    notifyOnSubtasks: useUIStore.getState().notifyOnSubtasks,
     notifyOnCompletion: useUIStore.getState().notifyOnCompletion,
     notifyOnError: useUIStore.getState().notifyOnError,
-    notifyOnQuestion: useUIStore.getState().notifyOnQuestion,
-    notificationTemplates: useUIStore.getState().notificationTemplates,
     summarizeLastMessage: useUIStore.getState().summarizeLastMessage,
     summaryThreshold: useUIStore.getState().summaryThreshold,
     summaryLength: useUIStore.getState().summaryLength,
@@ -86,11 +75,8 @@ export const startAppearanceAutoSave = (): (() => void) => {
       showDeletionDialog: state.showDeletionDialog,
       nativeNotificationsEnabled: state.nativeNotificationsEnabled,
       notificationMode: state.notificationMode,
-      notifyOnSubtasks: state.notifyOnSubtasks,
       notifyOnCompletion: state.notifyOnCompletion,
       notifyOnError: state.notifyOnError,
-      notifyOnQuestion: state.notifyOnQuestion,
-      notificationTemplates: state.notificationTemplates,
       summarizeLastMessage: state.summarizeLastMessage,
       summaryThreshold: state.summaryThreshold,
       summaryLength: state.summaryLength,
@@ -124,20 +110,11 @@ export const startAppearanceAutoSave = (): (() => void) => {
     if (current.notificationMode !== previous.notificationMode) {
       diff.notificationMode = current.notificationMode;
     }
-    if (current.notifyOnSubtasks !== previous.notifyOnSubtasks) {
-      diff.notifyOnSubtasks = current.notifyOnSubtasks;
-    }
     if (current.notifyOnCompletion !== previous.notifyOnCompletion) {
       diff.notifyOnCompletion = current.notifyOnCompletion;
     }
     if (current.notifyOnError !== previous.notifyOnError) {
       diff.notifyOnError = current.notifyOnError;
-    }
-    if (current.notifyOnQuestion !== previous.notifyOnQuestion) {
-      diff.notifyOnQuestion = current.notifyOnQuestion;
-    }
-    if (JSON.stringify(current.notificationTemplates) !== JSON.stringify(previous.notificationTemplates)) {
-      diff.notificationTemplates = current.notificationTemplates;
     }
     if (current.summarizeLastMessage !== previous.summarizeLastMessage) {
       diff.summarizeLastMessage = current.summarizeLastMessage;

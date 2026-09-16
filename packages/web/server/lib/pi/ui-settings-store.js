@@ -18,14 +18,15 @@ const PORTABLE_SETTINGS_VERSION = 'portable-v1';
 // userMessageRenderingMode, collapsibleUserMessages, stickyUserHeader,
 // promptNavigatorEnabled, wideChatLayoutEnabled,
 // showSplitAssistantMessageActions, directoryShowHidden, gitmojiEnabled,
+// notifyOnSubtasks, notifyOnQuestion, notificationTemplates,
 // desktopWindowControlsPosition/Style (local). persistChatDraft was local-only
 // UI state and was never part of the server allowlists.
 const PORTABLE_FIELDS = new Set([
   'themeId', 'useSystemTheme', 'themeVariant', 'lightThemeId', 'darkThemeId',
   'splashBgLight', 'splashFgLight', 'splashBgDark', 'splashFgDark',
   'showDeletionDialog', 'nativeNotificationsEnabled', 'notificationMode',
-  'notifyOnSubtasks', 'notifyOnCompletion', 'notifyOnError', 'notifyOnQuestion',
-  'notificationTemplates', 'summarizeLastMessage', 'summaryThreshold', 'summaryLength',
+  'notifyOnCompletion', 'notifyOnError',
+  'summarizeLastMessage', 'summaryThreshold', 'summaryLength',
   'maxLastMessageLength', 'usageAutoRefresh', 'usageRefreshIntervalMs',
   'usageDisplayMode', 'usageShowPredValues', 'usageDropdownProviders',
   'usageSelectedModels', 'usageCollapsedFamilies', 'usageExpandedFamilies', 'usageModelGroups',

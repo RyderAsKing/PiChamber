@@ -18,7 +18,6 @@ export function useSessionGroupFolders({
   compareSessionNodes,
   activeActivitySessionIds,
   unreadActivitySessionIds,
-  notifyOnSubtasks,
   collectGroupSessions,
 }: {
   group: SessionGroup;
@@ -28,7 +27,6 @@ export function useSessionGroupFolders({
   compareSessionNodes: (a: SessionNode, b: SessionNode) => number;
   activeActivitySessionIds: Set<string>;
   unreadActivitySessionIds: Set<string>;
-  notifyOnSubtasks: boolean;
   collectGroupSessions: (nodes: SessionNode[]) => Session[];
 }) {
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
@@ -158,7 +156,7 @@ export function useSessionGroupFolders({
 
       const entry = foldersById.get(folderId);
       let state = entry
-        ? getSessionNodesActivityState(entry.nodes, activeActivitySessionIds, unreadActivitySessionIds, notifyOnSubtasks)
+        ? getSessionNodesActivityState(entry.nodes, activeActivitySessionIds, unreadActivitySessionIds)
         : null;
       for (const child of childFoldersByParentId.get(folderId) ?? []) {
         state = mergeCollapsedActivityStates(state, visit(child.folder.id, seen));
@@ -170,7 +168,7 @@ export function useSessionGroupFolders({
 
     allFoldersForGroup.forEach(({ folder }) => visit(folder.id, new Set()));
     return result;
-  }, [activeActivitySessionIds, allFoldersForGroup, childFoldersByParentId, notifyOnSubtasks, unreadActivitySessionIds]);
+  }, [activeActivitySessionIds, allFoldersForGroup, childFoldersByParentId, unreadActivitySessionIds]);
 
   const folderSessionsForDeleteById = React.useMemo(() => {
     if (!group.isArchivedBucket) return new Map<string, Session[]>();

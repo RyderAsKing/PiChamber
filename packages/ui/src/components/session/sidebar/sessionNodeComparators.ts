@@ -91,7 +91,6 @@ export const areSessionNodeItemPropsEqual = (prev: SessionNodeItemProps, next: S
   if (prev.allowQuickArchiveAction !== next.allowQuickArchiveAction) return false;
   if (prev.hasSessionSearchQuery !== next.hasSessionSearchQuery) return false;
   if (prev.normalizedSessionSearchQuery !== next.normalizedSessionSearchQuery) return false;
-  if (prev.notifyOnSubtasks !== next.notifyOnSubtasks) return false;
   if (prev.nodeStructureKey !== next.nodeStructureKey) return false;
   if (getNodeSessionDirectory(prev.node) !== getNodeSessionDirectory(next.node)) return false;
   if (!isSecondaryMetaEqual(prev.secondaryMeta, next.secondaryMeta)) return false;

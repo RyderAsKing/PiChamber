@@ -292,60 +292,11 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   ) {
     result.notificationMode = candidate.notificationMode;
   }
-  if (typeof candidate.notifyOnSubtasks === 'boolean') {
-    result.notifyOnSubtasks = candidate.notifyOnSubtasks;
-  }
   if (typeof candidate.notifyOnCompletion === 'boolean') {
     result.notifyOnCompletion = candidate.notifyOnCompletion;
   }
   if (typeof candidate.notifyOnError === 'boolean') {
     result.notifyOnError = candidate.notifyOnError;
-  }
-  if (typeof candidate.notifyOnQuestion === 'boolean') {
-    result.notifyOnQuestion = candidate.notifyOnQuestion;
-  }
-  if (
-    candidate.notificationTemplates &&
-    typeof candidate.notificationTemplates === 'object'
-  ) {
-    const templates = candidate.notificationTemplates as Record<
-      string,
-      unknown
-    >;
-    const validateTemplate = (
-      key: string
-    ): { title: string; message: string } | undefined => {
-      const value = templates[key];
-      if (!value || typeof value !== 'object') return undefined;
-      const obj = value as Record<string, unknown>;
-      const title = typeof obj.title === 'string' ? obj.title : '';
-      const message = typeof obj.message === 'string' ? obj.message : '';
-      return { title, message };
-    };
-    const completion = validateTemplate('completion');
-    const error = validateTemplate('error');
-    const question = validateTemplate('question');
-    const subtask = validateTemplate('subtask');
-    if (completion || error || question || subtask) {
-      result.notificationTemplates = {
-        completion: completion ?? {
-          title: 'Task Complete',
-          message: 'Your task has finished.',
-        },
-        error: error ?? {
-          title: 'Error Occurred',
-          message: 'An error occurred while processing your task.',
-        },
-        question: question ?? {
-          title: 'Input Needed',
-          message: 'Please provide input to continue.',
-        },
-        subtask: subtask ?? {
-          title: 'Subtask Complete',
-          message: 'A subtask has finished.',
-        },
-      };
-    }
   }
   if (typeof candidate.summarizeLastMessage === 'boolean') {
     result.summarizeLastMessage = candidate.summarizeLastMessage;

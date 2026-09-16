@@ -38,7 +38,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     expandedParents,
     hasSessionSearchQuery,
     normalizedSessionSearchQuery,
-    notifyOnSubtasks,
     editingId,
     setEditingId,
     editTitle,
@@ -126,7 +125,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     expandedParents,
     expansionKey,
     hasSessionSearchQuery,
-    notifyOnSubtasks,
   });
 
   const {

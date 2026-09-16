@@ -8,7 +8,7 @@ import type {
 import { applyAssistantTextDelta } from '../text-delta';
 import { toClientTimestamp } from '../server-clock';
 import type { PiRetryInfo, PiSessionLifecycleState } from '../types';
-import type { PiReducerSessionState } from './reducerTypes';
+import type { PiReducerMessage, PiReducerSessionState } from './reducerTypes';
 import {
   assembleMessageText,
   ensureMessage,
@@ -261,15 +261,22 @@ export const reduceError = (session: PiReducerSessionState, code: string, messag
   const now = Date.now();
   session.parts = session.parts.fork();
   session.partOrder = new Map(session.partOrder);
-  for (const messageId of session.streamingMessages) {
-    const entry = session.messages.get(messageId);
-    if (!entry) continue;
+  const streamingEntries = [...session.streamingMessages]
+    .map((messageId) => session.messages.get(messageId))
+    .filter((entry, index, entries): entry is PiReducerMessage => Boolean(entry) && entries.indexOf(entry) === index);
+  const terminalEntry = streamingEntries.reduce<PiReducerMessage | undefined>((latest, entry) => {
+    if (!latest || entry.createdAt >= latest.createdAt) return entry;
+    return latest;
+  }, undefined);
+  for (const entry of streamingEntries) {
     entry.streaming = false;
-    entry.error = { code, ...(message ? { message } : {}) };
+    entry.error = entry === terminalEntry
+      ? { code, ...(message ? { message } : {}) }
+      : undefined;
     if (entry.durationMs === undefined && entry.createdAt > 0) {
       entry.durationMs = Math.max(100, now - entry.createdAt);
     }
-    for (const partId of session.partOrder.get(messageId) ?? []) {
+    for (const partId of session.partOrder.get(entry.id) ?? []) {
       const part = session.parts.get(partId);
       if (!part) continue;
       const toolRunning = part.tool?.state === 'running' || part.tool?.state === 'pending';

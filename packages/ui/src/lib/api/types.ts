@@ -718,7 +718,7 @@ export interface NotificationPayload {
 }
 
 export interface NotificationsAPI {
-  notifyAgentCompletion(payload?: NotificationPayload): Promise<boolean>;
+  notify(payload?: NotificationPayload): Promise<boolean>;
   canNotify?: () => boolean | Promise<boolean>;
 }
 

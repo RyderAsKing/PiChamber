@@ -250,7 +250,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const toggleHelpDialog = useUIStore((state) => state.toggleHelpDialog);
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
-  const notifyOnSubtasks = useUIStore((state) => state.notifyOnSubtasks);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
 
@@ -994,7 +993,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         expandedParents={projectExpandedParents}
         hasSessionSearchQuery={hasSessionSearchQuery}
         normalizedSessionSearchQuery={normalizedSessionSearchQuery}
-        notifyOnSubtasks={notifyOnSubtasks}
         editingId={editingId}
         setEditingId={setEditingId}
         editTitle={editTitle}
@@ -1120,7 +1118,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         openSidebarMenuKey={openSidebarMenuKey}
         activeActivitySessionIds={activeSessionIdSet}
         unreadActivitySessionIds={unreadSessionIdSet}
-        notifyOnSubtasks={notifyOnSubtasks}
         onToggleCollapsedGroup={toggleCollapsedGroup}
         scrollContainerRef={scrollContainerRef}
       />
@@ -1159,7 +1156,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       openSidebarMenuKey,
       activeSessionIdSet,
       unreadSessionIdSet,
-      notifyOnSubtasks,
       toggleCollapsedGroup,
     ],
   );

@@ -51,14 +51,6 @@ export const groupHasActivityMembershipChange = (
   return group.sessions.some(visit);
 };
 
-export const groupHasAnyActivityMembership = (group: SessionGroup, sessionIds: Set<string>): boolean => {
-  const visit = (node: SessionNode): boolean => {
-    if (sessionIds.has(node.session.id)) return true;
-    return node.children.some(visit);
-  };
-  return group.sessions.some(visit);
-};
-
 export const groupHasExpansionMembershipChange = (
   group: SessionGroup,
   prevExpandedParents: Set<string>,
@@ -128,11 +120,6 @@ export const areGroupPropsEqual = (
 
   if (prev.unreadActivitySessionIds !== next.unreadActivitySessionIds
     && groupHasActivityMembershipChange(next.group, prev.unreadActivitySessionIds, next.unreadActivitySessionIds)) {
-    return false;
-  }
-
-  if (prev.notifyOnSubtasks !== next.notifyOnSubtasks
-    && groupHasAnyActivityMembership(next.group, next.unreadActivitySessionIds)) {
     return false;
   }
 

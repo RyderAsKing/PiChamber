@@ -1,4 +1,3 @@
-import type { Session } from '@/lib/chat/types';
 import type { SessionNode } from './types';
 
 export type CollapsedActivityState = 'active' | 'unread' | null;
@@ -16,22 +15,16 @@ const getSessionNodeActivityState = (
   node: SessionNode,
   activeSessionIds: Set<string>,
   unreadSessionIds: Set<string>,
-  includeUnreadSubtasks: boolean,
 ): CollapsedActivityState => {
   if (activeSessionIds.has(node.session.id)) {
     return 'active';
   }
 
-  let state: CollapsedActivityState = null;
-  const isSubtask = Boolean((node.session as Session & { parentID?: string | null }).parentID);
-  if (unreadSessionIds.has(node.session.id) && (includeUnreadSubtasks || !isSubtask)) {
-    state = 'unread';
-  }
-
+  let state: CollapsedActivityState = unreadSessionIds.has(node.session.id) ? 'unread' : null;
   for (const child of node.children) {
     state = mergeCollapsedActivityStates(
       state,
-      getSessionNodeActivityState(child, activeSessionIds, unreadSessionIds, includeUnreadSubtasks),
+      getSessionNodeActivityState(child, activeSessionIds, unreadSessionIds),
     );
     if (state === 'active') return state;
   }
@@ -43,13 +36,12 @@ export const getSessionNodesActivityState = (
   nodes: SessionNode[],
   activeSessionIds: Set<string>,
   unreadSessionIds: Set<string>,
-  includeUnreadSubtasks: boolean,
 ): CollapsedActivityState => {
   let state: CollapsedActivityState = null;
   for (const node of nodes) {
     state = mergeCollapsedActivityStates(
       state,
-      getSessionNodeActivityState(node, activeSessionIds, unreadSessionIds, includeUnreadSubtasks),
+      getSessionNodeActivityState(node, activeSessionIds, unreadSessionIds),
     );
     if (state === 'active') return state;
   }

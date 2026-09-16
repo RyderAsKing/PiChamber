@@ -26,7 +26,6 @@ export function useSessionNodeItemMetadata({
   expandedParents,
   expansionKey,
   hasSessionSearchQuery,
-  notifyOnSubtasks,
 }: {
   node: SessionNode;
   groupDirectory?: string | null;
@@ -36,7 +35,6 @@ export function useSessionNodeItemMetadata({
   expandedParents: Set<string>;
   expansionKey: string;
   hasSessionSearchQuery: boolean;
-  notifyOnSubtasks: boolean;
 }) {
   const session = node.session;
   const sessionDirectory =
@@ -120,9 +118,8 @@ export function useSessionNodeItemMetadata({
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);
 
-  const isSubtaskSession = Boolean((session as Session & { parentID?: string | null }).parentID);
   const unseenCount = useSessionUnseenCount(session.id);
-  const needsAttention = unseenCount > 0 && (!isSubtaskSession || notifyOnSubtasks);
+  const needsAttention = unseenCount > 0;
   const sessionTimestamp = session.time?.updated || session.time?.created || Date.now();
   const sessionCompactUpdatedLabel = formatSessionCompactDateLabel(sessionTimestamp);
 

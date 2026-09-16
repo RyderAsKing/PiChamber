@@ -68,7 +68,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     openSidebarMenuKey,
     activeActivitySessionIds,
     unreadActivitySessionIds,
-    notifyOnSubtasks,
     onToggleCollapsedGroup,
     dragHandleProps,
     compactBodyPadding = false,
@@ -141,7 +140,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     compareSessionNodes,
     activeActivitySessionIds,
     unreadActivitySessionIds,
-    notifyOnSubtasks,
     collectGroupSessions,
   });
 
@@ -252,7 +250,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       ? { label: group.branch, color: null as string | null }
       : null;
   const groupActivityState = isCollapsed
-    ? getSessionNodesActivityState(sourceGroupNodes, activeActivitySessionIds, unreadActivitySessionIds, notifyOnSubtasks)
+    ? getSessionNodesActivityState(sourceGroupNodes, activeActivitySessionIds, unreadActivitySessionIds)
     : null;
   const groupActivityIndicator = groupActivityState ? (
     <CollapsedActivityIndicator state={groupActivityState} activeLabel={'Session active'} unreadLabel={'Unread updates'} />

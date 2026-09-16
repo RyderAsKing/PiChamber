@@ -56,18 +56,8 @@ export type DesktopSettings = {
   showDeletionDialog?: boolean;
   nativeNotificationsEnabled?: boolean;
   notificationMode?: 'always' | 'hidden-only';
-  notifyOnSubtasks?: boolean;
-
   notifyOnCompletion?: boolean;
   notifyOnError?: boolean;
-  notifyOnQuestion?: boolean;
-
-  notificationTemplates?: {
-    completion: { title: string; message: string };
-    error: { title: string; message: string };
-    question: { title: string; message: string };
-    subtask: { title: string; message: string };
-  };
 
   summarizeLastMessage?: boolean;
   summaryThreshold?: number;

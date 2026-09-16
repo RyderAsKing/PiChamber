@@ -115,12 +115,6 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     }
   }
   if (
-    typeof settings.notifyOnSubtasks === 'boolean' &&
-    settings.notifyOnSubtasks !== store.notifyOnSubtasks
-  ) {
-    store.setNotifyOnSubtasks(settings.notifyOnSubtasks);
-  }
-  if (
     typeof settings.notifyOnCompletion === 'boolean' &&
     settings.notifyOnCompletion !== store.notifyOnCompletion
   ) {
@@ -131,18 +125,6 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     settings.notifyOnError !== store.notifyOnError
   ) {
     store.setNotifyOnError(settings.notifyOnError);
-  }
-  if (
-    typeof settings.notifyOnQuestion === 'boolean' &&
-    settings.notifyOnQuestion !== store.notifyOnQuestion
-  ) {
-    store.setNotifyOnQuestion(settings.notifyOnQuestion);
-  }
-  if (
-    settings.notificationTemplates &&
-    typeof settings.notificationTemplates === 'object'
-  ) {
-    store.setNotificationTemplates(settings.notificationTemplates);
   }
   if (
     typeof settings.summarizeLastMessage === 'boolean' &&
