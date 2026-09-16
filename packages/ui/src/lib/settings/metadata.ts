@@ -194,27 +194,27 @@ export function resolveSettingsSlug(value: string | null | undefined): SettingsP
 export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
   switch (slug) {
     case 'general':
-      return 'settings-3';
+      return 'equalizer';
     case 'projects':
       return 'folders';
     case 'remote-instances':
-      return 'computer';
+      return 'server';
     case 'appearance':
-      return 'palette';
+      return 'brush';
     case 'chat':
-      return 'chat-ai-3';
+      return 'chat-1';
     case 'dictation':
-      return 'mic';
+      return 'voiceprint';
     case 'snippets':
-      return 'chat-thread';
+      return 'sticky-note';
     case 'prompt-templates':
-      return 'terminal';
+      return 'terminal-box';
     case 'notifications':
       return 'notification-3';
     case 'shortcuts':
       return 'command';
     case 'sessions':
-      return 'chat-history';
+      return 'history';
 
     case 'providers':
       return 'cloud';
@@ -222,15 +222,15 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'brain';
 
     case 'skills.installed':
-      return 'book-open';
+      return 'puzzle';
 
     case 'git':
-      return 'git-branch';
+      return 'git-repository';
 
     case 'tunnel':
-      return 'home-office';
+      return 'global';
     case 'about':
-      return 'information';
+      return 'pichamber';
     case 'home':
       return null;
     default:

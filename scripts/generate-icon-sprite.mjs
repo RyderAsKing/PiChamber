@@ -18,9 +18,14 @@ const remixPath = resolve(repoRoot, "node_modules/@remixicon/react/index.mjs")
 const outPath = resolve(repoRoot, "packages/ui/src/components/icon/sprite.ts")
 
 const customIconData = new Map([
+  // Actual PiChamber brand mark (faceted hex chamber + pi), matching
+  // PiChamberLogo and packages/electron/resources/icons/app-icon-glyph.svg.
+  // Artwork is authored in a 100-unit space; scale it into the shared 24-unit
+  // sprite grid with 1px padding. Stays currentColor so nav/selection theming
+  // behaves like every other sprite glyph.
   [
     "pichamber",
-    `<polygon points="12 2.5 3.5 7.4 3.5 17.2 12 22.1 20.5 17.2 20.5 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><polyline points="3.5 7.4 12 12.3 20.5 7.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="12.3" x2="12" y2="22.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="m12 5.5 3.7 2.1L12 9.7 8.3 7.6 12 5.5Zm0 1.5-1 .6 1 .6 1-.6-1-.6Z" fill="currentColor" fill-rule="evenodd"/>`,
+    `<g transform="translate(12 12) scale(0.22) translate(-50 -50)"><path d="M50 3 91 27 50 51 9 27Z" fill="currentColor" fill-opacity="0.08"/><path d="M9 27 50 51V97L9 73Z" fill="currentColor" fill-opacity="0.15"/><path d="M50 51 91 27V73L50 97Z" fill="currentColor" fill-opacity="0.24"/><path d="M50 3 91 27V73L50 97 9 73V27Z" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M28 31H72 M38 31V68 M62 31V55C62 64 67 68 75 68" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></g>`,
   ],
 ])
 
