@@ -1,0 +1,180 @@
+---
+title: Run PiChamber in Docker
+description: Run the PiChamber image, persist projects, and choose how Docker uses your existing Pi configuration.
+---
+
+Run one PiChamber server in one container while keeping its projects and Pi configuration across image updates.
+
+## Start PiChamber
+
+Copy [`docker-compose.yml`](https://github.com/RyderAsKing/PiChamber/blob/main/docker-compose.yml) into an empty directory, then run:
+
+```sh
+mkdir -p data/pichamber data/pi/agent data/ssh data/workspaces
+export PICHAMBER_UI_PASSWORD="$(openssl rand -base64 24)"
+printf 'PiChamber password: %s\n' "$PICHAMBER_UI_PASSWORD"
+docker compose up -d
+docker compose logs -f
+```
+
+Save the password and open `http://127.0.0.1:3000`. The default configuration publishes the port on loopback only. Set `PICHAMBER_BIND_ADDRESS=0.0.0.0` only when trusted devices on the local network need to connect.
+
+## Add projects
+
+The host workspace directory is `./data/workspaces`. PiChamber sees it as `/home/pichamber/workspaces`.
+
+To use an existing checkout, place it under the host directory:
+
+```sh
+cp -a /path/to/project ./data/workspaces/project
+```
+
+Then select **Add project** in PiChamber and add `/home/pichamber/workspaces/project`.
+
+You can instead select **Clone & add** in PiChamber and clone directly into `/home/pichamber/workspaces/project`. Project-level `AGENTS.md`, `.pi/`, `.agents/`, Git data, and other dotfiles remain in the mounted workspace.
+
+## Choose how Pi configuration is handled
+
+Pi keeps most user-level state in `~/.pi/agent`, including provider authentication, settings, models, sessions, extensions, skills, prompts, themes, global `AGENTS.md`, system-prompt files, trust decisions, and keybindings. Docker cannot see the host copy unless you copy or mount it.
+
+Choose one of these approaches:
+
+| Approach | Use it when | Behavior |
+| --- | --- | --- |
+| Isolated configuration | Running a server or keeping Docker separate from desktop Pi | Docker uses `./data/pi/agent` and starts fresh |
+| One-time copy | Starting with desktop Pi configuration but keeping later changes separate | Host configuration is copied into `./data/pi/agent` |
+| Live bind mount | Intentionally sharing one Pi directory with the host | Host and container read and write the same files |
+
+Do not run desktop Pi and Docker PiChamber against the same live agent directory at the same time. Both can write authentication, sessions, settings, and lock files.
+
+### Use isolated configuration
+
+This is the default and safest option. Sign in to providers and install Pi resources from PiChamber. Docker stores the resulting state under:
+
+```text
+./data/pi/agent
+```
+
+Deleting or recreating the container does not remove this directory.
+
+### Copy existing Pi configuration once
+
+Stop Pi and PiChamber before copying. Copy on the host first so symlinks can resolve against the host filesystem, then set ownership for the container user:
+
+```sh
+mkdir -p data/pi/agent
+cp -aL "$HOME/.pi/agent/." ./data/pi/agent/
+docker run --rm \
+  --entrypoint chown \
+  -v "$PWD/data/pi/agent:/destination" \
+  ghcr.io/ryderasking/pichamber:latest \
+  -R 1000:1000 /destination
+```
+
+The `-L` option copies the targets of symlinks. This matters when files under `~/.pi/agent` point into a separate dotfiles repository. Start PiChamber after the copy:
+
+```sh
+docker compose up -d
+```
+
+The Docker copy is independent after import. Changes made later by desktop Pi do not appear in Docker, and Docker changes do not alter the host copy.
+
+The copy can include provider tokens from `auth.json`. Protect `./data/pi/agent`, do not commit it, and do not include it in support archives.
+
+Some installed package caches and binaries under `bin/`, `npm/`, or `git/` may have been built for the host operating system. If an imported resource fails on a different operating system or CPU architecture, remove that cache inside `./data/pi/agent` and reinstall the package from PiChamber.
+
+### Share the host Pi directory live
+
+A bind mount can expose the host directory directly. Create `docker-compose.host-pi.yml` beside the main Compose file:
+
+```yaml
+services:
+  pichamber:
+    volumes:
+      - ${PICHAMBER_HOST_PI_AGENT_DIR:?Set PICHAMBER_HOST_PI_AGENT_DIR}:/home/pichamber/.pi/agent
+```
+
+Start it with:
+
+```sh
+export PICHAMBER_HOST_PI_AGENT_DIR="$HOME/.pi/agent"
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.host-pi.yml \
+  up -d
+```
+
+Use this only when the host files are writable by UID 1000. The container prepares the mount root for UID 1000, which can change the ownership of the host `~/.pi/agent` directory on Linux. One-time copy is safer when the host user does not have UID 1000.
+
+A symlink in the mounted agent directory still points to its original absolute target. That target is normally absent inside the container. Either use the one-time copy above, which follows symlinks, or mount the dotfiles repository at the same absolute path inside the container. Mounting the extra repository exposes all files under that mount to PiChamber, so prefer the copy unless live synchronization is required.
+
+## Include the additional user skills directory
+
+Pi also discovers skills under `~/.agents/skills`, outside `~/.pi/agent`. To make those skills available without allowing Docker to change them, add this volume to a Compose override:
+
+```yaml
+services:
+  pichamber:
+    volumes:
+      - ${HOME}/.agents/skills:/home/pichamber/.agents/skills:ro
+```
+
+Project-level `.agents/skills` directories already travel with their workspace and do not need another mount.
+
+## Pass environment-backed provider credentials
+
+Copying `models.json` does not copy environment variables referenced with values such as `$ANTHROPIC_API_KEY`. Pass each required variable explicitly rather than mounting the entire host environment:
+
+```yaml
+services:
+  pichamber:
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY}
+```
+
+Do not commit secrets to the Compose file or `.env`. Commands referenced with `!command` in Pi configuration must also exist inside the image; host-only commands are unavailable.
+
+## Back up Docker data
+
+Stop the container before taking a consistent copy:
+
+```sh
+docker compose stop
+cp -a data "data-backup-$(date +%Y%m%d)"
+docker compose start
+```
+
+At minimum, protect `data/pi/agent`, `data/pichamber`, and `data/workspaces`. The SSH directory contains a private key and is also sensitive.
+
+## Update the image
+
+Pin `PICHAMBER_VERSION` to an exact release in production. Update by pulling and recreating the container:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+Do not run `pichamber update` inside Docker. To build from a checkout instead of pulling an image, use the contributor overlay:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
+```
+
+## Run more than one container
+
+Give each Compose project its own host port and data directory:
+
+```sh
+mkdir -p data-{1,2}/{pichamber,pi/agent,ssh,workspaces}
+PICHAMBER_UI_PASSWORD="first-password" PICHAMBER_HOST_PORT=3001 PICHAMBER_DATA_DIR=./data-1 docker compose -p pichamber-1 up -d
+PICHAMBER_UI_PASSWORD="second-password" PICHAMBER_HOST_PORT=3002 PICHAMBER_DATA_DIR=./data-2 docker compose -p pichamber-2 up -d
+```
+
+Do not point two running containers at the same Pi agent directory or workspace.
+
+## Understand the security boundary
+
+The container has access to every mounted file. Mount only the workspaces and Pi resources that this server should use. Never mount the Docker socket, the whole host home directory, or unrelated credential directories such as `~/.aws` or `~/.gnupg`.
+
+Containers share the host kernel. Docker limits filesystem and process access, but it is not a security boundary for hostile code. See [Security](/security/) for PiChamber's single-owner model.

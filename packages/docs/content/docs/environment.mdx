@@ -5,4 +5,6 @@ description: Configure PiChamber server hosting behavior.
 
 PiChamber binds to `127.0.0.1` by default. Use `PICHAMBER_HOST=0.0.0.0` only behind an authentication boundary; set `PICHAMBER_UI_PASSWORD` for network-exposed servers.
 
+The Docker entrypoint sets `PICHAMBER_HOST=0.0.0.0` and requires `PICHAMBER_UI_PASSWORD`. Image tag selection uses `PICHAMBER_VERSION` in compose (it is not passed into the container). Optional Cloudflare tunnel variables are documented in `docker-compose.yml`.
+
 Pi configuration stays in Pi's normal agent directory, including `auth.json`, `settings.json`, `models.json`, sessions, skills, prompts, and `AGENTS.md`. PiChamber does not copy stored provider credentials into its own settings.

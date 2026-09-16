@@ -14,6 +14,7 @@
         { "label": "Connect devices", "link": "/connect-devices/" },
         { "label": "CLI guide", "link": "/cli/" },
         { "label": "Environment", "link": "/environment/" },
+        { "label": "Docker", "link": "/docker/" },
         { "label": "Pi extensions", "link": "/extensions/" },
         { "label": "Security", "link": "/security/" },
         { "label": "Troubleshooting", "link": "/troubleshooting/" }

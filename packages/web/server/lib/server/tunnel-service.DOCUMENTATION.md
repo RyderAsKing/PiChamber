@@ -57,7 +57,7 @@ The PiChamber `pichamber.service` itself already supports both user (`~/.config/
 
 ## Upgrade considerations
 
-`pichamber update` detects the owning package manager, upgrades the global package, and restarts the relevant systemd service (`systemctl --user restart pichamber.service` or `systemctl restart pichamber.service` when running as root). The tunnel token file and PiChamber `pi/settings.json` sidecar are preserved across upgrades because they live under `PICHAMBER_DATA_DIR` (or `~/.pichamber`), not in the package directory. A Docker deployment is not upgraded in-place; it must be redeployed via `docker pull`.
+`pichamber update` detects the owning package manager, upgrades the global package, and restarts the relevant systemd service (`systemctl --user restart pichamber.service` or `systemctl restart pichamber.service` when running as root). The tunnel token file and PiChamber `pi/settings.json` sidecar are preserved across upgrades because they live under `PICHAMBER_DATA_DIR` (or `~/.pichamber`), not in the package directory. A Docker deployment is not upgraded in-place; pull a newer image and recreate the container (`docker compose pull` then `docker compose up -d`) so volume-mounted config and tunnel tokens survive.
 
 ## Testing
 

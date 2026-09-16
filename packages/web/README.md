@@ -6,7 +6,7 @@ PiChamber server and browser UI for the [Pi coding agent](https://pi.dev). It se
 
 Server needs Node.js 22.19 or newer (24 recommended) or Bun 1.4 or newer (1.4.2 recommended).
 
-Background `pichamber serve` picks Node first with Bun fallback. Foreground `serve --foreground` runs in the current runtime with no PATH lookup. Startup services reuse the pinned runtime from `startup enable`. Docker images launch from pinned Bun 1.4.2. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server.
+Background `pichamber serve` picks Node first with Bun fallback. Foreground `serve --foreground` runs in the current runtime with no PATH lookup. Startup services reuse the pinned runtime from `startup enable`. Docker images launch from pinned Bun 1.4.2. Update a Docker deployment by pulling a new image and recreating the container; `pichamber update` is disabled inside the image. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server.
 
 ## Install
 
