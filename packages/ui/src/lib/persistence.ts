@@ -181,6 +181,29 @@ export const invalidateSettingsCache = (): void => {
   _settingsCache = null;
 };
 
+export const buildDraftStarterMigrationPatch = (
+  settings: DesktopSettings,
+): Partial<DesktopSettings> => {
+  const shouldPersistScheduleTaskMigration =
+    settings.draftStartersScheduleTaskAdded !== true;
+  const shouldMigrateLegacyStarters =
+    Array.isArray(settings.draftStarters) &&
+    (settings.draftStarters as unknown[]).some((starter) => {
+      if (!starter || typeof starter !== 'object') return false;
+      const type = (starter as Record<string, unknown>).type;
+      return type !== 'prompt' && type !== 'text';
+    });
+  if (!shouldPersistScheduleTaskMigration && !shouldMigrateLegacyStarters) {
+    return {};
+  }
+  return {
+    ...(Array.isArray(settings.draftStarters)
+      ? { draftStarters: sanitizeStarterRefs(settings.draftStarters) }
+      : {}),
+    draftStartersScheduleTaskAdded: true,
+  };
+};
+
 export const syncDesktopSettings = async (): Promise<void> => {
   if (typeof window === 'undefined') {
     return;
@@ -214,19 +237,6 @@ export const syncDesktopSettings = async (): Promise<void> => {
 
   const applySettings = async (settings: DesktopSettings) => {
     if (!isSettingsRuntimeContextCurrent(context)) return;
-    const shouldPersistScheduleTaskMigration =
-      settings.draftStartersScheduleTaskAdded !== true;
-    // Legacy skill/command starters are removed without conversion on next
-    // sanitize/persist. Detect any non-prompt/non-text record (defensively,
-    // from untrusted persisted JSON) to trigger a single idempotent
-    // migration. Built-in `{type:'text'}` starters are valid and preserved.
-    const shouldMigrateLegacyStarters =
-      Array.isArray(settings.draftStarters) &&
-      (settings.draftStarters as unknown[]).some((starter) => {
-        if (!starter || typeof starter !== 'object') return false;
-        const type = (starter as Record<string, unknown>).type;
-        return type !== 'prompt' && type !== 'text';
-      });
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';
     const shouldMigrateLocalAutoDeleteEnabled =
@@ -267,19 +277,9 @@ export const syncDesktopSettings = async (): Promise<void> => {
     } catch (error) {
       console.warn('applyDesktopUiPreferences failed:', error);
     }
-    const migrationPatch: Partial<DesktopSettings> = {};
-    if (
-      shouldPersistScheduleTaskMigration ||
-      shouldMigrateLegacyStarters
-    ) {
-      // Sanitize drops legacy skill/command records; persisting the cleaned
-      // list makes the migration idempotent (no repeated writes).
-      const cleaned = Array.isArray(authoritativeSettings.draftStarters)
-        ? sanitizeStarterRefs(authoritativeSettings.draftStarters)
-        : sanitizeStarterRefs(settings.draftStarters);
-      migrationPatch.draftStarters = cleaned;
-      migrationPatch.draftStartersScheduleTaskAdded = true;
-    }
+    // Preserve an absent starter list: `undefined` is the fresh-install
+    // sentinel that lets the UI show its built-in starters.
+    const migrationPatch = buildDraftStarterMigrationPatch(settings);
     if (shouldSeedAutoSaveEnabled) {
       migrationPatch.autoSaveEnabled = authoritativeSettings.autoSaveEnabled;
     }

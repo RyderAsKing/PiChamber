@@ -501,9 +501,11 @@ describe('update capability reporting', () => {
   };
 
   it('gives deployment-specific instructions for containers and source checkouts', () => {
-    expect(getUpdateCapability({ isContainer: true })).toMatchObject({
+    expect(getUpdateCapability({ isContainer: true })).toEqual({
       supported: false,
       code: 'DOCKER_DEPLOYMENT',
+      error: 'PiChamber is running in a container and cannot replace its own image. In the directory with your compose file, pull the newer image and recreate the container. Config, sessions, SSH keys, and workspaces persist in the mounted volumes.',
+      commands: ['docker compose pull', 'docker compose up -d'],
     });
     expect(getUpdateCapability({
       isContainer: false,
@@ -674,7 +676,10 @@ describe('launchUpdateCommand', () => {
   });
 
   it('refuses container replacement without creating a job', async () => {
-    await expect(launchUpdateCommand({ isContainer: true })).resolves.toMatchObject({ success: false });
+    await expect(launchUpdateCommand({ isContainer: true })).resolves.toEqual({
+      success: false,
+      error: 'Docker deployments must be updated by pulling a new image and recreating the container.',
+    });
   });
 });
 

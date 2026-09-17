@@ -79,9 +79,25 @@ For scripts, CI, and non-interactive shells, pass the setup flags explicitly:
 pichamber serve --port 3000 --ui-password "choose-a-strong-password"
 ```
 
-Use one package manager for install and update. `pichamber update` detects the owning package manager (Bun, npm, pnpm, or Yarn), shows the current version, target version, package manager, and restart plan, then asks for confirmation in an interactive terminal. Use `pichamber update --yes` or `-y` to skip that confirmation. Servers configured by `pichamber startup enable` can update from the web UI or terminal; PiChamber runs the installer in a temporary systemd unit, verifies the installed version, and restarts the server. Docker deployments must be updated via image deployment instead of in-app replacement.
+Use one package manager for install and update. `pichamber update` detects the owning package manager (Bun, npm, pnpm, or Yarn), shows the current version, target version, package manager, and restart plan, then asks for confirmation in an interactive terminal. Use `pichamber update --yes` or `-y` to skip that confirmation. Servers configured by `pichamber startup enable` can update from the web UI or terminal; PiChamber runs the installer in a temporary systemd unit, verifies the installed version, and restarts the server. Docker deployments must pull a new image and recreate the container instead of using in-app replacement.
 
 On a root VPS, `pichamber startup enable` creates a system unit at `/etc/systemd/system/pichamber.service` (`systemctl restart pichamber.service`) instead of a user unit, so it works without `loginctl enable-linger`. A normal user gets a user unit at `~/.config/systemd/user/pichamber.service` (`systemctl --user`). In an interactive terminal, `startup enable` guides you through the bind address, port, password, and final confirmation. Pass the setup flags for a non-interactive install. Both scopes store the host and UI password in the data directory's `startup.env` (`0600`) and keep that file across upgrades.
+
+## Docker
+
+The published server image is `ghcr.io/ryderasking/pichamber`. Tags are the release version, `latest` on stable releases, and `rc` on release candidates. Copy [`docker-compose.yml`](https://github.com/RyderAsKing/PiChamber/blob/main/docker-compose.yml) into an empty directory, then run:
+
+```sh
+mkdir -p data/pichamber data/pi/agent data/ssh data/workspaces
+export PICHAMBER_UI_PASSWORD="$(openssl rand -base64 24)"
+printf 'PiChamber password: %s\n' "$PICHAMBER_UI_PASSWORD"
+docker compose up -d
+docker compose logs -f
+```
+
+Save the password and open `http://127.0.0.1:32145`. Config, Pi sessions, SSH keys, and workspaces persist under `./data/` when the container is recreated.
+
+See [Run PiChamber in Docker](/docker/) for adding projects, reusing an existing `~/.pi/agent`, handling symlinked dotfiles, backups, upgrades, network access, and multiple containers.
 
 ## Run without installing
 

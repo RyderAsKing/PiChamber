@@ -14,6 +14,10 @@ creating the link. Use `--port <port>` to select a running instance,
 `--server https://host.example.com` when the public URL differs from the local
 bind address, or `--relay` to include the private relay as a fallback.
 
+On a Docker server, open the browser UI first and use **Add a device** there.
+You can also run `docker compose exec pichamber bun packages/web/bin/cli.js connect-url --qr`
+from the compose directory.
+
 Open or scan the link from the device you want to connect. Pairing grants that device access to the server's workspace, so use it only for devices you control. Revoke access from the server when a device is no longer trusted.
 
 Remote PiChamber clients operate on the server's filesystem and use the server's Pi configuration and credentials.

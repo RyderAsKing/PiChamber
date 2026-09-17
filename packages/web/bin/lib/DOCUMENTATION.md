@@ -25,7 +25,7 @@ Background `serve` picks Node first. It reuses the current executable when the C
 
 Foreground `serve --foreground`, `startup enable`, and `startWebUiServer` validate the current executable only. They never probe PATH and never switch runtimes. The `startWebUiServer` gate covers direct CLI and Electron in-process startup. `startup enable` validates before it writes any service file and pins `process.execPath`, not the package manager.
 
-Dev `dev:server` and `dev:server:watch` use the same Node-first order through `../dev-server.js`. Builds and package management stay on Bun. Docker images launch from pinned Bun 1.4.2, but background selection still prefers supported Node when present.
+Dev `dev:server` and `dev:server:watch` use the same Node-first order through `../dev-server.js`. Builds and package management stay on Bun. Docker images launch from pinned Bun 1.4.2, but background selection still prefers supported Node when present. Docker deployments report `DOCKER_DEPLOYMENT` and must pull a new image then recreate the container.
 
 Upgrade note: if your system still runs Bun 1.3.14, update Bun before you restart a Bun-pinned service. The source `packageManager` pin does not replace the installed binary. Node 22.0 through 22.18 is unsupported. No session migration is needed.
 

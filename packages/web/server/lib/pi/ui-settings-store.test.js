@@ -3,7 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createPiUiSettingsStore } from './ui-settings-store.js';
+import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './ui-settings-store.js';
 
 const makeStore = async () => {
   const root = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
@@ -20,6 +20,52 @@ describe('Pi UI settings store', () => {
     await expect(store.read()).resolves.toEqual({});
     await writeFile(file, '{broken');
     await expect(store.read()).rejects.toThrow('UI_SETTINGS_INVALID');
+  });
+
+  it('builds Docker initial settings with a stable path-derived project id', async () => {
+    const initialLocalSettings = createDockerInitialLocalSettings();
+    expect(initialLocalSettings).toEqual({
+      projects: [{
+        id: 'path_L2hvbWUvcGljaGFtYmVyL3dvcmtzcGFjZXM',
+        path: '/home/pichamber/workspaces',
+        label: 'Workspaces',
+      }],
+      activeProjectId: 'path_L2hvbWUvcGljaGFtYmVyL3dvcmtzcGFjZXM',
+    });
+
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
+    const store = createPiUiSettingsStore({
+      file: join(root, 'settings.json'),
+      runtimeFile: join(root, 'runtime-state.json'),
+      initialLocalSettings,
+    });
+    await expect(store.read()).resolves.toMatchObject(initialLocalSettings);
+  });
+
+  it('seeds initial local settings only for a fresh store', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
+    const file = join(root, 'settings.json');
+    const runtimeFile = join(root, 'runtime-state.json');
+    const initialLocalSettings = {
+      projects: [{ id: 'workspaces', path: '/home/pichamber/workspaces', label: 'Workspaces' }],
+      activeProjectId: 'workspaces',
+    };
+    const store = createPiUiSettingsStore({ file, runtimeFile, initialLocalSettings });
+
+    await expect(store.read()).resolves.toMatchObject(initialLocalSettings);
+    await store.write({ projects: [], activeProjectId: null });
+    await expect(store.read()).resolves.toMatchObject({ projects: [], activeProjectId: null });
+
+    const existingRoot = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
+    const existingFile = join(existingRoot, 'settings.json');
+    const existingRuntimeFile = join(existingRoot, 'runtime-state.json');
+    await writeFile(existingFile, JSON.stringify({ themeId: 'nord' }));
+    const existingStore = createPiUiSettingsStore({
+      file: existingFile,
+      runtimeFile: existingRuntimeFile,
+      initialLocalSettings,
+    });
+    await expect(existingStore.read()).resolves.toEqual({ themeId: 'nord' });
   });
 
   it('migrates a flat settings file into portable and local allowlists', async () => {

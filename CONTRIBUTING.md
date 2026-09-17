@@ -19,6 +19,12 @@ proposal.
 
 Server needs Node.js 22.19 or newer or Bun 1.4 or newer. Background `serve` and dev servers pick Node first with Bun fallback. Foreground `serve` runs in the current runtime with no PATH lookup. Startup services reuse the pinned runtime from `startup enable`. Docker images launch from pinned Bun 1.4.2. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server. Runtime smoke runs with `bun run test:runtime`. It defaults to the current runtime and accepts an absolute override in `PICHAMBER_TEST_RUNTIME`. PR checks and release call the reusable runtime-smoke workflow on Linux across Node 22.19, Node 24, Bun 1.4.0, and Bun 1.4.2. See `packages/web/bin/lib/DOCUMENTATION.md` for version rules and probing.
 
+Published server images live at `ghcr.io/ryderasking/pichamber`. The package
+must remain public in GHCR so users can pull it without registry credentials.
+Contributors can build from this checkout with
+`docker compose -f docker-compose.yml -f docker-compose.build.yml up --build`.
+The image is the web server only; desktop and mobile stay out of it.
+
 You do not need to install a separate Pi CLI for development. The web package
 uses the pinned Pi SDK dependency and the desktop app starts the web server in
 its own Electron process.

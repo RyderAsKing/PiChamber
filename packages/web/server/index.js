@@ -15,7 +15,8 @@ import { createRevocationCoordinator } from './lib/client-auth/principal-tracker
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
-import { createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
+import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
+import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createNotificationDeliveryRuntime } from './lib/notifications/delivery-runtime.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
 import { registerNotificationRoutes } from './lib/notifications/routes.js';
@@ -152,7 +153,11 @@ export async function startWebUiServer(options = {}) {
   // the getter and report unavailable until it exists.
   let piSessionDaemonRuntime = null;
   let notificationWatcher = null;
-  const uiSettingsStore = createPiUiSettingsStore();
+  const uiSettingsStore = createPiUiSettingsStore({
+    initialLocalSettings: process.env.PICHAMBER_DEPLOYMENT_KIND === 'docker'
+      ? createDockerInitialLocalSettings()
+      : {},
+  });
   const notificationDelivery = createNotificationDeliveryRuntime({
     dataDir: PICHAMBER_DATA_DIR,
     webPush,
@@ -194,6 +199,9 @@ export async function startWebUiServer(options = {}) {
     process,
     pichamberVersion: PICHAMBER_VERSION,
     runtimeName: process.env.PICHAMBER_RUNTIME || 'web',
+    deploymentKind: process.env.PICHAMBER_DEPLOYMENT_KIND === 'docker' ? 'docker' : 'host',
+    serverPlatform: process.platform,
+    serverDistribution: detectLinuxDistribution(),
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot: () => ({ pi: { state: 'ready' }, apiOnly }),

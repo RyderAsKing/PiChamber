@@ -64,6 +64,15 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     process,
     pichamberVersion,
     runtimeName,
+    // Server origin metadata, reported verbatim on /health and /api/version
+    // so clients can adapt without probing. deploymentKind is 'docker' for
+    // the container image and 'host' otherwise; serverPlatform is
+    // process.platform ('linux', 'darwin', 'win32'); serverDistribution is
+    // the Linux distribution id (e.g. 'debian', 'nixos') or null when
+    // unknown or not Linux.
+    deploymentKind = 'host',
+    serverPlatform = 'unknown',
+    serverDistribution = null,
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot,
@@ -245,6 +254,9 @@ export const registerServerStatusRoutes = (app, dependencies) => {
       timestamp: new Date().toISOString(),
       pichamberVersion,
       runtime: runtimeName,
+      deploymentKind,
+      serverPlatform,
+      ...(serverDistribution ? { serverDistribution } : {}),
       compatibility,
       ...(serverId ? { serverId } : {}),
       ...getHealthSnapshot(),
@@ -257,6 +269,9 @@ export const registerServerStatusRoutes = (app, dependencies) => {
       status: 'ok',
       pichamberVersion,
       runtime: runtimeName,
+      deploymentKind,
+      serverPlatform,
+      ...(serverDistribution ? { serverDistribution } : {}),
       startedAt: serverStartedAt,
       compatibility,
       ...(serverId ? { serverId } : {}),
@@ -360,6 +375,9 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     res.json({
       pichamberVersion,
       runtime: runtimeName,
+      deploymentKind,
+      serverPlatform,
+      ...(serverDistribution ? { serverDistribution } : {}),
       pid: process.pid,
       startedAt: serverStartedAt,
       port: getServerPort(),

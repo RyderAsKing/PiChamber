@@ -8,6 +8,7 @@ import { withCrossProcessLock } from '../server/cross-process-lock.js';
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
 const PORTABLE_SETTINGS_VERSION = 'portable-v1';
+const DOCKER_WORKSPACE = '/home/pichamber/workspaces';
 
 // Keep this list explicit. settings.json is intended to be copied between hosts.
 // Retired keys are intentionally absent so saved values cannot restore retired
@@ -104,6 +105,14 @@ const readRecord = async (file, fs) => {
   }
 };
 
+export const createDockerInitialLocalSettings = () => {
+  const projectId = `path_${Buffer.from(DOCKER_WORKSPACE).toString('base64url')}`;
+  return {
+    projects: [{ id: projectId, path: DOCKER_WORKSPACE, label: 'Workspaces' }],
+    activeProjectId: projectId,
+  };
+};
+
 const writeRecord = async (file, value, fs) => {
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized) > MAX_SETTINGS_BYTES) throw new Error('UI_SETTINGS_INVALID');
@@ -118,6 +127,7 @@ const writeRecord = async (file, value, fs) => {
 export const createPiUiSettingsStore = ({
   file = join(resolvePiChamberDataDir(), 'settings.json'),
   runtimeFile = join(dirname(file), 'runtime-state.json'),
+  initialLocalSettings = {},
   fs = { chmod, mkdir, readFile, rename, writeFile },
 } = {}) => {
   let mutation = Promise.resolve();
@@ -128,7 +138,9 @@ export const createPiUiSettingsStore = ({
     const migrated = portableRoot[PORTABLE_SETTINGS_MARKER] === PORTABLE_SETTINGS_VERSION;
 
     if (!migrated) {
+      const isFreshStore = Object.keys(portableRoot).length === 0 && Object.keys(runtimeRoot).length === 0;
       const migratedRuntime = {
+        ...(isFreshStore ? selectFields(validateRecord(initialLocalSettings), LOCAL_FIELDS) : {}),
         ...selectFields(runtimeRoot, LOCAL_FIELDS),
         ...selectFields(portableRoot, LOCAL_FIELDS),
       };

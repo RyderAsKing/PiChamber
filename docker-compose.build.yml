@@ -1,0 +1,8 @@
+# Contributor overlay: build the image from this checkout instead of pulling GHCR.
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up --build -d
+services:
+  pichamber:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pichamber:local

@@ -73,7 +73,7 @@ version. This also works from PiChamber's browser terminal. Deployments that
 cannot update themselves stop before changing the installation and explain the
 required action:
 
-- Containers must pull or build the newer image and recreate the container.
+- Containers must pull the newer image and recreate the container (`docker compose pull` then `docker compose up -d`). Do not run `pichamber update` inside the image.
 - Source checkouts must update their checkout, rebuild the web package, and
   restart the server.
 - Custom systemd units must run `pichamber update` from a normal terminal and

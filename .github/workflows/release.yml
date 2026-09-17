@@ -260,6 +260,66 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-docker:
+    needs: create-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      actions: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Set image name
+        id: image
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/pichamber" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=raw,value=${{ needs.create-release.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.create-release.outputs.is_prerelease != 'true' }}
+            type=raw,value=rc,enable=${{ needs.create-release.outputs.is_prerelease == 'true' }}
+          labels: |
+            org.opencontainers.image.title=PiChamber
+            org.opencontainers.image.description=PiChamber server
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
+
+      - name: Build and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event.inputs.dry_run != 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+          sbom: false
+
   build-desktop-electron-macos:
     needs: create-release
     runs-on: ${{ matrix.runner }}
@@ -707,12 +767,13 @@ jobs:
     secrets: inherit
 
   finalize-release:
-    needs: [create-release, publish-npm, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, combine-electron-manifests, mobile-release]
+    needs: [create-release, publish-npm, publish-docker, build-desktop-electron-macos, build-desktop-electron-windows, build-desktop-electron-linux, publish-electron-linux, combine-electron-manifests, mobile-release]
     if: >-
       ${{
         always() &&
         needs.create-release.result == 'success' &&
         (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
+        needs.publish-docker.result == 'success' &&
         needs.build-desktop-electron-macos.result == 'success' &&
         needs.build-desktop-electron-windows.result == 'success' &&
         needs.build-desktop-electron-linux.result == 'success' &&

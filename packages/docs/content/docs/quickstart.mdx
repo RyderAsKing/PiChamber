@@ -30,3 +30,10 @@ You should land on the PiChamber session list and be able to start a new Pi
 session. If the browser reports that Pi is unavailable, see
 [Troubleshooting](/troubleshooting/). For the full set of guided and scripted
 commands, see the [CLI guide](/cli/).
+
+## Docker
+
+Copy `docker-compose.yml` from the repository, set `PICHAMBER_UI_PASSWORD`, and
+run `docker compose up -d`. Open the URL in the container logs, then pair other
+devices from the browser UI. See [Run PiChamber in Docker](/docker/) for projects,
+persistent data, upgrades, and ways to reuse an existing Pi configuration.

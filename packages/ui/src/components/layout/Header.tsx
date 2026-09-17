@@ -61,6 +61,8 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl, getRuntimeEndpointGeneration, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { subscribeServerUpdateChannelChanged } from '@/lib/server-update-events';
+import { serverPlatformIcon, type ServerPlatformMetadata } from './header/serverPlatformIcon';
+import { ConnectedServerMenu } from './header/ConnectedServerMenu';
 import { useShallow } from 'zustand/react/shallow';
 import type { IconName } from "@/components/icon/icons";
 import { toast } from '@/components/ui';
@@ -236,6 +238,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [isDesktopServicesOpen, setIsDesktopServicesOpen] = React.useState(false);
   const [currentInstanceLabel, setCurrentInstanceLabel] = React.useState('Local');
   const [currentInstanceIsLocal, setCurrentInstanceIsLocal] = React.useState(true);
+  const [currentInstanceIcon, setCurrentInstanceIcon] = React.useState(() => serverPlatformIcon(null));
   const [remoteUpdateDialogOpen, setRemoteUpdateDialogOpen] = React.useState(false);
   const [remoteUpdateInfo, setRemoteUpdateInfo] = React.useState<UpdateInfo | null>(null);
   const [remoteUpdateChecking, setRemoteUpdateChecking] = React.useState(false);
@@ -251,6 +254,14 @@ export const Header: React.FC<HeaderProps> = ({
     const isCurrentEndpoint = () => getRuntimeEndpointGeneration() === endpointGeneration;
 
     try {
+      const metadataResponse = await runtimeFetch('/api/version');
+      if (!isCurrentEndpoint()) return;
+      const metadata = metadataResponse.ok
+        ? await metadataResponse.json().catch(() => null) as ServerPlatformMetadata | null
+        : null;
+      if (!isCurrentEndpoint()) return;
+      setCurrentInstanceIcon(serverPlatformIcon(metadata));
+
       if (isDesktopLocalOriginActive()) {
         setCurrentInstanceLabel('Local');
         setCurrentInstanceIsLocal(true);
@@ -276,6 +287,7 @@ export const Header: React.FC<HeaderProps> = ({
       if (isCurrentEndpoint()) {
         setCurrentInstanceLabel('Local');
         setCurrentInstanceIsLocal(true);
+        setCurrentInstanceIcon(serverPlatformIcon(null));
       }
     }
   }, [isDesktopApp]);
@@ -1049,15 +1061,15 @@ export const Header: React.FC<HeaderProps> = ({
   const desktopSidebarActions = (
     <>
       <OpenInAppButton directory={actionDirectory} className="mr-1" />
-      {/* Instances only exist in the desktop app. On web the menu was left
-          holding a single dev-only shutdown action, which is not a reason to
-          keep a dropdown in the header. */}
+      {/* Electron can switch instances. Browser clients stay on their current
+          origin and get a read-only summary of that connected server. */}
       {isDesktopApp ? (
       <DesktopServicesMenu
         isDesktopApp={isDesktopApp}
         currentInstanceLabel={currentInstanceLabel}
         compactCurrentInstanceLabel={compactCurrentInstanceLabel}
         currentInstanceIsLocal={currentInstanceIsLocal}
+        currentInstanceIcon={currentInstanceIcon}
         isDesktopServicesOpen={isDesktopServicesOpen}
         setIsDesktopServicesOpen={setIsDesktopServicesOpen}
         refreshCurrentInstanceLabel={refreshCurrentInstanceLabel}
@@ -1067,7 +1079,12 @@ export const Header: React.FC<HeaderProps> = ({
         remoteUpdateError={remoteUpdateError}
         onOpenRemoteUpdate={openRemoteInstanceUpdate}
       />
-      ) : null}
+      ) : (
+        <ConnectedServerMenu
+          open={isDesktopServicesOpen}
+          onOpenChange={setIsDesktopServicesOpen}
+        />
+      )}
       <DesktopGitHubControl
         isMobile={isMobile}
         githubAuthStatus={githubAuthStatus}
