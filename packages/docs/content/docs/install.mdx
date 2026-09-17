@@ -37,6 +37,19 @@ Run `pichamber serve` after installation. In an interactive terminal, the comman
 
 Background `serve` picks Node first with Bun fallback. Foreground `serve --foreground` runs in the current runtime. Startup services reuse the pinned runtime from `startup enable`. The desktop app runs its bundled Node in-process. The mobile app connects to an existing server.
 
+### Termux (Android)
+
+PiChamber server can run in Termux. Install Node.js and the native build tools, then point npm at Termux's local Node headers:
+
+```sh
+pkg install nodejs clang make python
+npm install -g @pi-chamber/web --nodedir="$PREFIX"
+```
+
+Termux reports Node's platform as Android. Without `--nodedir="$PREFIX"`, node-gyp downloads upstream Node headers whose Android configuration expects a separate NDK and `node-pty` fails with an undefined `android_ndk_path`. Termux's packaged headers are already configured for its bionic toolchain. This workaround is required while [nodejs/node-gyp#3355](https://github.com/nodejs/node-gyp/issues/3355) remains unresolved. npm currently warns that forwarding the `--nodedir` option may stop working in a future major release.
+
+Start PiChamber with `pichamber serve` and use its normal `status`, `stop`, and `restart` commands. Do not wrap `pichamber serve --foreground` in `nohup`: foreground mode expects a process manager to restart it after `pichamber restart` stops it. `pichamber startup enable` manages systemd units and does not configure Android boot startup.
+
 If your system still runs Bun 1.3.14, update Bun before you restart a Bun-pinned service. The source `packageManager` pin does not replace the installed binary. Node 22.0 through 22.18 is unsupported. No session migration is needed.
 
 To install a server release candidate from npm, request the `rc` dist-tag explicitly:
