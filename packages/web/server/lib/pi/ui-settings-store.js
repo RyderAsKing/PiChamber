@@ -8,6 +8,7 @@ import { withCrossProcessLock } from '../server/cross-process-lock.js';
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
 const PORTABLE_SETTINGS_VERSION = 'portable-v1';
+const DOCKER_WORKSPACE = '/home/pichamber/workspaces';
 
 // Keep this list explicit. settings.json is intended to be copied between hosts.
 // Retired keys are intentionally absent so saved values cannot restore retired
@@ -102,6 +103,14 @@ const readRecord = async (file, fs) => {
     if (error?.message === 'UI_SETTINGS_INVALID') throw error;
     throw new Error('UI_SETTINGS_INVALID');
   }
+};
+
+export const createDockerInitialLocalSettings = () => {
+  const projectId = `path_${Buffer.from(DOCKER_WORKSPACE).toString('base64url')}`;
+  return {
+    projects: [{ id: projectId, path: DOCKER_WORKSPACE, label: 'Workspaces' }],
+    activeProjectId: projectId,
+  };
 };
 
 const writeRecord = async (file, value, fs) => {

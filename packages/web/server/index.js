@@ -15,7 +15,7 @@ import { createRevocationCoordinator } from './lib/client-auth/principal-tracker
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
-import { createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
+import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createNotificationDeliveryRuntime } from './lib/notifications/delivery-runtime.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
@@ -153,14 +153,9 @@ export async function startWebUiServer(options = {}) {
   // the getter and report unavailable until it exists.
   let piSessionDaemonRuntime = null;
   let notificationWatcher = null;
-  const dockerWorkspace = '/home/pichamber/workspaces';
-  const dockerWorkspaceProjectId = `path_${Buffer.from(dockerWorkspace).toString('base64url')}`;
   const uiSettingsStore = createPiUiSettingsStore({
     initialLocalSettings: process.env.PICHAMBER_DEPLOYMENT_KIND === 'docker'
-      ? {
-          projects: [{ id: dockerWorkspaceProjectId, path: dockerWorkspace, label: 'Workspaces' }],
-          activeProjectId: dockerWorkspaceProjectId,
-        }
+      ? createDockerInitialLocalSettings()
       : {},
   });
   const notificationDelivery = createNotificationDeliveryRuntime({
