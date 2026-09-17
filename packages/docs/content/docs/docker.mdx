@@ -17,7 +17,7 @@ docker compose up -d
 docker compose logs -f
 ```
 
-Save the password and open `http://127.0.0.1:3000`. The default configuration publishes the port on loopback only. Set `PICHAMBER_BIND_ADDRESS=0.0.0.0` only when trusted devices on the local network need to connect.
+Save the password and open `http://127.0.0.1:32145`. The default configuration publishes the port on loopback only. Set `PICHAMBER_HOST_PORT` to override the host port. Set `PICHAMBER_BIND_ADDRESS=0.0.0.0` only when trusted devices on the local network need to connect.
 
 The official image identifies itself as a Docker deployment. The PiChamber desktop instance picker uses the Docker icon for a server that reports this deployment kind.
 
@@ -169,8 +169,8 @@ Give each Compose project its own host port and data directory:
 
 ```sh
 mkdir -p data-{1,2}/{pichamber,pi/agent,ssh,workspaces}
-PICHAMBER_UI_PASSWORD="first-password" PICHAMBER_HOST_PORT=3001 PICHAMBER_DATA_DIR=./data-1 docker compose -p pichamber-1 up -d
-PICHAMBER_UI_PASSWORD="second-password" PICHAMBER_HOST_PORT=3002 PICHAMBER_DATA_DIR=./data-2 docker compose -p pichamber-2 up -d
+PICHAMBER_UI_PASSWORD="first-password" PICHAMBER_HOST_PORT=32146 PICHAMBER_DATA_DIR=./data-1 docker compose -p pichamber-1 up -d
+PICHAMBER_UI_PASSWORD="second-password" PICHAMBER_HOST_PORT=32147 PICHAMBER_DATA_DIR=./data-2 docker compose -p pichamber-2 up -d
 ```
 
 Do not point two running containers at the same Pi agent directory or workspace.

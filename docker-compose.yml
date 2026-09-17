@@ -3,7 +3,7 @@ services:
     image: ghcr.io/ryderasking/pichamber:${PICHAMBER_VERSION:-latest}
     init: true
     ports:
-      - "${PICHAMBER_BIND_ADDRESS:-127.0.0.1}:${PICHAMBER_HOST_PORT:-3000}:3000"
+      - "${PICHAMBER_BIND_ADDRESS:-127.0.0.1}:${PICHAMBER_HOST_PORT:-32145}:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

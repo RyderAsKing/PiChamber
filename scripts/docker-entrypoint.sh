@@ -81,7 +81,7 @@ if [ -z "${PICHAMBER_UI_PASSWORD:-}" ]; then
 fi
 
 echo "[entrypoint] UI password is set"
-echo "[entrypoint] bind ${PICHAMBER_HOST}:3000; open http://127.0.0.1:3000 on this machine or http://<host>:3000 from another device"
+echo "[entrypoint] bind ${PICHAMBER_HOST}:3000; connect through the host port published by Docker"
 echo "[entrypoint] config, sessions, SSH keys, and workspaces persist in the mounted volumes"
 echo "[entrypoint] starting in foreground..."
 
