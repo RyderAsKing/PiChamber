@@ -8,6 +8,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore } from '@/stores/messageQueueStore';
 import {
   applyPersistedHomeDirectoryToWindow,
+  buildDraftStarterMigrationPatch,
   getRuntimeSettingsMirrorStorageKey,
   getSettingsSaveState,
   invalidateSettingsCache,
@@ -392,6 +393,22 @@ describe('updateDesktopSettings', () => {
       filesViewShowGitignored: true,
     });
     expect(JSON.parse(localStorage.getItem(getRuntimeSettingsMirrorStorageKey('mirror-b')) ?? '{}')).toEqual({});
+  });
+
+  test('preserves built-in draft starters when fresh settings have no starter list', async () => {
+    expect(buildDraftStarterMigrationPatch({})).toEqual({
+      draftStartersScheduleTaskAdded: true,
+    });
+
+    getWindow();
+    registerSettingsApi(async (changes) => changes, async () => ({
+      settings: {},
+      source: 'web',
+    }));
+
+    await syncDesktopSettings();
+
+    expect(useUIStore.getState().globalDraftStarters).toBeNull();
   });
 
   test('resets in-memory preferences omitted by an authoritative runtime snapshot', async () => {
