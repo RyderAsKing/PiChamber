@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import type { UpdateInfo } from '@/lib/desktop';
+import type { ServerPlatformIcon } from './serverPlatformIcon';
 import { cn } from '@/lib/utils';
 import { DESKTOP_HEADER_ICON_BUTTON_CLASS } from './HeaderIconActionButton';
 
@@ -21,6 +22,7 @@ export type DesktopServicesMenuProps = {
   currentInstanceLabel: string;
   compactCurrentInstanceLabel: string;
   currentInstanceIsLocal: boolean;
+  currentInstanceIcon: ServerPlatformIcon;
   isDesktopServicesOpen: boolean;
   setIsDesktopServicesOpen: React.Dispatch<React.SetStateAction<boolean>>;
   refreshCurrentInstanceLabel: () => Promise<void>;
@@ -36,6 +38,7 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
   currentInstanceLabel,
   compactCurrentInstanceLabel,
   currentInstanceIsLocal,
+  currentInstanceIcon,
   isDesktopServicesOpen,
   setIsDesktopServicesOpen,
   refreshCurrentInstanceLabel,
@@ -70,7 +73,11 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
                 isDesktopApp ? 'w-auto max-w-[14rem] justify-start gap-1.5 px-2.5' : 'h-8 w-8'
               )}
             >
-              <Icon name="server" className="h-[18px] w-[18px]" />
+              <Icon
+                name={currentInstanceIcon.name}
+                className="h-[18px] w-[18px]"
+                style={currentInstanceIcon.color ? { color: currentInstanceIcon.color } : undefined}
+              />
               {isDesktopApp ? (
                 <span className="truncate typography-ui-label font-medium text-foreground">
                   {compactCurrentInstanceLabel}
