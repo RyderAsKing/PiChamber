@@ -275,7 +275,8 @@ jobs:
           set -euo pipefail
           name=$(basename "$TARBALL")
           local_size=$(stat -c %s "$TARBALL")
-          for attempt in 1 2 3 4; do
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" --jq .id)
+          for attempt in 1 2 3; do
             record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
               --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
             if [ -n "$record" ]; then
@@ -287,17 +288,23 @@ jobs:
               fi
               gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
             fi
-            echo "Uploading $name (attempt $attempt/4; five-minute deadline)"
-            if timeout --signal=TERM --kill-after=30s 5m \
-              gh release upload "v${VERSION}" "$TARBALL" --repo "$GITHUB_REPOSITORY"; then
+            echo "Uploading $name through the GitHub asset endpoint (attempt $attempt/3)"
+            if curl --http1.1 --fail-with-body --silent --show-error \
+              --connect-timeout 30 --max-time 900 \
+              -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$TARBALL" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$name" \
+              --output /dev/null; then
               exit 0
-            fi
-            if [ "$attempt" -eq 4 ]; then
-              echo "Failed to upload $TARBALL after 4 bounded attempts." >&2
-              exit 1
             fi
             sleep $((attempt * 20))
           done
+          echo "Failed to upload $TARBALL after 3 bounded attempts." >&2
+          exit 1
 
   publish-docker:
     needs: create-release
@@ -798,11 +805,12 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           set -euo pipefail
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" --jq .id)
           for file in release-assets/*; do
             name=$(basename "$file")
             local_size=$(stat -c %s "$file")
             uploaded=false
-            for attempt in 1 2 3 4; do
+            for attempt in 1 2 3; do
               record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
                 --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
               if [ -n "$record" ]; then
@@ -815,16 +823,24 @@ jobs:
                 fi
                 gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
               fi
-              echo "Uploading $name (attempt $attempt/4; five-minute deadline)"
-              if timeout --signal=TERM --kill-after=30s 5m \
-                gh release upload "v${VERSION}" "$file" --repo "$GITHUB_REPOSITORY"; then
+              echo "Uploading $name through the GitHub asset endpoint (attempt $attempt/3)"
+              if curl --http1.1 --fail-with-body --silent --show-error \
+                --connect-timeout 30 --max-time 900 \
+                -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$file" \
+                "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$release_id/assets?name=$name" \
+                --output /dev/null; then
                 uploaded=true
                 break
               fi
               sleep $((attempt * 20))
             done
             if [ "$uploaded" != "true" ]; then
-              echo "Failed to upload $file after 4 bounded attempts." >&2
+              echo "Failed to upload $file after 3 bounded attempts." >&2
               exit 1
             fi
           done
