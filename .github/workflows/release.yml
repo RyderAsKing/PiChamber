@@ -215,7 +215,11 @@ jobs:
 
           async function verify() {
             let lastError;
-            for (let attempt = 1; attempt <= 18; attempt += 1) {
+            // npm reports "Your package is being processed and may take a few
+            // minutes to become available" after publish, so give the registry
+            // a grace period before the first read instead of burning retries.
+            await sleep(30_000);
+            for (let attempt = 1; attempt <= 30; attempt += 1) {
               try {
                 const output = execFileSync('npm', ['view', packageSpec, 'dist', '--json'], { encoding: 'utf8' });
                 const dist = JSON.parse(output);
@@ -238,8 +242,8 @@ jobs:
                 return;
               } catch (error) {
                 lastError = error;
-                console.log(`Integrity check ${attempt}/18 is not ready: ${error.message}`);
-                if (attempt < 18) await sleep(10_000);
+                console.log(`Integrity check ${attempt}/30 is not ready: ${error.message}`);
+                if (attempt < 30) await sleep(20_000);
               }
             }
             throw lastError;
