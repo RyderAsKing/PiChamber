@@ -273,12 +273,27 @@ jobs:
           TARBALL: ${{ steps.npm_pack.outputs.tarball }}
         run: |
           set -euo pipefail
-          for attempt in 1 2 3 4 5 6; do
-            if gh release upload "v${VERSION}" "$TARBALL" --clobber --repo "$GITHUB_REPOSITORY"; then
+          name=$(basename "$TARBALL")
+          local_size=$(stat -c %s "$TARBALL")
+          for attempt in 1 2 3 4; do
+            record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+              --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
+            if [ -n "$record" ]; then
+              asset_id=${record%%$'\t'*}
+              remote_size=${record#*$'\t'}
+              if [ "$remote_size" = "$local_size" ]; then
+                echo "$name is already uploaded with the expected size."
+                exit 0
+              fi
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+            fi
+            echo "Uploading $name (attempt $attempt/4; five-minute deadline)"
+            if timeout --signal=TERM --kill-after=30s 5m \
+              gh release upload "v${VERSION}" "$TARBALL" --repo "$GITHUB_REPOSITORY"; then
               exit 0
             fi
-            if [ "$attempt" -eq 6 ]; then
-              echo "Failed to upload $TARBALL after 6 attempts." >&2
+            if [ "$attempt" -eq 4 ]; then
+              echo "Failed to upload $TARBALL after 4 bounded attempts." >&2
               exit 1
             fi
             sleep $((attempt * 20))
@@ -784,17 +799,34 @@ jobs:
         run: |
           set -euo pipefail
           for file in release-assets/*; do
-            for attempt in 1 2 3 4 5 6; do
-              echo "Uploading $(basename "$file") (attempt $attempt/6)"
-              if gh release upload "v${VERSION}" "$file" --clobber --repo "$GITHUB_REPOSITORY"; then
-                break
+            name=$(basename "$file")
+            local_size=$(stat -c %s "$file")
+            uploaded=false
+            for attempt in 1 2 3 4; do
+              record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+                --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
+              if [ -n "$record" ]; then
+                asset_id=${record%%$'\t'*}
+                remote_size=${record#*$'\t'}
+                if [ "$remote_size" = "$local_size" ]; then
+                  echo "$name is already uploaded with the expected size."
+                  uploaded=true
+                  break
+                fi
+                gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
               fi
-              if [ "$attempt" -eq 6 ]; then
-                echo "Failed to upload $file after 6 attempts." >&2
-                exit 1
+              echo "Uploading $name (attempt $attempt/4; five-minute deadline)"
+              if timeout --signal=TERM --kill-after=30s 5m \
+                gh release upload "v${VERSION}" "$file" --repo "$GITHUB_REPOSITORY"; then
+                uploaded=true
+                break
               fi
               sleep $((attempt * 20))
             done
+            if [ "$uploaded" != "true" ]; then
+              echo "Failed to upload $file after 4 bounded attempts." >&2
+              exit 1
+            fi
           done
 
   mobile-release:
