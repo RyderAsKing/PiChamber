@@ -64,6 +64,12 @@ export const registerServerStatusRoutes = (app, dependencies) => {
     process,
     pichamberVersion,
     runtimeName,
+    // Server origin metadata, reported verbatim on /health and /api/version
+    // so clients can adapt without probing. deploymentKind is 'docker' for
+    // the container image and 'host' otherwise; serverPlatform is
+    // process.platform ('linux', 'darwin', 'win32'); serverDistribution is
+    // the Linux distribution id (e.g. 'debian', 'nixos') or null when
+    // unknown or not Linux.
     deploymentKind = 'host',
     serverPlatform = 'unknown',
     serverDistribution = null,
