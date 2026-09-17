@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-HOME="/home/pichamber"
+export HOME="/home/pichamber"
 
 # Docker creates missing bind-mount directories as root. Prepare only the mount
 # roots, then permanently drop privileges and capabilities before starting PiChamber.
@@ -30,7 +30,7 @@ SSH_DIR="${HOME}/.ssh"
 SSH_PRIVATE_KEY_PATH="${SSH_DIR}/id_ed25519"
 SSH_PUBLIC_KEY_PATH="${SSH_PRIVATE_KEY_PATH}.pub"
 
-mkdir -p "${SSH_DIR}"
+mkdir -p "${SSH_DIR}" 2>/dev/null || echo "[entrypoint] warning: cannot create ${SSH_DIR}, continuing with existing SSH state" >&2
 if ! chmod 700 "${SSH_DIR}" 2>/dev/null; then
   echo "[entrypoint] warning: cannot chmod ${SSH_DIR}, continuing with existing permissions"
 fi
@@ -46,11 +46,11 @@ if [ ! -f "${SSH_PRIVATE_KEY_PATH}" ] || [ ! -f "${SSH_PUBLIC_KEY_PATH}" ]; then
   fi
 fi
 
-if ! chmod 600 "${SSH_PRIVATE_KEY_PATH}" 2>/dev/null; then
+if [ -f "${SSH_PRIVATE_KEY_PATH}" ] && ! chmod 600 "${SSH_PRIVATE_KEY_PATH}" 2>/dev/null; then
   echo "[entrypoint] warning: cannot chmod ${SSH_PRIVATE_KEY_PATH}, continuing"
 fi
 
-if ! chmod 644 "${SSH_PUBLIC_KEY_PATH}" 2>/dev/null; then
+if [ -f "${SSH_PUBLIC_KEY_PATH}" ] && ! chmod 644 "${SSH_PUBLIC_KEY_PATH}" 2>/dev/null; then
   echo "[entrypoint] warning: cannot chmod ${SSH_PUBLIC_KEY_PATH}, continuing"
 fi
 

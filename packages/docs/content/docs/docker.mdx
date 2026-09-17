@@ -29,9 +29,11 @@ To use an existing checkout, place it under the host directory:
 
 ```sh
 cp -a /path/to/project ./data/workspaces/project
+# When the host user is not UID 1000, hand the copy to the container user:
+sudo chown -R 1000:1000 ./data/workspaces/project
 ```
 
-Then select **Add project** in PiChamber and add `/home/pichamber/workspaces/project`.
+Then select **Add project** in PiChamber and add `/home/pichamber/workspaces/project`. Mount extra projects under `/home/pichamber/workspaces/<name>` and pre-create each host directory with `1000:1000` ownership: after the entrypoint drops privileges it has no capabilities left to `chown` its way out, so a writable mount that is not `1000:1000`-writable fails with `EACCES`. Docker auto-creates a missing host directory as `root`, which needs the same host-side `mkdir -p` plus `sudo chown -R 1000:1000` before first start. Read-only mounts such as skills do not need ownership changes.
 
 You can instead select **Clone & add** in PiChamber and clone directly into `/home/pichamber/workspaces/project`. Project-level `AGENTS.md`, `.pi/`, `.agents/`, Git data, and other dotfiles remain in the mounted workspace.
 
