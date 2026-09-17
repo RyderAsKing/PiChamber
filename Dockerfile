@@ -44,9 +44,9 @@ LABEL org.opencontainers.image.source="https://github.com/RyderAsKing/PiChamber"
   org.opencontainers.image.title="PiChamber" \
   org.opencontainers.image.description="PiChamber server"
 
-# cloudflared 2026.3.0 — pin this tag when upgrading. BuildKit selects the
-# matching-arch digest from the multi-arch index (do not pin a single-platform digest).
-COPY --from=cloudflare/cloudflared:2026.3.0 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+# cloudflared 2026.3.0 multi-architecture image index. Keep the digest pinned
+# so amd64 and arm64 builds resolve reproducibly from the same release.
+COPY --from=cloudflare/cloudflared:2026.3.0@sha256:6b599ca3e974349ead3286d178da61d291961182ec3fe9c505e1dd02c8ac31b0 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
 ENV NODE_ENV=production \
   PICHAMBER_DEPLOYMENT_KIND=docker
