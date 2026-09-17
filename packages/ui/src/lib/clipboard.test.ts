@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 
-import { copyMarkdownToClipboard } from './clipboard';
+import { copyMarkdownToClipboard, copyTextToClipboard } from './clipboard';
 
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 const originalClipboardItem = Object.getOwnPropertyDescriptor(globalThis, 'ClipboardItem');
@@ -16,6 +16,35 @@ const restoreGlobal = (name: 'navigator' | 'ClipboardItem', descriptor?: Propert
 afterEach(() => {
   restoreGlobal('navigator', originalNavigator);
   restoreGlobal('ClipboardItem', originalClipboardItem);
+});
+
+describe('copyTextToClipboard', () => {
+  test('uses the plain-text clipboard API when available', async () => {
+    let copiedText = '';
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        clipboard: {
+          writeText: async (text: string) => {
+            copiedText = text;
+          },
+        },
+      },
+    });
+
+    const result = await copyTextToClipboard('http://127.0.0.1:32145');
+
+    expect(result).toEqual({ ok: true, method: 'clipboard' });
+    expect(copiedText).toBe('http://127.0.0.1:32145');
+  });
+
+  test('reports failure when no clipboard mechanism is available', async () => {
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
+
+    const result = await copyTextToClipboard('http://127.0.0.1:32145');
+
+    expect(result).toEqual({ ok: false, error: 'Clipboard access denied in current context' });
+  });
 });
 
 describe('copyMarkdownToClipboard', () => {

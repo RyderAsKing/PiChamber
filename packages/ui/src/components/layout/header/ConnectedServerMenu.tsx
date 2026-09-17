@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from '@/components/ui';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeEndpointGeneration, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { cn } from '@/lib/utils';
@@ -19,7 +20,12 @@ type ServerVersionInfo = ServerPlatformMetadata & {
   pichamberVersion?: unknown;
 };
 
-export function ConnectedServerMenu() {
+type ConnectedServerMenuProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+export function ConnectedServerMenu({ open, onOpenChange }: ConnectedServerMenuProps) {
   const [metadata, setMetadata] = React.useState<ServerVersionInfo | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -45,7 +51,13 @@ export function ConnectedServerMenu() {
   const address = typeof window !== 'undefined' ? window.location.origin : '';
 
   return (
-    <DropdownMenu onOpenChange={(open) => { if (open) void refresh(); }}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (nextOpen) void refresh();
+      }}
+    >
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -86,10 +98,10 @@ export function ConnectedServerMenu() {
               title={`Copy ${address}`}
               aria-label="Copy server address"
               onClick={() => {
-                void navigator.clipboard.writeText(address).then(
-                  () => toast.success('Server address copied'),
-                  () => toast.error('Could not copy server address'),
-                );
+                void copyTextToClipboard(address).then((result) => {
+                  if (result.ok) toast.success('Server address copied');
+                  else toast.error('Could not copy server address');
+                });
               }}
             >
               <span className="block max-w-[30ch] truncate font-mono">{address}</span>

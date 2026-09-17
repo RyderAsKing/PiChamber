@@ -1080,7 +1080,10 @@ export const Header: React.FC<HeaderProps> = ({
         onOpenRemoteUpdate={openRemoteInstanceUpdate}
       />
       ) : (
-        <ConnectedServerMenu />
+        <ConnectedServerMenu
+          open={isDesktopServicesOpen}
+          onOpenChange={setIsDesktopServicesOpen}
+        />
       )}
       <DesktopGitHubControl
         isMobile={isMobile}
