@@ -118,6 +118,7 @@ const writeRecord = async (file, value, fs) => {
 export const createPiUiSettingsStore = ({
   file = join(resolvePiChamberDataDir(), 'settings.json'),
   runtimeFile = join(dirname(file), 'runtime-state.json'),
+  initialLocalSettings = {},
   fs = { chmod, mkdir, readFile, rename, writeFile },
 } = {}) => {
   let mutation = Promise.resolve();
@@ -128,7 +129,9 @@ export const createPiUiSettingsStore = ({
     const migrated = portableRoot[PORTABLE_SETTINGS_MARKER] === PORTABLE_SETTINGS_VERSION;
 
     if (!migrated) {
+      const isFreshStore = Object.keys(portableRoot).length === 0 && Object.keys(runtimeRoot).length === 0;
       const migratedRuntime = {
+        ...(isFreshStore ? selectFields(validateRecord(initialLocalSettings), LOCAL_FIELDS) : {}),
         ...selectFields(runtimeRoot, LOCAL_FIELDS),
         ...selectFields(portableRoot, LOCAL_FIELDS),
       };

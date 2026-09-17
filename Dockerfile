@@ -48,7 +48,8 @@ LABEL org.opencontainers.image.source="https://github.com/RyderAsKing/PiChamber"
 # matching-arch digest from the multi-arch index (do not pin a single-platform digest).
 COPY --from=cloudflare/cloudflared:2026.3.0 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+  PICHAMBER_DEPLOYMENT_KIND=docker
 
 COPY scripts/docker-entrypoint.sh /home/pichamber/pichamber-entrypoint.sh
 
