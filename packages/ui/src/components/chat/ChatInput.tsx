@@ -147,7 +147,7 @@ import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePo
 import { ComposerFooter } from "./composer/ui/ComposerFooter";
 import { RevertedMessageDock } from "./composer/ui/RevertedMessageDock";
 import { ComposerDragOverlay } from "./composer/ui/ComposerDragOverlay";
-import { ATTACHMENT_PICKER_INPUT_PROPS } from "./composer/ui/attachmentInputProps";
+import { ComposerAttachmentPickerInput } from "./composer/ui/ComposerAttachmentPickerInput";
 import { ComposerVoiceButton } from "./composer/ui/ComposerVoiceButton";
 import {
   ComposerVoiceActions,
@@ -852,6 +852,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     draftWorktreeCreation.state.phase !== "failed",
   );
   const isComposerLocked = isWorktreeBusy || isSendingNewSession || isSessionInUse;
+
+  // Single authoritative attachment gate: no session and no draft, or
+  // locked. `isComposerLocked` already includes the new-session send, so
+  // `isSendingNewSession` is not checked separately. Shared by the footer
+  // attach triggers, the drag-overlay attach button, and
+  // `handlePickLocalFiles` so callback gating cannot drift.
+  const isAttachmentDisabled = (!currentSessionId && !newSessionDraftOpen) || isComposerLocked;
 
   const canAbort = sessionPhase !== "idle";
 
@@ -2014,8 +2021,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   );
 
   const handlePickLocalFiles = React.useCallback(() => {
+    // Same authoritative gate as the footer/overlay attach triggers: never
+    // open the OS picker when the composer cannot accept input.
+    if (isAttachmentDisabled) {
+      return;
+    }
     fileInputRef.current?.click();
-  }, []);
+  }, [isAttachmentDisabled]);
 
   const handleLocalFileSelect = React.useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2286,6 +2298,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     iconButtonBaseClass={iconButtonBaseClass}
                     iconSizeClass={iconSizeClass}
                     radius={chatInputRadius}
+                    isAttachmentDisabled={isAttachmentDisabled}
                     onPickLocalFiles={handlePickLocalFiles}
                   />
                 )}
@@ -2371,6 +2384,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   stopIconSizeClass={stopIconSizeClass}
                   canSend={canSend && !isComposerLocked}
                   isSending={isSendingNewSession}
+                  isAttachmentDisabled={isAttachmentDisabled}
                   disabledReason={attachmentGateMessage}
                   canAbort={canAbort}
                   hasContent={Boolean(hasContent)}
@@ -2537,12 +2551,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       {/* Single always-mounted picker input. Keeping it outside composer
             controls prevents an overlay/control remount from detaching the native
-            file input while the OS picker is open. Props (multiple + accept)
-            come from the shared attachment picker contract. */}
-      <input
-        ref={fileInputRef}
-        {...ATTACHMENT_PICKER_INPUT_PROPS}
-        className="hidden"
+            file input while the OS picker is open. */}
+      <ComposerAttachmentPickerInput
+        inputRef={fileInputRef}
         onChange={handleLocalFileSelect}
       />
 

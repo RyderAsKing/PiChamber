@@ -28,7 +28,14 @@ type ComposerAttachmentControlsProps = {
      * the action does; this control only owns placement and chrome.
      */
     onOpenMobileSheet?: () => void;
-    /** Disable all controls while a send is in flight. */
+    /**
+     * Disable the attach trigger (mobile direct button and desktop menu
+     * trigger) when the composer cannot accept input. Computed once in
+     * `ChatInput` and passed through `ComposerFooter` so all entry points
+     * share one gate.
+     */
+    isAttachmentDisabled: boolean;
+    /** Disable the settings control while a send is in flight. */
     disabled?: boolean;
 };
 
@@ -39,6 +46,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         iconSizeClass,
         handlePickLocalFiles,
         onOpenSettings,
+        isAttachmentDisabled,
         disabled = false,
     } = props;
 
@@ -50,7 +58,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                         type="button"
                         className={footerIconButtonClass}
                         onClick={props.onOpenMobileSheet}
-                        disabled={disabled}
+                        disabled={isAttachmentDisabled}
                         // Keep the tap from dismissing the keyboard. On Android's
                         // resizes-content viewport the keyboard-close relayout
                         // moves this button mid-tap and the click never lands.
@@ -73,7 +81,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 className={footerIconButtonClass}
                                 title={"Add attachment"}
                                 aria-label={"Add attachment"}
-                                disabled={disabled}
+                                disabled={isAttachmentDisabled}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                             </button>
@@ -113,5 +121,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
     && prev.onOpenSettings === next.onOpenSettings
     && prev.onMenuOpenChange === next.onMenuOpenChange
     && prev.onOpenMobileSheet === next.onOpenMobileSheet
+    && prev.isAttachmentDisabled === next.isAttachmentDisabled
     && prev.disabled === next.disabled
 ));

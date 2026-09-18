@@ -212,11 +212,12 @@ text splicing, message history, and the CodeMirror language extension at the
 
 Static `renderToStaticMarkup` assertions plus a minimal fake-DOM harness extend
 that to composer attachment chrome and interaction wiring: attach-button
-placement/chrome, and that activating the mobile button invokes the shared
-picker callback, plus the shared picker input props. That harness does not
-exercise real browser/WebView focus, keyboard behavior, IME and WKWebView, or
-OS picker behavior, which remain hand-verified. Do not report a change to them
-as validated on the strength of type-check and unit tests.
+placement/chrome, writable-state gating, and that activating the mobile button
+invokes the shared picker callback, plus the shared picker input props. That
+harness does not exercise real browser/WebView focus, keyboard behavior, IME and
+WKWebView, or OS picker behavior, which remain unverified and require browser
+or device validation. Do not report a change to them as validated on the
+strength of type-check and unit tests.
 
 Run tests per file (`bun test <path>`): `mock.module` is process-global, so
 suites that install module mocks are order-dependent.

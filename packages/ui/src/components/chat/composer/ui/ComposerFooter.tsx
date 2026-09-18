@@ -43,6 +43,12 @@ export interface ComposerFooterProps {
     hasContent: boolean;
     /** True while a new-session send is in flight: lock pickers/attachments. */
     isSending?: boolean;
+    /**
+     * Disable the attach trigger when the composer cannot accept input.
+     * Computed once in `ChatInput` from no session/draft or locked and
+     * shared with the drag overlay and picker callback so gating cannot drift.
+     */
+    isAttachmentDisabled: boolean;
 
     onOpenSettings?: () => void;
     /** Direct local-file picker action, shared by the desktop menu item and the mobile attach button. */
@@ -74,6 +80,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         canAbort,
         hasContent,
         isSending = false,
+        isAttachmentDisabled,
         onOpenSettings,
         onPickLocalFiles,
         onPrimaryAction,
@@ -89,6 +96,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             onOpenSettings={onOpenSettings}
             onOpenMobileSheet={isMobile ? onPickLocalFiles : undefined}
             disabled={isSending}
+            isAttachmentDisabled={isAttachmentDisabled}
         />
     );
 

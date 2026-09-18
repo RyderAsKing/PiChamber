@@ -8,6 +8,13 @@ export interface ComposerDragOverlayProps {
   iconButtonBaseClass: string;
   iconSizeClass: string;
   radius: string;
+  /**
+   * Same authoritative attachment gate as the footer triggers and picker
+   * callback. The overlay can render while locked (drop stays enabled for
+   * a session/draft), so the button must expose a real disabled state
+   * instead of an enabled no-op.
+   */
+  isAttachmentDisabled: boolean;
   onPickLocalFiles: () => void;
 }
 
@@ -16,6 +23,7 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
   iconButtonBaseClass,
   iconSizeClass,
   radius,
+  isAttachmentDisabled,
   onPickLocalFiles,
 }) => {
   return (
@@ -29,6 +37,7 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
             type="button"
             className={iconButtonBaseClass}
             onClick={onPickLocalFiles}
+            disabled={isAttachmentDisabled}
             title="Attach files"
             aria-label="Attach files"
           >

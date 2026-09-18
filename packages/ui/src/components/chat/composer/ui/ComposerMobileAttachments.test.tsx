@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { ComposerAttachmentControls } from "./ComposerAttachmentControls";
+import { ComposerAttachmentPickerInput } from "./ComposerAttachmentPickerInput";
+import { ComposerDragOverlay } from "./ComposerDragOverlay";
 import { ComposerFooter } from "./ComposerFooter";
 import { ATTACHMENT_PICKER_INPUT_PROPS } from "./attachmentInputProps";
 import { ATTACHMENT_ACCEPT } from "@/sync/attachment-files";
@@ -15,13 +17,29 @@ const renderAttachmentControls = (props: React.ComponentProps<typeof ComposerAtt
   renderToStaticMarkup(React.createElement(ComposerAttachmentControls, props));
 
 const renderFooter = (isMobile: boolean) =>
-  renderToStaticMarkup(
+  renderFooterWithWritableState({ isMobile, isAttachmentDisabled: false });
+
+const renderFooterWithWritableState = (options: {
+  isMobile: boolean;
+  sessionId?: string | null;
+  newSessionDraftOpen?: boolean;
+  isSending?: boolean;
+  isAttachmentDisabled?: boolean;
+}) => {
+  const {
+    isMobile,
+    sessionId = "session-1",
+    newSessionDraftOpen = false,
+    isSending = false,
+    isAttachmentDisabled = false,
+  } = options;
+  return renderToStaticMarkup(
     React.createElement(ComposerFooter, {
       isMobile,
       isInline: false,
       alignToolsEnd: false,
-      sessionId: "session-1",
-      newSessionDraftOpen: false,
+      sessionId,
+      newSessionDraftOpen,
       messageLength: 0,
       leadingExtra: React.createElement("span", { id: "model-picker" }, "MODEL-PICKER"),
       radius: "1rem",
@@ -34,12 +52,30 @@ const renderFooter = (isMobile: boolean) =>
       canSend: true,
       canAbort: false,
       hasContent: true,
+      isSending,
+      isAttachmentDisabled,
       onPickLocalFiles: () => {},
       onPrimaryAction: () => {},
       onQueueMessage: () => {},
       onAbort: () => {},
     }),
   );
+};
+
+/** Extract the attach `<button>` tag so disabled checks ignore attribute order. */
+const getAttachButtonTag = (markup: string): string | null => {
+  const labelIndex = markup.indexOf('aria-label="Add attachment"');
+  if (labelIndex < 0) return null;
+  const buttonStart = markup.lastIndexOf("<button", labelIndex);
+  const tagEnd = markup.indexOf(">", labelIndex);
+  if (buttonStart < 0 || tagEnd < 0) return null;
+  return markup.slice(buttonStart, tagEnd + 1);
+};
+
+const isAttachDisabledInMarkup = (markup: string): boolean => {
+  const tag = getAttachButtonTag(markup);
+  return tag != null && /\bdisabled\b/.test(tag);
+};
 
 type FakeNode = {
   nodeType: number;
@@ -169,11 +205,13 @@ describe("composer mobile attachments", () => {
       iconSizeClass: ICON_CLASS,
       handlePickLocalFiles: () => {},
       onOpenMobileSheet: () => {},
+      isAttachmentDisabled: false,
     });
     const desktop = renderAttachmentControls({
       footerIconButtonClass: FOOTER_BUTTON_CLASS,
       iconSizeClass: ICON_CLASS,
       handlePickLocalFiles: () => {},
+      isAttachmentDisabled: false,
     });
 
     for (const markup of [mobile, desktop]) {
@@ -218,6 +256,7 @@ describe("composer mobile attachments", () => {
             footerIconButtonClass: FOOTER_BUTTON_CLASS,
             iconSizeClass: ICON_CLASS,
             handlePickLocalFiles: () => {},
+            isAttachmentDisabled: false,
             onOpenMobileSheet: () => {
               calls += 1;
             },
@@ -252,5 +291,138 @@ describe("composer mobile attachments", () => {
     expect(ATTACHMENT_ACCEPT).toContain("image/jpeg");
     expect(ATTACHMENT_ACCEPT).toContain("application/pdf");
     expect(ATTACHMENT_ACCEPT).toContain("text/");
+  });
+
+  test("footer honors the authoritative attachment-disabled flag", () => {
+    // `ChatInput` computes the flag from no session/draft or locked (sending
+    // is included in the lock). The footer only applies it.
+    for (const isMobile of [true, false]) {
+      expect(
+        isAttachDisabledInMarkup(
+          renderFooterWithWritableState({ isMobile, isAttachmentDisabled: false }),
+        ),
+      ).toBe(false);
+      const disabledMarkup = renderFooterWithWritableState({
+        isMobile,
+        isAttachmentDisabled: true,
+      });
+      expect(disabledMarkup).toContain('aria-label="Add attachment"');
+      expect(isAttachDisabledInMarkup(disabledMarkup)).toBe(true);
+    }
+  });
+
+  test("attachment controls honor the explicit attachment-disabled state on both triggers", () => {
+    const mobileDisabled = renderAttachmentControls({
+      footerIconButtonClass: FOOTER_BUTTON_CLASS,
+      iconSizeClass: ICON_CLASS,
+      handlePickLocalFiles: () => {},
+      onOpenMobileSheet: () => {},
+      isAttachmentDisabled: true,
+    });
+    const desktopDisabled = renderAttachmentControls({
+      footerIconButtonClass: FOOTER_BUTTON_CLASS,
+      iconSizeClass: ICON_CLASS,
+      handlePickLocalFiles: () => {},
+      isAttachmentDisabled: true,
+    });
+    expect(isAttachDisabledInMarkup(mobileDisabled)).toBe(true);
+    expect(isAttachDisabledInMarkup(desktopDisabled)).toBe(true);
+
+    const mobileEnabled = renderAttachmentControls({
+      footerIconButtonClass: FOOTER_BUTTON_CLASS,
+      iconSizeClass: ICON_CLASS,
+      handlePickLocalFiles: () => {},
+      onOpenMobileSheet: () => {},
+      isAttachmentDisabled: false,
+    });
+    const desktopEnabled = renderAttachmentControls({
+      footerIconButtonClass: FOOTER_BUTTON_CLASS,
+      iconSizeClass: ICON_CLASS,
+      handlePickLocalFiles: () => {},
+      isAttachmentDisabled: false,
+    });
+    expect(isAttachDisabledInMarkup(mobileEnabled)).toBe(false);
+    expect(isAttachDisabledInMarkup(desktopEnabled)).toBe(false);
+  });
+
+  test("drag overlay exposes a real disabled attach button", () => {
+    // `useComposerDrop` stays enabled for a session/draft while locked, so
+    // the overlay can render while attachment-disabled. The button must be
+    // disabled instead of an enabled no-op (the picker callback also gates).
+    const renderOverlay = (isAttachmentDisabled: boolean) =>
+      renderToStaticMarkup(
+        React.createElement(ComposerDragOverlay, {
+          isInternalDrag: false,
+          iconButtonBaseClass: FOOTER_BUTTON_CLASS,
+          iconSizeClass: ICON_CLASS,
+          radius: "1rem",
+          isAttachmentDisabled,
+          onPickLocalFiles: () => {},
+        }),
+      );
+    const enabled = renderOverlay(false);
+    expect(enabled).toContain('aria-label="Attach files"');
+    const enabledTag = enabled.slice(enabled.indexOf("<button"), enabled.indexOf(">", enabled.indexOf("<button")) + 1);
+    expect(enabledTag.includes('disabled=""')).toBe(false);
+    const disabled = renderOverlay(true);
+    expect(disabled).toContain('aria-label="Attach files"');
+    const disabledTag = disabled.slice(disabled.indexOf("<button"), disabled.indexOf(">", disabled.indexOf("<button")) + 1);
+    expect(disabledTag.includes('disabled=""')).toBe(true);
+  });
+
+  test("owned picker input renders the shared file contract", () => {
+    const markup = renderToStaticMarkup(
+      React.createElement(ComposerAttachmentPickerInput, {
+        inputRef: { current: null },
+        onChange: () => {},
+      }),
+    );
+    expect(markup).toContain('type="file"');
+    expect(markup).toContain("multiple");
+    expect(markup).toContain(`accept="${ATTACHMENT_ACCEPT}"`);
+    expect(markup).toContain('class="hidden"');
+  });
+
+  test("owned picker input preserves ref and onChange behavior", async () => {
+    const dom = installFakeDom();
+    const root: Root = createRoot(dom.container);
+    try {
+      let refNode: unknown = null;
+      let changes = 0;
+      await act(async () => {
+        await root.render(
+          React.createElement(ComposerAttachmentPickerInput, {
+            inputRef: (node: HTMLInputElement | null) => {
+              refNode = node;
+            },
+            onChange: () => {
+              changes += 1;
+            },
+          }),
+        );
+      });
+
+      const input = (dom.container as unknown as FakeNode).childNodes.find(
+        (child) => child.nodeType === 1,
+      ) as FakeNode | undefined;
+      if (!input) throw new Error("picker input not mounted");
+      expect(refNode).toBe(input);
+
+      const props = getProps(input);
+      expect(props?.["type"]).toBe("file");
+      expect(props?.["multiple"]).toBe(true);
+      expect(props?.["accept"]).toBe(ATTACHMENT_ACCEPT);
+      const onChange = props?.["onChange"] as ((event: unknown) => void) | undefined;
+      if (typeof onChange !== "function") throw new Error("picker input has no onChange");
+      act(() => {
+        onChange({ target: { files: [], value: "" } });
+      });
+      expect(changes).toBe(1);
+    } finally {
+      await act(async () => {
+        await root.unmount();
+      });
+      dom.restore();
+    }
   });
 });
