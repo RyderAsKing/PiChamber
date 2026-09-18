@@ -236,6 +236,13 @@ export type InputState = {
   retryAttachmentUpload: (id: string) => void
   removeAttachedFile: (id: string) => void
   detachAttachedFiles: (ids: readonly string[]) => void
+  /**
+   * Make a failed send's captured files visible again for retry without
+   * overwriting newer draft files. Missing captured ids are appended as
+   * clones (preview URLs stay stripped; dispatch previews use `dataUrl`)
+   * and removed from stashes to avoid duplicates. Never cancels uploads.
+   */
+  restoreAttachmentsForRetry: (captured: readonly AttachedFile[]) => void
   clearStashedAttachmentsForSession: (identity: { runtimeKey: string; directory: string; sessionId: string }) => void
   /**
    * Make a draft's attachments visible, stashing the previous draft's files.
@@ -396,6 +403,10 @@ export const useInputStore = create<InputState>()((set, get) => ({
     // Ids are globally unique, so a send that resolves after a draft switch
     // still clears its own files: sweep the visible list and every stash.
     // Stashed uploads are left running; only the visible detach cancels.
+    // Remote ready uploads are intentionally NOT deleted: a successful
+    // dispatch consumed them (the daemon owns TTL cleanup) and a refresh
+    // during dispatch may have created uploads the prompt now owns. Only an
+    // explicit user removal deletes an unused remote upload.
     const removed = get().attachedFiles.filter((file) => idSet.has(file.id))
     cancelFiles(removed, false)
     const stashed = get().stashedAttachmentsByDraft
@@ -409,6 +420,33 @@ export const useInputStore = create<InputState>()((set, get) => ({
     }
     set((state) => ({
       attachedFiles: state.attachedFiles.filter((file) => !idSet.has(file.id)),
+      stashedAttachmentsByDraft: nextStashed,
+    }))
+  },
+
+  restoreAttachmentsForRetry: (captured) => {
+    if (!captured || captured.length === 0) return
+    const visibleIds = new Set(get().attachedFiles.map((file) => file.id))
+    const missing = captured.filter((file) => !visibleIds.has(file.id))
+    if (missing.length === 0) return
+    const missingIds = new Set(missing.map((file) => file.id))
+    const stashed = get().stashedAttachmentsByDraft ?? {}
+    const nextStashed: Record<string, AttachedFile[]> = {}
+    for (const [key, files] of Object.entries(stashed)) {
+      const kept = files.filter((file) => !missingIds.has(file.id))
+      if (kept.length > 0) nextStashed[key] = kept
+    }
+    set((state) => ({
+      attachedFiles: [
+        ...state.attachedFiles,
+        ...missing.map((file): AttachedFile => ({
+          ...file,
+          previewUrl: undefined,
+          uploadState: file.uploadState
+            ? ({ ...file.uploadState } as AttachedFile["uploadState"])
+            : file.uploadState,
+        })),
+      ],
       stashedAttachmentsByDraft: nextStashed,
     }))
   },
