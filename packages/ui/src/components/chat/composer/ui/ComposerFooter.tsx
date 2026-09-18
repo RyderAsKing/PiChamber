@@ -5,8 +5,9 @@
  * and model picker (with thinking after the model name) on the left of the
  * footer, send on the right. Mini-chat keeps a one-line pill with the model
  * picker under the composer. Dedicated mobile keeps a stacked footer so the
- * send control stays reachable with one thumb, with model and variant pickers
- * in that footer and no + attach control.
+ * send control stays reachable with one thumb, with the attach button
+ * immediately to the left of the model and variant pickers in that footer.
+ * The mobile attach button opens the shared native picker directly.
  */
 
 import React from 'react';
@@ -44,8 +45,8 @@ export interface ComposerFooterProps {
     isSending?: boolean;
 
     onOpenSettings?: () => void;
+    /** Direct local-file picker action, shared by the desktop menu item and the mobile attach button. */
     onPickLocalFiles: () => void;
-    onOpenAttachSheet: () => void;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
@@ -75,7 +76,6 @@ export function ComposerFooter(props: ComposerFooterProps) {
         isSending = false,
         onOpenSettings,
         onPickLocalFiles,
-        onOpenAttachSheet,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
@@ -87,8 +87,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             iconSizeClass={iconSizeClass}
             handlePickLocalFiles={onPickLocalFiles}
             onOpenSettings={onOpenSettings}
-            onOpenMobileSheet={isMobile ? onOpenAttachSheet : undefined}
-            hideAddButton={isMobile}
+            onOpenMobileSheet={isMobile ? onPickLocalFiles : undefined}
             disabled={isSending}
         />
     );
