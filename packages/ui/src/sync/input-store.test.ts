@@ -117,7 +117,7 @@ describe("input-store attachment lifecycle", () => {
     await waitFor(() => active === 0)
   })
 
-  test("removal aborts an active upload and rejects its stale completion", async () => {
+  test("removal aborts an active upload", async () => {
     let aborted = false
     piClient.uploadAttachment = async (_file, input) => await new Promise((_, reject) => {
       input.signal?.addEventListener("abort", () => {
@@ -167,6 +167,99 @@ describe("input-store attachment lifecycle", () => {
     expect(attachment.filename).toBe("archive.zip")
     expect(attachment.mimeType).toBe("application/zip")
     expect(attachment.uploadState?.status).toBe("ready")
+  })
+
+  test("an aborted in-flight upload becomes a visible failed attachment with retry and remove", async () => {
+    let failNext = true
+    const deleted: string[] = []
+    piClient.deleteAttachment = async (id) => {
+      deleted.push(id)
+    }
+    piClient.uploadAttachment = async (file, input) => {
+      if (failNext) {
+        failNext = false
+        throw new DOMException("aborted", "AbortError")
+      }
+      return readyUpload(file, input)
+    }
+
+    // Removal of a failed file clears it without a remote delete (nothing was uploaded).
+    await useInputStore.getState().addAttachedFile(new File(["hello"], "dropped.txt", { type: "text/plain" }))
+    await waitFor(() => useInputStore.getState().attachedFiles[0]?.uploadState?.status === "failed")
+    expect(useInputStore.getState().attachedFiles[0]?.uploadState).toEqual({ status: "failed", error: "Upload canceled." })
+    useInputStore.getState().removeAttachedFile(useInputStore.getState().attachedFiles[0].id)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(deleted).toEqual([])
+
+    // Retry of a failed file can reach ready, and removing the ready file deletes the upload.
+    failNext = true
+    await useInputStore.getState().addAttachedFile(new File(["hello"], "hello.txt", { type: "text/plain" }))
+    await waitFor(() => useInputStore.getState().attachedFiles[0]?.uploadState?.status === "failed")
+    expect(useInputStore.getState().attachedFiles[0]?.uploadState).toEqual({ status: "failed", error: "Upload canceled." })
+    useInputStore.getState().retryAttachmentUpload(useInputStore.getState().attachedFiles[0].id)
+    await waitFor(() => useInputStore.getState().attachedFiles[0]?.uploadState?.status === "ready")
+    const ready = useInputStore.getState().attachedFiles[0]
+    const opaqueId = ready.uploadState?.status === "ready" ? ready.uploadState.attachmentId : ""
+    expect(opaqueId).not.toBe("")
+    useInputStore.getState().removeAttachedFile(ready.id)
+    expect(useInputStore.getState().attachedFiles).toEqual([])
+    expect(deleted).toEqual([opaqueId])
+  })
+
+  test("one preparation failure does not block a valid sibling from uploading", async () => {
+    const [badResult, okResult] = await Promise.all([
+      useInputStore.getState().addAttachedFile(new File(["not json"], "bad.har", { type: "application/json" })),
+      useInputStore.getState().addAttachedFile(new File(["hello"], "ok.txt", { type: "text/plain" })),
+    ])
+    expect(badResult).toBe(false)
+    expect(okResult).toBe(true)
+    await waitFor(() => {
+      const files = useInputStore.getState().attachedFiles
+      return files.length === 2
+        && files.every((file) => file.uploadState?.status === "ready" || file.uploadState?.status === "failed")
+    })
+
+    const byName = new Map(useInputStore.getState().attachedFiles.map((file) => [file.filename, file]))
+    expect(byName.get("bad.har")?.uploadState).toEqual({ status: "failed", error: "This file could not be prepared." })
+    expect(byName.get("ok.txt")?.uploadState?.status).toBe("ready")
+  })
+
+  test("a 21st attachment fails while preserving the existing twenty", async () => {
+    let uploads = 0
+    piClient.uploadAttachment = async (file, input) => {
+      uploads += 1
+      return readyUpload(file, input)
+    }
+    for (let index = 0; index < 20; index += 1) {
+      useInputStore.getState().addRestoredAttachment({ url: `file:///seed-${index}.txt`, mimeType: "text/plain", filename: `seed-${index}.txt` })
+    }
+    expect(useInputStore.getState().attachedFiles).toHaveLength(20)
+
+    expect(await useInputStore.getState().addAttachedFile(new File(["extra"], "extra.txt", { type: "text/plain" }))).toBe(false)
+    const files = useInputStore.getState().attachedFiles
+    expect(files).toHaveLength(21)
+    expect(files.slice(0, 20).every((file) => file.source === "server")).toBe(true)
+    expect(files[20].filename).toBe("extra.txt")
+    expect(files[20].uploadState).toEqual({ status: "failed", error: "You can attach up to 20 files to one message." })
+    expect(uploads).toBe(0)
+  })
+
+  test("an over-100MB prepared file fails only that file and preserves existing valid attachments", async () => {
+    await useInputStore.getState().addAttachedFile(new File(["ok"], "ok.txt", { type: "text/plain" }))
+    await waitFor(() => useInputStore.getState().attachedFiles[0]?.uploadState?.status === "ready")
+    const valid = useInputStore.getState().attachedFiles[0]
+
+    // Mock the size without allocating 100MB: .txt preparation returns the same File object.
+    const big = new File(["hello"], "big.txt", { type: "text/plain" })
+    Object.defineProperty(big, "size", { value: 101 * 1024 * 1024, configurable: true })
+    expect(await useInputStore.getState().addAttachedFile(big)).toBe(false)
+
+    const files = useInputStore.getState().attachedFiles
+    expect(files).toHaveLength(2)
+    expect(files[0]).toBe(valid)
+    expect(files[0].uploadState?.status).toBe("ready")
+    expect(files[1].filename).toBe("big.txt")
+    expect(files[1].uploadState).toEqual({ status: "failed", error: "File exceeds the 100 MB upload limit." })
   })
 })
 
