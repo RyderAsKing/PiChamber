@@ -124,6 +124,11 @@ import {
   collectInlineSkillMentions,
 } from "./composer/submit/buildOutgoingMessage";
 import {
+  captureWorktreeAttachments,
+  resolveWorktreeSendAttachments,
+  worktreeSendAttachmentIds,
+} from "./composer/submit/worktreeAttachments";
+import {
   isLocalSlashCommand,
   parseSlashCommand,
   tryExecuteLocalSlashCommand,
@@ -1087,6 +1092,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const confirmedMentionsAtSend = startsWorktreeTask
       ? new Set(confirmedMentionsRef.current)
       : null;
+    // The pending worktree send's files, captured before the draft switch
+    // and the long creation await. Dispatch after setup-ready must use this
+    // snapshot, never mutable visible draft state.
+    let worktreeAttachmentsAtSend: AttachedFile[] | null = null;
     if (isNewSessionSend) {
       // Anti-spam is scoped to this draft. A background worktree task must
       // not lock an existing session or a newer New session draft.
@@ -1100,6 +1109,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       // response-style fetch, snippet expansion, materialization).
       useSessionUIStore.getState().setSendingNewSessionDraftId(draftAtSend.id);
       if (startsWorktreeTask) {
+        // Snapshot the pending send's files before the draft switch: upload
+        // IDs can expire during setup, so local bytes are retained now for a
+        // dispatch-time refresh. Unavailable bytes release this draft's lock
+        // and abort before anything is cleared or switched, leaving the
+        // draft intact for retry.
+        try {
+          worktreeAttachmentsAtSend =
+            await captureWorktreeAttachments(attachedFiles);
+        } catch {
+          if (useSessionUIStore.getState().sendingNewSessionDraftId === draftAtSend.id) {
+            useSessionUIStore.getState().setSendingNewSessionDraftId(null);
+          }
+          toast.error("Attachment data could not be saved for the worktree send.");
+          return;
+        }
         // Transfer the prompt to the background task synchronously. Navigation
         // can now open a fresh draft without the submitted text being stashed
         // and restored under the generic new-session identity.
@@ -1161,6 +1185,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               inputSnapshot.message,
               confirmedMentionsAtSend ?? [],
             );
+            // Cards stay until Pi accepts: the failed send never detached,
+            // so this only re-makes stashed captured files visible for
+            // retry. Newer draft files are preserved (missing ids appended).
+            if (worktreeAttachmentsAtSend) {
+              useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
+            }
           } else {
             toast.error('Worktree creation failed', {
               description: 'Your prompt was not sent.',
@@ -1241,7 +1271,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               composerText: inputSnapshot.hasContent
                 ? inputSnapshot.message
                 : null,
-              composerAttachments: attachedFiles,
+              composerAttachments: resolveWorktreeSendAttachments(
+                worktreeAttachmentsAtSend,
+                attachedFiles,
+              ),
               syntheticTexts: syntheticParts?.map((part) => part.text) ?? [],
             },
         {
@@ -1371,8 +1404,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         ...primaryAttachments,
         ...additionalParts.flatMap((p) => p.attachments ?? []),
       ];
-      const composerAttachmentIds = attachedFiles.map(
-        (attachment) => attachment.id,
+      // Detach only the files this send captured: files added to a newer
+      // draft while the worktree built must survive a successful dispatch.
+      const composerAttachmentIds = worktreeSendAttachmentIds(
+        worktreeAttachmentsAtSend,
+        attachedFiles,
       );
 
       if (queuedOnly && capturedTarget && claimedFollowUp) {
@@ -1486,12 +1522,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             inputSnapshot.message &&
             (!currentInput || currentInput === inputSnapshot.message)
           ) {
+            // Restore the captured mentions: the ref was cleared before the
+            // worktree await, so the live ref no longer holds this send's
+            // mentions. Matches the worktree-creation failure path.
+            if (confirmedMentionsAtSend) {
+              confirmedMentionsRef.current = confirmedMentionsAtSend;
+            }
             setMessage(inputSnapshot.message);
             writeChatDraft(
               chatDraftIdentity,
               inputSnapshot.message,
-              confirmedMentionsRef.current,
+              confirmedMentionsAtSend ?? confirmedMentionsRef.current,
             );
+          }
+          // Post-receipt prompt failure keeps cards for retry without
+          // overwriting a newer draft: only missing captured ids are
+          // appended, and only while the submitted draft is still current.
+          if (submittedDraftIsCurrent() && worktreeAttachmentsAtSend) {
+            useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
           }
 
           const isSoftNetworkError =
