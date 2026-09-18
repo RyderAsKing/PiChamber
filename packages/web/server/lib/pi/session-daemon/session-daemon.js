@@ -1710,19 +1710,28 @@ export function createSessionDaemon({
     } else if (payload.title && newRuntime.session?.sessionManager?.appendSessionInfo) {
       newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
     }
-    if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    if (result?.cancelled) {
+      try { await newRuntime.dispose?.(); } catch { /* the cancelled create owns nothing */ }
+      throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    }
     try {
       await acquireResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
     } catch (error) {
       try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
       throw error;
     }
-    if (payload.model) {
-      await setSessionModel(newRuntime, payload.model);
-      publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
-    }
-    if (payload.thinking !== undefined) {
-      applyThinking(newRuntime, payload.thinking, newRuntime.session.sessionId, targetCwd);
+    try {
+      if (payload.model) {
+        await setSessionModel(newRuntime, payload.model);
+        publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
+      }
+      if (payload.thinking !== undefined) {
+        applyThinking(newRuntime, payload.thinking, newRuntime.session.sessionId, targetCwd);
+      }
+    } catch (error) {
+      await releaseResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
+      try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
+      throw error;
     }
     runtimeRegistry.register(newRuntime, { cwd: targetCwd });
     runtime = newRuntime;
@@ -2815,6 +2824,91 @@ export function createSessionDaemon({
     }
   };
 
+  // Failed-first-input durability: Pi's SessionManager defers JSONL creation
+  // until the first assistant message, so a fresh session whose first prompt
+  // is rejected (INVALID_MODEL, missing attachment, preflight rejection)
+  // would otherwise vanish on daemon restart, idle eviction, or worktree
+  // revisit. Materialize the current valid snapshot at Pi's assigned path,
+  // then recycle the resident runtime so the SDK cannot later attempt an
+  // exclusive-create ("wx") against a file it believes is absent.
+  // Creation alone never persists: untouched sessions stay ephemeral.
+  // Best-effort only: any durability failure preserves the original prompt
+  // error and never logs transcript content.
+  const ensureFailedInputDurability = async (activeRuntime, sessionId) => {
+    try {
+      if (!activeRuntime || typeof sessionId !== 'string' || sessionId.length === 0) return;
+      const manager = activeRuntime.session?.sessionManager;
+      if (!manager || typeof manager.getSessionFile !== 'function') return;
+      if (activeRuntime.session?.isStreaming === true || activeRuntime.session?.isCompacting === true) return;
+      if (activeSessionInputs.has(activeRuntime)) return;
+      if ((activeSessionRequests.get(sessionId) ?? 0) > 1) return;
+      const registered = runtimeRegistry?.findBySessionId(sessionId);
+      if (registered && registered !== activeRuntime) return;
+      if (!registered && runtime !== activeRuntime) return;
+      const assignedPath = manager.getSessionFile();
+      if (typeof assignedPath !== 'string' || assignedPath.length === 0) return;
+      const runtimeCwd = activeRuntime.cwd || activeDirectory || cwd;
+      let expectedDir;
+      try {
+        expectedDir = getPiSessionDirectory({ cwd: runtimeCwd, agentDir });
+      } catch { return; }
+      if (!isPathInside(expectedDir, assignedPath)) return;
+      try {
+        await stat(assignedPath);
+        return;
+      } catch (error) {
+        if (error?.code !== 'ENOENT') return;
+      }
+      const header = manager.getHeader?.();
+      if (!header || header.type !== 'session' || header.id !== sessionId || typeof header.cwd !== 'string') return;
+      const entries = manager.getEntries?.();
+      if (!Array.isArray(entries)) return;
+      try {
+        if (typeof manager.getSessionId === 'function' && manager.getSessionId() !== sessionId) return;
+      } catch { return; }
+      let content;
+      try {
+        const lines = [`${JSON.stringify(header)}\n`];
+        for (const entry of entries) {
+          if (!entry || typeof entry !== 'object') continue;
+          lines.push(`${JSON.stringify(entry)}\n`);
+        }
+        content = lines.join('');
+      } catch { return; }
+      try {
+        await mkdir(dirname(assignedPath), { recursive: true, mode: 0o700 });
+      } catch { return; }
+      const temporary = `${assignedPath}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(temporary, content, { encoding: 'utf8', mode: 0o600 });
+      } catch {
+        await rm(temporary, { force: true }).catch(() => {});
+        return;
+      }
+      try {
+        await link(temporary, assignedPath);
+      } catch (error) {
+        await rm(temporary, { force: true }).catch(() => {});
+        if (error?.code !== 'EEXIST') return;
+      }
+      await rm(temporary, { force: true }).catch(() => {});
+      clearIdleDisposal(sessionId);
+      try { clearExtensionState(sessionId); } catch {}
+      try {
+        await runtimeRegistry?.dispose(activeRuntime);
+      } catch {
+        // Dispose failure must not override the original prompt error.
+      }
+      await releaseResidentLease({ cwd: runtimeCwd, sessionId });
+      if (activeRuntime === runtime) {
+        dormantSession = { sessionId, sessionFile: assignedPath, cwd: runtimeCwd };
+        runtime = undefined;
+      }
+    } catch {
+      // Durability is best-effort; the original prompt error is authoritative.
+    }
+  };
+
   const runSessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
@@ -3032,6 +3126,7 @@ export function createSessionDaemon({
     return { accepted: true, messageId };
     } catch (error) {
       endSessionInput(activeRuntime);
+      await ensureFailedInputDurability(activeRuntime, payload.sessionId).catch(() => {});
       void flushPendingResourceReload(activeRuntime);
       void flushPendingRuntimeRecreation().catch(() => {});
       throw error;
