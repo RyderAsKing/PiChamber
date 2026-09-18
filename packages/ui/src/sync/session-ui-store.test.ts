@@ -144,6 +144,34 @@ describe('routeMessage', () => {
     expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
   });
 
+  test('refreshes expired ready attachments from the retained byte fallback', async () => {
+    const uploads: string[] = [];
+    const prompts: unknown[][] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.uploadFile = async (file, input) => {
+      uploads.push(`${input.filename}:${Buffer.from(await file.arrayBuffer()).toString()}`);
+      return { id: `refreshed-${uploads.length}`, name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000 };
+    };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-expiry' };
+    };
+
+    // Upload IDs captured before a long worktree setup expire before
+    // dispatch; the byte fallback retained up front lets both files refresh.
+    await routeMessage({
+      sessionId: 'session-expiry', directory: '/workspace', content: 'hello with files', providerID: 'provider', modelID: 'model',
+      files: [
+        { type: 'file', mime: 'text/plain', filename: 'a.txt', url: 'data:text/plain;base64,aGVsbG8tYQ==', uploadState: { status: 'ready', attachmentId: 'expired-a', expiresAt: Date.now() - 1000 } },
+        { type: 'file', mime: 'text/plain', filename: 'b.txt', url: 'data:text/plain;base64,aGVsbG8tYg==', uploadState: { status: 'ready', attachmentId: 'expired-b', expiresAt: Date.now() - 1000 } },
+      ],
+    });
+
+    expect(uploads).toEqual(['a.txt:hello-a', 'b.txt:hello-b']);
+    expect(prompts).toEqual([['session-expiry', 'hello with files', 'prompt', [{ id: 'refreshed-1' }, { id: 'refreshed-2' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
+  });
+
   test('rejects pending and failed attachments before prompt dispatch', async () => {
     let prompted = false;
     store.setModel = async () => undefined;
