@@ -124,6 +124,7 @@ describe('routeMessage', () => {
     store.setModel = async () => undefined;
     store.setThinking = async () => undefined;
     store.upload = async () => { throw new Error('ready attachments must not upload again'); };
+    store.uploadFile = async () => { throw new Error('ready attachments must not upload again'); };
     store.prompt = async (...args) => {
       prompts.push(args);
       return { accepted: true, messageId: 'message-ready' };
@@ -142,6 +143,38 @@ describe('routeMessage', () => {
     });
 
     expect(prompts).toEqual([['session-ready', 'hello', 'prompt', [{ id: 'opaque-1' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
+  });
+
+  test('re-uploads an expired ready attachment from queued base64 and prompts with the opaque id only', async () => {
+    const prompts: unknown[][] = [];
+    const uploads: string[] = [];
+    store.setModel = async () => undefined;
+    store.setThinking = async () => undefined;
+    store.uploadFile = async (file, input) => {
+      uploads.push(await file.text());
+      return { id: 'refreshed-1', name: input.filename, mime: input.mime, size: file.size, expiresAt: Date.now() + 60_000 };
+    };
+    store.prompt = async (...args) => {
+      prompts.push(args);
+      return { accepted: true, messageId: 'message-expired' };
+    };
+
+    await routeMessage({
+      sessionId: 'session-expired',
+      directory: '/workspace',
+      content: 'hello',
+      providerID: 'provider',
+      modelID: 'model',
+      files: [{
+        type: 'file', mime: 'text/plain', filename: 'note.txt', url: 'data:text/plain;base64,aGVsbG8=',
+        uploadState: { status: 'ready', attachmentId: 'stale-1', expiresAt: Date.now() - 1_000 },
+      }],
+    });
+
+    // The stale id is never reused: queued base64 is re-uploaded before prompt.
+    expect(uploads).toEqual(['hello']);
+    // Prompt text is untouched and attachments carry the opaque id only (no base64).
+    expect(prompts).toEqual([['session-expired', 'hello', 'prompt', [{ id: 'refreshed-1' }], { directory: '/workspace', runtimeKey: getRuntimeKey() }]]);
   });
 
   test('rejects pending and failed attachments before prompt dispatch', async () => {
