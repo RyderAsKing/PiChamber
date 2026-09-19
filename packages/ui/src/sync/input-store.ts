@@ -8,6 +8,7 @@ import { create } from "zustand"
 import { piClient } from "@/lib/pi/client"
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from "@/lib/runtime-switch"
 import type { AttachedFile, AttachmentUploadState } from "@/stores/types/sessionTypes"
+import type { WorktreeFailedSend } from "@/stores/useWorktreeCreationStore"
 import { prepareAttachmentFiles } from "./attachment-files"
 
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
@@ -206,11 +207,23 @@ export type SyntheticContextPart = {
   synthetic?: boolean
 }
 
+export type PendingWorktreeRestore = {
+  entryKey: string;
+  prompt: string;
+  confirmedMentions: string[];
+  targetKey: string;
+  attachments: AttachedFile[];
+  /** Ownership token: the exact failed payload read at restore time. */
+  expectedFailedSend: WorktreeFailedSend;
+};
+
 export type InputState = {
   pendingInputText: string | null
   pendingInputMode: "replace" | "append" | "append-inline"
   pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
+  /** Failed worktree send awaiting explicit restore into its target draft. Memory-only. */
+  pendingWorktreeRestore: PendingWorktreeRestore | null
   /** Draft starter insertion (prompt `/name` or built-in literal text; never an immediate send). */
   pendingStarterInsert: { name: string } | { text: string } | null
   attachedFiles: AttachedFile[]
@@ -232,6 +245,10 @@ export type InputState = {
   consumePendingStarterInsert: () => { name: string } | { text: string } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
+  requestWorktreeRestore: (restore: PendingWorktreeRestore) => void
+  consumePendingWorktreeRestore: () => PendingWorktreeRestore | null
+  /** Runtime-switch cleanup: drop a deferred restore so stale state cannot linger. */
+  resetForRuntimeSwitch: () => void
   addAttachedFile: (file: File) => Promise<boolean>
   retryAttachmentUpload: (id: string) => void
   removeAttachedFile: (id: string) => void
@@ -260,6 +277,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingRevertText: null,
   pendingSyntheticParts: null,
   pendingStarterInsert: null,
+  pendingWorktreeRestore: null,
   attachedFiles: [],
   stashedAttachmentsByDraft: {},
   activeAttachmentsDraftKey: null,
@@ -291,6 +309,16 @@ export const useInputStore = create<InputState>()((set, get) => ({
     const { pendingSyntheticParts } = get()
     if (pendingSyntheticParts !== null) set({ pendingSyntheticParts: null })
     return pendingSyntheticParts
+  },
+  requestWorktreeRestore: (restore) => set({ pendingWorktreeRestore: restore }),
+  consumePendingWorktreeRestore: () => {
+    const { pendingWorktreeRestore } = get()
+    if (pendingWorktreeRestore === null) return null
+    set({ pendingWorktreeRestore: null })
+    return pendingWorktreeRestore
+  },
+  resetForRuntimeSwitch: () => {
+    if (get().pendingWorktreeRestore !== null) set({ pendingWorktreeRestore: null })
   },
 
   addAttachedFile: async (file: File) => {
@@ -556,5 +584,9 @@ subscribeRuntimeEndpointWillChange(() => {
   useInputStore.setState({
     attachedFiles: markRuntimeChanged(files),
     stashedAttachmentsByDraft: nextStashed,
+    // A deferred same-directory restore targets the previous runtime's draft
+    // identity and failed payload. Drop it so stale retained state cannot
+    // linger or restore into the new runtime.
+    pendingWorktreeRestore: null,
   })
 })

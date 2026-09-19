@@ -13,6 +13,7 @@ import type {
   DraftWorktreeCreationReceipt,
   DraftWorktreeIntent,
 } from '@/sync/session-ui-store';
+import type { AttachedFile } from '@/stores/types/sessionTypes';
 
 export function useDraftWorktreeCreation(input: {
   taskId: string | null | undefined;
@@ -32,14 +33,23 @@ export function useDraftWorktreeCreation(input: {
   const request = React.useCallback(async (params: {
     intent: DraftWorktreeIntent;
     prompt: string;
+    failedSend?: {
+      prompt: string;
+      confirmedMentions: readonly string[] | Set<string>;
+      attachments: readonly AttachedFile[];
+    };
   }): Promise<DraftWorktreeCreationReceipt | null> => {
-    if (!git) return null;
+    // No early return when git is unavailable: the store owns the failure
+    // entry (including `failedSend`) so Background tasks can Restore draft
+    // after ChatInput has already rotated the draft. A missing git still
+    // records a failed task instead of dropping the submitted prompt.
     try {
       const receipt = await useWorktreeCreationStore.getState().request({
         taskId: taskId ?? undefined,
         intent: params.intent,
         prompt: params.prompt,
-        git,
+        ...(params.failedSend ? { failedSend: params.failedSend } : {}),
+        git: git ?? undefined,
         refreshProject,
       });
       if (params.intent.runtimeKey !== getRuntimeKey()) return null;

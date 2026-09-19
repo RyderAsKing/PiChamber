@@ -7,6 +7,7 @@ import type {
   DraftWorktreeIntent,
   DraftWorktreeCreationReceipt,
 } from '@/sync/session-ui-store';
+import type { AttachedFile } from '@/stores/types/sessionTypes';
 import { deriveWorktreeName } from '@/components/chat/composer/state/worktreeName';
 
 const BOOTSTRAP_POLL_MS = 500;
@@ -26,11 +27,19 @@ export type WorktreeCreationState = {
   error?: string;
 };
 
+export type WorktreeFailedSend = {
+  prompt: string;
+  confirmedMentions: string[];
+  attachments: AttachedFile[];
+};
+
 export type WorktreeCreationEntry = {
   key: string;
   intent: DraftWorktreeIntent;
   state: WorktreeCreationState | null;
   receipt: DraftWorktreeCreationReceipt | null;
+  /** Retained failed prompt/mentions/attachment snapshot until restored or dismissed. Memory-only. */
+  failedSend: WorktreeFailedSend | null;
   notificationSent: boolean;
   path?: string | null;
   branch?: string | null;
@@ -42,7 +51,14 @@ type WorktreeCreationRequestParams = {
   taskId?: string;
   intent: DraftWorktreeIntent;
   prompt: string;
-  git: GitAPI;
+  /** Prompt recovery payload retained in task state when creation fails. */
+  failedSend?: {
+    prompt: string;
+    confirmedMentions: readonly string[] | Set<string>;
+    attachments: readonly AttachedFile[];
+  };
+  /** Nullable: a missing runtime git still retains `failedSend` in task state. */
+  git: GitAPI | null | undefined;
   refreshProject: (projectRoot: string, git: GitAPI) => Promise<unknown>;
   pollIntervalMs?: number;
 };
@@ -54,6 +70,12 @@ type WorktreeCreationStore = {
   getEntryByKey: (key: string) => WorktreeCreationEntry | null;
   getActiveEntries: () => WorktreeCreationEntry[];
   clearEntry: (key: string) => void;
+  /**
+   * Guarded restore consume: delete only the same failed entry/payload that
+   * was read. Refuses when the key now holds a newer in-flight, completed,
+   * or re-failed generation (different `failedSend` identity).
+   */
+  consumeFailedSend: (key: string, expected: WorktreeFailedSend) => boolean;
   markNotificationSent: (key: string) => void;
   dismissFailed: (key: string) => void;
   resetForRuntimeSwitch: (runtimeKey: string) => void;
@@ -101,6 +123,22 @@ const toReceipt = (
 const generations = new Map<string, number>();
 const inFlight = new Map<string, Promise<DraftWorktreeCreationReceipt>>();
 
+const cloneFailedSendAttachment = (file: AttachedFile): AttachedFile => ({
+  ...file,
+  previewUrl: undefined,
+  uploadState: file.uploadState
+    ? ({ ...file.uploadState } as AttachedFile["uploadState"])
+    : file.uploadState,
+});
+
+const cloneFailedSend = (
+  failedSend: NonNullable<WorktreeCreationRequestParams["failedSend"]>,
+): WorktreeFailedSend => ({
+  prompt: failedSend.prompt,
+  confirmedMentions: Array.from(new Set(Array.isArray(failedSend.confirmedMentions) ? failedSend.confirmedMentions : [...failedSend.confirmedMentions])),
+  attachments: failedSend.attachments.map(cloneFailedSendAttachment),
+});
+
 const patchEntry = (
   set: (partial: Partial<Pick<WorktreeCreationStore, 'entries'>> | ((state: WorktreeCreationStore) => Partial<Pick<WorktreeCreationStore, 'entries'>>)) => void,
   key: string,
@@ -120,17 +158,41 @@ const patchEntry = (
 export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, get) => {
   const setEntryState = (key: string, intent: DraftWorktreeIntent, state: WorktreeCreationState | null): void => {
     patchEntry(set, key, (existing, now) => {
-      if (existing) return { ...existing, state, updatedAt: now };
+      // Structural stale-failure clear: re-entering naming/in-flight must not
+      // retain a previous generation's `failedSend`, or a deferred restore
+      // could read the old payload and a stale failure could linger in the UI.
+      if (existing) return { ...existing, state, failedSend: null, updatedAt: now };
       return {
         key,
         intent,
         state,
         receipt: null,
+        failedSend: null,
         notificationSent: false,
         startedAt: now,
         updatedAt: now,
       };
     });
+  };
+
+  const setEntryFailed = (
+    key: string,
+    intent: DraftWorktreeIntent,
+    state: WorktreeCreationState,
+    failedSend: WorktreeFailedSend | null,
+  ): void => {
+    patchEntry(set, key, (existing, now) => ({
+      key,
+      intent,
+      state,
+      receipt: null,
+      failedSend,
+      notificationSent: existing?.notificationSent ?? false,
+      path: existing?.path ?? null,
+      branch: existing?.branch ?? null,
+      startedAt: existing?.startedAt ?? now,
+      updatedAt: now,
+    }));
   };
 
   const setEntryReceipt = (
@@ -145,6 +207,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       intent,
       state: null,
       receipt,
+      failedSend: null,
       notificationSent: existing?.notificationSent ?? false,
       path: path ?? receipt.path,
       branch: branch ?? receipt.branch,
@@ -162,6 +225,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
 
   const runRequest = async (params: WorktreeCreationRequestParams): Promise<DraftWorktreeCreationReceipt> => {
     const { intent, prompt, git, refreshProject } = params;
+    const failedSendSnapshot = params.failedSend ? cloneFailedSend(params.failedSend) : null;
     const pollIntervalMs = params.pollIntervalMs ?? BOOTSTRAP_POLL_MS;
     const key = params.taskId ?? intentKey(intent);
     const generation = (generations.get(key) ?? 0) + 1;
@@ -171,7 +235,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       generations.get(key) !== generation || intent.runtimeKey !== getRuntimeKey();
 
     const refreshIfCurrentRuntime = (): void => {
-      if (intent.runtimeKey !== getRuntimeKey()) return;
+      if (!git || intent.runtimeKey !== getRuntimeKey()) return;
       void refreshProject(intent.projectRoot, git).catch(() => undefined);
     };
 
@@ -179,13 +243,13 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
 
     if (!git?.createGitWorktree || !git.getGitWorktreeBootstrapStatus) {
       const error = 'Git worktrees are unavailable for this runtime.';
-      setEntryState(key, intent, { phase: 'failed', label: 'Worktree creation failed', error });
+      setEntryFailed(key, intent, { phase: 'failed', label: 'Worktree creation failed', error }, failedSendSnapshot);
       throw new Error(error);
     }
 
     if (intent.runtimeKey !== getRuntimeKey()) {
       const error = 'The runtime changed. Select New worktree again.';
-      setEntryState(key, intent, { phase: 'failed', label: 'Worktree creation stopped', error });
+      setEntryFailed(key, intent, { phase: 'failed', label: 'Worktree creation stopped', error }, failedSendSnapshot);
       throw new Error(error);
     }
 
@@ -249,11 +313,11 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       const message = error instanceof Error ? error.message : 'Failed to create the worktree.';
       if (message === WORKTREE_CREATION_SUPERSEDED) throw error;
       refreshIfCurrentRuntime();
-      setEntryState(key, intent, {
+      setEntryFailed(key, intent, {
         phase: 'failed',
         label: 'Worktree creation failed',
         error: message,
-      });
+      }, failedSendSnapshot);
       throw error;
     }
   };
@@ -286,6 +350,20 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
         generations.delete(key);
         return { entries };
       });
+    },
+
+    consumeFailedSend: (key, expected) => {
+      let consumed = false;
+      set((state) => {
+        const live = state.entries.get(key);
+        if (!live || live.state?.phase !== 'failed' || live.failedSend !== expected) return state;
+        const entries = new Map(state.entries);
+        entries.delete(key);
+        generations.delete(key);
+        consumed = true;
+        return { entries };
+      });
+      return consumed;
     },
 
     markNotificationSent: (key) => {
