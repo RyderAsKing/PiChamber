@@ -387,14 +387,17 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
         }
         return next;
       });
-      if (!expanded) {
-        setMountedStackedFiles((previous) => {
-          if (!previous.has(path)) return previous;
-          const next = new Set(previous);
+      setMountedStackedFiles((previous) => {
+        const hasPath = previous.has(path);
+        if (expanded === hasPath) return previous;
+        const next = new Set(previous);
+        if (expanded) {
+          next.add(path);
+        } else {
           next.delete(path);
-          return next;
-        });
-      }
+        }
+        return next;
+      });
       queueVisibleStackedFilesSync();
     },
     [cancelPendingScrollAlignment, queueVisibleStackedFilesSync, setMountedStackedFiles],

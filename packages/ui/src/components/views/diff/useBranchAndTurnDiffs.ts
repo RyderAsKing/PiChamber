@@ -111,6 +111,9 @@ export function useBranchAndTurnDiffs({
         map.set(diff.file, createTextDiffDataFromPatch(diff.file, diff.patch, 'patch'));
         continue;
       }
+      if (typeof diff.before !== 'string' && typeof diff.after !== 'string') {
+        continue;
+      }
       map.set(diff.file, {
         original: diff.before ?? '',
         modified: diff.after ?? '',
