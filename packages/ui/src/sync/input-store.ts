@@ -9,6 +9,7 @@ import { piClient } from "@/lib/pi/client"
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from "@/lib/runtime-switch"
 import type { AttachedFile, AttachmentUploadState } from "@/stores/types/sessionTypes"
 import type { WorktreeFailedSend } from "@/stores/useWorktreeCreationStore"
+import { cloneAttachmentSnapshot } from "./attachment-snapshots"
 import { prepareAttachmentFiles } from "./attachment-files"
 
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
@@ -498,13 +499,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     set((state) => ({
       attachedFiles: [
         ...state.attachedFiles,
-        ...missing.map((file): AttachedFile => ({
-          ...file,
-          previewUrl: undefined,
-          uploadState: file.uploadState
-            ? ({ ...file.uploadState } as AttachedFile["uploadState"])
-            : file.uploadState,
-        })),
+        ...missing.map(cloneAttachmentSnapshot),
       ],
       stashedAttachmentsByDraft: nextStashed,
     }))

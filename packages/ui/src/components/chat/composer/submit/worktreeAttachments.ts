@@ -16,21 +16,9 @@
  * retained `dataUrl`.
  */
 
+import { cloneAttachmentSnapshot } from "@/sync/attachment-snapshots";
 import { serializeAttachmentsForQueue } from "@/sync/input-store";
 import type { AttachedFile } from "@/stores/types/sessionTypes";
-
-/**
- * Clone one entry for capture. The `File` handle is shared (bytes are
- * immutable); the wrapper and its `uploadState` are fresh objects and the
- * ephemeral preview URL is dropped (dispatch previews use `dataUrl`).
- */
-const cloneHandoffFile = (file: AttachedFile): AttachedFile => ({
-  ...file,
-  previewUrl: undefined,
-  uploadState: file.uploadState
-    ? ({ ...file.uploadState } as AttachedFile["uploadState"])
-    : file.uploadState,
-});
 
 /**
  * Freeze the pending send's file list and retain a usable byte fallback for
@@ -40,7 +28,7 @@ export const captureWorktreeAttachments = async (
   files: readonly AttachedFile[],
 ): Promise<AttachedFile[]> => {
   const serialized = await serializeAttachmentsForQueue([...files]);
-  return serialized.map(cloneHandoffFile);
+  return serialized.map(cloneAttachmentSnapshot);
 };
 
 /**

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizePath } from '@/lib/pathNormalization';
 import type { GitAPI, GitWorktreeCreateResult } from '@/lib/api/types';
+import { cloneAttachmentSnapshot } from '@/sync/attachment-snapshots';
 import type {
   DraftWorktreeIntent,
   DraftWorktreeCreationReceipt,
@@ -147,20 +148,12 @@ const toReceipt = (
 const generations = new Map<string, number>();
 const inFlight = new Map<string, Promise<DraftWorktreeCreationReceipt>>();
 
-const cloneFailedSendAttachment = (file: AttachedFile): AttachedFile => ({
-  ...file,
-  previewUrl: undefined,
-  uploadState: file.uploadState
-    ? ({ ...file.uploadState } as AttachedFile["uploadState"])
-    : file.uploadState,
-});
-
 const cloneFailedSend = (
   failedSend: NonNullable<WorktreeCreationRequestParams["failedSend"]>,
 ): WorktreeFailedSend => ({
   prompt: failedSend.prompt,
   confirmedMentions: Array.from(new Set(Array.isArray(failedSend.confirmedMentions) ? failedSend.confirmedMentions : [...failedSend.confirmedMentions])),
-  attachments: failedSend.attachments.map(cloneFailedSendAttachment),
+  attachments: failedSend.attachments.map(cloneAttachmentSnapshot),
 });
 
 const patchEntry = (
