@@ -9,10 +9,27 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { toast } from '@/components/ui';
+import { restoreWorktreeFailedSend } from '@/components/chat/composer/submit/worktreeFailedSend';
 import { useWorktreeCreationStore, type WorktreeCreationEntry } from '@/stores/useWorktreeCreationStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { DESKTOP_HEADER_ICON_BUTTON_CLASS } from '@/components/layout/header/HeaderIconActionButton';
+
+/**
+ * Concise stable task identifier for screen-reader Restore draft names.
+ * Full task keys are long intent JSON or timestamp draft IDs; a 32-bit FNV-1a
+ * hash rendered in base36 stays short while distinguishing concurrent rows
+ * that share the same source directory and start ref.
+ */
+const shortWorktreeTaskId = (key: string): string => {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(7, '0').slice(-6);
+};
 
 export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> = ({
   variant = 'desktop',
@@ -140,14 +157,44 @@ const BackgroundTaskRow: React.FC<{
         </p>
       </div>
       {failed ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={() => useWorktreeCreationStore.getState().dismissFailed(entry.key)}
-        >
-          Dismiss
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          {entry.failedSend ? (
+            <Button
+              type="button"
+              size="xs"
+              aria-label={`Restore draft for ${entry.intent.sourceDirectory} from ${entry.intent.startRef} (task ${shortWorktreeTaskId(entry.key)})`}
+              onClick={() => {
+                const result = restoreWorktreeFailedSend(entry.key);
+                if (result.ok) {
+                  return;
+                }
+                if (result.reason === 'runtime-mismatch') {
+                  toast.error('The runtime changed', {
+                    description: 'Your failed prompt was kept in Background tasks.',
+                  });
+                } else if (result.reason === 'target-occupied') {
+                  toast.error('Draft already has content', {
+                    description: 'Your failed prompt was kept in Background tasks.',
+                  });
+                } else if (result.reason !== 'missing') {
+                  toast.error('Could not restore the failed prompt', {
+                    description: 'Your prompt was kept in Background tasks.',
+                  });
+                }
+              }}
+            >
+              Restore draft
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            onClick={() => useWorktreeCreationStore.getState().dismissFailed(entry.key)}
+          >
+            Dismiss
+          </Button>
+        </div>
       ) : null}
       {completed ? (
         <div className="flex shrink-0 items-center gap-1">

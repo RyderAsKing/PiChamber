@@ -19,6 +19,8 @@ import {
   serializeAttachmentsForQueue,
   useInputStore,
 } from "@/sync/input-store";
+import { useWorktreeCreationStore } from "@/stores/useWorktreeCreationStore";
+import { applyPendingWorktreeRestore } from "./composer/submit/worktreeFailedSend";
 import {
   ATTACHMENT_ACCEPT,
   getUnsupportedAttachmentInputs,
@@ -820,6 +822,39 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     }
   }, [pendingRevertText, consumePendingRevertText, message]);
 
+  // Consume an explicit worktree-restore request. The helper keeps the
+  // task-owned snapshot until this applies it, so newer in-memory text wins
+  // over the retained prompt instead of being overwritten.
+  const pendingWorktreeRestore = useInputStore((s) => s.pendingWorktreeRestore);
+  const consumePendingWorktreeRestore = useInputStore((s) => s.consumePendingWorktreeRestore);
+  React.useEffect(() => {
+    if (pendingWorktreeRestore === null) return;
+    const pending = consumePendingWorktreeRestore();
+    if (!pending) return;
+    const result = applyPendingWorktreeRestore(pending, messageRef.current ?? '');
+    if (result.ok) {
+      confirmedMentionsRef.current = new Set(pending.confirmedMentions);
+      messageRef.current = pending.prompt;
+      setMessage(pending.prompt);
+      closeAutocomplete();
+      setTimeout(() => {
+        composerRef.current?.focus();
+      }, 0);
+    } else if (result.reason === 'target-occupied') {
+      toast.error('Draft already has content', {
+        description: 'Your restored prompt was kept in Background tasks.',
+      });
+    } else if (result.reason === 'runtime-mismatch') {
+      toast.error('The runtime changed', {
+        description: 'Your failed prompt was kept in Background tasks.',
+      });
+    } else if (result.reason !== 'dismissed' && result.reason !== 'navigated-away') {
+      toast.error('Could not restore the failed prompt', {
+        description: 'Your prompt was kept in Background tasks.',
+      });
+    }
+  }, [pendingWorktreeRestore, consumePendingWorktreeRestore, closeAutocomplete]);
+
   const hasContent = message.trim().length > 0 || attachedFiles.length > 0;
   const hasUsableModel = Boolean(currentProviderId && currentModelId);
   const attachmentsReady = areAttachmentsReadyToSend(attachedFiles);
@@ -1165,6 +1200,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const worktreeRequest = draftWorktreeCreation.request({
           intent: worktreeIntent,
           prompt: inputSnapshot.message,
+          failedSend: {
+            prompt: inputSnapshot.message,
+            confirmedMentions: confirmedMentionsAtSend ? [...confirmedMentionsAtSend] : [],
+            attachments: worktreeAttachmentsAtSend ?? [],
+          },
         });
         // The worktree builds in Background tasks while the composer resets
         // to a fresh draft, so the user can keep creating sessions. The
@@ -1176,6 +1216,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         useUIStore.getState().setActiveMainTab('chat');
         worktreeCreationReceipt = await worktreeRequest;
         if (!worktreeCreationReceipt) {
+          // Task-owned recovery: the failed prompt/mentions/attachments are
+          // retained in the creation entry for an explicit Restore draft
+          // action. Never merge into a newer draft automatically.
+          const failedEntry = draftAtSend.id
+            ? useWorktreeCreationStore.getState().getEntryByKey(draftAtSend.id)
+            : useWorktreeCreationStore.getState().getEntry(worktreeIntent);
+          if (failedEntry?.failedSend) {
+            toast.error('Worktree creation failed', {
+              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            });
+            return;
+          }
           if (submittedDraftIsCurrent()) {
             messageRef.current = inputSnapshot.message;
             confirmedMentionsRef.current = confirmedMentionsAtSend ?? new Set();

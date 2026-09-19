@@ -57,3 +57,34 @@ test('Send now records a persisted attempt before delivery', () => {
   expect(attemptAt).toBeGreaterThan(-1);
   expect(deliveryAt).toBeGreaterThan(attemptAt);
 });
+
+test('worktree send retains the failed prompt in task state instead of dropping it after draft rotation', () => {
+  // The composer clears the submitted prompt and rotates the draft id before
+  // awaiting creation. The failure path must consult the retained store
+  // snapshot (`failedSend`) and keep the prompt in Background tasks instead
+  // of silently dropping it when the submitted draft is no longer current.
+  // Call-site fidelity: the exact submitted text, captured mentions, and
+  // captured attachment snapshot travel with the background task.
+  expect(source).toContain('prompt: inputSnapshot.message');
+  expect(source).toContain('failedSend: {');
+  expect(source).toContain('confirmedMentionsAtSend');
+  expect(source).toContain('attachments: worktreeAttachmentsAtSend');
+
+  const requestAt = source.indexOf('draftWorktreeCreation.request({');
+  expect(requestAt).toBeGreaterThan(-1);
+  const failedSendAt = source.indexOf('failedSend: {', requestAt);
+  expect(failedSendAt).toBeGreaterThan(requestAt);
+  expect(source.slice(failedSendAt, failedSendAt + 400)).toContain('prompt: inputSnapshot.message');
+  expect(source.slice(failedSendAt, failedSendAt + 400)).toContain('worktreeAttachmentsAtSend');
+
+  // Recovery fidelity: after the await, the retained entry wins over the
+  // legacy same-draft restore. A failed entry with `failedSend` keeps the
+  // prompt in Background tasks and returns before any draft-rotation restore.
+  const awaitAt = source.indexOf('worktreeCreationReceipt = await worktreeRequest');
+  expect(awaitAt).toBeGreaterThan(requestAt);
+  const retainedAt = source.indexOf('failedEntry?.failedSend', awaitAt);
+  expect(retainedAt).toBeGreaterThan(awaitAt);
+  const rotationRestoreAt = source.indexOf('if (submittedDraftIsCurrent())', retainedAt);
+  expect(rotationRestoreAt).toBeGreaterThan(retainedAt);
+  expect(source.slice(retainedAt, rotationRestoreAt + 200)).toContain('Your prompt was kept in Background tasks');
+});
