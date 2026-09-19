@@ -1,10 +1,3 @@
-/**
- * Attachment and settings controls in the composer footer.
- *
- * Memoized with an explicit comparator so a re-render of the whole composer
- * does not tear down the dropdown while it is open.
- */
-
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
@@ -22,14 +15,29 @@ type ComposerAttachmentControlsProps = {
     handlePickLocalFiles: () => void;
     onOpenSettings?: () => void;
     onMenuOpenChange?: (open: boolean) => void;
-    /** Mobile: open the attachment bottom sheet instead of the dropdown menu. */
+    /**
+     * Mobile: invoke the attach action directly (opens the shared native
+     * picker) instead of the desktop dropdown menu. The caller owns what
+     * the action does; this control only owns placement and chrome.
+     */
     onOpenMobileSheet?: () => void;
-    /** Hide the + attach control (mobile keeps model/variant in this row instead). */
-    hideAddButton?: boolean;
-    /** Disable all controls while a send is in flight. */
+    /**
+     * Disable the attach trigger (mobile direct button and desktop menu
+     * trigger) when the composer cannot accept input. Computed once in
+     * `ChatInput` and passed through `ComposerFooter` so all entry points
+     * share one gate.
+     */
+    isAttachmentDisabled: boolean;
+    /** Disable the settings control while a send is in flight. */
     disabled?: boolean;
 };
 
+/**
+ * Attachment and settings controls in the composer footer.
+ *
+ * Memoized with an explicit comparator so a re-render of the whole composer
+ * does not tear down the dropdown while it is open.
+ */
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
     
     const {
@@ -37,24 +45,19 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
         iconSizeClass,
         handlePickLocalFiles,
         onOpenSettings,
-        hideAddButton = false,
+        isAttachmentDisabled,
         disabled = false,
     } = props;
 
-    if (hideAddButton && !onOpenSettings) {
-        return null;
-    }
-
     return (
         <div className="flex items-center gap-x-1.5">
-            {hideAddButton ? null : (
             <div className="relative inline-flex">
                 {props.onOpenMobileSheet ? (
                     <button
                         type="button"
                         className={footerIconButtonClass}
                         onClick={props.onOpenMobileSheet}
-                        disabled={disabled}
+                        disabled={isAttachmentDisabled}
                         // Keep the tap from dismissing the keyboard. On Android's
                         // resizes-content viewport the keyboard-close relayout
                         // moves this button mid-tap and the click never lands.
@@ -77,7 +80,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 className={footerIconButtonClass}
                                 title={"Add attachment"}
                                 aria-label={"Add attachment"}
-                                disabled={disabled}
+                                disabled={isAttachmentDisabled}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                             </button>
@@ -95,7 +98,6 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     </DropdownMenu>
                 )}
             </div>
-            )}
 
             {onOpenSettings ? (
                 <button
@@ -114,9 +116,10 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
 }, (prev, next) => (
     prev.footerIconButtonClass === next.footerIconButtonClass
     && prev.iconSizeClass === next.iconSizeClass
+    && prev.handlePickLocalFiles === next.handlePickLocalFiles
     && prev.onOpenSettings === next.onOpenSettings
     && prev.onMenuOpenChange === next.onMenuOpenChange
     && prev.onOpenMobileSheet === next.onOpenMobileSheet
-    && prev.hideAddButton === next.hideAddButton
+    && prev.isAttachmentDisabled === next.isAttachmentDisabled
     && prev.disabled === next.disabled
 ));

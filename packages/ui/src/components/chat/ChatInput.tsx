@@ -22,7 +22,6 @@ import {
 import { getWorktreeCreationKey, useWorktreeCreationStore } from "@/stores/useWorktreeCreationStore";
 import { applyPendingWorktreeRestore, describeWorktreeAttachmentLimit, settleWorktreePromptForConsumedLocalCommand, settleWorktreePromptForEmptyDispatch } from "./composer/submit/worktreeFailedSend";
 import {
-  ATTACHMENT_ACCEPT,
   getUnsupportedAttachmentInputs,
   type AttachmentInputModality,
 } from "@/sync/attachment-files";
@@ -155,7 +154,7 @@ import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePo
 import { ComposerFooter } from "./composer/ui/ComposerFooter";
 import { RevertedMessageDock } from "./composer/ui/RevertedMessageDock";
 import { ComposerDragOverlay } from "./composer/ui/ComposerDragOverlay";
-import { MobileAttachmentSheet } from "./composer/ui/MobileAttachmentSheet";
+import { ComposerAttachmentPickerInput } from "./composer/ui/ComposerAttachmentPickerInput";
 import { ComposerVoiceButton } from "./composer/ui/ComposerVoiceButton";
 import {
   ComposerVoiceActions,
@@ -255,7 +254,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   );
   const [mobileControlsPanel, setMobileControlsPanel] =
     React.useState<MobileControlsPanel>(null);
-  const [mobileAttachMenuOpen, setMobileAttachMenuOpen] = React.useState(false);
   const [mobileDraftPicker, setMobileDraftPicker] = React.useState<
     "project" | "branch" | null
   >(null);
@@ -901,6 +899,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     draftWorktreeCreation.state.phase !== "failed",
   );
   const isComposerLocked = isWorktreeBusy || isSendingNewSession || isSessionInUse;
+
+  // Single authoritative attachment gate: no session and no draft, or
+  // locked. `isComposerLocked` already includes the new-session send, so
+  // `isSendingNewSession` is not checked separately. Shared by the footer
+  // attach triggers, the drag-overlay attach button, and
+  // `handlePickLocalFiles` so callback gating cannot drift.
+  const isAttachmentDisabled = (!currentSessionId && !newSessionDraftOpen) || isComposerLocked;
 
   const canAbort = sessionPhase !== "idle";
 
@@ -2201,8 +2206,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   );
 
   const handlePickLocalFiles = React.useCallback(() => {
+    // Same authoritative gate as the footer/overlay attach triggers: never
+    // open the OS picker when the composer cannot accept input.
+    if (isAttachmentDisabled) {
+      return;
+    }
     fileInputRef.current?.click();
-  }, []);
+  }, [isAttachmentDisabled]);
 
   const handleLocalFileSelect = React.useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2266,17 +2276,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     editorRef: composerRef,
     formRef: composerFormRef,
     controlsPanelOpen: Boolean(mobileControlsPanel),
-    attachMenuOpen: mobileAttachMenuOpen,
+    // The mobile attach button opens the shared native picker directly, so
+    // there is no attachment overlay to track for keyboard restoration.
+    attachMenuOpen: false,
   });
   const mobileTextareaFocused = mobileShell.focused;
-
-  const openMobileAttachSheet = React.useCallback(() => {
-    // Mark the sheet open BEFORE the blur so keyboard restoration sees the
-    // overlay when the keyboard-close lands. The trigger button blocks the
-    // tap's own focus transfer, so the keyboard must be dismissed here.
-    setMobileAttachMenuOpen(true);
-    composerRef.current?.blur();
-  }, []);
 
   // Reset the picker search whenever a draft picker sheet opens/closes.
   React.useEffect(() => {
@@ -2479,6 +2483,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     iconButtonBaseClass={iconButtonBaseClass}
                     iconSizeClass={iconSizeClass}
                     radius={chatInputRadius}
+                    isAttachmentDisabled={isAttachmentDisabled}
                     onPickLocalFiles={handlePickLocalFiles}
                   />
                 )}
@@ -2564,12 +2569,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   stopIconSizeClass={stopIconSizeClass}
                   canSend={canSend && !isComposerLocked}
                   isSending={isSendingNewSession}
+                  isAttachmentDisabled={isAttachmentDisabled}
                   disabledReason={attachmentGateMessage}
                   canAbort={canAbort}
                   hasContent={Boolean(hasContent)}
                   onOpenSettings={onOpenSettings}
+                  // Desktop menu and the mobile button left of the model picker
+                  // share this direct native picker. Invoking it in the click
+                  // keeps the OS file/photo picker inside the user gesture on
+                  // every runtime.
                   onPickLocalFiles={handlePickLocalFiles}
-                  onOpenAttachSheet={openMobileAttachSheet}
                   onPrimaryAction={handlePrimaryAction}
                   onQueueMessage={handleQueueMessage}
                   onAbort={handleAbort}
@@ -2728,30 +2737,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       {/* Single always-mounted picker input. Keeping it outside composer
             controls prevents an overlay/control remount from detaching the native
             file input while the OS picker is open. */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
+      <ComposerAttachmentPickerInput
+        inputRef={fileInputRef}
         onChange={handleLocalFileSelect}
-        accept={ATTACHMENT_ACCEPT}
       />
-
-      {/* Mobile attachment sheet: replaces the dropdown (which stole focus and
-            dismissed the keyboard) and leaves room for more actions later. */}
-      {isMobile ? (
-        <MobileAttachmentSheet
-          open={mobileAttachMenuOpen}
-          onClose={() => setMobileAttachMenuOpen(false)}
-          onPickFiles={() => {
-            // The native file/photo picker takes over next — restoring
-            // the keyboard in between would flash it open and shut.
-            mobileShell.cancelOverlayCloseRestore();
-            setMobileAttachMenuOpen(false);
-            requestAnimationFrame(handlePickLocalFiles);
-          }}
-        />
-      ) : null}
 
       <DraftBranchCheckoutDialog
         state={draftBranchCheckout.dialogState}
