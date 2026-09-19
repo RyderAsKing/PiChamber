@@ -47,8 +47,8 @@ const waitFor = async (predicate: () => boolean, timeoutMs = 500): Promise<boole
 // Helpers
 // ---------------------------------------------------------------------------
 
-const listItem = (id: string, directory: string) => ({
-  session: { id, directory, title: id, createdAt: 1, updatedAt: 1, parentId: null },
+const listItem = (id: string, directory: string, archived = false) => ({
+  session: { id, directory, title: id, createdAt: 1, updatedAt: 1, parentId: null, archived },
   updatedAt: 1,
 });
 
@@ -562,6 +562,47 @@ describe('session deletion propagation', () => {
       expect(store.getState().sessions.map((item) => item.session.id)).toContain('active');
       expect(store.getState().sessions.map((item) => item.session.id)).not.toContain('missing');
       expect(store.getState().sessionLoadErrorById.has('missing')).toBe(false);
+    });
+  });
+
+  test('focusProject does not select an archived fallback after a preferred session is missing', async () => {
+    const archived = listItem('archived', '/repo-b', true);
+    const requestedIds: string[] = [];
+    await withStore({
+      listSessions: async () => ({ sessions: [archived] }),
+      getSession: async (id: string) => {
+        requestedIds.push(id);
+        throw new PiRequestError('INVALID_SESSION', 'missing');
+      },
+    }, async (store) => {
+      seed(store, { sessions: ['other'], selectedSessionId: 'other' });
+
+      await store.focusProject('/repo-b', 'missing');
+
+      expect(store.isDeleted('missing')).toBe(true);
+      expect(store.getState().selectedSessionId).toBeNull();
+      expect(store.getState().sessions.map((item) => item.session.id)).toEqual(['archived']);
+      expect(requestedIds).toEqual(['missing']);
+    });
+  });
+
+  test('open does not select an archived fallback after a preferred session is missing', async () => {
+    const archived = listItem('archived', '/repo-a', true);
+    const requestedIds: string[] = [];
+    await withStore({
+      listSessions: async () => ({ sessions: [archived] }),
+      getSession: async (id: string) => {
+        requestedIds.push(id);
+        throw new PiRequestError('INVALID_SESSION', 'missing');
+      },
+    }, async (store) => {
+      await store.open('/repo-a', 'missing');
+
+      expect(store.isDeleted('missing')).toBe(true);
+      expect(store.getState().selectedSessionId).toBeNull();
+      expect(store.getState().sessions.map((item) => item.session.id)).toEqual(['archived']);
+      expect(store.getState().connection).toBe('ready');
+      expect(requestedIds).toEqual(['missing']);
     });
   });
 

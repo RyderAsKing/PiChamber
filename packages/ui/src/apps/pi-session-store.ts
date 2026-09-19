@@ -1168,7 +1168,6 @@ export class PiSessionStore {
       const nextSelectedSessionId = matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listPayload.sessions.find((item) => !item.session.archived)?.session.id
-          ?? listPayload.sessions[0]?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
@@ -1422,7 +1421,6 @@ export class PiSessionStore {
       const selectedSessionId = matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listedSessions.find((item) => !item.session.archived)?.session.id
-          ?? listedSessions[0]?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
