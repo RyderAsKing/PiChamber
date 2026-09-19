@@ -58,8 +58,8 @@ describe('skill invocation tokenization — /skill:name is one token', () => {
       resolveAutocompleteTrigger(text, cursor, { inputMode });
     // Leading /skill: remains the command palette (authoritative / list).
     expect(at('/skill:co', 9)).toEqual({ kind: 'command', query: 'skill:co' });
-    // Inline /skill: still opens the skill picker with a colon query.
-    expect(at('run /skill:co', 13)).toEqual({ kind: 'skill', query: 'skill:co' });
+    // An inline /skill: never opens a picker; slash autocomplete is leading-slash only.
+    expect(at('run /skill:co', 13)).toBeNull();
     expect(at('/rev', 4, 'shell')).toBeNull();
     expect(at('run /skill:x', 13, 'shell')).toBeNull();
     expect(at('use #sig', 8, 'shell')).toBeNull();

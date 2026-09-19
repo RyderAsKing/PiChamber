@@ -54,7 +54,6 @@ import type {
   CommandAutocompleteHandle,
   CommandInfo,
 } from "./CommandAutocomplete";
-import type { SkillAutocompleteHandle } from "./SkillAutocomplete";
 import type { SnippetAutocompleteHandle } from "./SnippetAutocomplete";
 import { cn } from "@/lib/utils";
 import { ModelControls } from "./ModelControls";
@@ -277,7 +276,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const canAcceptDropRef = React.useRef(false);
   const mentionRef = React.useRef<FileMentionHandle>(null);
   const commandRef = React.useRef<CommandAutocompleteHandle>(null);
-  const skillRef = React.useRef<SkillAutocompleteHandle>(null);
   const snippetRef = React.useRef<SnippetAutocompleteHandle>(null);
   // Ref to track current message value without triggering re-renders in effects
   const messageRef = React.useRef(message);
@@ -1704,7 +1702,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     setMessage,
     openAutocomplete,
     commandRef,
-    skillRef,
     snippetRef,
     mentionRef,
     composerRef,
@@ -1939,7 +1936,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
   const {
     handleFileSelect,
-    handleSkillSelect,
     handleSnippetSelect,
     handleCommandSelect,
   } = useComposerAutocompleteHandlers({
@@ -2314,11 +2310,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     isDesktopExpanded ? autocompleteOverlayPosition : null
                   }
                   commandRef={commandRef}
-                  skillRef={skillRef}
                   snippetRef={snippetRef}
                   mentionRef={mentionRef}
                   onCommandSelect={handleCommandSelect}
-                  onSkillSelect={handleSkillSelect}
                   onSnippetSelect={handleSnippetSelect}
                   onFileSelect={handleFileSelect}
                   onClose={closeAutocomplete}

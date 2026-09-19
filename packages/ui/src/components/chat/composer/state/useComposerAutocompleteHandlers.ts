@@ -16,7 +16,6 @@ export interface UseComposerAutocompleteHandlersOptions {
 export interface UseComposerAutocompleteHandlersReturn {
   handleFileSelect: (file: { name: string; path: string; relativePath?: string }) => void;
   handleAgentSelect: (agentName: string) => void;
-  handleSkillSelect: (skillName: string) => void;
   handleSnippetSelect: (_snippet: unknown, trigger: string) => void;
   handleCommandSelect: (command: CommandInfo) => void;
 }
@@ -49,7 +48,7 @@ export function buildFileMentionReplacement(
 export function buildPrefixTokenReplacement(
   message: string,
   cursorPosition: number,
-  prefix: '@' | '/' | '#',
+  prefix: '@' | '#',
   token: string
 ): { newMessage: string; nextCursor: number } {
   const textBeforeCursor = message.substring(0, cursorPosition);
@@ -106,33 +105,6 @@ export function useComposerAutocompleteHandlers({
         cursorPosition,
         '@',
         agentName
-      );
-      setMessage(newMessage);
-
-      requestAnimationFrame(() => {
-        if (composerRef.current) {
-          composerRef.current.setSelection(nextCursor);
-        }
-        updateAutocompleteState(newMessage, nextCursor);
-      });
-
-      closeAutocomplete();
-      composerRef.current?.focus();
-    },
-    [closeAutocomplete, composerRef, message, setMessage, updateAutocompleteState]
-  );
-
-  const handleSkillSelect = React.useCallback(
-    (skillName: string) => {
-      // Inline skill picker inserts the native Pi invocation Pi expands
-      // (`/skill:name`), never the bare resource name Pi treats as prose.
-      const invocation = skillName.startsWith("skill:") ? skillName : `skill:${skillName}`;
-      const cursorPosition = composerRef.current?.getSelection().start ?? message.length;
-      const { newMessage, nextCursor } = buildPrefixTokenReplacement(
-        message,
-        cursorPosition,
-        '/',
-        invocation
       );
       setMessage(newMessage);
 
@@ -206,7 +178,6 @@ export function useComposerAutocompleteHandlers({
   return {
     handleFileSelect,
     handleAgentSelect,
-    handleSkillSelect,
     handleSnippetSelect,
     handleCommandSelect,
   };

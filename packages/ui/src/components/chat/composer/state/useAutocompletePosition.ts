@@ -62,7 +62,7 @@ const update = React.useCallback(() => {
     const spaceBelow = containerRect.height - caretY - popupMargin;
     const place: 'above' | 'below' = spaceBelow >= estimatedPopupHeight || spaceBelow >= spaceAbove ? 'below' : 'above';
 
-    const desiredWidth = openAutocomplete === 'mention' ? 520 : openAutocomplete === 'skill' ? 360 : 450;
+    const desiredWidth = openAutocomplete === 'mention' ? 520 : 450;
     const clampedLeft = Math.max(
         popupMargin,
         Math.min(caretX - 24, containerRect.width - desiredWidth - popupMargin)
