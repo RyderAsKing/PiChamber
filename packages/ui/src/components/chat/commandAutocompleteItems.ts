@@ -132,3 +132,37 @@ export function commandMatchesSearch(
     Boolean(command.searchAliases?.some((alias) => fuzzyMatch(alias, query)))
   );
 }
+
+/**
+ * Filter a merged catalog by category and free-text query, then sort with
+ * prefix matches first and the rest alphabetically by executable invocation.
+ * Pure so the desktop rich list and the mobile compact list share one
+ * per-keystroke path; the mobile list always passes `all` to keep the full
+ * catalog without category chrome.
+ */
+export function filterAndSortCommands<T extends CommandAutocompleteSearchItem>(
+  commands: readonly T[],
+  query: string,
+  category: CommandAutocompleteCategory,
+): T[] {
+  const normalizedQuery = query.trim();
+  const queryLower = normalizedQuery.toLowerCase();
+  const filtered = normalizedQuery
+    ? commands.filter(
+        (command) =>
+          commandMatchesCategory(command, category) &&
+          commandMatchesSearch(command, normalizedQuery),
+      )
+    : commands.filter((command) => commandMatchesCategory(command, category));
+  const sorted = [...filtered];
+  sorted.sort((a, b) => {
+    const aInvocation = commandInvocationName(a).toLowerCase();
+    const bInvocation = commandInvocationName(b).toLowerCase();
+    const aStartsWith = queryLower.length > 0 && aInvocation.startsWith(queryLower);
+    const bStartsWith = queryLower.length > 0 && bInvocation.startsWith(queryLower);
+    if (aStartsWith && !bStartsWith) return -1;
+    if (!aStartsWith && bStartsWith) return 1;
+    return aInvocation.localeCompare(bInvocation);
+  });
+  return sorted;
+}

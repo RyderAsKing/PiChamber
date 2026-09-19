@@ -9,8 +9,7 @@ import { useUIStore } from "@/stores/useUIStore";
 import { useMobileAutocompleteMaxHeight } from "./useMobileAutocompleteMaxHeight";
 import {
   commandInvocationName,
-  commandMatchesCategory,
-  commandMatchesSearch,
+  filterAndSortCommands,
   mergeCommandAutocompleteItems,
   type CommandAutocompleteCategory,
 } from "./commandAutocompleteItems";
@@ -165,26 +164,10 @@ export const CommandAutocomplete = React.forwardRef<
       nativeCommands.filter((c) => c.source === "prompt"),
     );
 
-    const categorized = allCommands.filter((cmd) =>
-      commandMatchesCategory(cmd, category),
-    );
-    const normalizedQuery = searchQuery.trim();
-    const filtered = normalizedQuery
-      ? categorized.filter((cmd) => commandMatchesSearch(cmd, normalizedQuery))
-      : categorized;
-
-    filtered.sort((a, b) => {
-      const aInvocation = commandInvocationName(a).toLowerCase();
-      const bInvocation = commandInvocationName(b).toLowerCase();
-      const query = normalizedQuery.toLowerCase();
-      const aStartsWith = query.length > 0 && aInvocation.startsWith(query);
-      const bStartsWith = query.length > 0 && bInvocation.startsWith(query);
-      if (aStartsWith && !bStartsWith) return -1;
-      if (!aStartsWith && bStartsWith) return 1;
-      return aInvocation.localeCompare(bInvocation);
-    });
-
-    setCommands(filtered);
+    // The mobile compact list keeps the full catalog without category
+    // chrome; desktop filters by the selected category.
+    const effectiveCategory = isMobile ? "all" as const : category;
+    setCommands(filterAndSortCommands(allCommands, searchQuery, effectiveCategory));
   }, [
     searchQuery,
     hasSession,
@@ -192,6 +175,7 @@ export const CommandAutocomplete = React.forwardRef<
     catalogCommands,
     catalogLoading,
     category,
+    isMobile,
   ]);
 
   React.useEffect(() => {
@@ -246,6 +230,145 @@ export const CommandAutocomplete = React.forwardRef<
     }),
     [commands, onClose, onCommandSelect],
   );
+
+  // Mobile uses the compact SkillAutocomplete-style rows: one line per
+  // command with a muted source badge, no category chips and no
+  // descriptions. The full command catalog still backs filtering, and the
+  // tap-vs-scroll guards below match the desktop list so a scroll never
+  // fires a selection.
+  if (isMobile) {
+    return (
+      <div
+        ref={containerRef}
+        className="absolute bottom-full left-0 z-[100] mb-2 flex max-h-60 min-w-0 w-full max-w-[450px] flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-none"
+        style={
+          mobileMaxHeight !== undefined
+            ? { ...style, maxHeight: mobileMaxHeight }
+            : style
+        }
+      >
+        <ScrollableOverlay
+          role="listbox"
+          aria-label="Commands"
+          aria-activedescendant={
+            !loading && commands[selectedIndex]
+              ? `command-option-${selectedIndex}`
+              : undefined
+          }
+          preventOverscroll
+          outerClassName="flex-1 min-h-0"
+          className="px-1 py-1.5"
+        >
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Icon
+                name="refresh"
+                className="size-5 animate-spin text-muted-foreground"
+                aria-hidden
+              />
+            </div>
+          ) : (
+            <div>
+              {commands.map((command, index) => {
+                const isSelected = index === selectedIndex;
+                const context = getCommandContext(command);
+                const invocation = commandInvocationName(command);
+                return (
+                  <div
+                    key={command.id}
+                    id={`command-option-${index}`}
+                    ref={(el) => {
+                      itemRefs.current[index] = el;
+                    }}
+                    role="option"
+                    aria-selected={isSelected}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 typography-ui-label",
+                      isSelected
+                        ? "bg-interactive-selection text-interactive-selection-foreground"
+                        : "text-foreground hover:bg-interactive-hover",
+                    )}
+                    // Keep the editor focused so selecting a command does not
+                    // dismiss the soft keyboard on touch devices.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onPointerDown={(event) => {
+                      if (event.pointerType !== "touch") {
+                        return;
+                      }
+                      pointerStartRef.current = {
+                        x: event.clientX,
+                        y: event.clientY,
+                      };
+                      pointerMovedRef.current = false;
+                    }}
+                    onPointerMove={(event) => {
+                      if (
+                        event.pointerType !== "touch" ||
+                        !pointerStartRef.current
+                      ) {
+                        return;
+                      }
+                      const dx = event.clientX - pointerStartRef.current.x;
+                      const dy = event.clientY - pointerStartRef.current.y;
+                      if (Math.hypot(dx, dy) > 6) {
+                        pointerMovedRef.current = true;
+                      }
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.pointerType !== "touch") {
+                        return;
+                      }
+                      const didMove = pointerMovedRef.current;
+                      pointerStartRef.current = null;
+                      pointerMovedRef.current = false;
+                      if (didMove) {
+                        return;
+                      }
+                      event.preventDefault();
+                      event.stopPropagation();
+                      ignoreClickRef.current = true;
+                      onCommandSelect(command);
+                    }}
+                    onPointerCancel={() => {
+                      pointerStartRef.current = null;
+                      pointerMovedRef.current = false;
+                    }}
+                    onClick={() => {
+                      if (ignoreClickRef.current) {
+                        ignoreClickRef.current = false;
+                        return;
+                      }
+                      onCommandSelect(command);
+                    }}
+                    onMouseMove={() => {
+                      keyboardNavigationRef.current = false;
+                      setSelectedIndex(index);
+                    }}
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="min-w-0 truncate font-mono font-semibold">
+                        /{invocation}
+                      </span>
+                      {context && (
+                        <span className="shrink-0 rounded border border-[var(--interactive-border)]/60 bg-[var(--surface-muted)] px-1.5 py-1 text-[10px] font-bold uppercase leading-none tracking-tight text-muted-foreground">
+                          {context}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {commands.length === 0 && (
+                <div className="px-3 py-2 typography-ui-label text-muted-foreground">
+                  No commands found
+                </div>
+              )}
+            </div>
+          )}
+        </ScrollableOverlay>
+      </div>
+    );
+  }
 
   return (
     <div
