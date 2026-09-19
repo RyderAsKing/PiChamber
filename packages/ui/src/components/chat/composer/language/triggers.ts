@@ -1,17 +1,14 @@
 /**
  * Which autocomplete a caret position asks for.
  *
- * The composer has four pickers (command, skill, snippet, file/agent mention)
- * and the rule that opens each of them used to be inlined in a single 90-line
- * `updateAutocompleteState` callback, duplicating the boundary logic that
- * `scanPrefixTokens` and `scanMentions` already own. This module answers the
- * one question the composer actually asks — "given the text and the caret,
- * what should be open?" — as a pure function, so the editor layer only has to
- * report the caret and render the result.
+ * The composer has three pickers (command, snippet, file/agent mention)
+ * and the rule that opens each of them used to live alongside an inline
+ * slash-to-skill picker. Slash autocomplete now triggers only when `/` is
+ * the first character of the message; a `/` anywhere else stays plain prose
+ * and never opens a picker, including after whitespace or newlines.
  *
  * Exactly one trigger can be active, and order matters: the command palette
- * (a leading `/`) outranks the inline skill picker, which outranks snippets,
- * which outrank mentions. That precedence is the previous behavior, preserved.
+ * (a leading `/`) outranks snippets, which outrank mentions.
  */
 
 import {
@@ -19,7 +16,7 @@ import {
     type FileMentionAutocompleteInputSource,
 } from '../../fileMentionAutocompleteState';
 
-export type AutocompleteKind = 'command' | 'skill' | 'snippet' | 'mention';
+export type AutocompleteKind = 'command' | 'snippet' | 'mention';
 
 export interface AutocompleteTrigger {
     kind: AutocompleteKind;
@@ -45,9 +42,10 @@ const isWordBoundaryBefore = (text: string, index: number): boolean =>
     index <= 0 || /\s/.test(text[index - 1]);
 
 /**
- * The command palette is reserved for a `/` in the very first column, with the
- * caret still inside the command word and no argument typed yet. Once a space
- * appears the message is a command invocation, not a search.
+ * The command palette is reserved for a `/` as the very first character of
+ * the message, with the caret still inside the command word and no argument
+ * typed yet. Once a space appears the message is a command invocation, not
+ * a search. A `/` anywhere else never opens a picker.
  */
 function matchCommandPalette(value: string, cursorPosition: number): AutocompleteTrigger | null {
     if (!value.startsWith('/')) return null;
@@ -63,13 +61,14 @@ function matchCommandPalette(value: string, cursorPosition: number): Autocomplet
 }
 
 /**
- * An inline `/skill` or `#snippet` still being typed: the nearest sigil before
- * the caret, at a word boundary, with no separator between it and the caret.
+ * An inline `#snippet` still being typed: the nearest `#` before the
+ * caret, at a word boundary, with no separator between it and the caret.
+ * Slash has no inline trigger: only a leading `/` opens the command palette.
  */
 function matchInlineToken(
     value: string,
     cursorPosition: number,
-    sigil: '/' | '#',
+    sigil: '#',
     kind: AutocompleteKind,
 ): AutocompleteTrigger | null {
     const textBeforeCursor = value.substring(0, cursorPosition);
@@ -96,7 +95,6 @@ export function resolveAutocompleteTrigger(
     if (context.inputMode === 'shell') return null;
 
     return matchCommandPalette(value, cursorPosition)
-        ?? matchInlineToken(value, cursorPosition, '/', 'skill')
         ?? matchInlineToken(value, cursorPosition, '#', 'snippet')
         ?? matchMention(value, cursorPosition, context);
 }

@@ -28,17 +28,6 @@ describe('useComposerAutocompleteHandlers helpers', () => {
   });
 
   describe('buildPrefixTokenReplacement', () => {
-    test('replaces /skill query with confirmed skill token', () => {
-      const { newMessage, nextCursor } = buildPrefixTokenReplacement(
-        'please run /refact to continue',
-        18,
-        '/',
-        'refactor'
-      );
-      expect(newMessage).toBe('please run /refactor  to continue');
-      expect(nextCursor).toBe(11 + 'refactor'.length + 2);
-    });
-
     test('replaces #snippet query with confirmed snippet token', () => {
       const { newMessage, nextCursor } = buildPrefixTokenReplacement(
         'include #head in file',

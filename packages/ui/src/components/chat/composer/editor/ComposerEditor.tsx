@@ -116,6 +116,14 @@ export interface ComposerEditorProps {
     viewStore?: ComposerEditorViewStore;
     'aria-label'?: string;
     'data-testid'?: string;
+    /**
+     * Slash-command combobox linkage. While the command palette is open the
+     * focused CodeMirror content owns the combobox semantics; when closed or
+     * absent the editor removes the stale attributes.
+     */
+    commandComboboxExpanded?: boolean;
+    commandComboboxListboxId?: string;
+    commandComboboxActiveOptionId?: string;
 }
 
 
@@ -167,6 +175,9 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             boundGapPx = 0,
             className,
             contentClassName,
+            commandComboboxExpanded,
+            commandComboboxListboxId,
+            commandComboboxActiveOptionId,
         } = props;
 
         const hostRef = React.useRef<HTMLDivElement | null>(null);
@@ -179,6 +190,14 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
         // `interceptKeys` handler below); this ref is what lets the deferred
         // event still tell Shift+Enter from Enter.
         const lastRealEnterShiftRef = React.useRef(false);
+
+        // Original content role captured before any combobox mutation, keyed
+        // by element so a kept-alive view re-attach reuses it instead of
+        // reading our own combobox role back as the original.
+        const commandComboboxOriginalRoleRef = React.useRef<{
+            element: HTMLElement | null;
+            role: string | null;
+        }>({ element: null, role: null });
 
         // Callbacks reach the CodeMirror extensions through a ref: the view is
         // built once and must not be torn down when a handler identity changes,
@@ -312,6 +331,9 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
                             ...(handlersRef.current['aria-label']
                                 ? { 'aria-label': handlersRef.current['aria-label'] }
                                 : {}),
+                            // Command-combobox linkage is owned solely by the
+                            // layout effect below so the original content role
+                            // stays capturable and updates stay pre-paint.
                         }),
                     ] satisfies Extension[],
                 }),
@@ -476,6 +498,69 @@ export const ComposerEditor = React.forwardRef<ComposerEditorHandle, ComposerEdi
             content.setAttribute('autocorrect', autoCorrect ? 'on' : 'off');
             content.setAttribute('autocapitalize', autoCapitalize);
         }, [autoCapitalize, autoCorrect, spellCheck]);
+
+        // The focused content owns the command-combobox semantics while the
+        // slash palette is open. ArrowUp/ArrowDown flow through
+        // `commandComboboxActiveOptionId`, so the activedescendant tracks the
+        // palette selection. Stale attributes are removed when the palette
+        // closes or when no valid selection exists. Layout (pre-paint) so no
+        // commit paints expanded without its controls target, and the
+        // pre-existing content role is captured once per element and restored
+        // on close, element change, or unmount instead of being removed.
+        React.useLayoutEffect(() => {
+            const view = viewRef.current;
+            if (!view) return;
+            const content = view.contentDOM;
+            if (commandComboboxOriginalRoleRef.current.element !== content) {
+                const previous = commandComboboxOriginalRoleRef.current;
+                if (previous.element && previous.element !== content) {
+                    if (previous.role === null) {
+                        if (previous.element.getAttribute('role') === 'combobox') {
+                            previous.element.removeAttribute('role');
+                        }
+                    } else {
+                        previous.element.setAttribute('role', previous.role);
+                    }
+                    previous.element.removeAttribute('aria-expanded');
+                    previous.element.removeAttribute('aria-controls');
+                    previous.element.removeAttribute('aria-activedescendant');
+                }
+                commandComboboxOriginalRoleRef.current = {
+                    element: content,
+                    role: content.getAttribute('role'),
+                };
+            }
+            const originalRole = commandComboboxOriginalRoleRef.current.role;
+            const restoreRole = () => {
+                if (originalRole === null) {
+                    if (content.getAttribute('role') === 'combobox') {
+                        content.removeAttribute('role');
+                    }
+                } else if (content.getAttribute('role') !== originalRole) {
+                    content.setAttribute('role', originalRole);
+                }
+            };
+            const cleanup = () => {
+                content.removeAttribute('aria-expanded');
+                content.removeAttribute('aria-controls');
+                content.removeAttribute('aria-activedescendant');
+                restoreRole();
+            };
+            const open = Boolean(commandComboboxExpanded && commandComboboxListboxId);
+            if (open && commandComboboxListboxId) {
+                content.setAttribute('role', 'combobox');
+                content.setAttribute('aria-expanded', 'true');
+                content.setAttribute('aria-controls', commandComboboxListboxId);
+                if (commandComboboxActiveOptionId) {
+                    content.setAttribute('aria-activedescendant', commandComboboxActiveOptionId);
+                } else {
+                    content.removeAttribute('aria-activedescendant');
+                }
+                return cleanup;
+            }
+            cleanup();
+            return cleanup;
+        }, [commandComboboxExpanded, commandComboboxListboxId, commandComboboxActiveOptionId]);
 
         /**
          * The composer box is bigger than its text: it carries padding, and in
