@@ -316,6 +316,7 @@ export const isWorktreeTaskCompleted = (
   entry: Pick<WorktreeCreationEntry, 'receipt' | 'failedSend' | 'state'> | null | undefined,
 ): boolean => Boolean(entry?.receipt && !entry?.state && !entry?.failedSend);
 
+/** Returns whether completed-task controls may safely clear this entry. */
 export const canOfferCompletedWorktreeActions = (
   entry: Pick<WorktreeCreationEntry, 'receipt' | 'failedSend' | 'state'> | null | undefined,
 ): boolean => isWorktreeTaskCompleted(entry);
