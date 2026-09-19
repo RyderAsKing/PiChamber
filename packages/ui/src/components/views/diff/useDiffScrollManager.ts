@@ -25,7 +25,11 @@ export function useDiffScrollManager({
   const pendingScrollFrameRef = React.useRef<number | null>(null);
   const shouldPinAfterAlignRef = React.useRef(false);
   const visibleSyncFrameRef = React.useRef<number | null>(null);
+  const expandedFilesRef = React.useRef(expandedFiles);
   const lastScrollAnchorRef = React.useRef<DiffScrollAnchor | null>(null);
+  React.useLayoutEffect(() => {
+    expandedFilesRef.current = expandedFiles;
+  }, [expandedFiles]);
   const pendingScrollAnchorRestoreRef = React.useRef<DiffScrollAnchor | null>(null);
 
   const captureScrollAnchor = React.useCallback((): DiffScrollAnchor | null => {
@@ -65,7 +69,7 @@ export function useDiffScrollManager({
       if (!node) continue;
       const rect = node.getBoundingClientRect();
       sectionPositions.push({ path, top: rect.top });
-      if (!expandedFiles.has(path)) continue;
+      if (!expandedFilesRef.current.has(path)) continue;
       if (rect.bottom < top || rect.top > bottom) continue;
       next[path] = true;
     }
@@ -81,7 +85,7 @@ export function useDiffScrollManager({
       }
       return changed ? mounted : previous;
     });
-  }, [expandedFiles, setMountedStackedFiles]);
+  }, [setMountedStackedFiles]);
 
   const queueVisibleStackedFilesSync = React.useCallback(() => {
     if (typeof window === 'undefined') return;
