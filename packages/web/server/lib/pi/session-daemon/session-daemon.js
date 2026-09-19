@@ -671,6 +671,27 @@ export function createSessionDaemon({
 
   const idleDisposeTimers = new Map();
   const activeSessionRequests = new Map();
+  // Deferred failed-first-input durability for concurrent first-input
+  // failures. Each failure observes the shared session refcount while its
+  // own guard is still held; when more than one holder exists the runtime
+  // must not be recycled mid-use, so the failure records the session id
+  // and the final releaseSessionAccess holder performs exactly one deferred
+  // attempt. One entry per in-flight session, cleared on attempt, session
+  // deletion, or daemon teardown, so the set stays bounded and never stale.
+  const pendingFailedInputDurability = new Set();
+  // Bounded in-flight durability per session plus a lifecycle fence. Delete
+  // awaits and seals its session; stop bumps the epoch and awaits all.
+  // After delete completes no snapshot can appear; after stop completes no
+  // durability work remains or touches disposed state. Entries are removed
+  // on settle, delete, or stop so no map goes stale or unbounded. Each
+  // failure runs its own attempt (no joining): deferral depends on transient
+  // input and refcount state at that moment, so joining would let an early
+  // return suppress a later attempt that must defer.
+  const failedInputDurabilityInflight = new Map();
+  const failedInputDurabilityGeneration = new Map();
+  const failedInputDurabilitySealed = new Set();
+  let failedInputDurabilityEpoch = 0;
+  const failedInputDurabilityGenerationOf = (sessionId) => failedInputDurabilityGeneration.get(sessionId) ?? 0;
 
   const isValidIdleSessionId = (sessionId) => typeof sessionId === 'string' && sessionId.length > 0;
 
@@ -688,6 +709,7 @@ export function createSessionDaemon({
 
   const disposeRuntime = async () => {
     clearAllIdleDisposals();
+    pendingFailedInputDurability.clear();
     activeSessionInputs.clear();
     pendingResourceReloads.clear();
     await resourceReloadQueue.catch(() => {});
@@ -977,6 +999,14 @@ export function createSessionDaemon({
     scheduleIdleDisposal(sessionId);
   };
 
+  // Idle re-arm must never throw: releaseSessionAccess runs in the request
+  // dispatch `finally`, so a cleanup throw would mask the original prompt
+  // error; detached durability continuations would surface it as an
+  // unhandled rejection instead.
+  const safeTouchIdleDisposal = (sessionId) => {
+    try { touchIdleDisposal(sessionId); } catch {}
+  };
+
   // Narrow session-access guard for request dispatch. Each in-flight
   // session-scoped command holds one refcount while it activates and uses
   // the runtime; the idle timer stays cleared until the last holder
@@ -999,7 +1029,27 @@ export function createSessionDaemon({
       return;
     }
     activeSessionRequests.delete(sessionId);
-    touchIdleDisposal(sessionId);
+    if (pendingFailedInputDurability.has(sessionId)) {
+      // Final holder: exactly one deferred durability attempt. Durability
+      // runs before the idle re-arm so recycling (which clears the timer)
+      // precedes it, matching the inline failure ordering; the re-arm in
+      // `finally` also recovers the timer when the deferred attempt retains
+      // the runtime. Never throws: original prompt errors already propagated.
+      pendingFailedInputDurability.delete(sessionId);
+      void (async () => {
+        try {
+          const targetRuntime = runtimeRegistry?.findBySessionId(sessionId)
+            ?? (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+          if (targetRuntime) {
+            await ensureFailedInputDurability(targetRuntime, sessionId, { deferred: true });
+          }
+        } catch {} finally {
+          safeTouchIdleDisposal(sessionId);
+        }
+      })().catch(() => {});
+      return;
+    }
+    safeTouchIdleDisposal(sessionId);
   };
 
   const sessionIdForIdleGuard = (message) => {
@@ -2834,14 +2884,35 @@ export function createSessionDaemon({
   // Creation alone never persists: untouched sessions stay ephemeral.
   // Best-effort only: any durability failure preserves the original prompt
   // error and never logs transcript content.
-  const ensureFailedInputDurability = async (activeRuntime, sessionId) => {
+  // Concurrency: an inline failure (guard still held) defers when more than
+  // one holder exists; the final releaseSessionAccess holder retries once
+  // with `deferred: true` (no self holder, so any holder blocks). Active
+  // inputs, streaming, and compaction always block without deferring.
+  // Lifecycle: delete seals and awaits its session, stop bumps the epoch
+  // and awaits all. The fence is checked before publication and before the
+  // recycle so a detached attempt cannot write after cleanup, double-dispose,
+  // or resurrect a deleted session.
+  const isFailedInputDurabilityCancelled = (sessionId, generation, epoch) => stopping
+    || epoch !== failedInputDurabilityEpoch
+    || failedInputDurabilityGenerationOf(sessionId) !== generation
+    || failedInputDurabilitySealed.has(sessionId);
+
+  const runFailedInputDurability = async (activeRuntime, sessionId, fence, deferred) => {
+    const isCancelled = () => isFailedInputDurabilityCancelled(sessionId, fence.generation, fence.epoch);
     try {
+      if (isCancelled()) return;
       if (!activeRuntime || typeof sessionId !== 'string' || sessionId.length === 0) return;
       const manager = activeRuntime.session?.sessionManager;
       if (!manager || typeof manager.getSessionFile !== 'function') return;
       if (activeRuntime.session?.isStreaming === true || activeRuntime.session?.isCompacting === true) return;
       if (activeSessionInputs.has(activeRuntime)) return;
-      if ((activeSessionRequests.get(sessionId) ?? 0) > 1) return;
+      if (deferred ? (activeSessionRequests.get(sessionId) ?? 0) > 0 : (activeSessionRequests.get(sessionId) ?? 0) > 1) {
+        // Concurrent holders share the runtime; the final release retries
+        // exactly once. Re-adding is idempotent and bounded to one entry
+        // per in-flight session. A sealed or torn-down session never re-arms.
+        if (!isCancelled()) pendingFailedInputDurability.add(sessionId);
+        return;
+      }
       const registered = runtimeRegistry?.findBySessionId(sessionId);
       if (registered && registered !== activeRuntime) return;
       if (!registered && runtime !== activeRuntime) return;
@@ -2875,6 +2946,7 @@ export function createSessionDaemon({
         }
         content = lines.join('');
       } catch { return; }
+      if (isCancelled()) return;
       try {
         await mkdir(dirname(assignedPath), { recursive: true, mode: 0o700 });
       } catch { return; }
@@ -2885,6 +2957,13 @@ export function createSessionDaemon({
         await rm(temporary, { force: true }).catch(() => {});
         return;
       }
+      // Publication fence: a delete or stop that started during the writes
+      // wins. Clean the temp file and return without publishing so no
+      // snapshot can appear after delete and no work lands after stop.
+      if (isCancelled()) {
+        await rm(temporary, { force: true }).catch(() => {});
+        return;
+      }
       try {
         await link(temporary, assignedPath);
       } catch (error) {
@@ -2892,13 +2971,39 @@ export function createSessionDaemon({
         if (error?.code !== 'EEXIST') return;
       }
       await rm(temporary, { force: true }).catch(() => {});
+      // Re-check under the same safety contract: an acquire or input that
+      // arrived during the file writes must not lose its runtime. On a new
+      // concurrent holder, re-arm the pending flag so the next final release
+      // still performs exactly one attempt. A sealed or torn-down session
+      // never re-arms and never recycles.
+      if (isCancelled()) return;
+      if (activeRuntime.session?.isStreaming === true || activeRuntime.session?.isCompacting === true) return;
+      if (activeSessionInputs.has(activeRuntime)) return;
+      if (deferred ? (activeSessionRequests.get(sessionId) ?? 0) > 0 : (activeSessionRequests.get(sessionId) ?? 0) > 1) {
+        if (!isCancelled()) pendingFailedInputDurability.add(sessionId);
+        return;
+      }
+      {
+        const current = runtimeRegistry?.findBySessionId(sessionId);
+        if (current && current !== activeRuntime) return;
+        if (!current && runtime !== activeRuntime) return;
+      }
+      if (isCancelled()) return;
       clearIdleDisposal(sessionId);
       try { clearExtensionState(sessionId); } catch {}
       try {
         await runtimeRegistry?.dispose(activeRuntime);
       } catch {
-        // Dispose failure must not override the original prompt error.
+        // Dispose failure retains ownership/runtime like idle disposal: do
+        // not release the lease, clear the runtime, or install dormant
+        // state. The original prompt error remains authoritative; the
+        // surrounding release re-arms idle lifetime when still safe.
+        return;
       }
+      // A delete or stop that started during the dispose wins: the runtime
+      // is already gone from the caller's perspective, so skip the lease
+      // release and dormant install that would touch disposed state.
+      if (isCancelled()) return;
       await releaseResidentLease({ cwd: runtimeCwd, sessionId });
       if (activeRuntime === runtime) {
         dormantSession = { sessionId, sessionFile: assignedPath, cwd: runtimeCwd };
@@ -2907,6 +3012,37 @@ export function createSessionDaemon({
     } catch {
       // Durability is best-effort; the original prompt error is authoritative.
     }
+  };
+
+  // Tracked entry point: every failure runs its own bounded in-flight attempt
+  // so delete can await its session and stop can await all. The promise
+  // never rejects, so awaiting it cannot mask the original prompt error.
+  const ensureFailedInputDurability = (activeRuntime, sessionId, options = {}) => {
+    if (!activeRuntime || typeof sessionId !== 'string' || sessionId.length === 0) return Promise.resolve();
+    if (stopping || failedInputDurabilitySealed.has(sessionId)) return Promise.resolve();
+    const fence = {
+      generation: failedInputDurabilityGenerationOf(sessionId),
+      epoch: failedInputDurabilityEpoch,
+    };
+    const deferred = options.deferred === true;
+    const tracked = runFailedInputDurability(activeRuntime, sessionId, fence, deferred).catch(() => {});
+    let inflight = failedInputDurabilityInflight.get(sessionId);
+    if (!inflight) {
+      inflight = new Set();
+      failedInputDurabilityInflight.set(sessionId, inflight);
+    }
+    inflight.add(tracked);
+    tracked.finally(() => {
+      const current = failedInputDurabilityInflight.get(sessionId);
+      if (current) {
+        current.delete(tracked);
+        if (current.size === 0) failedInputDurabilityInflight.delete(sessionId);
+      }
+      if (!pendingFailedInputDurability.has(sessionId) && !failedInputDurabilityInflight.has(sessionId)) {
+        failedInputDurabilityGeneration.delete(sessionId);
+      }
+    }).catch(() => {});
+    return tracked;
   };
 
   const runSessionInput = async (payload, delivery) => {
@@ -3118,16 +3254,16 @@ export function createSessionDaemon({
         // extension commands that resolve without starting an agent turn
         // (no agent_settled follows) as well as ordinary turn completion.
         if (!shutdownRequestedBySession.has(payload.sessionId)) {
-          touchIdleDisposal(payload.sessionId);
+          safeTouchIdleDisposal(payload.sessionId);
         }
-      });
+      }).catch(() => {});
       void flushPendingRuntimeRecreation().catch(() => {});
     });
     return { accepted: true, messageId };
     } catch (error) {
       endSessionInput(activeRuntime);
       await ensureFailedInputDurability(activeRuntime, payload.sessionId).catch(() => {});
-      void flushPendingResourceReload(activeRuntime);
+      void flushPendingResourceReload(activeRuntime).catch(() => {});
       void flushPendingRuntimeRecreation().catch(() => {});
       throw error;
     }
@@ -3154,46 +3290,67 @@ export function createSessionDaemon({
   const deleteSession = async (sessionId, requestedDirectory) => {
     // Idle protection is owned by the request-dispatch guard. The release
     // touch is a no-op once the runtime is gone, so deletion never re-arms.
-    const active = runtimeRegistry?.findBySessionId(sessionId);
-    let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
-    const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
-    if (active) {
-      if (active.session?.isStreaming) await active.session.abort();
-      await runtimeRegistry?.dispose(active);
-      if (runtime === active) runtime = undefined;
-    }
-    if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
-      await rm(activeSessionFile, { force: true });
-    } else if (!active) {
-      const { target, directory } = await findPersistedSession(sessionId, targetDir);
-      targetDir = directory;
-      await acquireResidentLease({ cwd: targetDir, sessionId });
-      try {
-        await rm(target.path, { force: false });
-      } catch (error) {
-        await releaseResidentLease({ cwd: targetDir, sessionId });
-        throw error;
+    // Lifecycle ordering: seal the session so no new durability can publish,
+    // await the bounded in-flight attempt so it cannot overlap the dispose
+    // and unlink below, then delete. After delete completes no snapshot can
+    // appear; the seal and generation are cleared only once nothing remains.
+    failedInputDurabilitySealed.add(sessionId);
+    failedInputDurabilityGeneration.set(sessionId, failedInputDurabilityGenerationOf(sessionId) + 1);
+    pendingFailedInputDurability.delete(sessionId);
+    try {
+      await Promise.allSettled([...(failedInputDurabilityInflight.get(sessionId) ?? [])]);
+      // A concurrent failure may have re-armed pending before the seal was
+      // visible; drop it again now that in-flight work has drained.
+      pendingFailedInputDurability.delete(sessionId);
+      const active = runtimeRegistry?.findBySessionId(sessionId);
+      let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+      const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
+      if (active) {
+        if (active.session?.isStreaming) await active.session.abort();
+        await runtimeRegistry?.dispose(active);
+        if (runtime === active) runtime = undefined;
       }
+      if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
+        await rm(activeSessionFile, { force: true });
+      } else if (!active) {
+        const { target, directory } = await findPersistedSession(sessionId, targetDir);
+        targetDir = directory;
+        await acquireResidentLease({ cwd: targetDir, sessionId });
+        try {
+          await rm(target.path, { force: false });
+        } catch (error) {
+          await releaseResidentLease({ cwd: targetDir, sessionId });
+          throw error;
+        }
+      }
+      messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
+      await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
+      retryStateBySession.delete(sessionId);
+      compactionStateBySession.delete(sessionId);
+      activeRunStartedAt.delete(sessionId);
+      shutdownRequestedBySession.delete(sessionId);
+      sendGenerationBySession.delete(sessionId);
+      settledSendGenerationBySession.delete(sessionId);
+      pendingUserStartsBySession.delete(sessionId);
+      queueSizesBySession.delete(sessionId);
+      queueShrinkBySession.delete(sessionId);
+      latestUserMessageIds.delete(sessionId);
+      latestAssistantMessageIds.delete(sessionId);
+      toolInputBySession.delete(sessionId);
+      clearToolTimingsForSession(sessionId);
+      // Explicit typed deletion: every connected and replaying client drops
+      // catalog, transcript, activity, and caches. Archive and directory moves
+      // keep the session id and never publish this event.
+      publish('session.deleted', {}, sessionId, targetDir);
+    } finally {
+      // Deletion never re-arms idle lifetime; drop a timer the deferred
+      // re-arm may have installed just before the seal became visible.
+      clearIdleDisposal(sessionId);
+      failedInputDurabilitySealed.delete(sessionId);
+      failedInputDurabilityInflight.delete(sessionId);
+      pendingFailedInputDurability.delete(sessionId);
+      failedInputDurabilityGeneration.delete(sessionId);
     }
-    messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
-    await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
-    retryStateBySession.delete(sessionId);
-    compactionStateBySession.delete(sessionId);
-    activeRunStartedAt.delete(sessionId);
-    shutdownRequestedBySession.delete(sessionId);
-    sendGenerationBySession.delete(sessionId);
-    settledSendGenerationBySession.delete(sessionId);
-    pendingUserStartsBySession.delete(sessionId);
-    queueSizesBySession.delete(sessionId);
-    queueShrinkBySession.delete(sessionId);
-    latestUserMessageIds.delete(sessionId);
-    latestAssistantMessageIds.delete(sessionId);
-    toolInputBySession.delete(sessionId);
-    clearToolTimingsForSession(sessionId);
-    // Explicit typed deletion: every connected and replaying client drops
-    // catalog, transcript, activity, and caches. Archive and directory moves
-    // keep the session id and never publish this event.
-    publish('session.deleted', {}, sessionId, targetDir);
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
@@ -4158,9 +4315,22 @@ export function createSessionDaemon({
       });
       // Teardown must not double-dispose a runtime with an in-flight idle
       // disposal or release its lease twice: stop new timers, wait for the
-      // racing disposal, then dispose what remains.
+      // racing disposal, then dispose what remains. Failed-input durability
+      // is ordered the same way: bump the epoch so in-flight attempts abort
+      // before publication and new attempts refuse to start, await the
+      // bounded in-flight set so no durability work remains or touches
+      // disposed state after stop completes.
       clearAllIdleDisposals();
       activeSessionRequests.clear();
+      failedInputDurabilityEpoch += 1;
+      pendingFailedInputDurability.clear();
+      const inFlightDurability = [...failedInputDurabilityInflight.values()].flatMap((inflight) => [...inflight]);
+      if (inFlightDurability.length > 0) {
+        await Promise.allSettled(inFlightDurability);
+      }
+      failedInputDurabilityInflight.clear();
+      failedInputDurabilityGeneration.clear();
+      failedInputDurabilitySealed.clear();
       const inFlightIdleDisposals = [...disposingSessionPromises.values()];
       if (inFlightIdleDisposals.length > 0) {
         await Promise.allSettled(inFlightIdleDisposals);
