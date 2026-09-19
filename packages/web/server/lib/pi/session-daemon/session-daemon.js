@@ -2989,25 +2989,39 @@ export function createSessionDaemon({
         if (!current && runtime !== activeRuntime) return;
       }
       if (isCancelled()) return;
+      if (disposingSessionIds.has(sessionId)) return;
+      disposingSessionIds.add(sessionId);
       clearIdleDisposal(sessionId);
-      try { clearExtensionState(sessionId); } catch {}
+      const recycleDisposal = (async () => {
+        try {
+          try { clearExtensionState(sessionId); } catch {}
+          try {
+            await runtimeRegistry?.dispose(activeRuntime);
+          } catch {
+            // Dispose failure retains ownership/runtime like idle disposal: do
+            // not release the lease, clear the runtime, or install dormant
+            // state. The original prompt error remains authoritative; the
+            // surrounding release re-arms idle lifetime when still safe.
+            return;
+          }
+          // A delete or stop that started during the dispose wins: the runtime
+          // is already gone from the caller's perspective, so skip the lease
+          // release and dormant install that would touch disposed state.
+          if (isCancelled()) return;
+          await releaseResidentLease({ cwd: runtimeCwd, sessionId });
+          if (activeRuntime === runtime) {
+            dormantSession = { sessionId, sessionFile: assignedPath, cwd: runtimeCwd };
+            runtime = undefined;
+          }
+        } finally {
+          disposingSessionIds.delete(sessionId);
+        }
+      })();
+      disposingSessionPromises.set(sessionId, recycleDisposal);
       try {
-        await runtimeRegistry?.dispose(activeRuntime);
-      } catch {
-        // Dispose failure retains ownership/runtime like idle disposal: do
-        // not release the lease, clear the runtime, or install dormant
-        // state. The original prompt error remains authoritative; the
-        // surrounding release re-arms idle lifetime when still safe.
-        return;
-      }
-      // A delete or stop that started during the dispose wins: the runtime
-      // is already gone from the caller's perspective, so skip the lease
-      // release and dormant install that would touch disposed state.
-      if (isCancelled()) return;
-      await releaseResidentLease({ cwd: runtimeCwd, sessionId });
-      if (activeRuntime === runtime) {
-        dormantSession = { sessionId, sessionFile: assignedPath, cwd: runtimeCwd };
-        runtime = undefined;
+        await recycleDisposal;
+      } finally {
+        if (disposingSessionPromises.get(sessionId) === recycleDisposal) disposingSessionPromises.delete(sessionId);
       }
     } catch {
       // Durability is best-effort; the original prompt error is authoritative.

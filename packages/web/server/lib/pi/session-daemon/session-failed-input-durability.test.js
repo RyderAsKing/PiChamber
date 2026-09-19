@@ -252,7 +252,14 @@ describe('failed first-input durability concurrency and disposal safety', () => 
       prompt: async (text, options) => {
         promptEntered += 1;
         if (promptEntered === 2) releasePrompts();
-        else await promptsBarrier;
+        else {
+          await Promise.race([
+            promptsBarrier,
+            sleep(5_000).then(() => {
+              throw new Error('Timed out waiting for the second overlapping prompt');
+            }),
+          ]);
+        }
         // Both prompts overlap inside Pi activation while the slow navigate
         // holds a third refcount, so every inline durability check observes
         // concurrency and defers. Previously both skipped forever.
@@ -401,6 +408,84 @@ describe('failed first-input durability concurrency and disposal safety', () => 
     await waitFor(async () => (await stat(leaseFile).then(() => false).catch((error) => error?.code === 'ENOENT')) === true, {
       message: 'retained lease was not released on recovery',
     });
+  }, 60_000);
+
+  it('open during durability recycle waits for disposal and reopens from JSONL', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'pichamber-failed-durability-recycle-race-'));
+    const projectDir = join(tempRoot, 'project');
+    const agentDir = join(tempRoot, 'agent');
+    const endpoint = testDaemonEndpoint(tempRoot);
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+
+    const sessionId = 'durability-recycle-race-session';
+    const sessionDir = getPiSessionDirectory({ cwd: projectDir, agentDir });
+    const assignedPath = join(sessionDir, `20260101T000000Z_${sessionId}.jsonl`);
+
+    const disposeEntered = createDeferred();
+    const releaseDispose = createDeferred();
+    let disposeCalls = 0;
+    let createRuntimeCalls = 0;
+    const firstSession = new FakeSession(sessionId, assignedPath, projectDir);
+    const firstRuntime = new FakeRuntime({
+      cwd: projectDir,
+      session: firstSession,
+      onDispose: async () => {
+        disposeCalls += 1;
+        disposeEntered.resolve();
+        await releaseDispose.promise;
+      },
+    });
+
+    const daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      idleTimeoutMs: 60_000,
+      createRuntime: async () => {
+        createRuntimeCalls += 1;
+        if (createRuntimeCalls === 1) return firstRuntime;
+        return new FakeRuntime({
+          cwd: projectDir,
+          session: new FakeSession(sessionId, assignedPath, projectDir),
+        });
+      },
+    });
+    daemons.push(daemon);
+    await daemon.start();
+
+    const created = await daemonRequest(endpoint, 'sessions.create', { cwd: projectDir });
+    expect(created.ok).toBe(true);
+    expect(created.result?.session?.id).toBe(sessionId);
+
+    // The failing prompt persists the snapshot then hangs in the recycle
+    // dispose, so an open arriving now must wait instead of adopting the
+    // dying runtime.
+    const promptRequest = daemonRequest(endpoint, 'sessions.prompt', { sessionId, text: 'hello recycle race' });
+    await disposeEntered.promise;
+    await waitFor(async () => (await stat(assignedPath).then(() => true).catch(() => false)) === true, {
+      message: 'durability did not write the snapshot before recycle dispose',
+    });
+
+    const openRequest = daemonRequest(endpoint, 'sessions.open', { sessionId, directory: projectDir });
+    let promptSettled = false;
+    let openSettled = false;
+    void promptRequest.then(() => { promptSettled = true; }, () => { promptSettled = true; });
+    void openRequest.then(() => { openSettled = true; }, () => { openSettled = true; });
+    await sleep(50);
+    expect(promptSettled).toBe(false);
+    expect(openSettled).toBe(false);
+    expect(disposeCalls).toBe(1);
+
+    releaseDispose.resolve();
+    const [promptResult, openResult] = await Promise.all([promptRequest, openRequest]);
+    expect(promptResult.ok).toBe(false);
+    expect(promptResult.error?.code).toBe('INVALID_MODEL');
+    expect(openResult.ok).toBe(true);
+    expect(openResult.result?.session?.id).toBe(sessionId);
+    expect(disposeCalls).toBe(1);
+    expect(createRuntimeCalls).toBe(2);
   }, 60_000);
 
   it('delete during in-flight durability does not resurrect or double-dispose', async () => {
