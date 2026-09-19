@@ -8,6 +8,7 @@ import { create } from "zustand"
 import { piClient } from "@/lib/pi/client"
 import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from "@/lib/runtime-switch"
 import type { AttachedFile, AttachmentUploadState } from "@/stores/types/sessionTypes"
+import type { WorktreeFailedSend } from "@/stores/useWorktreeCreationStore"
 import { prepareAttachmentFiles } from "./attachment-files"
 
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
@@ -206,11 +207,33 @@ export type SyntheticContextPart = {
   synthetic?: boolean
 }
 
+export type RestoreAttachmentsForRetryResult =
+  | { ok: true; restoredCount: number; totalCount: number }
+  | {
+      ok: false;
+      reason: 'attachment-limit';
+      limit: number;
+      currentCount: number;
+      missingCount: number;
+    };
+
+export type PendingWorktreeRestore = {
+  entryKey: string;
+  prompt: string;
+  confirmedMentions: string[];
+  targetKey: string;
+  attachments: AttachedFile[];
+  /** Ownership token: the exact failed payload read at restore time. */
+  expectedFailedSend: WorktreeFailedSend;
+};
+
 export type InputState = {
   pendingInputText: string | null
   pendingInputMode: "replace" | "append" | "append-inline"
   pendingRevertText: string | null
   pendingSyntheticParts: SyntheticContextPart[] | null
+  /** Failed worktree send awaiting explicit restore into its target draft. Memory-only. */
+  pendingWorktreeRestore: PendingWorktreeRestore | null
   /** Draft starter insertion (prompt `/name` or built-in literal text; never an immediate send). */
   pendingStarterInsert: { name: string } | { text: string } | null
   attachedFiles: AttachedFile[]
@@ -232,10 +255,24 @@ export type InputState = {
   consumePendingStarterInsert: () => { name: string } | { text: string } | null
   setPendingSyntheticParts: (parts: SyntheticContextPart[] | null) => void
   consumePendingSyntheticParts: () => SyntheticContextPart[] | null
+  requestWorktreeRestore: (restore: PendingWorktreeRestore) => void
+  consumePendingWorktreeRestore: () => PendingWorktreeRestore | null
+  /** Runtime-switch cleanup: drop a deferred restore so stale state cannot linger. */
+  resetForRuntimeSwitch: () => void
   addAttachedFile: (file: File) => Promise<boolean>
   retryAttachmentUpload: (id: string) => void
   removeAttachedFile: (id: string) => void
   detachAttachedFiles: (ids: readonly string[]) => void
+  /**
+   * Transactional missing-ID append for failed-send recovery. Appends only
+   * captured ids absent from the visible draft as clones (preview URLs stay
+   * stripped; dispatch previews use the retained `dataUrl`, so expired
+   * uploads stay refreshable) and removes those ids from stashes to avoid
+   * duplicates. Newer draft files keep order/identity. Exact limit succeeds;
+   * overflow makes no visible/stash mutation and reports counts. Never
+   * cancels uploads.
+   */
+  restoreAttachmentsForRetry: (captured: readonly AttachedFile[]) => RestoreAttachmentsForRetryResult
   clearStashedAttachmentsForSession: (identity: { runtimeKey: string; directory: string; sessionId: string }) => void
   /**
    * Make a draft's attachments visible, stashing the previous draft's files.
@@ -253,6 +290,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
   pendingRevertText: null,
   pendingSyntheticParts: null,
   pendingStarterInsert: null,
+  pendingWorktreeRestore: null,
   attachedFiles: [],
   stashedAttachmentsByDraft: {},
   activeAttachmentsDraftKey: null,
@@ -284,6 +322,16 @@ export const useInputStore = create<InputState>()((set, get) => ({
     const { pendingSyntheticParts } = get()
     if (pendingSyntheticParts !== null) set({ pendingSyntheticParts: null })
     return pendingSyntheticParts
+  },
+  requestWorktreeRestore: (restore) => set({ pendingWorktreeRestore: restore }),
+  consumePendingWorktreeRestore: () => {
+    const { pendingWorktreeRestore } = get()
+    if (pendingWorktreeRestore === null) return null
+    set({ pendingWorktreeRestore: null })
+    return pendingWorktreeRestore
+  },
+  resetForRuntimeSwitch: () => {
+    if (get().pendingWorktreeRestore !== null) set({ pendingWorktreeRestore: null })
   },
 
   addAttachedFile: async (file: File) => {
@@ -396,6 +444,10 @@ export const useInputStore = create<InputState>()((set, get) => ({
     // Ids are globally unique, so a send that resolves after a draft switch
     // still clears its own files: sweep the visible list and every stash.
     // Stashed uploads are left running; only the visible detach cancels.
+    // Remote ready uploads are intentionally NOT deleted: a successful
+    // dispatch consumed them (the daemon owns TTL cleanup) and a refresh
+    // during dispatch may have created uploads the prompt now owns. Only an
+    // explicit user removal deletes an unused remote upload.
     const removed = get().attachedFiles.filter((file) => idSet.has(file.id))
     cancelFiles(removed, false)
     const stashed = get().stashedAttachmentsByDraft
@@ -411,6 +463,52 @@ export const useInputStore = create<InputState>()((set, get) => ({
       attachedFiles: state.attachedFiles.filter((file) => !idSet.has(file.id)),
       stashedAttachmentsByDraft: nextStashed,
     }))
+  },
+
+  restoreAttachmentsForRetry: (captured) => {
+    const currentCount = get().attachedFiles.length
+    if (!captured || captured.length === 0) return { ok: true as const, restoredCount: 0, totalCount: currentCount }
+    const visibleIds = new Set(get().attachedFiles.map((file) => file.id))
+    const seenMissing = new Set<string>()
+    const missing: AttachedFile[] = []
+    for (const file of captured) {
+      if (visibleIds.has(file.id) || seenMissing.has(file.id)) continue
+      seenMissing.add(file.id)
+      missing.push(file)
+    }
+    if (missing.length === 0) return { ok: true as const, restoredCount: 0, totalCount: currentCount }
+    // All-or-none against the 20-attachment message limit: overflow reports
+    // counts and leaves visible files and stashes untouched.
+    if (currentCount + missing.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      return {
+        ok: false as const,
+        reason: 'attachment-limit' as const,
+        limit: MAX_ATTACHMENTS_PER_MESSAGE,
+        currentCount,
+        missingCount: missing.length,
+      }
+    }
+    const missingIds = new Set(missing.map((file) => file.id))
+    const stashed = get().stashedAttachmentsByDraft ?? {}
+    const nextStashed: Record<string, AttachedFile[]> = {}
+    for (const [key, files] of Object.entries(stashed)) {
+      const kept = files.filter((file) => !missingIds.has(file.id))
+      if (kept.length > 0) nextStashed[key] = kept
+    }
+    set((state) => ({
+      attachedFiles: [
+        ...state.attachedFiles,
+        ...missing.map((file): AttachedFile => ({
+          ...file,
+          previewUrl: undefined,
+          uploadState: file.uploadState
+            ? ({ ...file.uploadState } as AttachedFile["uploadState"])
+            : file.uploadState,
+        })),
+      ],
+      stashedAttachmentsByDraft: nextStashed,
+    }))
+    return { ok: true as const, restoredCount: missing.length, totalCount: currentCount + missing.length }
   },
 
   activateAttachmentsDraft: (nextKey) => {
@@ -518,5 +616,9 @@ subscribeRuntimeEndpointWillChange(() => {
   useInputStore.setState({
     attachedFiles: markRuntimeChanged(files),
     stashedAttachmentsByDraft: nextStashed,
+    // A deferred same-directory restore targets the previous runtime's draft
+    // identity and failed payload. Drop it so stale retained state cannot
+    // linger or restore into the new runtime.
+    pendingWorktreeRestore: null,
   })
 })

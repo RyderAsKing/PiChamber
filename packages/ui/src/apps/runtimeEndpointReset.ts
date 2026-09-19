@@ -18,6 +18,7 @@ import { usePromptTemplatesStore } from '@/stores/usePromptTemplatesStore';
 import { useSkillsStore } from '@/stores/useSkillsStore';
 import { clearCommandCatalogForRuntimeSwitch } from '@/lib/pi/commandCatalog';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useInputStore } from '@/sync/input-store';
 import { resetSessionOrdering } from '@/sync/session-ordering';
 import { resetSessionActivityTiming } from '@/sync/session-activity-timing';
 import { updateBrowserURL } from '@/lib/router';
@@ -65,6 +66,10 @@ export const resetAppForRuntimeEndpointChange = (detail: RuntimeEndpointChangedD
   useGitStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
   useWorktreeStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
   useWorktreeCreationStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
+  // Deferred same-directory restores target the previous runtime's draft
+  // identity and failed payload. Drop them alongside task state so stale
+  // retained prompts cannot linger or restore into the new runtime.
+  useInputStore.getState().resetForRuntimeSwitch();
   useGitHubPrStatusStore.getState().resetForRuntimeSwitch();
   useSessionFoldersStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
   useFilesViewTabsStore.getState().resetForRuntimeSwitch(detail.runtimeKey);
