@@ -13,6 +13,12 @@ import {
   mergeCommandAutocompleteItems,
   type CommandAutocompleteCategory,
 } from "./commandAutocompleteItems";
+import {
+  commandListboxId,
+  commandOptionId,
+  resolveCommandActiveOptionId,
+  sanitizeComboboxIdSegment,
+} from "./commandComboboxAria";
 import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
 import { useCommandCatalog } from "@/hooks/useCommandCatalog";
 
@@ -67,17 +73,28 @@ const COMMAND_CATEGORY_OPTIONS: ReadonlyArray<{
   { value: "extensions", label: "Extensions" },
 ];
 
+export interface CommandComboboxState {
+  listboxId: string;
+  activeOptionId: string | undefined;
+}
+
 interface CommandAutocompleteProps {
   searchQuery: string;
   onCommandSelect: (command: CommandInfo) => void;
   onClose: () => void;
   style?: React.CSSProperties;
+  /**
+   * Reports the listbox/activedescendant IDs the focused editor owns as
+   * combobox semantics. Fires whenever loading, filtering, or selection
+   * (including ArrowUp/ArrowDown) changes the valid active option.
+   */
+  onComboboxStateChange?: (state: CommandComboboxState) => void;
 }
 
 export const CommandAutocomplete = React.forwardRef<
   CommandAutocompleteHandle,
   CommandAutocompleteProps
->(({ searchQuery, onCommandSelect, onClose, style }, ref) => {
+>(({ searchQuery, onCommandSelect, onClose, style, onComboboxStateChange }, ref) => {
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const sessionMessages = useSessionMessages(currentSessionId ?? "");
   const hasMessagesInCurrentSession = sessionMessages.length > 0;
@@ -104,6 +121,13 @@ export const CommandAutocomplete = React.forwardRef<
   const ignoreClickRef = React.useRef(false);
   const pointerStartRef = React.useRef<{ x: number; y: number } | null>(null);
   const pointerMovedRef = React.useRef(false);
+  // Stable per-instance IDs so aria-controls/activedescendant never collide
+  // across mounts. Both desktop and mobile branches share them.
+  const rawComboboxId = React.useId();
+  const listboxId = React.useMemo(
+    () => commandListboxId(sanitizeComboboxIdSegment(rawComboboxId)),
+    [rawComboboxId],
+  );
 
   React.useEffect(() => {
     const handlePointerDown = (event: MouseEvent | TouchEvent) => {
@@ -186,6 +210,21 @@ export const CommandAutocomplete = React.forwardRef<
     selectedIndexRef.current = selectedIndex;
   }, [selectedIndex]);
 
+  // Keep the focused editor's combobox linkage in sync with the palette's
+  // existing valid conditions (!loading and a command at the selection).
+  // ArrowUp/ArrowDown, filtering, and loading changes all flow through here.
+  React.useEffect(() => {
+    onComboboxStateChange?.({
+      listboxId,
+      activeOptionId: resolveCommandActiveOptionId({
+        loading,
+        hasSelectedCommand: Boolean(commands[selectedIndex]),
+        selectedIndex,
+        listboxId,
+      }),
+    });
+  }, [commands, listboxId, loading, onComboboxStateChange, selectedIndex]);
+
   React.useEffect(() => {
     itemRefs.current[selectedIndex]?.scrollIntoView({
       block: "nearest",
@@ -249,12 +288,8 @@ export const CommandAutocomplete = React.forwardRef<
       >
         <ScrollableOverlay
           role="listbox"
+          id={listboxId}
           aria-label="Commands"
-          aria-activedescendant={
-            !loading && commands[selectedIndex]
-              ? `command-option-${selectedIndex}`
-              : undefined
-          }
           preventOverscroll
           outerClassName="flex-1 min-h-0"
           className="px-1 py-1.5"
@@ -276,7 +311,7 @@ export const CommandAutocomplete = React.forwardRef<
                 return (
                   <div
                     key={command.id}
-                    id={`command-option-${index}`}
+                    id={commandOptionId(listboxId, index)}
                     ref={(el) => {
                       itemRefs.current[index] = el;
                     }}
@@ -400,12 +435,8 @@ export const CommandAutocomplete = React.forwardRef<
       </div>
       <ScrollableOverlay
         role="listbox"
+        id={listboxId}
         aria-label="Commands"
-        aria-activedescendant={
-          !loading && commands[selectedIndex]
-            ? `command-option-${selectedIndex}`
-            : undefined
-        }
         preventOverscroll
         outerClassName="flex-1 min-h-0"
         className="px-1 py-1.5"
@@ -427,7 +458,7 @@ export const CommandAutocomplete = React.forwardRef<
               return (
                 <div
                   key={command.id}
-                  id={`command-option-${index}`}
+                  id={commandOptionId(listboxId, index)}
                   ref={(el) => {
                     itemRefs.current[index] = el;
                   }}

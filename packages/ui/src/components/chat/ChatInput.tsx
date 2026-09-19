@@ -52,6 +52,7 @@ import { QueuedMessageChips } from "./QueuedMessageChips";
 import type { FileMentionHandle } from "./FileMentionAutocomplete";
 import type {
   CommandAutocompleteHandle,
+  CommandComboboxState,
   CommandInfo,
 } from "./CommandAutocomplete";
 import type { SnippetAutocompleteHandle } from "./SnippetAutocomplete";
@@ -241,10 +242,28 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const [openAutocomplete, setOpenAutocomplete] =
     React.useState<AutocompleteKind | null>(null);
   const [autocompleteQuery, setAutocompleteQuery] = React.useState("");
+  // Slash-palette combobox linkage the focused editor owns while open.
+  const [commandComboboxState, setCommandComboboxState] =
+    React.useState<CommandComboboxState | null>(null);
   const closeAutocomplete = React.useCallback(
     () => setOpenAutocomplete(null),
     [],
   );
+  // Drop a stale listbox target when the command palette is not open so the
+  // next open never claims expanded with a detached ID.
+  React.useEffect(() => {
+    if (openAutocomplete !== "command") {
+      setCommandComboboxState((previous) =>
+        previous === null ? previous : null,
+      );
+    }
+  }, [openAutocomplete]);
+  // Only claim expanded with a valid aria-controls target.
+  const commandComboboxListboxId =
+    openAutocomplete === "command"
+      ? commandComboboxState?.listboxId
+      : undefined;
+  const commandComboboxExpanded = Boolean(commandComboboxListboxId);
   const [mobileControlsPanel, setMobileControlsPanel] =
     React.useState<MobileControlsPanel>(null);
   const [mobileAttachMenuOpen, setMobileAttachMenuOpen] = React.useState(false);
@@ -2316,6 +2335,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   onSnippetSelect={handleSnippetSelect}
                   onFileSelect={handleFileSelect}
                   onClose={closeAutocomplete}
+                  onCommandComboboxStateChange={setCommandComboboxState}
                 />
                 <ComposerFooter
                   isMobile={isMobile}
@@ -2466,6 +2486,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                             isMobile ? "[data-composer-bound]" : undefined
                           }
                           boundGapPx={MOBILE_COMPOSER_BOUND_GAP_PX}
+                          commandComboboxExpanded={commandComboboxExpanded}
+                          commandComboboxListboxId={commandComboboxListboxId}
+                          commandComboboxActiveOptionId={
+                            commandComboboxExpanded
+                              ? commandComboboxState?.activeOptionId
+                              : undefined
+                          }
                           className={cn(
                             "relative z-10",
                             isInlineComposer

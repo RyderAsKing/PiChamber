@@ -60,6 +60,10 @@ copy.
   The command palette (`../../CommandAutocomplete.tsx`) renders the rich
   categorized list on desktop and a compact one-line-per-command list on
   mobile with the same catalog, tap-vs-scroll guards, and listbox semantics.
+  While it is open the focused composer editor owns the command-combobox
+  linkage (`role=combobox`, `aria-expanded`, `aria-controls`,
+  `aria-activedescendant`); the palette listbox itself carries no
+  `aria-activedescendant`.
 - `tokenize.ts` — one pass producing every highlight range. Adding a construct
   to the language means adding it here, once.
 

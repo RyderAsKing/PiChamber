@@ -15,7 +15,7 @@
 
 import React from 'react';
 
-import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandInfo } from '../../CommandAutocomplete';
+import { CommandAutocomplete, type CommandAutocompleteHandle, type CommandComboboxState, type CommandInfo } from '../../CommandAutocomplete';
 import { FileMentionAutocomplete, type FileMentionHandle } from '../../FileMentionAutocomplete';
 import { SnippetAutocomplete, type SnippetAutocompleteHandle } from '../../SnippetAutocomplete';
 import type { AutocompleteKind } from '../language/triggers';
@@ -67,6 +67,7 @@ export interface ComposerAutocompletePopupsProps {
     onSnippetSelect: (snippet: unknown, trigger: string) => void;
     onFileSelect: (file: { name: string; path: string; relativePath?: string }) => void;
     onClose: () => void;
+    onCommandComboboxStateChange?: (state: CommandComboboxState) => void;
 }
 
 export function ComposerAutocompletePopups(props: ComposerAutocompletePopupsProps) {
@@ -84,6 +85,7 @@ export function ComposerAutocompletePopups(props: ComposerAutocompletePopupsProp
                     onCommandSelect={props.onCommandSelect}
                     onClose={onClose}
                     style={style}
+                    onComboboxStateChange={props.onCommandComboboxStateChange}
                 />
             );
         case 'snippet':
