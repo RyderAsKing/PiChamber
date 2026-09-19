@@ -1,10 +1,3 @@
-/**
- * Attachment and settings controls in the composer footer.
- *
- * Memoized with an explicit comparator so a re-render of the whole composer
- * does not tear down the dropdown while it is open.
- */
-
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
@@ -39,6 +32,12 @@ type ComposerAttachmentControlsProps = {
     disabled?: boolean;
 };
 
+/**
+ * Attachment and settings controls in the composer footer.
+ *
+ * Memoized with an explicit comparator so a re-render of the whole composer
+ * does not tear down the dropdown while it is open.
+ */
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
     
     const {
