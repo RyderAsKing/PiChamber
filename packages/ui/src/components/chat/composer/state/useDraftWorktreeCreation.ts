@@ -15,6 +15,7 @@ import type {
 } from '@/sync/session-ui-store';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 
+/** Tracks and requests the worktree task owned by one submitted draft. */
 export function useDraftWorktreeCreation(input: {
   taskId: string | null | undefined;
   intent: DraftWorktreeIntent | null | undefined;
