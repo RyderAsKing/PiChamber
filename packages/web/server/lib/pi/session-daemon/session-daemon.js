@@ -698,6 +698,37 @@ export function createSessionDaemon({
   // removed only when the drained object is still current, so a newer
   // owner's record is never erased.
   const pendingDurabilityLeaseHandoffs = new Map();
+  // Failed-create cleanup: when model/thinking setup fails after the
+  // resident lease is acquired and the dispose-first cleanup rejects,
+  // ownership stays held. One entry per session,
+  // `{ runtime, cwd, sessionId }`, retried by delete (per-session) or stop
+  // (all sessions). Disposal is attempted first and the lease is released
+  // only after successful disposal; a failed retry stays pending without
+  // releasing ownership. Entries are removed only when the drained object
+  // is still current, so a newer owner's record is never erased. The
+  // failed runtime is never registered and never installs dormant state.
+  const pendingFailedCreateCleanups = new Map();
+  const pendingFailedCreateDraining = new Set();
+  const drainPendingFailedCreateCleanup = async (sessionId) => {
+    const pending = pendingFailedCreateCleanups.get(sessionId);
+    if (!pending) return true;
+    if (pendingFailedCreateDraining.has(sessionId)) return false;
+    pendingFailedCreateDraining.add(sessionId);
+    try {
+      try {
+        await pending.runtime.dispose?.();
+      } catch {
+        return false;
+      }
+      await releaseResidentLease({ cwd: pending.cwd, sessionId: pending.sessionId });
+      if (pendingFailedCreateCleanups.get(sessionId) === pending) {
+        pendingFailedCreateCleanups.delete(sessionId);
+      }
+      return true;
+    } finally {
+      pendingFailedCreateDraining.delete(sessionId);
+    }
+  };
   let failedInputDurabilityEpoch = 0;
   const failedInputDurabilityGenerationOf = (sessionId) => failedInputDurabilityGeneration.get(sessionId) ?? 0;
 
@@ -1787,8 +1818,25 @@ export function createSessionDaemon({
         applyThinking(newRuntime, payload.thinking, newRuntime.session.sessionId, targetCwd);
       }
     } catch (error) {
-      await releaseResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
-      try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
+      const failedSessionId = newRuntime.session?.sessionId;
+      const failedCwd = targetCwd;
+      try {
+        await newRuntime.dispose?.();
+      } catch {
+        // Dispose-first cleanup rejected: retain ownership for a later
+        // delete/stop retry. Do not release the lease, install dormant
+        // state, or register the runtime. The original model/thinking
+        // error stays authoritative, not the disposal error.
+        if (typeof failedSessionId === 'string' && failedSessionId.length > 0) {
+          pendingFailedCreateCleanups.set(failedSessionId, {
+            runtime: newRuntime,
+            cwd: failedCwd,
+            sessionId: failedSessionId,
+          });
+        }
+        throw error;
+      }
+      await releaseResidentLease({ cwd: failedCwd, sessionId: failedSessionId });
       throw error;
     }
     runtimeRegistry.register(newRuntime, { cwd: targetCwd });
@@ -3331,6 +3379,14 @@ export function createSessionDaemon({
       // A concurrent failure may have re-armed pending before the seal was
       // visible; drop it again now that in-flight work has drained.
       pendingFailedInputDurability.delete(sessionId);
+      // Retry a failed-create cleanup for this session before touching
+      // persisted state: dispose first, release only after success. A
+      // failed retry stays pending without releasing ownership, so delete
+      // must not proceed to its own acquire/release while disposal fails.
+      const failedCreateDrained = await drainPendingFailedCreateCleanup(sessionId);
+      if (!failedCreateDrained) {
+        throw new SessionDaemonProtocolError('RUNTIME_DISPOSAL_FAILED', 'The Pi session runtime could not be disposed.');
+      }
       const active = runtimeRegistry?.findBySessionId(sessionId);
       let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
       const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
@@ -4400,6 +4456,13 @@ export function createSessionDaemon({
         if (pendingDurabilityLeaseHandoffs.get(pendingDurabilityLease.sessionId) === pendingDurabilityLease) {
           pendingDurabilityLeaseHandoffs.delete(pendingDurabilityLease.sessionId);
         }
+      }
+      // Retry failed-create cleanups at the existing ownership-release
+      // phase: dispose first, release only after success. A failed retry
+      // stays pending without releasing ownership. Each entry is removed
+      // only when still current so a newer owner's record is never erased.
+      for (const pendingFailedCreate of [...pendingFailedCreateCleanups.values()]) {
+        await drainPendingFailedCreateCleanup(pendingFailedCreate.sessionId).catch(() => false);
       }
       server = undefined;
       started = false;
