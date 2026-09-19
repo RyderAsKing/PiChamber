@@ -658,7 +658,7 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     expect(queueFor(target())).toHaveLength(0);
   });
 
-  test('a terminal invalid session hydrates once, clears its undeliverable queue, and other queues proceed', async () => {
+  test('a terminal invalid session hydrates once, deletes, clears its undeliverable queue, and other queues proceed', async () => {
     // A cold row for the doomed target plus a live-idle row for a healthy one.
     await act(async () => {
       asInternal().commitEvents([lifecycleEvent('s1', 'idle')]);
@@ -675,10 +675,12 @@ describe('queued auto-send dispatch gate (mounted)', () => {
     });
     await flush();
 
-    // Exactly one hydrate attempt for the invalid target; it failed into
-    // authoritative sessionLoadErrorById, not a transient gap.
+    // Exactly one hydrate attempt for the invalid target; the authoritative
+    // failure commits normal deletion cleanup (no error page retained).
     expect(getSessionCalls).toEqual(['s1']);
-    expect(asInternal().state.sessionLoadErrorById.get('s1')?.code).toBe('INVALID_SESSION');
+    expect(store.isDeleted('s1')).toBe(true);
+    expect(store.getState().catalog.byId.has('s1')).toBe(false);
+    expect(store.getState().sessionLoadErrorById.has('s1')).toBe(false);
     // The healthy queue dispatched normally despite the failed neighbor.
     expect(sendMessageCalls.length).toBe(1);
     const healthyOptions = sendMessageCalls[0]?.[9] as { target?: unknown; delivery?: unknown; operationId?: unknown };
@@ -877,13 +879,24 @@ describe('resolveQueuedAutoSendReadiness', () => {
     expect(resolveQueuedAutoSendReadiness(store.getState(), target())).toBe('unknown');
   });
 
-  test('a confirmed invalid session never resolves ready, even against a hydrated row', () => {
+  test('an authoritatively deleted session never resolves ready', () => {
     resetLiveStore();
     hydrateResident('s1', 'idle');
-    const internal = asInternal();
-    const errors = new Map(internal.state.sessionLoadErrorById);
-    errors.set('s1', new PiRequestError('INVALID_SESSION', 'session not found'));
-    internal.state = { ...internal.state, sessionLoadErrorById: errors };
+    // Authoritative `INVALID_SESSION` removes the catalog row via the shared
+    // deletion commit, so readiness observes the missing row (not a retained
+    // error) and holds without dispatching.
+    asInternal().commitEvents([
+      {
+        protocolVersion: 1,
+        kind: 'event',
+        name: 'session.deleted',
+        sequence: ++eventSequence,
+        sessionId: 's1',
+        directory: '/repo',
+        payload: {},
+      } as PiSessionEvent,
+    ]);
+    expect(store.getState().catalog.byId.has('s1')).toBe(false);
     expect(resolveQueuedAutoSendReadiness(store.getState(), target())).toBe('unknown');
   });
 });

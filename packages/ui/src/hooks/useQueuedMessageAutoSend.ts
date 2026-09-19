@@ -5,7 +5,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { usePiSessionSnapshot, usePiSessionStore } from '@/sync/pi-session-context';
-import { TOPIC_CATALOG, TOPIC_CHROME, isInvalidSessionError, type PiSessionStoreState } from '@/apps/pi-session-store';
+import { TOPIC_CATALOG, TOPIC_CHROME, type PiSessionStoreState } from '@/apps/pi-session-store';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -210,13 +210,11 @@ export const resolveQueuedAutoSendReadiness = (
   if (record.archived) {
     return 'unknown';
   }
-  // A confirmed invalid session can never hydrate: the authoritative
-  // getSession failed with INVALID_SESSION and that error is retained until
-  // a later successful reload clears it. Hold dispatch ('unknown') so the
-  // queued entry stays for user inspection/removal.
-  if (isInvalidSessionError(state.sessionLoadErrorById.get(target.sessionId))) {
-    return 'unknown';
-  }
+  // A deleted session has no catalog row (the missing-row check above), so
+  // an authoritative `INVALID_SESSION` never resolves ready: its deletion
+  // commit removes the row and clears its undeliverable queue via the shared
+  // persisted cleanup. `SESSION_IN_USE` and other load errors stay `unknown`
+  // through the cold-row path below and keep their bounded hydrate backoff.
   if (record.lifecycle === 'busy' || record.lifecycle === 'retry') {
     return 'busy';
   }
@@ -273,25 +271,18 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
     };
 
     // Cold-row demand: fetch authoritative lifecycle for a queued target
-    // without selecting it or stealing directory focus. Missing, colliding,
-    // archived, or disconnected targets get no demand (hydration cannot
-    // resolve them), so those states hold without looping. Transient
-    // failures retry on the shared bounded backoff instead of holding
-    // forever or busy-looping.
+    // without selecting it or stealing directory focus. Missing (including
+    // authoritatively deleted `INVALID_SESSION` targets whose row and queue
+    // were removed by the shared deletion commit), colliding, archived, or
+    // disconnected targets get no demand (hydration cannot resolve them),
+    // so those states hold without looping. Transient failures (including
+    // `SESSION_IN_USE`) retry on the shared bounded backoff instead of
+    // holding forever or busy-looping.
     const demandLiveState = async (target: MessageQueueTarget, sessionId: string, targetKey: string) => {
       const storeState = store.getState();
       if (storeState.connection !== 'ready') return;
       const record = storeState.catalog.byId.get(sessionId);
       if (!record || record.archived || normalizePath(record.directory) !== normalizePath(target.directory)) return;
-
-      // Terminal invalid session: the authoritative getSession already
-      // confirmed this target no longer exists on the runtime, so another
-      // hydrate can never succeed. Refuse the demand entirely — no request,
-      // no backoff loop — and retain the queued entry for user
-      // inspection/removal. SESSION_IN_USE and transient failures are not
-      // terminal and keep the bounded backoff. A later successful reload
-      // clears the recorded error, which resumes demands naturally.
-      if (isInvalidSessionError(storeState.sessionLoadErrorById.get(sessionId))) return;
 
       // Backoff precedes the cold demand so a failing hydrate cannot loop.
       const hydrateFailure = sendFailuresRef.current.get(targetKey);
@@ -317,8 +308,16 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       }
       // `ensureHydrated` settles without rejecting even when hydration
       // fails, so success is verified from authoritative state, not the
-      // promise outcome.
-      const settledRecord = store.getState().catalog.byId.get(sessionId);
+      // promise outcome. An authoritative `INVALID_SESSION` deletes the row
+      // (and its undeliverable queue) via the shared commit, so no backoff
+      // is scheduled for that terminal case; later passes observe the
+      // missing row and issue no further demand.
+      const settledState = store.getState();
+      if (store.isDeleted(sessionId) || !settledState.catalog.byId.has(sessionId)) {
+        forgetHydrateDemand(targetKey);
+        return;
+      }
+      const settledRecord = settledState.catalog.byId.get(sessionId);
       if (settledRecord?.hydrated) {
         // Authoritative state arrived; send-failure records (real message
         // ids) stay untouched.
