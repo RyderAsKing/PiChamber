@@ -3,7 +3,6 @@ import React from 'react';
 import { isIMECompositionEvent } from '@/lib/ime';
 import type { CommandAutocompleteHandle } from '../../CommandAutocomplete';
 import type { FileMentionHandle } from '../../FileMentionAutocomplete';
-import type { SkillAutocompleteHandle } from '../../SkillAutocomplete';
 import type { SnippetAutocompleteHandle } from '../../SnippetAutocomplete';
 import type { ComposerEditorHandle } from '../editor/ComposerEditor';
 
@@ -12,9 +11,8 @@ export interface UseComposerKeyNavigationOptions {
   setInputMode: (mode: 'normal' | 'shell') => void;
   message: string;
   setMessage: (message: string) => void;
-  openAutocomplete: 'command' | 'skill' | 'snippet' | 'mention' | null;
+  openAutocomplete: 'command' | 'snippet' | 'mention' | null;
   commandRef: React.RefObject<CommandAutocompleteHandle | null>;
-  skillRef: React.RefObject<SkillAutocompleteHandle | null>;
   snippetRef: React.RefObject<SnippetAutocompleteHandle | null>;
   mentionRef: React.RefObject<FileMentionHandle | null>;
   composerRef: React.RefObject<ComposerEditorHandle | null>;
@@ -84,7 +82,6 @@ export function useComposerKeyNavigation({
   setMessage,
   openAutocomplete,
   commandRef,
-  skillRef,
   snippetRef,
   mentionRef,
   composerRef,
@@ -126,21 +123,6 @@ export function useComposerKeyNavigation({
           e.preventDefault();
           e.stopPropagation();
           commandRef.current.handleKeyDown(e.key);
-          return;
-        }
-      }
-
-      if (openAutocomplete === 'skill' && skillRef.current) {
-        if (
-          e.key === 'Enter' ||
-          e.key === 'ArrowUp' ||
-          e.key === 'ArrowDown' ||
-          e.key === 'Escape' ||
-          e.key === 'Tab'
-        ) {
-          e.preventDefault();
-          e.stopPropagation();
-          skillRef.current.handleKeyDown(e.key);
           return;
         }
       }
@@ -272,7 +254,6 @@ export function useComposerKeyNavigation({
       sessionPhase,
       setInputMode,
       setMessage,
-      skillRef,
       snippetRef,
       updateAutocompleteState,
     ]

@@ -59,9 +59,9 @@ import { QueuedMessageChips } from "./QueuedMessageChips";
 import type { FileMentionHandle } from "./FileMentionAutocomplete";
 import type {
   CommandAutocompleteHandle,
+  CommandComboboxState,
   CommandInfo,
 } from "./CommandAutocomplete";
-import type { SkillAutocompleteHandle } from "./SkillAutocomplete";
 import type { SnippetAutocompleteHandle } from "./SnippetAutocomplete";
 import { cn } from "@/lib/utils";
 import { ModelControls } from "./ModelControls";
@@ -254,10 +254,28 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const [openAutocomplete, setOpenAutocomplete] =
     React.useState<AutocompleteKind | null>(null);
   const [autocompleteQuery, setAutocompleteQuery] = React.useState("");
+  // Slash-palette combobox linkage the focused editor owns while open.
+  const [commandComboboxState, setCommandComboboxState] =
+    React.useState<CommandComboboxState | null>(null);
   const closeAutocomplete = React.useCallback(
     () => setOpenAutocomplete(null),
     [],
   );
+  // Drop a stale listbox target when the command palette is not open so the
+  // next open never claims expanded with a detached ID.
+  React.useEffect(() => {
+    if (openAutocomplete !== "command") {
+      setCommandComboboxState((previous) =>
+        previous === null ? previous : null,
+      );
+    }
+  }, [openAutocomplete]);
+  // Only claim expanded with a valid aria-controls target.
+  const commandComboboxListboxId =
+    openAutocomplete === "command"
+      ? commandComboboxState?.listboxId
+      : undefined;
+  const commandComboboxExpanded = Boolean(commandComboboxListboxId);
   const [mobileControlsPanel, setMobileControlsPanel] =
     React.useState<MobileControlsPanel>(null);
   const [mobileDraftPicker, setMobileDraftPicker] = React.useState<
@@ -288,7 +306,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const canAcceptDropRef = React.useRef(false);
   const mentionRef = React.useRef<FileMentionHandle>(null);
   const commandRef = React.useRef<CommandAutocompleteHandle>(null);
-  const skillRef = React.useRef<SkillAutocompleteHandle>(null);
   const snippetRef = React.useRef<SnippetAutocompleteHandle>(null);
   // Ref to track current message value without triggering re-renders in effects
   const messageRef = React.useRef(message);
@@ -1892,7 +1909,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     setMessage,
     openAutocomplete,
     commandRef,
-    skillRef,
     snippetRef,
     mentionRef,
     composerRef,
@@ -2127,7 +2143,6 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
   const {
     handleFileSelect,
-    handleSkillSelect,
     handleSnippetSelect,
     handleCommandSelect,
   } = useComposerAutocompleteHandlers({
@@ -2502,14 +2517,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                     isDesktopExpanded ? autocompleteOverlayPosition : null
                   }
                   commandRef={commandRef}
-                  skillRef={skillRef}
                   snippetRef={snippetRef}
                   mentionRef={mentionRef}
                   onCommandSelect={handleCommandSelect}
-                  onSkillSelect={handleSkillSelect}
                   onSnippetSelect={handleSnippetSelect}
                   onFileSelect={handleFileSelect}
                   onClose={closeAutocomplete}
+                  onCommandComboboxStateChange={setCommandComboboxState}
                 />
                 <ComposerFooter
                   isMobile={isMobile}
@@ -2664,6 +2678,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                             isMobile ? "[data-composer-bound]" : undefined
                           }
                           boundGapPx={MOBILE_COMPOSER_BOUND_GAP_PX}
+                          commandComboboxExpanded={commandComboboxExpanded}
+                          commandComboboxListboxId={commandComboboxListboxId}
+                          commandComboboxActiveOptionId={
+                            commandComboboxExpanded
+                              ? commandComboboxState?.activeOptionId
+                              : undefined
+                          }
                           className={cn(
                             "relative z-10",
                             isInlineComposer

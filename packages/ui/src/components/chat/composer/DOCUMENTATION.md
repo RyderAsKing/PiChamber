@@ -40,7 +40,7 @@ copy.
   itself and is what gets highlighted; in `see @a/b.ts,` the comma is sentence
   punctuation, not part of the file being referenced. Mentions are plain
   editable text: deleting a character edits the token and reopens the mention
-  picker, the same way `/skill` tokens behave — not an atomic delete.
+  picker — not an atomic delete.
 - `prefixTokens.ts` — `/` invocations and `#snippet`. Scanning is deliberately
   generous; **membership in the command catalog is the authority**, not the
   pattern. An unknown `/token` stays plain prose. `/` allows `:` for native
@@ -54,7 +54,16 @@ copy.
   executable invocations and never implements `$1`/`$@` or skill expansion
   itself; `session.prompt()` remains authoritative.
 - `triggers.ts` — which picker a caret position asks for. Exactly one can be
-  active, with precedence `command > skill > snippet > mention`.
+  active, with precedence `command > snippet > mention`. Slash autocomplete
+  opens only when `/` is the first character of the message; a `/` after any
+  other text (including whitespace or a newline) never opens a picker.
+  The command palette (`../../CommandAutocomplete.tsx`) renders the rich
+  categorized list on desktop and a compact one-line-per-command list on
+  mobile with the same catalog, tap-vs-scroll guards, and listbox semantics.
+  While it is open the focused composer editor owns the command-combobox
+  linkage (`role=combobox`, `aria-expanded`, `aria-controls`,
+  `aria-activedescendant`); the palette listbox itself carries no
+  `aria-activedescendant`.
 - `tokenize.ts` — one pass producing every highlight range. Adding a construct
   to the language means adding it here, once.
 
