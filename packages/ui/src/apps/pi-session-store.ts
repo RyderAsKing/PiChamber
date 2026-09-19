@@ -1134,6 +1134,7 @@ export class PiSessionStore {
       if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory: resolvedDirectory, runtimeKey });
+          if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
           if (detail?.session?.id) {
             if (
               detail.session.directory
@@ -1149,6 +1150,7 @@ export class PiSessionStore {
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch (lookupError) {
+          if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
           if (isInvalidSessionError(lookupError)) {
             // Authoritative missing session: commit normal deletion cleanup
             // and fall through to the next active session without retaining
@@ -1392,6 +1394,7 @@ export class PiSessionStore {
       if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
           const detail = await piClient.getSession(desiredSessionId, { directory, runtimeKey });
+          if (expected !== this.runtimeGeneration) return;
           if (detail?.session?.directory && detail.session.directory !== directory) {
             if (expected !== this.runtimeGeneration) return;
             await this.open(detail.session.directory, desiredSessionId);
@@ -1402,6 +1405,7 @@ export class PiSessionStore {
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch (lookupError) {
+          if (expected !== this.runtimeGeneration) return;
           if (isInvalidSessionError(lookupError)) {
             // Authoritative missing session on first attach: commit normal
             // deletion cleanup and fall through to the next active session

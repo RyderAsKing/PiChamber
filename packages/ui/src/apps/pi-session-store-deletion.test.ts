@@ -565,6 +565,62 @@ describe('session deletion propagation', () => {
     });
   });
 
+  test('a stale focusProject lookup cannot delete a session after focus moves', async () => {
+    const missingLookup = deferred<unknown>();
+    let missingLookupStarted = false;
+    await withStore({
+      listSessions: async (scope) => ({
+        sessions: [listItem(scope.directory === '/repo-c' ? 'active-c' : 'active-b', scope.directory ?? '/repo-b')],
+      }),
+      getSession: async (id: string) => {
+        if (id === 'missing') {
+          missingLookupStarted = true;
+          return missingLookup.promise;
+        }
+        return detail(id, '/repo-c');
+      },
+    }, async (store) => {
+      seed(store, { sessions: ['other'], selectedSessionId: 'other' });
+
+      const staleFocus = store.focusProject('/repo-b', 'missing');
+      expect(await waitFor(() => missingLookupStarted)).toBe(true);
+      const currentFocus = store.focusProject('/repo-c');
+      await currentFocus;
+      missingLookup.reject(new PiRequestError('INVALID_SESSION', 'missing'));
+      await staleFocus;
+
+      expect(store.isDeleted('missing')).toBe(false);
+      expect(store.getState().directory).toBe('/repo-c');
+      expect(store.getState().selectedSessionId).toBe('active-c');
+    });
+  });
+
+  test('a stale open lookup cannot delete or commit selection after a runtime reset', async () => {
+    const missingLookup = deferred<unknown>();
+    let missingLookupStarted = false;
+    await withStore({
+      listSessions: async () => ({ sessions: [listItem('active', '/repo-a')] }),
+      getSession: async (id: string) => {
+        if (id === 'missing') {
+          missingLookupStarted = true;
+          return missingLookup.promise;
+        }
+        return detail(id, '/repo-a');
+      },
+    }, async (store) => {
+      const staleOpen = store.open('/repo-a', 'missing');
+      expect(await waitFor(() => missingLookupStarted)).toBe(true);
+      store.clear();
+      missingLookup.reject(new PiRequestError('INVALID_SESSION', 'missing'));
+      await staleOpen;
+
+      expect(store.isDeleted('missing')).toBe(false);
+      expect(store.getState().selectedSessionId).toBeNull();
+      expect(store.getState().sessions).toEqual([]);
+      expect(store.getState().connection).toBe('ready');
+    });
+  });
+
   test('a focusProject preferred id with a transient lookup failure stays selected with a load error', async () => {
     await withStore({
       listSessions: async () => ({ sessions: [listItem('active', '/repo-b')] }),
