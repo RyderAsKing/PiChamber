@@ -443,12 +443,13 @@ describe('failed first-input durability concurrency and disposal safety', () => 
       cwd: projectDir,
       agentDir,
       idleTimeoutMs: 60_000,
-      createRuntime: async () => {
+      createRuntime: async (options) => {
         createRuntimeCalls += 1;
         if (createRuntimeCalls === 1) return firstRuntime;
+        expect(options?.sessionFile).toBe(assignedPath);
         return new FakeRuntime({
           cwd: projectDir,
-          session: new FakeSession(sessionId, assignedPath, projectDir),
+          session: new FakeSession(sessionId, options?.sessionFile, projectDir),
         });
       },
     });
@@ -499,6 +500,7 @@ describe('failed first-input durability concurrency and disposal safety', () => 
     const sessionId = 'delete-race-session';
     const sessionDir = getPiSessionDirectory({ cwd: projectDir, agentDir });
     const assignedPath = join(sessionDir, `20260101T000000Z_${sessionId}.jsonl`);
+    const leaseFile = resolveSessionLeaseFile({ agentDir, cwd: projectDir, sessionId }).file;
 
     const session = new FakeSession(sessionId, assignedPath, projectDir);
     const disposeEntered = createDeferred();
@@ -520,6 +522,10 @@ describe('failed first-input durability concurrency and disposal safety', () => 
       cwd: projectDir,
       agentDir,
       idleTimeoutMs: 60_000,
+      profileKey: 'test-profile-delete',
+      daemonId: 'test-daemon-delete',
+      serverInstanceId: 'test-server-delete',
+      serverPid: process.pid,
       createRuntime: async () => runtime,
     });
     daemons.push(daemon);
@@ -532,6 +538,7 @@ describe('failed first-input durability concurrency and disposal safety', () => 
     // The failing prompt enters durability, writes the snapshot, then hangs
     // in the recycle dispose so the durability task is deterministically
     // in-flight while delete runs.
+    await expect(stat(leaseFile)).resolves.toBeDefined();
     const promptRequest = daemonRequest(endpoint, 'sessions.prompt', { sessionId, text: 'hello delete race' });
     await disposeEntered.promise;
     await waitFor(async () => (await stat(assignedPath).then(() => true).catch(() => false)) === true, {
@@ -559,16 +566,31 @@ describe('failed first-input durability concurrency and disposal safety', () => 
     // Authoritative result: after delete completes no snapshot can appear.
     // Durability wrote before delete, delete unlinked, and the fenced
     // recycle skipped the lease/dormant install that would resurrect it.
+    // The cancelled-after-dispose handoff is drained here: lease ownership
+    // is released, disposal stays exactly once, and no dormant state can
+    // resurrect the deleted snapshot.
     await waitFor(async () => (await stat(assignedPath).then(() => false).catch((error) => error?.code === 'ENOENT')) === true, {
       message: 'deleted session snapshot was resurrected by durability',
     });
     expect(disposeCalls).toBe(1);
+    await waitFor(async () => (await stat(leaseFile).then(() => false).catch((error) => error?.code === 'ENOENT')) === true, {
+      message: 'cancelled durability lease was not drained by delete',
+    });
     await sleep(200);
     await expect(stat(assignedPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(leaseFile)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(disposeCalls).toBe(1);
 
     const opened = await daemonRequest(endpoint, 'sessions.open', { sessionId, directory: projectDir });
     expect(opened.ok).toBe(false);
+
+    // Stale-global proof: teardown must not dispose the already-disposed
+    // runtime a second time. Without clearing the module-global reference
+    // before the cancellation fence, stop would dispose it again.
+    await daemon.stop();
+    expect(disposeCalls).toBe(1);
+    await expect(stat(leaseFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    daemons.pop();
   }, 60_000);
 
   it('stop during pending durability leaves no post-stop snapshot or double-dispose', async () => {
@@ -637,6 +659,120 @@ describe('failed first-input durability concurrency and disposal safety', () => 
     await sleep(200);
     await expect(stat(assignedPath)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(disposeCalls).toBe(1);
+    daemons.pop();
+  }, 60_000);
+
+  it('stop during durability dispose drains the held lease exactly once', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'pichamber-failed-durability-stop-recycle-'));
+    const projectDir = join(tempRoot, 'project');
+    const agentDir = join(tempRoot, 'agent');
+    const endpoint = testDaemonEndpoint(tempRoot);
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(agentDir, { recursive: true });
+
+    const sessionId = 'stop-recycle-session';
+    const sessionDir = getPiSessionDirectory({ cwd: projectDir, agentDir });
+    const assignedPath = join(sessionDir, `20260101T000000Z_${sessionId}.jsonl`);
+    const leaseFile = resolveSessionLeaseFile({ agentDir, cwd: projectDir, sessionId }).file;
+
+    const session = new FakeSession(sessionId, assignedPath, projectDir);
+    const disposeEntered = createDeferred();
+    const releaseDispose = createDeferred();
+    let disposeCalls = 0;
+    const runtime = new FakeRuntime({
+      cwd: projectDir,
+      session,
+      onDispose: async () => {
+        disposeCalls += 1;
+        disposeEntered.resolve();
+        await releaseDispose.promise;
+      },
+    });
+
+    const daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      idleTimeoutMs: 60_000,
+      profileKey: 'test-profile-stop-recycle',
+      daemonId: 'test-daemon-stop-recycle',
+      serverInstanceId: 'test-server-stop-recycle',
+      serverPid: process.pid,
+      createRuntime: async () => runtime,
+    });
+    daemons.push(daemon);
+    await daemon.start();
+
+    const created = await daemonRequest(endpoint, 'sessions.create', { cwd: projectDir });
+    expect(created.ok).toBe(true);
+    expect(created.result?.session?.id).toBe(sessionId);
+    await expect(stat(leaseFile)).resolves.toBeDefined();
+
+    // The failing prompt writes the snapshot then hangs in the recycle
+    // dispose, so stop deterministically cancels a successful dispose.
+    const promptRequest = daemonRequest(endpoint, 'sessions.prompt', { sessionId, text: 'hello stop recycle' });
+    // The prompt socket may be torn down by stop; settlement alone matters
+    // here, not the preserved prompt error code covered by the delete path.
+    void promptRequest.catch(() => {});
+    await disposeEntered.promise;
+    await waitFor(async () => (await stat(assignedPath).then(() => true).catch(() => false)) === true, {
+      message: 'durability did not write the snapshot before stop',
+    });
+
+    const stopPromise = daemon.stop();
+    void stopPromise.catch(() => {});
+    await sleep(50);
+    // Stop awaits the bounded in-flight durability instead of overlapping
+    // its teardown dispose; the recycle dispose is still the only disposal.
+    expect(disposeCalls).toBe(1);
+
+    releaseDispose.resolve();
+    await stopPromise;
+    expect(daemon.isStarted).toBe(false);
+    await promptRequest.catch(() => ({}));
+
+    // Authoritative result: the cancelled-after-dispose handoff is drained
+    // by stop. The stale global is already cleared so teardown cannot reuse
+    // or re-dispose it, the held lease is released, disposal stays exactly
+    // once, and no dormant state can mutate the persisted snapshot.
+    expect(disposeCalls).toBe(1);
+    await waitFor(async () => (await stat(leaseFile).then(() => false).catch((error) => error?.code === 'ENOENT')) === true, {
+      message: 'cancelled durability lease was not drained by stop',
+    });
+    await expect(stat(assignedPath)).resolves.toBeDefined();
+    await sleep(200);
+    expect(disposeCalls).toBe(1);
+    await expect(stat(leaseFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(assignedPath)).resolves.toBeDefined();
+    daemons.pop();
+
+    // Lease release proof through observable behavior: a fresh daemon with
+    // the same directories can acquire and open the persisted snapshot.
+    // A different daemon identity proves the first daemon released: a held
+    // lease would surface as SESSION_IN_USE instead of a successful open.
+    const reopenEndpoint = testDaemonEndpoint(tempRoot);
+    const reopenDaemon = createSessionDaemon({
+      endpoint: reopenEndpoint,
+      credential,
+      cwd: projectDir,
+      agentDir,
+      idleTimeoutMs: 60_000,
+      profileKey: 'test-profile-stop-recycle',
+      daemonId: 'test-daemon-stop-recycle-reopen',
+      serverInstanceId: 'test-server-stop-recycle-reopen',
+      serverPid: process.pid,
+      createRuntime: async (options) => new FakeRuntime({
+        cwd: projectDir,
+        session: new FakeSession(sessionId, options?.sessionFile ?? assignedPath, projectDir),
+      }),
+    });
+    daemons.push(reopenDaemon);
+    await reopenDaemon.start();
+    const reopened = await daemonRequest(reopenEndpoint, 'sessions.open', { sessionId, directory: projectDir });
+    expect(reopened.ok).toBe(true);
+    expect(reopened.result?.session?.id).toBe(sessionId);
+    await reopenDaemon.stop();
     daemons.pop();
   }, 60_000);
 });

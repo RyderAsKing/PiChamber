@@ -690,6 +690,14 @@ export function createSessionDaemon({
   const failedInputDurabilityInflight = new Map();
   const failedInputDurabilityGeneration = new Map();
   const failedInputDurabilitySealed = new Set();
+  // Cancelled-after-dispose lease handoff: when durability disposes
+  // successfully but delete/stop cancels before the lease release and
+  // dormant install, ownership stays held. One entry per session,
+  // `{ cwd, sessionId }`, drained by delete (per-session) or stop (all
+  // sessions) at their existing ownership-release phases. Entries are
+  // removed only when the drained object is still current, so a newer
+  // owner's record is never erased.
+  const pendingDurabilityLeaseHandoffs = new Map();
   let failedInputDurabilityEpoch = 0;
   const failedInputDurabilityGenerationOf = (sessionId) => failedInputDurabilityGeneration.get(sessionId) ?? 0;
 
@@ -3004,14 +3012,21 @@ export function createSessionDaemon({
             // surrounding release re-arms idle lifetime when still safe.
             return;
           }
-          // A delete or stop that started during the dispose wins: the runtime
-          // is already gone from the caller's perspective, so skip the lease
-          // release and dormant install that would touch disposed state.
-          if (isCancelled()) return;
+          // Dispose succeeded: clear the module-global reference whenever it
+          // still points at the disposed runtime before the fence can return,
+          // so a later ensureRuntime cannot reuse stale state. A delete or
+          // stop that started during the dispose still wins for ownership:
+          // skip the lease release and dormant install, and hand the held
+          // lease to delete/stop to drain instead.
+          const wasGlobalRuntime = activeRuntime === runtime;
+          if (wasGlobalRuntime) runtime = undefined;
+          if (isCancelled()) {
+            pendingDurabilityLeaseHandoffs.set(sessionId, { cwd: runtimeCwd, sessionId });
+            return;
+          }
           await releaseResidentLease({ cwd: runtimeCwd, sessionId });
-          if (activeRuntime === runtime) {
+          if (wasGlobalRuntime) {
             dormantSession = { sessionId, sessionFile: assignedPath, cwd: runtimeCwd };
-            runtime = undefined;
           }
         } finally {
           disposingSessionIds.delete(sessionId);
@@ -3339,6 +3354,17 @@ export function createSessionDaemon({
       }
       messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
       await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
+      // Drain a cancelled-after-dispose durability handoff for this session
+      // at the existing ownership-release phase. No disposal here: the
+      // runtime is already gone. Remove only when still current so a newer
+      // owner's record is never erased.
+      const pendingDurabilityLease = pendingDurabilityLeaseHandoffs.get(sessionId);
+      if (pendingDurabilityLease) {
+        await releaseResidentLease(pendingDurabilityLease);
+        if (pendingDurabilityLeaseHandoffs.get(sessionId) === pendingDurabilityLease) {
+          pendingDurabilityLeaseHandoffs.delete(sessionId);
+        }
+      }
       retryStateBySession.delete(sessionId);
       compactionStateBySession.delete(sessionId);
       activeRunStartedAt.delete(sessionId);
@@ -3357,6 +3383,16 @@ export function createSessionDaemon({
       // keep the session id and never publish this event.
       publish('session.deleted', {}, sessionId, targetDir);
     } finally {
+      // Drain a handoff that never reached the release phase above (for
+      // example the persisted unlink threw first). Idempotent when the
+      // release-phase drain already removed it.
+      const leftoverDurabilityLease = pendingDurabilityLeaseHandoffs.get(sessionId);
+      if (leftoverDurabilityLease) {
+        await releaseResidentLease(leftoverDurabilityLease).catch(() => {});
+        if (pendingDurabilityLeaseHandoffs.get(sessionId) === leftoverDurabilityLease) {
+          pendingDurabilityLeaseHandoffs.delete(sessionId);
+        }
+      }
       // Deletion never re-arms idle lifetime; drop a timer the deferred
       // re-arm may have installed just before the seal became visible.
       clearIdleDisposal(sessionId);
@@ -4354,6 +4390,17 @@ export function createSessionDaemon({
       pendingRuntimeRecreation = false;
       runtimeRecreationRevision += 1;
       await disposeRuntime();
+      // Drain cancelled-after-dispose durability handoffs at the existing
+      // ownership-release phase. These leases belong to runtimes already
+      // disposed, so disposeRuntime could not enumerate them. No disposal
+      // here. Remove each entry only when still current so a newer owner's
+      // record is never erased.
+      for (const pendingDurabilityLease of [...pendingDurabilityLeaseHandoffs.values()]) {
+        await releaseResidentLease(pendingDurabilityLease);
+        if (pendingDurabilityLeaseHandoffs.get(pendingDurabilityLease.sessionId) === pendingDurabilityLease) {
+          pendingDurabilityLeaseHandoffs.delete(pendingDurabilityLease.sessionId);
+        }
+      }
       server = undefined;
       started = false;
       if (platform !== 'win32') await rm(endpoint, { force: true });
