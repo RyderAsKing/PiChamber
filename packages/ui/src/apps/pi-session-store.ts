@@ -484,21 +484,22 @@ export class PiSessionStore {
   commitMissedDeletion = (sessionId: PiSessionId, directory: string): boolean =>
     this.commitDeletion(sessionId, directory);
   /**
-   * Shared deletion commit. Every deletion path (local `remove()`, accepted
-   * `404` on hydrate, explicit `session.deleted` event, missed-deletion
-   * baseline) funnels through here so catalog, transcript, selection, live
-   * activity, and persisted drafts stay consistent. The tombstone is added
-   * first so late completions that started before the deletion cannot
-   * resurrect the row. Persisted cleanup is runtime+directory+session
-   * scoped; stale-runtime or global identities are ignored by the helper.
-   * The accepted-404 hydrate path passes `keepSelection` so the failed id
-   * stays selected and the chat keeps showing its load error while the
-   * tombstone still blocks resurrection.
+   * Shared deletion commit. Every deletion path (local `remove()`,
+   * authoritative `INVALID_SESSION` on hydrate or preferred-id lookup,
+   * explicit `session.deleted` event, missed-deletion baseline) funnels
+   * through here so catalog, transcript, selection, live activity, and
+   * persisted drafts stay consistent. The tombstone is added first so late
+   * completions that started before the deletion cannot resurrect the row.
+   * Persisted cleanup is runtime+directory+session scoped; stale-runtime or
+   * global identities are ignored by the helper. An `INVALID_SESSION` uses
+   * this same normal cleanup and navigates away: when the deleted session
+   * was selected, selection falls through to the next active session or
+   * clears when none remains. Other load errors (including `SESSION_IN_USE`)
+   * keep their per-session load error and selection via `failSessionLoad`.
    */
   private commitDeletion(
     sessionId: PiSessionId,
     directory?: string,
-    options?: { keepSelection?: boolean },
   ): boolean {
     if (!sessionId) return false;
     const wasDeleted = this.deletedSessionIds.has(sessionId);
@@ -531,7 +532,7 @@ export class PiSessionStore {
       || this.state.catalog.byId.has(sessionId)
       || this.state.sessions.some((item) => item.session.id === sessionId);
     const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
-    const selectedSessionId = !options?.keepSelection && this.state.selectedSessionId === sessionId
+    const selectedSessionId = this.state.selectedSessionId === sessionId
       ? (sessions.find((item) => !item.session.archived)?.session.id ?? null)
       : this.state.selectedSessionId;
     const nextBySession = new Map(this.state.reducer.bySession);
@@ -551,7 +552,14 @@ export class PiSessionStore {
     const nextCatalog = removeRecord(this.state.catalog, sessionId);
     const catalogChanged = nextCatalog !== this.state.catalog;
     const selectionChanged = selectedSessionId !== this.state.selectedSessionId;
-    if (!hadResident && wasDeleted && !catalogChanged && !selectionChanged) return false;
+    let nextLoadErrors: ReadonlyMap<PiSessionId, PiRequestError> = this.state.sessionLoadErrorById;
+    if (nextLoadErrors.has(sessionId)) {
+      const cleared = new Map(nextLoadErrors);
+      cleared.delete(sessionId);
+      nextLoadErrors = cleared;
+    }
+    const loadErrorChanged = nextLoadErrors !== this.state.sessionLoadErrorById;
+    if (!hadResident && wasDeleted && !catalogChanged && !selectionChanged && !loadErrorChanged) return false;
     this.state = {
       ...this.state,
       sessions,
@@ -559,11 +567,47 @@ export class PiSessionStore {
       hydratedSessionIds: new Set(this.hydratedSessionIds),
       reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
       catalog: nextCatalog,
+      sessionLoadErrorById: nextLoadErrors,
     };
     const topics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
     return true;
+  }
+  /**
+   * Authoritative `INVALID_SESSION` cleanup. Uses the normal shared deletion
+   * commit (tombstone + transcript/catalog/persisted cleanup) and navigates
+   * away: when the missing session was selected, selection falls through to
+   * the next active session or clears when none remains. No per-session load
+   * error is retained for the missing id; other load errors (including
+   * `SESSION_IN_USE`) keep their error page via `failSessionLoad`. Buffered
+   * live events collected while attaching the stream replay after the
+   * tombstone lands so unrelated sessions survive in order while events for
+   * the missing id are skipped wholesale. When the navigation lands on a
+   * cold session, its hydrate is kicked off so the chat does not stall on
+   * `focusPending`.
+   */
+  private handleInvalidSession(sessionId: PiSessionId, directory: string | undefined, expected: number, buffered: readonly PiSessionEvent[] = []): void {
+    if (!sessionId || expected !== this.runtimeGeneration) return;
+    const wasSelected = this.state.selectedSessionId === sessionId;
+    this.commitDeletion(sessionId, directory);
+    if (buffered.length > 0) {
+      // The tombstone is already in place, so `commitEvents` skips the
+      // missing session wholesale (including same-batch events) while
+      // applying unrelated buffered events in order.
+      this.commitEvents(buffered);
+    }
+    if (expected !== this.runtimeGeneration) return;
+    if (!wasSelected) return;
+    const nextSelectedSessionId = this.state.selectedSessionId;
+    const nextFocusPending = nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId);
+    if (!!nextFocusPending !== this.state.focusPending) {
+      this.state = { ...this.state, focusPending: !!nextFocusPending };
+      this.emitChrome();
+    }
+    if (nextSelectedSessionId && !this.hydratedSessionIds.has(nextSelectedSessionId)) {
+      void this.hydrate(nextSelectedSessionId, this.runtimeGeneration);
+    }
   }
   /** Drop tombstoned sessions from an authoritative list response so a
    *  request that started before a committed deletion cannot resurrect the
@@ -1104,9 +1148,17 @@ export class PiSessionStore {
             listPayload.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
-        } catch {
-          // Keep the requested id selected; hydrate() records a per-session
-          // load error so the chat can leave the logo instead of spinning.
+        } catch (lookupError) {
+          if (isInvalidSessionError(lookupError)) {
+            // Authoritative missing session: commit normal deletion cleanup
+            // and fall through to the next active session without retaining
+            // the missing id. Other failures keep the requested id selected
+            // so hydrate() can surface a per-session load error.
+            this.commitDeletion(desiredSessionId, resolvedDirectory);
+          }
+          // Other failures keep the requested id selected; hydrate() records
+          // a per-session load error so the chat can leave the logo instead
+          // of spinning.
         }
       }
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
@@ -1349,9 +1401,17 @@ export class PiSessionStore {
             listedSessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
-        } catch {
-          // Keep the requested id selected; hydrate() records a per-session
-          // load error so the chat can leave the logo instead of spinning.
+        } catch (lookupError) {
+          if (isInvalidSessionError(lookupError)) {
+            // Authoritative missing session on first attach: commit normal
+            // deletion cleanup and fall through to the next active session
+            // without retaining the missing id. Other failures keep the
+            // requested id selected so hydrate() can surface its load error.
+            this.commitDeletion(desiredSessionId, directory);
+          }
+          // Other failures keep the requested id selected; hydrate() records
+          // a per-session load error so the chat can leave the logo instead
+          // of spinning.
         }
       }
       const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
@@ -2306,14 +2366,21 @@ export class PiSessionStore {
           // gone so a stale deep link cannot block the rest of the runtime.
           this.stream = bootstrap.stream;
           ready = true;
-          if (expected === this.runtimeGeneration && (isInvalidSessionError(error) || isSessionInUseError(error))) {
-            // An accepted 404 means the daemon no longer has the session:
-            // commit the deletion (tombstone + persisted cleanup) directly
-            // instead of depending on an event echo that may already have
-            // been replayed or missed. The failed id stays selected so the
-            // chat surfaces its load error.
-            if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
-            this.failSessionLoad(sessionId, error);
+          if (expected === this.runtimeGeneration && isInvalidSessionError(error)) {
+            // Authoritative missing session: normal deletion cleanup and
+            // navigate away (next active session or cleared selection).
+            // No per-session load error is retained for the missing id.
+            // Buffered live events collected while attaching replay after
+            // the tombstone so unrelated sessions survive in order.
+            this.handleInvalidSession(sessionId, directory, expected, buffered);
+            return;
+          }
+          if (expected === this.runtimeGeneration && isSessionInUseError(error)) {
+            // Another owner holds this session: keep the id selected so the
+            // chat surfaces its load error instead of navigating away.
+            // Buffered live events for unrelated sessions still apply.
+            if (buffered.length > 0) this.commitEvents(buffered);
+            this.failSessionLoad(sessionId, asError(error));
             return;
           }
           bootstrap.stream?.dispose();
@@ -2338,14 +2405,17 @@ export class PiSessionStore {
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
-      if (isInvalidSessionError(error) || isSessionInUseError(error)) {
-        // An accepted 404 means the daemon no longer has the session:
-        // commit the deletion (tombstone + persisted cleanup) directly
-        // instead of depending on an event echo that may already have
-        // been replayed or missed. The failed id stays selected so the
-        // chat surfaces its load error.
-        if (isInvalidSessionError(error)) this.commitDeletion(sessionId, directory, { keepSelection: true });
-        this.failSessionLoad(sessionId, error);
+      if (isInvalidSessionError(error)) {
+        // Authoritative missing session: normal deletion cleanup and navigate
+        // away (next active session or cleared selection). No per-session
+        // load error is retained for the missing id.
+        this.handleInvalidSession(sessionId, directory, expected);
+        return;
+      }
+      if (isSessionInUseError(error)) {
+        // Another owner holds this session: keep the id selected so the chat
+        // surfaces its load error instead of navigating away.
+        this.failSessionLoad(sessionId, asError(error));
         return;
       }
       if (isSessionRuntimeConflictError(error)) {

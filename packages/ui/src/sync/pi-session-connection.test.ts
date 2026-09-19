@@ -2017,7 +2017,7 @@ describe('PiSessionStore behaviour parity', () => {
     }
   });
 
-  test('a missing selected session fails that chat without taking the cluster down', async () => {
+  test('a missing selected session uses normal deletion cleanup and navigates away', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
     const stream = { dispose: () => undefined };
@@ -2045,7 +2045,11 @@ describe('PiSessionStore behaviour parity', () => {
       expect(internal.stream).toBe(stream);
       expect(internal.hydratedSessionIds.has('alive')).toBe(true);
       expect(internal.hydratedSessionIds.has('missing')).toBe(false);
-      expect(state.sessionLoadErrorById.get('missing')?.code).toBe('INVALID_SESSION');
+      // Authoritative missing session: normal deletion cleanup navigates to
+      // the next active session instead of retaining an error page.
+      expect(state.selectedSessionId).toBe('alive');
+      expect(state.sessionLoadErrorById.has('missing')).toBe(false);
+      expect(store.isDeleted('missing')).toBe(true);
     } finally {
       stubs.restore();
     }
