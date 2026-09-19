@@ -285,7 +285,8 @@ describe("worktree send lifecycle against the attachment store", () => {
 
     // The fresh draft already holds one retried file plus a newer file.
     useInputStore.setState({ attachedFiles: [readyLocalFile({ id: "b" }), readyLocalFile({ id: "new" })] });
-    useInputStore.getState().restoreAttachmentsForRetry(captured);
+    const legacyRestore = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(legacyRestore).toEqual({ ok: true, restoredCount: 1, totalCount: 3 });
 
     // Only the missing captured id returns; newer files keep order/identity.
     const visible = useInputStore.getState().attachedFiles;
@@ -297,7 +298,83 @@ describe("worktree send lifecycle against the attachment store", () => {
     const captured = await captureWorktreeAttachments([readyLocalFile({ id: "a" })]);
     useInputStore.setState({ attachedFiles: [] });
 
-    useInputStore.getState().restoreAttachmentsForRetry(captured);
+    const result = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(result).toEqual({ ok: true, restoredCount: 1, totalCount: 1 });
     expect(useInputStore.getState().attachedFiles.map((file) => file.id)).toEqual(["a"]);
+  });
+
+  test("duplicate captured ids restore once and preserve newer files", async () => {
+    const captured = await captureWorktreeAttachments([
+      readyLocalFile({ id: "a" }),
+      readyLocalFile({ id: "a" }),
+      readyLocalFile({ id: "b" }),
+    ]);
+    useInputStore.setState({ attachedFiles: [readyLocalFile({ id: "b" }), readyLocalFile({ id: "new" })] });
+
+    const result = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(result).toEqual({ ok: true, restoredCount: 1, totalCount: 3 });
+    expect(useInputStore.getState().attachedFiles.map((file) => file.id)).toEqual(["b", "new", "a"]);
+  });
+
+  test("exact 20-attachment limit succeeds transactionally", async () => {
+    const visible = Array.from({ length: 18 }, (_, index) => readyLocalFile({ id: `v${index}` }));
+    const captured = await captureWorktreeAttachments([
+      readyLocalFile({ id: "a" }),
+      readyLocalFile({ id: "b" }),
+    ]);
+    useInputStore.setState({ attachedFiles: visible, stashedAttachmentsByDraft: {} });
+
+    const result = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.restoredCount).toBe(2);
+      expect(result.totalCount).toBe(20);
+    }
+    expect(useInputStore.getState().attachedFiles).toHaveLength(20);
+  });
+
+  test("overflow makes no visible or stash mutation and reports counts", async () => {
+    const visible = Array.from({ length: 19 }, (_, index) => readyLocalFile({ id: `v${index}` }));
+    const stashed = [readyLocalFile({ id: "a" }), readyLocalFile({ id: "b" })];
+    const captured = await captureWorktreeAttachments([
+      readyLocalFile({ id: "a" }),
+      readyLocalFile({ id: "b" }),
+    ]);
+    useInputStore.setState({
+      attachedFiles: visible,
+      stashedAttachmentsByDraft: { "draft-source": stashed },
+      activeAttachmentsDraftKey: "draft-fresh",
+    });
+    const beforeVisible = [...useInputStore.getState().attachedFiles];
+    const beforeStashed = { ...useInputStore.getState().stashedAttachmentsByDraft };
+
+    const result = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('attachment-limit');
+      expect(result.limit).toBe(20);
+      expect(result.currentCount).toBe(19);
+      expect(result.missingCount).toBe(2);
+    }
+    expect(useInputStore.getState().attachedFiles).toEqual(beforeVisible);
+    expect(useInputStore.getState().stashedAttachmentsByDraft).toEqual(beforeStashed);
+  });
+
+  test("expired upload state and dataUrl fallback survive restore", async () => {
+    const expired = readyLocalFile({
+      id: "expired",
+      uploadState: { status: "ready", attachmentId: "opaque-expired", expiresAt: Date.now() - 1_000 },
+      previewUrl: "blob:preview-expired",
+    });
+    const captured = await captureWorktreeAttachments([expired]);
+    useInputStore.setState({ attachedFiles: [] });
+
+    const result = useInputStore.getState().restoreAttachmentsForRetry(captured);
+    expect(result.ok).toBe(true);
+    const restored = useInputStore.getState().attachedFiles[0];
+    expect(restored.previewUrl).toBeUndefined();
+    expect(restored.dataUrl.startsWith('data:')).toBe(true);
+    expect(restored.uploadState).toMatchObject({ status: 'ready', attachmentId: 'opaque-expired' });
+    expect((restored.uploadState as { expiresAt: number }).expiresAt <= Date.now()).toBe(true);
   });
 });

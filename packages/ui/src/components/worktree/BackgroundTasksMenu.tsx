@@ -10,7 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
-import { restoreWorktreeFailedSend } from '@/components/chat/composer/submit/worktreeFailedSend';
+import {
+  canOfferCompletedWorktreeActions,
+  describeWorktreeAttachmentLimit,
+  isWorktreePromptPending,
+  isWorktreeTaskCompleted,
+  restoreWorktreeFailedSend,
+} from '@/components/chat/composer/submit/worktreeFailedSend';
 import { useWorktreeCreationStore, type WorktreeCreationEntry } from '@/stores/useWorktreeCreationStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -41,7 +47,9 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
     () => [...entriesMap.values()].sort((left, right) => right.startedAt - left.startedAt),
     [entriesMap],
   );
-  const activeCount = entries.filter((entry) => entry.state && entry.state.phase !== 'failed').length;
+  const activeCount = entries.filter(
+    (entry) => (entry.state && entry.state.phase !== 'failed') || isWorktreePromptPending(entry),
+  ).length;
 
   const cancelClose = React.useCallback(() => {
     if (!closeTimerRef.current) return;
@@ -58,6 +66,9 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
   if (entries.length === 0) return null;
 
   const openWorktree = (entry: WorktreeCreationEntry): void => {
+    // Completed-only: never open prompt-dispatch-pending entries. Opening
+    // would clear the retained recovery snapshot while dispatch is unsettled.
+    if (!canOfferCompletedWorktreeActions(entry)) return;
     const receipt = entry.receipt;
     if (!receipt) return;
     const sessionState = useSessionUIStore.getState();
@@ -132,17 +143,20 @@ const BackgroundTaskRow: React.FC<{
 }> = ({ entry, onOpen }) => {
   const failed = entry.state?.phase === 'failed';
   const active = Boolean(entry.state && !failed);
-  const completed = Boolean(entry.receipt && !entry.state);
+  const pending = isWorktreePromptPending(entry);
+  const completed = isWorktreeTaskCompleted(entry);
   const title = failed
     ? entry.state?.label ?? 'Worktree creation failed'
     : active
       ? entry.state?.label ?? 'Creating worktree...'
-      : `Worktree ready: ${entry.branch ?? entry.receipt?.branch ?? 'new worktree'}`;
+      : pending
+        ? 'Sending prompt...'
+        : `Worktree ready: ${entry.branch ?? entry.receipt?.branch ?? 'new worktree'}`;
 
   return (
     <div className="flex items-start gap-3 px-3 py-3">
       <div className="mt-0.5 shrink-0">
-        {active ? (
+        {active || pending ? (
           <AgentThinkingLoader variant="inline" text={null} animationType="spinner" />
         ) : failed ? (
           <Icon name="alert" className="size-4 text-[var(--status-error)]" />
@@ -176,6 +190,13 @@ const BackgroundTaskRow: React.FC<{
                   toast.error('Draft already has content', {
                     description: 'Your failed prompt was kept in Background tasks.',
                   });
+                } else if (!result.ok && result.reason === 'attachment-limit') {
+                  const copy = describeWorktreeAttachmentLimit({
+                    limit: result.limit,
+                    currentCount: result.currentCount,
+                    missingCount: result.missingCount,
+                  });
+                  toast.error(copy.title, { description: copy.description });
                 } else if (result.reason !== 'missing') {
                   toast.error('Could not restore the failed prompt', {
                     description: 'Your prompt was kept in Background tasks.',

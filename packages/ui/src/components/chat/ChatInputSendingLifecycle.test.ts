@@ -58,6 +58,37 @@ test('Send now records a persisted attempt before delivery', () => {
   expect(deliveryAt).toBeGreaterThan(attemptAt);
 });
 
+test('worktree receipt retains the snapshot until prompt dispatch settles', () => {
+  // The task-owned snapshot must survive receipt while materialization and
+  // prompt dispatch are pending. The call-site captures the exact generation
+  // and settles it by identity, so a late result never clears a newer task.
+  expect(source).toContain('worktreeFailedSendAtReceipt');
+  expect(source).toContain('getEntryByKey(worktreeTaskKey)?.failedSend');
+  expect(source).toContain('markWorktreePromptSucceeded(worktreeTaskKey, worktreeFailedSendAtReceipt)');
+  expect(source).toContain('markWorktreePromptFailed(worktreeTaskKey, worktreeFailedSendAtReceipt');
+});
+
+test('post-receipt prompt failure transitions the same task without relying on draft currency', () => {
+  const failureAt = source.indexOf('markWorktreePromptFailed(worktreeTaskKey');
+  expect(failureAt).toBeGreaterThan(-1);
+  // Explicit failed-send recovery keeps Restore draft available after draft
+  // rotation/navigation; it must not be gated on the submitted draft still
+  // being current.
+  expect(source.slice(failureAt, failureAt + 500)).toContain('Your prompt was kept in Background tasks. Use Restore draft to retry.');
+  const legacyRestoreAt = source.indexOf('if (submittedDraftIsCurrent() && worktreeAttachmentsAtSend)', failureAt);
+  expect(legacyRestoreAt).toBeGreaterThan(failureAt);
+});
+
+test('attachment recovery is transactional with actionable limit copy', () => {
+  expect(source).toContain('describeWorktreeAttachmentLimit');
+  // Every restore call must observe the typed result; overflow never silently
+  // drops files in legacy fallback paths. The concise actionable copy lives
+  // with the recovery owner (`worktreeFailedSend`) and is reused by the menu.
+  expect(source).toContain('restoreAttachmentsForRetry(worktreeAttachmentsAtSend)');
+  expect(source).toContain('if (!restored.ok)');
+  expect(source).toContain('attachment-limit');
+});
+
 test('worktree send retains the failed prompt in task state instead of dropping it after draft rotation', () => {
   // The composer clears the submitted prompt and rotates the draft id before
   // awaiting creation. The failure path must consult the retained store

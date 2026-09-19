@@ -207,6 +207,16 @@ export type SyntheticContextPart = {
   synthetic?: boolean
 }
 
+export type RestoreAttachmentsForRetryResult =
+  | { ok: true; restoredCount: number; totalCount: number }
+  | {
+      ok: false;
+      reason: 'attachment-limit';
+      limit: number;
+      currentCount: number;
+      missingCount: number;
+    };
+
 export type PendingWorktreeRestore = {
   entryKey: string;
   prompt: string;
@@ -254,12 +264,15 @@ export type InputState = {
   removeAttachedFile: (id: string) => void
   detachAttachedFiles: (ids: readonly string[]) => void
   /**
-   * Make a failed send's captured files visible again for retry without
-   * overwriting newer draft files. Missing captured ids are appended as
-   * clones (preview URLs stay stripped; dispatch previews use `dataUrl`)
-   * and removed from stashes to avoid duplicates. Never cancels uploads.
+   * Transactional missing-ID append for failed-send recovery. Appends only
+   * captured ids absent from the visible draft as clones (preview URLs stay
+   * stripped; dispatch previews use the retained `dataUrl`, so expired
+   * uploads stay refreshable) and removes those ids from stashes to avoid
+   * duplicates. Newer draft files keep order/identity. Exact limit succeeds;
+   * overflow makes no visible/stash mutation and reports counts. Never
+   * cancels uploads.
    */
-  restoreAttachmentsForRetry: (captured: readonly AttachedFile[]) => void
+  restoreAttachmentsForRetry: (captured: readonly AttachedFile[]) => RestoreAttachmentsForRetryResult
   clearStashedAttachmentsForSession: (identity: { runtimeKey: string; directory: string; sessionId: string }) => void
   /**
    * Make a draft's attachments visible, stashing the previous draft's files.
@@ -453,10 +466,28 @@ export const useInputStore = create<InputState>()((set, get) => ({
   },
 
   restoreAttachmentsForRetry: (captured) => {
-    if (!captured || captured.length === 0) return
+    const currentCount = get().attachedFiles.length
+    if (!captured || captured.length === 0) return { ok: true as const, restoredCount: 0, totalCount: currentCount }
     const visibleIds = new Set(get().attachedFiles.map((file) => file.id))
-    const missing = captured.filter((file) => !visibleIds.has(file.id))
-    if (missing.length === 0) return
+    const seenMissing = new Set<string>()
+    const missing: AttachedFile[] = []
+    for (const file of captured) {
+      if (visibleIds.has(file.id) || seenMissing.has(file.id)) continue
+      seenMissing.add(file.id)
+      missing.push(file)
+    }
+    if (missing.length === 0) return { ok: true as const, restoredCount: 0, totalCount: currentCount }
+    // All-or-none against the 20-attachment message limit: overflow reports
+    // counts and leaves visible files and stashes untouched.
+    if (currentCount + missing.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      return {
+        ok: false as const,
+        reason: 'attachment-limit' as const,
+        limit: MAX_ATTACHMENTS_PER_MESSAGE,
+        currentCount,
+        missingCount: missing.length,
+      }
+    }
     const missingIds = new Set(missing.map((file) => file.id))
     const stashed = get().stashedAttachmentsByDraft ?? {}
     const nextStashed: Record<string, AttachedFile[]> = {}
@@ -477,6 +508,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
       ],
       stashedAttachmentsByDraft: nextStashed,
     }))
+    return { ok: true as const, restoredCount: missing.length, totalCount: currentCount + missing.length }
   },
 
   activateAttachmentsDraft: (nextKey) => {

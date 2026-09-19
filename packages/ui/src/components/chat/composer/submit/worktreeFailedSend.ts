@@ -17,33 +17,58 @@
  *
  * Retained snapshots are memory-only: `File` handles and data URLs are never
  * written to `localStorage`. Dismiss and runtime reset delete the entry and
- * release the snapshot. Expired upload ids remain refreshable through the
- * retained `dataUrl` fallback (`routeMessage` refresh branch); restore uses
- * the existing missing-ID append (`restoreAttachmentsForRetry`) and never
- * deletes newer draft files.
+ * release the snapshot. The snapshot survives receipt until prompt dispatch
+ * settles: acceptance consumes the exact generation, post-receipt failure
+ * transitions the same receipt entry to failed with the snapshot intact.
+ * Expired upload ids remain refreshable through the retained `dataUrl`
+ * fallback (`routeMessage` refresh branch); restore uses the transactional
+ * missing-ID append (`restoreAttachmentsForRetry`, all-or-none against the
+ * 20-attachment limit) and never deletes newer draft files. Overflow keeps
+ * the record so the task stays recoverable.
  */
 
 import { createChatDraftIdentity, getChatDraftIdentityKey, readChatDraft, writeChatDraft } from '@/lib/chatDraftPersistence';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import { useWorktreeCreationStore } from '@/stores/useWorktreeCreationStore';
+import { useWorktreeCreationStore, type WorktreeCreationEntry, type WorktreeFailedSend } from '@/stores/useWorktreeCreationStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useInputStore, type PendingWorktreeRestore } from '@/sync/input-store';
+import type { AttachedFile } from '@/stores/types/sessionTypes';
+import { worktreeSendAttachmentIds } from './worktreeAttachments';
 
 type WorktreeRestoreReason =
   | 'missing'
   | 'runtime-mismatch'
   | 'invalid-target'
   | 'target-occupied'
+  | 'attachment-limit'
   | 'open-failed'
   | 'pending'
   | 'dismissed'
   | 'navigated-away';
 
-type WorktreeRestoreResult = {
-  ok: boolean;
-  reason?: WorktreeRestoreReason;
+export type WorktreeRestoreResult =
+  | { ok: true; reason?: WorktreeRestoreReason }
+  | { ok: false; reason: Exclude<WorktreeRestoreReason, 'attachment-limit'> }
+  | { ok: false; reason: 'attachment-limit'; limit: number; currentCount: number; missingCount: number };
+
+/**
+ * Concise actionable copy for attachment-limit overflow during recovery.
+ * Keeps the Background task recoverable: the caller must not consume
+ * `failedSend` when this is shown.
+ */
+export const describeWorktreeAttachmentLimit = (args: {
+  limit: number;
+  currentCount: number;
+  missingCount: number;
+}): { title: string; description: string } => {
+  const toRemove = Math.max(1, args.currentCount + args.missingCount - args.limit);
+  const fileWord = (count: number): string => (count === 1 ? 'file' : 'files');
+  return {
+    title: 'Too many attachments to restore',
+    description: `Remove ${toRemove} ${fileWord(toRemove)} to restore ${args.missingCount} ${fileWord(args.missingCount)}. You can attach up to ${args.limit} files to one message.`,
+  };
 };
 
 const resolveCurrentDraftKey = (): string | null => {
@@ -69,8 +94,9 @@ const resolveCurrentDraftKey = (): string | null => {
  *
  * Never restores into the wrong runtime: a runtime mismatch keeps the record
  * and reports failure. Never overwrites persisted target text: an occupied
- * target keeps the record. Attachments restore via missing-ID append and
- * never delete newer files.
+ * target keeps the record. Attachments restore via transactional missing-ID
+ * append and never delete newer files. Attachment-limit overflow keeps the
+ * record so the task stays recoverable.
  */
 export const restoreWorktreeFailedSend = (entryKey: string): WorktreeRestoreResult => {
   const store = useWorktreeCreationStore.getState();
@@ -157,7 +183,18 @@ export const restoreWorktreeFailedSend = (entryKey: string): WorktreeRestoreResu
 
   try {
     useInputStore.getState().activateAttachmentsDraft(targetKey);
-    useInputStore.getState().restoreAttachmentsForRetry(failedSend.attachments);
+    const restored = useInputStore.getState().restoreAttachmentsForRetry(failedSend.attachments);
+    if (!restored.ok) {
+      // Persisted text is already restored; keep the record so the task stays
+      // recoverable after the user frees attachment space.
+      return {
+        ok: false,
+        reason: 'attachment-limit',
+        limit: restored.limit,
+        currentCount: restored.currentCount,
+        missingCount: restored.missingCount,
+      };
+    }
   } catch {
     // Persisted text is already restored; keep the record so attachments can
     // be retried via the menu rather than dropping the task.
@@ -230,7 +267,18 @@ export const applyPendingWorktreeRestore = (
   try {
     writeChatDraft(targetIdentity, pending.prompt, pending.confirmedMentions);
     useInputStore.getState().activateAttachmentsDraft(targetKey);
-    useInputStore.getState().restoreAttachmentsForRetry(pending.attachments);
+    const restored = useInputStore.getState().restoreAttachmentsForRetry(pending.attachments);
+    if (!restored.ok) {
+      // Text is already restored; keep the record so the task stays
+      // recoverable after the user frees attachment space.
+      return {
+        ok: false,
+        reason: 'attachment-limit',
+        limit: restored.limit,
+        currentCount: restored.currentCount,
+        missingCount: restored.missingCount,
+      };
+    }
   } catch {
     return { ok: false, reason: 'open-failed' };
   }
@@ -243,4 +291,94 @@ export const applyPendingWorktreeRestore = (
     return { ok: true };
   }
   return { ok: true };
+};
+
+type WorktreePromptLifecycleEntry = Pick<
+  WorktreeCreationEntry,
+  'receipt' | 'failedSend' | 'state' | 'notificationSent'
+>;
+
+/**
+ * Prompt-dispatch-pending: the worktree exists (receipt) but the first prompt
+ * has not settled. The task-owned `failedSend` snapshot is still required
+ * for either acceptance (consume) or failure (failed recovery), so completed
+ * controls must not offer Open or dismiss/clear while this holds.
+ */
+export const isWorktreePromptPending = (
+  entry: Pick<WorktreeCreationEntry, 'receipt' | 'failedSend' | 'state'> | null | undefined,
+): boolean => Boolean(entry?.receipt && entry?.failedSend && !entry?.state);
+
+/**
+ * Completed worktree task: receipt with no lifecycle state and no retained
+ * snapshot. Only these entries may offer Open or completed-dismiss actions.
+ */
+export const isWorktreeTaskCompleted = (
+  entry: Pick<WorktreeCreationEntry, 'receipt' | 'failedSend' | 'state'> | null | undefined,
+): boolean => Boolean(entry?.receipt && !entry?.state && !entry?.failedSend);
+
+export const canOfferCompletedWorktreeActions = (
+  entry: Pick<WorktreeCreationEntry, 'receipt' | 'failedSend' | 'state'> | null | undefined,
+): boolean => isWorktreeTaskCompleted(entry);
+
+/**
+ * Toast eligibility: only completed entries announce Worktree ready.
+ * Prompt-pending (`receipt && failedSend && !state`) must stay silent until
+ * dispatch settles, and post-receipt failed entries already surface through
+ * the prompt-failure toast with Restore draft available.
+ */
+export const shouldNotifyWorktreeReady = (
+  entry: WorktreePromptLifecycleEntry | null | undefined,
+): boolean =>
+  Boolean(entry?.receipt && !entry?.notificationSent && !entry?.state && !entry?.failedSend);
+
+/**
+ * Post-receipt empty dispatch: nothing was produced to send, so the prompt
+ * was not consumed. Transition the same receipt entry to failed recovery
+ * with the snapshot intact so an explicit Restore draft can retry. Guarded
+ * to the exact generation; a late empty result never overwrites a newer one.
+ */
+export const settleWorktreePromptForEmptyDispatch = (
+  taskKey: string,
+  expected: WorktreeFailedSend | null,
+  error: string,
+): boolean => {
+  if (!taskKey || !expected) return false;
+  try {
+    return useWorktreeCreationStore.getState().markWorktreePromptFailed(taskKey, expected, error);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Post-receipt consumed local command: the prompt ran locally (for example
+ * `/compact`) and must never become a retryable failed recovery that would
+ * execute it twice. Consume the exact generation and detach only the files
+ * this send captured so newer-draft files survive. A null capture means no
+ * worktree handoff owned files, so visible files are left for the next prompt
+ * consistent with non-worktree local-command behavior.
+ */
+export const settleWorktreePromptForConsumedLocalCommand = (
+  taskKey: string,
+  expected: WorktreeFailedSend | null,
+  captured: readonly AttachedFile[] | null,
+  live: readonly AttachedFile[],
+): boolean => {
+  if (!taskKey || !expected) return false;
+  let consumed = false;
+  try {
+    consumed = useWorktreeCreationStore.getState().markWorktreePromptSucceeded(taskKey, expected);
+  } catch {
+    return false;
+  }
+  if (!consumed) return false;
+  if (!captured || captured.length === 0) return true;
+  try {
+    const ids = worktreeSendAttachmentIds(captured, live);
+    if (ids.length > 0) useInputStore.getState().detachAttachedFiles(ids);
+  } catch {
+    // The task is already consumed; attachment cleanup failure only risks
+    // stashed files lingering until bounded stash eviction.
+  }
+  return true;
 };

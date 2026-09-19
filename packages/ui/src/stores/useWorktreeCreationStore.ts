@@ -38,7 +38,13 @@ export type WorktreeCreationEntry = {
   intent: DraftWorktreeIntent;
   state: WorktreeCreationState | null;
   receipt: DraftWorktreeCreationReceipt | null;
-  /** Retained failed prompt/mentions/attachment snapshot until restored or dismissed. Memory-only. */
+  /**
+   * Task-owned prompt/mentions/attachment snapshot retained through receipt
+   * until prompt dispatch settles. Pre-receipt failure exposes it as a failed
+   * recovery; post-receipt prompt failure transitions the same entry to failed
+   * with the snapshot intact; prompt acceptance consumes the exact generation.
+   * Memory-only.
+   */
   failedSend: WorktreeFailedSend | null;
   notificationSent: boolean;
   path?: string | null;
@@ -51,7 +57,12 @@ type WorktreeCreationRequestParams = {
   taskId?: string;
   intent: DraftWorktreeIntent;
   prompt: string;
-  /** Prompt recovery payload retained in task state when creation fails. */
+  /**
+   * Task-owned prompt recovery payload retained through receipt until prompt
+   * dispatch settles. Pre-receipt failure exposes it as failed recovery;
+   * post-receipt prompt failure transitions the same entry; prompt acceptance
+   * consumes the exact generation.
+   */
   failedSend?: {
     prompt: string;
     confirmedMentions: readonly string[] | Set<string>;
@@ -76,6 +87,19 @@ type WorktreeCreationStore = {
    * or re-failed generation (different `failedSend` identity).
    */
   consumeFailedSend: (key: string, expected: WorktreeFailedSend) => boolean;
+  /**
+   * Prompt acceptance: delete the task only when the live entry still holds
+   * the exact snapshot captured at receipt. A late success never clears a
+   * newer generation. Requires a receipt so in-flight entries are preserved.
+   */
+  markWorktreePromptSucceeded: (key: string, expected: WorktreeFailedSend) => boolean;
+  /**
+   * Post-receipt prompt failure: transition the same receipt entry into an
+   * explicit failed-send recovery with the snapshot intact. Guarded to the
+   * exact generation like `consumeFailedSend`; a late failure never
+   * overwrites a newer generation.
+   */
+  markWorktreePromptFailed: (key: string, expected: WorktreeFailedSend, error: string) => boolean;
   markNotificationSent: (key: string) => void;
   dismissFailed: (key: string) => void;
   resetForRuntimeSwitch: (runtimeKey: string) => void;
@@ -199,6 +223,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
     key: string,
     intent: DraftWorktreeIntent,
     receipt: DraftWorktreeCreationReceipt,
+    failedSend: WorktreeFailedSend | null,
     path?: string | null,
     branch?: string | null,
   ): void => {
@@ -207,7 +232,11 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       intent,
       state: null,
       receipt,
-      failedSend: null,
+      // Retain the task-owned snapshot through receipt while prompt
+      // materialization/dispatch is pending. Prompt acceptance consumes the
+      // exact generation; post-receipt failure transitions this same entry
+      // to failed with the snapshot intact.
+      failedSend,
       notificationSent: existing?.notificationSent ?? false,
       path: path ?? receipt.path,
       branch: branch ?? receipt.branch,
@@ -306,7 +335,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       }
       if (isStale()) return receipt;
 
-      setEntryReceipt(key, intent, receipt, created.path, created.branch);
+      setEntryReceipt(key, intent, receipt, failedSendSnapshot, created.path, created.branch);
       return receipt;
     } catch (error) {
       if (isStale()) throw error;
@@ -364,6 +393,37 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
         return { entries };
       });
       return consumed;
+    },
+
+    markWorktreePromptSucceeded: (key, expected) => {
+      let consumed = false;
+      set((state) => {
+        const live = state.entries.get(key);
+        if (!live || !live.receipt || live.failedSend !== expected) return state;
+        const entries = new Map(state.entries);
+        entries.delete(key);
+        generations.delete(key);
+        consumed = true;
+        return { entries };
+      });
+      return consumed;
+    },
+
+    markWorktreePromptFailed: (key, expected, error) => {
+      let transitioned = false;
+      set((state) => {
+        const live = state.entries.get(key);
+        if (!live || !live.receipt || live.failedSend !== expected) return state;
+        const entries = new Map(state.entries);
+        entries.set(key, {
+          ...live,
+          state: { phase: 'failed', label: 'Prompt failed to send', error },
+          updatedAt: Date.now(),
+        });
+        transitioned = true;
+        return { entries };
+      });
+      return transitioned;
     },
 
     markNotificationSent: (key) => {

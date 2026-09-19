@@ -19,8 +19,8 @@ import {
   serializeAttachmentsForQueue,
   useInputStore,
 } from "@/sync/input-store";
-import { useWorktreeCreationStore } from "@/stores/useWorktreeCreationStore";
-import { applyPendingWorktreeRestore } from "./composer/submit/worktreeFailedSend";
+import { getWorktreeCreationKey, useWorktreeCreationStore } from "@/stores/useWorktreeCreationStore";
+import { applyPendingWorktreeRestore, describeWorktreeAttachmentLimit, settleWorktreePromptForConsumedLocalCommand, settleWorktreePromptForEmptyDispatch } from "./composer/submit/worktreeFailedSend";
 import {
   ATTACHMENT_ACCEPT,
   getUnsupportedAttachmentInputs,
@@ -848,6 +848,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       toast.error('The runtime changed', {
         description: 'Your failed prompt was kept in Background tasks.',
       });
+    } else if (!result.ok && result.reason === 'attachment-limit') {
+      const copy = describeWorktreeAttachmentLimit({
+        limit: result.limit,
+        currentCount: result.currentCount,
+        missingCount: result.missingCount,
+      });
+      toast.error(copy.title, { description: copy.description });
     } else if (result.reason !== 'dismissed' && result.reason !== 'navigated-away') {
       toast.error('Could not restore the failed prompt', {
         description: 'Your prompt was kept in Background tasks.',
@@ -1240,8 +1247,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // Cards stay until Pi accepts: the failed send never detached,
             // so this only re-makes stashed captured files visible for
             // retry. Newer draft files are preserved (missing ids appended).
+            // Transactional: overflow leaves visible/stash state untouched
+            // and reports counts for actionable copy.
             if (worktreeAttachmentsAtSend) {
-              useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
+              const restored = useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
+              if (!restored.ok) {
+                const copy = describeWorktreeAttachmentLimit({
+                  limit: restored.limit,
+                  currentCount: restored.currentCount,
+                  missingCount: restored.missingCount,
+                });
+                toast.error(copy.title, { description: copy.description });
+              }
             }
           } else {
             toast.error('Worktree creation failed', {
@@ -1251,6 +1268,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           return;
         }
       }
+
+      // Task-owned recovery through prompt acceptance, not just receipt.
+      // The snapshot survives receipt while materialization/dispatch is
+      // pending. Capture the exact generation now; success consumes it so
+      // Background tasks does not linger with a misleading Open action,
+      // while post-receipt failure transitions the same entry to failed
+      // with the snapshot intact. Late results never clear a newer
+      // generation (guarded by exact `failedSend` identity).
+      const worktreeTaskKey = worktreeCreationReceipt
+        ? (draftAtSend.id ?? getWorktreeCreationKey(worktreeIntent))
+        : null;
+      const worktreeFailedSendAtReceipt = worktreeTaskKey
+        ? (useWorktreeCreationStore.getState().getEntryByKey(worktreeTaskKey)?.failedSend ?? null)
+        : null;
 
       const branchIntent =
         !capturedTarget &&
@@ -1347,7 +1378,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       const { primaryAttachments, additionalParts } =
         outgoing;
 
-      if (outgoing.isEmpty) return;
+      if (outgoing.isEmpty) {
+        // Post-receipt empty dispatch never leaves `receipt && failedSend`
+        // lingering: the prompt was not consumed, so transition the same
+        // entry to failed recovery with the snapshot intact for an explicit
+        // Restore draft. Guarded to the exact generation.
+        if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt && worktreeCreationReceipt) {
+          const emptyError = 'Prompt was empty and was not sent.';
+          if (settleWorktreePromptForEmptyDispatch(worktreeTaskKey, worktreeFailedSendAtReceipt, emptyError)) {
+            toast.error('Prompt was empty and was not sent.', {
+              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            });
+          }
+        }
+        return;
+      }
 
       const capturedDraftIsCurrent = (): boolean =>
         !worktreeCreationReceipt ||
@@ -1391,6 +1436,18 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           },
         });
         if (handled) {
+          // A consumed local command must never become a retryable failed
+          // recovery that would execute it twice. Consume the exact worktree
+          // generation and detach only the captured files so newer-draft
+          // files survive; the snapshot is gone, so no Restore draft remains.
+          if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt && worktreeCreationReceipt) {
+            settleWorktreePromptForConsumedLocalCommand(
+              worktreeTaskKey,
+              worktreeFailedSendAtReceipt,
+              worktreeAttachmentsAtSend,
+              attachedFiles,
+            );
+          }
           // A consumed local command still clears the composer.
           if (capturedDraftIsCurrent()) {
             persistDraftImmediately(chatDraftIdentity, "");
@@ -1510,6 +1567,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             // own dispatch; normal sends never clear pending entries.
             useMessageQueueStore.getState().completeQueuedSend(capturedTarget, claimedFollowUp.id);
           }
+          // Prompt acceptance consumes the exact worktree task generation so
+          // Background tasks does not linger with a misleading Open action.
+          // Guarded: a late success never clears a newer generation.
+          if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt) {
+            useWorktreeCreationStore.getState().markWorktreePromptSucceeded(worktreeTaskKey, worktreeFailedSendAtReceipt);
+          }
           if (!queuedOnly && composerAttachmentIds.length > 0)
             detachAttachedFiles(composerAttachmentIds);
           if (!queuedOnly && capturedDraftIsCurrent()) {
@@ -1567,6 +1630,19 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
           console.error("Message send failed:", rawMessage || error);
 
+          // Post-receipt worktree prompt failure: transition the same task
+          // entry into failed-send recovery with its snapshot intact, without
+          // relying on the submitted draft still being current. Guarded to
+          // the exact generation; a late failure never overwrites a newer one.
+          if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt && worktreeCreationReceipt) {
+            const failureMessage = rawMessage || 'Prompt failed to send.';
+            useWorktreeCreationStore.getState().markWorktreePromptFailed(worktreeTaskKey, worktreeFailedSendAtReceipt, failureMessage);
+            toast.error('Prompt failed to send', {
+              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            });
+            return;
+          }
+
           const currentInput =
             composerRef.current?.getValue() ?? messageRef.current;
           if (
@@ -1590,8 +1666,17 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           // Post-receipt prompt failure keeps cards for retry without
           // overwriting a newer draft: only missing captured ids are
           // appended, and only while the submitted draft is still current.
+          // Transactional: overflow leaves state untouched with actionable copy.
           if (submittedDraftIsCurrent() && worktreeAttachmentsAtSend) {
-            useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
+            const restored = useInputStore.getState().restoreAttachmentsForRetry(worktreeAttachmentsAtSend);
+            if (!restored.ok) {
+              const copy = describeWorktreeAttachmentLimit({
+                limit: restored.limit,
+                currentCount: restored.currentCount,
+                missingCount: restored.missingCount,
+              });
+              toast.error(copy.title, { description: copy.description });
+            }
           }
 
           const isSoftNetworkError =

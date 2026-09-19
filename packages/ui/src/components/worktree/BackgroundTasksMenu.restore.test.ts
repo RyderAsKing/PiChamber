@@ -21,3 +21,14 @@ test('each Restore draft button has a task-identifying accessible name with unch
   // The button children (visible copy) must remain exactly "Restore draft".
   expect(source).toContain('Restore draft');
 });
+
+test('prompt-dispatch-pending rows count as active so the header never reports zero while Sending prompt spins', () => {
+  // A prompt-dispatch-pending entry (receipt && failedSend && !state) has no
+  // lifecycle state, so a state-only active count would report `0 worktrees
+  // are being created` while its row still spins as `Sending prompt...`.
+  expect(source).toContain('isWorktreePromptPending');
+  expect(source).toContain('isWorktreePromptPending(entry)');
+  // Singular/plural header copy is preserved.
+  expect(source).toContain('1 worktree is being created');
+  expect(source).toContain('worktrees are being created');
+});

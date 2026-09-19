@@ -418,4 +418,108 @@ describe('failed worktree send restore', () => {
     useInputStore.getState().resetForRuntimeSwitch();
     expect(useInputStore.getState().pendingWorktreeRestore).toBeNull();
   });
+
+  test('explicit restore overflow keeps the record and reports counts', async () => {
+    // Different-directory restore activates the target draft first: seed the
+    // target stash so the post-activate visible list overflows on append.
+    const targetKey = JSON.stringify([getRuntimeKey(), '/repo', null]);
+    const crowdedTarget = Array.from({ length: 19 }, (_, index) => readyFile(`v${index}`));
+    useInputStore.setState({
+      attachedFiles: [],
+      stashedAttachmentsByDraft: { [targetKey]: crowdedTarget },
+      activeAttachmentsDraftKey: JSON.stringify([getRuntimeKey(), '/other', null]),
+    });
+    await failTaskWith('draft-overflow', {
+      prompt: 'overflow prompt',
+      confirmedMentions: [],
+      attachments: [readyFile('a'), readyFile('b')],
+    });
+
+    const result = restoreWorktreeFailedSend('draft-overflow');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.reason === 'attachment-limit') {
+      expect(result.limit).toBe(20);
+      expect(result.currentCount).toBe(19);
+      expect(result.missingCount).toBe(2);
+    } else {
+      throw new Error('expected attachment-limit overflow');
+    }
+    expect(useInputStore.getState().attachedFiles.map((file) => file.id).sort()).toEqual(
+      crowdedTarget.map((file) => file.id).sort(),
+    );
+    expect(useWorktreeCreationStore.getState().getEntryByKey('draft-overflow')?.failedSend?.prompt).toBe(
+      'overflow prompt',
+    );
+  });
+
+  test('exact limit restore succeeds and consumes the record', async () => {
+    const targetKey = JSON.stringify([getRuntimeKey(), '/repo', null]);
+    const nearFullTarget = Array.from({ length: 18 }, (_, index) => readyFile(`v${index}`));
+    useInputStore.setState({
+      attachedFiles: [],
+      stashedAttachmentsByDraft: { [targetKey]: nearFullTarget },
+      activeAttachmentsDraftKey: JSON.stringify([getRuntimeKey(), '/other', null]),
+    });
+    await failTaskWith('draft-exact-limit', {
+      prompt: 'exact prompt',
+      confirmedMentions: [],
+      attachments: [readyFile('a'), readyFile('b')],
+    });
+
+    const result = restoreWorktreeFailedSend('draft-exact-limit');
+    expect(result.ok).toBe(true);
+    expect(useInputStore.getState().attachedFiles).toHaveLength(20);
+    expect(useWorktreeCreationStore.getState().getEntryByKey('draft-exact-limit')).toBeNull();
+  });
+
+  test('deferred restore overflow keeps the record for retry', async () => {
+    mockCurrentDirectory = '/repo';
+    mockNewSessionDirectory = '/repo';
+    useInputStore.setState({
+      attachedFiles: [],
+      activeAttachmentsDraftKey: JSON.stringify([getRuntimeKey(), '/repo', null]),
+    });
+    await failTaskWith('draft-deferred-overflow', {
+      prompt: 'deferred overflow',
+      confirmedMentions: [],
+      attachments: [readyFile('a'), readyFile('b')],
+    });
+    expect(restoreWorktreeFailedSend('draft-deferred-overflow')).toEqual({ ok: true, reason: 'pending' });
+    const pending = useInputStore.getState().pendingWorktreeRestore;
+    expect(pending?.prompt).toBe('deferred overflow');
+
+    const crowded = Array.from({ length: 19 }, (_, index) => readyFile(`v${index}`));
+    useInputStore.setState({ attachedFiles: crowded });
+    const beforeVisible = [...useInputStore.getState().attachedFiles];
+
+    const result = applyPendingWorktreeRestore(pending!, '');
+    expect(result.ok).toBe(false);
+    if (!result.ok && result.reason === 'attachment-limit') {
+      expect(result.limit).toBe(20);
+      expect(result.currentCount).toBe(19);
+      expect(result.missingCount).toBe(2);
+    } else {
+      throw new Error('expected attachment-limit overflow');
+    }
+    expect(useInputStore.getState().attachedFiles).toEqual(beforeVisible);
+    expect(
+      useWorktreeCreationStore.getState().getEntryByKey('draft-deferred-overflow')?.failedSend?.prompt,
+    ).toBe('deferred overflow');
+  });
+
+  test('expired upload ids stay refreshable through explicit restore', async () => {
+    const expired = readyFile('expired');
+    (expired.uploadState as { expiresAt: number }).expiresAt = Date.now() - 1_000;
+    await failTaskWith('draft-expired', {
+      prompt: 'expired prompt',
+      confirmedMentions: [],
+      attachments: [expired],
+    });
+
+    expect(restoreWorktreeFailedSend('draft-expired').ok).toBe(true);
+    const restored = useInputStore.getState().attachedFiles.find((file) => file.id === 'expired');
+    expect(restored?.previewUrl).toBeUndefined();
+    expect(restored?.dataUrl.startsWith('data:')).toBe(true);
+    expect(restored?.uploadState).toMatchObject({ status: 'ready', attachmentId: 'opaque-expired' });
+  });
 });
