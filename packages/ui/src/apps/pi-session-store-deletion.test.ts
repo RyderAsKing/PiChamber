@@ -357,23 +357,42 @@ describe('session deletion propagation', () => {
     });
   });
 
-  test('an accepted 404 detail commits deletion without depending on an echo', async () => {
+  test('an accepted 404 detail commits normal deletion cleanup and navigates away', async () => {
+    await withStore({
+      getSession: async (id: string) => {
+        if (id === 's1') throw new PiRequestError('INVALID_SESSION', 'missing');
+        return detail(id);
+      },
+    }, async (store) => {
+      seed(store, { sessions: ['s1', 's2'], selectedSessionId: 's1' });
+      await store.ensureHydrated('s1');
+      expect(await waitFor(() => store.getState().selectedSessionId === 's2')).toBe(true);
+      expect(await waitFor(() => store.getState().reducer.bySession.has('s2'))).toBe(true);
+
+      expect(store.isDeleted('s1')).toBe(true);
+      expect(store.getState().catalog.byId.has('s1')).toBe(false);
+      expect(store.getState().reducer.bySession.has('s1')).toBe(false);
+      // Normal deletion navigation: the missing id does not stay selected
+      // and no error page is retained; selection falls through to the next
+      // active session.
+      expect(store.getState().sessionLoadErrorById.has('s1')).toBe(false);
+      expect(store.getState().focusPending).toBe(false);
+    });
+  });
+
+  test('an accepted 404 for the last session clears selection', async () => {
     await withStore({
       getSession: async () => {
         throw new PiRequestError('INVALID_SESSION', 'missing');
       },
     }, async (store) => {
-      seed(store, { sessions: ['s1'] });
+      seed(store, { sessions: ['s1'], selectedSessionId: 's1' });
       await store.ensureHydrated('s1');
 
       expect(store.isDeleted('s1')).toBe(true);
-      expect(store.getState().catalog.byId.has('s1')).toBe(false);
-      expect(store.getState().reducer.bySession.has('s1')).toBe(false);
-      // The failed id stays selected (documented INVALID_SESSION behavior)
-      // so the chat surfaces its load error instead of jumping elsewhere.
-      expect(store.getState().selectedSessionId).toBe('s1');
-      // The per-session load error still surfaces for the chat surface.
-      expect(store.getState().sessionLoadErrorById.has('s1')).toBe(true);
+      expect(store.getState().selectedSessionId).toBeNull();
+      expect(store.getState().sessionLoadErrorById.has('s1')).toBe(false);
+      expect(store.getState().sessions).toEqual([]);
     });
   });
 
@@ -523,6 +542,78 @@ describe('session deletion propagation', () => {
       expect(store.getState().selectedSessionId).toBe('active');
       expect(store.getState().sessions.map((item) => item.session.id)).toEqual(['active']);
       expect(store.getState().catalog.byId.has('deleted')).toBe(false);
+    });
+  });
+
+  test('a focusProject preferred id that is authoritatively missing falls through without retaining it', async () => {
+    await withStore({
+      listSessions: async () => ({ sessions: [listItem('active', '/repo-b')] }),
+      getSession: async (id: string) => {
+        if (id === 'missing') throw new PiRequestError('INVALID_SESSION', 'missing');
+        return detail(id, '/repo-b');
+      },
+    }, async (store) => {
+      seed(store, { sessions: ['other'], selectedSessionId: 'other' });
+
+      await store.focusProject('/repo-b', 'missing');
+
+      expect(store.isDeleted('missing')).toBe(true);
+      expect(store.getState().selectedSessionId).toBe('active');
+      expect(store.getState().sessions.map((item) => item.session.id)).toContain('active');
+      expect(store.getState().sessions.map((item) => item.session.id)).not.toContain('missing');
+      expect(store.getState().sessionLoadErrorById.has('missing')).toBe(false);
+    });
+  });
+
+  test('a focusProject preferred id with a transient lookup failure stays selected with a load error', async () => {
+    await withStore({
+      listSessions: async () => ({ sessions: [listItem('active', '/repo-b')] }),
+      getSession: async (id: string) => {
+        if (id === 'leased') throw new PiRequestError('SESSION_IN_USE', 'in use');
+        return detail(id, '/repo-b');
+      },
+    }, async (store) => {
+      seed(store, { sessions: ['other'], selectedSessionId: 'other' });
+
+      await store.focusProject('/repo-b', 'leased');
+
+      expect(store.isDeleted('leased')).toBe(false);
+      expect(store.getState().selectedSessionId).toBe('leased');
+      expect(store.getState().sessionLoadErrorById.get('leased')?.code).toBe('SESSION_IN_USE');
+    });
+  });
+
+  test('bootstrap INVALID_SESSION replays buffered live events for survivors in order', async () => {
+    await withStore({
+      getSession: async (id: string) => detail(id, '/repo-a'),
+    }, async (store) => {
+      seed(store, { sessions: ['missing', 'alive'], selectedSessionId: 'missing' });
+      const inner = store as unknown as {
+        handleInvalidSession: (id: string, dir: string | undefined, exp: number, buf: PiSessionEvent[]) => void;
+        runtimeGeneration: number;
+      };
+      // Buffered live events collected while attaching the stream: one
+      // unrelated survivor plus one for the missing session itself.
+      const buffered: PiSessionEvent[] = [
+        lifecycleEvent('alive', '/repo-a', 1),
+        lifecycleEvent('missing', '/repo-a', 1),
+      ];
+      inner.handleInvalidSession('missing', '/repo-a', inner.runtimeGeneration, buffered);
+
+      // Missing session uses normal deletion navigation, not an error page.
+      expect(store.isDeleted('missing')).toBe(true);
+      expect(store.getState().selectedSessionId).toBe('alive');
+      expect(store.getState().sessionLoadErrorById.has('missing')).toBe(false);
+      // Unrelated buffered event survived in order.
+      expect(store.getState().reducer.bySession.get('alive')?.lifecycle).toBe('busy');
+      expect(store.getState().catalog.byId.get('alive')?.lifecycle).toBe('busy');
+      // Tombstone safety: the missing session did not resurrect.
+      expect(store.getState().reducer.bySession.has('missing')).toBe(false);
+      expect(store.getState().catalog.byId.has('missing')).toBe(false);
+      // Background hydrate for the cold next session cannot steal selection.
+      expect(await waitFor(() => store.getState().hydratedSessionIds.has('alive'))).toBe(true);
+      expect(store.getState().selectedSessionId).toBe('alive');
+      expect(store.getState().reducer.bySession.get('alive')?.lifecycle).toBe('busy');
     });
   });
 
