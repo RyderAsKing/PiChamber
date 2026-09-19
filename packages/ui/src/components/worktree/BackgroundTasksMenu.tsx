@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/components/ui';
 import {
   canOfferCompletedWorktreeActions,
-  describeWorktreeAttachmentLimit,
+  describeWorktreeRestoreFailure,
   isWorktreePromptPending,
   isWorktreeTaskCompleted,
   restoreWorktreeFailedSend,
@@ -179,29 +179,8 @@ const BackgroundTaskRow: React.FC<{
               aria-label={`Restore draft for ${entry.intent.sourceDirectory} from ${entry.intent.startRef} (task ${shortWorktreeTaskId(entry.key)})`}
               onClick={() => {
                 const result = restoreWorktreeFailedSend(entry.key);
-                if (result.ok) {
-                  return;
-                }
-                if (result.reason === 'runtime-mismatch') {
-                  toast.error('The runtime changed', {
-                    description: 'Your failed prompt was kept in Background tasks.',
-                  });
-                } else if (result.reason === 'target-occupied') {
-                  toast.error('Draft already has content', {
-                    description: 'Your failed prompt was kept in Background tasks.',
-                  });
-                } else if (!result.ok && result.reason === 'attachment-limit') {
-                  const copy = describeWorktreeAttachmentLimit({
-                    limit: result.limit,
-                    currentCount: result.currentCount,
-                    missingCount: result.missingCount,
-                  });
-                  toast.error(copy.title, { description: copy.description });
-                } else if (result.reason !== 'missing') {
-                  toast.error('Could not restore the failed prompt', {
-                    description: 'Your prompt was kept in Background tasks.',
-                  });
-                }
+                const copy = describeWorktreeRestoreFailure(result, 'background-task');
+                if (copy) toast.error(copy.title, { description: copy.description });
               }}
             >
               Restore draft

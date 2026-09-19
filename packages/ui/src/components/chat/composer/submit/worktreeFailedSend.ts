@@ -33,6 +33,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useWorktreeCreationStore, type WorktreeCreationEntry, type WorktreeFailedSend } from '@/stores/useWorktreeCreationStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { cloneAttachmentSnapshot } from '@/sync/attachment-snapshots';
 import { useInputStore, type PendingWorktreeRestore } from '@/sync/input-store';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import { worktreeSendAttachmentIds } from './worktreeAttachments';
@@ -69,6 +70,45 @@ export const describeWorktreeAttachmentLimit = (args: {
     title: 'Too many attachments to restore',
     description: `Remove ${toRemove} ${fileWord(toRemove)} to restore ${args.missingCount} ${fileWord(args.missingCount)}. You can attach up to ${args.limit} files to one message.`,
   };
+};
+
+type WorktreeRestoreErrorCopy = {
+  title: string;
+  description: string;
+};
+
+/** Maps restore outcomes to the copy shown by each recovery entrypoint. */
+export const describeWorktreeRestoreFailure = (
+  result: WorktreeRestoreResult,
+  entrypoint: 'background-task' | 'pending-composer',
+): WorktreeRestoreErrorCopy | null => {
+  if (result.ok) return null;
+  if (result.reason === 'runtime-mismatch') {
+    return {
+      title: 'The runtime changed',
+      description: 'Your failed prompt was kept in Background tasks.',
+    };
+  }
+  if (result.reason === 'target-occupied') {
+    return {
+      title: 'Draft already has content',
+      description: entrypoint === 'pending-composer'
+        ? 'Your restored prompt was kept in Background tasks.'
+        : 'Your failed prompt was kept in Background tasks.',
+    };
+  }
+  if (result.reason === 'attachment-limit') {
+    return describeWorktreeAttachmentLimit(result);
+  }
+  const silent = entrypoint === 'background-task'
+    ? result.reason === 'missing'
+    : result.reason === 'dismissed' || result.reason === 'navigated-away';
+  return silent
+    ? null
+    : {
+        title: 'Could not restore the failed prompt',
+        description: 'Your prompt was kept in Background tasks.',
+      };
 };
 
 const resolveCurrentDraftKey = (): string | null => {
@@ -142,11 +182,7 @@ export const restoreWorktreeFailedSend = (entryKey: string): WorktreeRestoreResu
       prompt: failedSend.prompt,
       confirmedMentions: [...failedSend.confirmedMentions],
       targetKey,
-      attachments: failedSend.attachments.map((file) => ({
-        ...file,
-        previewUrl: undefined,
-        uploadState: file.uploadState ? ({ ...file.uploadState } as typeof file.uploadState) : file.uploadState,
-      })),
+      attachments: failedSend.attachments.map(cloneAttachmentSnapshot),
       expectedFailedSend: failedSend,
     };
     try {

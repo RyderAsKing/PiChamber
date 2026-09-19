@@ -22,6 +22,21 @@ test('worktree send captures attachments before the creation await', () => {
   expect(awaitAt).toBeGreaterThan(captureAt);
 });
 
+test('queueing a worktree send removes its captured attachment cards immediately', () => {
+  const requestAt = source.indexOf('const worktreeRequest = draftWorktreeCreation.request({');
+  const queuedAt = source.indexOf("toast.info('Worktree queued'", requestAt);
+  const awaitAt = source.indexOf('await worktreeRequest', requestAt);
+  const detachAt = source.indexOf(
+    'detachAttachedFiles(worktreeAttachmentsAtSend.map((file) => file.id))',
+    requestAt,
+  );
+
+  expect(requestAt).toBeGreaterThan(-1);
+  expect(detachAt).toBeGreaterThan(requestAt);
+  expect(detachAt).toBeLessThan(queuedAt);
+  expect(detachAt).toBeLessThan(awaitAt);
+});
+
 test('post-await worktree dispatch and detach use the captured snapshot, not live draft state', () => {
   expect(source).toContain('resolveWorktreeSendAttachments(');
   expect(source).toContain('worktreeSendAttachmentIds(');
@@ -79,14 +94,13 @@ test('post-receipt prompt failure transitions the same task without relying on d
   expect(legacyRestoreAt).toBeGreaterThan(failureAt);
 });
 
-test('attachment recovery is transactional with actionable limit copy', () => {
+test('attachment recovery is transactional with shared actionable copy', () => {
   expect(source).toContain('describeWorktreeAttachmentLimit');
-  // Every restore call must observe the typed result; overflow never silently
-  // drops files in legacy fallback paths. The concise actionable copy lives
-  // with the recovery owner (`worktreeFailedSend`) and is reused by the menu.
+  expect(source).toContain("describeWorktreeRestoreFailure(result, 'pending-composer')");
+  // Every legacy restore call must observe the typed result; overflow never
+  // silently drops files when task-owned recovery is unavailable.
   expect(source).toContain('restoreAttachmentsForRetry(worktreeAttachmentsAtSend)');
   expect(source).toContain('if (!restored.ok)');
-  expect(source).toContain('attachment-limit');
 });
 
 test('worktree send retains the failed prompt in task state instead of dropping it after draft rotation', () => {

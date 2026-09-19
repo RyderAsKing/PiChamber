@@ -20,7 +20,13 @@ import {
   useInputStore,
 } from "@/sync/input-store";
 import { getWorktreeCreationKey, useWorktreeCreationStore } from "@/stores/useWorktreeCreationStore";
-import { applyPendingWorktreeRestore, describeWorktreeAttachmentLimit, settleWorktreePromptForConsumedLocalCommand, settleWorktreePromptForEmptyDispatch } from "./composer/submit/worktreeFailedSend";
+import {
+  applyPendingWorktreeRestore,
+  describeWorktreeAttachmentLimit,
+  describeWorktreeRestoreFailure,
+  settleWorktreePromptForConsumedLocalCommand,
+  settleWorktreePromptForEmptyDispatch,
+} from "./composer/submit/worktreeFailedSend";
 import {
   getUnsupportedAttachmentInputs,
   type AttachmentInputModality,
@@ -838,25 +844,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       setTimeout(() => {
         composerRef.current?.focus();
       }, 0);
-    } else if (result.reason === 'target-occupied') {
-      toast.error('Draft already has content', {
-        description: 'Your restored prompt was kept in Background tasks.',
-      });
-    } else if (result.reason === 'runtime-mismatch') {
-      toast.error('The runtime changed', {
-        description: 'Your failed prompt was kept in Background tasks.',
-      });
-    } else if (!result.ok && result.reason === 'attachment-limit') {
-      const copy = describeWorktreeAttachmentLimit({
-        limit: result.limit,
-        currentCount: result.currentCount,
-        missingCount: result.missingCount,
-      });
-      toast.error(copy.title, { description: copy.description });
-    } else if (result.reason !== 'dismissed' && result.reason !== 'navigated-away') {
-      toast.error('Could not restore the failed prompt', {
-        description: 'Your prompt was kept in Background tasks.',
-      });
+    } else {
+      const copy = describeWorktreeRestoreFailure(result, 'pending-composer');
+      if (copy) toast.error(copy.title, { description: copy.description });
     }
   }, [pendingWorktreeRestore, consumePendingWorktreeRestore, closeAutocomplete]);
 
@@ -1218,6 +1208,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             attachments: worktreeAttachmentsAtSend ?? [],
           },
         });
+        // The task now owns the immutable attachment snapshot. Remove only
+        // those cards from the composer before showing the queued state;
+        // retained bytes and upload IDs remain available for dispatch or an
+        // explicit failed-task restore.
+        if (worktreeAttachmentsAtSend && worktreeAttachmentsAtSend.length > 0) {
+          detachAttachedFiles(worktreeAttachmentsAtSend.map((file) => file.id));
+        }
         // The worktree builds in Background tasks while the composer resets
         // to a fresh draft, so the user can keep creating sessions. The
         // captured draft, prompt, and send configuration travel with the
@@ -1249,9 +1246,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               inputSnapshot.message,
               confirmedMentionsAtSend ?? [],
             );
-            // Cards stay until Pi accepts: the failed send never detached,
-            // so this only re-makes stashed captured files visible for
-            // retry. Newer draft files are preserved (missing ids appended).
+            // The queued task detached its cards after capturing them, so
+            // this re-adds only missing captured files for retry. Newer draft
+            // files are preserved.
             // Transactional: overflow leaves visible/stash state untouched
             // and reports counts for actionable copy.
             if (worktreeAttachmentsAtSend) {
@@ -1403,9 +1400,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         !worktreeCreationReceipt ||
         submittedDraftIsCurrent();
       if (!queuedOnly && capturedDraftIsCurrent()) {
-        // The composer keeps showing the sent text and attachments until
-        // prompt dispatch settles: success clears both (see below) and
-        // failure keeps both for retry. Only navigation state collapses.
+        // A normal composer send keeps its text and attachments until prompt
+        // dispatch settles: success clears both (see below) and failure keeps
+        // both for retry. Worktree sends already transferred both to the task.
+        // Only navigation state collapses.
         messageHistory.reset();
         setExpandedInput(false);
       }
@@ -1668,7 +1666,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               confirmedMentionsAtSend ?? confirmedMentionsRef.current,
             );
           }
-          // Post-receipt prompt failure keeps cards for retry without
+          // Legacy worktree failure recovery restores detached cards without
           // overwriting a newer draft: only missing captured ids are
           // appended, and only while the submitted draft is still current.
           // Transactional: overflow leaves state untouched with actionable copy.

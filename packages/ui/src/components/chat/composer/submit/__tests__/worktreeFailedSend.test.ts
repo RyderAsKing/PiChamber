@@ -39,9 +39,11 @@ mock.module('@/sync/session-ui-store', () => ({
 
 const { useWorktreeCreationStore } = await import('@/stores/useWorktreeCreationStore');
 const { useInputStore } = await import('@/sync/input-store');
-const { restoreWorktreeFailedSend, applyPendingWorktreeRestore } = await import(
-  '../worktreeFailedSend'
-);
+const {
+  applyPendingWorktreeRestore,
+  describeWorktreeRestoreFailure,
+  restoreWorktreeFailedSend,
+} = await import('../worktreeFailedSend');
 const { readChatDraft, writeChatDraft, createChatDraftIdentity } = await import(
   '@/lib/chatDraftPersistence'
 );
@@ -106,6 +108,45 @@ const failTaskWith = async (
     }),
   ).rejects.toThrow('disk full');
 };
+
+describe('worktree restore failure copy', () => {
+  test('keeps entrypoint-specific occupied-draft wording in one mapper', () => {
+    const result = { ok: false as const, reason: 'target-occupied' as const };
+
+    expect(describeWorktreeRestoreFailure(result, 'background-task')).toEqual({
+      title: 'Draft already has content',
+      description: 'Your failed prompt was kept in Background tasks.',
+    });
+    expect(describeWorktreeRestoreFailure(result, 'pending-composer')).toEqual({
+      title: 'Draft already has content',
+      description: 'Your restored prompt was kept in Background tasks.',
+    });
+  });
+
+  test('preserves each entrypoint silent outcomes', () => {
+    expect(describeWorktreeRestoreFailure(
+      { ok: false, reason: 'missing' },
+      'background-task',
+    )).toBeNull();
+    expect(describeWorktreeRestoreFailure(
+      { ok: false, reason: 'navigated-away' },
+      'pending-composer',
+    )).toBeNull();
+  });
+
+  test('formats attachment overflow through the shared mapper', () => {
+    expect(describeWorktreeRestoreFailure({
+      ok: false,
+      reason: 'attachment-limit',
+      limit: 20,
+      currentCount: 19,
+      missingCount: 2,
+    }, 'background-task')).toEqual({
+      title: 'Too many attachments to restore',
+      description: 'Remove 1 file to restore 2 files. You can attach up to 20 files to one message.',
+    });
+  });
+});
 
 describe('failed worktree send restore', () => {
   beforeEach(() => {
