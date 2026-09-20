@@ -91,6 +91,29 @@ export function useProvidersPageState() {
     }
   }, [refreshingCatalog]);
 
+  const refreshAfterModelAdd = React.useCallback(async (deferred?: boolean) => {
+    // When runtime recreation is deferred, the old live catalog does not yet
+    // include the new model. Refreshing now would repaint the stale list, so
+    // skip until the idle-edge recreation publishes the new catalog.
+    if (deferred) return;
+    const scope = providerScope();
+    try {
+      const { providers: result } = await piClient.listProviders(scope);
+      if (scope.runtimeKey !== getRuntimeKey()) return;
+      setProviders(result);
+      setFailed(false);
+      const configStore = useConfigStore.getState();
+      configStore.invalidateProviderCache();
+      void configStore.loadProviders({ source: 'providersPage:addModel' });
+      window.dispatchEvent(new CustomEvent('pichamber:providers-refreshed', { detail: result }));
+    } catch {
+      if (scope.runtimeKey !== getRuntimeKey()) return;
+      // Preserve the prior authoritative list; a post-save refresh failure is
+      // toast-only and never becomes a page-level provider failure.
+      toast.error('Model added, but providers could not be refreshed');
+    }
+  }, []);
+
   React.useEffect(() => {
     let active = true;
     void refresh().catch(() => {
@@ -276,11 +299,11 @@ export function useProvidersPageState() {
           providerId: plan.providerID,
           label: plan.name,
           baseUrl: plan.config.options.baseURL,
-          api: 'openai-completions',
-          models: Object.entries(plan.config.models).map(([id, model]) => ({
-            id,
+          api: plan.config.api,
+          models: Object.values(plan.config.models).map((model) => ({
+            ...model,
             providerId: plan.providerID,
-            label: model.name,
+            ...(model.name ? { label: model.name } : {}),
           })),
           ...(plan.config.options.headers ? { headers: plan.config.options.headers } : {}),
           ...(plan.config.env?.[0] ? { apiKeyReference: `{env:${plan.config.env[0]}}` } : {}),
@@ -406,6 +429,7 @@ export function useProvidersPageState() {
     refresh,
     refreshProviders,
     refreshCatalog,
+    refreshAfterModelAdd,
     provider,
     providerId,
     sortedProviders,

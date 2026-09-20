@@ -1,18 +1,35 @@
 /**
- * Custom / Other OpenAI-compatible provider form helpers.
- * Validates and constructs Pi-native custom-provider requests so a provider
- * can be defined from Settings without code changes.
+ * Custom provider form helpers. Validates and constructs Pi-native provider
+ * requests so providers and their models can be defined from Settings.
  */
+
+import {
+  validateAddProviderModel,
+  type AddProviderModelFieldErrors,
+  type AddProviderModelFormInput,
+  type AddProviderModelPayload,
+} from './add-provider-model';
 
 export const CUSTOM_PROVIDER_NPM = '@ai-sdk/openai-compatible';
 export const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-_]*$/;
 export const BASE_URL_PATTERN = /^https?:\/\//;
 export const ENV_KEY_PATTERN = /^\{env:([^}]+)\}$/;
 
-export type ModelRow = {
+export const CUSTOM_PROVIDER_APIS = [
+  'openai-completions',
+  'openai-responses',
+  'anthropic-messages',
+  'google-generative-ai',
+] as const;
+export type CustomProviderApi = typeof CUSTOM_PROVIDER_APIS[number];
+
+export function isCustomProviderApi(value: string): value is CustomProviderApi {
+  return CUSTOM_PROVIDER_APIS.some((api) => api === value);
+}
+
+export type ModelRow = AddProviderModelFormInput & {
   row: string;
-  id: string;
-  name: string;
+  advancedOpen: boolean;
 };
 
 export type HeaderRow = {
@@ -25,6 +42,7 @@ export type CustomProviderFormState = {
   providerID: string;
   name: string;
   baseURL: string;
+  api: CustomProviderApi;
   apiKey: string;
   models: ModelRow[];
   headers: HeaderRow[];
@@ -37,10 +55,7 @@ export type FieldErrors = {
   apiKey?: string;
 };
 
-export type ModelFieldErrors = {
-  id?: string;
-  name?: string;
-};
+export type ModelFieldErrors = AddProviderModelFieldErrors;
 
 export type HeaderFieldErrors = {
   key?: string;
@@ -50,12 +65,13 @@ export type HeaderFieldErrors = {
 export type CustomProviderConfig = {
   npm: typeof CUSTOM_PROVIDER_NPM;
   name: string;
+  api: CustomProviderApi;
   env?: string[];
   options: {
     baseURL: string;
     headers?: Record<string, string>;
   };
-  models: Record<string, { name: string }>;
+  models: Record<string, AddProviderModelPayload>;
 };
 
 export type CustomProviderPersistPlan = {
@@ -91,7 +107,17 @@ export type ProviderLikeForCustomForm = {
   name?: string;
   env?: string[];
   options?: Record<string, unknown> | null;
-  models?: Array<{ id?: string; name?: string; api?: { npm?: string } }> | Record<string, unknown>;
+  api?: string;
+  models?: Array<{
+    id?: string;
+    name?: string;
+    contextWindow?: number;
+    maxTokens?: number;
+    reasoning?: boolean;
+    supportsThinking?: boolean;
+    thinkingLevelMap?: Record<string, string | null>;
+    input?: Array<'text' | 'image'>;
+  }> | Record<string, unknown>;
 };
 
 let rowCounter = 0;
@@ -100,8 +126,15 @@ const nextRow = (): string => `row-${rowCounter++}`;
 
 export const createModelRow = (): ModelRow => ({
   row: nextRow(),
-  id: '',
-  name: '',
+  advancedOpen: false,
+  modelId: '',
+  displayName: '',
+  contextWindowText: '',
+  maxTokensText: '',
+  inputText: false,
+  inputImage: false,
+  supportsThinking: false,
+  thinkingLevelMapText: '',
 });
 
 export const createHeaderRow = (): HeaderRow => ({
@@ -114,6 +147,7 @@ export const createEmptyCustomProviderForm = (): CustomProviderFormState => ({
   providerID: '',
   name: '',
   baseURL: '',
+  api: 'openai-completions',
   apiKey: '',
   models: [createModelRow()],
   headers: [createHeaderRow()],
@@ -221,9 +255,20 @@ export function providerToCustomFormState(provider: ProviderLikeForCustomForm): 
 
   const models = modelEntries.length > 0
     ? modelEntries.map((model) => ({
-        row: nextRow(),
-        id: typeof model?.id === 'string' ? model.id : '',
-        name: typeof model?.name === 'string' ? model.name : (typeof model?.id === 'string' ? model.id : ''),
+        ...createModelRow(),
+        modelId: typeof model?.id === 'string' ? model.id : '',
+        displayName: typeof model?.name === 'string' ? model.name : '',
+        contextWindowText: model && 'contextWindow' in model && typeof model.contextWindow === 'number' ? String(model.contextWindow) : '',
+        maxTokensText: model && 'maxTokens' in model && typeof model.maxTokens === 'number' ? String(model.maxTokens) : '',
+        inputText: Boolean(model && 'input' in model && Array.isArray(model.input) && model.input.includes('text')),
+        inputImage: Boolean(model && 'input' in model && Array.isArray(model.input) && model.input.includes('image')),
+        supportsThinking: Boolean(model && (
+          ('supportsThinking' in model && model.supportsThinking === true)
+          || ('reasoning' in model && model.reasoning === true)
+        )),
+        thinkingLevelMapText: model && 'thinkingLevelMap' in model && model.thinkingLevelMap
+          ? Object.values(model.thinkingLevelMap).filter((value): value is string => typeof value === 'string').join('\n')
+          : '',
       }))
     : [createModelRow()];
 
@@ -231,10 +276,15 @@ export function providerToCustomFormState(provider: ProviderLikeForCustomForm): 
     ? provider.env.find((entry) => typeof entry === 'string' && entry.trim().length > 0)?.trim()
     : undefined;
 
+  const api = typeof provider.api === 'string' && isCustomProviderApi(provider.api)
+    ? provider.api
+    : 'openai-completions';
+
   return {
     providerID: provider.id,
     name: typeof provider.name === 'string' && provider.name.trim() ? provider.name : provider.id,
     baseURL,
+    api,
     apiKey: envName ? `{env:${envName}}` : '',
     models,
     headers: headerRows.length > 0 ? headerRows : [createHeaderRow()],
@@ -282,25 +332,20 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
       : undefined;
 
   const seenModels = new Set<string>();
-  const modelErrors = input.form.models.map((model) => {
-    const id = model.id.trim();
-    const modelIdError = !id
-      ? "Required"
-      : seenModels.has(id)
-        ? "Duplicate"
-        : (() => {
-            seenModels.add(id);
-            return undefined;
-          })();
-    const modelNameError = !model.name.trim()
-      ? "Required"
-      : undefined;
-    return { id: modelIdError, name: modelNameError };
+  const validatedModels = input.form.models.map((model) => {
+    const validated = validateAddProviderModel(model);
+    const id = model.modelId.trim();
+    if (id && seenModels.has(id)) {
+      validated.errors.modelId = 'Duplicate';
+    } else if (id) {
+      seenModels.add(id);
+    }
+    return validated;
   });
-
-  const modelsValid = modelErrors.every((entry) => !entry.id && !entry.name);
+  const modelErrors = validatedModels.map((entry) => entry.errors);
+  const modelsValid = validatedModels.every((entry) => entry.result !== undefined);
   const modelConfig = Object.fromEntries(
-    input.form.models.map((model) => [model.id.trim(), { name: model.name.trim() }]),
+    validatedModels.flatMap((entry) => entry.result ? [[entry.result.id, entry.result]] : []),
   );
 
   const seenHeaders = new Set<string>();
@@ -355,6 +400,7 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
       config: {
         npm: CUSTOM_PROVIDER_NPM,
         name,
+        api: input.form.api,
         ...(env ? { env: [env] } : {}),
         options: {
           baseURL,

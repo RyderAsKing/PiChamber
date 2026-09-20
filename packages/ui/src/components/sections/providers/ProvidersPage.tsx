@@ -1,6 +1,7 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
 import { CustomProviderForm } from '@/components/sections/providers/CustomProviderForm';
+import { AddProviderModelDialog } from '@/components/sections/providers/AddProviderModelDialog';
 import { ProviderCard, ProviderCardSkeleton } from '@/components/sections/providers/ProviderCard';
 import {
   SettingsFieldRow,
@@ -50,6 +51,7 @@ export const ProvidersPage: React.FC = () => {
     setVisibleCap,
     refreshProviders,
     refreshCatalog,
+    refreshAfterModelAdd,
     provider,
     filteredProviders,
     displayModels,
@@ -61,6 +63,7 @@ export const ProvidersPage: React.FC = () => {
     handleThinkingChange,
     handleToggleHidden,
   } = useProvidersPageState();
+  const [addModelOpen, setAddModelOpen] = React.useState(false);
 
   if (failed && !providers) {
     return (
@@ -84,6 +87,7 @@ export const ProvidersPage: React.FC = () => {
           id: editableConfig.providerId,
           name: editableConfig.label,
           options: { baseURL: editableConfig.baseUrl },
+          api: editableConfig.api,
           models: editableConfig.models,
         })
       : undefined;
@@ -184,7 +188,17 @@ export const ProvidersPage: React.FC = () => {
         <SettingsSection
           title="Available Models"
           settingsItem="providers.models"
-          info="Hidden models stay out of the composer and session default pickers. Thinking defaults apply to new sessions and composer model changes."
+          titleAccessory={
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setAddModelOpen(true)}
+              aria-label={`Add model to ${provider.label}`}
+              title={`Add model to ${provider.label}`}
+            >
+              <Icon name="add" className="size-4" />
+            </Button>
+          }
           headerAction={
             <div className="flex items-center gap-1">
               <Button
@@ -259,6 +273,13 @@ export const ProvidersPage: React.FC = () => {
             ) : null}
           </div>
         </SettingsSection>
+        <AddProviderModelDialog
+          open={addModelOpen}
+          onOpenChange={setAddModelOpen}
+          providerId={provider.id}
+          providerLabel={provider.label}
+          onAdded={(deferred) => void refreshAfterModelAdd(deferred)}
+        />
       </SettingsPageLayout>
     );
   }

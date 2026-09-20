@@ -36,6 +36,7 @@ import {
   type PiSettingsUpdateResponse,
   type PiChamberDefaultsUpdateInput,
   type PiProviderSetModelsInput,
+  type PiProviderAddModelInput,
   type PiProviderConfigResponse,
   type PiProviderStatusResponse,
   type PiResourceListResponse,
@@ -739,6 +740,14 @@ export class PiService {
     return jsonRequest<PiProviderSetModelsInput, PiProviderConfigResponse>(
       `/api/pi/providers/${encodeURIComponent(input.providerId)}/models`,
       { method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  async addProviderModel(input: PiProviderAddModelInput, scope?: PiClientScope): Promise<PiProviderConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiProviderAddModelInput['model'], PiProviderConfigResponse>(
+      `/api/pi/providers/${encodeURIComponent(input.providerId)}/models`,
+      { method: 'POST', body: input.model, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }
 

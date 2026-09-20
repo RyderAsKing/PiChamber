@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   buildAuthSetRequest,
   buildProviderUpsertRequest,
+  createModelRow,
   isConfigDefinedCustomProvider,
   isCustomOpenAICompatibleProvider,
   providerToCustomFormState,
@@ -12,12 +13,21 @@ import {
 } from './custom-provider-form';
 
 
+const modelRow = (overrides: Partial<CustomProviderFormState['models'][number]> = {}): CustomProviderFormState['models'][number] => ({
+  ...createModelRow(),
+  row: 'm0',
+  modelId: 'model-a',
+  displayName: 'Model A',
+  ...overrides,
+});
+
 const baseForm = (overrides: Partial<CustomProviderFormState> = {}): CustomProviderFormState => ({
   providerID: 'custom-provider',
   name: 'Custom Provider',
   baseURL: 'https://api.example.com/v1',
+  api: 'openai-completions',
   apiKey: 'sk-test',
-  models: [{ row: 'm0', id: 'model-a', name: 'Model A' }],
+  models: [modelRow()],
   headers: [{ row: 'h0', key: '', value: '' }],
   ...overrides,
 });
@@ -52,7 +62,7 @@ describe('validateCustomProvider', () => {
         name: ' Custom Provider ',
         baseURL: ' https://api.example.com/v1 ',
         apiKey: ' sk-secret ',
-        models: [{ row: 'm0', id: ' model-a ', name: ' Model A ' }],
+        models: [modelRow({ modelId: ' model-a ', displayName: ' Model A ' })],
         headers: [
           { row: 'h0', key: ' X-Test ', value: ' enabled ' },
           { row: 'h1', key: '', value: '' },
@@ -68,6 +78,7 @@ describe('validateCustomProvider', () => {
       config: {
         npm: '@ai-sdk/openai-compatible',
         name: 'Custom Provider',
+        api: 'openai-completions',
         options: {
           baseURL: 'https://api.example.com/v1',
           headers: {
@@ -75,9 +86,51 @@ describe('validateCustomProvider', () => {
           },
         },
         models: {
-          'model-a': { name: 'Model A' },
+          'model-a': { id: 'model-a', name: 'Model A' },
         },
       },
+    });
+  });
+
+  for (const api of [
+    'openai-completions',
+    'openai-responses',
+    'anthropic-messages',
+    'google-generative-ai',
+  ] as const) {
+    test(`persists the ${api} API format`, () => {
+      const result = validateCustomProvider({
+        form: baseForm({ api }),
+        existingProviderIDs: new Set(),
+      });
+
+      expect(result.result?.config.api).toBe(api);
+    });
+  }
+
+  test('preserves supported advanced model options while omitting untouched defaults', () => {
+    const result = validateCustomProvider({
+      form: baseForm({
+        models: [modelRow({
+          contextWindowText: '200000',
+          maxTokensText: '8192',
+          inputText: true,
+          inputImage: true,
+          supportsThinking: true,
+          thinkingLevelMapText: 'high-effort',
+        })],
+      }),
+      existingProviderIDs: new Set(),
+    });
+
+    expect(result.result?.config.models['model-a']).toEqual({
+      id: 'model-a',
+      name: 'Model A',
+      reasoning: true,
+      thinkingLevelMap: { high: 'high-effort' },
+      input: ['text', 'image'],
+      contextWindow: 200000,
+      maxTokens: 8192,
     });
   });
 
@@ -122,8 +175,8 @@ describe('validateCustomProvider', () => {
         providerID: 'Bad ID',
         baseURL: 'ftp://example.com',
         models: [
-          { row: 'm0', id: 'model-a', name: 'Model A' },
-          { row: 'm1', id: 'model-a', name: 'Model A 2' },
+          modelRow(),
+          modelRow({ row: 'm1', displayName: 'Model A 2' }),
         ],
         headers: [
           { row: 'h0', key: 'Authorization', value: 'one' },
@@ -136,10 +189,7 @@ describe('validateCustomProvider', () => {
     expect(result.result).toEqual(undefined);
     expect(result.err.providerID).toBe("Use lowercase letters, numbers, hyphens, or underscores");
     expect(result.err.baseURL).toBe("Base URL must start with http:// or https://");
-    expect(result.models[1]).toEqual({
-      id: 'Duplicate',
-      name: undefined,
-    });
+    expect(result.models[1]?.modelId).toBe('Duplicate');
     expect(result.headers[1]).toEqual({
       key: 'Duplicate',
       value: undefined,
@@ -275,18 +325,30 @@ describe('provider edit helpers', () => {
       id: 'campus-llm',
       name: 'Campus LLM',
       env: ['CAMPUS_KEY'],
+      api: 'anthropic-messages',
       options: {
         baseURL: 'https://llm.example.edu/v1',
         headers: { 'X-Campus': '1' },
       },
-      models: [{ id: 'fast', name: 'Fast' }],
+      models: [{
+        id: 'fast', name: 'Fast', contextWindow: 200000,
+        maxTokens: 8192, input: ['text', 'image'], reasoning: true,
+        thinkingLevelMap: { high: 'high' },
+      }],
     });
 
     expect(state.providerID).toBe('campus-llm');
     expect(state.name).toBe('Campus LLM');
     expect(state.baseURL).toBe('https://llm.example.edu/v1');
+    expect(state.api).toBe('anthropic-messages');
     expect(state.apiKey).toBe('{env:CAMPUS_KEY}');
-    expect(state.models[0]).toEqual({ row: state.models[0].row, id: 'fast', name: 'Fast' });
+    expect(state.models[0]?.modelId).toBe('fast');
+    expect(state.models[0]?.displayName).toBe('Fast');
+    expect(state.models[0]).toMatchObject({
+      contextWindowText: '200000', maxTokensText: '8192',
+      inputText: true, inputImage: true, supportsThinking: true,
+      thinkingLevelMapText: 'high',
+    });
     expect(state.headers[0]).toEqual({ row: state.headers[0].row, key: 'X-Campus', value: '1' });
   });
 

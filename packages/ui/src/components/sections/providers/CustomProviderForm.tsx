@@ -2,19 +2,24 @@ import React from 'react';
 import {
   SettingsSection,
   SettingsStackedField,
+  SettingsTwoColumn,
   SETTINGS_FIELDS_STACK_CLASS,
   SETTINGS_FIELD_LABEL_CLASS,
   SETTINGS_HELPER_CLASS,
   SETTINGS_ICON_BUTTON_CLASS,
   SETTINGS_CONTROL_CLUSTER_CLASS,
+  SETTINGS_SELECT_SIZE,
+  SETTINGS_SELECT_TRIGGER_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Icon } from '@/components/icon/Icon';
 import {
   createEmptyCustomProviderForm,
   createHeaderRow,
   createModelRow,
+  isCustomProviderApi,
   validateCustomProvider,
   type CustomProviderFormState,
   type CustomProviderPersistPlan,
@@ -22,6 +27,7 @@ import {
   type HeaderFieldErrors,
   type ModelFieldErrors,
 } from './custom-provider-form';
+import { CustomProviderModelFields } from './CustomProviderModelFields';
 
 type CustomProviderFormProps = {
   existingProviderIDs: ReadonlySet<string>;
@@ -78,16 +84,23 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
     setErr((prev) => ({ ...prev, [key]: undefined }));
   };
 
-  const setModel = (index: number, key: 'id' | 'name', value: string) => {
+  const setModel = <Key extends keyof CustomProviderFormState['models'][number]>(
+    index: number,
+    key: Key,
+    value: CustomProviderFormState['models'][number][Key],
+    errorKey?: keyof ModelFieldErrors,
+  ) => {
     setForm((prev) => ({
       ...prev,
       models: prev.models.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row)),
     }));
-    setModelErrors((prev) => {
-      const next = [...prev];
-      next[index] = { ...(next[index] ?? {}), [key]: undefined };
-      return next;
-    });
+    if (errorKey) {
+      setModelErrors((prev) => {
+        const next = [...prev];
+        next[index] = { ...(next[index] ?? {}), [errorKey]: undefined };
+        return next;
+      });
+    }
   };
 
   const setHeader = (index: number, key: 'key' | 'value', value: string) => {
@@ -125,14 +138,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-0">
+    <form onSubmit={handleSubmit} className="grid grid-cols-1 @3xl:grid-cols-2 @3xl:gap-x-10">
       <SettingsSection
-        title={isEdit ? "Edit custom provider" : "Custom provider"}
         divider={false}
         settingsItem="providers.custom"
+        className="@3xl:col-span-2"
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
-        <p className={SETTINGS_HELPER_CLASS}>{"Add an OpenAI-compatible provider with a base URL, credentials, and model list. Saved to Pi so it is available in chat like any other provider."}</p>
+        <p className={SETTINGS_HELPER_CLASS}>{"Add a provider with a base URL, API format, credentials, and model list. Saved to Pi so it is available in chat like any other provider."}</p>
 
         {authFailureHint ? (
           <p className="typography-meta text-[var(--status-warning)]" role="status">
@@ -140,6 +153,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
           </p>
         ) : null}
 
+        <SettingsTwoColumn>
         <SettingsStackedField
           label={"Provider ID"}
           info={"Lowercase letters, numbers, hyphens, and underscores. Used as the Pi provider id."}
@@ -174,7 +188,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
 
         <SettingsStackedField
           label={"Base URL"}
-          info={"OpenAI-compatible API base URL. Must start with http:// or https://."}
+          info={"Provider API base URL. Must start with http:// or https://."}
         >
           <Input
             value={form.baseURL}
@@ -185,6 +199,35 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             aria-label={"Base URL"}
           />
           {err.baseURL ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.baseURL}</p> : null}
+        </SettingsStackedField>
+
+        <SettingsStackedField
+          label={"API format"}
+          info={"Select the request and response format implemented by this provider."}
+        >
+          <Select
+            value={form.api}
+            onValueChange={(value) => {
+              if (isCustomProviderApi(value)) {
+                setForm((prev) => ({ ...prev, api: value }));
+              }
+            }}
+            disabled={busy}
+          >
+            <SelectTrigger
+              size={SETTINGS_SELECT_SIZE}
+              className={SETTINGS_SELECT_TRIGGER_CLASS}
+              aria-label={"API format"}
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="openai-completions">OpenAI Chat Completions</SelectItem>
+              <SelectItem value="openai-responses">OpenAI Responses</SelectItem>
+              <SelectItem value="anthropic-messages">Anthropic Messages</SelectItem>
+              <SelectItem value="google-generative-ai">Google Generative AI</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingsStackedField>
 
         <SettingsStackedField
@@ -210,6 +253,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
           />
           {err.apiKey ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.apiKey}</p> : null}
         </SettingsStackedField>
+        </SettingsTwoColumn>
       </SettingsSection>
 
       <SettingsSection
@@ -217,60 +261,22 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
         {form.models.map((model, index) => (
-          <div key={model.row} className={`${SETTINGS_CONTROL_CLUSTER_CLASS} space-y-2`}>
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1 space-y-2">
-                <div>
-                  <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {"Model ID"}
-                  </label>
-                  <Input
-                    value={model.id}
-                    onChange={(event) => setModel(index, 'id', event.target.value)}
-                    placeholder={"gpt-4o"}
-                    className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={"Model ID"}
-                  />
-                  {modelErrors[index]?.id ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.id}</p>
-                  ) : null}
-                </div>
-                <div>
-                  <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {"Model name"}
-                  </label>
-                  <Input
-                    value={model.name}
-                    onChange={(event) => setModel(index, 'name', event.target.value)}
-                    placeholder={"GPT-4o"}
-                    className="mt-1 h-8 rounded-md px-3"
-                    aria-label={"Model name"}
-                  />
-                  {modelErrors[index]?.name ? (
-                    <p className="mt-1 typography-meta text-[var(--status-error)]">{modelErrors[index]?.name}</p>
-                  ) : null}
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className={SETTINGS_ICON_BUTTON_CLASS}
-                disabled={form.models.length <= 1}
-                onClick={() => {
-                  if (form.models.length <= 1) return;
-                  setForm((prev) => ({
-                    ...prev,
-                    models: prev.models.filter((_, rowIndex) => rowIndex !== index),
-                  }));
-                  setModelErrors((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
-                }}
-                aria-label={"Remove model"}
-              >
-                <Icon name="delete-bin" className="size-4" />
-              </Button>
-            </div>
-          </div>
+          <CustomProviderModelFields
+            key={model.row}
+            model={model}
+            errors={modelErrors[index]}
+            busy={busy}
+            removable={form.models.length > 1}
+            onChange={(key, value, errorKey) => setModel(index, key, value, errorKey)}
+            onRemove={() => {
+              if (form.models.length <= 1) return;
+              setForm((prev) => ({
+                ...prev,
+                models: prev.models.filter((_, rowIndex) => rowIndex !== index),
+              }));
+              setModelErrors((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
+            }}
+          />
         ))}
         <Button
           type="button"
@@ -361,7 +367,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         </Button>
       </SettingsSection>
 
-      <div className="flex flex-wrap items-center gap-2 py-4">
+      <div className="flex flex-wrap items-center gap-2 py-4 @3xl:col-span-2">
         {onCancel ? (
           <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={onCancel} disabled={busy}>
             {"Back"}
