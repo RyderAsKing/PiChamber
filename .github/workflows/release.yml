@@ -197,7 +197,12 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           IS_PRERELEASE: ${{ needs.create-release.outputs.is_prerelease }}
+          VERSION: ${{ needs.create-release.outputs.version }}
         run: |
+          if npm view "@pi-chamber/web@${VERSION}" version >/dev/null 2>&1; then
+            echo "@pi-chamber/web@${VERSION} is already published; skipping publish."
+            exit 0
+          fi
           if [[ "$IS_PRERELEASE" == "true" ]]; then
             npm publish "${{ steps.npm_pack.outputs.tarball }}" --access public --tag rc
           else
@@ -275,9 +280,9 @@ jobs:
           set -euo pipefail
           name=$(basename "$TARBALL")
           local_size=$(stat -c %s "$TARBALL")
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" --jq .id)
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"v${VERSION}\") | .id")
           for attempt in 1 2 3; do
-            record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+            record=$(gh api "repos/$GITHUB_REPOSITORY/releases/${release_id}" \
               --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
             if [ -n "$record" ]; then
               asset_id=${record%%$'\t'*}
@@ -805,13 +810,13 @@ jobs:
           VERSION: ${{ needs.create-release.outputs.version }}
         run: |
           set -euo pipefail
-          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" --jq .id)
+          release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq ".[] | select(.tag_name == \"v${VERSION}\") | .id")
           for file in release-assets/*; do
             name=$(basename "$file")
             local_size=$(stat -c %s "$file")
             uploaded=false
             for attempt in 1 2 3; do
-              record=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v${VERSION}" \
+              record=$(gh api "repos/$GITHUB_REPOSITORY/releases/${release_id}" \
                 --jq ".assets[] | select(.name == \"$name\") | [.id, .size] | @tsv" || true)
               if [ -n "$record" ]; then
                 asset_id=${record%%$'\t'*}
@@ -910,11 +915,13 @@ jobs:
             prerelease ? 'rc.yml' : 'latest.yml',
             ...(!prerelease ? ['latest-arm64.yml'] : []),
           ];
-          const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/v${version}`, {
+          const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=100`, {
             headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
           });
-          if (!response.ok) throw new Error(`Failed to inspect release assets: ${response.status} ${await response.text()}`);
-          const release = await response.json();
+          if (!response.ok) throw new Error(`Failed to list release assets: ${response.status} ${await response.text()}`);
+          const releases = await response.json();
+          const release = releases.find((candidate) => candidate.tag_name === `v${version}`);
+          if (!release) throw new Error(`Release v${version} not found among ${releases.length} releases`);
           for (const name of expected) {
             const matches = release.assets.filter((asset) => asset.name === name);
             if (matches.length !== 1) throw new Error(`Expected exactly one ${name} release asset, found ${matches.length}`);
