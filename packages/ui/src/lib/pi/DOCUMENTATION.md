@@ -248,9 +248,13 @@ loader preconditions to a folder switch without a known id, and
 `sessionsListStatus` lets the chat distinguish loading / ready / failed.
 `focusPending` is set the moment a folder click swaps the pointer and clears
 only when the selected id becomes hydrated, the focus resolves to an
-authoritative empty `sessions[]`, the focus fails outright, or hydrate of
-the selected id fails with `INVALID_SESSION`. A missing deep-linked session
-(`?session=` for an id with no JSONL) is a per-session load error in
+authoritative empty `sessions[]`, or the focus fails outright. An authoritatively
+missing session (`INVALID_SESSION` on hydrate or preferred-id lookup) commits
+normal deletion cleanup and navigates away to the next active session (or clears
+when none remains) instead of retaining an error page; other load errors
+(including `SESSION_IN_USE`) stay selected and land in `sessionLoadErrorById`
+so the chat shows "Session could not be loaded" instead of spinning. A missing
+deep-linked session that fails for another reason is a per-session load error in
 `sessionLoadErrorById`, not `connection: 'error'` and not an infinite
 PiChamber logo. The chat's existing "Session could not be loaded" block
 covers that id; other chats on the cluster keep working. `ensureSessionRenderable`

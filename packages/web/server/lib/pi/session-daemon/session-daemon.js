@@ -245,12 +245,13 @@ export function createSessionDaemon({
   };
   const releaseResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
     const owner = leaseOwner();
-    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return { released: false };
     try {
-      await releaseSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+      return await releaseSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
     } catch {
       // Lease release is best-effort; a stale lease is reclaimable by the
       // next owner once this daemon pid is dead.
+      return { released: false };
     }
   };
   let runtimeRegistry;
@@ -606,9 +607,15 @@ export function createSessionDaemon({
   const rememberRuntimeSession = () => {
     const sessionId = runtime?.session?.sessionId;
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
+    let sessionFile;
+    try {
+      sessionFile = runtime.session.sessionManager?.getSessionFile?.();
+    } catch {
+      sessionFile = undefined;
+    }
     dormantSession = {
       sessionId,
-      sessionFile: runtime.session.sessionManager?.getSessionFile?.(),
+      sessionFile,
       cwd: runtime.cwd || activeDirectory || cwd,
     };
   };
@@ -671,7 +678,37 @@ export function createSessionDaemon({
 
   const idleDisposeTimers = new Map();
   const activeSessionRequests = new Map();
-
+  // Failed-create cleanup: when model/thinking setup fails after the
+  // resident lease is acquired and the dispose-first cleanup rejects,
+  // ownership stays held. One entry per session,
+  // `{ runtime, cwd, sessionId }`, retried by delete (per-session) or stop
+  // (all sessions). Disposal is attempted first and the lease is released
+  // only after successful disposal; a failed retry stays pending without
+  // releasing ownership. Entries are removed only when the drained object
+  // is still current, so a newer owner's record is never erased. The
+  // failed runtime is never registered and never installs dormant state.
+  const pendingFailedCreateCleanups = new Map();
+  const pendingFailedCreateDraining = new Set();
+  const drainPendingFailedCreateCleanup = async (sessionId) => {
+    const pending = pendingFailedCreateCleanups.get(sessionId);
+    if (!pending) return true;
+    if (pendingFailedCreateDraining.has(sessionId)) return false;
+    pendingFailedCreateDraining.add(sessionId);
+    try {
+      try {
+        await pending.runtime.dispose?.();
+      } catch {
+        return false;
+      }
+      await releaseResidentLease({ cwd: pending.cwd, sessionId: pending.sessionId });
+      if (pendingFailedCreateCleanups.get(sessionId) === pending) {
+        pendingFailedCreateCleanups.delete(sessionId);
+      }
+      return true;
+    } finally {
+      pendingFailedCreateDraining.delete(sessionId);
+    }
+  };
   const isValidIdleSessionId = (sessionId) => typeof sessionId === 'string' && sessionId.length > 0;
 
   const clearIdleDisposal = (sessionId) => {
@@ -921,6 +958,20 @@ export function createSessionDaemon({
     pendingResourceReloads.delete(targetRuntime);
     resourceReloadsByRuntime.delete(targetRuntime);
     const tracked = (async () => {
+      // Capture the assigned JSONL path before disposal. Pi's
+      // SessionManager defers JSONL creation until the first assistant
+      // message, so `sessions.create` alone (or a session whose first
+      // prompt was rejected before anything persisted) stays ephemeral:
+      // the runtime stays resident and retryable until this normal idle
+      // disposal, which then reports the session as deleted when its
+      // assigned JSONL is positively absent.
+      let assignedSessionFile;
+      try {
+        assignedSessionFile = targetRuntime.session?.sessionManager?.getSessionFile?.();
+      } catch {
+        assignedSessionFile = undefined;
+      }
+      const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
       try {
         if (targetRuntime === runtime) rememberRuntimeSession();
         // Pending extension dialogs are cancelled with an authoritative
@@ -928,11 +979,46 @@ export function createSessionDaemon({
         // disposed runtime.
         clearExtensionState(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
-        await releaseResidentLease({ cwd: targetRuntime.cwd || activeDirectory || cwd, sessionId });
+        // Positively determine ephemerality while the resident lease is
+        // still held, before any release. A stat success means persisted;
+        // ENOENT means the assigned JSONL never reached disk; any other
+        // stat failure, a missing path, or a throwing getSessionFile
+        // cannot prove absence and never claims deletion. Determining
+        // here (after dispose, before release) keeps the check
+        // authoritative: no cross-daemon owner can interleave a recreate
+        // while this lease is held.
+        let ephemeral = false;
+        if (typeof assignedSessionFile === 'string' && assignedSessionFile.length > 0) {
+          try {
+            await stat(assignedSessionFile);
+          } catch (error) {
+            if (error?.code === 'ENOENT') ephemeral = true;
+          }
+        }
+        const releaseResult = await releaseResidentLease({ cwd: targetCwd, sessionId });
+        const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
         compactionStateBySession.delete(sessionId);
         if (targetRuntime === runtime) runtime = undefined;
+        // Publish only after a successful lease release so a
+        // cross-daemon recreate cannot slip between release and event.
+        // Persisted sessions keep dormant state for reopen; an
+        // unreleased or unknown (non-ENOENT/missing) session never claims
+        // deletion. A confirmed ephemeral expiration clears the same safe
+        // per-session auxiliary state as explicit deletion where
+        // applicable (aliases, retry/compaction/run-start/shutdown).
+        if (ephemeral && released) {
+          if (dormantSession?.sessionId === sessionId) dormantSession = undefined;
+          messageEntryAliases.clearSession({ cwd: targetCwd, sessionId });
+          retryStateBySession.delete(sessionId);
+          compactionStateBySession.delete(sessionId);
+          activeRunStartedAt.delete(sessionId);
+          shutdownRequestedBySession.delete(sessionId);
+          publish('session.deleted', {}, sessionId, targetCwd);
+        }
       } catch {
+        // A failed disposal retains ownership (registry entry, lease, and
+        // global runtime are all still held) and never emits deletion.
         publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
       } finally {
         disposingSessionIds.delete(sessionId);
@@ -977,6 +1063,12 @@ export function createSessionDaemon({
     scheduleIdleDisposal(sessionId);
   };
 
+  // Idle re-arm must never throw: releaseSessionAccess runs in the request
+  // dispatch `finally`, so a cleanup throw would mask the original error.
+  const safeTouchIdleDisposal = (sessionId) => {
+    try { touchIdleDisposal(sessionId); } catch {}
+  };
+
   // Narrow session-access guard for request dispatch. Each in-flight
   // session-scoped command holds one refcount while it activates and uses
   // the runtime; the idle timer stays cleared until the last holder
@@ -999,7 +1091,7 @@ export function createSessionDaemon({
       return;
     }
     activeSessionRequests.delete(sessionId);
-    touchIdleDisposal(sessionId);
+    safeTouchIdleDisposal(sessionId);
   };
 
   const sessionIdForIdleGuard = (message) => {
@@ -1710,19 +1802,45 @@ export function createSessionDaemon({
     } else if (payload.title && newRuntime.session?.sessionManager?.appendSessionInfo) {
       newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
     }
-    if (result?.cancelled) throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    if (result?.cancelled) {
+      try { await newRuntime.dispose?.(); } catch { /* the cancelled create owns nothing */ }
+      throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    }
     try {
       await acquireResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
     } catch (error) {
       try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
       throw error;
     }
-    if (payload.model) {
-      await setSessionModel(newRuntime, payload.model);
-      publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
-    }
-    if (payload.thinking !== undefined) {
-      applyThinking(newRuntime, payload.thinking, newRuntime.session.sessionId, targetCwd);
+    try {
+      if (payload.model) {
+        await setSessionModel(newRuntime, payload.model);
+        publishSessionModel(newRuntime.session, newRuntime.session.sessionId, targetCwd);
+      }
+      if (payload.thinking !== undefined) {
+        applyThinking(newRuntime, payload.thinking, newRuntime.session.sessionId, targetCwd);
+      }
+    } catch (error) {
+      const failedSessionId = newRuntime.session?.sessionId;
+      const failedCwd = targetCwd;
+      try {
+        await newRuntime.dispose?.();
+      } catch {
+        // Dispose-first cleanup rejected: retain ownership for a later
+        // delete/stop retry. Do not release the lease, install dormant
+        // state, or register the runtime. The original model/thinking
+        // error stays authoritative, not the disposal error.
+        if (typeof failedSessionId === 'string' && failedSessionId.length > 0) {
+          pendingFailedCreateCleanups.set(failedSessionId, {
+            runtime: newRuntime,
+            cwd: failedCwd,
+            sessionId: failedSessionId,
+          });
+        }
+        throw error;
+      }
+      await releaseResidentLease({ cwd: failedCwd, sessionId: failedSessionId });
+      throw error;
     }
     runtimeRegistry.register(newRuntime, { cwd: targetCwd });
     runtime = newRuntime;
@@ -2917,6 +3035,14 @@ export function createSessionDaemon({
     }
   };
 
+  // Ephemeral sessions: Pi's SessionManager defers JSONL creation until the
+  // first assistant message, so `sessions.create` alone stays ephemeral
+  // (untouched sessions vanish on restart by design). A rejected first
+  // prompt likewise persists nothing: the runtime stays resident and
+  // retryable until normal idle disposal, which reports the session as
+  // deleted when its assigned JSONL is positively absent (see
+  // disposeIdleSessionRuntime).
+
   const runSessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
@@ -3126,15 +3252,18 @@ export function createSessionDaemon({
         // extension commands that resolve without starting an agent turn
         // (no agent_settled follows) as well as ordinary turn completion.
         if (!shutdownRequestedBySession.has(payload.sessionId)) {
-          touchIdleDisposal(payload.sessionId);
+          safeTouchIdleDisposal(payload.sessionId);
         }
-      });
+      }).catch(() => {});
       void flushPendingRuntimeRecreation().catch(() => {});
     });
     return { accepted: true, messageId };
     } catch (error) {
       endSessionInput(activeRuntime);
-      void flushPendingResourceReload(activeRuntime);
+      // A rejected prompt persists nothing: the runtime stays resident and
+      // retryable until normal idle disposal. The original error propagates
+      // unchanged.
+      void flushPendingResourceReload(activeRuntime).catch(() => {});
       void flushPendingRuntimeRecreation().catch(() => {});
       throw error;
     }
@@ -3161,46 +3290,59 @@ export function createSessionDaemon({
   const deleteSession = async (sessionId, requestedDirectory) => {
     // Idle protection is owned by the request-dispatch guard. The release
     // touch is a no-op once the runtime is gone, so deletion never re-arms.
-    const active = runtimeRegistry?.findBySessionId(sessionId);
-    let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
-    const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
-    if (active) {
-      if (active.session?.isStreaming) await active.session.abort();
-      await runtimeRegistry?.dispose(active);
-      if (runtime === active) runtime = undefined;
-    }
-    if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
-      await rm(activeSessionFile, { force: true });
-    } else if (!active) {
-      const { target, directory } = await findPersistedSession(sessionId, targetDir);
-      targetDir = directory;
-      await acquireResidentLease({ cwd: targetDir, sessionId });
-      try {
-        await rm(target.path, { force: false });
-      } catch (error) {
-        await releaseResidentLease({ cwd: targetDir, sessionId });
-        throw error;
+    try {
+      // Retry a failed-create cleanup for this session before touching
+      // persisted state: dispose first, release only after success. A
+      // failed retry stays pending without releasing ownership, so delete
+      // must not proceed to its own acquire/release while disposal fails.
+      const failedCreateDrained = await drainPendingFailedCreateCleanup(sessionId);
+      if (!failedCreateDrained) {
+        throw new SessionDaemonProtocolError('RUNTIME_DISPOSAL_FAILED', 'The Pi session runtime could not be disposed.');
       }
+      const active = runtimeRegistry?.findBySessionId(sessionId);
+      let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+      const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
+      if (active) {
+        if (active.session?.isStreaming) await active.session.abort();
+        await runtimeRegistry?.dispose(active);
+        if (runtime === active) runtime = undefined;
+      }
+      if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
+        await rm(activeSessionFile, { force: true });
+      } else if (!active) {
+        const { target, directory } = await findPersistedSession(sessionId, targetDir);
+        targetDir = directory;
+        await acquireResidentLease({ cwd: targetDir, sessionId });
+        try {
+          await rm(target.path, { force: false });
+        } catch (error) {
+          await releaseResidentLease({ cwd: targetDir, sessionId });
+          throw error;
+        }
+      }
+      messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
+      await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
+      retryStateBySession.delete(sessionId);
+      compactionStateBySession.delete(sessionId);
+      activeRunStartedAt.delete(sessionId);
+      shutdownRequestedBySession.delete(sessionId);
+      sendGenerationBySession.delete(sessionId);
+      settledSendGenerationBySession.delete(sessionId);
+      pendingUserStartsBySession.delete(sessionId);
+      queueSizesBySession.delete(sessionId);
+      queueShrinkBySession.delete(sessionId);
+      latestUserMessageIds.delete(sessionId);
+      latestAssistantMessageIds.delete(sessionId);
+      toolInputBySession.delete(sessionId);
+      clearToolTimingsForSession(sessionId);
+      // Explicit typed deletion: every connected and replaying client drops
+      // catalog, transcript, activity, and caches. Archive and directory moves
+      // keep the session id and never publish this event.
+      publish('session.deleted', {}, sessionId, targetDir);
+    } finally {
+      // Deletion never re-arms idle lifetime.
+      clearIdleDisposal(sessionId);
     }
-    messageEntryAliases.clearSession({ cwd: active?.cwd || targetDir, sessionId });
-    await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
-    retryStateBySession.delete(sessionId);
-    compactionStateBySession.delete(sessionId);
-    activeRunStartedAt.delete(sessionId);
-    shutdownRequestedBySession.delete(sessionId);
-    sendGenerationBySession.delete(sessionId);
-    settledSendGenerationBySession.delete(sessionId);
-    pendingUserStartsBySession.delete(sessionId);
-    queueSizesBySession.delete(sessionId);
-    queueShrinkBySession.delete(sessionId);
-    latestUserMessageIds.delete(sessionId);
-    latestAssistantMessageIds.delete(sessionId);
-    toolInputBySession.delete(sessionId);
-    clearToolTimingsForSession(sessionId);
-    // Explicit typed deletion: every connected and replaying client drops
-    // catalog, transcript, activity, and caches. Archive and directory moves
-    // keep the session id and never publish this event.
-    publish('session.deleted', {}, sessionId, targetDir);
   };
 
   const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
@@ -4182,6 +4324,13 @@ export function createSessionDaemon({
       pendingRuntimeRecreation = false;
       runtimeRecreationRevision += 1;
       await disposeRuntime();
+      // Retry failed-create cleanups at the existing ownership-release
+      // phase: dispose first, release only after success. A failed retry
+      // stays pending without releasing ownership. Each entry is removed
+      // only when still current so a newer owner's record is never erased.
+      for (const pendingFailedCreate of [...pendingFailedCreateCleanups.values()]) {
+        await drainPendingFailedCreateCleanup(pendingFailedCreate.sessionId).catch(() => false);
+      }
       server = undefined;
       started = false;
       if (platform !== 'win32') await rm(endpoint, { force: true });
