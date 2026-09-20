@@ -74,7 +74,7 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
         aria-label="Add thinking level"
       />
       <p className={SETTINGS_HELPER_CLASS}>
-        Press Enter or comma to add a value. Start with off, minimal, low, medium, high, xhigh, or max.
+        Press Enter or comma to add a value. Use low-effort for standard values, or low=&quot;value&quot; and low=null for explicit mappings.
       </p>
     </div>
   );

@@ -149,6 +149,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               inputMode="numeric"
               className="mt-1 h-8 font-mono text-xs"
               disabled={busy}
+              aria-invalid={Boolean(errors?.contextWindow) || undefined}
             />
             <ErrorText>{errors?.contextWindow}</ErrorText>
           </div>
@@ -169,6 +170,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               inputMode="numeric"
               className="mt-1 h-8 font-mono text-xs"
               disabled={busy}
+              aria-invalid={Boolean(errors?.maxTokens) || undefined}
             />
             <ErrorText>{errors?.maxTokens}</ErrorText>
           </div>

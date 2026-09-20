@@ -267,7 +267,9 @@ export function providerToCustomFormState(provider: ProviderLikeForCustomForm): 
           || ('reasoning' in model && model.reasoning === true)
         )),
         thinkingLevelMapText: model && 'thinkingLevelMap' in model && model.thinkingLevelMap
-          ? Object.values(model.thinkingLevelMap).filter((value): value is string => typeof value === 'string').join('\n')
+          ? Object.entries(model.thinkingLevelMap)
+              .map(([key, value]) => `${key}=${value === null ? 'null' : JSON.stringify(value)}`)
+              .join('\n')
           : '',
       }))
     : [createModelRow()];
@@ -336,10 +338,9 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
     const validated = validateAddProviderModel(model);
     const id = model.modelId.trim();
     if (id && seenModels.has(id)) {
-      validated.errors.modelId = 'Duplicate';
-    } else if (id) {
-      seenModels.add(id);
+      return { errors: { ...validated.errors, modelId: 'Duplicate' } };
     }
+    if (id) seenModels.add(id);
     return validated;
   });
   const modelErrors = validatedModels.map((entry) => entry.errors);

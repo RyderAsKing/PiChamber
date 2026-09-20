@@ -38,6 +38,7 @@ export type AddProviderModelPayload = PiProviderAddModelDetails;
 const positiveInteger = (value: string | undefined): number | undefined => {
   const trimmed = (value ?? "").trim();
   if (!trimmed) return undefined;
+  if (!/^\d+$/.test(trimmed)) return undefined;
   const parsed = Number(trimmed);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
@@ -52,21 +53,44 @@ export function validateThinkingMapText(value: string | undefined): {
     .filter(Boolean);
   if (entries.length === 0) return {};
 
-  const result: Partial<Record<ThinkingLevelKey, string>> = {};
+  const result: Partial<Record<ThinkingLevelKey, string | null>> = {};
   for (const entry of entries) {
-    const key = THINKING_LEVEL_KEYS.find(
-      (candidate) => entry === candidate || entry.startsWith(`${candidate}-`),
-    );
+    const separator = entry.indexOf("=");
+    const explicitKey = separator >= 0 ? entry.slice(0, separator).trim() : undefined;
+    const key = explicitKey
+      ? THINKING_LEVEL_KEYS.find((candidate) => candidate === explicitKey)
+      : THINKING_LEVEL_KEYS.find(
+          (candidate) => entry === candidate || entry.startsWith(`${candidate}-`),
+        );
     if (!key)
       return {
         error:
-          "Start each value with off, minimal, low, medium, high, xhigh, or max",
+          "Use off, minimal, low, medium, high, xhigh, or max, optionally as key=value",
       };
-    if (result[key] !== undefined)
+    if (Object.prototype.hasOwnProperty.call(result, key))
       return { error: `Only one ${key} value is allowed` };
-    if (entry.length > 512)
+
+    let mapped: string | null = entry;
+    if (separator >= 0) {
+      const encoded = entry.slice(separator + 1).trim();
+      if (!encoded) return { error: "Thinking values cannot be empty" };
+      if (encoded === "null") {
+        mapped = null;
+      } else if (encoded.startsWith('"')) {
+        try {
+          const parsed: unknown = JSON.parse(encoded);
+          if (typeof parsed !== "string") throw new Error("not a string");
+          mapped = parsed;
+        } catch {
+          return { error: "Quoted thinking values must be valid strings" };
+        }
+      } else {
+        mapped = encoded;
+      }
+    }
+    if (mapped !== null && mapped.length > 512)
       return { error: "Thinking values must be 512 characters or fewer" };
-    result[key] = entry;
+    result[key] = mapped;
   }
   return { value: result };
 }

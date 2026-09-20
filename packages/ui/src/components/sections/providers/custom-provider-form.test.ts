@@ -347,9 +347,37 @@ describe('provider edit helpers', () => {
     expect(state.models[0]).toMatchObject({
       contextWindowText: '200000', maxTokensText: '8192',
       inputText: true, inputImage: true, supportsThinking: true,
-      thinkingLevelMapText: 'high',
+      thinkingLevelMapText: 'high="high"',
     });
     expect(state.headers[0]).toEqual({ row: state.headers[0].row, key: 'X-Campus', value: '1' });
+  });
+
+  test('round-trips explicit thinking-level keys, arbitrary values, and hidden levels', () => {
+    const state = providerToCustomFormState({
+      id: 'custom-provider',
+      name: 'Custom Provider',
+      env: ['CUSTOM_KEY'],
+      api: 'openai-completions',
+      options: { baseURL: 'https://api.example.com/v1' },
+      models: [{
+        id: 'model-a',
+        reasoning: true,
+        thinkingLevelMap: { low: 'thinking-2000', minimal: null, off: 'null' },
+      }],
+    });
+
+    expect(state.models[0]?.thinkingLevelMapText).toBe('low="thinking-2000"\nminimal=null\noff="null"');
+    const result = validateCustomProvider({
+      form: state,
+      existingProviderIDs: new Set(['custom-provider']),
+      editingProviderID: 'custom-provider',
+      allowExistingAuth: true,
+    });
+    expect(result.result?.config.models['model-a']?.thinkingLevelMap).toEqual({
+      low: 'thinking-2000',
+      minimal: null,
+      off: 'null',
+    });
   });
 
   test('requires a config-layer source before treating a provider as editable custom', () => {

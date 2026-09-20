@@ -338,6 +338,7 @@ export function createSessionDaemon({
   // trigger one more rebuild instead of being lost behind the first one.
   let pendingRuntimeRecreation = false;
   let runtimeRecreationRevision = 0;
+  let pendingProviderCatalogRevision = 0;
   let runtimeRecreationTask = null;
   // Pi emits each user message start before its persisted entry is readable.
   // Keep prompt file metadata keyed by delivery kind so a queued followUp
@@ -837,8 +838,13 @@ export function createSessionDaemon({
         const revision = runtimeRecreationRevision;
         await disposeRuntime();
         if (!pendingRuntimeRecreation) break;
-        await ensureRuntime();
+        const recreatedRuntime = await ensureRuntime();
         recreated = true;
+        if (pendingProviderCatalogRevision > 0 && pendingProviderCatalogRevision <= revision) {
+          const publishedRevision = pendingProviderCatalogRevision;
+          publish('extension.catalog', { providers: true }, recreatedRuntime?.session?.sessionId, recreatedRuntime?.cwd);
+          if (pendingProviderCatalogRevision === publishedRevision) pendingProviderCatalogRevision = 0;
+        }
         if (revision === runtimeRecreationRevision) pendingRuntimeRecreation = false;
       }
       return recreated;
@@ -850,10 +856,11 @@ export function createSessionDaemon({
     return tracked;
   };
 
-  const scheduleRuntimeRecreation = async () => {
+  const scheduleRuntimeRecreation = async ({ providersChanged = false } = {}) => {
     const deferred = hasUnsafeRuntime();
     pendingRuntimeRecreation = true;
     runtimeRecreationRevision += 1;
+    if (providersChanged) pendingProviderCatalogRevision = runtimeRecreationRevision;
     if (deferred) {
       void flushPendingRuntimeRecreation().catch(() => {});
       return true;
@@ -2006,7 +2013,7 @@ export function createSessionDaemon({
     }
     // ModelRuntime snapshots models.json at construction. Persist the new
     // catalog now, then recreate resident runtimes only at a safe edge.
-    const deferred = await scheduleRuntimeRecreation();
+    const deferred = await scheduleRuntimeRecreation({ providersChanged: true });
     return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
@@ -2108,7 +2115,7 @@ export function createSessionDaemon({
     }
     // Same deferred recreation as models.set: ModelRuntime snapshots
     // models.json at construction, so busy runtimes rehydrate at idle.
-    const deferred = await scheduleRuntimeRecreation();
+    const deferred = await scheduleRuntimeRecreation({ providersChanged: true });
     return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
@@ -4323,6 +4330,7 @@ export function createSessionDaemon({
       disposingSessionIds.clear();
       pendingRuntimeRecreation = false;
       runtimeRecreationRevision += 1;
+      pendingProviderCatalogRevision = 0;
       await disposeRuntime();
       // Retry failed-create cleanups at the existing ownership-release
       // phase: dispose first, release only after success. A failed retry

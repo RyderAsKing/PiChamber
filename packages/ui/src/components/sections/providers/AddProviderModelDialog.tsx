@@ -141,6 +141,14 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
     setFieldErrors(validated.errors);
     const payload: AddProviderModelPayload | undefined = validated.result;
     if (!payload) {
+      if (
+        validated.errors.displayName
+        || validated.errors.contextWindow
+        || validated.errors.maxTokens
+        || validated.errors.thinkingLevelMap
+      ) {
+        setAdvancedOpen(true);
+      }
       setSubmitError(null);
       return;
     }

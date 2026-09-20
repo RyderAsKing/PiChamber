@@ -160,13 +160,14 @@ const normalizeAddModel = (input) => {
   if (model.contextWindow !== undefined && (!Number.isSafeInteger(model.contextWindow) || model.contextWindow <= 0)) throw invalidModelConfig();
   if (model.maxTokens !== undefined && (!Number.isSafeInteger(model.maxTokens) || model.maxTokens <= 0)) throw invalidModelConfig();
 
+  const thinkingLevelMap = model.thinkingLevelMap === undefined
+    ? undefined
+    : validateThinkingLevelMap(model.thinkingLevelMap);
   const normalizedModel = {
     id: model.id.trim(),
     ...(model.name !== undefined ? { name: model.name.trim() } : {}),
     ...(model.reasoning === true ? { reasoning: true } : {}),
-    ...(model.thinkingLevelMap !== undefined && Object.keys(model.thinkingLevelMap).length > 0
-      ? { thinkingLevelMap: validateThinkingLevelMap(model.thinkingLevelMap) }
-      : {}),
+    ...(thinkingLevelMap && Object.keys(thinkingLevelMap).length > 0 ? { thinkingLevelMap } : {}),
     ...(model.input !== undefined ? { input: validateInputModalities(model.input) } : {}),
     ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
     ...(Number.isSafeInteger(model.maxTokens) ? { maxTokens: model.maxTokens } : {}),

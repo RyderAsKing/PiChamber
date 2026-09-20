@@ -24,6 +24,7 @@ export function useProvidersPageState() {
   const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
   const hideAllModels = useUIStore((state) => state.hideAllModels);
   const showAllModels = useUIStore((state) => state.showAllModels);
+  const configProviders = useConfigStore((state) => state.providers);
   const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
   const setSettingsDefaultThinkingByModel = useConfigStore((state) => state.setSettingsDefaultThinkingByModel);
   const setSettingsDefaultThinking = useConfigStore((state) => state.setSettingsDefaultThinking);
@@ -42,6 +43,7 @@ export function useProvidersPageState() {
   const [thinkingBusyKeys, setThinkingBusyKeys] = React.useState<Set<string>>(new Set());
   const [providerQuery, setProviderQuery] = React.useState('');
   const [visibleCap, setVisibleCap] = React.useState(80);
+  const [deferredCatalogBaseline, setDeferredCatalogBaseline] = React.useState<object | null>(null);
 
   const refresh = React.useCallback(async () => {
     const { providers: result } = await piClient.listProviders(providerScope());
@@ -95,7 +97,10 @@ export function useProvidersPageState() {
     // When runtime recreation is deferred, the old live catalog does not yet
     // include the new model. Refreshing now would repaint the stale list, so
     // skip until the idle-edge recreation publishes the new catalog.
-    if (deferred) return;
+    if (deferred) {
+      setDeferredCatalogBaseline(useConfigStore.getState().providers);
+      return;
+    }
     const scope = providerScope();
     try {
       const { providers: result } = await piClient.listProviders(scope);
@@ -113,6 +118,12 @@ export function useProvidersPageState() {
       toast.error('Model added, but providers could not be refreshed');
     }
   }, []);
+
+  React.useEffect(() => {
+    if (deferredCatalogBaseline === null || configProviders === deferredCatalogBaseline) return;
+    setDeferredCatalogBaseline(null);
+    void refreshAfterModelAdd(false);
+  }, [configProviders, deferredCatalogBaseline, refreshAfterModelAdd]);
 
   React.useEffect(() => {
     let active = true;

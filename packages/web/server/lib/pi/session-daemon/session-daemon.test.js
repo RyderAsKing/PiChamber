@@ -2032,10 +2032,15 @@ describe('Pi session daemon spike', () => {
     });
     expect(result.result).toMatchObject({ config: { providerId: 'custom' }, deferred: true });
     expect(runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+    const providerChange = client.next((message) => message.event === 'extension.catalog' && message.payload?.providers === true);
     session.isStreaming = false;
     session.emit({ type: 'agent_settled' });
     await expect.poll(() => runtimeState.disposeCount).toBe(1);
     expect(runtimeState.createCount).toBe(2);
+    await expect(providerChange).resolves.toMatchObject({
+      event: 'extension.catalog',
+      payload: { providers: true },
+    });
     await client.close();
   });
 

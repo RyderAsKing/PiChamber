@@ -131,6 +131,7 @@ describe('Pi models configuration store', () => {
       { id: 'm', input: ['text', 'text'] },
       { id: 'm', thinkingLevelMap: { ultra: 'x' } },
       { id: 'm', thinkingLevelMap: { low: 42 } },
+      { id: 'm', thinkingLevelMap: null },
     ];
     for (const model of cases) {
       const { file, store } = await createStore({ custom: customProvider([]) });

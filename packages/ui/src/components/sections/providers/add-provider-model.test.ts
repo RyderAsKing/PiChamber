@@ -39,6 +39,7 @@ describe('validateAddProviderModel', () => {
 
   test('rejects invalid token limits', () => {
     expect(validateAddProviderModel({ modelId: 'm', contextWindowText: '0' }).errors.contextWindow).toBeDefined();
+    expect(validateAddProviderModel({ modelId: 'm', contextWindowText: '1e3' }).errors.contextWindow).toBeDefined();
     expect(validateAddProviderModel({ modelId: 'm', maxTokensText: '1.5' }).errors.maxTokens).toBeDefined();
   });
 
@@ -47,9 +48,18 @@ describe('validateAddProviderModel', () => {
       .toBe('Enable Supports thinking to add thinking levels');
   });
 
+  test('parses explicit thinking-level keys and null entries without losing legacy values', () => {
+    expect(validateThinkingMapText('low="thinking-2000"\nminimal=null\nhigh-effort').value).toEqual({
+      low: 'thinking-2000',
+      minimal: null,
+      high: 'high-effort',
+    });
+  });
+
   test('rejects unknown and duplicate thinking levels', () => {
     expect(validateThinkingMapText('turbo').error).toBeDefined();
     expect(validateThinkingMapText('low-a\nlow-b').error).toBe('Only one low value is allowed');
+    expect(validateThinkingMapText('low=null\nlow=other').error).toBe('Only one low value is allowed');
   });
 
   test('exposes Pi defaults for dialog copy', () => {
