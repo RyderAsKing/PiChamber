@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   PI_DEFAULT_CONTEXT_WINDOW,
   PI_DEFAULT_MAX_TOKENS,
+  isInsideThinkingLevelQuote,
   parseThinkingLevelEntries,
   validateAddProviderModel,
   validateThinkingMapText,
@@ -47,6 +48,12 @@ describe('validateAddProviderModel', () => {
   test('requires thinking support when levels are configured', () => {
     expect(validateAddProviderModel({ modelId: 'm', thinkingLevelMapText: 'low-effort' }).errors.thinkingLevelMap)
       .toBe('Enable Supports thinking to add thinking levels');
+  });
+
+  test('keeps commas from submitting while a quoted value is open', () => {
+    expect(isInsideThinkingLevelQuote('low="fast')).toBe(true);
+    expect(isInsideThinkingLevelQuote('low="say \\"yes\\"')).toBe(true);
+    expect(isInsideThinkingLevelQuote('low="fast,careful"')).toBe(false);
   });
 
   test('keeps separators inside quoted thinking-level values', () => {

@@ -104,6 +104,15 @@ describe('Pi models configuration store', () => {
     });
   });
 
+  it('rejects an existing provider with missing metadata without writing', async () => {
+    const { file, store } = await createStore({ custom: { models: [] } });
+    const before = await readFile(file, 'utf8');
+
+    await expect(store.addModel({ providerId: 'custom', model: { id: 'model-1' } }))
+      .rejects.toMatchObject({ code: 'PI_MODEL_CONFIG_INVALID' });
+    await expect(readFile(file, 'utf8')).resolves.toBe(before);
+  });
+
   it('rejects duplicate model IDs without writing', async () => {
     const { file, store } = await createStore({ custom: customProvider([{ id: 'model-1' }]) });
     const before = await readFile(file, 'utf8');

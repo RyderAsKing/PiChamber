@@ -3,7 +3,10 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SETTINGS_HELPER_CLASS } from '@/components/sections/shared/SettingsSection';
-import { parseThinkingLevelEntries } from './add-provider-model';
+import {
+  isInsideThinkingLevelQuote,
+  parseThinkingLevelEntries,
+} from './add-provider-model';
 
 type ThinkingLevelsInputProps = {
   value: string;
@@ -59,7 +62,7 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ',') {
+          if (event.key === 'Enter' || (event.key === ',' && !isInsideThinkingLevelQuote(draft))) {
             event.preventDefault();
             addDraft();
           }

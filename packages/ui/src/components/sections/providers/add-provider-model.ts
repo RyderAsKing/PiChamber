@@ -43,6 +43,21 @@ const positiveInteger = (value: string | undefined): number | undefined => {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
 
+export function isInsideThinkingLevelQuote(value: string): boolean {
+  let quoted = false;
+  let escaped = false;
+  for (const character of value) {
+    if (escaped) {
+      escaped = false;
+    } else if (quoted && character === "\\") {
+      escaped = true;
+    } else if (character === '"') {
+      quoted = !quoted;
+    }
+  }
+  return quoted;
+}
+
 export function parseThinkingLevelEntries(value: string): string[] {
   const entries: string[] = [];
   let start = 0;

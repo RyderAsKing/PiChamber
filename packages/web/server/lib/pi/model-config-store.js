@@ -260,6 +260,9 @@ export const createPiModelConfigStore = ({ file }) => {
       if (previous !== undefined && (typeof previous !== 'object' || Array.isArray(previous))) throw invalidModelConfig();
       if (previous !== undefined && previous.models !== undefined && !Array.isArray(previous.models)) throw invalidModelConfig();
       if (previous !== undefined) {
+        if (typeof previous.name !== 'string' || previous.name.trim().length === 0 || previous.name.length > 256
+          || typeof previous.baseUrl !== 'string' || !/^https?:\/\//.test(previous.baseUrl) || previous.baseUrl.length > 8_192
+          || !API_TYPES.has(previous.api)) throw invalidModelConfig();
         const existingModels = Array.isArray(previous.models) ? previous.models : [];
         const seen = new Set();
         for (const entry of existingModels) {
