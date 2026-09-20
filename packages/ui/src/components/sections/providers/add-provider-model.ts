@@ -43,14 +43,41 @@ const positiveInteger = (value: string | undefined): number | undefined => {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
 
+export function parseThinkingLevelEntries(value: string): string[] {
+  const entries: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quoted && character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && (character === "," || character === "\n")) {
+      const entry = value.slice(start, index).trim();
+      if (entry) entries.push(entry);
+      start = index + 1;
+    }
+  }
+  const finalEntry = value.slice(start).trim();
+  if (finalEntry) entries.push(finalEntry);
+  return entries;
+}
+
 export function validateThinkingMapText(value: string | undefined): {
   value?: PiProviderAddModelDetails["thinkingLevelMap"];
   error?: string;
 } {
-  const entries = (value ?? "")
-    .split(/[\n,]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+  const entries = parseThinkingLevelEntries(value ?? "");
   if (entries.length === 0) return {};
 
   const result: Partial<Record<ThinkingLevelKey, string | null>> = {};

@@ -246,6 +246,9 @@ export function providerToCustomFormState(provider: ProviderLikeForCustomForm): 
     ? provider.models
     : (provider.models && typeof provider.models === 'object'
       ? Object.entries(provider.models).map(([id, value]) => ({
+          ...(value && typeof value === 'object' && !Array.isArray(value)
+            ? value as Record<string, unknown>
+            : {}),
           id,
           name: value && typeof value === 'object' && 'name' in value && typeof (value as { name?: unknown }).name === 'string'
             ? (value as { name: string }).name

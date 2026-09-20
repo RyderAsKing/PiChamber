@@ -43,7 +43,10 @@ export function useProvidersPageState() {
   const [thinkingBusyKeys, setThinkingBusyKeys] = React.useState<Set<string>>(new Set());
   const [providerQuery, setProviderQuery] = React.useState('');
   const [visibleCap, setVisibleCap] = React.useState(80);
-  const [deferredCatalogBaseline, setDeferredCatalogBaseline] = React.useState<object | null>(null);
+  const [deferredModelTarget, setDeferredModelTarget] = React.useState<{
+    providerId: string;
+    modelId: string;
+  } | null>(null);
 
   const refresh = React.useCallback(async () => {
     const { providers: result } = await piClient.listProviders(providerScope());
@@ -93,12 +96,15 @@ export function useProvidersPageState() {
     }
   }, [refreshingCatalog]);
 
-  const refreshAfterModelAdd = React.useCallback(async (deferred?: boolean) => {
+  const refreshAfterModelAdd = React.useCallback(async (
+    deferred: boolean,
+    target: { providerId: string; modelId: string },
+  ) => {
     // When runtime recreation is deferred, the old live catalog does not yet
-    // include the new model. Refreshing now would repaint the stale list, so
-    // skip until the idle-edge recreation publishes the new catalog.
+    // include the new model. Wait until the idle-edge catalog load contains
+    // this exact addition rather than reacting to an unrelated store update.
     if (deferred) {
-      setDeferredCatalogBaseline(useConfigStore.getState().providers);
+      setDeferredModelTarget(target);
       return;
     }
     const scope = providerScope();
@@ -120,10 +126,15 @@ export function useProvidersPageState() {
   }, []);
 
   React.useEffect(() => {
-    if (deferredCatalogBaseline === null || configProviders === deferredCatalogBaseline) return;
-    setDeferredCatalogBaseline(null);
-    void refreshAfterModelAdd(false);
-  }, [configProviders, deferredCatalogBaseline, refreshAfterModelAdd]);
+    if (!deferredModelTarget) return;
+    const added = configProviders.some(
+      (provider) => provider.id === deferredModelTarget.providerId
+        && provider.models.some((model) => model.id === deferredModelTarget.modelId),
+    );
+    if (!added) return;
+    setDeferredModelTarget(null);
+    void refreshAfterModelAdd(false, deferredModelTarget);
+  }, [configProviders, deferredModelTarget, refreshAfterModelAdd]);
 
   React.useEffect(() => {
     let active = true;

@@ -41,11 +41,11 @@ interface AddProviderModelDialogProps {
   /** Test-only initial disclosure state. Defaults to collapsed. */
   initialAdvancedOpen?: boolean;
   /**
-   * Called after a successful add with the deferred recreation status so the
-   * parent can refresh authoritatively on immediate adds and skip the stale
-   * live catalog when activation is deferred to an idle edge.
+   * Called after a successful add with its identity and deferred recreation
+   * status so the parent can refresh immediately or wait for that model to
+   * appear after idle-edge activation.
    */
-  onAdded?: (deferred: boolean) => void | Promise<void>;
+  onAdded?: (result: { deferred: boolean; providerId: string; modelId: string }) => void | Promise<void>;
 }
 
 const mapAddError = (error: unknown): string => {
@@ -167,7 +167,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
         toast.success("Model added");
       }
       onOpenChange(false);
-      await onAdded?.(deferred);
+      await onAdded?.({ deferred, providerId, modelId: payload.id });
     } catch (error) {
       setSubmitError(mapAddError(error));
     } finally {

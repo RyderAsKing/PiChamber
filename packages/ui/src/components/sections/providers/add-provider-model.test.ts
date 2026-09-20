@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   PI_DEFAULT_CONTEXT_WINDOW,
   PI_DEFAULT_MAX_TOKENS,
+  parseThinkingLevelEntries,
   validateAddProviderModel,
   validateThinkingMapText,
 } from './add-provider-model';
@@ -46,6 +47,13 @@ describe('validateAddProviderModel', () => {
   test('requires thinking support when levels are configured', () => {
     expect(validateAddProviderModel({ modelId: 'm', thinkingLevelMapText: 'low-effort' }).errors.thinkingLevelMap)
       .toBe('Enable Supports thinking to add thinking levels');
+  });
+
+  test('keeps separators inside quoted thinking-level values', () => {
+    expect(parseThinkingLevelEntries('low="fast,careful"\nhigh="say \\"yes\\""')).toEqual([
+      'low="fast,careful"',
+      'high="say \\"yes\\""',
+    ]);
   });
 
   test('parses explicit thinking-level keys and null entries without losing legacy values', () => {

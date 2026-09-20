@@ -258,17 +258,18 @@ export const createPiModelConfigStore = ({ file }) => {
       const config = await readConfig();
       const previous = config.providers[next.providerId];
       if (previous !== undefined && (typeof previous !== 'object' || Array.isArray(previous))) throw invalidModelConfig();
-      if (previous !== undefined && !Array.isArray(previous.models)) throw invalidModelConfig();
-      if (Array.isArray(previous?.models)) {
+      if (previous !== undefined && previous.models !== undefined && !Array.isArray(previous.models)) throw invalidModelConfig();
+      if (previous !== undefined) {
+        const existingModels = Array.isArray(previous.models) ? previous.models : [];
         const seen = new Set();
-        for (const entry of previous.models) {
+        for (const entry of existingModels) {
           if (!entry || typeof entry !== 'object' || typeof entry.id !== 'string') throw invalidModelConfig();
           seen.add(entry.id.trim());
         }
         if (seen.has(next.model.id)) throw duplicateModelError();
         const provider = {
           ...previous,
-          models: [...previous.models, next.model],
+          models: [...existingModels, next.model],
         };
         config.providers[next.providerId] = provider;
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });

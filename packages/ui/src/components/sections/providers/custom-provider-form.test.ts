@@ -352,6 +352,34 @@ describe('provider edit helpers', () => {
     expect(state.headers[0]).toEqual({ row: state.headers[0].row, key: 'X-Campus', value: '1' });
   });
 
+  test('preserves advanced metadata from keyed model records', () => {
+    const state = providerToCustomFormState({
+      id: 'custom-provider',
+      options: { baseURL: 'https://api.example.com/v1' },
+      models: {
+        'model-a': {
+          name: 'Model A',
+          contextWindow: 200000,
+          maxTokens: 8192,
+          input: ['text', 'image'],
+          reasoning: true,
+          thinkingLevelMap: { high: 'high-effort' },
+        },
+      },
+    });
+
+    expect(state.models[0]).toMatchObject({
+      modelId: 'model-a',
+      displayName: 'Model A',
+      contextWindowText: '200000',
+      maxTokensText: '8192',
+      inputText: true,
+      inputImage: true,
+      supportsThinking: true,
+      thinkingLevelMapText: 'high="high-effort"',
+    });
+  });
+
   test('round-trips explicit thinking-level keys, arbitrary values, and hidden levels', () => {
     const state = providerToCustomFormState({
       id: 'custom-provider',

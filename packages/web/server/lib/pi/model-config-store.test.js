@@ -88,6 +88,22 @@ describe('Pi models configuration store', () => {
     expect(persisted.providers.other.models).toEqual([{ id: 'other' }]);
   });
 
+  it('appends to an existing provider whose model list is omitted', async () => {
+    const { file, store } = await createStore({
+      custom: { name: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', customMetadata: true },
+    });
+
+    await store.addModel({ providerId: 'custom', model: { id: 'model-1' } });
+
+    expect(JSON.parse(await readFile(file, 'utf8')).providers.custom).toEqual({
+      name: 'Custom',
+      baseUrl: 'https://api.example.test/v1',
+      api: 'openai-completions',
+      customMetadata: true,
+      models: [{ id: 'model-1' }],
+    });
+  });
+
   it('rejects duplicate model IDs without writing', async () => {
     const { file, store } = await createStore({ custom: customProvider([{ id: 'model-1' }]) });
     const before = await readFile(file, 'utf8');

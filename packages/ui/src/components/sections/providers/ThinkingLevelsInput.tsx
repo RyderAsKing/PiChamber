@@ -3,6 +3,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SETTINGS_HELPER_CLASS } from '@/components/sections/shared/SettingsSection';
+import { parseThinkingLevelEntries } from './add-provider-model';
 
 type ThinkingLevelsInputProps = {
   value: string;
@@ -12,9 +13,6 @@ type ThinkingLevelsInputProps = {
   id: string;
 };
 
-const parseValues = (value: string): string[] =>
-  value.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean);
-
 export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
   value,
   onChange,
@@ -23,10 +21,10 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
   id,
 }) => {
   const [draft, setDraft] = React.useState('');
-  const values = parseValues(value);
+  const values = parseThinkingLevelEntries(value);
 
   const addDraft = () => {
-    const additions = parseValues(draft);
+    const additions = parseThinkingLevelEntries(draft);
     if (additions.length === 0) return;
     const next = [...values];
     for (const addition of additions) {

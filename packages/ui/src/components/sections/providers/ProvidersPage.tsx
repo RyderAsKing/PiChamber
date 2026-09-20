@@ -278,7 +278,7 @@ export const ProvidersPage: React.FC = () => {
           onOpenChange={setAddModelOpen}
           providerId={provider.id}
           providerLabel={provider.label}
-          onAdded={(deferred) => void refreshAfterModelAdd(deferred)}
+          onAdded={(result) => void refreshAfterModelAdd(result.deferred, result)}
         />
       </SettingsPageLayout>
     );
