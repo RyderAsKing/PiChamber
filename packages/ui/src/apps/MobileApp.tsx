@@ -2,7 +2,6 @@ import React from 'react';
 
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { SessionDialogs } from '@/components/session/SessionDialogs';
@@ -686,21 +685,6 @@ export function MobileApp({ apis }: MobileAppProps) {
   // manual wake restarts a fresh bounded cycle); otherwise
   // synced (or initial connecting/reconnecting).
   const inTemporaryRecovery = isNativeMobileApp && hasRuntimeEndpoint && recoveryPhase !== 'idle';
-  const recoveryLabel = getAutoConnectTargetLabel() ?? '';
-  const handleRecoveryRetryNow = React.useCallback(() => {
-    const recovery = recoveryRef.current;
-    if (!recovery) return;
-    if (recoveryPhaseRef.current === 'exhausted') {
-      recovery.retryNow();
-      if (recovery.isRunning) setRecoveryPhase('recovering');
-      return;
-    }
-    startTemporaryRecovery();
-  }, [startTemporaryRecovery]);
-  const handleRecoverySwitchServer = React.useCallback(() => {
-    disconnectToConnectScreen(null);
-  }, [disconnectToConnectScreen]);
-
   // Hold a logo splash until the UI web font is loaded, so the first UI the user sees
   // already uses the real font instead of flashing the fallback and reflowing (FOUT).
   if (!fontsReady) {
@@ -820,34 +804,14 @@ export function MobileApp({ apis }: MobileAppProps) {
                   <div
                     role="status"
                     aria-live="polite"
-                    className={recoveryPhase === 'exhausted'
-                      ? 'flex items-center gap-3 border-b border-[color-mix(in_srgb,var(--status-error)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-error)_10%,transparent)] px-4 py-2.5'
-                      : 'flex items-center gap-3 border-b border-[color-mix(in_srgb,var(--status-warning)_35%,transparent)] bg-[color-mix(in_srgb,var(--status-warning)_10%,transparent)] px-4 py-2.5'}
+                    className="pointer-events-none fixed inset-x-0 top-[calc(var(--oc-safe-area-top,0px)+var(--oc-header-height,56px)+10px)] z-40 flex justify-center"
                   >
-                    <span className={recoveryPhase === 'exhausted'
-                      ? 'flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-error)_16%,transparent)] text-[var(--status-error)]'
-                      : 'flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--status-warning)_16%,transparent)] text-[var(--status-warning)]'}
-                    >
-                      <Icon name={recoveryPhase === 'exhausted' ? 'cloud-off' : 'loader-4'} className={recoveryPhase === 'exhausted' ? 'size-[18px]' : 'size-[18px] animate-spin'} />
+                    <span className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm">
+                      <PiChamberLogo width={24} height={24} isAnimated />
                     </span>
-                    <span className="min-w-0 flex-1 text-left">
-                      <span className="block truncate typography-ui-label text-foreground">
-                        {recoveryPhase === 'exhausted'
-                          ? (recoveryLabel ? `Couldn't reach ${recoveryLabel}` : 'Server unreachable')
-                          : 'Reconnecting…'}
-                      </span>
-                      <span className="block truncate typography-small text-muted-foreground">
-                        {recoveryPhase === 'exhausted'
-                          ? 'Chats and drafts are kept. Check the server, then try again.'
-                          : 'Keeping chats and drafts. Retrying automatically.'}
-                      </span>
+                    <span className="sr-only">
+                      {recoveryPhase === 'exhausted' ? 'Server unreachable' : 'Reconnecting…'}
                     </span>
-                    <Button type="button" size="sm" onClick={handleRecoveryRetryNow}>
-                      {recoveryPhase === 'exhausted' ? 'Try again' : 'Retry now'}
-                    </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={handleRecoverySwitchServer}>
-                      {'Use another server'}
-                    </Button>
                   </div>
                 ) : null}
                 <MobileAppUpdateToast />
