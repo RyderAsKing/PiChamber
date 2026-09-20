@@ -24,6 +24,7 @@ export function useProvidersPageState() {
   const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
   const hideAllModels = useUIStore((state) => state.hideAllModels);
   const showAllModels = useUIStore((state) => state.showAllModels);
+  const configProviders = useConfigStore((state) => state.providers);
   const settingsDefaultThinkingByModel = useConfigStore((state) => state.settingsDefaultThinkingByModel);
   const setSettingsDefaultThinkingByModel = useConfigStore((state) => state.setSettingsDefaultThinkingByModel);
   const setSettingsDefaultThinking = useConfigStore((state) => state.setSettingsDefaultThinking);
@@ -42,6 +43,10 @@ export function useProvidersPageState() {
   const [thinkingBusyKeys, setThinkingBusyKeys] = React.useState<Set<string>>(new Set());
   const [providerQuery, setProviderQuery] = React.useState('');
   const [visibleCap, setVisibleCap] = React.useState(80);
+  const [deferredModelTarget, setDeferredModelTarget] = React.useState<{
+    providerId: string;
+    modelId: string;
+  } | null>(null);
 
   const refresh = React.useCallback(async () => {
     const { providers: result } = await piClient.listProviders(providerScope());
@@ -90,6 +95,46 @@ export function useProvidersPageState() {
       setRefreshingCatalog(false);
     }
   }, [refreshingCatalog]);
+
+  const refreshAfterModelAdd = React.useCallback(async (
+    deferred: boolean,
+    target: { providerId: string; modelId: string },
+  ) => {
+    // When runtime recreation is deferred, the old live catalog does not yet
+    // include the new model. Wait until the idle-edge catalog load contains
+    // this exact addition rather than reacting to an unrelated store update.
+    if (deferred) {
+      setDeferredModelTarget(target);
+      return;
+    }
+    const scope = providerScope();
+    try {
+      const { providers: result } = await piClient.listProviders(scope);
+      if (scope.runtimeKey !== getRuntimeKey()) return;
+      setProviders(result);
+      setFailed(false);
+      const configStore = useConfigStore.getState();
+      configStore.invalidateProviderCache();
+      void configStore.loadProviders({ source: 'providersPage:addModel' });
+      window.dispatchEvent(new CustomEvent('pichamber:providers-refreshed', { detail: result }));
+    } catch {
+      if (scope.runtimeKey !== getRuntimeKey()) return;
+      // Preserve the prior authoritative list; a post-save refresh failure is
+      // toast-only and never becomes a page-level provider failure.
+      toast.error('Model added, but providers could not be refreshed');
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!deferredModelTarget) return;
+    const added = configProviders.some(
+      (provider) => provider.id === deferredModelTarget.providerId
+        && provider.models.some((model) => model.id === deferredModelTarget.modelId),
+    );
+    if (!added) return;
+    setDeferredModelTarget(null);
+    void refreshAfterModelAdd(false, deferredModelTarget);
+  }, [configProviders, deferredModelTarget, refreshAfterModelAdd]);
 
   React.useEffect(() => {
     let active = true;
@@ -276,11 +321,11 @@ export function useProvidersPageState() {
           providerId: plan.providerID,
           label: plan.name,
           baseUrl: plan.config.options.baseURL,
-          api: 'openai-completions',
-          models: Object.entries(plan.config.models).map(([id, model]) => ({
-            id,
+          api: plan.config.api,
+          models: Object.values(plan.config.models).map((model) => ({
+            ...model,
             providerId: plan.providerID,
-            label: model.name,
+            ...(model.name ? { label: model.name } : {}),
           })),
           ...(plan.config.options.headers ? { headers: plan.config.options.headers } : {}),
           ...(plan.config.env?.[0] ? { apiKeyReference: `{env:${plan.config.env[0]}}` } : {}),
@@ -406,6 +451,7 @@ export function useProvidersPageState() {
     refresh,
     refreshProviders,
     refreshCatalog,
+    refreshAfterModelAdd,
     provider,
     providerId,
     sortedProviders,

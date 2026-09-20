@@ -338,6 +338,7 @@ export function createSessionDaemon({
   // trigger one more rebuild instead of being lost behind the first one.
   let pendingRuntimeRecreation = false;
   let runtimeRecreationRevision = 0;
+  let pendingProviderCatalogRevision = 0;
   let runtimeRecreationTask = null;
   // Pi emits each user message start before its persisted entry is readable.
   // Keep prompt file metadata keyed by delivery kind so a queued followUp
@@ -837,8 +838,13 @@ export function createSessionDaemon({
         const revision = runtimeRecreationRevision;
         await disposeRuntime();
         if (!pendingRuntimeRecreation) break;
-        await ensureRuntime();
+        const recreatedRuntime = await ensureRuntime();
         recreated = true;
+        if (pendingProviderCatalogRevision > 0 && pendingProviderCatalogRevision <= revision) {
+          const publishedRevision = pendingProviderCatalogRevision;
+          publish('extension.catalog', { providers: true }, recreatedRuntime?.session?.sessionId, recreatedRuntime?.cwd);
+          if (pendingProviderCatalogRevision === publishedRevision) pendingProviderCatalogRevision = 0;
+        }
         if (revision === runtimeRecreationRevision) pendingRuntimeRecreation = false;
       }
       return recreated;
@@ -850,10 +856,11 @@ export function createSessionDaemon({
     return tracked;
   };
 
-  const scheduleRuntimeRecreation = async () => {
+  const scheduleRuntimeRecreation = async ({ providersChanged = false } = {}) => {
     const deferred = hasUnsafeRuntime();
     pendingRuntimeRecreation = true;
     runtimeRecreationRevision += 1;
+    if (providersChanged) pendingProviderCatalogRevision = runtimeRecreationRevision;
     if (deferred) {
       void flushPendingRuntimeRecreation().catch(() => {});
       return true;
@@ -2006,7 +2013,109 @@ export function createSessionDaemon({
     }
     // ModelRuntime snapshots models.json at construction. Persist the new
     // catalog now, then recreate resident runtimes only at a safe edge.
-    const deferred = await scheduleRuntimeRecreation();
+    const deferred = await scheduleRuntimeRecreation({ providersChanged: true });
+    return { config, ...(deferred ? { deferred: true } : {}) };
+  };
+
+  const ADD_MODEL_API_TYPES = new Set(['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai']);
+
+  const addProviderModel = async (payload) => {
+    if (!payload || typeof payload !== 'object' || typeof payload.providerId !== 'string') {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider model request is invalid.');
+    }
+    const providerId = payload.providerId;
+    const trimmedId = typeof payload.model?.id === 'string' ? payload.model.id.trim() : '';
+    if (!trimmedId) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider model request is invalid.');
+    const activeRuntime = await ensureRuntime();
+    const modelRuntime = activeRuntime?.session?.modelRuntime;
+    if (!modelRuntime) {
+      throw new SessionDaemonProtocolError('PROVIDER_NOT_FOUND', 'The requested provider is unavailable.');
+    }
+    if (typeof modelRuntime.getError?.() === 'string') {
+      throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+    }
+    // Pi 0.85.1 composeModelProvider layers models.json over native/base
+    // providers, so manual additions remain effective there. Extension
+    // registrations without an explicit `models` array do not hide the file
+    // entry either. Reject only when an extension defines its own `models`
+    // array, which would replace/hide the models.json addition.
+    if (typeof modelRuntime.getRegisteredProviderConfig === 'function') {
+      const extensionConfig = modelRuntime.getRegisteredProviderConfig(providerId);
+      if (extensionConfig && Array.isArray(extensionConfig.models)) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Extension-registered providers with explicit models cannot be extended with manual models.');
+      }
+    }
+    const liveProvider = typeof modelRuntime.getProvider === 'function' ? modelRuntime.getProvider(providerId) : undefined;
+    if (!liveProvider) {
+      throw new SessionDaemonProtocolError('PROVIDER_NOT_FOUND', 'The requested provider is unavailable.');
+    }
+    // Duplicate trimmed IDs would shadow the authoritative catalog entry.
+    // Check live first (Pi ModelRuntime.getModel is exact), then the file.
+    // Live lookup failures propagate instead of masquerading as empty success.
+    if (typeof modelRuntime.getModel === 'function' && modelRuntime.getModel(providerId, trimmedId)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The model already exists for this provider.');
+    }
+    const listed = typeof modelRuntime.getModels === 'function' ? modelRuntime.getModels(providerId) : [];
+    const liveModels = Array.isArray(listed) ? listed.filter((entry) => entry && entry.provider === providerId) : [];
+    if (liveModels.some((entry) => typeof entry.id === 'string' && entry.id.trim() === trimmedId)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The model already exists for this provider.');
+    }
+    let existingConfig = null;
+    try {
+      existingConfig = await modelConfigStore.get(providerId);
+    } catch (error) {
+      if (error?.code === 'PI_MODEL_CONFIG_INVALID') {
+        throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+      }
+      throw error;
+    }
+    if (existingConfig && Array.isArray(existingConfig.models)
+      && existingConfig.models.some((entry) => entry && typeof entry.id === 'string' && entry.id.trim() === trimmedId)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The model already exists for this provider.');
+    }
+    let seed;
+    if (!existingConfig) {
+      // Seed a missing models.json provider only from authoritative live
+      // runtime metadata (Pi Model/Provider shapes) when every live model
+      // agrees on one https baseUrl and one safely representable api.
+      if (liveModels.length === 0) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider cannot be seeded from live runtime metadata.');
+      }
+      const apis = new Set(liveModels.map((entry) => entry.api));
+      const baseUrls = new Set(liveModels.map((entry) => entry.baseUrl));
+      if (typeof liveProvider.baseUrl === 'string' && liveProvider.baseUrl.length > 0) baseUrls.add(liveProvider.baseUrl);
+      if (apis.size !== 1 || baseUrls.size !== 1) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider cannot be seeded from live runtime metadata.');
+      }
+      const [api] = [...apis];
+      const [baseUrl] = [...baseUrls];
+      const label = typeof liveProvider.name === 'string' ? liveProvider.name.trim() : '';
+      if (typeof api !== 'string' || !ADD_MODEL_API_TYPES.has(api)
+        || typeof baseUrl !== 'string' || !/^https?:\/\//.test(baseUrl) || baseUrl.length > 8_192
+        || label.length === 0 || label.length > 256) {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The provider cannot be seeded from live runtime metadata.');
+      }
+      seed = { label, baseUrl: baseUrl.trim(), api };
+    }
+    let config;
+    try {
+      config = await modelConfigStore.addModel({
+        providerId,
+        model: payload.model,
+        ...(seed ? { seed } : {}),
+      });
+    } catch (error) {
+      if (error?.code === 'PI_MODEL_DUPLICATE') {
+        throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The model already exists for this provider.');
+      }
+      if (error?.code === 'PI_MODEL_CONFIG_INVALID') {
+        throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
+      }
+      throw error;
+    }
+    // Same deferred recreation as models.set: ModelRuntime snapshots
+    // models.json at construction, so busy runtimes rehydrate at idle.
+    const deferred = await scheduleRuntimeRecreation({ providersChanged: true });
     return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
@@ -3614,7 +3723,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond',
@@ -3716,6 +3825,11 @@ export function createSessionDaemon({
       }
       case 'providers.models.set': {
         const result = await setProviderModels(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.models.add': {
+        const result = await addProviderModel(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -4216,6 +4330,7 @@ export function createSessionDaemon({
       disposingSessionIds.clear();
       pendingRuntimeRecreation = false;
       runtimeRecreationRevision += 1;
+      pendingProviderCatalogRevision = 0;
       await disposeRuntime();
       // Retry failed-create cleanups at the existing ownership-release
       // phase: dispose first, release only after success. A failed retry

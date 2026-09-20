@@ -1709,6 +1709,341 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('adds a single model to an existing file provider without replacing other models', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    const added = [];
+    const session = new FakeSession();
+    session.modelRuntime.getProvider = (providerId) => providerId === 'custom'
+      ? { id: 'custom', name: 'Custom', baseUrl: 'https://api.example.test/v1' }
+      : undefined;
+    session.modelRuntime.getModels = (providerId) => providerId === 'custom' || providerId === undefined
+      ? [{ provider: 'custom', id: 'model-1', name: 'Model 1', api: 'openai-completions', baseUrl: 'https://api.example.test/v1', reasoning: false, contextWindow: 128_000, maxTokens: 16_384, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }]
+      : [];
+    session.modelRuntime.getModel = (providerId, modelId) => providerId === 'custom' && modelId === 'model-1'
+      ? { provider: 'custom', id: 'model-1' }
+      : undefined;
+    const modelConfigStore = {
+      get: async (providerId) => providerId === 'custom'
+        ? { providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }] }
+        : null,
+      addModel: async (input) => {
+        added.push(input);
+        return { providerId: input.providerId, label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }, { id: 'model-2', providerId: 'custom', label: 'Model 2' }] };
+      },
+    };
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, modelConfigStore,
+      createRuntime: async () => ({ session, async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const result = await client.request('providers.models.add', {
+      providerId: 'custom',
+      model: { id: '  model-2 ', label: 'Model 2' },
+    });
+    expect(result.result).toEqual({ config: { providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }, { id: 'model-2', providerId: 'custom', label: 'Model 2' }] } });
+    expect(added).toHaveLength(1);
+    expect(added[0]).toEqual({ providerId: 'custom', model: { id: '  model-2 ', label: 'Model 2' } });
+    expect(JSON.stringify(result.result)).not.toContain('CUSTOM_KEY');
+    await client.close();
+  });
+
+  it('seeds a missing file provider from live runtime metadata only when safely representable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    const added = [];
+    const session = new FakeSession();
+    session.modelRuntime.getProvider = (providerId) => providerId === 'live-custom'
+      ? { id: 'live-custom', name: 'Live Custom', baseUrl: 'https://api.example.test/v1' }
+      : undefined;
+    session.modelRuntime.getModels = (providerId) => providerId === 'live-custom' || providerId === undefined
+      ? [
+          { provider: 'live-custom', id: 'existing', name: 'Existing', api: 'openai-completions', baseUrl: 'https://api.example.test/v1', reasoning: false, contextWindow: 128_000, maxTokens: 16_384, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+        ]
+      : [];
+    session.modelRuntime.getModel = () => undefined;
+    const modelConfigStore = {
+      get: async () => null,
+      addModel: async (input) => {
+        added.push(input);
+        return { providerId: input.providerId, label: input.seed.label, baseUrl: input.seed.baseUrl, api: input.seed.api, models: [{ id: input.model.id, providerId: input.providerId, label: input.model.label }] };
+      },
+    };
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, modelConfigStore,
+      createRuntime: async () => ({ session, async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const result = await client.request('providers.models.add', {
+      providerId: 'live-custom',
+      model: { id: 'new-model', label: 'New Model', contextWindow: 32_000, supportsThinking: true },
+    });
+    expect(result.result.config).toMatchObject({ providerId: 'live-custom', label: 'Live Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions' });
+    expect(added).toHaveLength(1);
+    expect(added[0]).toEqual({
+      providerId: 'live-custom',
+      model: { id: 'new-model', label: 'New Model', contextWindow: 32_000, supportsThinking: true },
+      seed: { label: 'Live Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions' },
+    });
+    await client.close();
+  });
+
+  it('reaches the store for native providers and extensions without explicit models', async () => {
+    const cases = [
+      {
+        name: 'native',
+        providerId: 'native-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'native-p', name: 'Native' }),
+          getModels: () => [{ provider: 'native-p', id: 'm', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: () => undefined,
+          getRegisteredProviderConfig: () => undefined,
+        },
+      },
+      {
+        name: 'extension-without-models',
+        providerId: 'ext-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'ext-p', name: 'Ext' }),
+          getModels: () => [{ provider: 'ext-p', id: 'm', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: () => undefined,
+          getRegisteredProviderConfig: () => ({ baseUrl: 'https://override.test' }),
+        },
+      },
+      {
+        name: 'custom-stream-without-models',
+        providerId: 'stream-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'stream-p', name: 'Stream' }),
+          getModels: () => [{ provider: 'stream-p', id: 'm', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: () => undefined,
+          getRegisteredProviderConfig: () => ({ streamSimple: async () => {}, api: 'openai-completions' }),
+        },
+      },
+    ];
+    for (const testCase of cases) {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+      const endpoint = testDaemonEndpoint(root);
+      let written = 0;
+      const session = new FakeSession();
+      session.modelRuntime = { ...session.modelRuntime, ...testCase.modelRuntime };
+      const modelConfigStore = {
+        get: async () => ({ providerId: testCase.providerId, label: 'Label', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [] }),
+        addModel: async (input) => {
+          written += 1;
+          expect(input).toEqual({ providerId: testCase.providerId, model: { id: 'model-1', label: 'Model 1' } });
+          return { providerId: testCase.providerId, label: 'Label', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: testCase.providerId, label: 'Model 1' }] };
+        },
+      };
+      daemon = createSessionDaemon({
+        endpoint, credential, cwd: root, modelConfigStore,
+        createRuntime: async () => ({ session, async dispose() {} }),
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+      const result = await client.request('providers.models.add', {
+        providerId: testCase.providerId,
+        model: { id: 'model-1', label: 'Model 1' },
+      });
+      expect(result.result.config.providerId, testCase.name).toBe(testCase.providerId);
+      expect(written, testCase.name).toBe(1);
+      expect(JSON.stringify(result.result)).not.toContain('CUSTOM_KEY');
+      await client.close();
+      await daemon.stop();
+      daemon = undefined;
+    }
+  });
+
+  it('rejects explicit extension models, ambiguous, duplicate, and missing providers before writing', async () => {
+    const cases = [
+      {
+        name: 'extension-with-models',
+        providerId: 'ext-models-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'ext-models-p', name: 'Ext' }),
+          getModels: () => [{ provider: 'ext-models-p', id: 'm', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: () => undefined,
+          getRegisteredProviderConfig: () => ({ baseUrl: 'https://override.test', models: [{ id: 'm' }] }),
+        },
+        fileConfig: { providerId: 'ext-models-p', label: 'Ext', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [] },
+        expected: 'INVALID_ARGUMENT',
+      },
+      {
+        name: 'extension-models-with-stream',
+        providerId: 'ext-stream-models-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'ext-stream-models-p', name: 'Ext' }),
+          getModels: () => [{ provider: 'ext-stream-models-p', id: 'm', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: () => undefined,
+          getRegisteredProviderConfig: () => ({ streamSimple: async () => {}, api: 'openai-completions', models: [{ id: 'm' }] }),
+        },
+        fileConfig: { providerId: 'ext-stream-models-p', label: 'Ext', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [] },
+        expected: 'INVALID_ARGUMENT',
+      },
+      {
+        name: 'ambiguous-base-url',
+        providerId: 'amb-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'amb-p', name: 'Amb' }),
+          getModels: () => [
+            { provider: 'amb-p', id: 'a', api: 'openai-completions', baseUrl: 'https://one.test' },
+            { provider: 'amb-p', id: 'b', api: 'openai-completions', baseUrl: 'https://two.test' },
+          ],
+          getModel: () => undefined,
+          getRegisteredNativeProvider: () => undefined,
+          getRegisteredProviderConfig: () => undefined,
+        },
+        fileConfig: null,
+        expected: 'INVALID_ARGUMENT',
+      },
+      {
+        name: 'unsupported-api',
+        providerId: 'bedrock-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'bedrock-p', name: 'Bedrock' }),
+          getModels: () => [{ provider: 'bedrock-p', id: 'm', api: 'bedrock-converse-stream', baseUrl: 'https://bedrock.test' }],
+          getModel: () => undefined,
+          getRegisteredNativeProvider: () => undefined,
+          getRegisteredProviderConfig: () => undefined,
+        },
+        fileConfig: null,
+        expected: 'INVALID_ARGUMENT',
+      },
+      {
+        name: 'duplicate-live',
+        providerId: 'dup-p',
+        modelRuntime: {
+          getProvider: () => ({ id: 'dup-p', name: 'Dup' }),
+          getModels: () => [{ provider: 'dup-p', id: 'model-1', api: 'openai-completions', baseUrl: 'https://api.example.test/v1' }],
+          getModel: (providerId, modelId) => providerId === 'dup-p' && modelId === 'model-1' ? { provider: 'dup-p', id: 'model-1' } : undefined,
+          getRegisteredNativeProvider: () => undefined,
+          getRegisteredProviderConfig: () => undefined,
+        },
+        fileConfig: { providerId: 'dup-p', label: 'Dup', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [] },
+        expected: 'INVALID_ARGUMENT',
+      },
+      {
+        name: 'missing-live',
+        providerId: 'ghost-p',
+        modelRuntime: {
+          getProvider: () => undefined,
+          getModels: () => [],
+          getModel: () => undefined,
+          getRegisteredNativeProvider: () => undefined,
+          getRegisteredProviderConfig: () => undefined,
+        },
+        fileConfig: null,
+        expected: 'PROVIDER_NOT_FOUND',
+      },
+    ];
+    for (const testCase of cases) {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+      const endpoint = testDaemonEndpoint(root);
+      let written = 0;
+      const session = new FakeSession();
+      session.modelRuntime = { ...session.modelRuntime, ...testCase.modelRuntime };
+      const modelConfigStore = {
+        get: async () => testCase.fileConfig,
+        addModel: async () => { written += 1; throw new Error('must not write'); },
+      };
+      daemon = createSessionDaemon({
+        endpoint, credential, cwd: root, modelConfigStore,
+        createRuntime: async () => ({ session, async dispose() {} }),
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+      const requestId = `request-${Math.random()}`;
+      const errorPromise = client.next((message) => message.kind === 'error');
+      client.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId, command: 'providers.models.add', payload: { providerId: testCase.providerId, model: { id: 'model-1', label: 'Model 1' } } })}\n`);
+      await expect(errorPromise).resolves.toMatchObject({ error: { code: testCase.expected } });
+      expect(written, testCase.name).toBe(0);
+      await client.close();
+      await daemon.stop();
+      daemon = undefined;
+    }
+  });
+
+  it('maps a locked concurrent duplicate to INVALID_ARGUMENT, not config corruption', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    session.modelRuntime.getProvider = (providerId) => providerId === 'custom'
+      ? { id: 'custom', name: 'Custom', baseUrl: 'https://api.example.test/v1' }
+      : undefined;
+    session.modelRuntime.getModels = () => [{ provider: 'custom', id: 'model-1', name: 'Model 1', api: 'openai-completions', baseUrl: 'https://api.example.test/v1', reasoning: false, contextWindow: 128_000, maxTokens: 16_384, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }];
+    session.modelRuntime.getModel = () => undefined;
+    const duplicate = Object.assign(new Error('The model already exists for this provider.'), { code: 'PI_MODEL_DUPLICATE' });
+    const modelConfigStore = {
+      get: async () => ({ providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }] }),
+      addModel: async () => { throw duplicate; },
+    };
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, modelConfigStore,
+      createRuntime: async () => ({ session, async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const requestId = `request-${Math.random()}`;
+    const errorPromise = client.next((message) => message.kind === 'error');
+    client.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId, command: 'providers.models.add', payload: { providerId: 'custom', model: { id: 'model-2', label: 'Model 2' } } })}\n`);
+    await expect(errorPromise).resolves.toMatchObject({ error: { code: 'INVALID_ARGUMENT' } });
+    await client.close();
+    await daemon.stop();
+    daemon = undefined;
+  });
+
+  it('defers manual model adds while streaming and recreates after settlement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-busy-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    session.modelRuntime.getProvider = (providerId) => providerId === 'custom' ? { id: 'custom', name: 'Custom', baseUrl: 'https://api.example.test/v1' } : undefined;
+    session.modelRuntime.getModels = () => [{ provider: 'custom', id: 'model-1', name: 'Model 1', api: 'openai-completions', baseUrl: 'https://api.example.test/v1', reasoning: false, contextWindow: 128_000, maxTokens: 16_384, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }];
+    session.modelRuntime.getModel = (providerId, modelId) => providerId === 'custom' && modelId === 'model-1' ? { provider: 'custom', id: 'model-1' } : undefined;
+    const runtimeState = { createCount: 0, disposeCount: 0 };
+    const modelConfigStore = {
+      get: async () => ({ providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }] }),
+      addModel: async (input) => ({ providerId: input.providerId, label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [{ id: 'model-1', providerId: 'custom', label: 'Model 1' }, { id: 'model-2', providerId: 'custom', label: 'Model 2' }] }),
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      modelConfigStore,
+      createRuntime: async () => {
+        runtimeState.createCount += 1;
+        return { cwd: root, session, async dispose() { runtimeState.disposeCount += 1; } };
+      },
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+    session.isStreaming = true;
+    const result = await client.request('providers.models.add', {
+      providerId: 'custom',
+      model: { id: 'model-2', label: 'Model 2' },
+    });
+    expect(result.result).toMatchObject({ config: { providerId: 'custom' }, deferred: true });
+    expect(runtimeState).toEqual({ createCount: 1, disposeCount: 0 });
+    const providerChange = client.next((message) => message.event === 'extension.catalog' && message.payload?.providers === true);
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect.poll(() => runtimeState.disposeCount).toBe(1);
+    expect(runtimeState.createCount).toBe(2);
+    await expect(providerChange).resolves.toMatchObject({
+      event: 'extension.catalog',
+      payload: { providers: true },
+    });
+    await client.close();
+  });
+
   it('runs persisted API-key and interactive OAuth logins without exposing credential values in daemon responses', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);

@@ -439,12 +439,29 @@ export interface PiProviderLogoutInput {
   providerId: string;
 }
 
+type PiProviderApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai';
+
+/** Model fields configurable through PiChamber. Omitted values use Pi defaults. */
+export interface PiProviderAddModelDetails {
+  id: string;
+  name?: string;
+  reasoning?: boolean;
+  thinkingLevelMap?: Partial<Record<PiThinkingLevel, string | null>>;
+  input?: Array<'text' | 'image'>;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
 export interface PiProviderModelsConfig {
   providerId: string;
   label: string;
   baseUrl: string;
-  api: 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'google-generative-ai';
-  models: PiModel[];
+  api: PiProviderApi;
+  models: Array<PiModel & PiProviderAddModelDetails>;
 }
 
 export interface PiProviderConfigResponse {
@@ -453,11 +470,18 @@ export interface PiProviderConfigResponse {
   deferred?: boolean;
 }
 
-export interface PiProviderSetModelsInput extends PiProviderModelsConfig {
+export interface PiProviderSetModelsInput extends Omit<PiProviderModelsConfig, 'models'> {
+  models: Array<PiModel & PiProviderAddModelDetails>;
   /** Optional non-secret Pi models.json environment reference, e.g. `{env:API_KEY}`. */
   apiKeyReference?: string;
   /** Optional per-provider headers. Values are write-only and never returned. */
   headers?: Record<string, string>;
+}
+
+/** Single-model append to Pi `models.json` without replacing the provider. */
+export interface PiProviderAddModelInput {
+  providerId: string;
+  model: PiProviderAddModelDetails;
 }
 
 // ---------------------------------------------------------------------------

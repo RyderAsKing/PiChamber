@@ -247,6 +247,37 @@ describe("PiService", () => {
     })
   })
 
+  test("adds a single provider model through POST without sending provider metadata", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/providers/custom/models")
+      expect(call.init?.method).toBe("POST")
+      expect(JSON.parse(call.init?.body as string)).toEqual({ id: "model-2", name: "Model 2", contextWindow: 32000, reasoning: true })
+      return jsonResponse({ config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model-1", providerId: "custom", label: "Model 1" }, { id: "model-2", providerId: "custom", label: "Model 2", contextWindow: 32000, supportsThinking: true }] } }, { status: 201 })
+    })
+    expect(await new PiService().addProviderModel({ providerId: "custom", model: { id: "model-2", name: "Model 2", contextWindow: 32000, reasoning: true } })).toEqual({
+      config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [{ id: "model-1", providerId: "custom", label: "Model 1" }, { id: "model-2", providerId: "custom", label: "Model 2", contextWindow: 32000, supportsThinking: true }] },
+    })
+  })
+
+  test("sends advanced per-model fields on the dedicated add-model path", async () => {
+    const advanced = {
+      id: "model-2",
+      name: "Model 2",
+      reasoning: true,
+      thinkingLevelMap: { low: "low-effort", high: null } as Record<"low" | "high", string | null>,
+      input: ["text", "image"] as Array<"text" | "image">,
+      contextWindow: 64000,
+      maxTokens: 8192,
+    }
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/providers/custom/models")
+      expect(call.init?.method).toBe("POST")
+      expect(JSON.parse(call.init?.body as string)).toEqual(advanced)
+      return jsonResponse({ config: { providerId: "custom", label: "Custom", baseUrl: "https://api.example.test/v1", api: "openai-completions", models: [] } }, { status: 201 })
+    })
+    await new PiService().addProviderModel({ providerId: "custom", model: advanced })
+  })
+
   test("reads and writes separated Pi and PiChamber settings", async () => {
     installFetchMock((call) => {
       if (call.url === "/api/pi/settings" && call.init?.method === "GET") {
