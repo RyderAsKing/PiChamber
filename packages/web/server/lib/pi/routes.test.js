@@ -338,7 +338,11 @@ describe('Pi runtime route', () => {
         if (command === 'providers.models.set') return { config: {
           providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions',
           apiKey: 'never-public', headers: { Authorization: 'never-public' },
-          models: [{ id: 'model', providerId: 'custom', label: 'Model', contextWindow: 100, supportsThinking: true, private: true }],
+          models: [{
+            id: 'model', providerId: 'custom', label: 'Model', contextWindow: 100, maxTokens: 50,
+            supportsThinking: true, input: ['text', 'image'], samplingParams: { temperature: 0.2 },
+            compat: { supportsStrictMode: true }, headers: { 'X-Model': 'never-public' }, private: true,
+          }],
         } };
         throw new Error(`Unexpected command ${command}`);
       },
@@ -355,12 +359,110 @@ describe('Pi runtime route', () => {
     });
     await expect(response.json()).resolves.toEqual({ config: {
       providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions',
-      models: [{ id: 'model', providerId: 'custom', label: 'Model', contextWindow: 100, supportsThinking: true }],
+      models: [{
+        id: 'model', providerId: 'custom', label: 'Model', contextWindow: 100, maxTokens: 50,
+        supportsThinking: true, input: ['text', 'image'],
+      }],
     } });
     expect(calls).toEqual([
       { command: 'providers.config.get', payload: { providerId: 'custom' } },
       { command: 'providers.models.set', payload: { providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', apiKeyReference: '{env:CUSTOM_KEY}', models: [{ id: 'model', providerId: 'custom', label: 'Model' }] } },
     ]);
+  });
+
+  it('adds a single provider model through the daemon without projecting credentials or headers', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'providers.models.add') {
+          if (typeof payload?.model?.id !== 'string' || payload.model.id.trim().length === 0) {
+            throw Object.assign(new Error('The provider model request is invalid.'), { code: 'INVALID_ARGUMENT' });
+          }
+          return { config: {
+          providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions',
+          apiKey: 'never-public', headers: { Authorization: 'never-public' },
+          models: [
+            { id: 'model-1', providerId: 'custom', label: 'Model 1' },
+            { id: 'model-2', providerId: 'custom', label: 'Model 2', contextWindow: 32_000, supportsThinking: true, private: true },
+          ],
+        }, deferred: true };
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/providers/custom/models`;
+    const response = await fetch(base, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'model-2', name: 'Model 2', contextWindow: 32_000, reasoning: true }),
+    });
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ config: {
+      providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions',
+      models: [
+        { id: 'model-1', providerId: 'custom', label: 'Model 1' },
+        { id: 'model-2', providerId: 'custom', label: 'Model 2', contextWindow: 32_000, supportsThinking: true },
+      ],
+    }, deferred: true });
+    expect(calls).toEqual([
+      { command: 'providers.models.add', payload: { providerId: 'custom', model: { id: 'model-2', name: 'Model 2', contextWindow: 32_000, reasoning: true } } },
+    ]);
+    const invalid = await fetch(base, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: '   ', label: 'Bad' }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
+  it('forwards supported model fields while dropping unsupported and unknown keys', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return { config: { providerId: 'custom', label: 'Custom', baseUrl: 'https://api.example.test/v1', api: 'openai-completions', models: [] } };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/providers/custom/models`;
+    const advanced = {
+      id: 'model-2', name: 'Model 2', api: 'openai-responses', baseUrl: 'https://override.example.test/v1',
+      reasoning: true, thinkingLevelMap: { low: 'low-effort' }, input: ['text'], contextWindow: 64_000, maxTokens: 8_192,
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, samplingParams: { temperature: 0.7 },
+      compat: { supportsStrictMode: true }, headers: { 'X-Model': 'secret' }, unknownField: 'dropped',
+    };
+    const response = await fetch(base, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(advanced),
+    });
+    expect(response.status).toBe(201);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].command).toBe('providers.models.add');
+    expect(calls[0].payload.providerId).toBe('custom');
+    expect(calls[0].payload.model).toEqual({
+      id: 'model-2', name: 'Model 2', reasoning: true,
+      thinkingLevelMap: { low: 'low-effort' }, input: ['text'], contextWindow: 64_000, maxTokens: 8_192,
+    });
+    // Light shape rejection stays at the route before reaching the daemon.
+    const badShapes = [
+      { id: 'm', contextWindow: 'large' },
+      { id: 'm', input: {} },
+      { id: 'm', thinkingLevelMap: [] },
+    ];
+    for (const body of badShapes) {
+      const invalid = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      expect(invalid.status).toBe(400);
+    }
+    expect(calls).toHaveLength(1);
   });
 
   it('preserves deferred status for accepted Pi mutations', async () => {

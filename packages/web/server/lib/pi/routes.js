@@ -351,8 +351,11 @@ const projectProviderConfig = (value) => {
           id: model.id,
           providerId: model.providerId,
           ...(typeof model.label === 'string' ? { label: model.label } : {}),
-          ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
           ...(model.supportsThinking === true ? { supportsThinking: true } : {}),
+          ...(model.thinkingLevelMap && typeof model.thinkingLevelMap === 'object' && !Array.isArray(model.thinkingLevelMap) ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
+          ...(Array.isArray(model.input) ? { input: model.input } : {}),
+          ...(Number.isSafeInteger(model.contextWindow) ? { contextWindow: model.contextWindow } : {}),
+          ...(Number.isSafeInteger(model.maxTokens) ? { maxTokens: model.maxTokens } : {}),
         };
       }),
     },
@@ -1068,6 +1071,44 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.models.set', { ...payload, providerId });
       res.json(projectProviderConfig(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/providers/:providerId/models', async (req, res) => {
+    const providerId = req.params.providerId;
+    const body = req.body;
+    if (typeof providerId !== 'string' || providerId.length === 0 || !body || typeof body !== 'object' || Array.isArray(body)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const { id, name, reasoning, thinkingLevelMap, input, contextWindow, maxTokens } = body;
+    const isPlainBag = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+    if (typeof id !== 'string'
+      || (name !== undefined && typeof name !== 'string')
+      || (reasoning !== undefined && typeof reasoning !== 'boolean')
+      || (thinkingLevelMap !== undefined && !isPlainBag(thinkingLevelMap))
+      || (input !== undefined && !Array.isArray(input))
+      || (contextWindow !== undefined && !Number.isSafeInteger(contextWindow))
+      || (maxTokens !== undefined && !Number.isSafeInteger(maxTokens))) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.models.add', {
+        providerId,
+        model: {
+          id,
+          ...(name !== undefined ? { name } : {}),
+          ...(reasoning !== undefined ? { reasoning } : {}),
+          ...(thinkingLevelMap !== undefined ? { thinkingLevelMap } : {}),
+          ...(input !== undefined ? { input } : {}),
+          ...(contextWindow !== undefined ? { contextWindow } : {}),
+          ...(maxTokens !== undefined ? { maxTokens } : {}),
+        },
+      });
+      res.status(201).json(projectProviderConfig(result));
     } catch (error) {
       writeDaemonError(res, error);
     }
