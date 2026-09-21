@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-09-21
+
+Manual provider models, mobile composer hardening, and worktree recovery since 1.0.2.
+
+- **Allow manual model adding on existing providers (#154).** New `POST /api/pi/providers/:providerId/models` validates id, name, reasoning, thinking level map, input, context and max tokens, then forwards one atomic `providers.models.add` daemon request with structured error mapping. The Providers page adds `AddProviderModelDialog` with shared `CustomProviderModelFields` and `ThinkingLevelsInput`, plus edge case validation for append and duplicate models (`routes`, `model-config-store`, `session-daemon`, `AddProviderModelDialog`, `add-provider-model`, `custom-provider-form`).
+- **Mobile attachment picker and worktree handoff (#148, #149).** The composer replaces `MobileAttachmentSheet` with a shared picker input owning the `multiple` plus `accept` contract, gated by one authoritative composer disabled flag across footer triggers, drag overlay, and file selection. Attachments survive worktree sends through centralized snapshots and queued handoff state, with expired refresh coverage (`ChatInput`, `ComposerAttachmentControls`, `ComposerFooter`, `ComposerAttachmentPickerInput`, `attachmentInputProps`, `attachment-snapshots`, `worktreeAttachments`).
+- **Leading slash command catalog on mobile (#151).** Slash autocomplete now triggers only on a leading slash. The inline skill autocomplete and its wiring are removed in favor of a compact one line per command mobile list backed by shared `filterAndSortCommands`, with tap versus scroll guards, listbox semantics, and assistive tech exposure for the selected command (`triggers`, `CommandAutocomplete`, `commandAutocompleteItems`, `commandComboboxAria`, `ComposerAutocompletePopups`).
+- **Failed worktree sends stay recoverable.** Failed worktree creation keeps its prompt, attachments, and error in the store, restores drafts from the background tasks menu, and retains recovery through prompt settlement instead of dropping the attempt (`useWorktreeCreationStore`, `useWorktreeCreationFailedSend`, `worktreeFailedSend`, `BackgroundTasksMenu`, `WorktreeCreationToasts`).
+- **Sessions survive failed first input.** A rejected first prompt no longer deletes the session. Durability cleanup is serialized so one holder retries once, recycle disposal coordinates with session open, cancelled leases hand off to delete and stop drains, and failed create disposal is retained and retried (`session-daemon`, `session-persistence-gap`, `session-failed-create-cleanup`).
+- **Worktree session load no longer falls back to stale state (#150).** Unpersisted sessions expire cleanly, stale missing session lookups are rejected, and archived session fallbacks are removed so a failed lookup opens a current project without carrying the unverified id (`pi-session-store`, `useQueuedMessageAutoSend`).
+- **Last turn diffs respect explicit opens (#153).** Explicitly opened last turn diffs render, and visible diffs sync from committed expansion state (`useDiffViewState`, `useBranchAndTurnDiffs`, `useDiffScrollManager`).
+- **Mobile reconnect indicator refined (#155).** Native mobile keeps its saved endpoint, cached sessions, and drafts during an outage with a quieter reconnect signal (`MobileApp`).
+- **Release publishing and updater assets hardened.** Desktop assets stage before publish and upload through bounded HTTP requests with stalled upload bounds. Repair runs resolve draft releases with pagination, compare SHA-256 digests instead of trusting equal file sizes, and finalize the existing release by numeric id, preventing mixed-build updater manifests, duplicate releases, and tags on the wrong commit (`release.yml`).
+
 ## [1.0.2] - 2026-09-17
 
 Docker server deployment, connected-server identity, and Termux guidance since 1.0.1.
