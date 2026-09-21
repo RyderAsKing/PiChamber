@@ -950,14 +950,30 @@ jobs:
 
       - name: Publish release
         if: ${{ github.event.inputs.dry_run != 'true' }}
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
-        with:
-          tag_name: v${{ needs.create-release.outputs.version }}
-          draft: false
-          prerelease: ${{ needs.create-release.outputs.is_prerelease == 'true' }}
-          make_latest: ${{ needs.create-release.outputs.is_prerelease == 'true' && 'false' || 'true' }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          IS_PRERELEASE: ${{ needs.create-release.outputs.is_prerelease }}
+        run: |
+          set -euo pipefail
+          records=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"v${VERSION}\") | [.id, .draft] | @tsv")
+          record_count=$(printf '%s\n' "$records" | awk 'NF { count += 1 } END { print count + 0 }')
+          if [ "$record_count" -ne 1 ]; then
+            echo "Expected exactly one release for v${VERSION}, found ${record_count}." >&2
+            exit 1
+          fi
+          IFS=$'\t' read -r release_id is_draft <<< "$records"
+          if [ "$is_draft" != "true" ]; then
+            echo "Release v${VERSION} is already published."
+            exit 0
+          fi
+          make_latest=$([ "$IS_PRERELEASE" = "true" ] && echo false || echo true)
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/${release_id}" \
+            -F draft=false \
+            -F prerelease="$IS_PRERELEASE" \
+            -f make_latest="$make_latest" \
+            --jq '{id, tag_name, draft, prerelease, html_url}'
 
       - name: Trigger pichamber-website site refresh (optional)
         if: ${{ github.event.inputs.dry_run != 'true' && needs.create-release.outputs.is_prerelease != 'true' }}
