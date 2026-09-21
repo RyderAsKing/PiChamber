@@ -77,21 +77,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Apple Certificate
-        id: apple_cert
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: bash packages/electron/scripts/install-apple-certificate.sh
-
-      - name: Build Electron app
+      - name: Build unsigned Electron app
         working-directory: packages/electron
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
-          MAC_SIGNED: ${{ steps.apple_cert.outputs.signed }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           bun run build:web-assets
           bun run bundle:main
@@ -99,57 +89,8 @@ jobs:
           # recompile native deps on its own. Rebuild against the target
           # Electron ABI before packaging, matching the release workflow.
           bun run rebuild:native
-          if [ "$MAC_SIGNED" = "true" ]; then
-            bunx electron-builder --mac --${{ matrix.arch }} --publish=never
-          else
-            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-            bunx electron-builder --mac --${{ matrix.arch }} --publish=never \
-              -c.mac.identity=null -c.mac.notarize=false
-          fi
-
-      - name: Verify signature + entitlements + notarization
-        if: ${{ steps.apple_cert.outputs.signed == 'true' }}
-        run: |
-          set -euo pipefail
-
-          APP_DIR="packages/electron/dist/mac"
-          [ -d "packages/electron/dist/mac-arm64" ] && APP_DIR="packages/electron/dist/mac-arm64"
-
-          APP_PATH=$(find "$APP_DIR" -maxdepth 2 -name "*.app" -print -quit)
-          if [ -z "$APP_PATH" ]; then
-            echo "Error: .app not found under packages/electron/dist/mac*"
-            ls -la packages/electron/dist/
-            exit 1
-          fi
-
-          echo "Verifying $APP_PATH"
-          codesign -vv --deep --strict "$APP_PATH"
-
-          CS_INFO=$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)
-          echo "$CS_INFO"
-          if ! echo "$CS_INFO" | grep -q "flags=.*runtime"; then
-            echo "Error: hardened runtime flag missing"
-            exit 1
-          fi
-
-          xcrun stapler validate "$APP_PATH"
-
-          ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_PATH" 2>&1 || true)
-          if echo "$ENTITLEMENTS" | grep -q "com.apple.security.app-sandbox"; then
-            echo "Error: app sandbox entitlement is present"
-            exit 1
-          fi
-          for key in \
-            com.apple.security.cs.allow-jit \
-            com.apple.security.cs.allow-unsigned-executable-memory \
-            com.apple.security.cs.disable-library-validation
-          do
-            if ! echo "$ENTITLEMENTS" | grep -q "<key>$key</key>"; then
-              echo "Error: required entitlement missing: $key"
-              exit 1
-            fi
-          done
+          bunx electron-builder --mac --${{ matrix.arch }} --publish=never \
+            -c.mac.identity=null -c.mac.notarize=false
 
       - name: Upload macOS installable artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -159,7 +100,6 @@ jobs:
             packages/electron/dist/*.dmg
             packages/electron/dist/*.zip
             packages/electron/dist/*.blockmap
-            packages/electron/dist/latest-mac.yml
           if-no-files-found: error
           retention-days: ${{ fromJSON(inputs.retention_days) }}
 

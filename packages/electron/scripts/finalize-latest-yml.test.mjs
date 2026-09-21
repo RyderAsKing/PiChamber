@@ -16,7 +16,7 @@ files:
 releaseDate: '2026-07-30T00:00:00.000Z'
 `;
 
-const createFixture = ({ includeArm64 = true } = {}) => {
+const createFixture = ({ includeArm64 = true, includeMac = true } = {}) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-latest-yml-'));
   const artifacts = path.join(root, 'artifacts');
   const output = path.join(root, 'output');
@@ -26,12 +26,14 @@ const createFixture = ({ includeArm64 = true } = {}) => {
     fs.mkdirSync(path.join(artifacts, 'latest-yml-aarch64-pc-windows-msvc'), { recursive: true });
     fs.writeFileSync(path.join(artifacts, 'latest-yml-aarch64-pc-windows-msvc', 'latest.yml'), manifest('arm64'));
   }
-  for (const [target, architecture] of [
-    ['latest-yml-x86_64-apple-darwin', 'x64'],
-    ['latest-yml-aarch64-apple-darwin', 'arm64'],
-  ]) {
-    fs.mkdirSync(path.join(artifacts, target), { recursive: true });
-    fs.writeFileSync(path.join(artifacts, target, 'latest-mac.yml'), manifest(architecture));
+  if (includeMac) {
+    for (const [target, architecture] of [
+      ['latest-yml-x86_64-apple-darwin', 'x64'],
+      ['latest-yml-aarch64-apple-darwin', 'arm64'],
+    ]) {
+      fs.mkdirSync(path.join(artifacts, target), { recursive: true });
+      fs.writeFileSync(path.join(artifacts, target, 'latest-mac.yml'), manifest(architecture));
+    }
   }
   fs.mkdirSync(output);
   return { root, artifacts, output };
@@ -74,6 +76,18 @@ test('combines both Windows architectures into the rc channel', (context) => {
   assert.match(mac, /win-arm64\.exe/);
   assert.equal(fs.existsSync(path.join(fixture.output, 'latest.yml')), false);
   assert.equal(fs.existsSync(path.join(fixture.output, 'latest-arm64.yml')), false);
+});
+
+test('omits the macOS channel when release builds are unsigned', (context) => {
+  const fixture = createFixture({ includeMac: false });
+  context.after(() => fs.rmSync(fixture.root, { recursive: true, force: true }));
+
+  execFileSync(process.execPath, [script], { env: environment(fixture) });
+
+  assert.equal(fs.existsSync(path.join(fixture.output, 'latest-mac.yml')), false);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'rc-mac.yml')), false);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'latest.yml')), true);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'latest-arm64.yml')), true);
 });
 
 test('fails instead of publishing an incomplete Windows channel set', (context) => {

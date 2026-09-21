@@ -39,33 +39,17 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Apple Certificate
-        id: apple_cert
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: bash packages/electron/scripts/install-apple-certificate.sh
-
-      - name: Build Electron app (arm64)
+      - name: Build unsigned Electron app (arm64)
         working-directory: packages/electron
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ELECTRON_BUILDER_ARCH: arm64
-          MAC_SIGNED: ${{ steps.apple_cert.outputs.signed }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           bun run build:web-assets
           bun run bundle:main
           bun run rebuild:native
-          if [ "$MAC_SIGNED" = "true" ]; then
-            ./node_modules/.bin/electron-builder --mac --arm64 --publish=never
-          else
-            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-            ./node_modules/.bin/electron-builder --mac --arm64 --publish=never \
-              -c.mac.identity=null -c.mac.notarize=false
-          fi
+          ./node_modules/.bin/electron-builder --mac --arm64 --publish=never \
+            -c.mac.identity=null -c.mac.notarize=false
 
       - name: Prepare DMG artifact
         run: |
@@ -74,7 +58,7 @@ jobs:
           DMG_PATH="packages/electron/dist/*.dmg"
           if ls $DMG_PATH 1> /dev/null 2>&1; then
             DMG_FILE=$(ls $DMG_PATH | head -n 1)
-            DMG_NAME=\"PiChamber_Electron_${{ inputs.macos_version }}_arm64.dmg"
+            DMG_NAME="PiChamber_Electron_${{ inputs.macos_version }}_arm64-unsigned.dmg"
             cp "$DMG_FILE" "artifacts/$DMG_NAME"
           else
             echo "Error: DMG file not found at $DMG_PATH"
