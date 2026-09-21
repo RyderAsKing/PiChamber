@@ -7,6 +7,30 @@ description: Install the desktop application or the PiChamber server.
 
 Download PiChamber from the [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest) page. The desktop application starts its PiChamber backend in-process.
 
+### macOS unsigned development previews
+
+PiChamber's macOS downloads are currently unsigned development previews, not production releases. Their filenames end in `-unsigned`. Apple Silicon Macs use the `mac-arm64-unsigned.dmg` download; Intel Macs use `mac-x64-unsigned.dmg`. These builds are not published to the desktop automatic-update channel.
+
+macOS Gatekeeper blocks unsigned applications downloaded from the internet. Only use this workaround for a DMG downloaded from PiChamber's official GitHub Releases page. If the DMG is in Downloads, remove its quarantine attribute and open it:
+
+```sh
+xattr -d com.apple.quarantine "$HOME/Downloads/PiChamber-<version>-mac-arm64-unsigned.dmg"
+open "$HOME/Downloads/PiChamber-<version>-mac-arm64-unsigned.dmg"
+```
+
+Drag PiChamber into Applications. If macOS still blocks the application, remove the copied application's quarantine attribute:
+
+```sh
+xattr -cr "/Applications/PiChamber.app"
+open "/Applications/PiChamber.app"
+```
+
+These commands bypass a macOS security check. Do not use them on files from mirrors, messages, or other untrusted sources.
+
+PiChamber does not currently publish an iOS release through TestFlight or the App Store because iOS distribution also requires Apple Developer Program signing. Developers with Xcode can still build and run the iOS app locally.
+
+### Linux
+
 On Linux, choose the package for your distribution when possible:
 
 - **Ubuntu, Debian, Linux Mint, and other Debian-family distributions:** download the `.deb` package and install it with `sudo apt install ./PiChamber-...-linux-amd64.deb`.
