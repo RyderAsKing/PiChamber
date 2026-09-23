@@ -577,6 +577,40 @@ describe("createPiEventStream epoch negotiation", () => {
     handle.dispose()
   })
 
+  test("a resubscribe blocked by a stale probe is still verified once that probe ends", async () => {
+    const healthReplies: Array<(response: Response) => void> = []
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") return new Promise<Response>((resolve) => healthReplies.push(resolve))
+      return new Response(new ReadableStream({ start() {} }))
+    })
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: () => {},
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+    await flush()
+    handle.reconnect()
+    expect(await waitForSubscribeCount(2)).toBe(true)
+    await flush()
+    expect(healthReplies.length).toBe(1)
+    // A second resubscribe becomes ready while the first probe is pending.
+    handle.reconnect()
+    expect(await waitForSubscribeCount(3)).toBe(true)
+    await flush()
+    expect(healthReplies.length).toBe(1)
+
+    // The stale probe's answer belongs to a retired connection and is ignored,
+    // but the latest connection is then probed instead of never.
+    healthReplies[0]?.(jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" }))
+    await flush()
+    expect(healthReplies.length).toBe(2)
+    healthReplies[1]?.(jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" }))
+    await flush()
+    expect(epochs).toEqual(["epoch-b"])
+    handle.dispose()
+  })
+
   test("rejects a foreign epoch that authoritative health contradicts, without disconnecting", async () => {
     const encoder = new TextEncoder()
     const controllers: ReadableStreamDefaultController<Uint8Array>[] = []

@@ -580,6 +580,10 @@ export const createPiEventStream = (
    *  A restarted daemon writes its resync snapshot right after attach, so this
    *  may be the only frame of the new lifetime; the probe hands it on. */
   let pendingForeignFrame: { event: PiSessionEvent; epoch: string; connectionId: number } | null = null;
+  /** A ready connection whose resubscribe probe was blocked by another probe
+   *  still in flight (possibly one for an older, now stale connection). It
+   *  is probed once that probe ends. */
+  let deferredResubscribeProbe: number | null = null;
   /** True once any connection of this stream has become ready. Later ready
    *  connections are resubscribes whose epoch must be re-verified. */
   let hasBeenReady = false;
@@ -788,6 +792,7 @@ export const createPiEventStream = (
       epochProbeInFlight = false;
       epochProbeController = null;
       pendingForeignFrame = null;
+      runDeferredResubscribeProbe();
     }
   };
 
@@ -800,7 +805,11 @@ export const createPiEventStream = (
    *  adopted its epoch, or verified on its own otherwise. */
   const verifyEpochAfterResubscribe = async (connectionId: number): Promise<void> => {
     const reference = currentEpoch ?? ownerEpoch;
-    if (!reference || epochProbeInFlight) return;
+    if (!reference) return;
+    if (epochProbeInFlight) {
+      deferredResubscribeProbe = connectionId;
+      return;
+    }
     epochProbeInFlight = true;
     epochProbeController = new AbortController();
     const timer = setTimeout(() => epochProbeController?.abort(), epochProbeTimeoutMs);
@@ -825,7 +834,15 @@ export const createPiEventStream = (
       const pending = pendingForeignFrame;
       pendingForeignFrame = null;
       if (pending) handleEvent(pending.event, pending.connectionId);
+      runDeferredResubscribeProbe();
     }
+  };
+
+  const runDeferredResubscribeProbe = () => {
+    const connectionId = deferredResubscribeProbe;
+    deferredResubscribeProbe = null;
+    if (connectionId === null || disposed || signal.aborted || connectionId !== generation) return;
+    void verifyEpochAfterResubscribe(connectionId);
   };
 
   /** Mint the short-lived URL auth token under a bounded deadline so a hung
