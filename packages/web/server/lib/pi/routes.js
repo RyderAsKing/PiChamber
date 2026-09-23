@@ -119,14 +119,33 @@ const projectSession = (value) => {
   };
 };
 
+// Resident-runtime lifecycle sampled by the daemon list. Optional: a
+// malformed value is dropped (unknown) rather than failing the row or the
+// directory, and only whitelisted fields cross the public boundary.
+const projectListLiveStatus = (value) => {
+  if (!value || typeof value !== 'object'
+    || !['idle', 'busy', 'retry'].includes(value.lifecycle)
+    || !Number.isSafeInteger(value.sequence) || value.sequence < 0) return null;
+  const retry = value.lifecycle === 'retry' ? projectRetryInfo(value.retry) : null;
+  return {
+    lifecycle: value.lifecycle,
+    sequence: value.sequence,
+    ...(retry ? { retry } : {}),
+    ...(value.lifecycle !== 'idle' && Number.isFinite(value.runStartedAt) && value.runStartedAt >= 0 ? { runStartedAt: value.runStartedAt } : {}),
+    ...(Number.isFinite(value.serverNow) && value.serverNow >= 0 ? { serverNow: value.serverNow } : {}),
+  };
+};
+
 const projectSessionList = (sessions) => {
   if (!Array.isArray(sessions)) throw protocolMismatch();
   return sessions.map((item) => {
     if (!item || typeof item !== 'object' || !Number.isFinite(item.updatedAt)) throw protocolMismatch();
+    const live = projectListLiveStatus(item.live);
     return {
       session: projectSession(item.session),
       ...(typeof item.preview === 'string' ? { preview: item.preview } : {}),
       updatedAt: item.updatedAt,
+      ...(live ? { live } : {}),
     };
   });
 };
