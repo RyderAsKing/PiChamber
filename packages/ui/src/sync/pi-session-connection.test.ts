@@ -448,6 +448,112 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     }
   });
 
+  test('a selection before first open is not replaced by the first listed session', async () => {
+    const store = new PiSessionStore();
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [
+        { session: { id: 'y', directory: '/repo' }, updatedAt: 1 },
+        { session: { id: 'x', directory: '/repo' }, updatedAt: 1 },
+      ] }),
+      getSession: async (id) => emptyDetail(id, '/repo'),
+    });
+    try {
+      await store.select('x');
+      await store.open('/repo', null);
+      expect(store.getState().selectedSessionId).toBe('x');
+      // The first attach's transport bootstrap is not installed by this RPC
+      // stub; the list commit must still retain the user's pointer.
+      expect(store.getState().sessions.map((item) => item.session.id)).toEqual(['y', 'x']);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('a selection during a null-preferred focus wins over a late list and hydration', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => undefined };
+    internal.state = { ...store.getState(), directory: '/other', connection: 'ready' };
+    let releaseList!: (value: { sessions: SessionListEntry[] }) => void;
+    const list = new Promise<{ sessions: SessionListEntry[] }>((resolve) => { releaseList = resolve; });
+    const stubs = stubDaemons({
+      listSessions: async () => list,
+      getSession: async (id) => emptyDetail(id, '/repo'),
+    });
+    try {
+      const focus = store.focusProject('/repo', null);
+      await tickMicrotasks();
+      await store.select('x', '/repo');
+      expect(store.getState().selectedSessionId).toBe('x');
+      releaseList({ sessions: [
+        { session: { id: 'y', directory: '/repo' }, updatedAt: 1 },
+        { session: { id: 'x', directory: '/repo' }, updatedAt: 1 },
+      ] });
+      await focus;
+      expect(store.getState().selectedSessionId).toBe('x');
+      expect(store.getState().hydratedSessionIds.has('x')).toBe(true);
+      expect(store.getState().sessionsListStatus).toBe('ready');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('a synchronous selection during the focus chrome notification wins too', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => undefined };
+    internal.state = { ...store.getState(), directory: '/other', connection: 'ready' };
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [
+        { session: { id: 'y', directory: '/repo' }, updatedAt: 1 },
+        { session: { id: 'x', directory: '/repo' }, updatedAt: 1 },
+      ] }),
+      getSession: async (id) => emptyDetail(id, '/repo'),
+    });
+    const unsubscribe = store.subscribe(() => {
+      if (store.getState().directory === '/repo' && store.getState().sessionsListStatus === 'loading') {
+        void store.select('x', '/repo');
+      }
+    }, 'chrome');
+    try {
+      await store.focusProject('/repo', null);
+      expect(store.getState().selectedSessionId).toBe('x');
+      expect(store.getState().hydratedSessionIds.has('x')).toBe(true);
+    } finally {
+      unsubscribe();
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
+  test('a late preferred-id lookup cannot strand a newer selection or its list', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    internal.stream = { dispose: () => undefined };
+    internal.state = { ...store.getState(), directory: '/other', connection: 'ready' };
+    let releaseLookup!: (value: SessionDetail) => void;
+    const lookup = new Promise<SessionDetail>((resolve) => { releaseLookup = resolve; });
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [{ session: { id: 'x', directory: '/repo' }, updatedAt: 1 }] }),
+      getSession: async (id) => id === 'old' ? lookup : emptyDetail(id, '/repo'),
+    });
+    try {
+      const focus = store.focusProject('/repo', 'old');
+      await tickMicrotasks();
+      await store.select('x', '/repo');
+      releaseLookup(emptyDetail('old', '/somewhere-else'));
+      await focus;
+      expect(store.getState().directory).toBe('/repo');
+      expect(store.getState().sessionsListStatus).toBe('ready');
+      expect(store.getState().selectedSessionId).toBe('x');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('cold cross-folder focus hydrates only the new id and preserves folder A', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);

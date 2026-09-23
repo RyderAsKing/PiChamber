@@ -148,6 +148,15 @@ export class PiSessionStore {
   private recovering = false;
   private pendingFocus: PendingFocus | null = null;
   private pendingPreferredSessionId: PiSessionId | null = null;
+  private selectionRevision = 0;
+  private userSelection: { id: PiSessionId; directory: string | null; revision: number } | null = null;
+
+  private newerSelection(revision: number, directory: string): PiSessionId | null {
+    const intent = this.userSelection;
+    return intent && intent.revision > revision
+      && (!intent.directory || normalizePath(intent.directory) === normalizePath(directory))
+      ? intent.id : null;
+  }
   private hydratedSessionIds = new Set<PiSessionId>();
   private activityPhaseById = new Map<PiSessionId, 'active' | 'settled'>();
   private pendingPromptById = new Set<PiSessionId>();
@@ -670,6 +679,7 @@ export class PiSessionStore {
     this.focusGeneration += 1;
     this.pendingFocus = null;
     this.pendingPreferredSessionId = null;
+    this.userSelection = null;
     this.hydratedSessionIds.clear();
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
@@ -1072,6 +1082,7 @@ export class PiSessionStore {
     // skips the loader on a known-good folder switch. The cluster pointer
     // and `sessionsListStatus` still update so the sidebar catches up.
     const expected = ++this.focusGeneration;
+    const selectionAtStart = this.selectionRevision;
     this.pendingFocus = { directory: nextDirectory, expected, preferredSessionId: desiredSessionId };
     this.pendingPreferredSessionId = desiredSessionId;
     const warmAlready = !!desiredSessionId && this.hydratedSessionIds.has(desiredSessionId);
@@ -1088,14 +1099,14 @@ export class PiSessionStore {
     if (warmAlready) {
       this.touchLastAccess(desiredSessionId as PiSessionId);
     }
-    await this.resolveFocus(expected, nextDirectory);
+    await this.resolveFocus(expected, nextDirectory, selectionAtStart);
   }
 
-  private async resolveFocus(expected: number, directory: string): Promise<void> {
+  private async resolveFocus(expected: number, directory: string, selectionAtStart: number): Promise<void> {
     const runtimeKey = getRuntimeKey();
     const startedRuntimeGeneration = this.runtimeGeneration;
     const baseline = this.state.catalog;
-    const desiredSessionId = this.pendingPreferredSessionId;
+    let desiredSessionId = this.pendingPreferredSessionId;
     let resolvedDirectory = directory;
     try {
       try {
@@ -1128,6 +1139,7 @@ export class PiSessionStore {
       }
       const listPayload = { sessions: this.filterDeletedListItems(result.payload.sessions) };
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
+      desiredSessionId = this.newerSelection(selectionAtStart, resolvedDirectory) ?? desiredSessionId;
       let matchedSession = desiredSessionId
         ? listPayload.sessions.find((item) => item.session.id === desiredSessionId)
         : undefined;
@@ -1143,11 +1155,14 @@ export class PiSessionStore {
             ) {
               // Session lives in a different folder than the one we just
               // focused; recurse rather than corrupt the new folder's list.
-              await this.focusProject(detail.session.directory, desiredSessionId);
-              return;
+              if (!this.newerSelection(selectionAtStart, resolvedDirectory)) {
+                await this.focusProject(detail.session.directory, desiredSessionId);
+                return;
+              }
+            } else {
+              listPayload.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
+              matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
             }
-            listPayload.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
-            matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch (lookupError) {
           if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
@@ -1164,8 +1179,10 @@ export class PiSessionStore {
         }
       }
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
+      const latestSelection = this.newerSelection(selectionAtStart, resolvedDirectory);
       const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
-      const nextSelectedSessionId = matchedSession?.session.id
+      const nextSelectedSessionId = (latestSelection && !this.isDeleted(latestSelection) ? latestSelection : null)
+        ?? matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listPayload.sessions.find((item) => !item.session.archived)?.session.id
           ?? null
@@ -1327,7 +1344,13 @@ export class PiSessionStore {
     const expected = ++this.runtimeGeneration;
     this.focusGeneration = expected;
     this.pendingFocus = null;
-    this.pendingPreferredSessionId = preferredSessionId ?? null;
+    // A first attach with no explicit preference must not clear a selection
+    // made before the provider mounted. A directory change cannot inherit it.
+    const earlySelection = !preferredSessionId && this.userSelection
+      && (!this.userSelection.directory || normalizePath(this.userSelection.directory) === normalizePath(directory))
+      ? this.userSelection.id : null;
+    this.pendingPreferredSessionId = preferredSessionId ?? earlySelection;
+    const selectionAtStart = this.selectionRevision;
     this.hydratedSessionIds.clear();
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
@@ -1348,7 +1371,7 @@ export class PiSessionStore {
     this.state = {
       ...this.state,
       directory,
-      selectedSessionId: preferredSessionId ?? null,
+      selectedSessionId: this.pendingPreferredSessionId,
       connection: 'loading',
       hydratedSessionIds: new Set(),
       reducer: {
@@ -1388,7 +1411,8 @@ export class PiSessionStore {
       // Filter tombstones once, before matched-session lookup, so a deleted
       // session can neither be matched, selected, nor re-entered the catalog.
       const listedSessions = this.filterDeletedListItems(result.sessions);
-      const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
+      const desiredSessionId = this.newerSelection(selectionAtStart, selected.directory)
+        ?? this.pendingPreferredSessionId ?? preferredSessionId;
       let matchedSession = desiredSessionId ? listedSessions.find((item) => item.session.id === desiredSessionId) : undefined;
       if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
@@ -1396,10 +1420,11 @@ export class PiSessionStore {
           if (expected !== this.runtimeGeneration) return;
           if (detail?.session?.directory && detail.session.directory !== directory) {
             if (expected !== this.runtimeGeneration) return;
-            await this.open(detail.session.directory, desiredSessionId);
-            return;
-          }
-          if (detail?.session?.id) {
+            if (!this.newerSelection(selectionAtStart, selected.directory)) {
+              await this.open(detail.session.directory, desiredSessionId);
+              return;
+            }
+          } else if (detail?.session?.id) {
             listedSessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
@@ -1417,8 +1442,10 @@ export class PiSessionStore {
           // of spinning.
         }
       }
+      const latestSelection = this.newerSelection(selectionAtStart, selected.directory);
       const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
-      const selectedSessionId = matchedSession?.session.id
+      const selectedSessionId = (latestSelection && !this.isDeleted(latestSelection) ? latestSelection : null)
+        ?? matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listedSessions.find((item) => !item.session.archived)?.session.id
           ?? null
@@ -1456,6 +1483,7 @@ export class PiSessionStore {
     const sessionDir = targetDirectory
       ?? this.state.reducer.bySession.get(sessionId)?.directory
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+    this.userSelection = { id: sessionId, directory: sessionDir ?? this.state.directory, revision: ++this.selectionRevision };
     if (sessionDir && normalizePath(sessionDir) !== normalizePath(this.state.directory)) {
       // Cross-folder select: stay inside the live cluster. `open` is a no-op
       // (focus) when the stream is attached; `focusProject` only swaps the
