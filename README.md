@@ -36,7 +36,7 @@ PiChamber stays focused on the parts around the agent:
 
 ## Quick start
 
-**Desktop:** Download the latest app from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). Linux users can choose a `.deb`, `.rpm`, or portable AppImage; the desktop app starts the PiChamber server and Pi session daemon in-process, so it does not need a separate Pi CLI installation.
+**Desktop:** Download the latest app from [GitHub Releases](https://github.com/RyderAsKing/PiChamber/releases/latest). Linux users can choose a `.deb`, `.rpm`, or portable AppImage. macOS downloads are unsigned development previews and require the manual Gatekeeper steps in the [install docs](packages/docs/content/docs/install.mdx). The desktop app starts the PiChamber server and Pi session daemon in-process, so it does not need a separate Pi CLI installation.
 
 **Server:**
 

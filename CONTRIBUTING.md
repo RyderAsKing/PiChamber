@@ -213,10 +213,12 @@ non-rendered changes, explain why visual evidence is not applicable.
 
 ## Release process
 
-The desktop release workflow builds macOS, Windows, and Linux artifacts. A tag
-also builds the Android release artifact. Publishing `@pi-chamber/web` is
-explicit through the Release workflow, and iOS TestFlight uses the separate
-Mobile Release workflow.
+The desktop release workflow builds macOS, Windows, and Linux artifacts. macOS
+artifacts are unsigned development previews with `-unsigned` filenames and are
+excluded from automatic-update manifests. A tag also builds the Android release
+artifact. Publishing `@pi-chamber/web` is explicit through the Release workflow.
+PiChamber does not currently publish an iOS release because Apple distribution
+signing is not configured.
 
 To start version `X.Y.Z`:
 
@@ -232,7 +234,8 @@ To start version `X.Y.Z`:
 A tag builds and uploads desktop artifacts and Android artifacts. To publish the
 npm package, dispatch the workflow with `publish_npm=true`. To build Android
 from a manual dispatch, enable `publish_mobile`. The root release workflow does
-not upload iOS; use **Mobile Release** for TestFlight.
+not upload iOS. The separate **Mobile Release** workflow can publish to TestFlight
+after Apple distribution signing and App Store Connect credentials are configured.
 
 The release workflow creates a draft, checks the changelog and package
 versions, verifies updater manifests, and publishes the draft after the desktop
@@ -294,9 +297,10 @@ prerelease; iOS TestFlight remains a separate manual workflow.
    branch after the stable release publishes.
 
 Release credentials are configured only in GitHub Actions secrets. Depending on
-the artifacts being published, the workflows use Apple signing and notarization
-secrets, `NPM_TOKEN`, Android signing secrets, iOS provisioning and App Store
-Connect secrets, and `PICHAMBER_WEBSITE_REPO_TOKEN`. The website token must be
+the artifacts being published, the workflows use `NPM_TOKEN`, Android signing
+secrets, iOS provisioning and App Store Connect secrets, and
+`PICHAMBER_WEBSITE_REPO_TOKEN`. Signed macOS distribution will also require
+Apple signing and notarization secrets when it is enabled. The website token must be
 able to send repository dispatches to the private `RyderAsKing/PiChamber-web`
 repository. Never put secret values in a commit or issue.
 

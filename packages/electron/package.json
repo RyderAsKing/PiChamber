@@ -92,7 +92,7 @@
       ],
       "category": "public.app-category.developer-tools",
       "icon": "resources/icons/icon.icns",
-      "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+      "artifactName": "${productName}-${version}-mac-${arch}-unsigned.${ext}",
       "extendInfo": {
         "CFBundleIconName": "AppIcon"
       },

@@ -406,23 +406,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Apple Certificate
-        id: apple_cert
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: bash packages/electron/scripts/install-apple-certificate.sh
-
-      - name: Build Electron app
+      - name: Build unsigned Electron app
         working-directory: packages/electron
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # rebuild-native.mjs reads this to target the right arch when
           # cross-building (runner is arm64; x64 matrix needs the hint).
           ELECTRON_BUILDER_ARCH: ${{ matrix.arch }}
-          MAC_SIGNED: ${{ steps.apple_cert.outputs.signed }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: |
           bun run build:web-assets
           bun run bundle:main
@@ -431,87 +421,18 @@ jobs:
           # target Electron ABI before packaging, otherwise node-pty/bun-pty
           # crash on require inside the packaged app.
           bun run rebuild:native
-          if [ "$MAC_SIGNED" = "true" ]; then
-            bunx electron-builder --mac --${{ matrix.arch }} --publish=never
-          else
-            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
-            export CSC_IDENTITY_AUTO_DISCOVERY=false
-            bunx electron-builder --mac --${{ matrix.arch }} --publish=never \
-              -c.mac.identity=null -c.mac.notarize=false
-          fi
+          bunx electron-builder --mac --${{ matrix.arch }} --publish=never \
+            -c.mac.identity=null -c.mac.notarize=false
 
-      - name: Validate macOS update manifest checksum
-        working-directory: packages/electron
-        env:
-          VERSION: ${{ needs.create-release.outputs.version }}
-          ARTIFACT_ARCH: ${{ matrix.arch }}
-        run: |
-          set -euo pipefail
-          ZIP="dist/PiChamber-${VERSION}-mac-${ARTIFACT_ARCH}.zip"
-          node ./scripts/verify-update-manifest.mjs "dist/latest-mac.yml" "$ZIP" "$VERSION"
-
-      - name: Verify signature + entitlements + notarization
-        if: ${{ steps.apple_cert.outputs.signed == 'true' }}
-        run: |
-          set -euo pipefail
-
-          APP_DIR="packages/electron/dist/mac"
-          [ -d "packages/electron/dist/mac-arm64" ] && APP_DIR="packages/electron/dist/mac-arm64"
-
-          APP_PATH=$(find "$APP_DIR" -maxdepth 2 -name "*.app" -print -quit)
-          if [ -z "$APP_PATH" ]; then
-            echo "Error: .app not found under packages/electron/dist/mac*"
-            ls -la packages/electron/dist/
-            exit 1
-          fi
-
-          echo "Verifying $APP_PATH"
-          codesign -vv --deep --strict "$APP_PATH"
-
-          # Require hardened runtime
-          CS_INFO=$(codesign -dv --verbose=4 "$APP_PATH" 2>&1)
-          echo "$CS_INFO"
-          if ! echo "$CS_INFO" | grep -q "flags=.*runtime"; then
-            echo "Error: hardened runtime flag missing"
-            exit 1
-          fi
-
-          # Require notary ticket stapled
-          xcrun stapler validate "$APP_PATH"
-
-          ENTITLEMENTS=$(codesign -d --entitlements :- "$APP_PATH" 2>&1 || true)
-          if echo "$ENTITLEMENTS" | grep -q "com.apple.security.app-sandbox"; then
-            echo "Error: app sandbox entitlement is present"
-            exit 1
-          fi
-          for key in \
-            com.apple.security.cs.allow-jit \
-            com.apple.security.cs.allow-unsigned-executable-memory \
-            com.apple.security.cs.disable-library-validation
-          do
-            if ! echo "$ENTITLEMENTS" | grep -q "<key>$key</key>"; then
-              echo "Error: required entitlement missing: $key"
-              exit 1
-            fi
-          done
-
-      - name: Save validated macOS release files
+      - name: Save unsigned macOS development previews
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-release-${{ matrix.arch }}
           path: |
-            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}.dmg
-            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}.dmg.blockmap
-            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}.zip
-            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}.zip.blockmap
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Save per-arch latest-mac.yml for merge
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: latest-yml-${{ matrix.target }}
-          path: packages/electron/dist/latest-mac.yml
+            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}-unsigned.dmg
+            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}-unsigned.dmg.blockmap
+            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}-unsigned.zip
+            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-mac-${{ matrix.arch }}-unsigned.zip.blockmap
           if-no-files-found: error
           retention-days: 1
 
@@ -739,14 +660,6 @@ jobs:
             "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.AppImage" \
             "$VERSION"
           node packages/electron/scripts/verify-update-manifest.mjs \
-            artifacts/latest-yml-x86_64-apple-darwin/latest-mac.yml \
-            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64.zip" \
-            "$VERSION"
-          node packages/electron/scripts/verify-update-manifest.mjs \
-            artifacts/latest-yml-aarch64-apple-darwin/latest-mac.yml \
-            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64.zip" \
-            "$VERSION"
-          node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/latest-yml-x86_64-pc-windows-msvc/latest.yml \
             "artifacts/windows-release-x64/PiChamber-${VERSION}-win-x64.exe" \
             "$VERSION"
@@ -771,14 +684,14 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           files=(
-            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64.dmg"
-            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64.dmg.blockmap"
-            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64.zip"
-            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64.zip.blockmap"
-            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64.dmg"
-            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64.dmg.blockmap"
-            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64.zip"
-            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64.zip.blockmap"
+            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64-unsigned.dmg"
+            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64-unsigned.dmg.blockmap"
+            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64-unsigned.zip"
+            "artifacts/macos-release-arm64/PiChamber-${VERSION}-mac-arm64-unsigned.zip.blockmap"
+            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64-unsigned.dmg"
+            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64-unsigned.dmg.blockmap"
+            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64-unsigned.zip"
+            "artifacts/macos-release-x64/PiChamber-${VERSION}-mac-x64-unsigned.zip.blockmap"
             "artifacts/windows-release-arm64/PiChamber-${VERSION}-win-arm64.exe"
             "artifacts/windows-release-arm64/PiChamber-${VERSION}-win-arm64.exe.blockmap"
             "artifacts/windows-release-x64/PiChamber-${VERSION}-win-x64.exe"
@@ -793,16 +706,16 @@ jobs:
           if [ "$IS_PRERELEASE" = "true" ]; then
             cp artifacts/x64/latest-linux.yml release-assets/rc-linux.yml
             cp artifacts/arm64/latest-linux-arm64.yml release-assets/rc-linux-arm64.yml
-            cp "$RUNNER_TEMP/rc-mac.yml" "$RUNNER_TEMP/rc.yml" release-assets/
+            cp "$RUNNER_TEMP/rc.yml" release-assets/
           else
             cp artifacts/x64/latest-linux.yml artifacts/arm64/latest-linux-arm64.yml release-assets/
-            cp "$RUNNER_TEMP/latest-mac.yml" "$RUNNER_TEMP/latest.yml" "$RUNNER_TEMP/latest-arm64.yml" release-assets/
+            cp "$RUNNER_TEMP/latest.yml" "$RUNNER_TEMP/latest-arm64.yml" release-assets/
           fi
           for file in "${files[@]}"; do
             test -s "$file"
             cp "$file" release-assets/
           done
-          expected_count=$([ "$IS_PRERELEASE" = "true" ] && echo 22 || echo 23)
+          expected_count=$([ "$IS_PRERELEASE" = "true" ] && echo 21 || echo 22)
           actual_count=$(find release-assets -maxdepth 1 -type f | wc -l)
           test "$actual_count" -eq "$expected_count"
           echo "Staged $actual_count validated desktop release files."
@@ -899,14 +812,14 @@ jobs:
           const { REPOSITORY: repo, VERSION: version, GITHUB_TOKEN: token } = process.env;
           const prerelease = version.includes('-rc.');
           const expected = [
-            `PiChamber-${version}-mac-arm64.dmg`,
-            `PiChamber-${version}-mac-arm64.dmg.blockmap`,
-            `PiChamber-${version}-mac-arm64.zip`,
-            `PiChamber-${version}-mac-arm64.zip.blockmap`,
-            `PiChamber-${version}-mac-x64.dmg`,
-            `PiChamber-${version}-mac-x64.dmg.blockmap`,
-            `PiChamber-${version}-mac-x64.zip`,
-            `PiChamber-${version}-mac-x64.zip.blockmap`,
+            `PiChamber-${version}-mac-arm64-unsigned.dmg`,
+            `PiChamber-${version}-mac-arm64-unsigned.dmg.blockmap`,
+            `PiChamber-${version}-mac-arm64-unsigned.zip`,
+            `PiChamber-${version}-mac-arm64-unsigned.zip.blockmap`,
+            `PiChamber-${version}-mac-x64-unsigned.dmg`,
+            `PiChamber-${version}-mac-x64-unsigned.dmg.blockmap`,
+            `PiChamber-${version}-mac-x64-unsigned.zip`,
+            `PiChamber-${version}-mac-x64-unsigned.zip.blockmap`,
             `PiChamber-${version}-win-arm64.exe`,
             `PiChamber-${version}-win-arm64.exe.blockmap`,
             `PiChamber-${version}-win-x64.exe`,
@@ -919,7 +832,6 @@ jobs:
             `PiChamber-${version}-linux-aarch64.rpm`,
             prerelease ? 'rc-linux.yml' : 'latest-linux.yml',
             prerelease ? 'rc-linux-arm64.yml' : 'latest-linux-arm64.yml',
-            prerelease ? 'rc-mac.yml' : 'latest-mac.yml',
             prerelease ? 'rc.yml' : 'latest.yml',
             ...(!prerelease ? ['latest-arm64.yml'] : []),
           ];

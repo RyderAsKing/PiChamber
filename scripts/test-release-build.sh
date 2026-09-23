@@ -191,7 +191,7 @@ for arch in "${TARGETS[@]}"; do
 
   if [[ "$DRY_RUN" != true ]]; then
     for extension in dmg zip; do
-      artifact="$ELECTRON_DIR/dist/PiChamber-${VERSION}-mac-${arch}.${extension}"
+      artifact="$ELECTRON_DIR/dist/PiChamber-${VERSION}-mac-${arch}-unsigned.${extension}"
       if [[ ! -s "$artifact" ]]; then
         log_error "Expected artifact was not created: $artifact"
         exit 1
@@ -202,5 +202,5 @@ for arch in "${TARGETS[@]}"; do
 done
 
 log_success "Electron release build test completed"
-log_info "Signing and notarization are disabled locally."
+log_info "macOS artifacts are unsigned development previews; signing, notarization, and updater publication are disabled."
 log_info "Windows and Linux packaging must be checked on their native CI runners."
