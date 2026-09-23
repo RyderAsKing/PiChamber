@@ -14,6 +14,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { PiSessionProvider } from '@/sync/pi-session-context';
+import { focusPreferenceForDirectory } from '@/sync/pi-session-focus-preference';
 import { useSessions } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { SyncRuntimeEffects } from './AppEffects';
@@ -251,8 +252,10 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
 
   React.useEffect(() => {
     const directory = currentDirectory || config.directory;
-    if (directory) void getPiSessionStore().focusProject(directory, null);
-  }, [config.directory, currentDirectory]);
+    if (!directory) return;
+    const fallback = config.mode === 'session' ? { sessionId: config.sessionId, directory: config.directory } : null;
+    void getPiSessionStore().focusProject(directory, focusPreferenceForDirectory(directory, fallback));
+  }, [config.directory, config.mode, config.sessionId, currentDirectory]);
 
   React.useEffect(() => {
     registerRuntimeAPIs(apis);

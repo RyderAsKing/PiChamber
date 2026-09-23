@@ -104,6 +104,8 @@ mock.module('@/hooks/useUpdatePolling', () => ({ DeferredUpdatePolling: () => nu
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
 mock.module('@/apps/pi-session-store', () => ({
   getPiSessionStore: () => ({
+    getState: () => ({ directory: '/repo' }),
+    lastSelectedSessionForDirectory: () => null,
     focusProject: (...args: unknown[]) => {
       focusProjectCalls.push(args);
       return Promise.resolve();
