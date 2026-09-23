@@ -103,6 +103,7 @@ const originals = {
   listSessions: piClient.listSessions.bind(piClient),
   getSession: piClient.getSession.bind(piClient),
   health: piClient.health.bind(piClient),
+  sendPrompt: piClient.sendPrompt.bind(piClient),
 };
 
 const stub = (listSessions: (directory: string) => Promise<ListResult>) => {
@@ -159,6 +160,7 @@ describe('PiSessionStore list live status', () => {
     piClient.listSessions = originals.listSessions;
     piClient.getSession = originals.getSession;
     piClient.health = originals.health;
+    piClient.sendPrompt = originals.sendPrompt;
     resetSessionOrdering();
     resetSessionActivityTiming();
     __resetDirectoryRefreshSchedulerForTests();
@@ -249,6 +251,27 @@ describe('PiSessionStore list live status', () => {
     // A real terminal lifecycle event still settles it.
     commit(store, [lifecycleEvent('streaming', 'idle', 10)]);
     expect(store.getState().catalog.byId.get('streaming')?.lifecycle).toBe('idle');
+  });
+
+  test('an idle list sampled before the daemon took a prompt does not clear the optimistic busy row', async () => {
+    stub(async () => ({ streamEpoch: EPOCH, sessions: [item('focused', '/repo')] }));
+    await store.start({ directory: '/repo' });
+    await tick();
+    const sent = deferred<unknown>();
+    piClient.sendPrompt = (async () => sent.promise) as typeof piClient.sendPrompt;
+    const prompt = store.prompt('focused', 'hi', 'prompt', undefined, { knownEmptyTranscript: true });
+    await tick();
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('busy');
+
+    piClient.listSessions = (async () => ({
+      streamEpoch: EPOCH,
+      sessions: [item('focused', '/repo', { lifecycle: 'idle', sequence: 5 })],
+    })) as typeof piClient.listSessions;
+    await store.refreshDirectoryCatalog('/repo');
+
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('busy');
+    sent.resolve({ accepted: true });
+    await prompt.catch(() => undefined);
   });
 
   test('a newer idle observation clears a stale busy row', async () => {

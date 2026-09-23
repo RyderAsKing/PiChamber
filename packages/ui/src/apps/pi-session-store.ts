@@ -294,6 +294,9 @@ export class PiSessionStore {
     const options: DirectoryListLiveOptions = {
       acceptLiveObservation: (sessionId, sequence) => {
         if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+        // A prompt this client is still sending owns the row's lifecycle: a
+        // list sampled before the daemon took it would report idle.
+        if (this.pendingPromptById.has(sessionId)) return false;
         // A hydrated transcript's cursor is authoritative lifecycle state (its
         // row mirrors the reducer); a cold session's reducer cursor only
         // reflects content events, which cannot change lifecycle.
