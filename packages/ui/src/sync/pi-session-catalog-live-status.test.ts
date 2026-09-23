@@ -393,6 +393,67 @@ describe('PiSessionStore list live status', () => {
     expect(store.getState().reducer.lastSequence.get('focused')).not.toBe(5);
   });
 
+  test('a new-lifetime idle listing during a retired read reruns the detail read', async () => {
+    stub(async () => ({ streamEpoch: EPOCH, sessions: [item('focused', '/repo')] }));
+    await store.start({ directory: '/repo' });
+    await tick();
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'm1' })) as typeof piClient.sendPrompt;
+    await store.prompt('focused', 'hi', 'prompt', undefined, { knownEmptyTranscript: true });
+
+    const staleDetail = deferred<unknown>();
+    let detailReads = 0;
+    piClient.getSession = (async (id: string) => {
+      detailReads += 1;
+      if (detailReads === 1) return staleDetail.promise;
+      return {
+        session: { id, directory: '/repo', createdAt: 0, updatedAt: 0 },
+        lastSequence: 2,
+        messages: [],
+        isStreaming: false,
+        lifecycle: 'idle',
+        streamEpoch: 'epoch-2',
+      };
+    }) as unknown as typeof piClient.getSession;
+    piClient.listSessions = (async () => ({
+      streamEpoch: EPOCH,
+      sessions: [item('focused', '/repo', { lifecycle: 'idle', sequence: 5 })],
+    })) as typeof piClient.listSessions;
+    await store.refreshDirectoryCatalog('/repo');
+    await tick();
+    expect(detailReads).toBe(1);
+
+    // The daemon restarts; its recovery list reports idle while the old read
+    // is still pending, so that trigger must not be lost.
+    const internal = store as unknown as {
+      applyVerifiedEpochChange: (epoch: string) => unknown;
+      queueSyncRecovery: (...args: unknown[]) => void;
+      pendingPromptById: Set<string>;
+    };
+    internal.queueSyncRecovery = () => undefined;
+    internal.applyVerifiedEpochChange('epoch-2');
+    piClient.listSessions = (async () => ({
+      streamEpoch: 'epoch-2',
+      sessions: [item('focused', '/repo', { lifecycle: 'idle', sequence: 2 })],
+    })) as typeof piClient.listSessions;
+    await store.refreshDirectoryCatalog('/repo');
+    await tick();
+    expect(detailReads).toBe(1);
+
+    staleDetail.resolve({
+      session: { id: 'focused', directory: '/repo', createdAt: 0, updatedAt: 0 },
+      lastSequence: 5,
+      messages: [],
+      isStreaming: false,
+      lifecycle: 'idle',
+      streamEpoch: EPOCH,
+    });
+    await tick(24);
+
+    expect(detailReads).toBe(2);
+    expect(internal.pendingPromptById.has('focused')).toBe(false);
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('idle');
+  });
+
   test('a newer idle observation clears a stale busy row', async () => {
     stub(async (directory) => ({ streamEpoch: EPOCH, sessions: directory === '/repo' ? [item('focused', '/repo')] : [] }));
     await store.start({ directory: '/repo' });

@@ -171,7 +171,9 @@ export class PiSessionStore {
    *  active before it acknowledges, so state read after acceptance is
    *  authoritative for that send even when its lifecycle events were missed. */
   private acceptedPromptGenerationById = new Map<PiSessionId, number>();
-  private acceptedPromptReconcileInFlight = new Set<PiSessionId>();
+  /** In-flight list-triggered reconciles; `true` when another idle listing
+   *  arrived meanwhile and the read must run again once this one ends. */
+  private acceptedPromptReconcileInFlight = new Map<PiSessionId, boolean>();
   /** Monotonic clock of last access per resident session. Updated on
    *  `select`, successful `commitHydratedSession`, accepted events, and
    *  explicit `touchLastAccess`. Eviction walks ascending order so the
@@ -2169,14 +2171,32 @@ export class PiSessionStore {
 
   /** An accepted send whose lifecycle events were missed would stay pending
    *  (busy) forever. An idle listing triggers one authoritative detail read,
-   *  taken after acceptance, which settles it or keeps it. */
+   *  taken after acceptance, which settles it or keeps it. A listing that
+   *  arrives during that read (for example from a restarted daemon whose
+   *  lifetime retires the running read) is coalesced into one more read. */
   private reconcileAcceptedPromptFromList(sessionId: PiSessionId): void {
     const generation = this.promptGenerationById.get(sessionId);
-    if (generation === undefined || this.acceptedPromptReconcileInFlight.has(sessionId)) return;
-    this.acceptedPromptReconcileInFlight.add(sessionId);
+    if (generation === undefined) return;
+    if (this.acceptedPromptReconcileInFlight.has(sessionId)) {
+      this.acceptedPromptReconcileInFlight.set(sessionId, true);
+      return;
+    }
+    this.acceptedPromptReconcileInFlight.set(sessionId, false);
     void this.reconcilePendingPromptSnapshot(sessionId, generation, this.runtimeGeneration)
       .catch(() => false)
-      .finally(() => this.acceptedPromptReconcileInFlight.delete(sessionId));
+      .finally(() => {
+        const again = this.acceptedPromptReconcileInFlight.get(sessionId) === true;
+        this.acceptedPromptReconcileInFlight.delete(sessionId);
+        const current = this.promptGenerationById.get(sessionId);
+        if (
+          again
+          && this.pendingPromptById.has(sessionId)
+          && current !== undefined
+          && this.acceptedPromptGenerationById.get(sessionId) === current
+        ) {
+          this.reconcileAcceptedPromptFromList(sessionId);
+        }
+      });
   }
 
   private async reconcileAcceptedSlashPrompt(
