@@ -167,6 +167,11 @@ export class PiSessionStore {
   private activityPhaseById = new Map<PiSessionId, 'active' | 'settled'>();
   private pendingPromptById = new Set<PiSessionId>();
   private promptGenerationById = new Map<PiSessionId, number>();
+  /** Prompt generation whose send the daemon accepted. Pi marks the run
+   *  active before it acknowledges, so state read after acceptance is
+   *  authoritative for that send even when its lifecycle events were missed. */
+  private acceptedPromptGenerationById = new Map<PiSessionId, number>();
+  private acceptedPromptReconcileInFlight = new Set<PiSessionId>();
   /** Monotonic clock of last access per resident session. Updated on
    *  `select`, successful `commitHydratedSession`, accepted events, and
    *  explicit `touchLastAccess`. Eviction walks ascending order so the
@@ -291,12 +296,10 @@ export class PiSessionStore {
     // passes `streamAttaching` for the stream it attaches right after.
     if (!this.stream && !streamAttaching) return { options: undefined, commit: () => undefined };
     const accepted = new Set<PiSessionId>();
+    const acceptedSends = new Set<PiSessionId>();
     const options: DirectoryListLiveOptions = {
       acceptLiveObservation: (sessionId, sequence) => {
         if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
-        // A prompt this client is still sending owns the row's lifecycle: a
-        // list sampled before the daemon took it would report idle.
-        if (this.pendingPromptById.has(sessionId)) return false;
         // A hydrated transcript's cursor is authoritative lifecycle state (its
         // row mirrors the reducer); a cold session's reducer cursor only
         // reflects content events, which cannot change lifecycle.
@@ -305,12 +308,29 @@ export class PiSessionStore {
           this.hydratedSessionIds.has(sessionId) ? (this.state.reducer.lastSequence.get(sessionId) ?? -1) : -1,
         );
         if (sequence < newest) return false;
+        // A prompt this client is still sending owns the row's lifecycle: a
+        // list sampled before the daemon took it would report idle. Once the
+        // daemon accepted it, an idle list is only a hint (it may predate the
+        // acceptance); `commit` confirms it from session detail instead.
+        if (this.pendingPromptById.has(sessionId)) {
+          const generation = this.promptGenerationById.get(sessionId);
+          if (generation !== undefined && this.acceptedPromptGenerationById.get(sessionId) === generation) {
+            acceptedSends.add(sessionId);
+          }
+          return false;
+        }
         accepted.add(sessionId);
         return true;
       },
     };
     const commit = (items: readonly PiSessionListItem[]) => {
-      if (accepted.size === 0 || epoch !== this.streamEpoch) return;
+      if (epoch !== this.streamEpoch) return;
+      for (const item of items) {
+        if (item.live?.lifecycle === 'idle' && acceptedSends.has(item.session.id)) {
+          this.reconcileAcceptedPromptFromList(item.session.id);
+        }
+      }
+      if (accepted.size === 0) return;
       for (const item of items) {
         const live = item.live;
         if (!live || !accepted.has(item.session.id)) continue;
@@ -674,6 +694,7 @@ export class PiSessionStore {
     this.activityPhaseById.delete(sessionId);
     this.pendingPromptById.delete(sessionId);
     this.promptGenerationById.delete(sessionId);
+    this.acceptedPromptGenerationById.delete(sessionId);
     this.lastAccessById.delete(sessionId);
     const nextCatalog = removeRecord(this.state.catalog, sessionId);
     const catalogChanged = nextCatalog !== this.state.catalog;
@@ -801,6 +822,7 @@ export class PiSessionStore {
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.acceptedPromptGenerationById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
@@ -1522,6 +1544,7 @@ export class PiSessionStore {
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.acceptedPromptGenerationById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
@@ -2042,6 +2065,9 @@ export class PiSessionStore {
       if (delivery === 'steer') result = await piClient.sendSteer(input, scope);
       else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, scope);
       else result = await piClient.sendPrompt(input, scope);
+      if (this.promptGenerationById.get(sessionId) === generation) {
+        this.acceptedPromptGenerationById.set(sessionId, generation);
+      }
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
       clearRevertNavigation(sessionId);
@@ -2133,6 +2159,17 @@ export class PiSessionStore {
       // the optimistic/live state rather than turning failure into idle.
       return false;
     }
+  }
+
+  /** An accepted send whose lifecycle events were missed would stay pending
+   *  (busy) forever. An idle listing triggers one authoritative detail read,
+   *  taken after acceptance, which settles it or keeps it. */
+  private reconcileAcceptedPromptFromList(sessionId: PiSessionId): void {
+    const generation = this.promptGenerationById.get(sessionId);
+    if (generation === undefined || this.acceptedPromptReconcileInFlight.has(sessionId)) return;
+    this.acceptedPromptReconcileInFlight.add(sessionId);
+    void this.reconcilePendingPromptSnapshot(sessionId, generation, this.runtimeGeneration)
+      .finally(() => this.acceptedPromptReconcileInFlight.delete(sessionId));
   }
 
   private async reconcileAcceptedSlashPrompt(

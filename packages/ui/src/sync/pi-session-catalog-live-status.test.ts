@@ -274,6 +274,48 @@ describe('PiSessionStore list live status', () => {
     await prompt.catch(() => undefined);
   });
 
+  test('an accepted send whose events were missed settles from session detail after an idle listing', async () => {
+    stub(async () => ({ streamEpoch: EPOCH, sessions: [item('focused', '/repo')] }));
+    await store.start({ directory: '/repo' });
+    await tick();
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'm1' })) as typeof piClient.sendPrompt;
+    await store.prompt('focused', 'hi', 'prompt', undefined, { knownEmptyTranscript: true });
+    // The daemon ran and finished the turn, but the stream missed every event.
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('busy');
+
+    let detailReads = 0;
+    let detailLifecycle: 'idle' | 'busy' = 'busy';
+    piClient.getSession = (async (id: string) => {
+      detailReads += 1;
+      return {
+        session: { id, directory: '/repo', createdAt: 0, updatedAt: 0 },
+        lastSequence: 5,
+        messages: [],
+        isStreaming: detailLifecycle === 'busy',
+        lifecycle: detailLifecycle,
+        streamEpoch: EPOCH,
+      };
+    }) as unknown as typeof piClient.getSession;
+    piClient.listSessions = (async () => ({
+      streamEpoch: EPOCH,
+      sessions: [item('focused', '/repo', { lifecycle: 'idle', sequence: 5 })],
+    })) as typeof piClient.listSessions;
+
+    // The idle list may predate the daemon's acceptance, so it alone is not
+    // adopted; detail read after acceptance decides.
+    await store.refreshDirectoryCatalog('/repo');
+    await tick(16);
+    expect(detailReads).toBe(1);
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('busy');
+
+    detailLifecycle = 'idle';
+    await store.refreshDirectoryCatalog('/repo');
+    await tick(16);
+    expect(detailReads).toBe(2);
+    expect(store.getState().catalog.byId.get('focused')?.lifecycle).toBe('idle');
+    expect(store.getState().reducer.bySession.get('focused')?.lifecycle).toBe('idle');
+  });
+
   test('a newer idle observation clears a stale busy row', async () => {
     stub(async (directory) => ({ streamEpoch: EPOCH, sessions: directory === '/repo' ? [item('focused', '/repo')] : [] }));
     await store.start({ directory: '/repo' });
