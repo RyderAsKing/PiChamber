@@ -2112,9 +2112,12 @@ export class PiSessionStore {
     expectedRuntimeGeneration: number,
   ): Promise<boolean> {
     const resident = this.state.reducer.bySession.get(sessionId);
+    // The session's own folder (a background session may not be in the
+    // focused folder); with no folder known there is nothing to ask.
     const directory = resident?.directory
-      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
-      ?? this.directory();
+      || this.resolveSessionDirectory(sessionId)
+      || this.state.directory;
+    if (!directory) return false;
     try {
       const detail = await piClient.getSession(sessionId, {
         directory,
@@ -2169,6 +2172,7 @@ export class PiSessionStore {
     if (generation === undefined || this.acceptedPromptReconcileInFlight.has(sessionId)) return;
     this.acceptedPromptReconcileInFlight.add(sessionId);
     void this.reconcilePendingPromptSnapshot(sessionId, generation, this.runtimeGeneration)
+      .catch(() => false)
       .finally(() => this.acceptedPromptReconcileInFlight.delete(sessionId));
   }
 

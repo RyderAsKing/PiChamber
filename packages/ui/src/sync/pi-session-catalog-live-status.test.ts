@@ -316,6 +316,47 @@ describe('PiSessionStore list live status', () => {
     expect(store.getState().reducer.bySession.get('focused')?.lifecycle).toBe('idle');
   });
 
+  test('the accepted-send detail read uses the session\'s own folder once its transcript is gone', async () => {
+    stub(async (directory) => ({
+      streamEpoch: EPOCH,
+      sessions: directory === '/other' ? [item('bg', '/other')] : [item('focused', '/repo')],
+    }));
+    const detailDirectories: Array<string | undefined> = [];
+    piClient.getSession = (async (id: string, scope?: { directory?: string }) => {
+      detailDirectories.push(scope?.directory);
+      return {
+        session: { id, directory: scope?.directory ?? '/repo', createdAt: 0, updatedAt: 0 },
+        lastSequence: 5,
+        messages: [],
+        isStreaming: false,
+        lifecycle: 'idle',
+        streamEpoch: EPOCH,
+      };
+    }) as unknown as typeof piClient.getSession;
+    await store.start({ directory: '/repo' });
+    await tick();
+    await store.refreshDirectoryCatalog('/other');
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'm1' })) as typeof piClient.sendPrompt;
+    await store.prompt('bg', 'hi', 'prompt', undefined, { directory: '/other' });
+    // The resident transcript is dropped (as a verified epoch reset does)
+    // while the accepted send is still pending.
+    const internal = store as unknown as { state: ReturnType<PiSessionStore['getState']> };
+    const bySession = new Map(internal.state.reducer.bySession);
+    bySession.delete('bg');
+    internal.state = { ...internal.state, reducer: { ...internal.state.reducer, bySession } };
+    detailDirectories.length = 0;
+
+    piClient.listSessions = (async () => ({
+      streamEpoch: EPOCH,
+      sessions: [item('bg', '/other', { lifecycle: 'idle', sequence: 5 })],
+    })) as typeof piClient.listSessions;
+    await store.refreshDirectoryCatalog('/other');
+    await tick(16);
+
+    expect(detailDirectories).toEqual(['/other']);
+    expect(store.getState().catalog.byId.get('bg')?.lifecycle).toBe('idle');
+  });
+
   test('a newer idle observation clears a stale busy row', async () => {
     stub(async (directory) => ({ streamEpoch: EPOCH, sessions: directory === '/repo' ? [item('focused', '/repo')] : [] }));
     await store.start({ directory: '/repo' });
