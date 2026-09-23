@@ -11,7 +11,7 @@ Download PiChamber from the [GitHub Releases](https://github.com/RyderAsKing/PiC
 
 PiChamber's macOS downloads are currently unsigned development previews, not production releases. Their filenames end in `-unsigned`. Apple Silicon Macs use the `mac-arm64-unsigned.dmg` download; Intel Macs use `mac-x64-unsigned.dmg`. These builds are not published to the desktop automatic-update channel.
 
-macOS Gatekeeper blocks unsigned applications downloaded from the internet. Only use this workaround for a DMG downloaded from PiChamber's official GitHub Releases page. If the DMG is in Downloads, remove its quarantine attribute and open it:
+macOS Gatekeeper blocks unsigned applications downloaded from the internet. Only use this workaround for a DMG downloaded from PiChamber's official GitHub Releases page. If the DMG is in Downloads, remove its quarantine attribute and open it. On an Intel Mac, replace `arm64` with `x64` in both commands:
 
 ```sh
 xattr -d com.apple.quarantine "$HOME/Downloads/PiChamber-<version>-mac-arm64-unsigned.dmg"

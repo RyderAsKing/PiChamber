@@ -88,6 +88,11 @@ test('omits the macOS channel when release builds are unsigned', (context) => {
   assert.equal(fs.existsSync(path.join(fixture.output, 'rc-mac.yml')), false);
   assert.equal(fs.existsSync(path.join(fixture.output, 'latest.yml')), true);
   assert.equal(fs.existsSync(path.join(fixture.output, 'latest-arm64.yml')), true);
+
+  execFileSync(process.execPath, [script], { env: environment(fixture, 'rc') });
+
+  assert.equal(fs.existsSync(path.join(fixture.output, 'rc.yml')), true);
+  assert.equal(fs.existsSync(path.join(fixture.output, 'rc-mac.yml')), false);
 });
 
 test('fails instead of publishing an incomplete Windows channel set', (context) => {
