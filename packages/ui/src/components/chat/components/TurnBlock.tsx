@@ -22,6 +22,8 @@ export interface TurnBlockProps {
   nextEntryFirstMessage?: ChatMessageEntry;
   /** Live session activity keeps a latest turn visible before its first assistant record arrives. */
   sessionIsWorking: boolean;
+  /** The session was last seen working while the transport is unverified. */
+  sessionAwaitingRecovery?: boolean;
   onMessageContentChange: (reason?: ContentChangeReason) => void;
   getAnimationHandlers: (messageId: string) => AnimationHandlers;
   scrollToBottom?: () => void;
@@ -37,6 +39,7 @@ export const TurnBlock = React.memo(
     isLastTurn,
     nextEntryFirstMessage,
     sessionIsWorking,
+    sessionAwaitingRecovery = false,
     onMessageContentChange,
     getAnimationHandlers,
     scrollToBottom,
@@ -77,6 +80,10 @@ export const TurnBlock = React.memo(
       return turnContainsMessageId(turn, streamingAssistantMessageId);
     }, [turn, streamingAssistantMessageId]);
     const turnOwnsAuthoritativeStream = turnContainsMessageId(turn, activeStreamingMessageId);
+    // Only the latest turn can be the one an outage interrupted. Its last
+    // assistant keeps completion chrome hidden until authoritative state
+    // returns; settled history keeps its footers.
+    const turnAwaitingRecovery = isLastTurn && sessionAwaitingRecovery;
 
     const activityOwnerMessageId = React.useMemo(() => {
       if (turnIsInActiveStream && streamingAssistantMessageId) {
@@ -171,6 +178,7 @@ export const TurnBlock = React.memo(
                 messageId: message.info.id,
                 activeStreamingMessageId,
                 isRetrying: isSessionRetryMessage(message),
+                isAwaitingRecovery: turnAwaitingRecovery && isLastAssistant,
               }),
               hasTools: turn.hasTools,
               hasReasoning: turn.hasReasoning,
@@ -231,6 +239,7 @@ export const TurnBlock = React.memo(
         visibleAssistantIds,
         activityOwnerMessageId,
         activityPartsByMessageId,
+        turnAwaitingRecovery,
         shouldAnimateUserMessage,
         onUserAnimationConsumed,
       ],
@@ -254,6 +263,7 @@ export const TurnBlock = React.memo(
         renderMessage={renderMessage}
         deferEarlierAssistantMessages={deferEarlierAssistantMessages}
         showWorkingStatus={showWorkingStatus}
+        isAwaitingRecovery={turnAwaitingRecovery && !showWorkingStatus}
         activeStreamingMessageId={activeStreamingMessageId}
         activeStreamingPhase={activeStreamingPhase}
         onActivityContentChange={onMessageContentChange}

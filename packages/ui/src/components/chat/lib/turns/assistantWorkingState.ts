@@ -45,6 +45,29 @@ export const isSessionAssistantWorking = (options: {
     options.connection === 'ready'
     && (options.authoritativeWorking || options.hasPendingAssistant);
 
+/**
+ * Chat working presentation for the selected session. Retained reducer and
+ * catalog state is only *verified* while the transport is ready and not in a
+ * native resume probe. Otherwise work it last observed (busy/retry, an
+ * unfinished assistant, or a retained stream id) is `isAwaitingRecovery`:
+ * shown as reconnecting, never as current work with a running timer, and
+ * never settled into a completed turn until authoritative state returns.
+ */
+export const resolveSessionWorkingPresentation = (options: {
+    connection: 'loading' | 'ready' | 'unavailable' | 'error';
+    transportUncertain: boolean;
+    authoritativeWorking: boolean;
+    hasPendingAssistant: boolean;
+    hasRetainedStream: boolean;
+}): { isWorking: boolean; isAwaitingRecovery: boolean } => {
+    const verified = options.connection === 'ready' && !options.transportUncertain;
+    const lastObservedWorking = options.authoritativeWorking || options.hasPendingAssistant;
+    return {
+        isWorking: verified && lastObservedWorking,
+        isAwaitingRecovery: !verified && (lastObservedWorking || options.hasRetainedStream),
+    };
+};
+
 export const shouldShowTurnWorkingStatus = (options: {
     isLastTurn: boolean;
     sessionIsWorking: boolean;
@@ -61,6 +84,10 @@ export const isTurnAssistantWorking = (options: {
     messageId: string;
     activeStreamingMessageId: string | null | undefined;
     isRetrying?: boolean;
+    /** Latest assistant of the latest turn while the session is awaiting
+     *  recovery: its completion footer waits for authoritative state. */
+    isAwaitingRecovery?: boolean;
 }): boolean =>
     options.isRetrying === true
+    || options.isAwaitingRecovery === true
     || (Boolean(options.activeStreamingMessageId) && options.messageId === options.activeStreamingMessageId);

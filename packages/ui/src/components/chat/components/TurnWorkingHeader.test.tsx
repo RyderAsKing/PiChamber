@@ -105,4 +105,62 @@ describe('TurnWorkingHeader', () => {
             markup.indexOf('data-turn-activity-toggle="true"'),
         );
     });
+    test('a latest turn last seen working while reconnecting is labelled, not a bare chevron', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                isAwaitingRecovery
+                hasActivity
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                startedAt={1_000}
+            />,
+        );
+
+        expect(markup).toContain('Reconnecting · last seen working');
+        expect(markup).toContain('data-turn-reconnecting="true"');
+        expect(markup).toContain('data-turn-working="false"');
+        expect(markup).not.toContain('Worked for');
+        expect(markup.indexOf('data-turn-reconnecting="true"')).toBeLessThan(
+            markup.indexOf('data-turn-activity-toggle="true"'),
+        );
+    });
+
+    test('reconnecting does not claim a finished duration for the latest turn', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                isAwaitingRecovery
+                hasActivity={false}
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+                startedAt={1_000}
+                completedAt={3_500}
+            />,
+        );
+
+        expect(markup).toContain('Reconnecting · last seen working');
+        expect(markup).not.toContain('Worked for');
+    });
+
+    test('a settled turn with activity but no duration gets a neutral label', () => {
+        const markup = renderToStaticMarkup(
+            <TurnWorkingHeader
+                turnId="turn-1"
+                isLiveTurn={false}
+                isWorking={false}
+                hasActivity
+                isActivityExpanded={false}
+                onToggleActivity={() => {}}
+            />,
+        );
+
+        expect(markup).toContain('Agent activity');
+        expect(markup).not.toContain('Worked for');
+        expect(markup).toContain('data-turn-activity-toggle="true"');
+    });
 });

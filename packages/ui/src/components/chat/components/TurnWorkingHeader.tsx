@@ -15,6 +15,8 @@ interface TurnWorkingHeaderProps {
     turnId: string;
     isLiveTurn: boolean;
     isWorking: boolean;
+    /** Latest turn last seen working while the transport is unverified. */
+    isAwaitingRecovery?: boolean;
     hasActivity: boolean;
     isActivityExpanded: boolean;
     onToggleActivity: () => void;
@@ -65,6 +67,7 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
     turnId,
     isLiveTurn,
     isWorking,
+    isAwaitingRecovery = false,
     hasActivity,
     isActivityExpanded,
     onToggleActivity,
@@ -75,11 +78,19 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
     wasSteered,
 }) => {
     const resolvedDurationMs = resolveTurnDurationMs({ startedAt, completedAt, durationMs });
+    // Reconnecting keeps the last-observed state visible without claiming it
+    // is current (no live timer) or finished (no manufactured duration). A
+    // settled turn without timing still labels its disclosure.
+    const isReconnecting = !isLiveTurn && isAwaitingRecovery;
     const statusLabel = isLiveTurn
         ? 'Agent working'
-        : resolvedDurationMs === null
-          ? null
-          : `Worked for ${formatTurnDuration(resolvedDurationMs)}${wasSteered ? ' · Steered' : ''}`;
+        : isReconnecting
+          ? 'Reconnecting · last seen working'
+          : resolvedDurationMs !== null
+            ? `Worked for ${formatTurnDuration(resolvedDurationMs)}${wasSteered ? ' · Steered' : ''}`
+            : hasActivity
+              ? 'Agent activity'
+              : null;
     const activityId = `turn-${turnId}-activity`;
 
     return (
@@ -97,7 +108,9 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
                             className="typography-markdown inline-flex min-w-0 items-center leading-5 text-muted-foreground"
                             role="status"
                             aria-label={statusLabel}
-                            data-agent-worked-row="true"
+                            {...(isReconnecting
+                                ? { 'data-turn-reconnecting': 'true' }
+                                : { 'data-agent-worked-row': 'true' })}
                         >
                             {statusLabel}
                         </span>

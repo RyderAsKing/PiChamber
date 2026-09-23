@@ -5,6 +5,7 @@ import {
     isAssistantMessageCompleted,
     isSessionAssistantWorking,
     isTurnAssistantWorking,
+    resolveSessionWorkingPresentation,
     resolveTurnStreamingAssistantId,
     shouldShowTurnWorkingStatus,
 } from './assistantWorkingState';
@@ -115,5 +116,48 @@ describe('assistantWorkingState', () => {
                 activeStreamingMessageId: null,
             }),
         ).toBe(false);
+    });
+    test('separates verified live work from last-observed work while the transport is uncertain', () => {
+        const busy = { authoritativeWorking: true, hasPendingAssistant: false, hasRetainedStream: false };
+        expect(resolveSessionWorkingPresentation({ connection: 'ready', transportUncertain: false, ...busy }))
+            .toEqual({ isWorking: true, isAwaitingRecovery: false });
+        for (const connection of ['error', 'unavailable', 'loading'] as const) {
+            expect(resolveSessionWorkingPresentation({ connection, transportUncertain: false, ...busy }))
+                .toEqual({ isWorking: false, isAwaitingRecovery: true });
+        }
+        // Native resume probe: the transport still says ready but is unverified.
+        expect(resolveSessionWorkingPresentation({ connection: 'ready', transportUncertain: true, ...busy }))
+            .toEqual({ isWorking: false, isAwaitingRecovery: true });
+        // A retained stream id alone is last-observed work too.
+        expect(resolveSessionWorkingPresentation({
+            connection: 'error',
+            transportUncertain: false,
+            authoritativeWorking: false,
+            hasPendingAssistant: false,
+            hasRetainedStream: true,
+        })).toEqual({ isWorking: false, isAwaitingRecovery: true });
+    });
+
+    test('an idle session is neither working nor awaiting recovery during an outage', () => {
+        expect(resolveSessionWorkingPresentation({
+            connection: 'error',
+            transportUncertain: true,
+            authoritativeWorking: false,
+            hasPendingAssistant: false,
+            hasRetainedStream: false,
+        })).toEqual({ isWorking: false, isAwaitingRecovery: false });
+    });
+
+    test('holds the completion footer on the latest assistant while awaiting recovery', () => {
+        expect(isTurnAssistantWorking({
+            messageId: 'a1',
+            activeStreamingMessageId: null,
+            isAwaitingRecovery: true,
+        })).toBe(true);
+        expect(isTurnAssistantWorking({
+            messageId: 'a1',
+            activeStreamingMessageId: null,
+            isAwaitingRecovery: false,
+        })).toBe(false);
     });
 });
