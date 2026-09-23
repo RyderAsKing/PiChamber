@@ -539,7 +539,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         );
     }
 
-	if (sessionMessages.length === 0 && !sessionIsWorking) {
+	if (sessionMessages.length === 0 && !sessionIsWorking && !sessionAwaitingRecovery) {
 		return (
 			// A transcript-less extension command has configured the backend but has
 			// not started the conversation. Keep the materialized session selected

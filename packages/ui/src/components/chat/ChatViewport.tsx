@@ -262,6 +262,18 @@ export const ChatViewport = React.memo(
                 <div className="mb-3">
                   <StatusRowContainer />
                 </div>
+              ) : turnIds.length === 0 && sessionAwaitingRecovery ? (
+                // Same window while the transport is unverified: last seen
+                // working, but not presented as current work (no timer).
+                <div className="chat-message-column mb-3">
+                  <span
+                    className="typography-markdown leading-5 text-muted-foreground"
+                    role="status"
+                    data-turn-reconnecting="true"
+                  >
+                    Reconnecting · last seen working
+                  </span>
+                </div>
               ) : null}
 
               <div
