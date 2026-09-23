@@ -576,6 +576,10 @@ export const createPiEventStream = (
   const retiredEpochs = new Set<string>();
   let epochProbeInFlight = false;
   let epochProbeController: AbortController | null = null;
+  /** First foreign-epoch frame that arrived while the resubscribe probe ran.
+   *  A restarted daemon writes its resync snapshot right after attach, so this
+   *  may be the only frame of the new lifetime; the probe hands it on. */
+  let pendingForeignFrame: { event: PiSessionEvent; epoch: string; connectionId: number } | null = null;
   /** True once any connection of this stream has become ready. Later ready
    *  connections are resubscribes whose epoch must be re-verified. */
   let hasBeenReady = false;
@@ -713,7 +717,12 @@ export const createPiEventStream = (
         // A foreign epoch on an established stream. The wire frame alone is
         // not authoritative: verify it against the runtime health endpoint
         // before resetting the replay cursor or notifying the owner.
-        if (epochProbeInFlight) return; // drop frames while the probe runs
+        if (epochProbeInFlight) {
+          // Drop frames while the probe runs; keep the first for a
+          // resubscribe probe to hand on (see `verifyEpochAfterResubscribe`).
+          pendingForeignFrame ??= { event, epoch: eventEpoch, connectionId };
+          return;
+        }
         void verifyForeignEpoch(event, eventEpoch, reference, connectionId);
         return;
       }
@@ -778,6 +787,7 @@ export const createPiEventStream = (
       clearTimeout(timer);
       epochProbeInFlight = false;
       epochProbeController = null;
+      pendingForeignFrame = null;
     }
   };
 
@@ -785,7 +795,9 @@ export const createPiEventStream = (
    *  adopted exactly like a verified foreign frame: retire the old epoch,
    *  drop the cursor from the retired sequence space, and notify the owner.
    *  An unchanged or unverifiable result changes nothing; later frames or
-   *  reconnects still go through the frame-driven verification. */
+   *  reconnects still go through the frame-driven verification. A foreign
+   *  frame held back while the probe ran is then delivered when the probe
+   *  adopted its epoch, or verified on its own otherwise. */
   const verifyEpochAfterResubscribe = async (connectionId: number): Promise<void> => {
     const reference = currentEpoch ?? ownerEpoch;
     if (!reference || epochProbeInFlight) return;
@@ -810,6 +822,9 @@ export const createPiEventStream = (
       clearTimeout(timer);
       epochProbeInFlight = false;
       epochProbeController = null;
+      const pending = pendingForeignFrame;
+      pendingForeignFrame = null;
+      if (pending) handleEvent(pending.event, pending.connectionId);
     }
   };
 

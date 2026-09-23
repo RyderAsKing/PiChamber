@@ -523,6 +523,60 @@ describe("createPiEventStream epoch negotiation", () => {
     handle.dispose()
   })
 
+  // A restarted daemon writes its resync snapshot right after attach, so the
+  // first new-lifetime frame usually lands while the resubscribe probe runs.
+  const heldFrameHarness = async () => {
+    const encoder = new TextEncoder()
+    const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
+    const healthReplies: Array<(response: Response) => void> = []
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") return new Promise<Response>((resolve) => healthReplies.push(resolve))
+      return new Response(new ReadableStream({
+        start(controller) {
+          controllers.push(controller)
+        },
+      }))
+    })
+    const received: Array<{ sequence: number; streamEpoch?: string }> = []
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: (frame) => received.push({ sequence: frame.sequence, streamEpoch: frame.streamEpoch }),
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+    await flush()
+    handle.reconnect()
+    expect(await waitForSubscribeCount(2)).toBe(true)
+    await flush()
+    expect(healthReplies.length).toBe(1)
+    controllers[controllers.length - 1]?.enqueue(encoder.encode(`data: ${JSON.stringify(epochEvent(1, "epoch-b"))}\n\n`))
+    await flush()
+    return { handle, healthReplies, received, epochs }
+  }
+
+  test("a new-epoch frame held during an unverifiable resubscribe probe is still verified", async () => {
+    const { handle, healthReplies, received, epochs } = await heldFrameHarness()
+    healthReplies[0]?.(jsonResponse({ state: "unavailable", protocolVersion: 1, capabilities: [] }, 503))
+    await flush()
+    // The held frame starts its own verification instead of being lost.
+    expect(healthReplies.length).toBe(2)
+    healthReplies[1]?.(jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" }))
+    await flush()
+    expect(epochs).toEqual(["epoch-b"])
+    expect(received).toEqual([{ sequence: 1, streamEpoch: "epoch-b" }])
+    handle.dispose()
+  })
+
+  test("a new-epoch frame held during a resubscribe probe is delivered once the probe adopts its epoch", async () => {
+    const { handle, healthReplies, received, epochs } = await heldFrameHarness()
+    healthReplies[0]?.(jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-b" }))
+    await flush()
+    expect(healthReplies.length).toBe(1)
+    expect(epochs).toEqual(["epoch-b"])
+    expect(received).toEqual([{ sequence: 1, streamEpoch: "epoch-b" }])
+    handle.dispose()
+  })
+
   test("rejects a foreign epoch that authoritative health contradicts, without disconnecting", async () => {
     const encoder = new TextEncoder()
     const controllers: ReadableStreamDefaultController<Uint8Array>[] = []
