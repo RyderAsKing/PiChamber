@@ -1700,7 +1700,7 @@ export class PiSessionStore {
     // Remember the last selection per folder so `start({directory})`
     // (no session hint) can pre-seed the focus's preferred id.
     if (this.state.directory) {
-      this.lastSelectedByDirectory.set(this.state.directory, sessionId);
+      this.lastSelectedByDirectory.set(normalizePath(this.state.directory) ?? this.state.directory, sessionId);
     }
     this.cadence.flush();
     this.state = { ...this.state, selectedSessionId: sessionId, error: null, focusPending: false };
@@ -1720,7 +1720,7 @@ export class PiSessionStore {
    *  preferred id so warm folder switches can skip the chat loader. */
   lastSelectedSessionForDirectory(directory: string | null): PiSessionId | null {
     if (!directory) return null;
-    return this.lastSelectedByDirectory.get(directory) ?? null;
+    return this.lastSelectedByDirectory.get(normalizePath(directory) ?? directory) ?? null;
   }
 
   /** Hydrate a resident session without changing `selectedSessionId` or

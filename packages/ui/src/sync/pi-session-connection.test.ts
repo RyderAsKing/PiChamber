@@ -470,6 +470,26 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     }
   });
 
+  test('the remembered selection for a folder is found through an equivalent path spelling', async () => {
+    const store = new PiSessionStore();
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [
+        { session: { id: 'y', directory: '/repo' }, updatedAt: 1 },
+        { session: { id: 'x', directory: '/repo' }, updatedAt: 1 },
+      ] }),
+      getSession: async (id) => emptyDetail(id, '/repo'),
+    });
+    try {
+      await store.open('/repo/', null);
+      await store.select('x');
+      expect(store.lastSelectedSessionForDirectory('/repo')).toBe('x');
+      expect(store.lastSelectedSessionForDirectory('/repo/')).toBe('x');
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('a selection during a null-preferred focus wins over a late list and hydration', async () => {
     const store = new PiSessionStore();
     const internal = asInternal(store);
