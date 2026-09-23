@@ -2130,6 +2130,9 @@ export class PiSessionStore {
       ) {
         return false;
       }
+      // A daemon restart verified while the read was in flight makes it a
+      // retired lifetime's state: never settle or commit it.
+      if (!this.isResponseEpochCurrent(detail)) return false;
       const currentSequence = this.state.reducer.lastSequence.get(sessionId)
         ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
         ?? -1;

@@ -357,6 +357,42 @@ describe('PiSessionStore list live status', () => {
     expect(store.getState().catalog.byId.get('bg')?.lifecycle).toBe('idle');
   });
 
+  test('an accepted-send detail read from a lifetime retired mid-read is not committed', async () => {
+    stub(async () => ({ streamEpoch: EPOCH, sessions: [item('focused', '/repo')] }));
+    await store.start({ directory: '/repo' });
+    await tick();
+    piClient.sendPrompt = (async () => ({ accepted: true, messageId: 'm1' })) as typeof piClient.sendPrompt;
+    await store.prompt('focused', 'hi', 'prompt', undefined, { knownEmptyTranscript: true });
+
+    const detail = deferred<unknown>();
+    const originalGetSession = piClient.getSession;
+    piClient.getSession = (async () => detail.promise) as unknown as typeof piClient.getSession;
+    piClient.listSessions = (async () => ({
+      streamEpoch: EPOCH,
+      sessions: [item('focused', '/repo', { lifecycle: 'idle', sequence: 5 })],
+    })) as typeof piClient.listSessions;
+    await store.refreshDirectoryCatalog('/repo');
+    await tick();
+
+    // The daemon restarts and the new lifetime is verified mid-read.
+    piClient.getSession = originalGetSession;
+    piClient.listSessions = (async () => ({ streamEpoch: 'epoch-2', sessions: [] })) as typeof piClient.listSessions;
+    (store as unknown as { applyVerifiedEpochChange: (epoch: string) => unknown }).applyVerifiedEpochChange('epoch-2');
+    detail.resolve({
+      session: { id: 'focused', directory: '/repo', createdAt: 0, updatedAt: 0 },
+      lastSequence: 5,
+      messages: [],
+      isStreaming: false,
+      lifecycle: 'idle',
+      streamEpoch: EPOCH,
+    });
+    await tick(16);
+
+    const internal = store as unknown as { pendingPromptById: Set<string> };
+    expect(internal.pendingPromptById.has('focused')).toBe(true);
+    expect(store.getState().reducer.lastSequence.get('focused')).not.toBe(5);
+  });
+
   test('a newer idle observation clears a stale busy row', async () => {
     stub(async (directory) => ({ streamEpoch: EPOCH, sessions: directory === '/repo' ? [item('focused', '/repo')] : [] }));
     await store.start({ directory: '/repo' });
