@@ -442,6 +442,87 @@ describe("createPiEventStream epoch negotiation", () => {
     handle.dispose()
   })
 
+  const waitForSubscribeCount = async (count: number) => {
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && streamUrls.length < count) {
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    return streamUrls.length >= count
+  }
+
+  test("verifies the epoch by health after a resubscribe that receives no frame", async () => {
+    // A restarted daemon that no longer holds the subscribed session sends no
+    // frame for it, so a frame-driven check alone would never see the change.
+    let healthEpoch = "epoch-b"
+    let healthCalls = 0
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") {
+        healthCalls += 1
+        return jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: healthEpoch })
+      }
+      return new Response(new ReadableStream({ start() {} }))
+    })
+
+    const epochs: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: () => {},
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+
+    await flush()
+    // The first connection is attached under the owner's health-verified epoch.
+    expect(healthCalls).toBe(0)
+
+    handle.reconnect()
+    expect(await waitForSubscribeCount(2)).toBe(true)
+    await flush()
+    expect(healthCalls).toBe(1)
+    expect(epochs).toEqual(["epoch-b"])
+
+    // The next resubscribe carries the new identity, not the retired cursor.
+    healthEpoch = "epoch-b"
+    handle.reconnect()
+    expect(await waitForSubscribeCount(3)).toBe(true)
+    await flush()
+    const latestQuery = streamUrls[streamUrls.length - 1]?.query
+    expect(latestQuery?.streamEpoch).toBe("epoch-b")
+    expect(latestQuery?.fromSequence).toBeUndefined()
+    // Same epoch on the live daemon: verified, nothing to report.
+    expect(epochs).toEqual(["epoch-b"])
+    handle.dispose()
+  })
+
+  test("an unchanged or unverifiable epoch after a resubscribe changes nothing", async () => {
+    let healthResponse: () => Response = () => jsonResponse({ state: "ready", protocolVersion: 1, capabilities: ["events.streamEpoch"], streamEpoch: "epoch-a" })
+    runtimeFetch.mockImplementation(async (path: string) => {
+      if (path === "/api/pi/runtime") return healthResponse()
+      return new Response(new ReadableStream({ start() {} }))
+    })
+    const epochs: string[] = []
+    const disconnects: string[] = []
+    const { createPiEventStream } = await import("./transport")
+    const handle = createPiEventStream({
+      onEvent: () => {},
+      onEpochChange: (epoch) => epochs.push(epoch),
+      onDisconnect: (reason) => disconnects.push(reason),
+    }, { sessionId: "session-1", fromSequence: 7, streamEpoch: "epoch-a", reconnectDelayMs: 0 })
+    await flush()
+
+    handle.reconnect()
+    expect(await waitForSubscribeCount(2)).toBe(true)
+    await flush()
+    expect(epochs).toEqual([])
+    expect(streamUrls[streamUrls.length - 1]?.query?.fromSequence).toBe("7")
+
+    healthResponse = () => jsonResponse({ state: "unavailable", protocolVersion: 1, capabilities: [] }, 503)
+    handle.reconnect()
+    expect(await waitForSubscribeCount(3)).toBe(true)
+    await flush()
+    expect(epochs).toEqual([])
+    handle.dispose()
+  })
+
   test("rejects a foreign epoch that authoritative health contradicts, without disconnecting", async () => {
     const encoder = new TextEncoder()
     const controllers: ReadableStreamDefaultController<Uint8Array>[] = []

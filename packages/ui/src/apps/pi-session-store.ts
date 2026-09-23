@@ -210,6 +210,10 @@ export class PiSessionStore {
    *  source (health, event, or stamped response) establishes it. A different
    *  value means the daemon restarted and the sequence space reset. */
   private streamEpoch: string | null = null;
+  /** Newest accepted event sequence per session in the current stream epoch.
+   *  Orders a listing's sampled `live` lifecycle against events: an
+   *  observation older than an accepted event must not overwrite it. */
+  private lifecycleSequenceById = new Map<PiSessionId, number>();
   /** Epochs retired by a verified transition. Snapshots, events, and stamped
    *  responses from a retired lifetime are rejected — epochs are opaque, so
    *  retirement (not ordering) is what prevents a stale frame from
@@ -257,6 +261,34 @@ export class PiSessionStore {
     return epoch === this.streamEpoch;
   }
   /**
+   * Adopt a health-verified stream epoch. On a change from an established
+   * epoch, reset every resident transcript and cursor (the new daemon's
+   * sequence space is unrelated) and queue recovery of former residents and
+   * all known directories. Optimistic prompts, drafts, and navigation are
+   * preserved. Returns the former residents for a change from an
+   * established epoch, or null for first contact / no change.
+   */
+  private applyVerifiedEpochChange(epoch: string): Set<PiSessionId> | null {
+    const changed = this.streamEpoch !== null && this.streamEpoch !== epoch;
+    if (!this.adoptStreamEpoch(epoch) || !changed) return null;
+    const previousResidents = this.resetForEpochChange();
+    this.state = {
+      ...this.state,
+      reducer: createReducerState(),
+      hydratedSessionIds: new Set(this.hydratedSessionIds),
+    };
+    this.queueSyncRecovery({ directories: 'all-known', residents: previousResidents });
+    return previousResidents;
+  }
+  /** Transport callback for a health-verified epoch change on an attached
+   *  stream (first attach or reconnect): reset, recover, and notify. */
+  private handleVerifiedEpochChange(epoch: string): void {
+    const previousResidents = this.applyVerifiedEpochChange(epoch);
+    if (previousResidents) {
+      this.emit([TOPIC_CHROME, TOPIC_CATALOG, ...[...previousResidents].map((id) => `session:${id}`)]);
+    }
+  }
+  /**
    * A verified stream-epoch change (daemon restart) invalidates every
    * resident transcript and per-session cursor in one cluster-level reset:
    * the new daemon's sequence space is unrelated to the old one, so old
@@ -268,13 +300,33 @@ export class PiSessionStore {
    */
   private resetForEpochChange(): Set<PiSessionId> {
     const previouslyHydrated = new Set(this.hydratedSessionIds);
+    this.lifecycleSequenceById.clear();
     this.hydratedSessionIds.clear();
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
     this.historyInflightById.clear();
     // Stale history completions reject through navigation generation too.
     for (const [id, gen] of this.navigationGenerationById) this.navigationGenerationById.set(id, gen + 1);
+    this.settleCarriedOverActivity();
     return previouslyHydrated;
+  }
+  /**
+   * Every turn observed on the previous daemon lifetime ended with it, and a
+   * new daemon sends nothing for runs it does not hold. Settle busy/retry
+   * rows to idle quietly (no notification, reorder, or "Worked for"
+   * duration); the new daemon re-asserts real work through its events and
+   * the recovery lists' `live` status. Runs before any new-epoch frame is
+   * applied. A prompt this client is still sending owns its own settle.
+   */
+  private settleCarriedOverActivity(): void {
+    let catalog = this.state.catalog;
+    for (const record of catalog.byId.values()) {
+      if (record.lifecycle !== 'busy' && record.lifecycle !== 'retry') continue;
+      if (this.pendingPromptById.has(record.id)) continue;
+      catalog = applyLifecycleChange(catalog, record.id, 'idle');
+      removeSessionActivityTiming(record.id);
+    }
+    if (catalog !== this.state.catalog) this.state = { ...this.state, catalog };
   }
   /**
    * Queue reconnect-recovery obligations. `directories: 'all-known'` re-lists
@@ -692,6 +744,7 @@ export class PiSessionStore {
     // applies; the incoming runtime establishes a fresh epoch.
     this.streamEpoch = null;
     this.retiredStreamEpochs.clear();
+    this.lifecycleSequenceById.clear();
     this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
@@ -1394,8 +1447,17 @@ export class PiSessionStore {
       if (expected !== this.runtimeGeneration) return;
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       // First attach establishes the stream lifetime; without it cursors
-      // cannot survive a daemon restart.
-      this.adoptStreamEpoch((health as { streamEpoch?: string }).streamEpoch);
+      // cannot survive a daemon restart. A rebuild that lands on a restarted
+      // daemon (for example after a reconnect failed while it was down) is a
+      // verified epoch change: reset old-lifetime state and settle its
+      // carried-over activity like the other verified paths.
+      const healthEpoch = (health as { streamEpoch?: string }).streamEpoch;
+      if (typeof healthEpoch === 'string' && healthEpoch.length > 0 && this.streamEpoch !== null && healthEpoch !== this.streamEpoch) {
+        this.applyVerifiedEpochChange(healthEpoch);
+        this.emit([TOPIC_CHROME, TOPIC_CATALOG]);
+      } else {
+        this.adoptStreamEpoch(healthEpoch);
+      }
       const initialHealth: Extract<PiBootstrapHealth, { state: 'ready' }> = {
         state: 'ready',
         protocolVersion: health.protocolVersion,
@@ -2337,6 +2399,9 @@ export class PiSessionStore {
           if (bootstrapCallbackIsCurrent()) void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey);
         },
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
+        onEpochChange: (epoch) => {
+          if (bootstrapCallbackIsCurrent()) this.handleVerifiedEpochChange(epoch);
+        },
         onAuthRequired: () => {
           if (bootstrapCallbackIsCurrent()) this.handleStreamAuthRequired();
         },
@@ -2550,12 +2615,11 @@ export class PiSessionStore {
           if (!callbackIsCurrent()) return;
           // The transport only reports a stream-lifetime change after an
           // authoritative health probe verified it against the live daemon.
-          // Adopt it (the displaced epoch becomes retired) and queue
-          // recovery; the next snapshot (or the merged baseline below)
-          // re-establishes state.
-          if (this.adoptStreamEpoch(epoch)) {
-            this.queueSyncRecovery({ directories: 'all-known', residents: this.hydratedSessionIds });
-          }
+          // A restarted daemon may send no frame at all for a session it no
+          // longer holds, so this can be the only signal: reset the old
+          // lifetime's transcripts and cursors (they cannot be merged with
+          // the new sequence space) and recover from the new daemon.
+          this.handleVerifiedEpochChange(epoch);
         },
       });
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
@@ -2577,17 +2641,7 @@ export class PiSessionStore {
         // (pending prompts, drafts, attachments, navigation) is preserved.
         let epochChanged = false;
         if (typeof result.epoch === 'string' && result.epoch.length > 0 && this.streamEpoch !== result.epoch) {
-          epochChanged = this.streamEpoch !== null;
-          this.adoptStreamEpoch(result.epoch);
-          if (epochChanged) {
-            const previousResidents = this.resetForEpochChange();
-            this.state = {
-              ...this.state,
-              reducer: createReducerState(),
-              hydratedSessionIds: new Set(this.hydratedSessionIds),
-            };
-            this.queueSyncRecovery({ directories: 'all-known', residents: previousResidents });
-          }
+          epochChanged = this.applyVerifiedEpochChange(result.epoch) !== null;
         }
         disconnectedStream?.dispose();
         this.streamGeneration = replacementStreamGeneration;
@@ -2617,7 +2671,7 @@ export class PiSessionStore {
         };
         const reconnectTopics: string[] = [TOPIC_CHROME, TOPIC_DIALOGS];
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
-        if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
+        if (catalogChanged || epochChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
         // Catch-up policy is replay-driven, not unconditional. A contiguous
         // same-epoch replay from this client's own cursor covers every event
@@ -2962,7 +3016,7 @@ export class PiSessionStore {
           reducer: working,
           hydratedSessionIds: new Set(this.hydratedSessionIds),
         };
-        this.emit([TOPIC_CHROME, ...[...epochChangedResidents].map((id) => `session:${id}`)]);
+        this.emit([TOPIC_CHROME, TOPIC_CATALOG, ...[...epochChangedResidents].map((id) => `session:${id}`)]);
         this.queueSyncRecovery({ directories: 'all-known', residents: epochChangedResidents });
       }
       return;
@@ -2991,7 +3045,8 @@ export class PiSessionStore {
       this.state = { ...this.state, catalog: nextCatalog };
     }
     const topics: string[] = [];
-    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    // An epoch reset may already have settled carried-over catalog rows.
+    if (catalogChanged || epochChangedResidents) topics.push(TOPIC_CATALOG);
     if (acceptedEvents.some((event) => event.name === 'extension.dialog' || event.name === 'extension.dialog.dismiss' || event.name === 'session.snapshot')) {
       topics.push(TOPIC_DIALOGS);
     }

@@ -697,3 +697,206 @@ describe('reconnect recovery: replay-driven bounded recovery', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Epoch change verified by the transport with no snapshot on the wire
+// ---------------------------------------------------------------------------
+
+describe('reconnect recovery: transport-verified epoch change without a snapshot', () => {
+  // A restarted daemon that no longer holds the subscribed session sends no
+  // frame for it, so the transport verifies the new epoch by health alone.
+  // The old lifetime's busy transcript must not survive as current work.
+  const seedBusy = (store: PiSessionStore) => {
+    seed(store, { residents: ['s1'], cursor: 5_000, streamEpoch: 'epoch-1' });
+    const storeInternal = internal(store);
+    const busy = reducerSession('s1', '/repo-a', 5_000);
+    busy.lifecycle = 'busy';
+    busy.streamingMessages = new Set(['a1']);
+    busy.messages = new Map([['a1', {
+      id: 'a1', sessionId: 's1', directory: '/repo-a', role: 'assistant', createdAt: 2, text: 'partial', thinking: '', streaming: true,
+    } as never]]);
+    const catalog = storeInternal.state.catalog;
+    const row = catalog.byId.get('s1')!;
+    storeInternal.state = {
+      ...storeInternal.state,
+      reducer: { bySession: new Map([['s1', busy]]), lastSequence: new Map([['s1', 5_000]]) },
+      catalog: { ...catalog, byId: new Map([['s1', { ...row, lifecycle: 'busy', hydrated: true }]]) },
+    };
+  };
+
+  const attachWithCallbacks = async (store: PiSessionStore) => {
+    let callbacks: Record<string, unknown> | null = null;
+    reconnectImpl = async (options) => {
+      callbacks = options;
+      return readyResult({ epoch: 'epoch-1' });
+    };
+    await internal(store).reconnect('s1', store.getRuntimeGeneration(), getRuntimeKey());
+    return callbacks as unknown as { onEpochChange: (epoch: string) => void };
+  };
+
+  test('the stale busy resident is reset and settles from the new daemon', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      const stubs = stubPiClient({
+        getSession: async (id, directory) => ({ ...detail(id, directory || '/repo-a', 9, 'epoch-2'), isStreaming: false, lifecycle: 'idle' }),
+        listSessions: async () => ({ sessions: [listItem('s1', '/repo-a')], streamEpoch: 'epoch-2' }),
+      });
+      try {
+        const callbacks = await attachWithCallbacks(store);
+        callbacks.onEpochChange('epoch-2');
+        expect(internal(store).streamEpoch).toBe('epoch-2');
+        expect(await waitFor(() => store.getState().syncReadiness === 'ready' && stubs.calls.getSession.includes('s1'))).toBe(true);
+        const resident = store.getState().reducer.bySession.get('s1');
+        expect(resident?.lifecycle).toBe('idle');
+        expect(resident?.streamingMessages.size).toBe(0);
+        expect(resident?.lastSequence).toBe(9);
+        expect(store.getState().catalog.byId.get('s1')?.lifecycle).toBe('idle');
+      } finally {
+        stubs.restore();
+        reconnectImpl = async () => { throw new Error('not configured'); };
+      }
+    });
+  });
+
+  test('a resident the new daemon no longer has is removed, not left working', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      const stubs = stubPiClient({
+        getSession: async () => { throw new PiRequestError('INVALID_SESSION', 'gone'); },
+        listSessions: async () => ({ sessions: [], streamEpoch: 'epoch-2' }),
+      });
+      try {
+        const callbacks = await attachWithCallbacks(store);
+        callbacks.onEpochChange('epoch-2');
+        expect(await waitFor(() => store.getState().syncReadiness === 'ready' && stubs.calls.getSession.includes('s1'))).toBe(true);
+        expect(store.getState().reducer.bySession.get('s1')?.lifecycle ?? 'absent').not.toBe('busy');
+        expect(store.getState().catalog.byId.has('s1')).toBe(false);
+      } finally {
+        stubs.restore();
+        reconnectImpl = async () => { throw new Error('not configured'); };
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Activity carried over from a restarted daemon
+// ---------------------------------------------------------------------------
+
+const { useNotificationStore } = await import('@/sync/notification-store');
+const { useSessionActivityTimingStore } = await import('@/sync/session-activity-timing');
+
+describe('reconnect recovery: activity carried over from a restarted daemon', () => {
+  // Every turn observed on the previous daemon lifetime ended with it. Rows
+  // that are not open (no transcript to re-hydrate) must not stay busy
+  // forever waiting for events a new daemon will never send.
+  const seedCarriedOver = (store: PiSessionStore) => {
+    seed(store, { residents: ['s1'], cursor: 5_000, streamEpoch: 'epoch-1' });
+    const storeInternal = internal(store);
+    const catalog = storeInternal.state.catalog;
+    const byId = new Map(catalog.byId);
+    byId.set('c-busy', { ...record('c-busy', '/repo-b'), lifecycle: 'busy' });
+    byId.set('c-retry', { ...record('c-retry', '/repo-b'), lifecycle: 'retry', retry: { attempt: 2 } });
+    byId.set('c-sending', { ...record('c-sending', '/repo-b'), lifecycle: 'busy' });
+    byId.set('c-idle', record('c-idle', '/repo-b'));
+    const byDirectory = new Map(catalog.byDirectory);
+    byDirectory.set('/repo-b', ['c-busy', 'c-retry', 'c-sending', 'c-idle']);
+    storeInternal.state = { ...storeInternal.state, catalog: { ...catalog, byId, byDirectory } };
+    storeInternal.pendingPromptById.add('c-sending');
+    const now = Date.now();
+    useSessionActivityTimingStore.setState({
+      startedAt: new Map([['c-busy', now - 60_000], ['c-retry', now - 30_000]]),
+      settledMs: new Map(),
+    });
+    useNotificationStore.setState({ list: [] } as never);
+  };
+
+  const lifecycleOf = (store: PiSessionStore, id: string) => store.getState().catalog.byId.get(id)?.lifecycle;
+
+  test('a verified epoch change settles carried-over busy rows quietly', async () => {
+    await withStore(async (store) => {
+      seedCarriedOver(store);
+      const listed = deferred<unknown>();
+      const stubs = stubPiClient({
+        getSession: async (id, directory) => ({ ...detail(id, directory || '/repo-a', 9, 'epoch-2'), isStreaming: false, lifecycle: 'idle' }),
+        listSessions: async () => listed.promise,
+      });
+      const catalogEmits: number[] = [];
+      const unsubscribe = store.subscribe(() => catalogEmits.push(1), 'catalog');
+      try {
+        let callbacks: Record<string, unknown> | null = null;
+        reconnectImpl = async (options) => {
+          callbacks = options;
+          return readyResult({ epoch: 'epoch-1' });
+        };
+        await internal(store).reconnect('s1', store.getRuntimeGeneration(), getRuntimeKey());
+        catalogEmits.length = 0;
+        (callbacks as unknown as { onEpochChange: (epoch: string) => void }).onEpochChange('epoch-2');
+
+        expect(lifecycleOf(store, 'c-busy')).toBe('idle');
+        expect(lifecycleOf(store, 'c-retry')).toBe('idle');
+        expect(store.getState().catalog.byId.get('c-retry')?.retry).toBeUndefined();
+        expect(lifecycleOf(store, 'c-idle')).toBe('idle');
+        // A prompt this client is still sending owns its own settle.
+        expect(lifecycleOf(store, 'c-sending')).toBe('busy');
+        expect(catalogEmits.length).toBeGreaterThan(0);
+        // Quiet: no attention item, no manufactured "Worked for" duration.
+        expect(useNotificationStore.getState().list).toHaveLength(0);
+        const timing = useSessionActivityTimingStore.getState();
+        expect(timing.startedAt.has('c-busy')).toBe(false);
+        expect(timing.settledMs.has('c-busy')).toBe(false);
+        expect(timing.startedAt.has('c-retry')).toBe(false);
+
+        // Recovery re-lists from the new daemon and drains.
+        listed.resolve({
+          streamEpoch: 'epoch-2',
+          sessions: [{ ...listItem('c-busy', '/repo-b'), updatedAt: 1, live: { lifecycle: 'busy', sequence: 3 } }, listItem('c-retry', '/repo-b'), listItem('c-sending', '/repo-b'), listItem('c-idle', '/repo-b')],
+        });
+        expect(await waitFor(() => store.getState().syncReadiness === 'ready')).toBe(true);
+        expect(lifecycleOf(store, 'c-retry')).toBe('idle');
+      } finally {
+        unsubscribe();
+        stubs.restore();
+        reconnectImpl = async () => { throw new Error('not configured'); };
+      }
+    });
+  });
+
+  test('an epoch change seen by the reconnect health probe settles carried-over rows too', async () => {
+    await withStore(async (store) => {
+      seedCarriedOver(store);
+      const stubs = stubPiClient({
+        getSession: async (id, directory) => ({ ...detail(id, directory || '/repo-a', 9, 'epoch-2'), isStreaming: false, lifecycle: 'idle' }),
+        listSessions: async () => ({ sessions: [], streamEpoch: 'epoch-2' }),
+      });
+      reconnectImpl = async () => readyResult({ epoch: 'epoch-2' });
+      try {
+        await internal(store).reconnect('s1', store.getRuntimeGeneration(), getRuntimeKey());
+        expect(lifecycleOf(store, 'c-busy')).toBe('idle');
+        expect(lifecycleOf(store, 'c-retry')).toBe('idle');
+        expect(lifecycleOf(store, 'c-sending')).toBe('busy');
+      } finally {
+        stubs.restore();
+        reconnectImpl = async () => { throw new Error('not configured'); };
+      }
+    });
+  });
+
+  test('a new-epoch snapshot in the event batch settles carried-over rows too', async () => {
+    await withStore(async (store) => {
+      seedCarriedOver(store);
+      const stubs = stubPiClient({
+        getSession: async (id, directory) => ({ ...detail(id, directory || '/repo-a', 9, 'epoch-2'), isStreaming: false, lifecycle: 'idle' }),
+        listSessions: async () => ({ sessions: [], streamEpoch: 'epoch-2' }),
+      });
+      try {
+        internal(store).commitEvents([snapshotEvent('s1', '/repo-a', 1, { streamEpoch: 'epoch-2', resync: true })]);
+        expect(lifecycleOf(store, 'c-busy')).toBe('idle');
+        expect(lifecycleOf(store, 'c-retry')).toBe('idle');
+        expect(lifecycleOf(store, 'c-sending')).toBe('busy');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+});

@@ -576,6 +576,9 @@ export const createPiEventStream = (
   const retiredEpochs = new Set<string>();
   let epochProbeInFlight = false;
   let epochProbeController: AbortController | null = null;
+  /** True once any connection of this stream has become ready. Later ready
+   *  connections are resubscribes whose epoch must be re-verified. */
+  let hasBeenReady = false;
   const clearTimers = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
@@ -605,6 +608,12 @@ export const createPiEventStream = (
   const markReady = (connectionId: number) => {
     if (disposed || signal.aborted || connectionId !== generation) return;
     resetHeartbeat(connectionId);
+    // A resubscribe may land on a restarted daemon that sends nothing for a
+    // session it no longer holds, so no foreign-epoch frame would ever arrive.
+    // Verify the stream lifetime once per resubscribe instead. The first
+    // connection is attached under the owner's health-verified epoch.
+    if (hasBeenReady) void verifyEpochAfterResubscribe(connectionId);
+    hasBeenReady = true;
   };
 
   const markActivity = (connectionId: number) => {
@@ -765,6 +774,38 @@ export const createPiEventStream = (
       // fresh health gate through the normal reconnect loop.
       recordMobileDiagnostic('stream-epoch', { code: 'unverified' });
       handleDisconnect('epoch-unverified', connectionId);
+    } finally {
+      clearTimeout(timer);
+      epochProbeInFlight = false;
+      epochProbeController = null;
+    }
+  };
+
+  /** One bounded health probe after a resubscribe. A different live epoch is
+   *  adopted exactly like a verified foreign frame: retire the old epoch,
+   *  drop the cursor from the retired sequence space, and notify the owner.
+   *  An unchanged or unverifiable result changes nothing; later frames or
+   *  reconnects still go through the frame-driven verification. */
+  const verifyEpochAfterResubscribe = async (connectionId: number): Promise<void> => {
+    const reference = currentEpoch ?? ownerEpoch;
+    if (!reference || epochProbeInFlight) return;
+    epochProbeInFlight = true;
+    epochProbeController = new AbortController();
+    const timer = setTimeout(() => epochProbeController?.abort(), epochProbeTimeoutMs);
+    try {
+      const health = await fetchPiRuntimeHealth(epochProbeController.signal, expectedRuntimeKey);
+      if (disposed || signal.aborted || connectionId !== generation) return;
+      const liveEpoch = health.state === 'ready' ? health.streamEpoch : undefined;
+      if (!liveEpoch || liveEpoch === reference || retiredEpochs.has(liveEpoch)) return;
+      // A verified frame may have moved the epoch while the probe ran.
+      if ((currentEpoch ?? ownerEpoch) !== reference) return;
+      retiredEpochs.add(reference);
+      currentEpoch = liveEpoch;
+      lastSequence = undefined;
+      recordMobileDiagnostic('stream-epoch', { code: 'verified-on-resubscribe' });
+      handlers.onEpochChange?.(liveEpoch);
+    } catch {
+      // Unverifiable: keep the stream; the next frame or reconnect decides.
     } finally {
       clearTimeout(timer);
       epochProbeInFlight = false;
