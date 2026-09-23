@@ -847,12 +847,13 @@ describe('reconnect recovery: activity carried over from a restarted daemon', ()
         expect(timing.settledMs.has('c-busy')).toBe(false);
         expect(timing.startedAt.has('c-retry')).toBe(false);
 
-        // Recovery re-lists from the new daemon and drains.
+        // The new daemon re-asserts what it actually runs.
         listed.resolve({
           streamEpoch: 'epoch-2',
           sessions: [{ ...listItem('c-busy', '/repo-b'), updatedAt: 1, live: { lifecycle: 'busy', sequence: 3 } }, listItem('c-retry', '/repo-b'), listItem('c-sending', '/repo-b'), listItem('c-idle', '/repo-b')],
         });
         expect(await waitFor(() => store.getState().syncReadiness === 'ready')).toBe(true);
+        expect(lifecycleOf(store, 'c-busy')).toBe('busy');
         expect(lifecycleOf(store, 'c-retry')).toBe('idle');
       } finally {
         unsubscribe();
@@ -878,6 +879,44 @@ describe('reconnect recovery: activity carried over from a restarted daemon', ()
       } finally {
         stubs.restore();
         reconnectImpl = async () => { throw new Error('not configured'); };
+      }
+    });
+  });
+
+  test('a cluster rebuild that attaches to a restarted daemon settles carried-over rows and accepts its live status', async () => {
+    await withStore(async (store) => {
+      seedCarriedOver(store);
+      const originals = { health: piClient.health.bind(piClient), selectProject: piClient.selectProject.bind(piClient) };
+      piClient.health = (async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['events.streamEpoch'], streamEpoch: 'epoch-2' })) as typeof piClient.health;
+      piClient.selectProject = (async (directory: string) => ({ directory })) as typeof piClient.selectProject;
+      const stubs = stubPiClient({
+        getSession: async (id, directory) => ({ ...detail(id, directory || '/repo-a', 9, 'epoch-2'), isStreaming: false, lifecycle: 'idle' }),
+        listSessions: async (directory) => ({
+          streamEpoch: 'epoch-2',
+          sessions: directory === '/repo-a'
+            ? [listItem('s1', '/repo-a'), { ...listItem('fresh', '/repo-a'), updatedAt: 1, live: { lifecycle: 'busy', sequence: 2 } }]
+            : [listItem('c-busy', '/repo-b'), listItem('c-retry', '/repo-b'), listItem('c-sending', '/repo-b'), listItem('c-idle', '/repo-b')],
+        }),
+      });
+      // The failed reconnect left no stream; the next start rebuilds the cluster.
+      const storeInternal = internal(store);
+      storeInternal.stream = null;
+      storeInternal.state = { ...storeInternal.state, connection: 'error' };
+      try {
+        await store.start({ directory: '/repo-a', sessionId: 's1' });
+        expect(storeInternal.streamEpoch).toBe('epoch-2');
+        expect(lifecycleOf(store, 'c-busy')).toBe('idle');
+        expect(lifecycleOf(store, 'c-retry')).toBe('idle');
+        // A full rebuild already drops send tracking, so no pending send is
+        // left to protect; a send the new daemon accepted re-asserts busy
+        // through that daemon's events.
+        expect(lifecycleOf(store, 'c-sending')).toBe('idle');
+        // Old-lifetime sequence markers must not reject the new daemon's status.
+        expect(lifecycleOf(store, 'fresh')).toBe('busy');
+      } finally {
+        stubs.restore();
+        piClient.health = originals.health;
+        piClient.selectProject = originals.selectProject;
       }
     });
   });

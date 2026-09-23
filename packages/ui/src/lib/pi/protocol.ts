@@ -134,12 +134,32 @@ export interface PiProjectSelectResponse {
 // Sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * Lifecycle of a runtime resident in the connected daemon, sampled while the
+ * list was built. Absent means unknown (not resident here, another daemon, or
+ * an older server), never idle.
+ */
+export interface PiSessionListLiveStatus {
+  lifecycle: 'idle' | 'busy' | 'retry';
+  /** Daemon event sequence at sampling time. An accepted lifecycle-bearing
+   *  event for the same session with a higher sequence is newer than this
+   *  observation; content deltas are not. */
+  sequence: number;
+  retry?: PiRetryInfo;
+  /** Server authoritative run start. Present only while busy/retry. */
+  runStartedAt?: number;
+  /** Server wall clock at sampling time. */
+  serverNow?: number;
+}
+
 export interface PiSessionListItem {
   session: PiSession;
   /** Last message preview for sidebar display. */
   preview?: string;
   /** Last message timestamp. */
   updatedAt: number;
+  /** Live lifecycle when the session is resident in the connected daemon. */
+  live?: PiSessionListLiveStatus;
 }
 
 export interface PiSessionListResponse {
