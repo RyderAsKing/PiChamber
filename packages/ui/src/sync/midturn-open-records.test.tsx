@@ -102,10 +102,13 @@ afterEach(async () => {
   latest = [];
 });
 
-const assistantRecord = () => latest.find((record) => record.info.id === 'a1')?.info as {
-  time?: { completed?: number };
-  finish?: string;
-} | undefined;
+// Throws when a1 is not rendered, so an absent record cannot pass the
+// "not completed" assertions vacuously.
+const assistantRecord = () => {
+  const record = latest.find((item) => item.info.id === 'a1');
+  if (!record) throw new Error('Expected assistant record a1');
+  return record.info as { time?: { completed?: number }; finish?: string };
+};
 
 describe('records rendered for a session opened mid-turn', () => {
   test('the in-flight assistant is not rendered as completed through attach and live deltas', async () => {
@@ -128,17 +131,17 @@ describe('records rendered for a session opened mid-turn', () => {
       await store.start({ directory: DIR, sessionId: 'live' });
     });
     expect(store.getState().reducer.bySession.get('live')?.messages.get('a1')?.streaming).toBe(true);
-    expect(assistantRecord()?.time?.completed).toBeUndefined();
+    expect(assistantRecord().time?.completed).toBeUndefined();
 
     const commit = (events: unknown[]) => (store as unknown as { commitEvents: (events: unknown[]) => void }).commitEvents(events);
     await act(async () => {
       commit([frame('session.snapshot', 41, { snapshot: { sessionId: 'live', directory: DIR, isStreaming: true, lifecycle: 'busy', queue: { steering: 0, followUp: 0 }, lastText: 'word1 word2', lastSequence: 41, serverNow: Date.now() } })]);
     });
-    expect(assistantRecord()?.time?.completed).toBeUndefined();
+    expect(assistantRecord().time?.completed).toBeUndefined();
     await act(async () => {
       commit([frame('assistant.message.delta', 42, { messageId: 'a1', contentIndex: 0, delta: ' word3', partId: 'a1:text:0' })]);
     });
-    expect(assistantRecord()?.time?.completed).toBeUndefined();
-    expect(assistantRecord()?.finish).toBeUndefined();
+    expect(assistantRecord().time?.completed).toBeUndefined();
+    expect(assistantRecord().finish).toBeUndefined();
   });
 });
