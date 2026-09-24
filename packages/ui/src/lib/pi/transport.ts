@@ -576,6 +576,17 @@ export const createPiEventStream = (
   const retiredEpochs = new Set<string>();
   let epochProbeInFlight = false;
   let epochProbeController: AbortController | null = null;
+  /** First foreign-epoch frame that arrived while the resubscribe probe ran.
+   *  A restarted daemon writes its resync snapshot right after attach, so this
+   *  may be the only frame of the new lifetime; the probe hands it on. */
+  let pendingForeignFrame: { event: PiSessionEvent; epoch: string; connectionId: number } | null = null;
+  /** A ready connection whose resubscribe probe was blocked by another probe
+   *  still in flight (possibly one for an older, now stale connection). It
+   *  is probed once that probe ends. */
+  let deferredResubscribeProbe: number | null = null;
+  /** True once any connection of this stream has become ready. Later ready
+   *  connections are resubscribes whose epoch must be re-verified. */
+  let hasBeenReady = false;
   const clearTimers = () => {
     if (reconnectTimer) clearTimeout(reconnectTimer);
     if (heartbeatTimer) clearTimeout(heartbeatTimer);
@@ -605,6 +616,12 @@ export const createPiEventStream = (
   const markReady = (connectionId: number) => {
     if (disposed || signal.aborted || connectionId !== generation) return;
     resetHeartbeat(connectionId);
+    // A resubscribe may land on a restarted daemon that sends nothing for a
+    // session it no longer holds, so no foreign-epoch frame would ever arrive.
+    // Verify the stream lifetime once per resubscribe instead. The first
+    // connection is attached under the owner's health-verified epoch.
+    if (hasBeenReady) void verifyEpochAfterResubscribe(connectionId);
+    hasBeenReady = true;
   };
 
   const markActivity = (connectionId: number) => {
@@ -704,7 +721,12 @@ export const createPiEventStream = (
         // A foreign epoch on an established stream. The wire frame alone is
         // not authoritative: verify it against the runtime health endpoint
         // before resetting the replay cursor or notifying the owner.
-        if (epochProbeInFlight) return; // drop frames while the probe runs
+        if (epochProbeInFlight) {
+          // Drop frames while the probe runs; keep the first for a
+          // resubscribe probe to hand on (see `verifyEpochAfterResubscribe`).
+          pendingForeignFrame ??= { event, epoch: eventEpoch, connectionId };
+          return;
+        }
         void verifyForeignEpoch(event, eventEpoch, reference, connectionId);
         return;
       }
@@ -769,7 +791,58 @@ export const createPiEventStream = (
       clearTimeout(timer);
       epochProbeInFlight = false;
       epochProbeController = null;
+      pendingForeignFrame = null;
+      runDeferredResubscribeProbe();
     }
+  };
+
+  /** One bounded health probe after a resubscribe. A different live epoch is
+   *  adopted exactly like a verified foreign frame: retire the old epoch,
+   *  drop the cursor from the retired sequence space, and notify the owner.
+   *  An unchanged or unverifiable result changes nothing; later frames or
+   *  reconnects still go through the frame-driven verification. A foreign
+   *  frame held back while the probe ran is then delivered when the probe
+   *  adopted its epoch, or verified on its own otherwise. */
+  const verifyEpochAfterResubscribe = async (connectionId: number): Promise<void> => {
+    const reference = currentEpoch ?? ownerEpoch;
+    if (!reference) return;
+    if (epochProbeInFlight) {
+      deferredResubscribeProbe = connectionId;
+      return;
+    }
+    epochProbeInFlight = true;
+    epochProbeController = new AbortController();
+    const timer = setTimeout(() => epochProbeController?.abort(), epochProbeTimeoutMs);
+    try {
+      const health = await fetchPiRuntimeHealth(epochProbeController.signal, expectedRuntimeKey);
+      if (disposed || signal.aborted || connectionId !== generation) return;
+      const liveEpoch = health.state === 'ready' ? health.streamEpoch : undefined;
+      if (!liveEpoch || liveEpoch === reference || retiredEpochs.has(liveEpoch)) return;
+      // A verified frame may have moved the epoch while the probe ran.
+      if ((currentEpoch ?? ownerEpoch) !== reference) return;
+      retiredEpochs.add(reference);
+      currentEpoch = liveEpoch;
+      lastSequence = undefined;
+      recordMobileDiagnostic('stream-epoch', { code: 'verified-on-resubscribe' });
+      handlers.onEpochChange?.(liveEpoch);
+    } catch {
+      // Unverifiable: keep the stream; the next frame or reconnect decides.
+    } finally {
+      clearTimeout(timer);
+      epochProbeInFlight = false;
+      epochProbeController = null;
+      const pending = pendingForeignFrame;
+      pendingForeignFrame = null;
+      if (pending) handleEvent(pending.event, pending.connectionId);
+      runDeferredResubscribeProbe();
+    }
+  };
+
+  const runDeferredResubscribeProbe = () => {
+    const connectionId = deferredResubscribeProbe;
+    deferredResubscribeProbe = null;
+    if (connectionId === null || disposed || signal.aborted || connectionId !== generation) return;
+    void verifyEpochAfterResubscribe(connectionId);
   };
 
   /** Mint the short-lived URL auth token under a bounded deadline so a hung

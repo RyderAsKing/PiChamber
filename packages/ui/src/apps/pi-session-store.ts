@@ -50,6 +50,7 @@ import {
   touchRecordUpdatedAt,
   type LiveSessionRecord,
   type PiSessionCatalogState,
+  type DirectoryListLiveOptions,
 } from '@/sync/pi-session-catalog';
 
 import {
@@ -106,6 +107,11 @@ export type {
 
 let sharedStore: PiSessionStore | null = null;
 
+const LIFECYCLE_EVENT_NAMES = new Set(['session.snapshot', 'session.interrupted', 'session.deleted']);
+const affectsCatalogLifecycle = (event: PiSessionEvent): boolean => (
+  lifecycleFromEvent(event) !== undefined || LIFECYCLE_EVENT_NAMES.has(event.name)
+);
+
 export const getPiSessionStore = (): PiSessionStore => {
   sharedStore ??= new PiSessionStore();
   return sharedStore;
@@ -148,10 +154,26 @@ export class PiSessionStore {
   private recovering = false;
   private pendingFocus: PendingFocus | null = null;
   private pendingPreferredSessionId: PiSessionId | null = null;
+  private selectionRevision = 0;
+  private userSelection: { id: PiSessionId; directory: string | null; revision: number } | null = null;
+
+  private newerSelection(revision: number, directory: string): PiSessionId | null {
+    const intent = this.userSelection;
+    return intent && intent.revision > revision
+      && (!intent.directory || normalizePath(intent.directory) === normalizePath(directory))
+      ? intent.id : null;
+  }
   private hydratedSessionIds = new Set<PiSessionId>();
   private activityPhaseById = new Map<PiSessionId, 'active' | 'settled'>();
   private pendingPromptById = new Set<PiSessionId>();
   private promptGenerationById = new Map<PiSessionId, number>();
+  /** Prompt generation whose send the daemon accepted. Pi marks the run
+   *  active before it acknowledges, so state read after acceptance is
+   *  authoritative for that send even when its lifecycle events were missed. */
+  private acceptedPromptGenerationById = new Map<PiSessionId, number>();
+  /** In-flight list-triggered reconciles; `true` when another idle listing
+   *  arrived meanwhile and the read must run again once this one ends. */
+  private acceptedPromptReconcileInFlight = new Map<PiSessionId, boolean>();
   /** Monotonic clock of last access per resident session. Updated on
    *  `select`, successful `commitHydratedSession`, accepted events, and
    *  explicit `touchLastAccess`. Eviction walks ascending order so the
@@ -201,6 +223,10 @@ export class PiSessionStore {
    *  source (health, event, or stamped response) establishes it. A different
    *  value means the daemon restarted and the sequence space reset. */
   private streamEpoch: string | null = null;
+  /** Newest accepted event sequence per session in the current stream epoch.
+   *  Orders a listing's sampled `live` lifecycle against events: an
+   *  observation older than an accepted event must not overwrite it. */
+  private lifecycleSequenceById = new Map<PiSessionId, number>();
   /** Epochs retired by a verified transition. Snapshots, events, and stamped
    *  responses from a retired lifetime are rejected — epochs are opaque, so
    *  retirement (not ordering) is what prevents a stale frame from
@@ -248,6 +274,108 @@ export class PiSessionStore {
     return epoch === this.streamEpoch;
   }
   /**
+   * Ordering gate for the `live` lifecycle a listing samples from resident
+   * runtimes. Only a list stamped with the established epoch can be ordered
+   * against events; an observation is accepted when its sequence is not
+   * older than any accepted event or hydrated detail for that session.
+   * `commit` runs after the list is applied: it advances the per-session
+   * ordering marker and adopts the server run clock for busy/retry rows the
+   * catalog actually holds. List observations never notify, promote
+   * activity order, settle a turn clock, or mark a row hydrated.
+   */
+  private createListLiveGate(
+    response: { streamEpoch?: unknown },
+    { streamAttaching = false }: { streamAttaching?: boolean } = {},
+  ): {
+    options: DirectoryListLiveOptions | undefined;
+    commit: (items: readonly PiSessionListItem[]) => void;
+  } {
+    const epoch = typeof response.streamEpoch === 'string' && response.streamEpoch.length > 0 ? response.streamEpoch : null;
+    if (!epoch || epoch !== this.streamEpoch) return { options: undefined, commit: () => undefined };
+    // A list-asserted busy row is kept current only by live events. Without
+    // an attached stream (for example no folder focused) nothing could ever
+    // settle it, so the observation stays unknown. First attach (`open`)
+    // passes `streamAttaching` for the stream it attaches right after.
+    if (!this.stream && !streamAttaching) return { options: undefined, commit: () => undefined };
+    const accepted = new Set<PiSessionId>();
+    const acceptedSends = new Set<PiSessionId>();
+    const options: DirectoryListLiveOptions = {
+      acceptLiveObservation: (sessionId, sequence) => {
+        if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+        // A hydrated transcript's cursor is authoritative lifecycle state (its
+        // row mirrors the reducer); a cold session's reducer cursor only
+        // reflects content events, which cannot change lifecycle.
+        const newest = Math.max(
+          this.lifecycleSequenceById.get(sessionId) ?? -1,
+          this.hydratedSessionIds.has(sessionId) ? (this.state.reducer.lastSequence.get(sessionId) ?? -1) : -1,
+        );
+        if (sequence < newest) return false;
+        // A prompt this client is still sending owns the row's lifecycle: a
+        // list sampled before the daemon took it would report idle. Once the
+        // daemon accepted it, an idle list is only a hint (it may predate the
+        // acceptance); `commit` confirms it from session detail instead.
+        if (this.pendingPromptById.has(sessionId)) {
+          const generation = this.promptGenerationById.get(sessionId);
+          if (generation !== undefined && this.acceptedPromptGenerationById.get(sessionId) === generation) {
+            acceptedSends.add(sessionId);
+          }
+          return false;
+        }
+        accepted.add(sessionId);
+        return true;
+      },
+    };
+    const commit = (items: readonly PiSessionListItem[]) => {
+      if (epoch !== this.streamEpoch) return;
+      for (const item of items) {
+        if (item.live?.lifecycle === 'idle' && acceptedSends.has(item.session.id)) {
+          this.reconcileAcceptedPromptFromList(item.session.id);
+        }
+      }
+      if (accepted.size === 0) return;
+      for (const item of items) {
+        const live = item.live;
+        if (!live || !accepted.has(item.session.id)) continue;
+        const sessionId = item.session.id;
+        if ((this.lifecycleSequenceById.get(sessionId) ?? -1) < live.sequence) {
+          this.lifecycleSequenceById.set(sessionId, live.sequence);
+        }
+        if (live.lifecycle === 'idle' || typeof live.runStartedAt !== 'number') continue;
+        if (this.state.catalog.byId.get(sessionId)?.lifecycle !== live.lifecycle) continue;
+        adoptServerRunTiming(sessionId, live.runStartedAt, live.serverNow);
+      }
+    };
+    return { options, commit };
+  }
+  /**
+   * Adopt a health-verified stream epoch. On a change from an established
+   * epoch, reset every resident transcript and cursor (the new daemon's
+   * sequence space is unrelated) and queue recovery of former residents and
+   * all known directories. Optimistic prompts, drafts, and navigation are
+   * preserved. Returns the former residents for a change from an
+   * established epoch, or null for first contact / no change.
+   */
+  private applyVerifiedEpochChange(epoch: string): Set<PiSessionId> | null {
+    const changed = this.streamEpoch !== null && this.streamEpoch !== epoch;
+    if (!this.adoptStreamEpoch(epoch) || !changed) return null;
+    const previousResidents = this.resetForEpochChange();
+    this.state = {
+      ...this.state,
+      reducer: createReducerState(),
+      hydratedSessionIds: new Set(this.hydratedSessionIds),
+    };
+    this.queueSyncRecovery({ directories: 'all-known', residents: previousResidents });
+    return previousResidents;
+  }
+  /** Transport callback for a health-verified epoch change on an attached
+   *  stream (first attach or reconnect): reset, recover, and notify. */
+  private handleVerifiedEpochChange(epoch: string): void {
+    const previousResidents = this.applyVerifiedEpochChange(epoch);
+    if (previousResidents) {
+      this.emit([TOPIC_CHROME, TOPIC_CATALOG, ...[...previousResidents].map((id) => `session:${id}`)]);
+    }
+  }
+  /**
    * A verified stream-epoch change (daemon restart) invalidates every
    * resident transcript and per-session cursor in one cluster-level reset:
    * the new daemon's sequence space is unrelated to the old one, so old
@@ -259,13 +387,33 @@ export class PiSessionStore {
    */
   private resetForEpochChange(): Set<PiSessionId> {
     const previouslyHydrated = new Set(this.hydratedSessionIds);
+    this.lifecycleSequenceById.clear();
     this.hydratedSessionIds.clear();
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
     this.historyInflightById.clear();
     // Stale history completions reject through navigation generation too.
     for (const [id, gen] of this.navigationGenerationById) this.navigationGenerationById.set(id, gen + 1);
+    this.settleCarriedOverActivity();
     return previouslyHydrated;
+  }
+  /**
+   * Every turn observed on the previous daemon lifetime ended with it, and a
+   * new daemon sends nothing for runs it does not hold. Settle busy/retry
+   * rows to idle quietly (no notification, reorder, or "Worked for"
+   * duration); the new daemon re-asserts real work through its events and
+   * the recovery lists' `live` status. Runs before any new-epoch frame is
+   * applied. A prompt this client is still sending owns its own settle.
+   */
+  private settleCarriedOverActivity(): void {
+    let catalog = this.state.catalog;
+    for (const record of catalog.byId.values()) {
+      if (record.lifecycle !== 'busy' && record.lifecycle !== 'retry') continue;
+      if (this.pendingPromptById.has(record.id)) continue;
+      catalog = applyLifecycleChange(catalog, record.id, 'idle');
+      removeSessionActivityTiming(record.id);
+    }
+    if (catalog !== this.state.catalog) this.state = { ...this.state, catalog };
   }
   /**
    * Queue reconnect-recovery obligations. `directories: 'all-known'` re-lists
@@ -548,6 +696,7 @@ export class PiSessionStore {
     this.activityPhaseById.delete(sessionId);
     this.pendingPromptById.delete(sessionId);
     this.promptGenerationById.delete(sessionId);
+    this.acceptedPromptGenerationById.delete(sessionId);
     this.lastAccessById.delete(sessionId);
     const nextCatalog = removeRecord(this.state.catalog, sessionId);
     const catalogChanged = nextCatalog !== this.state.catalog;
@@ -670,10 +819,12 @@ export class PiSessionStore {
     this.focusGeneration += 1;
     this.pendingFocus = null;
     this.pendingPreferredSessionId = null;
+    this.userSelection = null;
     this.hydratedSessionIds.clear();
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.acceptedPromptGenerationById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
@@ -682,6 +833,7 @@ export class PiSessionStore {
     // applies; the incoming runtime establishes a fresh epoch.
     this.streamEpoch = null;
     this.retiredStreamEpochs.clear();
+    this.lifecycleSequenceById.clear();
     this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
@@ -874,11 +1026,15 @@ export class PiSessionStore {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
       const listedSessions = this.filterDeletedListItems(result.sessions);
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, listedSessions, Date.now(), this.deletedSessionIds);
+      const liveGate = this.createListLiveGate(result);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, listedSessions, Date.now(), this.deletedSessionIds, liveGate.options);
       if (nextCatalog !== this.state.catalog) {
         this.state = { ...this.state, catalog: nextCatalog };
+        liveGate.commit(listedSessions);
         this.emit([TOPIC_CATALOG]);
         this.raiseOrderingBaselinesForDirectory(normalized);
+      } else {
+        liveGate.commit(listedSessions);
       }
       return { ok: true };
     } catch (error) {
@@ -1012,6 +1168,12 @@ export class PiSessionStore {
       if (health.state !== 'ready') {
         throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       }
+      const healthEpoch = (health as { streamEpoch?: string }).streamEpoch;
+      if (typeof healthEpoch === 'string' && healthEpoch.length > 0 && this.streamEpoch !== null && healthEpoch !== this.streamEpoch) {
+        this.applyVerifiedEpochChange(healthEpoch);
+      } else {
+        this.adoptStreamEpoch(healthEpoch);
+      }
       this.state = {
         ...this.state,
         directory: null,
@@ -1022,10 +1184,47 @@ export class PiSessionStore {
         focusPending: false,
         error: null,
       };
-      this.emitChrome();
+      this.attachClusterStream(expected, getRuntimeKey());
+      this.emit([TOPIC_CHROME, TOPIC_CATALOG]);
     } catch (error) {
       if (expected === this.runtimeGeneration) this.reportError(error);
     }
+  }
+
+  /**
+   * Attach the runtime's event stream with no session selected. The daemon
+   * delivers every session's live events to every subscriber (the session
+   * id only scopes replay and the attach snapshot), so this is the same
+   * traffic a focused page already receives. It keeps sidebar lifecycle,
+   * titles, and membership live while no folder is focused, and lets list
+   * live status be adopted because events can settle it. The transport owns
+   * reconnects; a verified epoch change goes through the shared reset. A
+   * later session hydrate reuses this stream instead of bootstrapping one.
+   */
+  private attachClusterStream(expected: number, runtimeKey: string): void {
+    if (this.stream || expected !== this.runtimeGeneration) return;
+    const streamGeneration = this.streamGeneration + 1;
+    this.streamGeneration = streamGeneration;
+    const isCurrent = () => expected === this.runtimeGeneration
+      && runtimeKey === getRuntimeKey()
+      && streamGeneration === this.streamGeneration;
+    const fromSequence = this.streamEpoch ? this.streamCursor() : undefined;
+    this.stream = createPiEventStream({
+      onEvent: (event) => {
+        if (isCurrent()) this.apply(event);
+      },
+      onReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
+      onEpochChange: (epoch) => {
+        if (isCurrent()) this.handleVerifiedEpochChange(epoch);
+      },
+      onAuthRequired: () => {
+        if (isCurrent()) this.handleStreamAuthRequired();
+      },
+    }, {
+      ...(this.streamEpoch ? { streamEpoch: this.streamEpoch } : {}),
+      ...(fromSequence !== undefined ? { fromSequence } : {}),
+      runtimeKey,
+    });
   }
 
   /** Switch the sidebar/create flow's directory pointer and that folder's
@@ -1072,6 +1271,7 @@ export class PiSessionStore {
     // skips the loader on a known-good folder switch. The cluster pointer
     // and `sessionsListStatus` still update so the sidebar catches up.
     const expected = ++this.focusGeneration;
+    const selectionAtStart = this.selectionRevision;
     this.pendingFocus = { directory: nextDirectory, expected, preferredSessionId: desiredSessionId };
     this.pendingPreferredSessionId = desiredSessionId;
     const warmAlready = !!desiredSessionId && this.hydratedSessionIds.has(desiredSessionId);
@@ -1088,14 +1288,14 @@ export class PiSessionStore {
     if (warmAlready) {
       this.touchLastAccess(desiredSessionId as PiSessionId);
     }
-    await this.resolveFocus(expected, nextDirectory);
+    await this.resolveFocus(expected, nextDirectory, selectionAtStart);
   }
 
-  private async resolveFocus(expected: number, directory: string): Promise<void> {
+  private async resolveFocus(expected: number, directory: string, selectionAtStart: number): Promise<void> {
     const runtimeKey = getRuntimeKey();
     const startedRuntimeGeneration = this.runtimeGeneration;
     const baseline = this.state.catalog;
-    const desiredSessionId = this.pendingPreferredSessionId;
+    let desiredSessionId = this.pendingPreferredSessionId;
     let resolvedDirectory = directory;
     try {
       try {
@@ -1128,6 +1328,7 @@ export class PiSessionStore {
       }
       const listPayload = { sessions: this.filterDeletedListItems(result.payload.sessions) };
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
+      desiredSessionId = this.newerSelection(selectionAtStart, resolvedDirectory) ?? desiredSessionId;
       let matchedSession = desiredSessionId
         ? listPayload.sessions.find((item) => item.session.id === desiredSessionId)
         : undefined;
@@ -1143,11 +1344,14 @@ export class PiSessionStore {
             ) {
               // Session lives in a different folder than the one we just
               // focused; recurse rather than corrupt the new folder's list.
-              await this.focusProject(detail.session.directory, desiredSessionId);
-              return;
+              if (!this.newerSelection(selectionAtStart, resolvedDirectory)) {
+                await this.focusProject(detail.session.directory, desiredSessionId);
+                return;
+              }
+            } else {
+              listPayload.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
+              matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
             }
-            listPayload.sessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
-            matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
         } catch (lookupError) {
           if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
@@ -1164,14 +1368,17 @@ export class PiSessionStore {
         }
       }
       if (expected !== this.focusGeneration || startedRuntimeGeneration !== this.runtimeGeneration) return;
+      const latestSelection = this.newerSelection(selectionAtStart, resolvedDirectory);
       const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
-      const nextSelectedSessionId = matchedSession?.session.id
+      const nextSelectedSessionId = (latestSelection && !this.isDeleted(latestSelection) ? latestSelection : null)
+        ?? matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listPayload.sessions.find((item) => !item.session.archived)?.session.id
           ?? null
         ));
       this.pendingPreferredSessionId = null;
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.deletedSessionIds);
+      const liveGate = this.createListLiveGate(result.payload);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.deletedSessionIds, liveGate.options);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
@@ -1182,6 +1389,7 @@ export class PiSessionStore {
         error: null,
         catalog: nextCatalog,
       };
+      liveGate.commit(listPayload.sessions);
       const listTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) listTopics.push(TOPIC_CATALOG);
       this.emit(listTopics);
@@ -1259,7 +1467,7 @@ export class PiSessionStore {
   ): Promise<
     | { kind: 'stale' }
     | { kind: 'failed'; error: PiRequestError }
-    | { kind: 'ok'; payload: { sessions: PiSessionListItem[] } }
+    | { kind: 'ok'; payload: { sessions: PiSessionListItem[]; streamEpoch?: string } }
   > {
     try {
       const result = await piClient.listSessions({ directory: resolvedDirectory, runtimeKey });
@@ -1327,11 +1535,18 @@ export class PiSessionStore {
     const expected = ++this.runtimeGeneration;
     this.focusGeneration = expected;
     this.pendingFocus = null;
-    this.pendingPreferredSessionId = preferredSessionId ?? null;
+    // A first attach with no explicit preference must not clear a selection
+    // made before the provider mounted. A directory change cannot inherit it.
+    const earlySelection = !preferredSessionId && this.userSelection
+      && (!this.userSelection.directory || normalizePath(this.userSelection.directory) === normalizePath(directory))
+      ? this.userSelection.id : null;
+    this.pendingPreferredSessionId = preferredSessionId ?? earlySelection;
+    const selectionAtStart = this.selectionRevision;
     this.hydratedSessionIds.clear();
     this.activityPhaseById.clear();
     this.pendingPromptById.clear();
     this.promptGenerationById.clear();
+    this.acceptedPromptGenerationById.clear();
     this.lastAccessById.clear();
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
@@ -1348,7 +1563,7 @@ export class PiSessionStore {
     this.state = {
       ...this.state,
       directory,
-      selectedSessionId: preferredSessionId ?? null,
+      selectedSessionId: this.pendingPreferredSessionId,
       connection: 'loading',
       hydratedSessionIds: new Set(),
       reducer: {
@@ -1371,8 +1586,17 @@ export class PiSessionStore {
       if (expected !== this.runtimeGeneration) return;
       if (health.state !== 'ready') throw new PiRequestError(health.error?.code ?? 'DAEMON_UNAVAILABLE', health.error?.message);
       // First attach establishes the stream lifetime; without it cursors
-      // cannot survive a daemon restart.
-      this.adoptStreamEpoch((health as { streamEpoch?: string }).streamEpoch);
+      // cannot survive a daemon restart. A rebuild that lands on a restarted
+      // daemon (for example after a reconnect failed while it was down) is a
+      // verified epoch change: reset old-lifetime state and settle its
+      // carried-over activity like the other verified paths.
+      const healthEpoch = (health as { streamEpoch?: string }).streamEpoch;
+      if (typeof healthEpoch === 'string' && healthEpoch.length > 0 && this.streamEpoch !== null && healthEpoch !== this.streamEpoch) {
+        this.applyVerifiedEpochChange(healthEpoch);
+        this.emit([TOPIC_CHROME, TOPIC_CATALOG]);
+      } else {
+        this.adoptStreamEpoch(healthEpoch);
+      }
       const initialHealth: Extract<PiBootstrapHealth, { state: 'ready' }> = {
         state: 'ready',
         protocolVersion: health.protocolVersion,
@@ -1388,7 +1612,8 @@ export class PiSessionStore {
       // Filter tombstones once, before matched-session lookup, so a deleted
       // session can neither be matched, selected, nor re-entered the catalog.
       const listedSessions = this.filterDeletedListItems(result.sessions);
-      const desiredSessionId = this.pendingPreferredSessionId ?? preferredSessionId;
+      const desiredSessionId = this.newerSelection(selectionAtStart, selected.directory)
+        ?? this.pendingPreferredSessionId ?? preferredSessionId;
       let matchedSession = desiredSessionId ? listedSessions.find((item) => item.session.id === desiredSessionId) : undefined;
       if (desiredSessionId && !matchedSession && !this.isDeleted(desiredSessionId)) {
         try {
@@ -1396,10 +1621,11 @@ export class PiSessionStore {
           if (expected !== this.runtimeGeneration) return;
           if (detail?.session?.directory && detail.session.directory !== directory) {
             if (expected !== this.runtimeGeneration) return;
-            await this.open(detail.session.directory, desiredSessionId);
-            return;
-          }
-          if (detail?.session?.id) {
+            if (!this.newerSelection(selectionAtStart, selected.directory)) {
+              await this.open(detail.session.directory, desiredSessionId);
+              return;
+            }
+          } else if (detail?.session?.id) {
             listedSessions.unshift({ session: detail.session, updatedAt: detail.session.updatedAt });
             matchedSession = { session: detail.session, updatedAt: detail.session.updatedAt };
           }
@@ -1417,8 +1643,10 @@ export class PiSessionStore {
           // of spinning.
         }
       }
+      const latestSelection = this.newerSelection(selectionAtStart, selected.directory);
       const desiredCanRemainSelected = desiredSessionId && !this.isDeleted(desiredSessionId);
-      const selectedSessionId = matchedSession?.session.id
+      const selectedSessionId = (latestSelection && !this.isDeleted(latestSelection) ? latestSelection : null)
+        ?? matchedSession?.session.id
         ?? (desiredCanRemainSelected ? desiredSessionId : (
           listedSessions.find((item) => !item.session.archived)?.session.id
           ?? null
@@ -1429,7 +1657,8 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds);
+      const liveGate = this.createListLiveGate(result, { streamAttaching: true });
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds, liveGate.options);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
@@ -1438,6 +1667,7 @@ export class PiSessionStore {
         connection: 'ready',
         catalog: nextCatalog,
       };
+      liveGate.commit(listedSessions);
       const openTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) openTopics.push(TOPIC_CATALOG);
       this.emit(openTopics);
@@ -1456,6 +1686,7 @@ export class PiSessionStore {
     const sessionDir = targetDirectory
       ?? this.state.reducer.bySession.get(sessionId)?.directory
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
+    this.userSelection = { id: sessionId, directory: sessionDir ?? this.state.directory, revision: ++this.selectionRevision };
     if (sessionDir && normalizePath(sessionDir) !== normalizePath(this.state.directory)) {
       // Cross-folder select: stay inside the live cluster. `open` is a no-op
       // (focus) when the stream is attached; `focusProject` only swaps the
@@ -1494,7 +1725,7 @@ export class PiSessionStore {
     // Remember the last selection per folder so `start({directory})`
     // (no session hint) can pre-seed the focus's preferred id.
     if (this.state.directory) {
-      this.lastSelectedByDirectory.set(this.state.directory, sessionId);
+      this.lastSelectedByDirectory.set(normalizePath(this.state.directory) ?? this.state.directory, sessionId);
     }
     this.cadence.flush();
     this.state = { ...this.state, selectedSessionId: sessionId, error: null, focusPending: false };
@@ -1514,7 +1745,7 @@ export class PiSessionStore {
    *  preferred id so warm folder switches can skip the chat loader. */
   lastSelectedSessionForDirectory(directory: string | null): PiSessionId | null {
     if (!directory) return null;
-    return this.lastSelectedByDirectory.get(directory) ?? null;
+    return this.lastSelectedByDirectory.get(normalizePath(directory) ?? directory) ?? null;
   }
 
   /** Hydrate a resident session without changing `selectedSessionId` or
@@ -1836,6 +2067,9 @@ export class PiSessionStore {
       if (delivery === 'steer') result = await piClient.sendSteer(input, scope);
       else if (delivery === 'followUp') result = await piClient.sendFollowUp(input, scope);
       else result = await piClient.sendPrompt(input, scope);
+      if (this.promptGenerationById.get(sessionId) === generation) {
+        this.acceptedPromptGenerationById.set(sessionId, generation);
+      }
       // Sending on the new branch commits it — stale revert/redo becomes
       // invalid. The old branch remains discoverable via GET /tree.
       clearRevertNavigation(sessionId);
@@ -1880,9 +2114,12 @@ export class PiSessionStore {
     expectedRuntimeGeneration: number,
   ): Promise<boolean> {
     const resident = this.state.reducer.bySession.get(sessionId);
+    // The session's own folder (a background session may not be in the
+    // focused folder); with no folder known there is nothing to ask.
     const directory = resident?.directory
-      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory
-      ?? this.directory();
+      || this.resolveSessionDirectory(sessionId)
+      || this.state.directory;
+    if (!directory) return false;
     try {
       const detail = await piClient.getSession(sessionId, {
         directory,
@@ -1895,6 +2132,9 @@ export class PiSessionStore {
       ) {
         return false;
       }
+      // A daemon restart verified while the read was in flight makes it a
+      // retired lifetime's state: never settle or commit it.
+      if (!this.isResponseEpochCurrent(detail)) return false;
       const currentSequence = this.state.reducer.lastSequence.get(sessionId)
         ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
         ?? -1;
@@ -1927,6 +2167,36 @@ export class PiSessionStore {
       // the optimistic/live state rather than turning failure into idle.
       return false;
     }
+  }
+
+  /** An accepted send whose lifecycle events were missed would stay pending
+   *  (busy) forever. An idle listing triggers one authoritative detail read,
+   *  taken after acceptance, which settles it or keeps it. A listing that
+   *  arrives during that read (for example from a restarted daemon whose
+   *  lifetime retires the running read) is coalesced into one more read. */
+  private reconcileAcceptedPromptFromList(sessionId: PiSessionId): void {
+    const generation = this.promptGenerationById.get(sessionId);
+    if (generation === undefined) return;
+    if (this.acceptedPromptReconcileInFlight.has(sessionId)) {
+      this.acceptedPromptReconcileInFlight.set(sessionId, true);
+      return;
+    }
+    this.acceptedPromptReconcileInFlight.set(sessionId, false);
+    void this.reconcilePendingPromptSnapshot(sessionId, generation, this.runtimeGeneration)
+      .catch(() => false)
+      .finally(() => {
+        const again = this.acceptedPromptReconcileInFlight.get(sessionId) === true;
+        this.acceptedPromptReconcileInFlight.delete(sessionId);
+        const current = this.promptGenerationById.get(sessionId);
+        if (
+          again
+          && this.pendingPromptById.has(sessionId)
+          && current !== undefined
+          && this.acceptedPromptGenerationById.get(sessionId) === current
+        ) {
+          this.reconcileAcceptedPromptFromList(sessionId);
+        }
+      });
   }
 
   private async reconcileAcceptedSlashPrompt(
@@ -2309,6 +2579,9 @@ export class PiSessionStore {
           if (bootstrapCallbackIsCurrent()) void this.reconnect(this.state.selectedSessionId ?? sessionId, expected, runtimeKey);
         },
         onStreamReconnect: () => this.markStreamReconnected(expected, runtimeKey, streamGeneration),
+        onEpochChange: (epoch) => {
+          if (bootstrapCallbackIsCurrent()) this.handleVerifiedEpochChange(epoch);
+        },
         onAuthRequired: () => {
           if (bootstrapCallbackIsCurrent()) this.handleStreamAuthRequired();
         },
@@ -2522,12 +2795,11 @@ export class PiSessionStore {
           if (!callbackIsCurrent()) return;
           // The transport only reports a stream-lifetime change after an
           // authoritative health probe verified it against the live daemon.
-          // Adopt it (the displaced epoch becomes retired) and queue
-          // recovery; the next snapshot (or the merged baseline below)
-          // re-establishes state.
-          if (this.adoptStreamEpoch(epoch)) {
-            this.queueSyncRecovery({ directories: 'all-known', residents: this.hydratedSessionIds });
-          }
+          // A restarted daemon may send no frame at all for a session it no
+          // longer holds, so this can be the only signal: reset the old
+          // lifetime's transcripts and cursors (they cannot be merged with
+          // the new sequence space) and recover from the new daemon.
+          this.handleVerifiedEpochChange(epoch);
         },
       });
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
@@ -2549,17 +2821,7 @@ export class PiSessionStore {
         // (pending prompts, drafts, attachments, navigation) is preserved.
         let epochChanged = false;
         if (typeof result.epoch === 'string' && result.epoch.length > 0 && this.streamEpoch !== result.epoch) {
-          epochChanged = this.streamEpoch !== null;
-          this.adoptStreamEpoch(result.epoch);
-          if (epochChanged) {
-            const previousResidents = this.resetForEpochChange();
-            this.state = {
-              ...this.state,
-              reducer: createReducerState(),
-              hydratedSessionIds: new Set(this.hydratedSessionIds),
-            };
-            this.queueSyncRecovery({ directories: 'all-known', residents: previousResidents });
-          }
+          epochChanged = this.applyVerifiedEpochChange(result.epoch) !== null;
         }
         disconnectedStream?.dispose();
         this.streamGeneration = replacementStreamGeneration;
@@ -2589,7 +2851,7 @@ export class PiSessionStore {
         };
         const reconnectTopics: string[] = [TOPIC_CHROME, TOPIC_DIALOGS];
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
-        if (catalogChanged) reconnectTopics.push(TOPIC_CATALOG);
+        if (catalogChanged || epochChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
         // Catch-up policy is replay-driven, not unconditional. A contiguous
         // same-epoch replay from this client's own cursor covers every event
@@ -2934,7 +3196,7 @@ export class PiSessionStore {
           reducer: working,
           hydratedSessionIds: new Set(this.hydratedSessionIds),
         };
-        this.emit([TOPIC_CHROME, ...[...epochChangedResidents].map((id) => `session:${id}`)]);
+        this.emit([TOPIC_CHROME, TOPIC_CATALOG, ...[...epochChangedResidents].map((id) => `session:${id}`)]);
         this.queueSyncRecovery({ directories: 'all-known', residents: epochChangedResidents });
       }
       return;
@@ -2951,6 +3213,16 @@ export class PiSessionStore {
     for (const [deletedId, deletedDirectory] of deletedIds) {
       this.commitDeletion(deletedId, deletedDirectory);
     }
+    // Only events that can change a row's lifecycle order a listing's
+    // `live` observation. A text/tool delta newer than the list says nothing
+    // new about lifecycle (and does not flip a cold row), so it must not
+    // reject a still-accurate busy observation of a streaming session.
+    for (const event of acceptedEvents) {
+      if (!affectsCatalogLifecycle(event)) continue;
+      if (Number.isSafeInteger(event.sequence) && (this.lifecycleSequenceById.get(event.sessionId) ?? -1) < event.sequence) {
+        this.lifecycleSequenceById.set(event.sessionId, event.sequence);
+      }
+    }
     // Mirror accepted events into the catalog. Lifecycle transitions flip
     // a row's `lifecycle`; `session.updated` and the first remote user
     // message fill title. Last-prompt recency is owned by `prompt()` locally
@@ -2963,7 +3235,8 @@ export class PiSessionStore {
       this.state = { ...this.state, catalog: nextCatalog };
     }
     const topics: string[] = [];
-    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    // An epoch reset may already have settled carried-over catalog rows.
+    if (catalogChanged || epochChangedResidents) topics.push(TOPIC_CATALOG);
     if (acceptedEvents.some((event) => event.name === 'extension.dialog' || event.name === 'extension.dialog.dismiss' || event.name === 'session.snapshot')) {
       topics.push(TOPIC_DIALOGS);
     }
@@ -3027,7 +3300,15 @@ export class PiSessionStore {
       if (stubLifecycle !== undefined && !catalog.byId.has(event.sessionId)) {
         catalog = upsertStubRecord(catalog, event.sessionId, event.directory, stubLifecycle);
       }
-      if (reducerLifecycle !== undefined) {
+      // A hydrated session's reducer lifecycle is live state (content events
+      // can move it, e.g. retry clearing on first output). A cold session's
+      // reducer entry may be a skeleton created by a content delta with a
+      // default idle lifecycle; only a lifecycle-bearing event may move its
+      // row, so an accurate busy row is not overwritten mid-stream.
+      if (
+        reducerLifecycle !== undefined
+        && (this.hydratedSessionIds.has(event.sessionId) || affectsCatalogLifecycle(event))
+      ) {
         catalog = applyLifecycleChange(
           catalog,
           event.sessionId,

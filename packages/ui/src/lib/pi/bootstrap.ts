@@ -110,6 +110,9 @@ export interface PiBootstrapOptions {
   onStreamReconnect?: () => void;
   /** Called when the underlying stream switches transport. */
   onTransportSwitch?: () => void;
+  /** The stream observed a health-verified stream-epoch transition
+   *  (daemon restart). */
+  onEpochChange?: (epoch: string) => void;
   /** A known authorization failure stopped the underlying stream. */
   onAuthRequired?: () => void;
   /** Abort signal for cancellation. */
@@ -290,6 +293,7 @@ export const bootstrapPiDirectory = async (
         onDisconnect: (reason) => options.onStreamDisconnect?.(reason),
         onReconnect: () => options.onStreamReconnect?.(),
         onTransportSwitch: () => options.onTransportSwitch?.(),
+        onEpochChange: (epoch) => options.onEpochChange?.(epoch),
         onAuthRequired: () => options.onAuthRequired?.(),
       },
       {

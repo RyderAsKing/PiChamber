@@ -190,6 +190,26 @@ const replaceDirectoryMembership = (
   byDirectory.set(directory, [...next]);
 };
 
+const retryInfoEqual = (left: PiRetryInfo | undefined, right: PiRetryInfo | undefined): boolean => (
+  left === right || (
+    !!left && !!right
+    && left.attempt === right.attempt
+    && left.next === right.next
+    && left.message === right.message
+  )
+);
+
+/**
+ * Ordering gate for a listing's `live` observation. The caller owns event
+ * ordering: it returns true only when `sequence` (sampled by the daemon in
+ * the current stream epoch) is not older than the newest accepted
+ * lifecycle-bearing event for that session. Without a gate the observation
+ * is ignored.
+ */
+export interface DirectoryListLiveOptions {
+  acceptLiveObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
+}
+
 /**
  * Apply a successful listing for one directory. Replaces that directory's
  * membership; other directories are untouched. Returns a new state object
@@ -201,6 +221,7 @@ export const applyDirectoryListToCatalog = (
   directory: string,
   items: readonly PiSessionListItem[],
   now: number,
+  options?: DirectoryListLiveOptions,
 ): PiSessionCatalogState => {
   const normalized = normalizedDirectory(directory);
   const nextIds: PiSessionId[] = [];
@@ -225,6 +246,17 @@ export const applyDirectoryListToCatalog = (
       : (typeof session.updatedAt === 'number' && Number.isFinite(session.updatedAt)
         ? session.updatedAt
         : now);
+    // A resident runtime's sampled lifecycle replaces the row's lifecycle
+    // only when the caller proves it is not older than accepted events. An
+    // absent observation is unknown: keep the event-driven mirror.
+    const live = item.live && options?.acceptLiveObservation?.(session.id, item.live.sequence)
+      ? item.live
+      : undefined;
+    const lifecycle: LiveSessionLifecycle = live ? live.lifecycle : (existing?.lifecycle ?? 'idle');
+    const listedRetry = live?.lifecycle === 'retry' ? (live.retry ?? {}) : undefined;
+    const retry = live
+      ? (retryInfoEqual(existing?.retry, listedRetry) ? existing?.retry : listedRetry)
+      : existing?.retry;
     const nextRecord: LiveSessionRecord = {
       id: session.id,
       directory: sessionDirectory,
@@ -236,10 +268,8 @@ export const applyDirectoryListToCatalog = (
       updatedAt: existing ? existing.updatedAt : listedUpdatedAt,
       ...(typeof item.preview === 'string' ? { preview: item.preview } : {}),
       ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
-      // Listings do not carry lifecycle; preserve whatever the catalog
-      // already had for this session (event-driven mirror), default to idle.
-      lifecycle: existing?.lifecycle ?? 'idle',
-      ...(existing?.retry ? { retry: existing.retry } : {}),
+      lifecycle,
+      ...(retry ? { retry } : {}),
       hydrated: existing?.hydrated ?? false,
     };
     if (existing && recordsStructurallyEqual(existing, nextRecord)) {
@@ -657,6 +687,7 @@ export const applyDirectoryListWithReconciliation = (
   items: readonly PiSessionListItem[],
   now: number,
   tombstones?: ReadonlySet<string>,
+  options?: DirectoryListLiveOptions,
 ): PiSessionCatalogState => {
   const normalized = normalizedDirectory(directory);
   // Validate + filter the fresh payload to this directory first, preserving
@@ -751,7 +782,7 @@ export const applyDirectoryListWithReconciliation = (
     if (movedOutIds.has(id)) return false;
     return true;
   });
-  const intermediate = applyDirectoryListToCatalog(current, normalized, filteredItems, now);
+  const intermediate = applyDirectoryListToCatalog(current, normalized, filteredItems, now, options);
   let nextById: Map<PiSessionId, LiveSessionRecord> | null = null;
   // Field-sensitive overlay for present rows: only changed title/archive win.
   // Live lifecycle/retry/hydrated/updatedAt already ride the normal merge.

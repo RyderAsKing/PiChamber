@@ -915,6 +915,44 @@ describe('Pi runtime route', () => {
     });
   });
 
+  it('whitelists live list status and drops a malformed one without failing the row', async () => {
+    const row = (id, live) => ({
+      session: { id, directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      updatedAt: 2,
+      ...(live !== undefined ? { live } : {}),
+    });
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
+      request: async () => ({
+        streamEpoch: 'epoch-1',
+        sessions: [
+          row('busy', { lifecycle: 'busy', sequence: 7, runStartedAt: 100, serverNow: 200, cwd: '/private', pid: 42 }),
+          row('retry', { lifecycle: 'retry', sequence: 8, retry: { attempt: 2, next: 300, message: 'rate limited', raw: { secret: 'x' } }, serverNow: 200 }),
+          row('idle', { lifecycle: 'idle', sequence: 9, serverNow: 200 }),
+          row('bad-state', { lifecycle: 'compacting', sequence: 1 }),
+          row('bad-sequence', { lifecycle: 'busy', sequence: -1 }),
+          row('bad-shape', 'busy'),
+          row('none'),
+        ],
+      }),
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions?directory=%2Fworkspace`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const byId = new Map(body.sessions.map((item) => [item.session.id, item]));
+    expect(body.sessions).toHaveLength(7);
+    expect(byId.get('busy').live).toEqual({ lifecycle: 'busy', sequence: 7, runStartedAt: 100, serverNow: 200 });
+    expect(byId.get('retry').live).toEqual({ lifecycle: 'retry', sequence: 8, retry: { attempt: 2, next: 300, message: 'rate limited' }, serverNow: 200 });
+    expect(byId.get('idle').live).toEqual({ lifecycle: 'idle', sequence: 9, serverNow: 200 });
+    for (const id of ['bad-state', 'bad-sequence', 'bad-shape', 'none']) {
+      expect(byId.get(id).live).toBeUndefined();
+    }
+  });
+
   it('renames a session through the daemon without accepting a body session identity', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.rename'] }),

@@ -32,6 +32,7 @@ export type ChatViewportProps = {
   renderedMessages: SessionMessageRecord[];
   isLoadingOlder: boolean;
   sessionIsWorking: boolean;
+  sessionAwaitingRecovery: boolean;
   streamingMessageId: string | null;
   activeStreamingPhase: StreamPhase | null;
   retryOverlay: {
@@ -73,6 +74,7 @@ export const ChatViewport = React.memo(
     renderedMessages,
     isLoadingOlder,
     sessionIsWorking,
+    sessionAwaitingRecovery,
     streamingMessageId,
     activeStreamingPhase,
     retryOverlay,
@@ -239,6 +241,7 @@ export const ChatViewport = React.memo(
                 disableStaging={pendingRevealWork}
                 messages={renderedMessages}
                 sessionIsWorking={sessionIsWorking}
+                sessionAwaitingRecovery={sessionAwaitingRecovery}
                 activeStreamingMessageId={streamingMessageId}
                 activeStreamingPhase={activeStreamingPhase}
                 retryOverlay={retryOverlay}
@@ -258,6 +261,18 @@ export const ChatViewport = React.memo(
               {turnIds.length === 0 && sessionIsWorking ? (
                 <div className="mb-3">
                   <StatusRowContainer />
+                </div>
+              ) : turnIds.length === 0 && sessionAwaitingRecovery ? (
+                // Same window while the transport is unverified: last seen
+                // working, but not presented as current work (no timer).
+                <div className="chat-message-column mb-3">
+                  <span
+                    className="typography-markdown leading-5 text-muted-foreground"
+                    role="status"
+                    data-turn-reconnecting="true"
+                  >
+                    Reconnecting · last seen working
+                  </span>
                 </div>
               ) : null}
 
@@ -306,6 +321,7 @@ export const ChatViewport = React.memo(
       prev.renderedMessages === next.renderedMessages &&
       prev.isLoadingOlder === next.isLoadingOlder &&
       prev.sessionIsWorking === next.sessionIsWorking &&
+      prev.sessionAwaitingRecovery === next.sessionAwaitingRecovery &&
       prev.streamingMessageId === next.streamingMessageId &&
       prev.activeStreamingPhase === next.activeStreamingPhase &&
       prev.retryOverlay === next.retryOverlay &&

@@ -40,7 +40,10 @@ import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { createFirstVisibleSessionPerformanceTracker } from '@/sync/session-load-performance';
-import { isSessionAssistantWorking } from './lib/turns/assistantWorkingState';
+import { resolveSessionWorkingPresentation } from './lib/turns/assistantWorkingState';
+import { useMobileConnectionUncertain } from '@/apps/mobile/mobileRecoveryStatus';
+
+const NOT_WORKING_PRESENTATION = { isWorking: false, isAwaitingRecovery: false } as const;
 import { parseRoute } from '@/lib/router';
 import {
     EMPTY_MESSAGES,
@@ -96,8 +99,13 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // streaming store. Transcript freeze is default in
     // `useSessionMessageRecords`; this id only drives the live-tail overlay.
     const connection = usePiConnectionState();
+    // Native resume keeps `connection: 'ready'` while it re-probes a possibly
+    // dead stream; retained state is last-observed, not verified, until then.
+    // Never set on web/desktop, so only the connection gates those runtimes.
+    const transportUncertain = useMobileConnectionUncertain();
     const reducerStreamingMessageId = useSessionStreamingMessageId(currentSessionId ?? '');
-    const streamingMessageId = connection === 'ready' ? reducerStreamingMessageId : null;
+    const transportVerified = connection === 'ready' && !transportUncertain;
+    const streamingMessageId = transportVerified ? reducerStreamingMessageId : null;
     const activeStreamingPhase = streamingMessageId ? 'streaming' : null;
     const sessionMessageCount = useSessionMessageCount(currentSessionId ?? '', effectiveSessionDirectory);
     const hasRenderableSessionSnapshot = useSessionRenderable(currentSessionId ?? '', effectiveSessionDirectory);
@@ -120,9 +128,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // Session status from sync system
     const sessionStatusForCurrent = useSessionStatus(currentSessionId ?? '', effectiveSessionDirectory) ?? IDLE_SESSION_STATUS;
 
-    const sessionIsWorking = React.useMemo(() => {
+    const sessionWorkingPresentation = React.useMemo(() => {
         if (!currentSessionId) {
-            return false;
+            return NOT_WORKING_PRESENTATION;
         }
 
         const statusType = sessionStatusForCurrent.type ?? 'idle';
@@ -137,12 +145,16 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
             && lastFinish !== 'stop'
             && lastFinish !== 'error',
         );
-        return isSessionAssistantWorking({
+        return resolveSessionWorkingPresentation({
             connection,
+            transportUncertain,
             authoritativeWorking: statusType === 'busy' || statusType === 'retry',
             hasPendingAssistant,
+            hasRetainedStream: Boolean(reducerStreamingMessageId),
         });
-    }, [connection, currentSessionId, sessionMessages, sessionStatusForCurrent.type]);
+    }, [connection, currentSessionId, reducerStreamingMessageId, sessionMessages, sessionStatusForCurrent.type, transportUncertain]);
+    const sessionIsWorking = sessionWorkingPresentation.isWorking;
+    const sessionAwaitingRecovery = sessionWorkingPresentation.isAwaitingRecovery;
     const activeRetryStatus = React.useMemo(() => {
         if (!currentSessionId || sessionStatusForCurrent.type !== 'retry') {
             return null;
@@ -527,7 +539,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         );
     }
 
-	if (sessionMessages.length === 0 && !sessionIsWorking) {
+	if (sessionMessages.length === 0 && !sessionIsWorking && !sessionAwaitingRecovery) {
 		return (
 			// A transcript-less extension command has configured the backend but has
 			// not started the conversation. Keep the materialized session selected
@@ -567,6 +579,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 renderedMessages={timelineController.renderedMessages}
                 isLoadingOlder={timelineController.isLoadingOlder}
                 sessionIsWorking={sessionIsWorking}
+                sessionAwaitingRecovery={sessionAwaitingRecovery}
                 streamingMessageId={streamingMessageId}
                 activeStreamingPhase={activeStreamingPhase}
                 retryOverlay={retryOverlay}

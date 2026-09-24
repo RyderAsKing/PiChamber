@@ -14,6 +14,8 @@ interface TurnItemProps {
     deferEarlierAssistantMessages: boolean;
     /** True while this turn is the authoritative live turn. */
     showWorkingStatus?: boolean;
+    /** Latest turn last seen working while the transport is unverified. */
+    isAwaitingRecovery?: boolean;
     activeStreamingMessageId?: string | null;
     activeStreamingPhase?: StreamPhase | null;
     onActivityContentChange?: (reason?: ContentChangeReason) => void;
@@ -55,6 +57,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
     renderMessage,
     deferEarlierAssistantMessages,
     showWorkingStatus = false,
+    isAwaitingRecovery = false,
     activeStreamingMessageId = null,
     activeStreamingPhase = null,
     onActivityContentChange,
@@ -109,7 +112,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
         onActivityContentChange?.('structural');
     }, [onActivityContentChange]);
 
-    const shouldShowWorkingHeader = turn.assistantMessages.length > 0 || showWorkingStatus;
+    const shouldShowWorkingHeader = turn.assistantMessages.length > 0 || showWorkingStatus || isAwaitingRecovery;
     const activityPartIds = React.useMemo(
         () => new Set(turn.activityParts.map((activity) => activity.id)),
         [turn.activityParts],
@@ -132,6 +135,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                     turnId={turn.turnId}
                     isLiveTurn={showWorkingStatus}
                     isWorking={showWorkingStatus}
+                    isAwaitingRecovery={isAwaitingRecovery}
                     hasActivity={hasActivity}
                     isActivityExpanded={isActivityExpanded}
                     onToggleActivity={handleToggleActivity}

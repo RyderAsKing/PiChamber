@@ -189,6 +189,34 @@ describe("bootstrapPiDirectory", () => {
     expect(result.errors).toHaveLength(0)
   })
 
+  test("forwards a verified stream-epoch change from the attached stream", async () => {
+    const captured: { handlers?: { onEpochChange?: (epoch: string) => void } } = {}
+    mockCreatePiEventStream.mockImplementationOnce((handlers: { onEpochChange?: (epoch: string) => void }) => {
+      captured.handlers = handlers
+      return { dispose: () => undefined, reconnect: () => undefined, eventsUrl: "ws://test/events" }
+    })
+    installFetchMock(() => jsonResponse({ error: { code: "UNEXPECTED_REQUEST" } }, { status: 500 }))
+    const epochs: string[] = []
+
+    const { bootstrapPiDirectory } = await import("./bootstrap")
+    await bootstrapPiDirectory({
+      directory: "/work",
+      initialHealth: {
+        state: "ready",
+        protocolVersion: 1,
+        capabilities: ["sessions.list", "events.streamEpoch"],
+        streamEpoch: "epoch-test-1",
+      },
+      initialSessions: [],
+      onEvent: () => undefined,
+      onEpochChange: (epoch) => epochs.push(epoch),
+    }, dependencies)
+
+    expect(typeof captured.handlers?.onEpochChange).toBe("function")
+    captured.handlers?.onEpochChange?.("epoch-test-2")
+    expect(epochs).toEqual(["epoch-test-2"])
+  })
+
   test("fails visibly when an epoch-capable runtime omits the session-list epoch", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

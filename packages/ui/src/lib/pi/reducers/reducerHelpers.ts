@@ -82,9 +82,25 @@ type OrderedMessagesCache = {
 
 export const orderedMessagesByMap = new WeakMap<Map<string, PiReducerMessage>, OrderedMessagesCache>();
 
+// Reducers replace a message under its existing key in a map they already own
+// (for example, hydration marking the in-flight assistant streaming), which
+// leaves the size unchanged. Reuse the ordered list only while every entry is
+// still the map's current value; a stale entry would project a running turn
+// as completed.
+const isCachedListCurrent = (
+  cached: OrderedMessagesCache,
+  messages: Map<string, PiReducerMessage>,
+): boolean => {
+  if (cached.size !== messages.size) return false;
+  for (const message of cached.list) {
+    if (messages.get(message.id) !== message) return false;
+  }
+  return true;
+};
+
 export const uniqueSessionMessages = (session: PiReducerSessionState): PiReducerMessage[] => {
   const cached = orderedMessagesByMap.get(session.messages);
-  if (cached && cached.size === session.messages.size) return cached.list;
+  if (cached && isCachedListCurrent(cached, session.messages)) return cached.list;
 
   const seen = new Set<string>();
   const messages: PiReducerMessage[] = [];

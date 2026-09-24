@@ -1142,6 +1142,27 @@ export function createSessionDaemon({
     const activeEntries = runtimeRegistry
       ? runtimeRegistry.listByDirectory(targetDir)
       : (runtime && typeof runtime.cwd === 'string' && (runtime.cwd === targetDir || resolve(runtime.cwd) === resolve(targetDir)) ? [runtime] : []);
+    // Lifecycle of each resident runtime, sampled synchronously with the
+    // current event sequence so clients can order it against live events.
+    // Uses the same authoritative sources as snapshots and detail reads;
+    // a row without a resident runtime on this daemon carries no status.
+    const observedSequence = sequence;
+    const serverNow = Date.now();
+    const liveById = new Map();
+    for (const entry of activeEntries) {
+      const sessionId = entry?.session?.sessionId;
+      if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
+      const retry = retryStateBySession.get(sessionId);
+      const lifecycle = retry ? 'retry' : entry.session.isStreaming === true ? 'busy' : 'idle';
+      const runStartedAt = lifecycle !== 'idle' ? activeRunStartedAt.get(sessionId) : undefined;
+      liveById.set(sessionId, {
+        lifecycle,
+        sequence: observedSequence,
+        ...(retry ? { retry } : {}),
+        ...(Number.isFinite(runStartedAt) ? { runStartedAt } : {}),
+        serverNow,
+      });
+    }
     const extra = [];
     for (const entry of activeEntries) {
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
@@ -1181,6 +1202,7 @@ export function createSessionDaemon({
         },
         ...(safeFirstMessage ? { preview: safeFirstMessage } : {}),
         updatedAt,
+        ...(liveById.has(session.id) ? { live: liveById.get(session.id) } : {}),
       };
     });
   };
