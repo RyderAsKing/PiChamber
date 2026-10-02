@@ -79,6 +79,19 @@ export const THEME_BG_COLORS = Object.freeze([
 const FG_INDEX_MAP = new Map(THEME_COLORS.map((name, index) => [name, index]));
 const BG_INDEX_MAP = new Map(THEME_BG_COLORS.map((name, index) => [name, index]));
 
+const FROZEN_COLORS = Object.freeze(
+  Object.fromEntries([
+    ...THEME_COLORS.map((token, index) => [
+      token,
+      Object.freeze({ kind: 'rgb', r: 1, g: 1, b: index }),
+    ]),
+    ...THEME_BG_COLORS.map((token, index) => [
+      token,
+      Object.freeze({ kind: 'rgb', r: 1, g: 1, b: index }),
+    ]),
+  ]),
+);
+
 /**
  * Creates a Theme-compatible instance implementing all public Theme members.
  */
@@ -91,6 +104,61 @@ export const createExtensionTheme = () => {
   const getBgAnsi = (color) => {
     const index = BG_INDEX_MAP.get(color);
     return index !== undefined ? `\x1b[48;2;1;1;${index}m` : '';
+  };
+
+  const resolveColorAnsi = (color, isBg) => {
+    if (color === undefined || color === null) return '';
+    if (typeof color === 'string') {
+      return isBg ? getBgAnsi(color) : getFgAnsi(color);
+    }
+    if (typeof color === 'object') {
+      if (color.kind === 'rgb' && Number.isFinite(color.r) && Number.isFinite(color.g) && Number.isFinite(color.b)) {
+        const r = Math.round(color.r);
+        const g = Math.round(color.g);
+        const b = Math.round(color.b);
+        return `\x1b[${isBg ? 48 : 38};2;${r};${g};${b}m`;
+      }
+      if (color.kind === 'indexed' && Number.isFinite(color.index)) {
+        return `\x1b[${isBg ? 48 : 38};5;${Math.round(color.index)}m`;
+      }
+    }
+    // Other Color kinds (oklch) have no SGR form here and render unstyled.
+    return '';
+  };
+
+  const style = (text, options = {}) => {
+    const fgAnsi = resolveColorAnsi(options.fg, false);
+    const bgAnsi = resolveColorAnsi(options.bg, true);
+    let prefix = '';
+    let suffix = '';
+    if (fgAnsi) {
+      prefix += fgAnsi;
+      suffix = '\x1b[39m';
+    }
+    if (bgAnsi) {
+      prefix += bgAnsi;
+      suffix = `\x1b[49m${suffix}`;
+    }
+    if (options.bold) prefix += '\x1b[1m';
+    if (options.dim) prefix += '\x1b[2m';
+    if (options.bold || options.dim) suffix = `\x1b[22m${suffix}`;
+    if (options.italic) {
+      prefix += '\x1b[3m';
+      suffix = `\x1b[23m${suffix}`;
+    }
+    if (options.underline) {
+      prefix += '\x1b[4m';
+      suffix = `\x1b[24m${suffix}`;
+    }
+    if (options.inverse) {
+      prefix += '\x1b[7m';
+      suffix = `\x1b[27m${suffix}`;
+    }
+    if (options.strikethrough) {
+      prefix += '\x1b[9m';
+      suffix = `\x1b[29m${suffix}`;
+    }
+    return `${prefix}${text}${suffix}`;
   };
 
   const fg = (color, text) => {
@@ -124,8 +192,15 @@ export const createExtensionTheme = () => {
 
   const getBashModeBorderColor = () => (str) => fg('bashMode', str);
 
+  // The daemon serves multiple clients with different themes and has no
+  // single terminal appearance. Return dark as the fixed default.
+  const appearance = 'dark';
+
   return {
     name: 'pichamber',
+    get appearance() { return appearance; },
+    get colors() { return FROZEN_COLORS; },
+    style,
     fg,
     bg,
     bold,

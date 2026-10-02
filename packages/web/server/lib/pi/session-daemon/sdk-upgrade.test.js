@@ -71,7 +71,7 @@ describe('pinned SDK upgrade compatibility', () => {
     remoteModels = [{ ...flash, id: 'upgrade-remote-model', name: 'Remote model' }];
     const refresh = () => models.refresh({ providers: ['opencode'], allowNetwork: true, force: true, signal: AbortSignal.timeout(5000) });
     expect((await refresh()).errors.size).toBe(0);
-    expect(requests).toEqual([{ url: '/api/models/providers/opencode', etag: '"old-catalog"' }]);
+    expect(requests).toEqual([{ url: '/api/models/providers/opencode?types=chat%2Cimage%2Cclassifier', etag: '"old-catalog"' }]);
     expect(models.getModel('opencode', cached.id)).toBeUndefined();
     expect(models.getModel('opencode', remoteModels[0].id)).toBeDefined();
 
@@ -154,4 +154,89 @@ describe('pinned SDK upgrade compatibility', () => {
     expect(reopened.getEntries().slice(0, entries.length - 1)).toEqual(entries.slice(1));
     expect(await readFile(settingsFile, 'utf8')).toBe(settings);
   }, 30_000);
+
+  it('opens a session with context_edit and usage entries without producing extra transcript messages', async () => {
+    root = await mkdtemp(join(tmpdir(), 'pichamber-sdk-entries-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const sessionDir = getPiSessionDirectory({ cwd, agentDir });
+    await mkdir(cwd, { recursive: true });
+    await mkdir(sessionDir, { recursive: true });
+    const timestamp = '2026-08-07T12:00:00.000Z';
+    const sessionId = '37f7e593-0c7e-4c37-bd91-2b7c24c3d98e';
+    const sessionFile = join(sessionDir, `2026-08-07T12-00-00-000Z_${sessionId}.jsonl`);
+    const entries = [
+      { type: 'session', version: 3, id: sessionId, timestamp, cwd },
+      { type: 'model_change', id: '00000001', parentId: null, timestamp, provider: 'opencode', modelId: 'deepseek-v4-flash' },
+      { type: 'message', id: '00000002', parentId: '00000001', timestamp, message: { role: 'user', content: 'What is 2+2?', timestamp: Date.parse(timestamp) } },
+      { type: 'message', id: '00000003', parentId: '00000002', timestamp, message: {
+        role: 'assistant', content: [{ type: 'text', text: '4' }], provider: 'opencode', model: 'deepseek-v4-flash', api: 'openai-completions', stopReason: 'stop', timestamp: Date.parse(timestamp),
+        usage: { input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      } },
+      { type: 'context_edit', id: '00000004', parentId: '00000003', timestamp, targetId: '00000002', replacement: { content: 'What is 2+2 (edited)?' } },
+      { type: 'usage', id: '00000005', parentId: '00000004', timestamp, kind: 'cache_warm', provider: 'opencode', model: 'deepseek-v4-flash', usage: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } },
+    ];
+    await writeFile(sessionFile, entries.map((entry) => JSON.stringify(entry)).join('\n') + '\n');
+
+    runtime = await createPiSessionRuntime({ cwd, agentDir, sessionFile });
+    expect(runtime.session.sessionId).toBe(sessionId);
+    // Transcript messages contain only user and assistant messages; context_edit and usage are not transcript rows.
+    expect(runtime.session.messages).toHaveLength(2);
+    expect(runtime.session.messages[0].role).toBe('user');
+    expect(runtime.session.messages[0].content).toBe('What is 2+2 (edited)?');
+    expect(runtime.session.messages[1].role).toBe('assistant');
+
+    const manager = runtime.session.sessionManager;
+    expect(manager.getEntry('00000004')?.type).toBe('context_edit');
+    expect(manager.getEntry('00000005')?.type).toBe('usage');
+  });
+
+  it('filters getModels() and getAvailableSnapshot() to chat models when catalog contains image and classifier models', async () => {
+    root = await mkdtemp(join(tmpdir(), 'pichamber-sdk-model-types-'));
+    let remoteModels = [];
+    server = createServer((_request, response) => {
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        etag: '"types-catalog"',
+        'last-modified': 'Wed, 01 Jan 2031 00:00:00 GMT',
+      });
+      response.end(JSON.stringify(remoteModels));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const options = {
+      authPath: join(root, 'auth.json'),
+      modelsPath: join(root, 'models.json'),
+      modelsStorePath: join(root, 'models-store.json'),
+      catalogBaseUrl: `http://127.0.0.1:${server.address().port}`,
+      allowModelNetwork: true,
+    };
+    const baseline = await ModelRuntime.create(options);
+    const flash = baseline.getModel('opencode', 'deepseek-v4-flash');
+    remoteModels = [
+      { ...flash, id: 'chat-model-1', name: 'Chat Model', type: 'chat' },
+      { ...flash, id: 'image-model-1', name: 'Image Model', type: 'image' },
+      { ...flash, id: 'classifier-model-1', name: 'Classifier Model', type: 'classifier' },
+    ];
+
+    const models = await ModelRuntime.create(options);
+    await models.setRuntimeApiKey('opencode', 'pichamber-test-api-key');
+    await models.refresh({ providers: ['opencode'], allowNetwork: true, force: true });
+
+    const chatModels = models.getModels('opencode');
+    expect(chatModels.map((m) => m.id)).toContain('chat-model-1');
+    expect(chatModels.map((m) => m.id)).not.toContain('image-model-1');
+    expect(chatModels.map((m) => m.id)).not.toContain('classifier-model-1');
+
+    const availableSnapshot = models.getAvailableSnapshot();
+    const opencodeAvailable = availableSnapshot.filter((m) => m.provider === 'opencode' || m.providerId === 'opencode');
+    expect(opencodeAvailable.map((m) => m.id)).toContain('chat-model-1');
+    expect(opencodeAvailable.map((m) => m.id)).not.toContain('image-model-1');
+    expect(opencodeAvailable.map((m) => m.id)).not.toContain('classifier-model-1');
+
+    // getAllModels returns all types
+    const allModels = models.getAllModels('opencode');
+    expect(allModels.map((m) => m.id)).toContain('chat-model-1');
+    expect(allModels.map((m) => m.id)).toContain('image-model-1');
+    expect(allModels.map((m) => m.id)).toContain('classifier-model-1');
+  });
 });

@@ -40,7 +40,7 @@ class FakeSession {
     this.listeners = new Set();
     this.reloadCount = 0;
     this.reloadError = null;
-    this.promptImpl = async (text, options) => { options?.preflightResult?.(true); };
+    this.promptImpl = async (text, options) => { options?.preflightResult?.('started'); };
   }
   subscribe(l) { this.listeners.add(l); return () => this.listeners.delete(l); }
   emit(event) { for (const listener of this.listeners) listener(event); }
@@ -362,7 +362,7 @@ describe('prompt template daemon operations', () => {
     const session = new FakeSession();
     let finishPrompt;
     session.promptImpl = (text, options) => {
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       return new Promise((resolve) => { finishPrompt = resolve; });
     };
     const ctx = await startDaemon({ session });
@@ -387,7 +387,7 @@ describe('prompt template daemon operations', () => {
     const session = new FakeSession();
     let finishPrompt;
     session.promptImpl = (text, options) => {
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       return new Promise((resolve) => { finishPrompt = resolve; });
     };
     const ctx = await startDaemon({ session });

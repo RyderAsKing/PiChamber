@@ -995,12 +995,12 @@ export function createSessionDaemon({
     resourceReloadsByRuntime.delete(targetRuntime);
     const tracked = (async () => {
       // Capture the assigned JSONL path before disposal. Pi's
-      // SessionManager defers JSONL creation until the first assistant
-      // message, so `sessions.create` alone (or a session whose first
-      // prompt was rejected before anything persisted) stays ephemeral:
-      // the runtime stays resident and retryable until this normal idle
-      // disposal, which then reports the session as deleted when its
-      // assigned JSONL is positively absent.
+      // SessionManager creates the session JSONL file when the first user
+      // or assistant message is appended, so `sessions.create` alone (or a
+      // session whose first prompt was rejected before the user message was
+      // appended) stays ephemeral: the runtime stays resident and retryable
+      // until this normal idle disposal, which then reports the session as
+      // deleted when its assigned JSONL is positively absent.
       let assignedSessionFile;
       try {
         assignedSessionFile = targetRuntime.session?.sessionManager?.getSessionFile?.();
@@ -2132,7 +2132,7 @@ export function createSessionDaemon({
     if (typeof modelRuntime.getError?.() === 'string') {
       throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
     }
-    // Pi 0.85.1 composeModelProvider layers models.json over native/base
+    // Pi 1.0.0 composeModelProvider layers models.json over native/base
     // providers, so manual additions remain effective there. Extension
     // registrations without an explicit `models` array do not hide the file
     // entry either. Reject only when an extension defines its own `models`
@@ -3140,13 +3140,13 @@ export function createSessionDaemon({
     }
   };
 
-  // Ephemeral sessions: Pi's SessionManager defers JSONL creation until the
-  // first assistant message, so `sessions.create` alone stays ephemeral
-  // (untouched sessions vanish on restart by design). A rejected first
-  // prompt likewise persists nothing: the runtime stays resident and
-  // retryable until normal idle disposal, which reports the session as
-  // deleted when its assigned JSONL is positively absent (see
-  // disposeIdleSessionRuntime).
+  // Ephemeral sessions: Pi's SessionManager creates the session JSONL file
+  // when the first user or assistant message is appended, so `sessions.create`
+  // alone stays ephemeral (untouched sessions vanish on restart by design). A
+  // rejected first prompt (before the user message is appended) likewise
+  // persists nothing: the runtime stays resident and retryable until normal
+  // idle disposal, which reports the session as deleted when its assigned JSONL
+  // is positively absent (see disposeIdleSessionRuntime).
 
   const runSessionInput = async (payload, delivery) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
@@ -3246,16 +3246,20 @@ export function createSessionDaemon({
       : null;
     let promptPromise;
     // True SDK acceptance: await the prompt preflight signal, not the full
-    // agent turn. preflightResult(true) means accepted, queued, or handled;
-    // preflightResult(false) is followed by a prompt rejection that must
-    // propagate to the caller so dedup does not cache it as accepted.
+    // agent turn. In SDK 1.0.0, preflightResult is called on acceptance with
+    // a PromptDisposition ("started" | "queued" | "handled"). Rejections
+    // reject the prompt promise without invoking the callback, so any
+    // callback is acceptance. Treating an unknown disposition as rejection
+    // would report failure for a turn that is already running.
     let preflightOutcome = null;
+    let preflightDisposition = null;
     let notifyPreflight;
     const preflightGate = new Promise((resolve) => { notifyPreflight = resolve; });
-    const onPreflightResult = (accepted) => {
+    const onPreflightResult = (disposition) => {
       if (preflightOutcome !== null) return;
-      preflightOutcome = accepted === true;
-      notifyPreflight(preflightOutcome);
+      preflightOutcome = true;
+      preflightDisposition = typeof disposition === 'string' ? disposition : 'started';
+      notifyPreflight(true);
     };
     try {
       promptPromise = isSlashPrompt
@@ -3278,11 +3282,22 @@ export function createSessionDaemon({
     }
     // A settlement without a preflight signal resolves the gate so a missing
     // callback cannot hang acceptance. Resolve implies acceptance; reject
-    // implies preflight failure whose real error is propagated below. The
-    // installed SDK always signals, so this only covers test doubles.
+    // implies preflight failure whose real error is propagated below.
     Promise.resolve(promptPromise).then(
-      () => { if (preflightOutcome === null) { preflightOutcome = true; notifyPreflight(true); } },
-      () => { if (preflightOutcome === null) { preflightOutcome = false; notifyPreflight(false); } },
+      () => {
+        if (preflightOutcome === null) {
+          preflightOutcome = true;
+          preflightDisposition = 'started';
+          notifyPreflight(true);
+        }
+      },
+      () => {
+        if (preflightOutcome === null) {
+          preflightOutcome = false;
+          preflightDisposition = null;
+          notifyPreflight(false);
+        }
+      },
     );
     const preflightAccepted = await preflightGate;
     if (!preflightAccepted) {
@@ -3300,22 +3315,12 @@ export function createSessionDaemon({
       // Queued sends resolve on queueing, before the queued user message
       // starts. Keep that file metadata until the per-delivery
       // `message_start` consumes it. Retention is decided at resolution
-      // time from authoritative runtime state, not from the early
-      // `requestedDelivery` flag alone: an idle followUp/steer that the SDK
-      // ignored (new turn, no queue) and any handled extension command
-      // (never emits a user start) must not retain forever. Only a still-
-      // streaming session or a non-empty SDK queue proves the send is
-      // queued; handled extension commands never retain even while
-      // streaming.
-      const stillStreaming = Boolean(activeRuntime.session?.isStreaming);
-      let hasQueuedMessages = false;
-      try {
-        hasQueuedMessages = (activeRuntime.session?.getSteeringMessages?.().length ?? 0) > 0
-          || (activeRuntime.session?.getFollowUpMessages?.().length ?? 0) > 0;
-      } catch {
-        hasQueuedMessages = false;
-      }
-      const shouldRetain = !isExtensionCommand && (stillStreaming || hasQueuedMessages);
+      // time from authoritative runtime state or preflight disposition:
+      // a queued disposition keeps metadata until its start; handled
+      // extension commands and settled started turns never retain.
+      const isQueued = preflightDisposition === 'queued';
+      const isHandled = preflightDisposition === 'handled' || isExtensionCommand;
+      const shouldRetain = isQueued || (!isHandled && Boolean(activeRuntime.session?.isStreaming));
       if (!shouldRetain) {
         removeUserStart(payload.sessionId, generation);
       }
@@ -3580,6 +3585,9 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_start': {
+        if (typeof event.parentToolCallId === 'string' && event.parentToolCallId.length > 0) {
+          break;
+        }
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = Date.now();
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
@@ -3614,6 +3622,9 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_update': {
+        if (typeof event.parentToolCallId === 'string' && event.parentToolCallId.length > 0) {
+          break;
+        }
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = toolStartedAt.get(toolTimingKey(sessionId, event.toolCallId));
         const serverNow = Date.now();
@@ -3665,6 +3676,9 @@ export function createSessionDaemon({
         break;
       }
       case 'tool_execution_end': {
+        if (typeof event.parentToolCallId === 'string' && event.parentToolCallId.length > 0) {
+          break;
+        }
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const timingKey = toolTimingKey(sessionId, event.toolCallId);
         const startedAt = toolStartedAt.get(timingKey);

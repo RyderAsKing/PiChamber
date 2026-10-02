@@ -47,7 +47,7 @@ class FakeSession {
   }
 
   async prompt(text, options) {
-    options?.preflightResult?.(true);
+    options?.preflightResult?.('started');
   }
 
   async sendUserMessage() {}

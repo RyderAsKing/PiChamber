@@ -107,11 +107,58 @@ describe('extension-theme', () => {
     expect(bashBorder('$$$')).toBe(`\x1b[38;2;1;1;${bashModeIndex}m$$$\x1b[39m`);
   });
 
+  it('implements appearance, colors, and style() for SDK 1.0.0 Theme interface', () => {
+    const theme = createExtensionTheme();
+    expect(theme.appearance).toBe('dark');
+
+    // Every ThemeToken is in theme.colors with valid Color representation
+    for (const color of THEME_COLORS) {
+      const token = theme.colors[color];
+      expect(token).toEqual({ kind: 'rgb', r: 1, g: 1, b: THEME_COLORS.indexOf(color) });
+    }
+    for (const bg of THEME_BG_COLORS) {
+      const token = theme.colors[bg];
+      expect(token).toEqual({ kind: 'rgb', r: 1, g: 1, b: THEME_BG_COLORS.indexOf(bg) });
+    }
+
+    // style() with token names
+    const successIndex = THEME_COLORS.indexOf('success');
+    const selectedBgIndex = THEME_BG_COLORS.indexOf('selectedBg');
+    expect(theme.style('hello', { fg: 'success', bold: true })).toBe(
+      `\x1b[38;2;1;1;${successIndex}m\x1b[1mhello\x1b[22m\x1b[39m`,
+    );
+    expect(theme.style('world', { bg: 'selectedBg', italic: true, underline: true })).toBe(
+      `\x1b[48;2;1;1;${selectedBgIndex}m\x1b[3m\x1b[4mworld\x1b[24m\x1b[23m\x1b[49m`,
+    );
+
+    // style() with theme.colors[token]
+    expect(theme.style('token fg', { fg: theme.colors.success })).toBe(
+      `\x1b[38;2;1;1;${successIndex}mtoken fg\x1b[39m`,
+    );
+    expect(theme.style('token bg', { bg: theme.colors.selectedBg })).toBe(
+      `\x1b[48;2;1;1;${selectedBgIndex}mtoken bg\x1b[49m`,
+    );
+
+    // style() with concrete RGB and indexed Color
+    expect(theme.style('custom rgb', { fg: { kind: 'rgb', r: 255, g: 128, b: 0 } })).toBe(
+      '\x1b[38;2;255;128;0mcustom rgb\x1b[39m',
+    );
+    expect(theme.style('indexed', { bg: { kind: 'indexed', index: 42 } })).toBe(
+      '\x1b[48;5;42mindexed\x1b[49m',
+    );
+
+    // style() with all text attributes
+    expect(theme.style('attrs', { dim: true, inverse: true, strikethrough: true })).toBe(
+      '\x1b[2m\x1b[7m\x1b[9mattrs\x1b[29m\x1b[27m\x1b[22m',
+    );
+  });
+
   it('handles unknown color names gracefully without throwing', () => {
     const theme = createExtensionTheme();
     expect(theme.getFgAnsi('nonExistentColor')).toBe('');
     expect(theme.getBgAnsi('nonExistentBg')).toBe('');
     expect(theme.fg('nonExistentColor', 'fallback text')).toBe('fallback text');
     expect(theme.bg('nonExistentBg', 'fallback text')).toBe('fallback text');
+    expect(theme.style('fallback text', { fg: 'nonExistentColor', bg: 'nonExistentBg' })).toBe('fallback text');
   });
 });

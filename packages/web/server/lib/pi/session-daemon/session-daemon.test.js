@@ -68,7 +68,7 @@ class FakeSession {
 
   async prompt(text, options) {
     this.promptCalls.push({ text, options });
-    options?.preflightResult?.(true);
+    options?.preflightResult?.('started');
     const deliverAs = options?.streamingBehavior;
     this.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
   }
@@ -2594,6 +2594,54 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('skips publishing tool execution events for nested tool calls carrying parentToolCallId', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-nested-tool-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-nested-tool');
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    const parentToolStartPromise = client.next((frame) => frame.event === 'session.tool.start' && frame.payload?.partId?.includes('parent-call'));
+    const parentToolEndPromise = client.next((frame) => frame.event === 'session.tool.end' && frame.payload?.partId?.includes('parent-call'));
+    const unexpectedNestedEvent = client.next((frame) =>
+      (frame.event === 'session.tool.start' || frame.event === 'session.tool.delta' || frame.event === 'session.tool.end')
+      && frame.payload?.partId?.includes('nested-call'),
+    );
+
+    session.emit({ type: 'message_start', message: { role: 'user', content: 'run tool', timestamp: 0 } });
+    session.emit({ type: 'message_start', message: { role: 'assistant', timestamp: 1 } });
+    session.emit({
+      type: 'message_end',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'toolCall', id: 'parent-call', name: 'parent_tool', arguments: {} },
+        ],
+      },
+    });
+
+    // Parent tool starts
+    session.emit({ type: 'tool_execution_start', toolCallId: 'parent-call', toolName: 'parent_tool', args: {} });
+
+    // Nested tool events with parentToolCallId
+    session.emit({ type: 'tool_execution_start', toolCallId: 'nested-call', parentToolCallId: 'parent-call', toolName: 'nested_tool', args: {} });
+    session.emit({ type: 'tool_execution_update', toolCallId: 'nested-call', parentToolCallId: 'parent-call', toolName: 'nested_tool', delta: 'nested output' });
+    session.emit({ type: 'tool_execution_end', toolCallId: 'nested-call', parentToolCallId: 'parent-call', toolName: 'nested_tool', result: { content: [{ type: 'text', text: 'nested done' }] } });
+
+    // Parent tool ends
+    session.emit({ type: 'tool_execution_end', toolCallId: 'parent-call', toolName: 'parent_tool', result: { content: [{ type: 'text', text: 'parent done' }] } });
+
+    await expect(parentToolStartPromise).resolves.toBeDefined();
+    await expect(parentToolEndPromise).resolves.toBeDefined();
+    await expect(unexpectedNestedEvent).rejects.toThrow(/Timed out/);
+
+    session.emit({ type: 'agent_settled' });
+    await client.close();
+  });
+
   it('rejects non-local endpoints and unauthenticated clients before a request can reach the runtime', async () => {
     expect(() => createSessionDaemon({
       endpoint: 'http://127.0.0.1:3000',
@@ -2817,7 +2865,7 @@ describe('Pi session daemon spike', () => {
     let finishTurn;
     session.prompt = (text, options) => {
       session.promptCalls.push({ text, options });
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       const deliverAs = options?.streamingBehavior;
       session.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
       return new Promise((resolve) => {
@@ -2860,7 +2908,7 @@ describe('Pi session daemon spike', () => {
     const finishSends = [];
     session.prompt = (text, options) => {
       session.promptCalls.push({ text, options });
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       const deliverAs = options?.streamingBehavior;
       session.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
       return new Promise((resolve) => finishSends.push(resolve));
@@ -2968,7 +3016,7 @@ describe('Pi session daemon spike', () => {
     let sendCount = 0;
     session.prompt = (text, options) => {
       session.promptCalls.push({ text, options });
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       session.sent.push({ text, options: options?.streamingBehavior ? { deliverAs: options.streamingBehavior } : undefined });
       sendCount += 1;
       if (sendCount === 1) return new Promise((_, reject) => { rejectFirst = reject; });
@@ -3003,7 +3051,7 @@ describe('Pi session daemon spike', () => {
     const session = new FakeSession('session-1', sessionFile);
     session.prompt = (text, options) => {
       session.promptCalls.push({ text, options });
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       session.sent.push({ text, options: options?.streamingBehavior ? { deliverAs: options.streamingBehavior } : undefined });
       session.isStreaming = true;
       return Promise.reject(new Error('Stream ended without finish_reason'));

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Pi SDK 1.0.0.** `@earendil-works/pi-coding-agent` moves from 0.85.1 to 1.0.0, which brings upstream's newer models, provider fixes, and login options. Sessions are now saved when the first user message is accepted, so a first turn that fails or is aborted is no longer lost. The daemon follows the SDK's new prompt acceptance contract, where the preflight callback reports `started`, `queued`, or `handled`. Without that change every prompt was rejected on 1.0.0. Tool calls an extension makes through `ctx.executeTool()` stay out of the live tool rows, which matches saved history. The extension theme adds `appearance`, `colors`, and `style()`. Pi's built-in MCP, codemode, and tool-search extensions are CLI-only and are not loaded in PiChamber sessions (`session-daemon`, `extension-theme`, `session-daemon-turn.e2e.test`).
+
 ## [1.0.4-rc.1] - 2026-10-02
 
 GitHub pull requests and issues, Pi extension UI and tool rendering, faster startup, and reconnect fixes since 1.0.3.
