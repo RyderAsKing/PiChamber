@@ -241,6 +241,10 @@ export function useSettingsSearch({
         return;
       }
       setPendingSearchItemId(null);
+      // A target inside a collapsed SettingsDisclosure has no box until it opens.
+      for (let details = target.closest('details'); details; details = details.parentElement?.closest('details') ?? null) {
+        details.open = true;
+      }
       target.scrollIntoView({ block: "center", behavior: "smooth" });
       target.setAttribute("data-settings-search-highlight", "true");
       window.setTimeout(() => {

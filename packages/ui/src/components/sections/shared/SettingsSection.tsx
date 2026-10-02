@@ -1,4 +1,5 @@
 import React from 'react';
+import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Radio } from '@/components/ui/radio';
@@ -350,6 +351,31 @@ export const SettingsInset: React.FC<SettingsInsetProps> = ({
   );
 };
 
+interface SettingsDisclosureProps {
+  /** Text of the toggle, e.g. "Show legacy options". */
+  label: React.ReactNode;
+  children: React.ReactNode;
+  /** Show a top border divider like a section. @default true */
+  divider?: boolean;
+  className?: string;
+  contentClassName?: string;
+}
+
+/**
+ * Collapsed-by-default block for rarely needed settings. A native <details>, so
+ * its content stays mounted while closed and settings search can open it to
+ * reveal a target inside.
+ */
+export const SettingsDisclosure: React.FC<SettingsDisclosureProps> = ({ label, children, divider = true, className, contentClassName }) => (
+  <details className={cn('group/disclosure', divider ? 'border-t border-border/60 py-6' : 'pb-6', className)}>
+    <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md typography-ui-label text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] [&::-webkit-details-marker]:hidden">
+      <Icon name="arrow-right-s" className="size-4 transition-transform group-open/disclosure:rotate-90" />
+      {label}
+    </summary>
+    <div className={cn('pt-4', contentClassName)}>{children}</div>
+  </details>
+);
+
 interface SettingsCheckboxRowProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -485,6 +511,81 @@ export const SettingsRadioOption: React.FC<SettingsRadioOptionProps> = ({
         {description != null ? (
           <span className={SETTINGS_HELPER_CLASS}>{description}</span>
         ) : null}
+      </div>
+    </div>
+  );
+};
+
+interface SettingsPreviewOptionProps {
+  selected: boolean;
+  onSelect: () => void;
+  label: React.ReactNode;
+  /** Illustration of the option, drawn inside the tile. Decorative: the label names the option. */
+  preview: React.ReactNode;
+  ariaLabel?: string;
+  disabled?: boolean;
+  className?: string;
+}
+
+/** Radio option shown as an illustrated tile with its radio and label beneath; used inside SettingsRadioGroup. */
+export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
+  selected,
+  onSelect,
+  label,
+  preview,
+  ariaLabel,
+  disabled = false,
+  className,
+}) => {
+  return (
+    <div
+      className={cn(
+        'group/preview flex min-w-0 cursor-pointer flex-col gap-2',
+        disabled && 'cursor-not-allowed opacity-60',
+        className,
+      )}
+      role="radio"
+      tabIndex={disabled ? -1 : 0}
+      aria-checked={selected}
+      aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      onClick={() => {
+        if (!disabled) onSelect();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === ' ' || event.key === 'Enter') {
+          event.preventDefault();
+          if (!disabled) onSelect();
+        }
+      }}
+    >
+      <div
+        aria-hidden
+        className={cn(
+          'aspect-[4/3] overflow-hidden rounded-lg border transition-colors',
+          // Border and ring share one colour and neither changes the box, so selecting never shifts the tile.
+          selected
+            ? 'border-[var(--primary-base)] ring-1 ring-[var(--primary-base)]'
+            : 'border-border group-hover/preview:border-foreground/30',
+        )}
+      >
+        {preview}
+      </div>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Radio
+          checked={selected}
+          onChange={onSelect}
+          disabled={disabled}
+          decorative
+        />
+        <span
+          className={cn(
+            'min-w-0 truncate typography-settings-field-label font-normal',
+            selected ? 'text-foreground' : 'text-foreground/50',
+          )}
+        >
+          {label}
+        </span>
       </div>
     </div>
   );

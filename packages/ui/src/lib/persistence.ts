@@ -86,6 +86,26 @@ let _settingsLifecycleInitialized = false;
 // force-refresh path (call it before a settings surface needs fresh values).
 const SETTINGS_CACHE_TTL = 30_000; // 30 seconds — covers the startup burst
 const SETTINGS_DEBOUNCE_MS = 200;
+// Floor between resume refreshes (`refreshDesktopSettings`), so a burst of
+// focus/visibility/online signals costs one GET.
+const SETTINGS_REFRESH_MIN_INTERVAL_MS = 5_000;
+
+// Stale-load guards. Another client can change the shared document at any
+// time, so settings are re-read after boot (`refreshDesktopSettings`), and a
+// re-read can overlap a local write:
+//
+// - `_settingsMutationRevision` counts local `updateDesktopSettings` calls. A
+//   refresh captures it before its GET and drops the result when it moved, so
+//   a response that predates a local edit never reverts the edit in the UI.
+// - `_settingsFlushesInFlight` counts flushes that have not settled. A refresh
+//   does not start while one is running: the PUT response already carries the
+//   full merged document.
+// - `_settingsResponseRevision` counts adopted PUT responses. A GET that
+//   started before a response was adopted may hold the older document, so it
+//   must not replace the cache or the no-op suppression image.
+let _settingsMutationRevision = 0;
+let _settingsFlushesInFlight = 0;
+let _settingsResponseRevision = 0;
 
 // Authoritative "last synced" image for no-op write suppression.
 //
@@ -133,7 +153,13 @@ const SETTINGS_DEBOUNCE_MS = 200;
 // pending `null` against an absent key is therefore a real change and is
 // sent; a pending `undefined` against an absent key is already absent and is
 // a no-op.
+//
+// The image lags a PUT that has been sent but not settled, so a key carried
+// by an outstanding patch (`_settingsPatchesInFlight`) is never a no-op: a
+// write restoring the image value while that PUT is in flight is a real
+// rollback and must follow it to the server.
 let _lastSyncedSettings: DesktopSettings | null = null;
+let _settingsPatchesInFlight: Array<Partial<DesktopSettings>> = [];
 
 // True once a settings load has succeeded in the current runtime generation.
 // Separate from `_lastSyncedSettings` (which `invalidateSettingsCache()`
@@ -210,6 +236,9 @@ const isPendingSettingsNoop = (changes: Partial<DesktopSettings>): boolean => {
   if (!_lastSyncedSettings) return false;
   const baseline = _lastSyncedSettings as Record<string, unknown>;
   return Object.entries(changes).every(([key, value]) => {
+    if (_settingsPatchesInFlight.some((patch) => Object.prototype.hasOwnProperty.call(patch, key))) {
+      return false;
+    }
     if (!Object.prototype.hasOwnProperty.call(baseline, key)) {
       // Absent baseline key: only `undefined` (already absent after the
       // JSON-file merge) is a no-op. `null` persists as a value — send it.
@@ -285,6 +314,15 @@ const fetchWebSettings = async (
   // See `_isStartingSettingsLoad`: mark the creation window before the
   // promise executor below starts running.
   _isStartingSettingsLoad = true;
+  const responseRevision = _settingsResponseRevision;
+  const adoptLoadedSettings = (settings: DesktopSettings | null, raw: unknown): void => {
+    _settingsInitialLoadSucceeded = true;
+    // A PUT response adopted while this GET was in flight is newer.
+    if (responseRevision !== _settingsResponseRevision) return;
+    _settingsCache = { value: settings, at: Date.now(), context };
+    _settingsRawCache = { value: toRawSettingsDocument(raw), context };
+    if (settings) _lastSyncedSettings = cloneSettingsSnapshot(settings);
+  };
   const inflight = {
     context,
     promise: (async (): Promise<DesktopSettings | null> => {
@@ -294,10 +332,7 @@ const fetchWebSettings = async (
           const result = await runtimeSettings.load();
           if (!isSettingsRuntimeContextCurrent(context)) return null;
           const settings = sanitizeWebSettings(result.settings);
-          _settingsCache = { value: settings, at: Date.now(), context };
-          _settingsRawCache = { value: toRawSettingsDocument(result.settings), context };
-          _settingsInitialLoadSucceeded = true;
-          if (settings) _lastSyncedSettings = cloneSettingsSnapshot(settings);
+          adoptLoadedSettings(settings, result.settings);
           return settings;
         } catch (error) {
           if (!isSettingsRuntimeContextCurrent(context)) return null;
@@ -322,10 +357,7 @@ const fetchWebSettings = async (
         const data = await response.json().catch(() => null);
         if (!isSettingsRuntimeContextCurrent(context)) return null;
         const settings = sanitizeWebSettings(data);
-        _settingsCache = { value: settings, at: Date.now(), context };
-        _settingsRawCache = { value: toRawSettingsDocument(data), context };
-        _settingsInitialLoadSucceeded = true;
-        if (settings) _lastSyncedSettings = cloneSettingsSnapshot(settings);
+        adoptLoadedSettings(settings, data);
         return settings;
       } catch (error) {
         if (!isSettingsRuntimeContextCurrent(context)) return null;
@@ -391,12 +423,18 @@ export const buildDraftStarterMigrationPatch = (
   };
 };
 
-export const syncDesktopSettings = async (): Promise<void> => {
+const runSettingsSync = async (mode: 'load' | 'refresh'): Promise<void> => {
   if (typeof window === 'undefined') {
     return;
   }
   ensureSettingsRuntimeLifecycle();
   const context = captureSettingsRuntimeContext();
+  const mutationRevision = _settingsMutationRevision;
+  // A refresh result is only usable when no local edit was made since it was
+  // requested; the pending write (and its full-document response) wins.
+  const isSupersededByLocalWrite = (): boolean =>
+    mode === 'refresh' &&
+    (mutationRevision !== _settingsMutationRevision || _pendingSettingsChanges !== null);
 
   const persistApi = getPersistApi();
 
@@ -424,6 +462,7 @@ export const syncDesktopSettings = async (): Promise<void> => {
 
   const applySettings = async (settings: DesktopSettings) => {
     if (!isSettingsRuntimeContextCurrent(context)) return;
+    if (isSupersededByLocalWrite()) return;
     const shouldSeedAutoSaveEnabled =
       typeof settings.autoSaveEnabled !== 'boolean';
     const shouldMigrateLocalAutoDeleteEnabled =
@@ -436,13 +475,22 @@ export const syncDesktopSettings = async (): Promise<void> => {
       && settings.sessionRetentionAction !== 'delete';
     const authoritativeSettings =
       materializeAuthoritativeUiSettings(settings);
-    try {
-      persistToLocalStorage(settings);
-    } catch (error) {
-      console.warn('persistToLocalStorage failed:', error);
+    if (mode === 'refresh') {
+      // Which folder is open is this client's own navigation state once it
+      // has booted. A refresh adopts shared preferences and the folder list,
+      // never the folder another client last opened, so the pointer is left
+      // out of the applied document and the boot mirror is not rewritten.
+      delete authoritativeSettings.activeProjectId;
+    } else {
+      try {
+        persistToLocalStorage(settings);
+      } catch (error) {
+        console.warn('persistToLocalStorage failed:', error);
+      }
     }
     await waitForHydration();
     if (!isSettingsRuntimeContextCurrent(context)) return;
+    if (isSupersededByLocalWrite()) return;
     const hydratedUiSettings = useUIStore.getState();
     if (shouldSeedAutoSaveEnabled) {
       authoritativeSettings.autoSaveEnabled = hydratedUiSettings.autoSaveEnabled;
@@ -497,6 +545,40 @@ export const syncDesktopSettings = async (): Promise<void> => {
   }
 };
 
+export const syncDesktopSettings = (): Promise<void> => runSettingsSync('load');
+
+/**
+ * Re-read the shared settings document after boot so changes made by another
+ * client of the same server (sidebar view, folder order, appearance) reach
+ * this one. Call it when the client may have missed changes: the page became
+ * visible again, the network came back, or the Pi connection was
+ * re-established. Uses the same GET, sanitizers, and store-apply path as
+ * `syncDesktopSettings`.
+ *
+ * Never reverts local edits: it does not start while a write is pending or in
+ * flight, and it drops its result when a local write was made meanwhile. A
+ * failed GET changes nothing.
+ */
+export const refreshDesktopSettings = async (): Promise<void> => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  if (_pendingSettingsChanges !== null || _settingsFlushesInFlight > 0) return;
+  const context = captureSettingsRuntimeContext();
+  if (
+    _settingsCache &&
+    isSameSettingsRuntimeContext(_settingsCache.context, context) &&
+    Date.now() - _settingsCache.at < SETTINGS_REFRESH_MIN_INTERVAL_MS
+  ) {
+    return;
+  }
+  // Drop only the GET cache. The no-op suppression image stays: it is still
+  // the last document this client synced, and the fresh GET replaces it.
+  _settingsCache = null;
+  _settingsRawCache = null;
+  await runSettingsSync('refresh');
+};
+
 const isFullSettingsResponse = (value: unknown): value is DesktopSettings =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -511,6 +593,7 @@ const recordSuccessfulPutResponse = (
   changes: Partial<DesktopSettings>,
   context: SettingsRuntimeContext
 ): void => {
+  _settingsResponseRevision += 1;
   if (isFullSettingsResponse(updated)) {
     _lastSyncedSettings = cloneSettingsSnapshot(updated);
     _settingsCache = {
@@ -545,6 +628,17 @@ const awaitInitialSettingsForFlush = async (
 // Coalesce rapid updateDesktopSettings calls into a single PUT
 async function _flushSettingsUpdate(
   options: { skipInitialLoadGate?: boolean } = {}
+): Promise<void> {
+  _settingsFlushesInFlight += 1;
+  try {
+    await _runSettingsFlush(options);
+  } finally {
+    _settingsFlushesInFlight -= 1;
+  }
+}
+
+async function _runSettingsFlush(
+  options: { skipInitialLoadGate?: boolean }
 ): Promise<void> {
   // Initial-load gating (see the contract above): without a synced image a
   // pending patch cannot be distinguished from an echo of server state (the
@@ -581,6 +675,7 @@ async function _flushSettingsUpdate(
   _pendingSettingsContext = null;
   _settingsFlushTimer = null;
   _settingsFlushWaiters = [];
+  let sentPatch: Partial<DesktopSettings> | null = null;
   try {
     if (
       !snapshot ||
@@ -602,6 +697,9 @@ async function _flushSettingsUpdate(
       dispatchSettingsSaveState('saved');
       return;
     }
+
+    sentPatch = changes;
+    _settingsPatchesInFlight.push(changes);
 
     const runtimeSettings = getRuntimeSettingsAPI();
     if (runtimeSettings) {
@@ -677,6 +775,9 @@ async function _flushSettingsUpdate(
       }
     }
   } finally {
+    if (sentPatch) {
+      _settingsPatchesInFlight = _settingsPatchesInFlight.filter((patch) => patch !== sentPatch);
+    }
     waiters.forEach((resolve) => resolve());
   }
 }
@@ -701,6 +802,7 @@ export const updateDesktopSettings = async (
     void _flushSettingsUpdate({ skipInitialLoadGate: true });
   }
 
+  _settingsMutationRevision += 1;
   _pendingSettingsChanges = { ...(_pendingSettingsChanges ?? {}), ...changes };
   _pendingSettingsContext = context;
   dispatchSettingsSaveState('saving');

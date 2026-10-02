@@ -209,6 +209,53 @@ describe('settings write suppression', () => {
     expect(saveCalls).toHaveLength(1);
   });
 
+  test('restoring a key while its PUT is in flight still sends', async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://suppression-rollback.example', runtimeKey: 'suppression-rollback' });
+    const autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
+    const stored: SettingsPayload = {
+      themeId: 'rollback-theme',
+      autoSaveEnabled,
+      homeDirectory: '/home/original',
+      lastDirectory: '/home/original/proj',
+      draftStartersScheduleTaskAdded: true,
+    };
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    const responses: Array<ReturnType<typeof deferred<SettingsPayload>>> = [];
+    registerSettingsApi(
+      (changes) => {
+        saveCalls.push(changes);
+        const response = deferred<SettingsPayload>();
+        responses.push(response);
+        return response.promise;
+      },
+      async () => ({ settings: stored, source: 'web' }),
+    );
+
+    await syncDesktopSettings();
+    expect(saveCalls).toHaveLength(0);
+
+    const changed = updateDesktopSettings({ homeDirectory: '/home/changed' }, { immediate: true });
+    expect(saveCalls).toEqual([{ homeDirectory: '/home/changed' }]);
+
+    // The image still holds the original value, but the outstanding PUT is
+    // about to replace it: the restoration is a real write.
+    const restored = updateDesktopSettings({ homeDirectory: '/home/original' }, { immediate: true });
+    expect(saveCalls).toEqual([{ homeDirectory: '/home/changed' }, { homeDirectory: '/home/original' }]);
+
+    // A key the outstanding PUT does not carry is still an echo.
+    await updateDesktopSettings({ lastDirectory: '/home/original/proj' }, { immediate: true });
+    expect(saveCalls).toHaveLength(2);
+
+    responses[0].resolve({ ...stored, homeDirectory: '/home/changed' });
+    await changed;
+    responses[1].resolve({ ...stored, homeDirectory: '/home/original' });
+    await restored;
+
+    // Both PUTs settled, so the restored value is the image again.
+    await updateDesktopSettings({ homeDirectory: '/home/original' }, { immediate: true });
+    expect(saveCalls).toHaveLength(2);
+  });
+
   test('a failed PUT does not update the image, so a retry still sends', async () => {
     switchRuntimeEndpoint({ apiBaseUrl: 'https://suppression-retry.example', runtimeKey: 'suppression-retry' });
     const saveCalls: Array<Partial<SettingsPayload>> = [];

@@ -2,6 +2,7 @@ import type { DesktopSettings } from '@/lib/desktop';
 import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQueueStore';
 import { isTerminalShell } from '@/lib/terminalShell';
+import { isSidebarViewMode } from '@/lib/sidebarViewMode';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -169,6 +170,12 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     if (settings.weekStartPreference !== store.weekStartPreference) {
       store.setWeekStartPreference(settings.weekStartPreference);
     }
+  }
+  if (
+    isSidebarViewMode(settings.sidebarViewMode) &&
+    settings.sidebarViewMode !== store.sidebarViewMode
+  ) {
+    store.setSidebarViewMode(settings.sidebarViewMode);
   }
   if (
     typeof settings.expandedEditorToolbar === 'boolean' &&

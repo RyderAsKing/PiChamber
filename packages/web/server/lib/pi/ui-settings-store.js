@@ -37,6 +37,7 @@ const PORTABLE_FIELDS = new Set([
   'zenModel', 'gitProviderId', 'gitModelId',
   'timeFormatPreference',
   'weekStartPreference',
+  'sidebarViewMode',
   'expandedEditorToolbar',
   'fontSize', 'terminalFontSize', 'editorFontSize', 'uiFont', 'monoFont', 'padding',
   'cornerRadius', 'inputBarOffset', 'shortcutOverrides', 'commandTriggers',

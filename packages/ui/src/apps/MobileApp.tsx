@@ -18,7 +18,7 @@ import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
-import { syncDesktopSettings } from '@/lib/persistence';
+import { refreshDesktopSettings, syncDesktopSettings } from '@/lib/persistence';
 import { startMobileErrorLogCapture } from '@/lib/mobile-error-log';
 import { loadSessionCatalog } from '@/sync/session-catalog-access';
 import { normalizePath } from '@/lib/pathNormalization';
@@ -112,6 +112,9 @@ export function MobileApp({ apis }: MobileAppProps) {
           setRecoveryPhase('idle');
           setMobileConnectionUncertain(false);
           if (outcome === 'unchanged') {
+            // Same server, connection back: pick up shared settings changed
+            // by other clients while this one was unreachable.
+            void refreshDesktopSettings();
             void useConfigStore.getState().initializeApp();
             const snapshot = useConfigStore.getState();
             if (snapshot.providers.length === 0) void snapshot.loadProviders({ source: 'mobileApp:recovery' });

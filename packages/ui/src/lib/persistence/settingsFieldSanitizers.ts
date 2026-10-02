@@ -331,6 +331,7 @@ export const materializeAuthoritativeUiSettings = (
     maxLastMessageLength: defaults.maxLastMessageLength,
     timeFormatPreference: defaults.timeFormatPreference,
     weekStartPreference: defaults.weekStartPreference,
+    sidebarViewMode: defaults.sidebarViewMode,
     expandedEditorToolbar: defaults.expandedEditorToolbar,
     draftStartersVisible: defaults.draftStartersVisible,
     fontSize: defaults.fontSize,

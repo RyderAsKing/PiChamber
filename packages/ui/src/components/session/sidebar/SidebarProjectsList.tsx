@@ -1,33 +1,23 @@
 import React from 'react';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
-import { formatDirectoryName, cn } from '@/lib/utils';
-import type { SessionGroup, SessionNode } from './types';
-import { formatProjectLabel } from './utils';
+import { cn } from '@/lib/utils';
+import type { SessionGroup, SessionNode, ProjectSection } from './types';
+import { getProjectLabel } from './utils';
 import { SidebarSessionLikeButton } from './sidebarRowChrome';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
 import type { MainTab } from '@/stores/useUIStore';
+import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import {
+  type TimelineBoundaries,
+  TIMELINE_BUCKET_LABELS,
+  getTimelineBoundaries,
+  groupTimelineItems,
+} from './timelineBuckets';
+import { SidebarFolderTree } from './SidebarFolderTree';
+import { SessionRowVariantContext } from './sessionRowVariant';
 
-type ProjectSection = {
-  project: {
-    id: string;
-    label?: string;
-    normalizedPath: string;
-    icon?: string;
-    color?: string;
-    iconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' };
-    iconBackground?: string;
-  };
-  groups: SessionGroup[];
-};
-
-const getProjectLabel = (project: ProjectSection['project'], homeDirectory: string | null): string => (
-  formatProjectLabel(
-    project.label?.trim()
-    || formatDirectoryName(project.normalizedPath, homeDirectory)
-    || project.normalizedPath,
-  )
-);
+export type { ProjectSection };
 
 type Props = {
   topContent?: React.ReactNode;
@@ -43,6 +33,10 @@ type Props = {
   searchEmptyState: React.ReactNode;
   isAllFoldersView?: boolean;
   pinnedSessionIds?: Set<string>;
+  viewMode?: SidebarViewMode;
+  timelineBoundaries?: TimelineBoundaries | null;
+  onOpenDirectoryDialog?: () => void;
+  stickyFolderHeaders?: boolean;
   renderSessionNode?: (
     node: SessionNode,
     depth?: number,
@@ -85,7 +79,10 @@ type Props = {
 
 function SidebarProjectsListComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_projects_list.render');
-  
+
+  const viewMode = props.viewMode ?? 'workspace';
+  const isTimeline = viewMode === 'timeline';
+
   // Memoize getOrderedGroups per project so downstream consumers see a stable
   // array reference while inputs are unchanged (avoids O(P) fresh arrays per
   // list render invalidating the memoized group subtrees).
@@ -115,8 +112,10 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   // walk) and skip the cost of a style recalc on every render.
   const scrollContainerRef = React.useRef<HTMLElement | null>(null);
 
+  const shouldComputeAllFolderSessions = Boolean(props.isAllFoldersView || isTimeline);
+
   const allFolderSessions = React.useMemo(() => {
-    if (!props.isAllFoldersView) return [];
+    if (!shouldComputeAllFolderSessions) return [];
     const items: Array<{
       node: SessionNode;
       project: ProjectSection['project'];
@@ -157,7 +156,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     });
 
     return items;
-  }, [props.allFoldersOnlySection, props.isAllFoldersView, props.sectionsForRender, props.homeDirectory, props.pinnedSessionIds]);
+  }, [
+    props.allFoldersOnlySection,
+    shouldComputeAllFolderSessions,
+    props.sectionsForRender,
+    props.homeDirectory,
+    props.pinnedSessionIds,
+  ]);
 
   const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
 
@@ -165,13 +170,33 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     setAllFoldersLimit(30);
   }, [props.hasSessionSearchQuery]);
 
-  const visibleAllFolderSessions = allFolderSessions.slice(0, allFoldersLimit);
-  const remainingAllFoldersCount = allFolderSessions.length - visibleAllFolderSessions.length;
+  const visibleAllFolderSessions = React.useMemo(
+    () => allFolderSessions.slice(0, allFoldersLimit),
+    [allFolderSessions, allFoldersLimit],
+  );
+
+  // `SessionSidebar` passes live boundaries (current day, week-start
+  // preference) whenever the timeline is shown, and `null` while the sidebar
+  // is hidden. The fallback only keeps hidden rows bucketed: it is read once,
+  // is not refreshed at midnight, and assumes a Monday week start.
+  const resolvedTimelineBoundaries = React.useMemo(
+    () => props.timelineBoundaries ?? getTimelineBoundaries(Date.now(), 1),
+    [props.timelineBoundaries],
+  );
+
+  const timelineGroups = React.useMemo(() => {
+    if (!isTimeline) return [];
+    return groupTimelineItems(visibleAllFolderSessions, {
+      getTimestamp: (item) => item.timestamp,
+      isPinned: (item) => item.isPinned,
+      boundaries: resolvedTimelineBoundaries,
+    });
+  }, [isTimeline, visibleAllFolderSessions, resolvedTimelineBoundaries]);
 
   if (props.sharedSessionsOnly) {
     return (
       <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}>
-        <div className="space-y-1 px-3">
+        <div className="space-y-1 px-2">
         {props.topContent}
         {!props.hasSharedSessions ? (props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState) : null}
         </div>
@@ -179,14 +204,40 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     );
   }
 
-  const hasAllFoldersOnlySection = props.isAllFoldersView && Boolean(props.allFoldersOnlySection);
+  const hasAllFoldersOnlySection = (props.isAllFoldersView || viewMode === 'timeline' || viewMode === 'folder') && Boolean(props.allFoldersOnlySection);
   if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-3">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
   if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-3">{props.searchEmptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
+
+  const renderPaginationButtons = () => {
+    const remainingAllFoldersCount = allFolderSessions.length - visibleAllFolderSessions.length;
+    return (
+      <>
+        {remainingAllFoldersCount > 0 ? (
+          <SidebarSessionLikeButton
+            icon="arrow-down-s"
+            onClick={() => setAllFoldersLimit((prev) => prev + 30)}
+          >
+            {remainingAllFoldersCount === 1
+              ? "Show 1 more session"
+              : `Show ${remainingAllFoldersCount} more sessions`}
+          </SidebarSessionLikeButton>
+        ) : null}
+        {allFoldersLimit > 30 && allFolderSessions.length > 30 ? (
+          <SidebarSessionLikeButton
+            icon="arrow-up-s"
+            onClick={() => setAllFoldersLimit(30)}
+          >
+            {"Show fewer sessions"}
+          </SidebarSessionLikeButton>
+        ) : null}
+      </>
+    );
+  };
 
   return (
     // [overflow-anchor:none] — the browser's native scroll anchoring otherwise
@@ -203,7 +254,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       outerClassName="flex-1 min-h-0"
       className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-32')}
     >
-      <div className="space-y-1 px-3">
+      <div className="space-y-1 px-2">
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">
@@ -247,6 +298,87 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             });
           })()}
         </div>
+      ) : viewMode === 'folder' ? (
+        <SessionRowVariantContext.Provider value="tree">
+        <SidebarFolderTree
+          sections={props.sectionsForRender}
+          homeSection={props.allFoldersOnlySection}
+          homeDirectory={props.homeDirectory}
+          collapsedProjects={props.collapsedProjects}
+          toggleProject={props.toggleProject}
+          hasSessionSearchQuery={props.hasSessionSearchQuery}
+          activeProjectId={props.activeProjectId}
+          hideDirectoryControls={props.hideDirectoryControls}
+          mobileVariant={props.mobileVariant}
+          alwaysShowActions={props.alwaysShowActions}
+          isInlineEditing={props.isInlineEditing}
+          stickyFolderHeaders={props.stickyFolderHeaders}
+          renderGroupSessions={props.renderGroupSessions}
+          renderSessionNode={props.renderSessionNode}
+          getOrderedGroups={cachedGetOrderedGroups}
+          renderProjectStatusIndicator={props.renderProjectStatusIndicator}
+          scrollContainerRef={scrollContainerRef}
+          setActiveProjectIdOnly={props.setActiveProjectIdOnly}
+          setActiveMainTab={props.setActiveMainTab}
+          setSessionSwitcherOpen={props.setSessionSwitcherOpen}
+          openNewSessionDraft={props.openNewSessionDraft}
+          openProjectEditDialog={props.openProjectEditDialog}
+          removeProject={props.removeProject}
+          reorderProjects={props.reorderProjects}
+          openSidebarMenuKey={props.openSidebarMenuKey}
+          setOpenSidebarMenuKey={props.setOpenSidebarMenuKey}
+          onOpenDirectoryDialog={props.onOpenDirectoryDialog}
+          emptyState={props.emptyState}
+          searchEmptyState={props.searchEmptyState}
+        />
+        </SessionRowVariantContext.Provider>
+      ) : viewMode === 'timeline' && props.renderSessionNode ? (
+        <div>
+          {allFolderSessions.length === 0 ? (
+            props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState
+          ) : (
+            <>
+              {timelineGroups.map((group, index) => {
+                const label = TIMELINE_BUCKET_LABELS[group.id];
+                return (
+                  <section
+                    key={group.id}
+                    aria-label={label}
+                    data-timeline-bucket={group.id}
+                  >
+                    <div
+                      role="heading"
+                      aria-level={3}
+                      className={cn(
+                        'select-none px-3 pb-1 text-xs leading-4 font-medium text-muted-foreground',
+                        index === 0 ? 'pt-1' : 'pt-3',
+                      )}
+                    >
+                      {label}
+                    </div>
+                    {group.items.map(({ node, project, projectLabel, globalSession }) => {
+                      const groupDirectory = node.session.directory ?? project.normalizedPath;
+                      return (
+                        <React.Fragment key={node.session.id}>
+                          {props.renderSessionNode!(
+                            node,
+                            0,
+                            groupDirectory,
+                            project.id,
+                            false,
+                            { projectLabel, showFolderLabel: true, globalSession },
+                            'project',
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </section>
+                );
+              })}
+              {renderPaginationButtons()}
+            </>
+          )}
+        </div>
       ) : props.isAllFoldersView && props.renderSessionNode ? (
         <div>
           {allFolderSessions.length === 0 ? (
@@ -269,24 +401,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                   </React.Fragment>
                 );
               })}
-              {remainingAllFoldersCount > 0 ? (
-                <SidebarSessionLikeButton
-                  icon="arrow-down-s"
-                  onClick={() => setAllFoldersLimit((prev) => prev + 30)}
-                >
-                  {remainingAllFoldersCount === 1
-                    ? "Show 1 more session"
-                    : `Show ${remainingAllFoldersCount} more sessions`}
-                </SidebarSessionLikeButton>
-              ) : null}
-              {allFoldersLimit > 30 && allFolderSessions.length > 30 ? (
-                <SidebarSessionLikeButton
-                  icon="arrow-up-s"
-                  onClick={() => setAllFoldersLimit(30)}
-                >
-                  {"Show fewer sessions"}
-                </SidebarSessionLikeButton>
-              ) : null}
+              {renderPaginationButtons()}
             </>
           )}
         </div>

@@ -26,6 +26,7 @@ Settings search uses an explicit registry; it does not scrape JSX.
 - Put page-level availability in `metadata.ts` and item-specific guards in `search.ts`.
 - Distinguish desktop shell from local desktop origin when the feature requires local privileges.
 - For split pages, index predictable static surfaces and update `prepareSettingsSearchTarget` when a result must open a draft/editor before highlighting.
+- Targets inside a `SettingsDisclosure` stay indexed; the highlight step in `useSettingsSearch.ts` opens enclosing `<details>` before scrolling.
 
 ## Highlight Anchor
 

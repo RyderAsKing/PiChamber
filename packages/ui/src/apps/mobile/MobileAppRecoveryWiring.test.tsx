@@ -112,7 +112,7 @@ mock.module('@/apps/pi-session-store', () => ({
     },
   }),
 }));
-mock.module('@/lib/persistence', () => ({ syncDesktopSettings: () => Promise.resolve(), updateDesktopSettings: () => Promise.resolve() }));
+mock.module('@/lib/persistence', () => ({ syncDesktopSettings: () => Promise.resolve(), refreshDesktopSettings: () => Promise.resolve(), updateDesktopSettings: () => Promise.resolve() }));
 mock.module('@/lib/mobile-error-log', () => ({
   startMobileErrorLogCapture: () => () => undefined,
   recordMobileDiagnostic: () => undefined,

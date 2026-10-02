@@ -628,26 +628,40 @@ export const useProjectsStore = create<ProjectsStore>()(
 
     synchronizeFromSettings: (settings: DesktopSettings) => {
       const incomingProjects = sanitizeProjects(settings.projects ?? []);
-      const incomingActive = typeof settings.activeProjectId === 'string' && settings.activeProjectId.trim()
-        ? settings.activeProjectId.trim()
-        : null;
-
       const current = get();
+      // A document without the pointer (a post-boot settings refresh) keeps
+      // this client's open folder while it still exists.
+      const incomingActive = settings.activeProjectId === undefined
+        ? (incomingProjects.some((project) => project.id === current.activeProjectId) ? current.activeProjectId : null)
+        : typeof settings.activeProjectId === 'string' && settings.activeProjectId.trim()
+          ? settings.activeProjectId.trim()
+          : null;
+
+      // The settings document owns folder order: its array order replaces any
+      // locally remembered manual order, so a reorder made on another client
+      // is not overridden by this client's stale copy.
+      const incomingOrder = incomingProjects.map((project) => project.id);
 
       const projectsChanged = JSON.stringify(current.projects) !== JSON.stringify(incomingProjects);
       const activeChanged = current.activeProjectId !== incomingActive;
+      const orderChanged = current.manualProjectOrder.length !== incomingOrder.length
+        || current.manualProjectOrder.some((id, index) => id !== incomingOrder[index]);
 
       if (!projectsChanged && !activeChanged) {
+        if (orderChanged) {
+          set({ manualProjectOrder: incomingOrder });
+          persistManualProjectOrder(incomingOrder);
+        }
         return;
       }
 
-      const incomingIds = new Set(incomingProjects.map((p) => p.id));
-      const cleanedOrder = get().manualProjectOrder.filter((id) => incomingIds.has(id));
-      set({ projects: incomingProjects, activeProjectId: incomingActive, manualProjectOrder: cleanedOrder });
+      set({ projects: incomingProjects, activeProjectId: incomingActive, manualProjectOrder: incomingOrder });
       cacheProjects(incomingProjects, incomingActive);
-      persistManualProjectOrder(cleanedOrder);
+      persistManualProjectOrder(incomingOrder);
 
-      if (incomingActive) {
+      // A pointer-less refresh that kept the open folder must not move the
+      // current directory back to the folder root.
+      if (incomingActive && (activeChanged || settings.activeProjectId !== undefined)) {
         const activeProject = incomingProjects.find((project) => project.id === incomingActive);
         if (activeProject) {
           useDirectoryStore.getState().setDirectory(activeProject.path, { showOverlay: false });

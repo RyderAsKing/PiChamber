@@ -19,6 +19,7 @@ import { getStoredMobileLayoutPreference, setStoredMobileLayoutPreference, type 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { TerminalShellOption } from '@/lib/api/types';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import type { SidebarViewMode } from '@/lib/sidebarViewMode';
 
 import {
   DEFAULT_PWA_INSTALL_NAME,
@@ -30,6 +31,7 @@ import {
   type PwaInstallNameWindow,
   type VisibleSetting,
 } from './visual/visualSettingsConstants';
+import { SettingsDisclosure } from '@/components/sections/shared/SettingsSection';
 import { ColorModeAndThemeSection } from './visual/ColorModeAndThemeSection';
 import { LocalizationSection } from './visual/LocalizationSection';
 import { AppInstallSection } from './visual/AppInstallSection';
@@ -83,6 +85,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setTimeFormatPreference = useUIStore(state => state.setTimeFormatPreference);
     const weekStartPreference = useUIStore(state => state.weekStartPreference);
     const setWeekStartPreference = useUIStore(state => state.setWeekStartPreference);
+    const sidebarViewMode = useUIStore(state => state.sidebarViewMode);
+    const setSidebarViewMode = useUIStore(state => state.setSidebarViewMode);
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const {
@@ -136,6 +140,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setWeekStartPreference(value);
         void updateDesktopSettings({ weekStartPreference: value });
     }, [setWeekStartPreference]);
+
+    const handleSidebarViewModeChange = React.useCallback((value: SidebarViewMode) => {
+        setSidebarViewMode(value);
+        void updateDesktopSettings({ sidebarViewMode: value });
+    }, [setSidebarViewMode]);
 
     const lightThemes = React.useMemo(
         () => availableThemes
@@ -245,7 +254,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const showMobileLayoutSetting = isMobile && isWebRuntime() && !isDesktopShell();
     const hasAppearanceSettings = (shouldShow('theme') || showMobileLayoutSetting || shouldShow('pwaInstallName') || shouldShow('pwaOrientation') || shouldShow('timeFormat') || shouldShow('weekStart'));
     const hasLayoutSettings = shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') || shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile);
-    const hasNavigationSettings = shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
+    const hasNavigationSettings = shouldShow('sidebarViewMode') || shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
     const hasBehaviorSettings = shouldShow('diffLayout')
         || shouldShow('followUpBehavior');
     const showBehaviorMessageOptions = shouldShow('diffLayout')
@@ -426,139 +435,139 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
     return (
         <>
-
-                {/* --- Appearance & Themes --- */}
-                {hasAppearanceSettings && (
-                    <>
-                        {hasThemeSettings && (
-                            <ColorModeAndThemeSection
-                                themeMode={themeMode}
-                                setThemeMode={setThemeMode}
-                                showMobileLayoutSetting={showMobileLayoutSetting}
-                                mobileLayoutPreference={mobileLayoutPreference}
-                                onMobileLayoutPreferenceChange={handleMobileLayoutPreferenceChange}
-                                selectedLightTheme={selectedLightTheme}
-                                setLightThemePreference={setLightThemePreference}
-                                lightThemes={lightThemes}
-                                selectedDarkTheme={selectedDarkTheme}
-                                setDarkThemePreference={setDarkThemePreference}
-                                darkThemes={darkThemes}
-                                formatThemeLabel={formatThemeLabel}
-                                customThemesLoading={customThemesLoading}
-                                themesReloading={themesReloading}
-                                setThemesReloading={setThemesReloading}
-                                reloadCustomThemes={reloadCustomThemes}
-                                dockBadgeSupported={dockBadgeSupported}
-                                dockBadgeEnabled={dockBadgeEnabled}
-                                setDockBadgeEnabled={setDockBadgeEnabled}
-                            />
-                        )}
-
-                        {hasLocalizationSettings && (
-                            <LocalizationSection
-                                shouldShowTimeFormat={shouldShow('timeFormat')}
-                                shouldShowWeekStart={shouldShow('weekStart')}
-                                timeFormatPreference={timeFormatPreference}
-                                selectedTimeFormatLabel={selectedTimeFormatLabel}
-                                onTimeFormatPreferenceChange={handleTimeFormatPreferenceChange}
-                                weekStartPreference={weekStartPreference}
-                                selectedWeekStartLabel={selectedWeekStartLabel}
-                                onWeekStartPreferenceChange={handleWeekStartPreferenceChange}
-                            />
-                        )}
-
-                        {(showPwaInstallNameSetting || showPwaOrientationSetting || showMobileKeyboardModeSetting) && (
-                            <AppInstallSection
-                                showPwaInstallNameSetting={showPwaInstallNameSetting}
-                                pwaInstallName={pwaInstallName}
-                                setPwaInstallName={setPwaInstallName}
-                                onApplyPwaInstallName={applyPwaInstallName}
-                                showPwaOrientationSetting={showPwaOrientationSetting}
-                                pwaOrientation={pwaOrientation}
-                                selectedPwaOrientationLabel={selectedPwaOrientationLabel}
-                                onApplyPwaOrientation={applyPwaOrientation}
-                                showMobileKeyboardModeSetting={showMobileKeyboardModeSetting}
-                                mobileKeyboardMode={mobileKeyboardMode}
-                                selectedMobileKeyboardModeLabel={selectedMobileKeyboardModeLabel}
-                                onSetMobileKeyboardMode={(mode) => {
-                                    setMobileKeyboardMode(mode);
-                                    void updateDesktopSettings({ mobileKeyboardMode: mode });
-                                }}
-                            />
-                        )}
-                    </>
-                )}
-
-                {/* --- Density & type --- */}
-                {hasLayoutSettings && (
-                    <DensityAndTypeSection
-                        shouldShow={shouldShow}
-                        uiFont={uiFont}
-                        setUiFont={setUiFont}
-                        monoFont={monoFont}
-                        setMonoFont={setMonoFont}
-                        fontSize={fontSize}
-                        setFontSize={setFontSize}
-                        terminalFontSize={terminalFontSize}
-                        setTerminalFontSize={setTerminalFontSize}
-                        editorFontSize={editorFontSize}
-                        setEditorFontSize={setEditorFontSize}
-                        padding={padding}
-                        setPadding={setPadding}
-                        inputBarOffset={inputBarOffset}
-                        setInputBarOffset={setInputBarOffset}
-                        isMobile={isMobile}
-                    />
-                )}
-
-                {/* --- Navigation --- */}
-                {hasNavigationSettings && (
-                    <NavigationSection
-                        shouldShow={shouldShow}
-                        fileEditorKeymap={fileEditorKeymap}
-                        setFileEditorKeymap={setFileEditorKeymap}
-                        autoSaveEnabled={autoSaveEnabled}
-                        setAutoSaveEnabled={setAutoSaveEnabled}
-                        expandedEditorToolbar={expandedEditorToolbar}
-                        onExpandedEditorToolbarChange={handleExpandedEditorToolbarChange}
-                        showTerminalQuickKeysOnDesktop={showTerminalQuickKeysOnDesktop}
-                        setShowTerminalQuickKeysOnDesktop={setShowTerminalQuickKeysOnDesktop}
-                        showTerminalShellSetting={showTerminalShellSetting}
-                        terminalShell={terminalShell}
-                        setTerminalShell={setTerminalShell}
-                        terminalShellOptions={terminalShellOptions}
-                        terminalShellSupportsLogin={terminalShellSupportsLogin}
-                        terminalLoginShellEnabled={terminalLoginShellEnabled}
-                        setTerminalLoginShellEnabled={setTerminalLoginShellEnabled}
-                    />
-                )}
-
-                <ChatBehaviorSection
-                    hasBehaviorSettings={hasBehaviorSettings}
-                    showBehaviorMessageOptions={showBehaviorMessageOptions}
-                    behaviorSectionDivider={behaviorSectionDivider}
-                    shouldShow={shouldShow}
-                    diffLayoutPreference={diffLayoutPreference}
-                    setDiffLayoutPreference={setDiffLayoutPreference}
-                    followUpBehavior={followUpBehavior}
-                    setFollowUpBehavior={setFollowUpBehavior}
-                    draftStartersVisible={draftStartersVisible}
-                    onDraftStartersVisibleChange={handleDraftStartersVisibleChange}
+            {/* --- Appearance & Themes --- */}
+            {hasAppearanceSettings && hasThemeSettings && (
+                <ColorModeAndThemeSection
+                    themeMode={themeMode}
+                    setThemeMode={setThemeMode}
+                    showMobileLayoutSetting={showMobileLayoutSetting}
+                    mobileLayoutPreference={mobileLayoutPreference}
+                    onMobileLayoutPreferenceChange={handleMobileLayoutPreferenceChange}
+                    selectedLightTheme={selectedLightTheme}
+                    setLightThemePreference={setLightThemePreference}
+                    lightThemes={lightThemes}
+                    selectedDarkTheme={selectedDarkTheme}
+                    setDarkThemePreference={setDarkThemePreference}
+                    darkThemes={darkThemes}
+                    formatThemeLabel={formatThemeLabel}
+                    customThemesLoading={customThemesLoading}
+                    themesReloading={themesReloading}
+                    setThemesReloading={setThemesReloading}
+                    reloadCustomThemes={reloadCustomThemes}
+                    dockBadgeSupported={dockBadgeSupported}
+                    dockBadgeEnabled={dockBadgeEnabled}
+                    setDockBadgeEnabled={setDockBadgeEnabled}
                 />
+            )}
 
-                {shouldShow('perfHud') && (
-                    <DiagnosticsSection
-                        perfHudEnabled={perfHudEnabled}
-                        onPerfHudEnabledChange={setPerfHudEnabled}
-                        processRecordingSupported={processRecordingSupported}
-                        processRecordingEnabled={processRecordingEnabled}
-                        processRecordingActive={processRecordingActive}
-                        processRecordingSaving={processRecordingSaving}
-                        processRecordingError={processRecordingError}
-                        onProcessRecordingEnabledChange={handleProcessRecordingEnabledChange}
+            {/* --- Navigation --- */}
+            {hasNavigationSettings && (
+                <NavigationSection
+                    shouldShow={shouldShow}
+                    sidebarViewMode={sidebarViewMode}
+                    onSidebarViewModeChange={handleSidebarViewModeChange}
+                    fileEditorKeymap={fileEditorKeymap}
+                    setFileEditorKeymap={setFileEditorKeymap}
+                    autoSaveEnabled={autoSaveEnabled}
+                    setAutoSaveEnabled={setAutoSaveEnabled}
+                    expandedEditorToolbar={expandedEditorToolbar}
+                    onExpandedEditorToolbarChange={handleExpandedEditorToolbarChange}
+                    showTerminalQuickKeysOnDesktop={showTerminalQuickKeysOnDesktop}
+                    setShowTerminalQuickKeysOnDesktop={setShowTerminalQuickKeysOnDesktop}
+                    showTerminalShellSetting={showTerminalShellSetting}
+                    terminalShell={terminalShell}
+                    setTerminalShell={setTerminalShell}
+                    terminalShellOptions={terminalShellOptions}
+                    terminalShellSupportsLogin={terminalShellSupportsLogin}
+                    terminalLoginShellEnabled={terminalLoginShellEnabled}
+                    setTerminalLoginShellEnabled={setTerminalLoginShellEnabled}
+                />
+            )}
+
+            {/* --- Localization --- */}
+            {hasAppearanceSettings && hasLocalizationSettings && (
+                <LocalizationSection
+                    shouldShowTimeFormat={shouldShow('timeFormat')}
+                    shouldShowWeekStart={shouldShow('weekStart')}
+                    timeFormatPreference={timeFormatPreference}
+                    selectedTimeFormatLabel={selectedTimeFormatLabel}
+                    onTimeFormatPreferenceChange={handleTimeFormatPreferenceChange}
+                    weekStartPreference={weekStartPreference}
+                    selectedWeekStartLabel={selectedWeekStartLabel}
+                    onWeekStartPreferenceChange={handleWeekStartPreferenceChange}
+                />
+            )}
+
+            {/* --- Density & type --- */}
+            {hasLayoutSettings && (
+                <DensityAndTypeSection
+                    shouldShow={shouldShow}
+                    uiFont={uiFont}
+                    setUiFont={setUiFont}
+                    monoFont={monoFont}
+                    setMonoFont={setMonoFont}
+                    fontSize={fontSize}
+                    setFontSize={setFontSize}
+                    terminalFontSize={terminalFontSize}
+                    setTerminalFontSize={setTerminalFontSize}
+                    editorFontSize={editorFontSize}
+                    setEditorFontSize={setEditorFontSize}
+                    padding={padding}
+                    setPadding={setPadding}
+                    inputBarOffset={inputBarOffset}
+                    setInputBarOffset={setInputBarOffset}
+                    isMobile={isMobile}
+                />
+            )}
+
+            <ChatBehaviorSection
+                hasBehaviorSettings={hasBehaviorSettings}
+                showBehaviorMessageOptions={showBehaviorMessageOptions}
+                behaviorSectionDivider={behaviorSectionDivider}
+                shouldShow={shouldShow}
+                diffLayoutPreference={diffLayoutPreference}
+                setDiffLayoutPreference={setDiffLayoutPreference}
+                followUpBehavior={followUpBehavior}
+                setFollowUpBehavior={setFollowUpBehavior}
+                draftStartersVisible={draftStartersVisible}
+                onDraftStartersVisibleChange={handleDraftStartersVisibleChange}
+            />
+
+            {shouldShow('perfHud') && (
+                <DiagnosticsSection
+                    perfHudEnabled={perfHudEnabled}
+                    onPerfHudEnabledChange={setPerfHudEnabled}
+                    processRecordingSupported={processRecordingSupported}
+                    processRecordingEnabled={processRecordingEnabled}
+                    processRecordingActive={processRecordingActive}
+                    processRecordingSaving={processRecordingSaving}
+                    processRecordingError={processRecordingError}
+                    onProcessRecordingEnabledChange={handleProcessRecordingEnabledChange}
+                />
+            )}
+
+            {/* --- Legacy options --- */}
+            {hasAppearanceSettings && (showPwaInstallNameSetting || showPwaOrientationSetting || showMobileKeyboardModeSetting) && (
+                <SettingsDisclosure label={'Show legacy options'}>
+                    <AppInstallSection
+                        showPwaInstallNameSetting={showPwaInstallNameSetting}
+                        pwaInstallName={pwaInstallName}
+                        setPwaInstallName={setPwaInstallName}
+                        onApplyPwaInstallName={applyPwaInstallName}
+                        showPwaOrientationSetting={showPwaOrientationSetting}
+                        pwaOrientation={pwaOrientation}
+                        selectedPwaOrientationLabel={selectedPwaOrientationLabel}
+                        onApplyPwaOrientation={applyPwaOrientation}
+                        showMobileKeyboardModeSetting={showMobileKeyboardModeSetting}
+                        mobileKeyboardMode={mobileKeyboardMode}
+                        selectedMobileKeyboardModeLabel={selectedMobileKeyboardModeLabel}
+                        onSetMobileKeyboardMode={(mode) => {
+                            setMobileKeyboardMode(mode);
+                            void updateDesktopSettings({ mobileKeyboardMode: mode });
+                        }}
                     />
-                )}
-
+                </SettingsDisclosure>
+            )}
         </>
     );
 };

@@ -323,7 +323,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   }, [reorderProjects]);
 
   return (
-    <div className={cn('select-none px-3 pt-1 pb-2 border-b border-border/40 space-y-0.5', className)}>
+    <div className={cn('select-none px-2 pt-1 pb-2 border-b border-border/40 space-y-0.5', className)}>
       <button
         type="button"
         onClick={() => onSelectProject(null)}

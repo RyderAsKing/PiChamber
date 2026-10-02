@@ -6,6 +6,7 @@ import {
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsCheckboxRow,
   SettingsControlGroup,
+  SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsRadioOption,
   SettingsSection,
@@ -20,10 +21,17 @@ import {
 } from '@/components/ui/select';
 import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
-import type { VisibleSetting } from './visualSettingsConstants';
+import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import { SidebarViewPreview } from './SidebarViewPreview';
+import {
+  SIDEBAR_VIEW_MODE_OPTIONS,
+  type VisibleSetting,
+} from './visualSettingsConstants';
 
 export interface NavigationSectionProps {
   shouldShow: (setting: VisibleSetting) => boolean;
+  sidebarViewMode: SidebarViewMode;
+  onSidebarViewModeChange: (mode: SidebarViewMode) => void;
   fileEditorKeymap: 'default' | 'vim';
   setFileEditorKeymap: (keymap: 'default' | 'vim') => void;
   autoSaveEnabled: boolean;
@@ -43,6 +51,8 @@ export interface NavigationSectionProps {
 
 export const NavigationSection: React.FC<NavigationSectionProps> = ({
   shouldShow,
+  sidebarViewMode,
+  onSidebarViewModeChange,
   fileEditorKeymap,
   setFileEditorKeymap,
   autoSaveEnabled,
@@ -61,6 +71,26 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
 }) => {
   return (
     <SettingsSection title={'Navigation'} contentClassName="space-y-4">
+      {shouldShow('sidebarViewMode') && (
+        <SettingsControlGroup
+          title={'Sidebar view'}
+          info={'Workspace opens one folder at a time. By folder lists every folder with its sessions underneath. Timeline groups sessions from every folder by when they were last active. Applies to every device connected to this server.'}
+          settingsItem="appearance.sidebar-view"
+        >
+          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
+            {SIDEBAR_VIEW_MODE_OPTIONS.map((option) => (
+              <SettingsPreviewOption
+                key={option.id}
+                selected={sidebarViewMode === option.id}
+                onSelect={() => onSidebarViewModeChange(option.id)}
+                label={option.label}
+                ariaLabel={option.label}
+                preview={<SidebarViewPreview mode={option.id} />}
+              />
+            ))}
+          </SettingsRadioGroup>
+        </SettingsControlGroup>
+      )}
       {shouldShow('fileEditorKeymap') && (
         <SettingsControlGroup
           title={'File editor keymap'}

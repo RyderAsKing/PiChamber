@@ -63,6 +63,12 @@ for text that must stay visible (warnings, dynamic status).
 Skip per-option descriptions when labels are self-explanatory. For short
 segmented choices use `SettingsChipGroup` (chips with `aria-pressed`).
 
+When the options are layouts the user needs to see to choose between, use
+`SettingsPreviewOption` inside `SettingsRadioGroup` (an illustrated tile with the
+radio and label beneath; pass the group `className="grid grid-cols-3 gap-2 space-y-0 @xl:gap-3"`
+plus a `max-w` cap); illustrations use theme tokens and fixed px sizes so they
+ignore the padding scale.
+
 ## Numeric Value / Override
 
 `NumberInput` inside `SETTINGS_NUMBER_STEPPER_ROW_CLASS`, with
@@ -89,6 +95,11 @@ directly only next to raw labels/headings. Never build info icons from raw
 - Place icon/color palettes beneath their label.
 - Keep option dimensions and gaps consistent.
 - Use stable border/ring/background selection; avoid scale transforms that shift layout.
+
+## Rarely Needed Options
+
+Legacy / rarely needed controls go in `SettingsDisclosure` at the bottom of the
+page (native `<details>`, closed by default, content stays mounted).
 
 ## Dialogs
 

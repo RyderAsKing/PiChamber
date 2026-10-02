@@ -145,6 +145,7 @@ const VisualSectionContent: React.FC = () => {
         'mobileKeyboardMode',
         'timeFormat',
         'weekStart',
+        'sidebarViewMode',
         'fontSize',
         'terminalFontSize',
         'editorFontSize',

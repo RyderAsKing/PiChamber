@@ -43,6 +43,12 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['calendar', 'monday', 'sunday'],
   },
   {
+    id: 'appearance.sidebar-view',
+    page: 'appearance',
+    title: "Sidebar view",
+    keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'layout', 'group'],
+  },
+  {
     id: 'appearance.light-theme',
     page: 'appearance',
     title: "Light Theme",

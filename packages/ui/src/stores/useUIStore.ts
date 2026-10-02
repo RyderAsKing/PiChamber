@@ -11,6 +11,7 @@ import { getStoredMobileKeyboardMode, type MobileKeyboardMode } from '@/lib/mobi
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
+import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
   type MainTab,
@@ -176,6 +177,7 @@ interface UIStore {
   showTerminalQuickKeysOnDesktop: boolean;
   timeFormatPreference: TimeFormatPreference;
   weekStartPreference: WeekStartPreference;
+  sidebarViewMode: SidebarViewMode;
   expandedEditorToolbar: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
@@ -296,6 +298,7 @@ interface UIStore {
   setMaxLastMessageLength: (value: number) => void;
   setTimeFormatPreference: (value: TimeFormatPreference) => void;
   setWeekStartPreference: (value: WeekStartPreference) => void;
+  setSidebarViewMode: (value: SidebarViewMode) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
@@ -397,6 +400,7 @@ export const useUIStore = create<UIStore>()(
         showTerminalQuickKeysOnDesktop: false,
         timeFormatPreference: 'auto',
         weekStartPreference: 'auto',
+        sidebarViewMode: DEFAULT_SIDEBAR_VIEW_MODE,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
         isExpandedInput: false,
@@ -1408,6 +1412,9 @@ export const useUIStore = create<UIStore>()(
         setWeekStartPreference: (value) => {
           set({ weekStartPreference: value });
         },
+        setSidebarViewMode: (value) => {
+          set({ sidebarViewMode: value });
+        },
         setExpandedEditorToolbar: (value: boolean) => {
           set({ expandedEditorToolbar: value });
         },
@@ -1741,6 +1748,7 @@ export const useUIStore = create<UIStore>()(
           maxLastMessageLength: state.maxLastMessageLength,
           timeFormatPreference: state.timeFormatPreference,
           weekStartPreference: state.weekStartPreference,
+          sidebarViewMode: state.sidebarViewMode,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,

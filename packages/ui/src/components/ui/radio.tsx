@@ -6,6 +6,8 @@ interface RadioProps {
   onChange: () => void;
   disabled?: boolean;
   ariaLabel?: string;
+  /** Draw the dot only: the enclosing element is the radio, so this one leaves the tab order and the accessibility tree. */
+  decorative?: boolean;
   className?: string;
   iconClassName?: string;
 }
@@ -15,6 +17,7 @@ export const Radio = React.memo<RadioProps>(function Radio({
   onChange,
   disabled = false,
   ariaLabel,
+  decorative = false,
   className,
   iconClassName,
 }) {
@@ -44,12 +47,14 @@ export const Radio = React.memo<RadioProps>(function Radio({
   return (
     <button
       type="button"
-      role="radio"
+      role={decorative ? undefined : 'radio'}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      aria-checked={checked}
-      aria-label={ariaLabel}
+      aria-checked={decorative ? undefined : checked}
+      aria-label={decorative ? undefined : ariaLabel}
+      aria-hidden={decorative || undefined}
+      tabIndex={decorative ? -1 : undefined}
       className={cn(
         'group/radio relative flex h-[14px] w-[14px] min-h-[14px] min-w-[14px] shrink-0 self-center items-center justify-center rounded-full outline-none',
         'transition-[background-color,box-shadow] duration-200 ease-out',

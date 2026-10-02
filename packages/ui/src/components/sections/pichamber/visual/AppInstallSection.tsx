@@ -57,7 +57,7 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
   onSetMobileKeyboardMode,
 }) => {
   return (
-    <SettingsSection title={'App install'} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
+    <SettingsSection title={'App install'} divider={false} className="pb-0" contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
       {showPwaInstallNameSetting && (
         <SettingsFieldRow
           label={'Install App Name'}

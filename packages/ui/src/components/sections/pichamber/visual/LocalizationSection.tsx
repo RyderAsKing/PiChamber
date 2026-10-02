@@ -1,7 +1,6 @@
 import React from 'react';
 
 import {
-  SETTINGS_FIELDS_STACK_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsSection,
@@ -40,67 +39,63 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
 }) => {
   return (
     <SettingsSection title={'Localization'}>
-      <SettingsTwoColumn>
-        {(shouldShowTimeFormat || shouldShowWeekStart) && (
-          <div className={SETTINGS_FIELDS_STACK_CLASS}>
-            {shouldShowTimeFormat && (
-              <SettingsStackedField
-                label={'Time Format'}
-                settingsItem="appearance.time-format"
+      <SettingsTwoColumn className="gap-4 @md:grid-cols-2 @md:gap-8 @3xl:gap-10">
+        {shouldShowTimeFormat && (
+          <SettingsStackedField
+            label={'Time Format'}
+            settingsItem="appearance.time-format"
+          >
+            <Select
+              value={timeFormatPreference}
+              onValueChange={(value: 'auto' | '12h' | '24h') =>
+                onTimeFormatPreferenceChange(value)
+              }
+            >
+              <SelectTrigger
+                aria-label={'Select time format'}
+                size={SETTINGS_SELECT_SIZE}
+                className={SETTINGS_SELECT_TRIGGER_CLASS}
               >
-                <Select
-                  value={timeFormatPreference}
-                  onValueChange={(value: 'auto' | '12h' | '24h') =>
-                    onTimeFormatPreferenceChange(value)
-                  }
-                >
-                  <SelectTrigger
-                    aria-label={'Select time format'}
-                    size={SETTINGS_SELECT_SIZE}
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                  >
-                    <SelectValue>{selectedTimeFormatLabel}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIME_FORMAT_OPTIONS.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </SettingsStackedField>
-            )}
+                <SelectValue>{selectedTimeFormatLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {TIME_FORMAT_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingsStackedField>
+        )}
 
-            {shouldShowWeekStart && (
-              <SettingsStackedField
-                label={'Week Starts On'}
-                settingsItem="appearance.week-start"
+        {shouldShowWeekStart && (
+          <SettingsStackedField
+            label={'Week Starts On'}
+            settingsItem="appearance.week-start"
+          >
+            <Select
+              value={weekStartPreference}
+              onValueChange={(value: 'auto' | 'monday' | 'sunday') =>
+                onWeekStartPreferenceChange(value)
+              }
+            >
+              <SelectTrigger
+                aria-label={'Select week start'}
+                size={SETTINGS_SELECT_SIZE}
+                className={SETTINGS_SELECT_TRIGGER_CLASS}
               >
-                <Select
-                  value={weekStartPreference}
-                  onValueChange={(value: 'auto' | 'monday' | 'sunday') =>
-                    onWeekStartPreferenceChange(value)
-                  }
-                >
-                  <SelectTrigger
-                    aria-label={'Select week start'}
-                    size={SETTINGS_SELECT_SIZE}
-                    className={SETTINGS_SELECT_TRIGGER_CLASS}
-                  >
-                    <SelectValue>{selectedWeekStartLabel}</SelectValue>
-                  </SelectTrigger>
-                  <SelectContent>
-                    {WEEK_START_OPTIONS.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </SettingsStackedField>
-            )}
-          </div>
+                <SelectValue>{selectedWeekStartLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {WEEK_START_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingsStackedField>
         )}
       </SettingsTwoColumn>
     </SettingsSection>

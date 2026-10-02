@@ -4,6 +4,7 @@ import { isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQ
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { normalizePwaName } from '@/lib/pwaKeys';
+import { isSidebarViewMode } from '@/lib/sidebarViewMode';
 import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import {
   type LegacySkillCatalog,
@@ -505,6 +506,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
       candidate.weekStartPreference === 'monday')
   ) {
     result.weekStartPreference = candidate.weekStartPreference;
+  }
+  if (isSidebarViewMode(candidate.sidebarViewMode)) {
+    result.sidebarViewMode = candidate.sidebarViewMode;
   }
   if (typeof candidate.expandedEditorToolbar === 'boolean') {
     result.expandedEditorToolbar = candidate.expandedEditorToolbar;

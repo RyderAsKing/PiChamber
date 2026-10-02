@@ -5,10 +5,13 @@ import { cn } from '@/lib/utils';
 import { useUIStore } from '@/stores/useUIStore';
 import { formatShortcutForDisplay, getEffectiveShortcutCombo } from '@/lib/shortcuts';
 import {
-  sidebarGutterX,
+  sidebarContentInsetX,
   sidebarRowIconClassName,
   sidebarRowLabelClassName,
 } from './utils';
+
+/** Fallback for `--oc-titlebar-left-inset`: the titlebar's own left padding (see `Header.tsx`). */
+const titlebarLeftInsetFallback = '0.75rem';
 
 type Props = {
   onNewSession: () => void;
@@ -23,13 +26,14 @@ export function SidebarNav(props: Props): React.ReactNode {
 
   return (
     <div
+      // pr-3 puts the toggle's icon (16px in a 32px button) on the session rows' right content edge.
       className="app-region-drag select-none flex h-[var(--oc-header-height,3rem)] shrink-0 items-center pr-3"
     >
       {/* Traffic-lights / window-controls inset stays a window drag area. */}
       <div
         aria-hidden
         className="shrink-0 self-stretch"
-        style={{ width: `var(--oc-titlebar-left-inset, ${sidebarGutterX})` }}
+        style={{ width: `var(--oc-titlebar-left-inset, ${titlebarLeftInsetFallback})` }}
       />
       {/* Electron drag regions ignore z-index of overlays. Carve no-drag under
           the TitlebarLeftControls menu so it stays clickable while the sidebar
@@ -38,7 +42,7 @@ export function SidebarNav(props: Props): React.ReactNode {
         aria-hidden
         className="app-region-no-drag shrink-0 self-stretch"
         style={{
-          width: `max(0px, calc(var(--oc-titlebar-overlay-width, 0px) - var(--oc-titlebar-left-inset, ${sidebarGutterX})))`,
+          width: `max(0px, calc(var(--oc-titlebar-overlay-width, 0px) - var(--oc-titlebar-left-inset, ${titlebarLeftInsetFallback})))`,
         }}
       />
       <div className="app-region-no-drag flex min-w-0 flex-1 items-center gap-1.5">
@@ -46,9 +50,14 @@ export function SidebarNav(props: Props): React.ReactNode {
           type="button"
           onClick={props.onNewSession}
           className={cn(
-            'group flex min-w-0 flex-1 items-center gap-1.5 pl-[3px] text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+            'group flex min-w-0 flex-1 items-center gap-1.5 text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
             props.touchFriendly && 'min-h-11',
           )}
+          // Start the icon on the session rows' content line.
+          // Past OS window chrome or the titlebar overlay it only keeps a 3px nudge.
+          style={{
+            paddingLeft: `max(3px, calc(${sidebarContentInsetX} - max(var(--oc-titlebar-left-inset, ${titlebarLeftInsetFallback}), var(--oc-titlebar-overlay-width, 0px))))`,
+          }}
         >
           <Icon name="chat-new" className={cn(sidebarRowIconClassName, 'text-current')} />
           <span className={sidebarRowLabelClassName}>{"New session"}</span>

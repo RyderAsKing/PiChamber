@@ -35,7 +35,7 @@ export function SidebarFooter({
           <Tooltip>
             <TooltipTrigger asChild>
               <button type="button" onClick={onOpenSettings} className={footerButtonClassName} aria-label={"Settings"}>
-                <Icon name="settings-3" className="h-4.5 w-4.5" />
+                <Icon name="settings-3" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
@@ -43,7 +43,7 @@ export function SidebarFooter({
           <Tooltip>
             <TooltipTrigger asChild>
               <button type="button" onClick={onOpenShortcuts} className={footerButtonClassName} aria-label={"Shortcuts"}>
-                <Icon name="command" className="h-4.5 w-4.5" />
+                <Icon name="command" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={4}><p>{"Shortcuts"}</p></TooltipContent>
@@ -51,7 +51,7 @@ export function SidebarFooter({
           <Tooltip>
             <TooltipTrigger asChild>
               <button type="button" onClick={onOpenAbout} className={footerButtonClassName} aria-label={"About PiChamber"}>
-                <Icon name="information" className="h-4.5 w-4.5" />
+                <Icon name="information" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" sideOffset={4}><p>{"About PiChamber"}</p></TooltipContent>

@@ -24,6 +24,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { useSidebarSpaceStore } from '@/stores/useSidebarSpaceStore';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { isSidebarViewMode, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { resolveTimelineWeekStart } from './sidebar/timelineBuckets';
+import { useTimelineBoundaries } from './sidebar/hooks/useTimelineBoundaries';
 import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
 import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
@@ -251,6 +254,15 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const setArchivePageOpen = useUIStore((state) => state.setArchivePageOpen);
   const showDeletionDialog = useUIStore((state) => state.showDeletionDialog);
   const setShowDeletionDialog = useUIStore((state) => state.setShowDeletionDialog);
+  const storedSidebarViewMode = useUIStore((state) => state.sidebarViewMode);
+  const sidebarViewMode: SidebarViewMode =
+    hideDirectoryControls || showOnlyMainWorkspace || !isSidebarViewMode(storedSidebarViewMode)
+      ? 'workspace'
+      : storedSidebarViewMode;
+  const weekStartPreference = useUIStore((state) => state.weekStartPreference);
+  const timelineWeekStart = React.useMemo(() => resolveTimelineWeekStart(weekStartPreference), [weekStartPreference]);
+  const timelineBoundaries = useTimelineBoundaries(isVisible && sidebarViewMode === 'timeline', timelineWeekStart);
+  const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
 
   const debouncedSessionSearchQuery = useDebouncedValue(sessionSearchQuery, 120);
   const normalizedSessionSearchQuery = React.useMemo(
@@ -690,6 +702,17 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     });
   }, [resetProjectSessionLimits, safeStorage, scheduleCollapsedProjectsPersist]);
 
+  const previousActiveProjectIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const previous = previousActiveProjectIdRef.current;
+    previousActiveProjectIdRef.current = activeProjectId;
+    if (sidebarViewMode !== 'folder') return;
+    if (!previous || !activeProjectId || previous === activeProjectId) return;
+    if (collapsedProjects.has(activeProjectId)) {
+      toggleProject(activeProjectId);
+    }
+  }, [activeProjectId, collapsedProjects, sidebarViewMode, toggleProject]);
+
   const normalizedProjects = React.useMemo(() => {
     return projects
       .map((project) => ({
@@ -970,7 +993,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const mobileHeaderActionButtonClass =
     'flex size-10 shrink-0 items-center justify-center rounded-full leading-none text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed';
   const headerActionButtonClass = mobileVariant ? mobileHeaderActionButtonClass : desktopHeaderActionButtonClass;
-  const headerActionIconClass = mobileVariant ? 'size-5' : 'h-4.5 w-4.5';
+  const headerActionIconClass = mobileVariant ? 'size-5' : 'size-4';
 
   const renderSessionNode = useStableRenderCallback(
     (
@@ -1336,7 +1359,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         sessionSearchQuery={sessionSearchQuery}
         setSessionSearchQuery={setSessionSearchQuery}
         hasSessionSearchQuery={hasSessionSearchQuery}
-        searchMatchCount={searchMatchCount + (selectedSpaceId === null ? allFoldersOnlySearchMatchCount : 0)}
+        searchMatchCount={searchMatchCount + (sidebarViewMode !== 'workspace' || selectedSpaceId === null ? allFoldersOnlySearchMatchCount : 0)}
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
         mobileVariant={mobileVariant}
@@ -1345,13 +1368,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       {piConnection === 'error' || piConnection === 'unavailable' ? (
         <div
           role="alert"
-          className="mx-3 mb-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-2 text-xs text-foreground"
+          className="mx-2 mb-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-2 text-xs text-foreground"
         >
           {"Unable to reach server"}
         </div>
       ) : null}
 
-      {!hideDirectoryControls && projectSections.length > 0 ? (
+      {!hideDirectoryControls && projectSections.length > 0 && sidebarViewMode === 'workspace' ? (
         <SidebarSpacesBar
           projects={projectSections.map((s) => s.project)}
           selectedProjectId={selectedSpaceId}
@@ -1386,15 +1409,19 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ) : null}
 
       <SidebarProjectsList
-        sectionsForRender={filteredSectionsForSidebarRender}
-        allFoldersOnlySection={selectedSpaceId === null ? allFoldersOnlySection : null}
+        viewMode={sidebarViewMode}
+        timelineBoundaries={timelineBoundaries}
+        onOpenDirectoryDialog={handleOpenDirectoryDialog}
+        stickyFolderHeaders={stickyZoneHeaders}
+        sectionsForRender={sidebarViewMode === 'workspace' ? filteredSectionsForSidebarRender : sectionsForSidebarRender}
+        allFoldersOnlySection={sidebarViewMode === 'workspace' ? (selectedSpaceId === null ? allFoldersOnlySection : null) : allFoldersOnlySection}
+        isAllFoldersView={sidebarViewMode === 'workspace' ? selectedSpaceId === null : sidebarViewMode === 'timeline'}
         projectSections={projectSections}
         activeProjectId={activeProjectId}
         showOnlyMainWorkspace={showOnlyMainWorkspace}
         hasSessionSearchQuery={hasSessionSearchQuery}
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
-        isAllFoldersView={selectedSpaceId === null}
         pinnedSessionIds={pinnedSessionIds}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}

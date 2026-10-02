@@ -25,6 +25,7 @@ import { areSessionNodeItemPropsEqual } from './sessionNodeComparators';
 import { useSessionNodeItemMetadata } from './useSessionNodeItemMetadata';
 import { useGitHubSelectedRepo } from '@/stores/useGitHubScopeStore';
 import { openPullRequestInSurface } from '@/components/views/github/openPullRequestInSurface';
+import { SessionRowVariantContext, treeRowGapClassName, treeRowSpacingClassName } from './sessionRowVariant';
 
 /** Clickable PR badge: opens the PR in the Pull requests surface (§6.6). */
 const PrBadgeButton: React.FC<{
@@ -133,6 +134,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     childRenderExtrasFor,
   } = props;
 
+  const isTree = React.useContext(SessionRowVariantContext) === 'tree';
+  const metaIconClassName = 'size-3 shrink-0';
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
   const showQuickArchiveAction = !archivedBucket && allowQuickArchiveAction;
   const suppressNextSelectRef = React.useRef(false);
@@ -242,6 +245,37 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   const showUnreadCompleteDot = !isStreaming && needsAttention && !isActive;
   const showActivityDuration = isStreaming && hasActivityDuration;
+  // Quick actions own the trailing edge whenever they are pinned visible.
+  const trailingStatusHidden = showQuickArchiveAction && (alwaysShowActions || isContextMenuOpen);
+  // Tree rows show the working indicator in their leading gutter instead.
+  const showWorkingOverlay = isStreaming && !isTree && !trailingStatusHidden && editingId !== session.id;
+  const showFolderLabel = Boolean(secondaryMeta?.showFolderLabel && tooltipProjectLabel);
+  const hasBranchMeta = Boolean(tooltipBranchLabel) || isGitRepo;
+  const showAgentName = Boolean(agentName && agentName !== 'default');
+  const hasPrBadge = Boolean(prSummary) && prNumber != null;
+  // The details line leads with the folder (mixed lists) or the branch (one
+  // folder); everything else is pushed to the right edge.
+  // The working overlay carries the turn time while it is shown, so a turn
+  // starting or ending never reflows the details line beneath it.
+  const showInlineActivityDuration = showActivityDuration && !showWorkingOverlay;
+  const hasTrailingMeta =
+    (showFolderLabel && hasBranchMeta) || hasPrBadge || subtaskCount > 0 || showAgentName || showInlineActivityDuration;
+  const branchMeta = (shrinkable: boolean) =>
+    tooltipBranchLabel ? (
+      <span className={cn('inline-flex min-w-0 items-center gap-1', shrinkable ? 'shrink' : 'flex-1')}>
+        <Icon
+          name="git-branch"
+          className={metaIconClassName}
+          style={prIconColor ? { color: prIconColor } : undefined}
+        />
+        <span className="truncate">{tooltipBranchLabel}</span>
+      </span>
+    ) : isGitRepo ? (
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <Icon name="git-repository" className={metaIconClassName} />
+        <span>git</span>
+      </span>
+    ) : null;
   const showPinnedMarker = isPinnedSession;
   const pinnedMarkerContent = (
     <Icon name="pushpin" className="h-3 w-3 flex-shrink-0 text-primary" aria-label={'Pinned session'} />
@@ -398,7 +432,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   ...(rowBackground ? { backgroundColor: rowBackground } : undefined),
                 }}
                 className={cn(
-                  'group relative my-0.5 flex cursor-pointer items-center rounded-xl px-3 py-2 transition-colors',
+                  'group relative flex cursor-pointer items-start px-3 transition-colors',
+                  isTree ? treeRowSpacingClassName : 'my-0.5 rounded-xl py-2',
                   !rowBackground && depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
                     : !rowBackground
@@ -410,14 +445,34 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
               />
             }
           >
-            <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            <div
+              className={cn('flex min-w-0 flex-1 items-start', showWorkingOverlay && 'oc-session-row-working-fade')}
+              data-clear-on-hover={showWorkingOverlay && showQuickArchiveAction ? 'true' : undefined}
+              data-working-duration={showWorkingOverlay && showActivityDuration ? 'true' : undefined}
+            >
+            <div className={cn('flex min-w-0 flex-1 items-center', isTree ? treeRowGapClassName : 'gap-1.5')}>
+              {isTree ? (
+                // Same width as the folder header icon, so the title starts under the folder label.
+                // The working indicator is centered in it.
+                <span data-session-row-gutter className="inline-flex size-4 shrink-0 items-center justify-center">
+                  {isStreaming ? (
+                    <AgentThinkingLoader
+                      variant="inline"
+                      text={null}
+                      animationType="spinner"
+                      speedMs={80}
+                      className="text-primary text-xs shrink-0"
+                    />
+                  ) : null}
+                </span>
+              ) : null}
               {subsessionChevron}
               {leadingIndicators}
               {editingId === session.id ? (
                 <form
                   ref={formRef}
                   data-session-rename-form={session.id}
-                  className="flex min-h-8 min-w-0 flex-1 items-center gap-2"
+                  className={cn('flex min-w-0 flex-1 items-center gap-2', isTree ? 'min-h-5' : 'min-h-8')}
                   onPointerDown={(event) => event.stopPropagation()}
                   onMouseDown={(event) => event.stopPropagation()}
                   onSubmit={(event) => {
@@ -465,73 +520,78 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     e.stopPropagation();
                     handleSessionDoubleClick(session.id, sessionTitle);
                   }}
-                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
+                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
                 >
                   <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
                     <div
                       className={cn(
                         'block min-w-0 flex-1 truncate font-normal typography-ui-label',
-                        needsAttention ? 'text-foreground' : 'text-foreground/90',
+                        needsAttention
+                          ? 'text-foreground'
+                          : isTree && !isActive
+                            ? 'text-muted-foreground transition-colors group-hover:text-foreground'
+                            : 'text-foreground/90',
                       )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                     </div>
+                    {isPinnedSession ? <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" /> : null}
+                    {/* Reserves the title-line width of the trailing status, which is
+                        positioned over the row so the details line can use the full width. */}
+                    <span aria-hidden="true" className="invisible ml-1 min-w-6 shrink-0 whitespace-nowrap text-[11px]">
+                      {showUnreadCompleteDot ? null : sessionCompactUpdatedLabel}
+                    </span>
                   </div>
 
-                  {(secondaryMeta?.showFolderLabel && tooltipProjectLabel) ||
-                  tooltipBranchLabel ||
-                  isGitRepo ||
-                  prSummary ||
-                  subtaskCount > 0 ||
-                  (agentName && agentName !== 'default') ||
-                  showActivityDuration ? (
-                    <div className="flex w-full min-w-0 items-center gap-2 overflow-hidden pt-0.5 typography-ui-label font-normal text-muted-foreground">
-                      {secondaryMeta?.showFolderLabel && tooltipProjectLabel ? (
-                        <span className="min-w-0 max-w-[110px] shrink-0 truncate">{tooltipProjectLabel}</span>
-                      ) : null}
-
-                      {tooltipBranchLabel ? (
-                        <span className="inline-flex min-w-0 max-w-[160px] shrink-0 items-center gap-1">
-                          <Icon
-                            name="git-branch"
-                            className={cn('size-3.5 shrink-0', !prIconColor && 'text-muted-foreground')}
-                            style={prIconColor ? { color: prIconColor } : undefined}
-                          />
-                          <span className="truncate">{tooltipBranchLabel}</span>
+                  {/* By-folder rows are a single line: title and time only. */}
+                  {!isTree && (showFolderLabel || hasBranchMeta || hasTrailingMeta) ? (
+                    <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-xs leading-4 font-normal text-muted-foreground/80">
+                      {showFolderLabel ? (
+                        <span className={cn('inline-flex min-w-0 items-center gap-1', hasTrailingMeta ? 'max-w-[60%] shrink-0' : 'flex-1')}>
+                          <Icon name="folder" className={metaIconClassName} />
+                          <span className="truncate">{tooltipProjectLabel}</span>
                         </span>
-                      ) : isGitRepo ? (
-                        <span className="inline-flex shrink-0 items-center gap-1">
-                          <Icon name="git-repository" className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span>git</span>
+                      ) : (
+                        branchMeta(false)
+                      )}
+
+                      {hasTrailingMeta ? (
+                        <span
+                          className={cn(
+                            'ml-auto flex min-w-0 items-center justify-end gap-2 overflow-hidden',
+                            showFolderLabel ? 'flex-1' : 'shrink-0',
+                          )}
+                        >
+                          {showFolderLabel ? branchMeta(true) : null}
+
+                          {hasPrBadge ? (
+                            <PrBadgeButton
+                              prDirectory={prDirectory}
+                              prNumber={prNumber!}
+                              prStatusLabel={prStatusLabel}
+                              prIconColor={prIconColor}
+                            />
+                          ) : null}
+
+                          {subtaskCount > 0 ? (
+                            <span className="inline-flex shrink-0 items-center gap-1">
+                              <Icon name="node-tree" className={metaIconClassName} />
+                              <span>{subtaskCount}</span>
+                            </span>
+                          ) : null}
+
+                          {showAgentName ? (
+                            <span className="min-w-0 max-w-[80px] shrink-0 truncate">{agentName}</span>
+                          ) : null}
+
+                          {showInlineActivityDuration ? (
+                            <SessionActivityDuration
+                              sessionId={session.id}
+                              running={isStreaming}
+                              className="shrink-0 text-muted-foreground/70"
+                            />
+                          ) : null}
                         </span>
-                      ) : null}
-
-                      {prSummary && prNumber != null ? (
-                        <PrBadgeButton
-                          prDirectory={prDirectory}
-                          prNumber={prNumber}
-                          prStatusLabel={prStatusLabel}
-                          prIconColor={prIconColor}
-                        />
-                      ) : null}
-
-                      {subtaskCount > 0 ? (
-                        <span className="inline-flex shrink-0 items-center gap-1">
-                          <Icon name="node-tree" className="size-3.5 shrink-0" />
-                          <span>{subtaskCount}</span>
-                        </span>
-                      ) : null}
-
-                      {agentName && agentName !== 'default' ? (
-                        <span className="min-w-0 max-w-[80px] shrink-0 truncate">{agentName}</span>
-                      ) : null}
-
-                      {showActivityDuration ? (
-                        <SessionActivityDuration
-                          sessionId={session.id}
-                          running={isStreaming}
-                          className="text-muted-foreground/70"
-                        />
                       ) : null}
                     </div>
                   ) : null}
@@ -539,28 +599,24 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
               )}
             </div>
 
-            {isPinnedSession ? <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" /> : null}
-
-            <div className="relative ml-1 flex h-6 min-w-6 shrink-0 items-center justify-end">
+            <div
+              className={cn(
+                'absolute right-3 flex h-5 min-w-6 items-center justify-end',
+                isTree ? 'top-1.5' : 'top-2',
+                editingId === session.id && 'hidden',
+              )}
+            >
               <div
                 className={cn(
                   'flex items-center justify-end',
-                  showQuickArchiveAction && (alwaysShowActions || isContextMenuOpen)
+                  trailingStatusHidden
                     ? 'opacity-0'
                     : showQuickArchiveAction
                       ? 'group-hover:opacity-0 group-focus-within:opacity-0'
                       : null,
                 )}
               >
-                {isStreaming ? (
-                  <AgentThinkingLoader
-                    variant="inline"
-                    text={null}
-                    animationType="spinner"
-                    speedMs={80}
-                    className="text-primary text-xs shrink-0"
-                  />
-                ) : showUnreadCompleteDot ? (
+                {showUnreadCompleteDot ? (
                   <SessionUnreadDot label={'Session complete'} />
                 ) : (
                   <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap">
@@ -590,6 +646,42 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 </div>
               ) : null}
             </div>
+            </div>
+            {showWorkingOverlay ? (
+              <span
+                data-session-working
+                className={cn(
+                  'pointer-events-none absolute inset-y-0 right-0 flex items-center rounded-r-[inherit] pr-3 transition-opacity',
+                  showQuickArchiveAction && 'group-hover:opacity-0 group-focus-within:opacity-0',
+                )}
+              >
+                {/* A soft glow breathing in from the edge marks the row as live. */}
+                <span
+                  aria-hidden="true"
+                  className="oc-session-row-working-aura absolute inset-y-0 right-0 w-24 rounded-r-[inherit] bg-gradient-to-l from-primary/15 to-transparent"
+                />
+                {/* Stacked on the row's two lines: the indicator stands where the
+                    timestamp is, the turn time where the details line ends. */}
+                <span className="relative flex flex-col items-end gap-1">
+                  <span className="flex h-5 items-center">
+                    <AgentThinkingLoader
+                      variant="inline"
+                      text={null}
+                      animationType="spinner"
+                      speedMs={80}
+                      className="text-primary text-xs shrink-0"
+                    />
+                  </span>
+                  {showActivityDuration ? (
+                    <SessionActivityDuration
+                      sessionId={session.id}
+                      running={isStreaming}
+                      className="text-[11px] leading-4"
+                    />
+                  ) : null}
+                </span>
+              </span>
+            ) : null}
           </ContextMenu.Trigger>
           {contextMenuContent}
         </ContextMenu.Root>

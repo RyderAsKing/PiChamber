@@ -107,6 +107,11 @@
     min-width: 36px;
   }
 
+  /* Select options are tapped, not clicked: give them the same touch floor. */
+  :root.mobile-pointer:not(.desktop-runtime) [data-slot="select-item"] {
+    min-height: 36px;
+  }
+
   /* Keep the feed at desktop row height while leaving other mobile controls
      on their larger touch target floor. */
   :root:is(.mobile-pointer, .device-mobile):not(.desktop-runtime) [data-chat-activity-row] {

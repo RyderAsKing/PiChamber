@@ -9,6 +9,7 @@ import {
   sidebarRowIconClass,
   sidebarRowLabelClass,
 } from './utils';
+import { SessionRowVariantContext, treeRowGapClassName, treeRowSpacingClassName } from './sessionRowVariant';
 
 export const SidebarSessionLikeButton = ({
   icon,
@@ -22,9 +23,21 @@ export const SidebarSessionLikeButton = ({
   onClick: () => void;
   className?: string;
   mobileVariant?: boolean;
-}): React.ReactNode => (
-  <button type="button" onClick={onClick} className={cn(mobileVariant ? sidebarSessionRowClassNameMobile : sidebarSessionRowClassName, className)}>
-    <Icon name={icon} className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
-    <span className={cn(sidebarRowLabelClass(mobileVariant), 'flex-1 text-muted-foreground')}>{children}</span>
-  </button>
-);
+}): React.ReactNode => {
+  const isTree = React.useContext(SessionRowVariantContext) === 'tree';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        mobileVariant ? sidebarSessionRowClassNameMobile : sidebarSessionRowClassName,
+        isTree && treeRowGapClassName,
+        isTree && treeRowSpacingClassName,
+        className,
+      )}
+    >
+      <Icon name={icon} className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
+      <span className={cn(sidebarRowLabelClass(mobileVariant), 'flex-1 text-muted-foreground')}>{children}</span>
+    </button>
+  );
+};

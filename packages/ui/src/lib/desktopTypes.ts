@@ -2,6 +2,7 @@ import type { ProjectEntry, TerminalShell } from '@/lib/api/types';
 import type { CommandTrigger } from '@/lib/pi/command-triggers';
 import type { DraftStarterRef } from '@/lib/draftStarters';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
+import type { SidebarViewMode } from '@/lib/sidebarViewMode';
 
 export type ManagedRemoteTunnelPreset = {
   id: string;
@@ -108,6 +109,7 @@ export type DesktopSettings = {
   mobileKeyboardMode?: MobileKeyboardMode;
   timeFormatPreference?: 'auto' | '12h' | '24h';
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
+  sidebarViewMode?: SidebarViewMode;
   expandedEditorToolbar?: boolean;
   fontSize?: number;
   terminalFontSize?: number;

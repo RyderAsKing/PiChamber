@@ -98,7 +98,7 @@ mock.module('@/hooks/useWindowControlsOverlayLayout', () => ({ useWindowControls
 mock.module('@/hooks/useDesktopMenuActions', () => ({ useDesktopMenuActions: () => undefined }));
 mock.module('@/sync/pi-session-catalog-feeder', () => ({ PiSessionCatalogFeeder: () => null }));
 mock.module('@/sync/worktree-discovery', () => ({ WorktreeDiscovery: () => null }));
-mock.module('@/lib/persistence', () => ({ syncDesktopSettings: () => Promise.resolve(), updateDesktopSettings: () => Promise.resolve() }));
+mock.module('@/lib/persistence', () => ({ syncDesktopSettings: () => Promise.resolve(), refreshDesktopSettings: () => Promise.resolve(), updateDesktopSettings: () => Promise.resolve() }));
 mock.module('@/lib/mobile-error-log', () => ({
   startMobileErrorLogCapture: () => () => undefined,
   recordMobileDiagnostic: () => undefined,

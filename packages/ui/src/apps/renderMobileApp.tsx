@@ -13,6 +13,7 @@ import { markAppBootReady } from './appBootReady';
 import { installMobileWidgetSnapshotBridge } from './mobileWidgetSnapshot';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { syncDesktopSettings } from '@/lib/persistence';
+import { startSettingsResumeSync } from '@/lib/settingsResumeSync';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { preloadMarkdownRenderer } from '@/components/chat/markdownRendererLoader';
@@ -32,6 +33,7 @@ const initializeSharedPreferences = () => {
 
     startAppearanceAutoSave();
     startModelPrefsAutoSave();
+    startSettingsResumeSync();
     startTypographyWatcher();
   })().finally(() => {
     // Persisted typography/appearance is now applied — release the splash gate so the

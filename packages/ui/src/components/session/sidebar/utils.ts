@@ -1,5 +1,5 @@
 import type { Session } from '@/lib/chat/types';
-
+import { formatDirectoryName } from '@/lib/utils';
 import { normalizePath } from '@/lib/pathNormalization';
 export { normalizePath };
 
@@ -155,8 +155,19 @@ export const formatProjectLabel = (label: string): string => {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-/** Shared column gutter for sidebar chrome and session-list content (`px-3`). The session scroller itself stays full-width so the overlay scrollbar can sit on the sidebar edge. */
-export const sidebarGutterX = '0.75rem';
+export const getProjectLabel = (
+  project: { label?: string; normalizedPath: string },
+  homeDirectory: string | null,
+): string => (
+  formatProjectLabel(
+    project.label?.trim()
+    || formatDirectoryName(project.normalizedPath, homeDirectory)
+    || project.normalizedPath,
+  )
+);
+
+/** Where sidebar content starts, from either edge: the shared column gutter (`px-2`) plus a row's own padding (`px-3`), following the user's padding scale like those classes do. The session scroller itself stays full-width so the overlay scrollbar can sit on the sidebar edge. */
+export const sidebarContentInsetX = 'calc(1.25rem * var(--padding-scale, 1))';
 
 /** Chrome shared by session rows and session-shaped actions (show more). */
 export const sidebarRowIconClassName = 'size-4 shrink-0';

@@ -7,6 +7,8 @@ let appearanceAutoSaveStarts = 0;
 let appearanceAutoSaveStops = 0;
 let modelPrefsAutoSaveStarts = 0;
 let modelPrefsAutoSaveStops = 0;
+let settingsResumeSyncStarts = 0;
+let settingsResumeSyncStops = 0;
 
 mock.module('@/components/layout/MainLayout', () => ({ MainLayout: () => null }));
 mock.module('@/components/ui/sonner', () => ({ Toaster: () => null }));
@@ -31,6 +33,14 @@ mock.module('@/lib/persistence', () => ({
   syncDesktopSettings: () => new Promise<void>((resolve) => {
     resolveSettingsSync = resolve;
   }),
+}));
+mock.module('@/lib/settingsResumeSync', () => ({
+  startSettingsResumeSync: () => {
+    settingsResumeSyncStarts += 1;
+    return () => {
+      settingsResumeSyncStops += 1;
+    };
+  },
 }));
 mock.module('@/lib/appearanceAutoSave', () => ({
   startAppearanceAutoSave: () => {
@@ -104,6 +114,8 @@ afterEach(async () => {
   appearanceAutoSaveStops = 0;
   modelPrefsAutoSaveStarts = 0;
   modelPrefsAutoSaveStops = 0;
+  settingsResumeSyncStarts = 0;
+  settingsResumeSyncStops = 0;
 });
 
 describe('App settings bootstrap', () => {
@@ -120,6 +132,7 @@ describe('App settings bootstrap', () => {
 
     expect(appearanceAutoSaveStarts).toBe(0);
     expect(modelPrefsAutoSaveStarts).toBe(0);
+    expect(settingsResumeSyncStarts).toBe(0);
 
     await act(async () => {
       resolveSettingsSync?.();
@@ -128,10 +141,12 @@ describe('App settings bootstrap', () => {
 
     expect(appearanceAutoSaveStarts).toBe(1);
     expect(modelPrefsAutoSaveStarts).toBe(1);
+    expect(settingsResumeSyncStarts).toBe(1);
 
     await act(async () => root.unmount());
     roots.pop();
     expect(appearanceAutoSaveStops).toBe(1);
     expect(modelPrefsAutoSaveStops).toBe(1);
+    expect(settingsResumeSyncStops).toBe(1);
   });
 });

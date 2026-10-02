@@ -60,12 +60,14 @@ export function SidebarHeader(props: Props): React.ReactNode {
   );
 
   return (
-    <div className={cn('select-none flex-shrink-0', mobileVariant ? 'px-2' : 'px-3 py-1')}>
+    <div className={cn('select-none flex-shrink-0', mobileVariant ? 'px-2' : 'px-2 py-1')}>
       <div className={cn('flex flex-col', mobileVariant ? 'gap-0' : 'h-auto min-h-8 gap-1')}>
         <div
           className={cn(
             'flex items-center justify-between',
-            mobileVariant ? 'h-[var(--oc-header-height,56px)] gap-1' : 'min-h-8 gap-2',
+            // Desktop px-2: with the 8px gutter and the 4px the icon sits inside its
+            // button, the outer icons land on the session rows' content edges.
+            mobileVariant ? 'h-[var(--oc-header-height,56px)] gap-1' : 'min-h-8 gap-2 px-2',
           )}
         >
           <div className={cn('flex min-w-0 items-center', mobileVariant ? 'gap-1 overflow-x-auto' : 'gap-1.5')} data-no-drawer-swipe={mobileVariant ? "true" : undefined}>

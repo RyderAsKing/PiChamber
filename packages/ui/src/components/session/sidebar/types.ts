@@ -35,3 +35,16 @@ export type GroupSearchData = {
   groupMatches: boolean;
   hasMatch: boolean;
 };
+
+export type ProjectSection = {
+  project: {
+    id: string;
+    label?: string;
+    normalizedPath: string;
+    icon?: string;
+    color?: string;
+    iconImage?: { mime: string; updatedAt: number; source: 'custom' | 'auto' };
+    iconBackground?: string;
+  };
+  groups: SessionGroup[];
+};

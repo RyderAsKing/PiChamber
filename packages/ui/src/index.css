@@ -324,6 +324,64 @@ div[data-chat-input-footer="true"] {
   );
 }
 
+/* By-folder sticky folder header. Sticky offsets resolve inside the scroller's
+   top padding, so the header paints a cover over that strip (its ::before).
+   Rows scrolling under a stuck header fade out through this overlay. The stuck
+   state comes from a scroll-state container query; engines without it keep a
+   hard edge instead of a fade. */
+.oc-sidebar-sticky-header {
+  container-type: scroll-state;
+}
+
+.oc-sidebar-sticky-header-fade {
+  opacity: 0;
+}
+
+@container scroll-state(stuck: top) {
+  .oc-sidebar-sticky-header-fade {
+    opacity: 1;
+  }
+}
+
+/* Sidebar session row while its agent is working: the working indicator sits
+   over the right edge of the row and the row content fades out beneath it. A
+   mask (not a painted gradient) keeps this independent of the row's hover,
+   selection, and fork backgrounds. Rows whose quick actions take that edge on
+   hover drop the fade while hovered or focused. */
+.oc-session-row-working-fade {
+  /* Width of the fully hidden strip: the row padding plus the indicator. */
+  --oc-working-clear: 1.75rem;
+  mask-image: linear-gradient(to left, transparent var(--oc-working-clear), #000 calc(var(--oc-working-clear) + 1.5rem));
+  -webkit-mask-image: linear-gradient(to left, transparent var(--oc-working-clear), #000 calc(var(--oc-working-clear) + 1.5rem));
+}
+
+/* The indicator also carries the turn time, stacked under it. */
+.oc-session-row-working-fade[data-working-duration="true"] {
+  --oc-working-clear: 3.5rem;
+}
+
+/* Glow behind the working indicator; opacity-only so it never repaints. */
+.oc-session-row-working-aura {
+  animation: pulse-opacity 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oc-session-row-working-aura {
+    animation: none;
+  }
+}
+
+.group:focus-within > .oc-session-row-working-fade[data-clear-on-hover="true"] {
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+@media (hover: hover) {
+  .group:hover > .oc-session-row-working-fade[data-clear-on-hover="true"] {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+}
 
 @keyframes spin-once {
   from {

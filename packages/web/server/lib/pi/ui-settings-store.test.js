@@ -238,6 +238,33 @@ describe('Pi UI settings store', () => {
     }
   });
 
+  it('persists sidebarViewMode in portable settings and drops unknown keys', async () => {
+    const { file, runtimeFile, store } = await makeStore();
+
+    const writeResult = await store.write({ sidebarViewMode: 'folder', unknownField: 'drop-me' });
+    expect(writeResult).toEqual({ sidebarViewMode: 'folder' });
+
+    const readResult = await store.read();
+    expect(readResult).toEqual({ sidebarViewMode: 'folder' });
+
+    const portable = await readJson(file);
+    expect(portable).toEqual({
+      __pichamberSettingsScope: 'portable-v1',
+      sidebarViewMode: 'folder',
+    });
+
+    const runtime = await readJson(runtimeFile);
+    expect(runtime).toEqual({});
+
+    const updatedResult = await store.write({ sidebarViewMode: 'timeline' });
+    expect(updatedResult).toEqual({ sidebarViewMode: 'timeline' });
+    expect(await store.read()).toEqual({ sidebarViewMode: 'timeline' });
+    expect(await readJson(file)).toEqual({
+      __pichamberSettingsScope: 'portable-v1',
+      sidebarViewMode: 'timeline',
+    });
+  });
+
   it('preserves failure behavior for malformed and oversized payloads', async () => {
     const { file, store } = await makeStore();
     await writeFile(file, '{broken');

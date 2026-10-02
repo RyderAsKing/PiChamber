@@ -16,6 +16,7 @@ import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationTo
 import { useRouter } from '@/hooks/useRouter';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { syncDesktopSettings } from '@/lib/persistence';
+import { startSettingsResumeSync } from '@/lib/settingsResumeSync';
 import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
@@ -60,11 +61,13 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
     let active = true;
     let stopAppearanceAutoSave: (() => void) | null = null;
     let stopModelPrefsAutoSave: (() => void) | null = null;
+    let stopSettingsResumeSync: (() => void) | null = null;
 
     void syncDesktopSettings().then(() => {
       if (active) {
         stopAppearanceAutoSave = startAppearanceAutoSave();
         stopModelPrefsAutoSave = startModelPrefsAutoSave();
+        stopSettingsResumeSync = startSettingsResumeSync();
       }
     });
 
@@ -72,6 +75,7 @@ function App({ apis }: { apis?: RuntimeAPIs }) {
       active = false;
       stopAppearanceAutoSave?.();
       stopModelPrefsAutoSave?.();
+      stopSettingsResumeSync?.();
     };
   }, [runtimeEndpointEpoch]);
 

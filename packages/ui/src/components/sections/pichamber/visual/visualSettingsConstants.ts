@@ -2,6 +2,7 @@ import type { ThemeMode } from '@/types/theme';
 import type { MobileKeyboardMode } from '@/lib/mobileKeyboardMode';
 import type { MobileLayoutPreference } from '@/lib/mobileLayoutPreference';
 import type { FollowUpBehavior } from '@/stores/messageQueueStore';
+import type { SidebarViewMode } from '@/lib/sidebarViewMode';
 
 export interface Option<T extends string> {
   id: T;
@@ -146,6 +147,12 @@ export const WEEK_START_OPTIONS: Option<'auto' | 'monday' | 'sunday'>[] = [
   },
 ];
 
+export const SIDEBAR_VIEW_MODE_OPTIONS: Option<SidebarViewMode>[] = [
+  { id: 'workspace', label: 'Workspace' },
+  { id: 'folder', label: 'By folder' },
+  { id: 'timeline', label: 'Timeline' },
+];
+
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
   {
     id: 'steer',
@@ -164,6 +171,7 @@ export type VisibleSetting =
   | 'mobileKeyboardMode'
   | 'timeFormat'
   | 'weekStart'
+  | 'sidebarViewMode'
   | 'fontSize'
   | 'terminalFontSize'
   | 'terminalShell'
