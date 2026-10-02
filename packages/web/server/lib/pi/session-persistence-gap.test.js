@@ -36,7 +36,7 @@ import { resolveSessionLeaseFile } from './session-daemon/session-lease.js';
  *
  * Seam notes (existing injection only, no new DI):
  * - `createRuntime` fakes Pi's session surface so prompt rejection
- *   (`preflightResult(false)` + `INVALID_MODEL`) exercises the real daemon
+ *   (prompt error + `INVALID_MODEL`) exercises the real daemon
  *   idle-disposal and event path against temp dirs.
  * - One-request-per-connection IPC (like production `requestSessionDaemon`)
  *   so prompt rejections resolve as error frames with preserved codes.
@@ -235,10 +235,9 @@ class FakeSession {
   async prompt(text, options) {
     this.promptCalls += 1;
     if (this.rejectPrompt) {
-      options?.preflightResult?.(false);
       throw rejectedPromptError();
     }
-    options?.preflightResult?.(true);
+    options?.preflightResult?.('started');
   }
 
   async navigateTree() {

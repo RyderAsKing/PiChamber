@@ -88,7 +88,7 @@ class FakeSession {
   }
 
   async prompt(text, options) {
-    options?.preflightResult?.(true);
+    options?.preflightResult?.('started');
     const deliverAs = options?.streamingBehavior;
     this.sent.push({ text, options: deliverAs ? { deliverAs } : undefined });
     if (this.pendingSend) {

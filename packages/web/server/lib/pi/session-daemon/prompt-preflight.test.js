@@ -56,7 +56,7 @@ class FakeSession {
   async prompt(text, options) {
     this.promptCalls.push({ text, options });
     if (this.promptImpl) return this.promptImpl(text, options);
-    options?.preflightResult?.(true);
+    options?.preflightResult?.('started');
   }
 
   async sendUserMessage(text, options) {
@@ -221,10 +221,9 @@ describe('prompt preflight acceptance', () => {
     session.promptImpl = async (text, options) => {
       calls += 1;
       if (calls === 1) {
-        options?.preflightResult?.(false);
         throw new Error('Cannot submit a prompt while compaction is in progress.');
       }
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
     };
 
     const payload = { sessionId: 'session-1', text: 'hello preflight', operationId: 'op-preflight-reuse' };
@@ -247,7 +246,7 @@ describe('prompt preflight acceptance', () => {
     const turnGate = new Promise((resolve) => { releaseTurn = resolve; });
     session.promptImpl = async (text, options) => {
       await preflightGate;
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       await turnGate;
     };
 
@@ -281,7 +280,7 @@ describe('prompt preflight acceptance', () => {
     let finishPlain;
     const plainGate = new Promise((resolve) => { finishPlain = resolve; });
     session.promptImpl = async (text, options) => {
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       await plainGate;
     };
 
@@ -303,7 +302,7 @@ describe('prompt preflight acceptance', () => {
     let finishSlash;
     const slashGate = new Promise((resolve) => { finishSlash = resolve; });
     session.promptImpl = async (text, options) => {
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('started');
       await slashGate;
     };
     // A second prompt needs a fresh generation; the first turn already settled
@@ -331,7 +330,7 @@ describe('prompt preflight acceptance', () => {
     session.promptImpl = async (text, options) => {
       // SDK queued sends resolve immediately after preflight acceptance,
       // long before the queued user message starts.
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('queued');
     };
 
     const response = await client.request('sessions.followUp', {
@@ -395,10 +394,9 @@ describe('prompt preflight acceptance', () => {
     session.promptImpl = async (text, options) => {
       // Faithful SDK edge: streaming without an explicit behavior rejects.
       if (session.isStreaming && !options?.streamingBehavior) {
-        options?.preflightResult?.(false);
         throw new Error("Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
       }
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('queued');
     };
     // Arrives idle, so the early guard does not reject; it then blocks in
     // setModel while another sender starts the turn.
@@ -435,10 +433,9 @@ describe('prompt preflight acceptance', () => {
     };
     session.promptImpl = async (text, options) => {
       if (session.isStreaming && !options?.streamingBehavior) {
-        options?.preflightResult?.(false);
         throw new Error("Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.");
       }
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('queued');
     };
     const pending = send('sessions.steer', {
       sessionId: 'session-1',
@@ -463,7 +460,7 @@ describe('prompt preflight acceptance', () => {
     await writeFile(steerFile, Buffer.from('steer-png-data'));
     session.isStreaming = true;
     session.promptImpl = async (text, options) => {
-      options?.preflightResult?.(true);
+      options?.preflightResult?.('queued');
     };
     const followResponse = await client.request('sessions.followUp', {
       sessionId: 'session-1',
@@ -521,10 +518,11 @@ describe('prompt preflight acceptance', () => {
     let finishNext;
     const nextGate = new Promise((resolve) => { finishNext = resolve; });
     session.promptImpl = async (text, options) => {
-      options?.preflightResult?.(true);
+      const isCmd = typeof text === 'string' && text.startsWith('/mycmd');
+      options?.preflightResult?.(isCmd ? 'handled' : 'started');
       // Handled extension commands resolve without a user start; ordinary
       // new-turn prompts stay pending until their start arrives.
-      if (typeof text === 'string' && text.startsWith('/mycmd')) return;
+      if (isCmd) return;
       await nextGate;
     };
     const extResponse = await client.request('sessions.followUp', {

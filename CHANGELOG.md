@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **MCP servers, codemode, and tool search.** PiChamber sessions now load the three built-in extensions that Pi 1.0 added, the same way the Pi CLI does. Add servers to `~/.pi/agent/mcp.json`, or to `.pi/mcp.json` in a trusted project, in the format Claude Code and Cursor use. By default the model reaches a server's tools from `codemode` scripts, and the chat shows one codemode row that lists each call the script made. Set `"exposure": "direct"` on a server to get an ordinary tool row per call, or `"deferred"` to have `tool_search` load tools on demand. `/mcp` shows server status, and `/mcp login <server>`, `/mcp logout <server>`, and `/mcp reconnect <server>` work from the chat. There is no MCP settings screen yet. An installed extension that registers `/mcp`, such as a third-party MCP adapter, replaces the built-in one, and `"extensions": ["-builtin:mcp"]` in Pi's settings turns it off. Pi's llama.cpp built-in is not loaded (`builtin-extensions`, `daemon-process`, `session-daemon-mcp.e2e.test`).
+- **Pi SDK 1.0.0.** `@earendil-works/pi-coding-agent` moves from 0.85.1 to 1.0.0, which brings upstream's newer models, provider fixes, and login options. Sessions are now saved when the first user message is accepted, so a first turn that fails or is aborted is no longer lost. The daemon follows the SDK's new prompt acceptance contract, where the preflight callback reports `started`, `queued`, or `handled`. Without that change every prompt was rejected on 1.0.0. Tool calls an extension makes through `ctx.executeTool()` stay out of the live tool rows, which matches saved history. The extension theme adds `appearance`, `colors`, and `style()` (`session-daemon`, `extension-theme`, `session-daemon-turn.e2e.test`).
+
 ## [1.0.4-rc.1] - 2026-10-02
 
 GitHub pull requests and issues, Pi extension UI and tool rendering, faster startup, and reconnect fixes since 1.0.3.
