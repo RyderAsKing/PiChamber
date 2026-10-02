@@ -23,6 +23,12 @@ const daemonRuntime = argument('--runtime');
 const buildId = argument('--build-id');
 const startedAt = new Date().toISOString();
 
+// Pi's built-in MCP extension resolves mcp.json, mcp-auth.json, and mcp.log
+// through the SDK's process-wide agent directory rather than the session's.
+// This process serves one profile, so point that lookup at the same directory
+// the daemon uses for everything else.
+if (agentDir) process.env.PI_CODING_AGENT_DIR = agentDir;
+
 const exitWithFailure = (code) => {
   // Do not log configuration paths, credentials, or session data from this
   // private process. The parent maps startup failure to a stable error code.

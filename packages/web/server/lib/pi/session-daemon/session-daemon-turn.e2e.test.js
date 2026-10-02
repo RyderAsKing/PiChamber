@@ -210,14 +210,14 @@ describe('session daemon agent turn end-to-end with real SDK', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
 
-    // 1. extensions.list contains the custom extension and no builtin: extensions
+    // 1. extensions.list contains the custom extension and builtin extensions
     const extList = await client.request('extensions.list', {});
-    expect(extList.result.extensions.map((e) => e.name)).toContain('turn-extension');
-    const builtinExts = extList.result.extensions.filter((e) => e.name.startsWith('builtin:'));
-    expect(builtinExts).toHaveLength(0);
-    // The Pi CLI's built-in extensions (mcp, codemode, tool-search) are not
-    // loaded for SDK sessions, so their commands are absent too.
-    expect(extList.result.commands.map((command) => command.name)).not.toContain('mcp');
+    const extNames = extList.result.extensions.map((e) => e.name);
+    expect(extNames).toContain('turn-extension');
+    expect(extNames).toContain('builtin:codemode');
+    expect(extNames).toContain('builtin:tool-search');
+    expect(extNames).toContain('builtin:mcp');
+    expect(extList.result.commands.map((command) => command.name)).toContain('mcp');
 
     // 2. Create session
     const created = await client.request('sessions.create', { cwd: projectDir });

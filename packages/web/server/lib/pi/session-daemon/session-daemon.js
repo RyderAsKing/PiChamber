@@ -37,6 +37,7 @@ import {
   createExtensionToolRenderer,
   installExtensionGlobalTheme,
 } from './extension-tool-render.js';
+import { getBuiltinExtensionFactories } from './builtin-extensions.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
   SESSION_DAEMON_MAX_FRAME_BYTES as MAX_FRAME_BYTES,
@@ -135,7 +136,9 @@ export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), se
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
-      resourceLoaderOptions: {},
+      resourceLoaderOptions: {
+        extensionFactories: getBuiltinExtensionFactories(),
+      },
     });
 
     const result = {
@@ -543,7 +546,9 @@ export function createSessionDaemon({
   const createFreshPromptServices = async (targetCwd = activeDirectory || cwd) => injectCreateServices({
     cwd: targetCwd,
     agentDir,
-    resourceLoaderOptions: {},
+    resourceLoaderOptions: {
+      extensionFactories: getBuiltinExtensionFactories(),
+    },
   });
 
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {

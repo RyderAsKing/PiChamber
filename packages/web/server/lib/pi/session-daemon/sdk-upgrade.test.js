@@ -1,10 +1,16 @@
 import { createServer } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 
+import {
+  getBuiltinExtensionFactories,
+  LOADED_BUILTIN_EXTENSIONS,
+  SKIPPED_BUILTIN_EXTENSIONS,
+} from './builtin-extensions.js';
 import { createPiSessionRuntime } from './session-daemon.js';
 import { getPiSessionDirectory } from './session-jsonl.js';
 
@@ -238,5 +244,30 @@ describe('pinned SDK upgrade compatibility', () => {
     expect(allModels.map((m) => m.id)).toContain('chat-model-1');
     expect(allModels.map((m) => m.id)).toContain('image-model-1');
     expect(allModels.map((m) => m.id)).toContain('classifier-model-1');
+  });
+
+  it('accounts for every built-in extension the Pi CLI loads', async () => {
+    // The CLI's list is not part of the SDK's public exports, so read it from
+    // the installed package. A new upstream built-in must be either loaded or
+    // listed as skipped with a reason.
+    const sdkEntry = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'));
+    const { builtInExtensions } = await import(pathToFileURL(join(dirname(sdkEntry), 'extensions', 'index.js')).href);
+    const upstream = builtInExtensions.map((extension) => extension.name).sort();
+    expect(upstream.length).toBeGreaterThan(0);
+
+    const loaded = LOADED_BUILTIN_EXTENSIONS.map((extension) => extension.name);
+    const accounted = [...loaded, ...Object.keys(SKIPPED_BUILTIN_EXTENSIONS)].sort();
+    expect(accounted).toEqual(upstream);
+
+    // Each loaded entry keeps the flags the CLI gives it.
+    const factories = getBuiltinExtensionFactories();
+    expect(factories.map((factory) => factory.name)).toEqual(loaded);
+    for (const factory of factories) {
+      const cli = builtInExtensions.find((extension) => extension.name === factory.name);
+      expect(typeof factory.factory).toBe('function');
+      expect({ builtin: factory.builtin, replaceable: factory.replaceable })
+        .toEqual({ builtin: cli.builtin === true, replaceable: cli.replaceable === true });
+    }
+    expect(getBuiltinExtensionFactories({})).toEqual([]);
   });
 });
