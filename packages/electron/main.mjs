@@ -1167,7 +1167,7 @@ const buildPackagedUiFailureHtml = ({ reason = 'The packaged UI files could not 
   const extractedAppImage = packageType === 'AppImage'
     && path.basename(path.dirname(resourceRoot())).startsWith('appimage_extracted_');
   const recovery = extractedAppImage
-    ? 'PiChamber is running from a temporary AppImage extraction whose files were removed while it was running. Restart PiChamber. To stop the AppImage from extracting itself, install FUSE (fuse3 or fuse2) and launch it without APPIMAGE_EXTRACT_AND_RUN, or install the .deb or .rpm package instead.'
+    ? 'PiChamber is running from a temporary AppImage extraction, and another launch may have removed its files. Restart PiChamber. To stop the AppImage from extracting itself, install FUSE (fuse3 or fuse2) and launch it without APPIMAGE_EXTRACT_AND_RUN, or install the .deb or .rpm package instead.'
     : packageType === 'AppImage'
       ? 'Move the AppImage to a writable location, make it executable with chmod +x, and try again. If it still fails, install the .deb or .rpm package instead.'
       : 'Reinstall PiChamber from the current release and include the log path below when reporting the issue.';
