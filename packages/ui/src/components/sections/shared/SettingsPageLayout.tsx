@@ -66,6 +66,9 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
           // single letter and an ellipsis; giving the title block a basis lets
           // the actions drop to their own line instead.
           <div className="mb-2 flex flex-wrap items-start justify-between gap-x-4 gap-y-3 pb-6">
+            {/* Mobile pages carry their title in the app header; an empty title
+                block would still claim the first line and push the actions down. */}
+            {title != null || description != null ? (
             <div className="min-w-0 flex-1 basis-64 space-y-1">
               {title != null ? (
                 isPlainTitle ? (
@@ -92,9 +95,15 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
                 )
               ) : null}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-              {headerEnd}
-            </div>
+            ) : null}
+            {/* Never wider than the pane: an action cluster sized to its content
+                ran off narrow (phone) panes instead of wrapping its buttons. Its
+                children may shrink too, so a page toolbar wraps inside the pane. */}
+            {headerEnd != null ? (
+              <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-3 [&>*]:min-w-0 [&>*]:max-w-full">
+                {headerEnd}
+              </div>
+            ) : null}
           </div>
         )}
         {children}

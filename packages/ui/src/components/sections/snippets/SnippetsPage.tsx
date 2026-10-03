@@ -580,7 +580,7 @@ export const SnippetsPage: React.FC = () => {
             : "Text snippets that expand as #name in the composer."
         }
         headerEnd={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
@@ -622,7 +622,7 @@ export const SnippetsPage: React.FC = () => {
       }
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+          <div className="relative min-w-0 max-w-full">
             <Icon
               name="search"
               className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -633,7 +633,7 @@ export const SnippetsPage: React.FC = () => {
               onChange={(event) => setSnippetQuery(event.target.value)}
               placeholder="Search snippets"
               aria-label="Search snippets"
-              className="h-9 w-[18rem] max-w-[24rem] pl-8"
+              className="h-9 w-[18rem] max-w-full pl-8"
             />
             {snippetQuery ? (
               <button

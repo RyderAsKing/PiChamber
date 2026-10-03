@@ -133,7 +133,7 @@ export const ProjectsPage: React.FC = () => {
       description={isMobile ? undefined : 'Manage your projects and worktrees. Click a card to configure its defaults and actions.'}
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+          <div className="relative min-w-0 max-w-full">
             <Icon
               name="search"
               className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -144,7 +144,7 @@ export const ProjectsPage: React.FC = () => {
               onChange={(event) => setProjectQuery(event.target.value)}
               placeholder="Search projects"
               aria-label="Search projects"
-              className="h-9 w-[18rem] max-w-[24rem] pl-8"
+              className="h-9 w-[18rem] max-w-full pl-8"
             />
             {projectQuery ? (
               <button

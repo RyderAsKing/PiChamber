@@ -238,7 +238,7 @@ export const SkillsPage: React.FC = () => {
           title={isMobile ? undefined : 'Skills'}
           description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
           headerEnd={
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
@@ -271,7 +271,7 @@ export const SkillsPage: React.FC = () => {
           description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
           headerEnd={
             <div className="flex flex-wrap items-center gap-2">
-              <div className="relative">
+              <div className="relative min-w-0 max-w-full">
                 <Icon
                   name="search"
                   className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -282,7 +282,7 @@ export const SkillsPage: React.FC = () => {
                   onChange={(event) => setSkillQuery(event.target.value)}
                   placeholder="Search skills"
                   aria-label="Search skills"
-                  className="h-9 w-[18rem] max-w-[24rem] pl-8"
+                  className="h-9 w-[18rem] max-w-full pl-8"
                 />
                 {skillQuery ? (
                   <button
@@ -326,7 +326,7 @@ export const SkillsPage: React.FC = () => {
         description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+            <div className="relative min-w-0 max-w-full">
               <Icon
                 name="search"
                 className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -337,7 +337,7 @@ export const SkillsPage: React.FC = () => {
                 onChange={(event) => setSkillQuery(event.target.value)}
                 placeholder="Search skills"
                 aria-label="Search skills"
-                className="h-9 w-[18rem] max-w-[24rem] pl-8"
+                className="h-9 w-[18rem] max-w-full pl-8"
               />
               {skillQuery ? (
                 <button

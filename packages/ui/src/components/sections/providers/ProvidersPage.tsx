@@ -291,7 +291,7 @@ export const ProvidersPage: React.FC = () => {
         title={isMobile ? undefined : 'Providers'}
         description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
         headerEnd={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="ghost"
               size={isMobile ? 'sm' : 'icon'}
@@ -320,8 +320,8 @@ export const ProvidersPage: React.FC = () => {
         title={isMobile ? undefined : 'Providers'}
         description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
         headerEnd={
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 max-w-full">
               <Icon
                 name="search"
                 className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -332,7 +332,7 @@ export const ProvidersPage: React.FC = () => {
                 onChange={(event) => setProviderQuery(event.target.value)}
                 placeholder="Search providers"
                 aria-label="Search providers"
-                className="h-9 w-[18rem] max-w-[24rem] pl-8"
+                className="h-9 w-[18rem] max-w-full pl-8"
               />
             </div>
             <Button
@@ -369,7 +369,7 @@ export const ProvidersPage: React.FC = () => {
       description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
+          <div className="relative min-w-0 max-w-full">
             <Icon
               name="search"
               className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -380,7 +380,7 @@ export const ProvidersPage: React.FC = () => {
               onChange={(event) => setProviderQuery(event.target.value)}
               placeholder="Search providers"
               aria-label="Search providers"
-              className="h-9 w-[18rem] max-w-[24rem] pl-8"
+              className="h-9 w-[18rem] max-w-full pl-8"
             />
             {providerQuery ? (
               <button
