@@ -52,7 +52,9 @@ describe('SidebarViewPreview', () => {
     expect(markupSelected).not.toContain('aria-pressed');
     expect(markupSelected).toContain('aria-checked="true"');
     expect(markupSelected).toContain('aria-label="Workspace"');
-    expect(/<button[^>]*aria-hidden="true"[^>]*tabindex="-1"/.test(markupSelected)).toBe(true);
+    // The dot is a span, not a button: touch layouts size every button as a
+    // touch target, which would blow the dot up to 36px.
+    expect(markupSelected).not.toContain('<button');
     expect(markupSelected).toContain('data-testid="custom-preview"');
     expect(markupSelected).toContain('aria-hidden="true"');
 

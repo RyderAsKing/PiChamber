@@ -6,7 +6,10 @@ interface RadioProps {
   onChange: () => void;
   disabled?: boolean;
   ariaLabel?: string;
-  /** Draw the dot only: the enclosing element is the radio, so this one leaves the tab order and the accessibility tree. */
+  /**
+   * Draw the dot only: the enclosing element is the radio, so this one leaves the tab order and the accessibility tree.
+   * It renders as a span, not a button, so touch layouts don't give it a button's touch-target size (see mobile.css).
+   */
   decorative?: boolean;
   className?: string;
   iconClassName?: string;
@@ -44,37 +47,52 @@ export const Radio = React.memo<RadioProps>(function Radio({
     [checked, disabled, onChange]
   );
 
+  const dot = (
+    <span
+      aria-hidden
+      className={cn(
+        'block h-[5px] w-[5px] rounded-full bg-white',
+        !checked && 'opacity-0',
+        iconClassName,
+      )}
+    />
+  );
+  const fillClassName = cn(
+    'relative flex h-[14px] w-[14px] min-h-[14px] min-w-[14px] shrink-0 self-center items-center justify-center rounded-full',
+    'transition-[background-color,box-shadow] duration-200 ease-out',
+    // fill driven from props so first paint is correct
+    checked
+      ? 'bg-[color-mix(in_srgb,var(--primary-base)_80%,transparent)] shadow-none'
+      : 'bg-[var(--surface-muted)] shadow-[inset_0_0_0_1px_var(--interactive-border)]',
+  );
+
+  if (decorative) {
+    return (
+      <span aria-hidden className={cn(fillClassName, disabled && 'opacity-50', className)}>
+        {dot}
+      </span>
+    );
+  }
+
   return (
     <button
       type="button"
-      role={decorative ? undefined : 'radio'}
+      role="radio"
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       disabled={disabled}
-      aria-checked={decorative ? undefined : checked}
-      aria-label={decorative ? undefined : ariaLabel}
-      aria-hidden={decorative || undefined}
-      tabIndex={decorative ? -1 : undefined}
+      aria-checked={checked}
+      aria-label={ariaLabel}
       className={cn(
-        'group/radio relative flex h-[14px] w-[14px] min-h-[14px] min-w-[14px] shrink-0 self-center items-center justify-center rounded-full outline-none',
-        'transition-[background-color,box-shadow] duration-200 ease-out',
-        // fill driven from props so first paint is correct
-        checked
-          ? 'bg-[color-mix(in_srgb,var(--primary-base)_80%,transparent)] shadow-none hover:bg-[var(--primary-base)]'
-          : 'bg-[var(--surface-muted)] shadow-[inset_0_0_0_1px_var(--interactive-border)] hover:bg-[var(--interactive-hover)]',
+        'group/radio outline-none',
+        fillClassName,
+        checked ? 'hover:bg-[var(--primary-base)]' : 'hover:bg-[var(--interactive-hover)]',
         'focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-background',
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          'block h-[5px] w-[5px] rounded-full bg-white',
-          !checked && 'opacity-0',
-          iconClassName,
-        )}
-      />
+      {dot}
     </button>
   );
 });
