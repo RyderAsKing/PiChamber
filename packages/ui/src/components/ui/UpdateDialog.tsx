@@ -77,8 +77,14 @@ function processChangelogMentions(content: string): string {
 }
 
 function compareSemverDesc(a: string, b: string): number {
-  const pa = a.split('.').map((v) => Number.parseInt(v, 10));
-  const pb = b.split('.').map((v) => Number.parseInt(v, 10));
+  const splitVersion = (version: string): [string, string] => {
+    const dash = version.indexOf('-');
+    return dash < 0 ? [version, ''] : [version.slice(0, dash), version.slice(dash + 1)];
+  };
+  const [coreA, preA] = splitVersion(a);
+  const [coreB, preB] = splitVersion(b);
+  const pa = coreA.split('.').map((v) => Number.parseInt(v, 10));
+  const pb = coreB.split('.').map((v) => Number.parseInt(v, 10));
   for (let i = 0; i < 3; i += 1) {
     const da = Number.isFinite(pa[i]) ? (pa[i] as number) : 0;
     const db = Number.isFinite(pb[i]) ? (pb[i] as number) : 0;
@@ -86,11 +92,16 @@ function compareSemverDesc(a: string, b: string): number {
       return db - da;
     }
   }
-  return 0;
+  // Same core version: the release sorts above its prereleases (1.0.4 > 1.0.4-rc.2),
+  // and prereleases compare with numeric segments (rc.10 > rc.2).
+  if (!preA || !preB) {
+    return (preA ? 1 : 0) - (preB ? 1 : 0);
+  }
+  return preB.localeCompare(preA, undefined, { numeric: true });
 }
 
 function parseChangelogSections(body: string): ChangelogSection[] {
-  const re = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})\s*$/gm;
+  const re = /^## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\] - (\d{4}-\d{2}-\d{2})\s*$/gm;
   const matches: Array<{ version: string; date: string; start: number }> = [];
 
   let m: RegExpExecArray | null;
@@ -259,37 +270,42 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={isWebUpdating ? undefined : onOpenChange}>
-      <DialogContent className="max-w-4xl p-5 bg-background border-[var(--interactive-border)]" showCloseButton={true}>
+      <DialogContent className="max-w-4xl p-4 sm:p-5 bg-background border-[var(--interactive-border)]" showCloseButton={true}>
         
-        {/* Header Section */}
-        <div className="flex items-center mb-1">
+        {/* Header Section: the title keeps its own line and the version meta
+            wraps beneath it on narrow (phone) dialogs instead of squeezing
+            every piece into one row. Each piece stays unbroken. */}
+        <div className="mb-1 space-y-1 pr-8">
           <DialogTitle className="flex items-center gap-2.5">
-            <Icon name="download-cloud" className="h-5 w-5 text-[var(--primary-base)]" />
+            <Icon name="download-cloud" className="h-5 w-5 shrink-0 text-[var(--primary-base)]" />
             <span className="text-lg font-semibold text-foreground">
               {webUpdateState === 'restarting' || webUpdateState === 'reconnecting'
                 ? "Updating PiChamber..."
-                : "Update Available"}
+                : "Update available"}
             </span>
           </DialogTitle>
 
-          {/* Version Diff */}
-          {(info?.currentVersion || displayedVersion) && (
-            <div className="flex items-center gap-2 font-mono text-sm ml-3">
-              {info?.currentVersion && (
-                <span className="text-muted-foreground">{info.currentVersion}</span>
+          {(info?.currentVersion || displayedVersion || (isWebRuntime && displayedChannel)) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pl-[1.875rem]">
+              {(info?.currentVersion || displayedVersion) && (
+                <div className="flex items-center gap-2 whitespace-nowrap font-mono text-sm">
+                  {info?.currentVersion && (
+                    <span className="text-muted-foreground">{info.currentVersion}</span>
+                  )}
+                  {info?.currentVersion && displayedVersion && (
+                    <span className="text-muted-foreground/50" aria-hidden="true">→</span>
+                  )}
+                  {displayedVersion && (
+                    <span className="text-[var(--primary-base)] font-medium">{displayedVersion}</span>
+                  )}
+                </div>
               )}
-              {info?.currentVersion && displayedVersion && (
-                <span className="text-muted-foreground/50">→</span>
-              )}
-              {displayedVersion && (
-                <span className="text-[var(--primary-base)] font-medium">{displayedVersion}</span>
+              {isWebRuntime && displayedChannel && (
+                <span className="whitespace-nowrap typography-meta text-muted-foreground">
+                  {displayedChannel === 'rc' ? "RC channel" : "Stable channel"}
+                </span>
               )}
             </div>
-          )}
-          {isWebRuntime && displayedChannel && (
-            <span className="ml-3 typography-meta text-muted-foreground">
-              {displayedChannel === 'rc' ? "RC subscription" : "Stable subscription"}
-            </span>
           )}
         </div>
 
@@ -317,7 +333,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           {changelog && !isWebUpdating && (
             <div className="rounded-lg border border-[var(--surface-subtle)] bg-[var(--surface-elevated)]/20 overflow-hidden">
               <ScrollableOverlay
-                className="max-h-[400px] p-0"
+                className="max-h-[min(400px,50dvh)] p-0"
                 fillContainer={false}
               >
                 {changelog.kind === 'raw' ? (
@@ -426,7 +442,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
         </div>
 
         {/* Action Footer */}
-        <div className="mt-4 flex items-center justify-between gap-4">
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <a
             href={releaseUrl}
             target="_blank"
@@ -440,23 +456,17 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           <div className="flex-1 flex justify-end">
             {/* Desktop Buttons */}
             {!isWebRuntime && !isMobileRuntime && !downloaded && !downloading && (
-              <button
-                onClick={onDownload}
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity"
-              >
+              <Button onClick={onDownload}>
                 <Icon name="download" className="h-4 w-4" />
-                {"Download Update"}
-              </button>
+                {"Download update"}
+              </Button>
             )}
 
             {!isWebRuntime && !isMobileRuntime && downloading && (
-              <button
-                disabled
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)]/50 text-[var(--primary-foreground)] cursor-not-allowed"
-              >
+              <Button disabled>
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
                 {"Downloading..."}
-              </button>
+              </Button>
             )}
 
             {!isWebRuntime && !isMobileRuntime && downloaded && (
@@ -481,23 +491,17 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             )}
 
             {isWebRuntime && !isWebUpdating && (
-              <button
-                onClick={handleWebUpdate}
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:opacity-90 transition-opacity"
-              >
+              <Button onClick={handleWebUpdate}>
                 <Icon name="download" className="h-4 w-4" />
-                {"Update Now"}
-              </button>
+                {"Update now"}
+              </Button>
             )}
 
             {isWebRuntime && isWebUpdating && (
-              <button
-                disabled
-                className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--primary-base)]/50 text-[var(--primary-foreground)] cursor-not-allowed"
-              >
+              <Button disabled>
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
                 {"Updating..."}
-              </button>
+              </Button>
             )}
           </div>
         </div>
