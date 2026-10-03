@@ -426,6 +426,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 data-session-archived={archivedBucket ? '1' : '0'}
                 data-fork-color={forkSolid ? node.forkColorId : undefined}
                 data-global-session={secondaryMeta?.globalSession ? '1' : undefined}
+                data-sidebar-tree-row={isTree ? '' : undefined}
                 onClick={handleRowBackgroundClick}
                 style={{
                   ...(depth > 0 ? { marginLeft: `${depth * 14}px` } : undefined),
@@ -602,7 +603,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
             <div
               className={cn(
                 'absolute right-3 flex h-5 min-w-6 items-center justify-end',
-                isTree ? 'top-1.5' : 'top-2',
+                // A tree row is one line, so its trailing status centers on the row; this also
+                // holds when touch layouts set the row's height (see mobile.css).
+                isTree ? 'top-1/2 -translate-y-1/2' : 'top-2',
                 editingId === session.id && 'hidden',
               )}
             >

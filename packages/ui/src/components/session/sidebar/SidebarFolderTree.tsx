@@ -246,7 +246,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
 
       {homeSection ? (
         <div>
-          <div className="relative flex items-center gap-1 py-1.5 px-3 rounded-xl transition-colors hover:bg-interactive-hover">
+          <div data-sidebar-tree-row="" className="relative flex items-center gap-1 py-1.5 px-3 rounded-xl transition-colors hover:bg-interactive-hover">
             <button
               type="button"
               aria-expanded={!isHomeCollapsed}

@@ -29,6 +29,7 @@ export const SidebarSessionLikeButton = ({
     <button
       type="button"
       onClick={onClick}
+      data-sidebar-tree-row={isTree ? '' : undefined}
       className={cn(
         mobileVariant ? sidebarSessionRowClassNameMobile : sidebarSessionRowClassName,
         isTree && treeRowGapClassName,

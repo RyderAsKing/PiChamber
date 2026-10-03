@@ -193,6 +193,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
             }
           >
             <div
+              data-sidebar-tree-row=""
               className="relative flex items-center gap-1 py-1.5 px-3 rounded-xl transition-colors hover:bg-interactive-hover"
             >
               <Tooltip>

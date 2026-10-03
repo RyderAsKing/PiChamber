@@ -107,6 +107,14 @@
     min-width: 36px;
   }
 
+  /* By-folder sidebar rows are one line. The touch floor above already makes
+     their buttons 36px, so the row's own vertical padding would stack on top
+     of it; drop it so each folder and session row is one 36px target, the
+     same rhythm as the workspace folder list. */
+  :root.mobile-pointer:not(.desktop-runtime) [data-sidebar-tree-row] {
+    padding-block: 0;
+  }
+
   /* Select options are tapped, not clicked: give them the same touch floor. */
   :root.mobile-pointer:not(.desktop-runtime) [data-slot="select-item"] {
     min-height: 36px;
