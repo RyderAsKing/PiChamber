@@ -102,6 +102,12 @@ mock.module('@/lib/runtime-fetch', () => ({
 
 mock.module('@/lib/mobile-error-log', () => ({
   recordMobileDiagnostic: () => {},
+  recordMobileDiagnosticError: () => {},
+  startMobileErrorLogCapture: () => () => {},
+  buildMobileErrorLog: () => '',
+  exportMobileErrorLog: async () => 'copied' as const,
+  flushMobileDiagnostics: () => {},
+  __resetMobileErrorLogForTests: () => {},
 }));
 
 const transport = await import('./mobileConnectionTransport');
@@ -513,4 +519,31 @@ describe('reprobe single-flight identity (candidates/secure reference)', () => {
 
 
 
+});
+
+describe('reprobe relay validation', () => {
+  test('a failed relay session check is not reported as a healthy connection', async () => {
+    try {
+      const relay = {
+        relayUrl: 'wss://relay.example/tunnel',
+        serverId: 'srv_1',
+        hostEncPubJwk: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' },
+      };
+      const rows = await storage.upsertMobileConnection({
+        label: 'Relay only',
+        candidates: [{ kind: 'relay' as const, relay }],
+        clientToken: 'relay-token',
+      });
+      runtimeKey = storage.secureTokenKeyOf(rows[0]!);
+      apiBaseUrl = 'https://relay-virtual.example';
+      relayActive = true;
+
+      // The mocked runtimeFetch resolves null: a dead/timed-out tunnel.
+      const outcome = await transport.reprobeActiveConnection();
+      expect(outcome).toBe('unreachable');
+      expect(switchCalls).toHaveLength(0);
+    } finally {
+      restoreAfterEach();
+    }
+  });
 });

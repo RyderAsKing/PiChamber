@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  MOBILE_RECOVERY_EXHAUSTED_POLL_MS,
   MOBILE_RECOVERY_MAX_ATTEMPTS,
   MOBILE_RECOVERY_OFFLINE_HIDDEN_DELAY_MS,
   MobileConnectionRecovery,
@@ -37,10 +38,36 @@ const installRecoveryHarness = (options?: {
   const originalWindow = (globalThis as Record<string, unknown>).window;
   const originalDocument = (globalThis as Record<string, unknown>).document;
   const originalNavigator = (globalThis as Record<string, unknown>).navigator;
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
   let online = options?.online ?? true;
   let visible = options?.visible ?? true;
+  let virtualTime = 0;
+  let nextTimerId = 1;
+  const pendingTimers = new Map<number, { callback: () => void; dueTime: number }>();
   const windowListeners = new Map<string, Set<() => void>>();
   const documentListeners = new Map<string, Set<() => void>>();
+
+  const fakeSetTimeout = (handler: TimerHandler, timeout = 0, ...args: unknown[]) => {
+    const id = nextTimerId++;
+    const callback =
+      typeof handler === 'function'
+        ? () => (handler as (...args: unknown[]) => void)(...args)
+        : typeof handler === 'string'
+          ? () => {
+              new Function(handler)();
+            }
+          : () => {};
+    pendingTimers.set(id, { callback, dueTime: virtualTime + Math.max(0, timeout) });
+    return id as unknown as ReturnType<typeof setTimeout>;
+  };
+
+  const fakeClearTimeout = (id: unknown) => {
+    pendingTimers.delete(id as number);
+  };
+
+  globalThis.setTimeout = fakeSetTimeout as unknown as typeof setTimeout;
+  globalThis.clearTimeout = fakeClearTimeout as typeof clearTimeout;
 
   const windowStub: WindowStub = {
     listeners: windowListeners,
@@ -55,8 +82,8 @@ const installRecoveryHarness = (options?: {
     dispatch: (type) => {
       for (const listener of [...(windowListeners.get(type) ?? [])]) listener();
     },
-    setTimeout: globalThis.setTimeout.bind(globalThis),
-    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    setTimeout: fakeSetTimeout as unknown as typeof setTimeout,
+    clearTimeout: fakeClearTimeout as typeof clearTimeout,
   };
 
   const documentStub: DocumentStub = {
@@ -88,6 +115,29 @@ const installRecoveryHarness = (options?: {
     },
   };
 
+  const advanceTimersByTime = async (ms: number) => {
+    const targetTime = virtualTime + ms;
+    while (true) {
+      let earliestId: number | null = null;
+      let earliestDue = Infinity;
+      for (const [id, timer] of pendingTimers.entries()) {
+        if (timer.dueTime <= targetTime && timer.dueTime < earliestDue) {
+          earliestDue = timer.dueTime;
+          earliestId = id;
+        }
+      }
+      if (earliestId === null) {
+        virtualTime = targetTime;
+        break;
+      }
+      virtualTime = earliestDue;
+      const entry = pendingTimers.get(earliestId);
+      pendingTimers.delete(earliestId);
+      entry?.callback();
+      await flush();
+    }
+  };
+
   return {
     windowStub,
     documentStub,
@@ -98,7 +148,10 @@ const installRecoveryHarness = (options?: {
       visible = value;
       documentStub.visibilityState = value ? 'visible' : 'hidden';
     },
+    advanceTimersByTime,
     restore: () => {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
       if (originalWindow === undefined)
         delete (globalThis as Record<string, unknown>).window;
       else (globalThis as Record<string, unknown>).window = originalWindow;
@@ -123,7 +176,7 @@ const deferred = <T,>() => {
 const flush = async (rounds = 4) => {
   for (let i = 0; i < rounds; i += 1) {
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
   }
 };
 
@@ -332,5 +385,226 @@ describe('mobile recovery policy', () => {
     setMobileConnectionUncertain(true);
     expect(isMobileConnectionUncertain()).toBe(true);
     setMobileConnectionUncertain(false);
+  });
+
+  test('exhausted slow poll probes once after MOBILE_RECOVERY_EXHAUSTED_POLL_MS and calls onHealthy on success', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    let exhaustedCount = 0;
+    let healthyOutcome: string | null = null;
+    let probeOutcome: RecoveryProbeOutcome = 'unreachable';
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return probeOutcome;
+      },
+      callbacks({
+        onExhausted: () => (exhaustedCount += 1),
+        onHealthy: (outcome) => {
+          healthyOutcome = outcome;
+        },
+      }),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+      expect(exhaustedCount).toBe(1);
+      expect(recovery.isRunning).toBe(false);
+
+      probeOutcome = 'unchanged';
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+      expect(healthyOutcome).toBe('unchanged');
+      expect(exhaustedCount).toBe(1);
+      expect(recovery.isRunning).toBe(false);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('unreachable polls keep polling across intervals without extra onExhausted or onAttempt calls', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    let exhaustedCount = 0;
+    let attemptCount = 0;
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return 'unreachable';
+      },
+      callbacks({
+        onExhausted: () => (exhaustedCount += 1),
+        onAttempt: () => (attemptCount += 1),
+      }),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+      expect(exhaustedCount).toBe(1);
+      const attemptsDuringCycle = attemptCount;
+      expect(attemptsDuringCycle).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+      expect(exhaustedCount).toBe(1);
+      expect(attemptCount).toBe(attemptsDuringCycle);
+
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 2);
+      expect(exhaustedCount).toBe(1);
+      expect(attemptCount).toBe(attemptsDuringCycle);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('no probe while hidden or offline at poll time and reschedules', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return 'unreachable';
+      },
+      callbacks(),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      harness.setOnline(false);
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      harness.setOnline(true);
+      harness.setVisible(false);
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_OFFLINE_HIDDEN_DELAY_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      harness.setVisible(true);
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_OFFLINE_HIDDEN_DELAY_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('cancel after exhaustion stops polling; retryNow starts a fresh bounded cycle without stray poll fires', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return 'unreachable';
+      },
+      callbacks(),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      recovery.cancel();
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS * 2);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+
+      await exhaust(recovery);
+      const probesAfterSecondExhaust = probes;
+
+      recovery.retryNow();
+      await flush();
+      expect(probes).toBe(probesAfterSecondExhaust + 1);
+      expect(recovery.isRunning).toBe(true);
+      expect(recovery.currentAttempt).toBe(1);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('needs-login during an exhausted poll calls onAuthExpired and clears exhausted state', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    let authExpired = 0;
+    let probeOutcome: RecoveryProbeOutcome = 'unreachable';
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return probeOutcome;
+      },
+      callbacks({
+        onAuthExpired: () => (authExpired += 1),
+      }),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+      expect(authExpired).toBe(0);
+
+      probeOutcome = 'needs-login';
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+      expect(authExpired).toBe(1);
+      expect(recovery.isRunning).toBe(false);
+
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('no-connection during an exhausted poll calls onNoConnection and clears exhausted state', async () => {
+    const harness = installRecoveryHarness();
+    let probes = 0;
+    let noConnectionCount = 0;
+    let probeOutcome: RecoveryProbeOutcome = 'unreachable';
+    const recovery = new MobileConnectionRecovery(
+      async () => {
+        probes += 1;
+        return probeOutcome;
+      },
+      callbacks({
+        onNoConnection: () => (noConnectionCount += 1),
+      }),
+    );
+    try {
+      await exhaust(recovery);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS);
+      expect(noConnectionCount).toBe(0);
+
+      probeOutcome = 'no-connection';
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+      expect(noConnectionCount).toBe(1);
+      expect(recovery.isRunning).toBe(false);
+
+      await harness.advanceTimersByTime(MOBILE_RECOVERY_EXHAUSTED_POLL_MS);
+      expect(probes).toBe(MOBILE_RECOVERY_MAX_ATTEMPTS + 1);
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
+  });
+
+  test('probeOnce returns null while exhausted and waiting for poll', async () => {
+    const harness = installRecoveryHarness();
+    const recovery = new MobileConnectionRecovery(
+      async () => 'unreachable',
+      callbacks(),
+    );
+    try {
+      await exhaust(recovery);
+      expect(await recovery.probeOnce()).toBeNull();
+    } finally {
+      recovery.cancel();
+      harness.restore();
+    }
   });
 });

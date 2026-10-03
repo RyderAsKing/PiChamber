@@ -19,7 +19,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
 import { refreshDesktopSettings, syncDesktopSettings } from '@/lib/persistence';
-import { startMobileErrorLogCapture } from '@/lib/mobile-error-log';
+import { recordMobileDiagnostic, startMobileErrorLogCapture } from '@/lib/mobile-error-log';
 import { loadSessionCatalog } from '@/sync/session-catalog-access';
 import { normalizePath } from '@/lib/pathNormalization';
 import { decideMobileRestore } from './mobileLastSessionRestore';
@@ -96,6 +96,11 @@ export function MobileApp({ apis }: MobileAppProps) {
   const lastNativeResumeSyncEventAtRef = React.useRef(0);
   const nativeResumeValidationSeqRef = React.useRef(0);
   const autoConnectInFlightRef = React.useRef(false);
+  // Cold-launch classification probe for native Capacitor app with a persisted endpoint:
+  // while in flight, hold the splash so the 4s "Unable to reach server" fallback does not flash.
+  const [coldLaunchClassificationPending, setColdLaunchClassificationPending] = React.useState(
+    () => isNativeMobileApp && Boolean(getRuntimeApiBaseUrl()),
+  );
 
   // Temporary-unreachable recovery controller. One instance per mount; the
   // probe reuses reprobeActiveConnection (verified candidate failover,
@@ -109,6 +114,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       () => reprobeActiveConnection(),
       {
         onHealthy: (outcome) => {
+          recordMobileDiagnostic('recovery', { code: 'success' });
           setRecoveryPhase('idle');
           setMobileConnectionUncertain(false);
           if (outcome === 'unchanged') {
@@ -121,6 +127,7 @@ export function MobileApp({ apis }: MobileAppProps) {
           }
         },
         onAuthExpired: () => {
+          recordMobileDiagnostic('recovery', { code: 'auth-expired' });
           setRecoveryPhase('idle');
           setMobileConnectionUncertain(false);
           setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
@@ -128,6 +135,7 @@ export function MobileApp({ apis }: MobileAppProps) {
           setConnectionEpoch((value) => value + 1);
         },
         onNoConnection: () => {
+          recordMobileDiagnostic('recovery', { code: 'no-connection' });
           setRecoveryPhase('idle');
           setMobileConnectionUncertain(false);
           switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
@@ -139,7 +147,11 @@ export function MobileApp({ apis }: MobileAppProps) {
           // keeps blocking sends instead of replaying them. A genuine
           // online/foreground/manual wake restarts a fresh bounded cycle;
           // offline/hidden wakes never restart (no background loops).
+          recordMobileDiagnostic('recovery', { code: 'exhausted' });
           setRecoveryPhase('exhausted');
+        },
+        onAttempt: (attempt) => {
+          recordMobileDiagnostic('recovery', { code: 'attempt', detail: String(attempt) });
         },
       },
       () => `${getRuntimeKey()}|${getRuntimeApiBaseUrl()}`,
@@ -170,6 +182,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     recoveryRef.current?.cancel();
     setRecoveryPhase('idle');
     setMobileConnectionUncertain(false);
+    setColdLaunchClassificationPending(false);
   }, []);
 
   const disconnectToConnectScreen = React.useCallback((notice: MobileConnectionNotice | null) => {
@@ -177,13 +190,11 @@ export function MobileApp({ apis }: MobileAppProps) {
     // probe), clear uncertainty (composer unmounts to the connect screen),
     // and clear the endpoint. Stale stores are reset by the endpoint-change
     // subscription; recovery never clears them itself.
-    recoveryRef.current?.cancel();
-    setRecoveryPhase('idle');
-    setMobileConnectionUncertain(false);
+    cancelTemporaryRecovery();
     if (notice) setAutoConnectNotice(notice);
     switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
     setConnectionEpoch((value) => value + 1);
-  }, []);
+  }, [cancelTemporaryRecovery]);
 
   const dispatchThrottledSystemResume = React.useCallback(() => {
     const now = Date.now();
@@ -387,14 +398,12 @@ export function MobileApp({ apis }: MobileAppProps) {
       // Explicit disconnect or host switch: abandon recovery so a late probe
       // for the old endpoint cannot undo it (generation + runtime identity
       // already reject it, this clears the banner/uncertainty immediately).
-      recoveryRef.current?.cancel();
-      setRecoveryPhase('idle');
-      setMobileConnectionUncertain(false);
+      cancelTemporaryRecovery();
       resetAppForRuntimeEndpointChange(detail);
       setRuntimeEndpointEpoch((epoch) => epoch + 1);
       setConnectionEpoch((epoch) => epoch + 1);
     });
-  }, []);
+  }, [cancelTemporaryRecovery]);
 
   React.useEffect(() => {
     // Runtime settings must be reloaded after the new endpoint is
@@ -420,6 +429,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       .catch((): AutoConnectOutcome => ({ status: 'no-candidate' }))
       .then((outcome) => {
         if (cancelled) return;
+        recordMobileDiagnostic('auto-connect', { code: outcome.status });
         // Landing on the connect screen silently reads as data loss — say WHY
         // the saved instance didn't come back (unreachable vs revoked auth).
         if (outcome.status === 'unreachable') {
@@ -437,18 +447,20 @@ export function MobileApp({ apis }: MobileAppProps) {
   }, []);
 
   // Cold launch with a PERSISTED runtime endpoint (the auto-connect effect
-  // above skips this case): the app used to just sit on the recovery splash
-  // for 8s while bootstrap failed, then show a vague "unable to reach server"
-  // screen. Classify the failure with a fast re-probe instead: unreachable or
-  // rejected auth drops straight to the connect screen with a banner saying
-  // why; a switched/alive transport lets bootstrap proceed as usual. The
-  // probe goes through the controller's single-owner token so a concurrent
-  // resume/startup duplicate commits nothing (returns null).
+  // above skips this case): classify the failure with a fast re-probe:
+  // unreachable retains the endpoint and enters paced recovery (same as
+  // warm resume); rejected auth drops straight to the connect screen with an
+  // auth-expired notice; a switched/alive transport lets bootstrap proceed as
+  // usual. The probe goes through the controller's single-owner token so a
+  // concurrent resume/startup duplicate commits nothing (returns null).
   React.useEffect(() => {
     // NOTE: do NOT gate on isConnected here — the persisted store can claim a
     // stale `isConnected: true` at mount, which would skip the classification
     // exactly when it's needed. Check it at resolution time instead.
-    if (!isNativeMobileApp || !getRuntimeApiBaseUrl()) return;
+    if (!isNativeMobileApp || !getRuntimeApiBaseUrl()) {
+      setColdLaunchClassificationPending(false);
+      return;
+    }
     let cancelled = false;
     const dropToConnectScreen = (notice: MobileConnectionNotice | null) => {
       if (notice) setAutoConnectNotice(notice);
@@ -456,40 +468,55 @@ export function MobileApp({ apis }: MobileAppProps) {
       setConnectionEpoch((value) => value + 1);
     };
     const recovery = recoveryRef.current;
-    if (!recovery) return;
-    void recovery.probeOnce().then(async (outcome) => {
-      if (cancelled || outcome === null) return;
-      // A genuinely live connection established itself while we probed.
-      if (outcome === 'switched' || outcome === 'unchanged') return;
-      const label = getAutoConnectTargetLabel();
-      if (outcome === 'needs-login') {
-        dropToConnectScreen({ kind: 'auth-expired', label: label ?? '' });
-        return;
+    if (!recovery) {
+      setColdLaunchClassificationPending(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const outcome = await recovery.probeOnce();
+        if (cancelled || outcome === null) return;
+        // A genuinely live connection established itself while we probed.
+        if (outcome === 'switched' || outcome === 'unchanged') return;
+        const label = getAutoConnectTargetLabel();
+        if (outcome === 'needs-login') {
+          dropToConnectScreen({ kind: 'auth-expired', label: label ?? '' });
+          return;
+        }
+        if (outcome === 'unreachable') {
+          startTemporaryRecovery();
+          return;
+        }
+        // 'no-connection': at cold start the runtime key may not map to a saved
+        // connection yet — fall back to the auto-connect path, which both
+        // classifies the failure and connects when everything is actually fine.
+        const fallback = await autoConnectLastInstance().catch((): AutoConnectOutcome => ({ status: 'no-candidate' }));
+        if (cancelled) return;
+        recordMobileDiagnostic('auto-connect', { code: fallback.status });
+        if (fallback.status === 'connected') return;
+        if (fallback.status === 'needs-login') {
+          dropToConnectScreen({ kind: 'auth-expired', label: fallback.label });
+        } else if (fallback.status === 'unreachable') {
+          // The persisted endpoint maps to no saved connection, so paced
+          // recovery could only end in 'no-connection': say why instead.
+          dropToConnectScreen({ kind: 'unreachable', label: fallback.label });
+        } else {
+          dropToConnectScreen(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setColdLaunchClassificationPending(false);
+        }
       }
-      if (outcome === 'unreachable') {
-        dropToConnectScreen(label ? { kind: 'unreachable', label } : null);
-        return;
-      }
-      // 'no-connection': at cold start the runtime key may not map to a saved
-      // connection yet — fall back to the auto-connect path, which both
-      // classifies the failure and connects when everything is actually fine.
-      const fallback = await autoConnectLastInstance().catch((): AutoConnectOutcome => ({ status: 'no-candidate' }));
-      if (cancelled || fallback.status === 'connected') return;
-      if (fallback.status === 'needs-login') {
-        dropToConnectScreen({ kind: 'auth-expired', label: fallback.label });
-      } else if (fallback.status === 'unreachable') {
-        dropToConnectScreen({ kind: 'unreachable', label: fallback.label });
-      } else {
-        dropToConnectScreen(null);
-      }
-    });
+    })();
     return () => {
       cancelled = true;
+      setColdLaunchClassificationPending(false);
     };
     // Run once on mount — a cold-launch classification only; live drops are
     // handled by the resume/online re-probe paths.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startTemporaryRecovery]);
 
   React.useEffect(() => {
     setIsMobile(true);
@@ -639,6 +666,12 @@ export function MobileApp({ apis }: MobileAppProps) {
       setShowConnectionRecovery(false);
       return;
     }
+    // While the cold-launch classification probe is still in flight, hold the
+    // splash: do not show the full-screen "Unable to reach server".
+    if (isNativeMobileApp && coldLaunchClassificationPending) {
+      setShowConnectionRecovery(false);
+      return;
+    }
     // Native: only while an instance is selected and reconnecting. Browser: the
     // runtime is same-origin (no explicit base URL), so any not-connected spell
     // counts — the splash holds until this fires, then the error screen shows.
@@ -654,7 +687,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       setShowConnectionRecovery(true);
     }, isNativeMobileApp ? 4000 : 8000);
     return () => window.clearTimeout(timeout);
-  }, [isConnected, isNativeMobileApp, connectionEpoch, recoveryPhase, runtimeEndpointEpoch]);
+  }, [isConnected, isNativeMobileApp, connectionEpoch, recoveryPhase, runtimeEndpointEpoch, coldLaunchClassificationPending]);
 
   useAppFontEffects();
   usePushVisibilityBeacon({ enabled: true });
@@ -762,7 +795,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     );
   }
 
-  if (!isConnected && !isReconnecting) {
+  if (!isNativeMobileApp && !isConnected && !isReconnecting) {
     // Browser: the initial connect takes a beat — hold the logo splash instead
     // of flashing the unreachable-server error while it resolves. The error
     // only shows once the recovery delay has expired (genuinely unreachable).

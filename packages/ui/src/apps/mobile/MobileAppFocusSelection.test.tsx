@@ -103,6 +103,10 @@ mock.module('@/lib/mobile-error-log', () => ({
   startMobileErrorLogCapture: () => () => undefined,
   recordMobileDiagnostic: () => undefined,
   recordMobileDiagnosticError: () => undefined,
+  buildMobileErrorLog: () => '',
+  exportMobileErrorLog: () => Promise.resolve('copied' as const),
+  flushMobileDiagnostics: () => undefined,
+  __resetMobileErrorLogForTests: () => undefined,
 }));
 mock.module('@/sync/last-session-cache', () => ({
   readLastActiveSession: () => null,

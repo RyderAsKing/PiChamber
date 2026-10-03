@@ -28,7 +28,13 @@ mock.module('@/components/perf/PerfHudHost', () => ({ PerfHudHost: () => null })
 mock.module('@/components/worktree/WorktreeCreationToasts', () => ({ WorktreeCreationToasts: () => null }));
 mock.module('@/hooks/useRouter', () => ({ useRouter: () => undefined }));
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
-mock.module('@/lib/runtime-switch', () => ({ subscribeRuntimeEndpointChanged: () => () => undefined }));
+mock.module('@/lib/runtime-switch', () => ({
+  getRuntimeKey: () => 'local',
+  getRuntimeApiBaseUrl: () => 'http://127.0.0.1:3000',
+  getRuntimeEndpointGeneration: () => 0,
+  subscribeRuntimeEndpointChanged: () => () => undefined,
+  subscribeRuntimeEndpointWillChange: () => () => undefined,
+}));
 mock.module('@/lib/persistence', () => ({
   syncDesktopSettings: () => new Promise<void>((resolve) => {
     resolveSettingsSync = resolve;

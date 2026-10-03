@@ -172,8 +172,17 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         const tokenIsNew = Boolean(token);
         if (!token) {
           if (isCapacitorApp()) {
-            if (saved?.hasToken)
-              token = await readSecureToken(secureTokenKeyOf({ candidates }));
+            if (saved?.hasToken) {
+              const readResult = await readSecureToken(
+                secureTokenKeyOf({ candidates })
+              );
+              if (readResult.status === 'present') {
+                token = readResult.token;
+              } else if (readResult.status === 'failure') {
+                setError('Could not read saved credentials. Please try again.');
+                return;
+              }
+            }
           } else {
             token = saved?.clientToken;
           }
@@ -478,8 +487,10 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         } else if (existing?.hasToken) {
           const previousKey = secureTokenKeyOf(existing);
           if (previousKey && nextKey && previousKey !== nextKey) {
-            const storedToken = await readSecureToken(previousKey);
-            if (storedToken) await writeSecureToken(nextKey, storedToken);
+            const storedTokenResult = await readSecureToken(previousKey);
+            if (storedTokenResult.status === 'present') {
+              await writeSecureToken(nextKey, storedTokenResult.token);
+            }
           }
         }
       }
