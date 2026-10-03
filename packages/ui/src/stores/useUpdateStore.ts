@@ -200,9 +200,24 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         info = await checkForWebUpdates('web');
         suggestedSec = info?.nextSuggestedCheckInSec ?? null;
       } else if (runtime === 'mobile') {
+        // The native app bundle and the server it connects to are versioned
+        // and updated independently, so each gets its own result. `available`
+        // stays the app's: the app update toast keys off it.
         const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined;
-        info = await checkForWebUpdates('mobile', appVersion);
-        suggestedSec = info?.nextSuggestedCheckInSec ?? null;
+        const [clientInfo, serverInfo] = await Promise.all([
+          checkForWebUpdates('mobile', appVersion),
+          checkForWebUpdates('web'),
+        ]);
+        suggestedSec = clientInfo?.nextSuggestedCheckInSec ?? serverInfo?.nextSuggestedCheckInSec ?? null;
+        set({
+          checking: false,
+          available: clientInfo?.available ?? false,
+          info: clientInfo,
+          serverInfo,
+          lastChecked: Date.now(),
+          nextCheckInSec: suggestedSec,
+        });
+        return suggestedSec;
       }
 
       set({

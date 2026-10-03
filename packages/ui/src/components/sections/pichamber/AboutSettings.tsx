@@ -9,6 +9,7 @@ import { Icon } from "@/components/icon/Icon";
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isDesktopLocalOriginActive, isElectronShell } from '@/lib/desktop';
+import { isCapacitorApp } from '@/lib/platform';
 import type { UpdateInfo } from '@/lib/desktop';
 import { InstanceServiceUrls } from './InstanceServiceUrls';
 import { DesktopUpdateChannelSettings } from './DesktopUpdateChannelSettings';
@@ -47,18 +48,23 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     downloaded: s.downloaded,
     progress: s.progress,
     runtimeType: s.runtimeType,
+    lastChecked: s.lastChecked,
     checkForUpdates: s.checkForUpdates,
     downloadUpdate: s.downloadUpdate,
     restartToUpdate: s.restartToUpdate,
   })));
   const { isMobile } = useDeviceInfo();
   const isRemoteDesktop = isElectronShell() && !isDesktopLocalOriginActive();
+  // The native app is its own bundle, connected to a separately versioned
+  // server. Hosted mobile is served by that server, so it has one version.
+  const isNativeMobile = React.useMemo(() => isCapacitorApp(), []);
+  const hasSeparateServer = isRemoteDesktop || isNativeMobile;
   const currentVersion = piChamberVersion || updateStore.info?.currentVersion || 'unknown';
   const clientVersion = updateStore.info?.currentVersion
     || (typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown');
   const serverVersion = updateStore.serverInfo?.currentVersion || piChamberVersion || 'unknown';
   const clientUpdateAvailable = updateStore.available;
-  const serverUpdateAvailable = isRemoteDesktop && (updateStore.serverInfo?.available ?? false);
+  const serverUpdateAvailable = hasSeparateServer && (updateStore.serverInfo?.available ?? false);
   const anyUpdateAvailable = clientUpdateAvailable || serverUpdateAvailable;
   const activeUpdateInfo = updateDialogTarget === 'server'
     ? updateStore.serverInfo
@@ -108,7 +114,10 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         setShowChecking(false);
         // Show toast if check completed with no update available
         if (didInitiateCheck.current) {
-          if (!anyUpdateAvailable && !updateStore.error) {
+          // A failed check returns no result; it must not read as "up to date".
+          const { info, serverInfo } = useUpdateStore.getState();
+          const checkComplete = info !== null && (!hasSeparateServer || serverInfo !== null);
+          if (!anyUpdateAvailable && !updateStore.error && checkComplete) {
             toast.success("You are on the latest version");
           }
           didInitiateCheck.current = false;
@@ -116,7 +125,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
       }, MIN_CHECKING_DURATION);
       return () => clearTimeout(timer);
     }
-  }, [updateStore.checking, showChecking, anyUpdateAvailable, updateStore.error]);
+  }, [updateStore.checking, showChecking, anyUpdateAvailable, updateStore.error, hasSeparateServer]);
 
   const isChecking = updateStore.checking || showChecking;
 
@@ -126,14 +135,57 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         <div className="flex flex-col items-center text-center">
           <PiChamberLogo width={72} height={72} />
           <h2 className={`mt-4 ${SETTINGS_BRAND_TITLE_CLASS}`}>PiChamber</h2>
-          <div className="mt-2 space-y-1 typography-ui text-muted-foreground">
-            <p>{`PiChamber version ${currentVersion}`}</p>
-          </div>
-          <InstanceServiceUrls />
+          <InstanceServiceUrls className="mt-3 justify-center" />
         </div>
 
-        <div className="flex justify-center">
-          {!updateStore.available && !updateStore.error && (
+        <div className="space-y-3">
+          <div className="divide-y divide-border/40 overflow-hidden rounded-lg bg-[var(--surface-elevated)]/70">
+            {isNativeMobile ? (
+              <>
+                <MobileVersionRow
+                  label="Client"
+                  version={clientVersion}
+                  updateInfo={updateStore.info}
+                  checked={updateStore.lastChecked !== null}
+                  checking={isChecking}
+                  onOpen={() => setUpdateDialogTarget('client')}
+                />
+                <MobileVersionRow
+                  label="Server"
+                  version={serverVersion}
+                  updateInfo={updateStore.serverInfo}
+                  checked={updateStore.lastChecked !== null}
+                  checking={isChecking}
+                  onOpen={() => setUpdateDialogTarget('server')}
+                />
+              </>
+            ) : (
+              <>
+                {/* Hosted mobile runs the UI bundle its server serves, so the
+                    client has no update of its own: it updates with the server. */}
+                <MobileVersionRow
+                  label="Client"
+                  version={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'}
+                  updateInfo={null}
+                  note="Updates with server"
+                  checked={false}
+                  checking={false}
+                  onOpen={() => undefined}
+                />
+                {/* The web check reports the server, and stores it as the
+                    store's primary `info`, so it opens the 'client' target. */}
+                <MobileVersionRow
+                  label="Server"
+                  version={updateStore.info?.currentVersion || piChamberVersion || 'unknown'}
+                  updateInfo={updateStore.info}
+                  checked={updateStore.lastChecked !== null}
+                  checking={isChecking}
+                  onOpen={() => setUpdateDialogTarget('client')}
+                />
+              </>
+            )}
+          </div>
+          <div className="flex justify-center">
             <Button
               type="button"
               variant="outline"
@@ -145,20 +197,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               {isChecking ? <Icon name="loader" className="size-4 animate-spin" /> : <Icon name="refresh" className="size-4" />}
               {isChecking ? "Checking..." : "Check for updates"}
             </Button>
-          )}
-
-          {!isChecking && updateStore.available && (
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              onClick={() => setUpdateDialogTarget('client')}
-              className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
-            >
-              <Icon name="download" className="size-4" />
-              {`Update to ${updateStore.info?.version || ''}`}
-            </Button>
-          )}
+          </div>
         </div>
 
         {updateStore.error && (
@@ -361,6 +400,60 @@ const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
       <span>{`${label} ${version}`}</span>
       <Icon name="arrow-up" className="size-3.5" aria-hidden="true" />
     </Button>
+  );
+};
+
+type MobileVersionRowProps = {
+  label: 'Client' | 'Server';
+  version: string;
+  updateInfo: UpdateInfo | null;
+  /** Fixed status for a target that has no update check of its own. */
+  note?: string;
+  /** A check has completed, so a missing result means that check failed. */
+  checked: boolean;
+  checking: boolean;
+  onOpen: () => void;
+};
+
+const MobileVersionRow: React.FC<MobileVersionRowProps> = ({
+  label,
+  version,
+  updateInfo,
+  note,
+  checked,
+  checking,
+  onOpen,
+}) => {
+  let status: React.ReactNode = null;
+  if (note) {
+    status = <span className="typography-meta text-muted-foreground">{note}</span>;
+  } else if (updateInfo?.available) {
+    status = (
+      <Button
+        type="button"
+        variant="default"
+        size="sm"
+        onClick={onOpen}
+        aria-label={`Open ${label.toLowerCase()} updater${updateInfo.version ? ` for ${updateInfo.version}` : ''}`}
+      >
+        <Icon name="download" className="size-4" />
+        {updateInfo.version ? `Update to ${updateInfo.version}` : 'Update'}
+      </Button>
+    );
+  } else if (!checking && updateInfo) {
+    status = <span className="typography-meta text-muted-foreground">{"Up to date"}</span>;
+  } else if (!checking && checked) {
+    status = <span className="typography-meta text-muted-foreground">{"Couldn't check"}</span>;
+  }
+
+  return (
+    <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-2">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className={SETTINGS_FIELD_LABEL_CLASS}>{label}</span>
+        <span className="truncate typography-meta font-mono text-muted-foreground">{version}</span>
+      </div>
+      {status ? <div className="shrink-0">{status}</div> : null}
+    </div>
   );
 };
 

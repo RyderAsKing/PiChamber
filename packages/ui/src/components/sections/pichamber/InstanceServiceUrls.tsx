@@ -3,6 +3,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { openExternalUrl } from '@/lib/url';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
+import { cn } from '@/lib/utils';
 
 type InstanceServiceInfo = {
   port: number | null;
@@ -26,7 +27,7 @@ type InstanceService = {
  * port/tunnel (e.g. VS Code runtime), so a failed fetch never renders stale
  * or wrong URLs.
  */
-export const InstanceServiceUrls: React.FC = () => {
+export const InstanceServiceUrls: React.FC<{ className?: string }> = ({ className }) => {
   
   const [info, setInfo] = React.useState<InstanceServiceInfo | null>(null);
 
@@ -83,7 +84,7 @@ export const InstanceServiceUrls: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {services.map((service) => (
         <Button
           key={service.key}
