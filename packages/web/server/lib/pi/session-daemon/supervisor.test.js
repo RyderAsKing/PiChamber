@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, mkdir, readFile, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -182,6 +183,97 @@ describe('Pi session daemon supervisor', () => {
 
     await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_START_TIMEOUT' });
     expect(spawnEnv?.ELECTRON_RUN_AS_NODE).toBe('1');
+  });
+
+  it('surfaces asynchronous child spawn errors as DAEMON_SPAWN_FAILED and exits readiness wait early', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-spawn-err-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+    const killCalls = [];
+    supervisor = createPiSessionDaemonSupervisor({
+      env,
+      cwd,
+      processLike: {
+        execPath: process.execPath,
+        pid: process.pid,
+        kill(...args) {
+          killCalls.push(args);
+        },
+      },
+      spawn: () => {
+        const child = new EventEmitter();
+        child.pid = undefined;
+        child.unref = () => {};
+        queueMicrotask(() => {
+          const error = new Error('spawn EACCES');
+          error.code = 'EACCES';
+          child.emit('error', error);
+        });
+        return child;
+      },
+      wait: async (ms) => {
+        await new Promise((resolve) => setTimeout(resolve, ms));
+      },
+      startupTimeoutMs: 50,
+      daemonReadyTimeoutMs: 10_000,
+      request: async () => {
+        const error = new Error('refused');
+        error.code = 'DAEMON_CONNECTION_REFUSED';
+        throw error;
+      },
+    });
+
+    const start = Date.now();
+    await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_SPAWN_FAILED' });
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeLessThan(1000);
+    expect(killCalls.some(([pid]) => pid === undefined)).toBe(false);
+  });
+
+  it('surfaces synchronous spawn errors as DAEMON_SPAWN_FAILED', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-supervisor-spawn-sync-err-'));
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await Promise.all([mkdir(cwd), mkdir(agentDir)]);
+    const env = {
+      ...process.env,
+      PI_OFFLINE: '1',
+      PICHAMBER_DATA_DIR: join(root, 'data'),
+      PICHAMBER_PI_AGENT_DIR: agentDir,
+      XDG_RUNTIME_DIR: join(root, 'runtime'),
+    };
+    supervisor = createPiSessionDaemonSupervisor({
+      env,
+      cwd,
+      processLike: {
+        execPath: process.execPath,
+        pid: process.pid,
+        kill() {},
+      },
+      spawn: () => {
+        const error = new Error('spawn ENOENT');
+        error.code = 'ENOENT';
+        throw error;
+      },
+      wait: async () => {},
+      startupTimeoutMs: 50,
+      daemonReadyTimeoutMs: 10_000,
+      request: async () => {
+        const error = new Error('refused');
+        error.code = 'DAEMON_CONNECTION_REFUSED';
+        throw error;
+      },
+    });
+
+    await expect(supervisor.start()).rejects.toMatchObject({ code: 'DAEMON_SPAWN_FAILED' });
   });
 
   it('uses a per-user Windows named pipe instead of a filesystem socket', () => {

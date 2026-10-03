@@ -542,6 +542,7 @@ export const createPiSessionDaemonSupervisor = ({
         logFd = null;
       }
       let child;
+      let spawnError = null;
       try {
         child = spawn(processLike.execPath, [
           DAEMON_ENTRYPOINT,
@@ -566,10 +567,17 @@ export const createPiSessionDaemonSupervisor = ({
             electronVersion: processLike.versions?.electron,
           }),
         });
+      } catch {
+        throw new PiSessionDaemonUnavailableError('DAEMON_SPAWN_FAILED');
       } finally {
         if (logFd !== null) {
           try { closeSync(logFd); } catch { /* the child holds its own copy */ }
         }
+      }
+      if (typeof child?.once === 'function') {
+        child.once('error', (err) => {
+          spawnError = err ?? true;
+        });
       }
       child?.unref?.();
 
@@ -577,6 +585,7 @@ export const createPiSessionDaemonSupervisor = ({
       // legitimately exceed the short lock/stop operation budget.
       const deadline = Date.now() + daemonReadyTimeoutMs;
       while (Date.now() < deadline) {
+        if (spawnError) throw new PiSessionDaemonUnavailableError('DAEMON_SPAWN_FAILED');
         try {
           const started = await probe(credential);
           return {
@@ -589,12 +598,15 @@ export const createPiSessionDaemonSupervisor = ({
               : {}),
           };
         } catch (error) {
+          if (spawnError) throw new PiSessionDaemonUnavailableError('DAEMON_SPAWN_FAILED');
           if (error instanceof PiSessionDaemonUnavailableError && isPermanentStartupFailure(error.code)) throw error;
           await wait(RETRY_DELAY_MS);
         }
       }
       try {
-        processLike.kill(child.pid, 'SIGTERM');
+        if (child?.pid) {
+          processLike.kill(child.pid, 'SIGTERM');
+        }
       } catch {
         // The child may have exited before the timeout; either way it is not ready.
       }
