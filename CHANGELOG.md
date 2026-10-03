@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.4-rc.3] - 2026-10-04
+
+Mobile reconnect and Android shell fixes, plus phone layout fixes, since 1.0.4-rc.2.
+
+- **Mobile reconnects after the app is backgrounded (#174).** Coming back to the app could leave "Unable to reach server" in the sidebar against a healthy server until you opened another session. A session detail that fails to load during resume now fails only that chat while the live stream still owns the connection state, and opening an already-loaded chat re-checks the connection instead of assuming it is back. Health checks and native requests now give up after a fixed time instead of hanging on a waking network. On a cold launch with a saved server the splash holds while the connection is checked, and an unreachable server keeps retrying instead of dropping to the connect screen. After the bounded retries run out the app keeps checking every 60s while it is open and online. A missing or unreadable saved credential asks you to pair again, and a temporary keychain read failure retries (`pi-session-store`, `mobileConnectionRecovery`, `mobileConnectionTransport`, `transport`).
+- **Settings load after a resume (#174).** When the connection is ready but the app settings never loaded, every client retries loading them with backoff, and retries right away when the page becomes visible or the network returns (`useConfigStoreReconciliation`).
+- **Dead relay and terminal connections are replaced after resume (#174).** A suspended app can come back to a socket that still looks open but never delivers data. On resume, the relay tunnel sends a ping and reconnects if nothing comes back within 5 seconds. The terminal reconnects if a keepalive or resume ping gets no reply within 10 seconds (`tunnel-client`, `terminalApi`).
+- **Android saves and shares files (#174).** Session exports, code block downloads, and message images open the Android share sheet. They previously did nothing because the Android WebView cannot download files. Draft attachments restored after a restart now upload their contents instead of an empty body (`PiChamberFilesPlugin`, `nativeFileSave`, `runtime-upload`).
+- **Android back button and links (#174).** Back closes the connect screen and the QR scanner and otherwise minimizes the app. `pichamber://` links open the app. Saved credentials are excluded from Android backup and device transfer because a restored copy cannot be decrypted; the app asks you to pair again instead. The app background is restored after scanning a QR code (`mobileNativeChrome`, `AndroidManifest`).
+- **Mobile diagnostics survive restarts (#174).** The diagnostics log in Instances → Export diagnostics is kept across app restarts and records app lifecycle, reconnect, and connection events. On Android it exports through the share sheet.
+- **Mobile About shows client and server versions.** The native app checks its own version and its server's version separately and lists both with their own update status. A failed check reads "Couldn't check" instead of up to date (`useUpdateStore`, `InstanceServiceUrls`).
+- **Phone layout fixes.** The update dialog wraps the version details under the title, and release candidate changelog headings render as version sections. Settings page actions and search fields fit narrow panes. Settings preview radios stay dot-sized, and by-folder sidebar rows stay one line on touch layouts (`UpdateDialog`, `SettingsPageLayout`, `radio`, `sidebarRowChrome`).
+
 ## [1.0.4-rc.2] - 2026-10-03
 
 Pi SDK 1.0.0 with MCP, codemode, and tool search, plus by-folder and timeline sidebar views since 1.0.4-rc.1.

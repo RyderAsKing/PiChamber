@@ -1,6 +1,6 @@
 {
   "name": "pichamber-monorepo",
-  "version": "1.0.4-rc.2",
+  "version": "1.0.4-rc.3",
   "description": "PiChamber monorepo workspace for web, ui, and desktop runtimes",
   "private": true,
   "type": "module",

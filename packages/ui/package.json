@@ -1,6 +1,6 @@
 {
   "name": "@pichamber/ui",
-  "version": "1.0.4-rc.2",
+  "version": "1.0.4-rc.3",
   "private": true,
   "type": "module",
   "main": "src/main.tsx",
