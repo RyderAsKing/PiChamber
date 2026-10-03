@@ -65,6 +65,8 @@ export interface RelayTunnelClientOptions {
   helloTimeoutMs?: number;
   pingIntervalMs?: number;
   pingTimeoutMs?: number;
+  /** Timeout in ms to wait for a frame after a resume probe ping before failing the attempt (default 5_000). */
+  resumeProbeTimeoutMs?: number;
   /** Frame-batching flush window in ms (default 150). Only applies once negotiated. */
   batchWindowMs?: number;
   /** Advertise frame batching in the handshake. Default true. */
@@ -95,6 +97,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
   // Pong wait after an idle keepalive ping — must be well under the interval so a
   // dead socket is caught within one cycle rather than after two.
   const pingTimeoutMs = options.pingTimeoutMs ?? 15_000;
+  const resumeProbeTimeoutMs = options.resumeProbeTimeoutMs ?? 5_000;
   const batchWindowMs = options.batchWindowMs ?? DEFAULT_BATCH_WINDOW_MS;
   const advertiseBatch = options.batch !== false;
   const reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
@@ -110,11 +113,11 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
   let activeChannel: ActiveChannel | null = null;
   let currentWire: TunnelWireSocket | null = null;
   let currentAttemptCleanup: (() => void) | null = null;
+  let currentLivenessProbe: (() => void) | null = null;
   let attemptGeneration = 0;
   let consecutiveFailures = 0;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let channelWaiters: ChannelWaiter[] = [];
-  let wakeListenersInstalled = false;
 
   const setStatus = (next: RelayTunnelStatus): void => {
     if (status.state === next.state && status.lastError === next.lastError) return;
@@ -160,30 +163,33 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     }
   };
 
+  // One set of listeners for the client's lifetime: shortens a pending
+  // reconnect backoff, or probes an apparently-open tunnel after resume.
   const onWake = (): void => {
-    if (closed || reconnectTimer === null || isOfflineOrHidden()) return;
-    clearReconnectTimer();
-    removeWakeListeners();
-    void connect();
-  };
-
-  const onVisibilityWake = (): void => {
-    if (typeof document === 'undefined') return;
-    if (document.visibilityState === 'visible') onWake();
+    if (closed || isOfflineOrHidden()) return;
+    if (reconnectTimer !== null) {
+      clearReconnectTimer();
+      void connect();
+      return;
+    }
+    if (status.state === 'connecting' || status.state === 'reconnecting') return;
+    if (activeChannel && !activeChannel.dead) currentLivenessProbe?.();
   };
 
   const installWakeListeners = (): void => {
-    if (wakeListenersInstalled) return;
-    wakeListenersInstalled = true;
-    if (typeof window !== 'undefined') window.addEventListener('online', onWake);
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityWake);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onWake);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', onWake);
+      window.addEventListener('pichamber:system-resume', onWake);
+    }
   };
 
   const removeWakeListeners = (): void => {
-    if (!wakeListenersInstalled) return;
-    wakeListenersInstalled = false;
-    if (typeof window !== 'undefined') window.removeEventListener('online', onWake);
-    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityWake);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onWake);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('online', onWake);
+      window.removeEventListener('pichamber:system-resume', onWake);
+    }
   };
 
   const scheduleReconnect = (): void => {
@@ -197,10 +203,8 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
       ? Math.max(standardDelay, hiddenOrOfflineMaxDelayMs)
       : standardDelay;
 
-    installWakeListeners();
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
-      removeWakeListeners();
       void connect();
     }, delay);
   };
@@ -218,7 +222,6 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     if (closed) return;
     const generation = ++attemptGeneration;
     clearReconnectTimer();
-    removeWakeListeners();
 
     currentAttemptCleanup?.();
     currentAttemptCleanup = null;
@@ -249,6 +252,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     let helloDeadline: ReturnType<typeof setTimeout> | null = null;
     let pingTimer: ReturnType<typeof setInterval> | null = null;
     let pongDeadline: ReturnType<typeof setTimeout> | null = null;
+    let probePending = false;
     let batcher: OutboundFrameBatcher | null = null;
     let settled = false;
     let channel: ActiveChannel | null = null;
@@ -258,6 +262,8 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     let recvChain: Promise<void> = Promise.resolve();
 
     const cleanupAttempt = (): void => {
+      if (currentLivenessProbe === probeLiveness) currentLivenessProbe = null;
+      probePending = false;
       if (helloInterval !== null) {
         clearInterval(helloInterval);
         helloInterval = null;
@@ -304,6 +310,21 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
         return;
       }
       failAttempt(generation, error, asErrorState);
+    };
+
+    const probeLiveness = (): void => {
+      if (settled || generation !== attemptGeneration || !channel || channel.dead || probePending) return;
+      probePending = true;
+      lastActivityAt = Date.now();
+      if (pongDeadline !== null) {
+        clearTimeout(pongDeadline);
+        pongDeadline = null;
+      }
+      channel.send(encodeTunnelFrame(TunnelFrameType.Ping, 0, EMPTY_PAYLOAD));
+      pongDeadline = setTimeout(() => {
+        pongDeadline = null;
+        failAttemptLocal(new Error('relay resume probe timeout'));
+      }, resumeProbeTimeoutMs);
     };
 
     const sendHello = (): void => {
@@ -371,6 +392,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
       };
       channel = channelObj;
       activeChannel = channelObj;
+      currentLivenessProbe = probeLiveness;
       setStatus({ state: 'connected' });
       resolveWaiters(channelObj);
       pingTimer = setInterval(() => {
@@ -402,6 +424,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
         clearTimeout(pongDeadline);
         pongDeadline = null;
       }
+      probePending = false;
       if (frame.frameType === TunnelFrameType.Ping) {
         channelObj.send(encodeTunnelFrame(TunnelFrameType.Pong, frame.streamId, EMPTY_PAYLOAD));
         return;
@@ -578,6 +601,7 @@ export const createRelayTunnelClient = (options: RelayTunnelClientOptions): Rela
     setStatus({ state: 'idle' });
   };
 
+  installWakeListeners();
   void connect();
 
   return {

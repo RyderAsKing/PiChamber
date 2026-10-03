@@ -641,4 +641,169 @@ describe('createRelayTunnelClient', () => {
     const health = await client.fetch('/health');
     expect(health.status).toBe(200);
   });
+
+  const withFakeDom = async (
+    run: (dom: {
+      window: EventTarget;
+      document: EventTarget & { visibilityState: 'visible' | 'hidden' };
+      dispatchResume: () => void;
+      dispatchOnline: () => void;
+      setVisibility: (state: 'visible' | 'hidden') => void;
+    }) => Promise<void>,
+  ) => {
+    const originalWindow = globalThis.window;
+    const originalDocument = globalThis.document;
+    const originalNavigator = globalThis.navigator;
+
+    const fakeWindow = new EventTarget();
+    const fakeDocument = Object.assign(new EventTarget(), { visibilityState: 'visible' as 'visible' | 'hidden' });
+    const fakeNavigator = { onLine: true };
+
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: fakeWindow });
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: fakeDocument });
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: fakeNavigator });
+
+    try {
+      await run({
+        window: fakeWindow,
+        document: fakeDocument,
+        dispatchResume: () => fakeWindow.dispatchEvent(new Event('pichamber:system-resume')),
+        dispatchOnline: () => fakeWindow.dispatchEvent(new Event('online')),
+        setVisibility: (state) => {
+          fakeDocument.visibilityState = state;
+          fakeDocument.dispatchEvent(new Event('visibilitychange'));
+        },
+      });
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: originalDocument });
+      Object.defineProperty(globalThis, 'navigator', { configurable: true, value: originalNavigator });
+    }
+  };
+
+  test('resume probe against a silent host fails fast and reconnects', async () => {
+    await withFakeDom(async ({ dispatchResume }) => {
+      const received: TunnelFrame[] = [];
+      const { client, connectionCount } = await setupClient(
+        {
+          silent: true,
+          recordFrame: (f) => received.push(f),
+        },
+        {
+          pingIntervalMs: 60_000,
+          resumeProbeTimeoutMs: 40,
+          reconnectBaseDelayMs: 10,
+          reconnectMaxDelayMs: 20,
+        },
+      );
+      track(client);
+
+      for (let i = 0; client.getStatus().state !== 'connected' && i < 20; i++) {
+        await wait(5);
+      }
+      expect(client.getStatus().state).toBe('connected');
+
+      const pendingFetch = client.fetch('/health');
+      let fetchError: Error | null = null;
+      pendingFetch.catch((err) => {
+        fetchError = err;
+      });
+
+      dispatchResume();
+
+      await wait(15);
+      const pings = received.filter((f) => f.frameType === TunnelFrameType.Ping);
+      expect(pings.length).toBe(1);
+
+      await wait(100);
+      expect(connectionCount()).toBeGreaterThan(1);
+      expect(fetchError).toBeInstanceOf(Error);
+      expect(fetchError!.message).toContain('relay resume probe timeout');
+    });
+  });
+
+  test('resume probe against a responsive host succeeds without reconnect', async () => {
+    await withFakeDom(async ({ dispatchResume }) => {
+      const received: TunnelFrame[] = [];
+      const { client, connectionCount } = await setupClient(
+        {
+          recordFrame: (f) => received.push(f),
+        },
+        {
+          pingIntervalMs: 60_000,
+          resumeProbeTimeoutMs: 50,
+        },
+      );
+      track(client);
+
+      const first = await client.fetch('/health');
+      expect(first.status).toBe(200);
+      expect(connectionCount()).toBe(1);
+
+      dispatchResume();
+
+      await wait(20);
+      const pings = received.filter((f) => f.frameType === TunnelFrameType.Ping);
+      expect(pings.length).toBe(1);
+
+      await wait(70);
+      expect(connectionCount()).toBe(1);
+
+      const second = await client.fetch('/health');
+      expect(second.status).toBe(200);
+      expect(connectionCount()).toBe(1);
+    });
+  });
+
+  test('close() removes resume listeners so wakes after close do nothing and do not throw', async () => {
+    await withFakeDom(async ({ dispatchResume, dispatchOnline, setVisibility }) => {
+      const { client, connectionCount } = await setupClient();
+      track(client);
+
+      const first = await client.fetch('/health');
+      expect(first.status).toBe(200);
+
+      client.close();
+      expect(client.getStatus().state).toBe('idle');
+
+      // Dispatching wake events after close must not throw and must not connect
+      dispatchResume();
+      dispatchOnline();
+      setVisibility('hidden');
+      setVisibility('visible');
+
+      await wait(30);
+      expect(connectionCount()).toBe(1);
+      expect(client.getStatus().state).toBe('idle');
+    });
+  });
+
+  test('repeated wakes while a probe is pending send only one Ping', async () => {
+    await withFakeDom(async ({ dispatchResume, dispatchOnline, setVisibility }) => {
+      const received: TunnelFrame[] = [];
+      const { client } = await setupClient(
+        {
+          silent: true,
+          recordFrame: (f) => received.push(f),
+        },
+        {
+          pingIntervalMs: 60_000,
+          resumeProbeTimeoutMs: 200,
+        },
+      );
+      track(client);
+
+      await wait(30);
+
+      dispatchResume();
+      dispatchResume();
+      dispatchOnline();
+      setVisibility('visible');
+
+      await wait(30);
+      const pings = received.filter((f) => f.frameType === TunnelFrameType.Ping);
+      expect(pings.length).toBe(1);
+    });
+  });
+
 });
