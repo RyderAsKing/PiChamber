@@ -80,6 +80,9 @@
       }
     ],
     "afterPack": "scripts/after-pack.cjs",
+    "toolsets": {
+      "appimage": "1.0.2"
+    },
     "directories": {
       "buildResources": "resources/icons",
       "output": "dist"

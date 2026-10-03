@@ -1162,9 +1162,15 @@ const buildPackagedUiFailureHtml = ({ reason = 'The packaged UI files could not 
   })();
   const packageType = currentLinuxPackageType() || process.platform;
   const appImagePath = process.env.APPIMAGE || 'not running from an AppImage';
-  const recovery = packageType === 'AppImage'
-    ? 'Move the AppImage to a writable location, make it executable with chmod +x, and try again. If it still fails, install the .deb or .rpm package instead.'
-    : 'Reinstall PiChamber from the current release and include the log path below when reporting the issue.';
+  // Extract-and-run AppImages live in a shared temporary directory that
+  // another launch's runtime can delete while this instance is still running.
+  const extractedAppImage = packageType === 'AppImage'
+    && path.basename(path.dirname(resourceRoot())).startsWith('appimage_extracted_');
+  const recovery = extractedAppImage
+    ? 'PiChamber is running from a temporary AppImage extraction whose files were removed while it was running. Restart PiChamber. To stop the AppImage from extracting itself, install FUSE (fuse3 or fuse2) and launch it without APPIMAGE_EXTRACT_AND_RUN, or install the .deb or .rpm package instead.'
+    : packageType === 'AppImage'
+      ? 'Move the AppImage to a writable location, make it executable with chmod +x, and try again. If it still fails, install the .deb or .rpm package instead.'
+      : 'Reinstall PiChamber from the current release and include the log path below when reporting the issue.';
   return `<!doctype html><html><head><meta charset="utf-8"><title>PiChamber could not start</title><style>body{font-family:system-ui,sans-serif;background:#151313;color:#f5f5f4;margin:0;padding:48px;line-height:1.5}main{max-width:720px;margin:auto}h1{font-size:24px}p{color:#d6d3d1}code{display:block;white-space:pre-wrap;overflow-wrap:anywhere;background:#292524;border-radius:8px;padding:12px;color:#fafaf9}</style></head><body><main><h1>PiChamber could not load its desktop UI</h1><p>${escapeHtml(reason)}</p><p>${escapeHtml(recovery)}</p><p>Include these diagnostics when reporting the issue:</p><code>Version: ${escapeHtml(APP_VERSION)}\nPackage: ${escapeHtml(packageType)}\nAppImage: ${escapeHtml(appImagePath)}\nLog: ${escapeHtml(logPath)}</code></main></body></html>`;
 };
 
