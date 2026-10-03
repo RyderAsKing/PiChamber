@@ -14,6 +14,7 @@ import { isNewSessionDraftActive } from '@/lib/router/session-intent';
 import { normalizePath } from '@/lib/pathNormalization';
 import { PiSessionCatalogFeeder } from '@/sync/pi-session-catalog-feeder';
 import { WorktreeDiscovery } from '@/sync/worktree-discovery';
+import { useConfigStoreReconciliation } from '@/apps/useConfigStoreReconciliation';
 
 const MINI_CHAT_PRESENCE_CHANNEL = 'pichamber:mini-chat-presence';
 
@@ -166,10 +167,12 @@ const ConfigStoreBootstrap: React.FC = () => {
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const providersCount = useConfigStore((state) => state.providers.length);
 
-  React.useEffect(() => {
-    if (isInitialized || pi.connection !== 'ready') return;
-    void initializeApp();
-  }, [initializeApp, isInitialized, pi.connection]);
+  useConfigStoreReconciliation({
+    connection: pi.connection,
+    isInitialized,
+    isConnected,
+    initializeApp,
+  });
 
   React.useEffect(() => {
     if (!pi.directory || pi.connection !== 'ready' || !isConnected) return;

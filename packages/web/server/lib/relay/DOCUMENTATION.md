@@ -95,6 +95,10 @@ The E2EE and framing logic exists twice: TypeScript in `packages/ui/src/lib/rela
 
 Relay mode plugs into the existing client transport layer rather than a parallel path: `runtime-switch` activates the tunnel singleton, `runtime-fetch` routes runtime requests through it, `runtime-url`/`runtime-socket` yield tunnel-backed URLs and sockets, and `runtime-auth` mints the URL-scoped token through the tunnel. Direct-URL connections are unaffected.
 
+## Resume liveness probing
+
+When mobile devices (e.g., Capacitor WebView) suspend or background the app, the relay WebSocket connection can silently drop or become half-open without a close frame. To avoid hanging in-flight requests until the 30s idle keepalive and 15s pong timeout, the client maintains persistent wake listeners (`document` `visibilitychange` becoming visible, `window` `online`, and `window` `pichamber:system-resume`). On resume when connected, the client sends a `Ping` frame and arms a fast probe deadline (`resumeProbeTimeoutMs`, default 5s). Any received frame clears the probe deadline; if the probe times out without any inbound frame, the attempt fails immediately (`relay resume probe timeout`), tearing down open streams and initiating reconnect backoff.
+
 ## Design invariants (do not regress)
 
 - The relay never sees plaintext application traffic; it sees only routing metadata (routing id, connection identifiers, timestamps, coarse counts).

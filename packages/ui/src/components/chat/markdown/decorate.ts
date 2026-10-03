@@ -1,4 +1,5 @@
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { saveOrShareFile } from '@/lib/nativeFileSave';
 import { getExternalFaviconUrl, isExternalHttpUrl, isLoopbackHttpUrl } from '@/lib/url';
 import { dropdownMenuItemClass, dropdownMenuPopupClass } from '@/components/ui/dropdown-menu.styles';
 import type { IconName } from '@/components/icon/icons';
@@ -479,15 +480,11 @@ export const decorateMarkdown = (root: HTMLElement, ctx: DecorateContext): void 
 // ---------------------------------------------------------------------------
 
 const downloadBlob = (filename: string, content: string, mime: string): void => {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  saveOrShareFile({
+    filename,
+    mimeType: mime,
+    data: content,
+  }).catch((error) => console.warn('[markdown] Download failed', error));
 };
 
 const closeAllMenus = (container: HTMLElement): void => {

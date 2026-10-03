@@ -10,6 +10,7 @@ import {
   type MobileRelayConfig,
   type MobileSavedConnection,
   type MobileTransportCandidate,
+  type SecureTokenReadResult,
 } from './mobileConnectionTypes';
 
 // ---------------------------------------------------------------------------
@@ -331,6 +332,13 @@ type NativeSecureStorage = {
 const nativeSecure = SecureStorage as unknown as NativeSecureStorage;
 const KEYCHAIN_ACCESS_WHEN_UNLOCKED = 0;
 
+const secureTokenCache = new Map<string, string>();
+
+/** Test-only reset for the in-memory secure token cache. */
+export const __resetMobileTokenCacheForTests = (): void => {
+  secureTokenCache.clear();
+};
+
 export const prefixedTokenKey = (key: string): string =>
   `${MOBILE_SECURE_STORAGE_PREFIX}token.${encodeURIComponent(key)}`;
 
@@ -364,26 +372,70 @@ const boundedSecure = async <T,>(
   );
 };
 
-export const readSecureToken = async (key: string): Promise<string | undefined> => {
-  const value = await boundedSecure(
-    'secure:read',
-    async () =>
-      (
-        await nativeSecure.internalGetItem({
-          prefixedKey: prefixedTokenKey(key),
-          sync: false,
-        })
-      ).data,
-    null
+// Android SecureStorage rejects with code `invalidData` for a malformed entry
+// and wraps an AES-GCM tag mismatch (wrong/regenerated key) as an `osError`
+// whose message names the exception.
+const isUndecryptableSecureReadError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  if (code === 'invalidData') return true;
+  return typeof message === 'string' && /AEADBadTagException|BadPaddingException/.test(message);
+};
+
+export const readSecureToken = async (
+  key: string,
+  options?: { bypassCache?: boolean }
+): Promise<SecureTokenReadResult> => {
+  const cached = options?.bypassCache ? undefined : secureTokenCache.get(key);
+  if (typeof cached === 'string' && cached) {
+    return { status: 'present', token: cached };
+  }
+  if (!isCapacitorApp()) {
+    return { status: 'absent' };
+  }
+
+  type RawRead =
+    | { kind: 'ok'; data: string | null }
+    | { kind: 'error'; error: unknown }
+    | { kind: 'timeout' };
+
+  const outcome = await withTimeout<RawRead>(
+    nativeSecure
+      .internalGetItem({ prefixedKey: prefixedTokenKey(key), sync: false })
+      .then((result): RawRead => ({ kind: 'ok', data: result?.data ?? null }))
+      .catch((error: unknown): RawRead => ({ kind: 'error', error })),
+    { kind: 'timeout' }
   );
-  return typeof value === 'string' && value.trim() ? value : undefined;
+  if (outcome.kind === 'timeout') {
+    console.warn('[mobile-storage] secure:read timed out');
+    return { status: 'failure' };
+  }
+  if (outcome.kind === 'error') {
+    // Ciphertext that can never decrypt (corrupt entry, or a Keystore key
+    // that no longer matches it) is authoritatively unusable: report it as
+    // absent so the caller re-pairs instead of retrying forever. Any other
+    // native error stays a retryable failure.
+    if (isUndecryptableSecureReadError(outcome.error)) {
+      console.warn('[mobile-storage] secure:read undecryptable entry');
+      return { status: 'absent' };
+    }
+    console.warn('[mobile-storage] secure:read failed', outcome.error);
+    return { status: 'failure' };
+  }
+  const raw = outcome.data;
+  if (typeof raw === 'string' && raw.trim()) {
+    secureTokenCache.set(key, raw);
+    return { status: 'present', token: raw };
+  }
+  return { status: 'absent' };
 };
 
 export const writeSecureToken = async (
   key: string,
   token: string
 ): Promise<boolean> => {
-  return boundedSecure(
+  if (!isCapacitorApp()) return false;
+  const success = await boundedSecure(
     'secure:write',
     async () => {
       await nativeSecure.internalSetItem({
@@ -396,9 +448,16 @@ export const writeSecureToken = async (
     },
     false
   );
+  if (success && token.trim()) {
+    secureTokenCache.set(key, token);
+  } else {
+    secureTokenCache.delete(key);
+  }
+  return success;
 };
 
 export const deleteSecureToken = async (key: string): Promise<void> => {
+  secureTokenCache.delete(key);
   await boundedSecure(
     'secure:delete',
     async () => {
@@ -464,7 +523,9 @@ export const migrateLegacyInlineTokens = async (): Promise<void> => {
     async (url, token) => {
       const key = getConnectionStorageKey(url);
       if (!(await writeSecureToken(key, token))) return false;
-      return (await readSecureToken(key)) === token;
+      // Verify against the keychain itself, not the write-through cache.
+      const readResult = await readSecureToken(key, { bypassCache: true });
+      return readResult.status === 'present' && readResult.token === token;
     }
   );
   if (result.migrated > 0) {

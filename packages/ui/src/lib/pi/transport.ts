@@ -10,6 +10,7 @@
 import { openRuntimeWebSocket } from '@/lib/relay/runtime-socket';
 import { isRelayModeActive } from '@/lib/relay/runtime-tunnel';
 import { refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
+import { raceSignalAbort } from '@/lib/concurrency';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
@@ -201,15 +202,21 @@ export interface PiRuntimeHealthResult {
 const PI_RUNTIME_HEALTH_MEMO_TTL_MS = 3_000;
 
 let piRuntimeHealthMemo: { runtimeKey: string; result: PiRuntimeHealthResult; expiresAt: number } | null = null;
+let piRuntimeHealthInFlight: { runtimeKey: string; promise: Promise<PiRuntimeHealthResult> } | null = null;
 
 export const resetPiRuntimeHealthCache = (): void => {
   piRuntimeHealthMemo = null;
+  piRuntimeHealthInFlight = null;
 };
+
+const PI_RUNTIME_HEALTH_TIMEOUT_MS = 10_000;
+
+const cloneHealth = (r: PiRuntimeHealthResult): PiRuntimeHealthResult => ({ ...r, capabilities: [...r.capabilities] });
 
 export const fetchPiRuntimeHealth = async (
   signal?: AbortSignal,
   runtimeKey?: string,
-  options?: { fresh?: boolean },
+  options?: { fresh?: boolean; timeoutMs?: number },
 ): Promise<PiRuntimeHealthResult> => {
   const requestRuntimeKey = runtimeKey ?? getRuntimeKey();
   if (!options?.fresh) {
@@ -220,81 +227,134 @@ export const fetchPiRuntimeHealth = async (
       && memo.runtimeKey === getRuntimeKey()
       && Date.now() < memo.expiresAt
     ) {
-      return { ...memo.result, capabilities: [...memo.result.capabilities] };
+      return cloneHealth(memo.result);
     }
   }
-  let response: Response;
-  try {
-    response = await runtimeFetch(resolveHealthPath(), signal ? { signal } : {});
-  } catch (error) {
-    recordMobileDiagnostic('runtime-health', { code: error instanceof DOMException && error.name === 'AbortError' ? 'timeout' : 'unreachable' });
-    return {
-      state: 'unavailable',
-      protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
-      capabilities: [],
-      error: { code: error instanceof DOMException && error.name === 'AbortError' ? 'DAEMON_TIMEOUT' : 'DAEMON_UNAVAILABLE' },
-    };
+  // Every probe now carries a deadline signal, which opts it out of
+  // runtime-fetch read coalescing; share one in-flight default probe instead.
+  // Callers with their own signal or `fresh` run independently.
+  const shareable = !options?.fresh && !signal;
+  if (shareable) {
+    const inFlight = piRuntimeHealthInFlight;
+    if (
+      inFlight
+      && inFlight.runtimeKey === requestRuntimeKey
+      && inFlight.runtimeKey === getRuntimeKey()
+    ) {
+      return inFlight.promise.then(cloneHealth);
+    }
   }
 
-  if (requestRuntimeKey !== getRuntimeKey()) {
-    return {
-      state: 'unavailable',
-      protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
-      capabilities: [],
-      error: { code: 'DAEMON_UNAVAILABLE', message: 'Runtime changed during request' },
-    };
-  }
+  const executeProbe = async (): Promise<PiRuntimeHealthResult> => {
+    const timeoutMs = options?.timeoutMs ?? PI_RUNTIME_HEALTH_TIMEOUT_MS;
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (signal) {
+      if (signal.aborted) controller.abort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
 
-  if (!response.ok) {
-    recordMobileDiagnostic('runtime-health', { status: response.status, code: response.status === 401 || response.status === 403 ? 'auth' : 'http-error' });
-    return {
-      state: 'unavailable',
-      protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
-      capabilities: [],
-      error: {
-        code: response.status === 401 || response.status === 403 ? 'DAEMON_AUTH_FAILED' : 'DAEMON_UNAVAILABLE',
-      },
-    };
-  }
+    try {
+      const response = await runtimeFetch(resolveHealthPath(), { signal: controller.signal });
 
-  const payload = (await response.json().catch(() => null)) as
-    | { state?: unknown; protocolVersion?: unknown; capabilities?: unknown; streamEpoch?: unknown; error?: { code?: unknown; message?: unknown } }
-    | null;
-  if (!payload || typeof payload !== 'object') {
-    return {
-      state: 'unavailable',
-      protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
-      capabilities: [],
-      error: { code: 'DAEMON_PROTOCOL_MISMATCH' },
-    };
-  }
+      if (requestRuntimeKey !== getRuntimeKey()) {
+        return {
+          state: 'unavailable',
+          protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
+          capabilities: [],
+          error: { code: 'DAEMON_UNAVAILABLE', message: 'Runtime changed during request' },
+        };
+      }
 
-  const errorCode = typeof payload.error?.code === 'string' ? payload.error.code : undefined;
-  const streamEpoch = typeof payload.streamEpoch === 'string' && payload.streamEpoch.length > 0 && payload.streamEpoch.length <= 128
-    ? payload.streamEpoch
-    : undefined;
-  if (payload.state === 'ready' && streamEpoch) {
-    observePiStreamEpoch(requestRuntimeKey, streamEpoch);
-  }
-  const result: PiRuntimeHealthResult = {
-    state: payload.state === 'ready' ? 'ready' : 'unavailable',
-    protocolVersion: typeof payload.protocolVersion === 'number' ? payload.protocolVersion : PI_PUBLIC_PROTOCOL_VERSION,
-    capabilities: Array.isArray(payload.capabilities)
-      ? payload.capabilities.filter((value): value is string => typeof value === 'string')
-      : [],
-    ...(streamEpoch ? { streamEpoch } : {}),
-    ...(errorCode
-      ? { error: { code: errorCode, ...(typeof payload.error?.message === 'string' ? { message: payload.error.message } : {}) } }
-      : {}),
+      if (!response.ok) {
+        recordMobileDiagnostic('runtime-health', {
+          status: response.status,
+          code: response.status === 401 || response.status === 403 ? 'auth' : 'http-error',
+        });
+        return {
+          state: 'unavailable',
+          protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
+          capabilities: [],
+          error: {
+            code: response.status === 401 || response.status === 403 ? 'DAEMON_AUTH_FAILED' : 'DAEMON_UNAVAILABLE',
+          },
+        };
+      }
+
+      const rawPayload = await raceSignalAbort(() => response.json(), controller.signal).catch((err) => {
+        if ((err instanceof DOMException || err instanceof Error) && err.name === 'AbortError') throw err;
+        return null;
+      });
+
+      const payload = rawPayload as
+        | { state?: unknown; protocolVersion?: unknown; capabilities?: unknown; streamEpoch?: unknown; error?: { code?: unknown; message?: unknown } }
+        | null;
+      if (!payload || typeof payload !== 'object') {
+        return {
+          state: 'unavailable',
+          protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
+          capabilities: [],
+          error: { code: 'DAEMON_PROTOCOL_MISMATCH' },
+        };
+      }
+
+      const errorCode = typeof payload.error?.code === 'string' ? payload.error.code : undefined;
+      const streamEpoch = typeof payload.streamEpoch === 'string' && payload.streamEpoch.length > 0 && payload.streamEpoch.length <= 128
+        ? payload.streamEpoch
+        : undefined;
+      if (payload.state === 'ready' && streamEpoch) {
+        observePiStreamEpoch(requestRuntimeKey, streamEpoch);
+      }
+      const result: PiRuntimeHealthResult = {
+        state: payload.state === 'ready' ? 'ready' : 'unavailable',
+        protocolVersion: typeof payload.protocolVersion === 'number' ? payload.protocolVersion : PI_PUBLIC_PROTOCOL_VERSION,
+        capabilities: Array.isArray(payload.capabilities)
+          ? payload.capabilities.filter((value): value is string => typeof value === 'string')
+          : [],
+        ...(streamEpoch ? { streamEpoch } : {}),
+        ...(errorCode
+          ? { error: { code: errorCode, ...(typeof payload.error?.message === 'string' ? { message: payload.error.message } : {}) } }
+          : {}),
+      };
+      if (!options?.fresh && result.state === 'ready' && requestRuntimeKey === getRuntimeKey()) {
+        piRuntimeHealthMemo = {
+          runtimeKey: requestRuntimeKey,
+          result: cloneHealth(result),
+          expiresAt: Date.now() + PI_RUNTIME_HEALTH_MEMO_TTL_MS,
+        };
+      }
+      return result;
+    } catch (error) {
+      const isAbort = (error instanceof DOMException || error instanceof Error) && error.name === 'AbortError';
+      recordMobileDiagnostic('runtime-health', {
+        code: isAbort ? 'timeout' : 'unreachable',
+      });
+      return {
+        state: 'unavailable',
+        protocolVersion: PI_PUBLIC_PROTOCOL_VERSION,
+        capabilities: [],
+        error: { code: isAbort ? 'DAEMON_TIMEOUT' : 'DAEMON_UNAVAILABLE' },
+      };
+    } finally {
+      clearTimeout(timer);
+      if (signal) {
+        signal.removeEventListener('abort', onAbort);
+      }
+    }
   };
-  if (!options?.fresh && result.state === 'ready' && requestRuntimeKey === getRuntimeKey()) {
-    piRuntimeHealthMemo = {
-      runtimeKey: requestRuntimeKey,
-      result: { ...result, capabilities: [...result.capabilities] },
-      expiresAt: Date.now() + PI_RUNTIME_HEALTH_MEMO_TTL_MS,
-    };
+
+  if (shareable) {
+    const probePromise = executeProbe().finally(() => {
+      if (piRuntimeHealthInFlight?.promise === probePromise) {
+        piRuntimeHealthInFlight = null;
+      }
+    });
+    piRuntimeHealthInFlight = { runtimeKey: requestRuntimeKey, promise: probePromise };
+    return probePromise.then(cloneHealth);
   }
-  return result;
+
+  return executeProbe();
 };
 
 type ConnectionCleanup = () => void;

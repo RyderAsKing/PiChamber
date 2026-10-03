@@ -11,6 +11,7 @@
 - `attach` registers a connection for one terminal. One socket may attach to many terminals.
 - Every attach and reconnect begins with an authoritative `snapshot` containing bounded history and the current sequence.
 - A current socket that closes or errors before its initial `open` invalidates only the URL-scoped auth token used for that connection before retrying. A stale failure cannot clear a newer shared token minted for terminal, dictation, or events. Hidden or offline clients wait 60 seconds and wake promptly on visibility/online recovery.
+- Keepalive: clients send `{ t: 'ping', v: 3 }` every 45 seconds and arm a 10-second pong deadline. Any inbound message (including pong) clears the deadline; a missed pong deadline closes the socket and triggers standard reconnect backoff. Connected clients send an immediate liveness probe ping on system resume, online, or visibility recovery (unless a deadline is already pending), and wake pending reconnect timers immediately. Probing is skipped while the client is hidden or offline.
 - `output`, `exit`, and `restarted` carry monotonically increasing per-terminal sequences. Output carries raw live bytes plus replay-safe bytes with terminal query exchanges removed.
 - Attach registers before capturing the snapshot, buffers concurrent events, drops events represented by the snapshot sequence, then enters live delivery.
 - `write` always includes the terminal ID; sockets never have mutable single-terminal binding state.

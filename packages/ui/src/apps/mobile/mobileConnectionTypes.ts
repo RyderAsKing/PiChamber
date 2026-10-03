@@ -10,9 +10,12 @@ export const MOBILE_DEVICE_ID_STORAGE_KEY = 'pichamber.mobile.deviceId';
 export const MOBILE_CONNECTIONS_LIMIT = 12;
 export const MOBILE_CONNECT_TIMEOUT_MS = 8000;
 export const MOBILE_NATIVE_HTTP_TIMEOUT_MS = 2500;
-export const MOBILE_SECURE_TIMEOUT_MS = 3000;
+export const MOBILE_SECURE_TIMEOUT_MS = 5000;
 export const MOBILE_FAST_PROBE_TIMEOUT_MS = 2500;
 export const RELAY_CONNECT_TIMEOUT_MS = 15_000;
+// A fast relay probe still pays for a fresh relay WebSocket, the E2EE
+// handshake, and one tunneled round trip; the direct LAN budget is too short.
+export const RELAY_FAST_PROBE_TIMEOUT_MS = 8_000;
 export const RELAY_RACE_HEADSTART_MS = 1_500;
 export const CANDIDATE_REFRESH_DELAY_MS = 5_000;
 
@@ -152,6 +155,11 @@ export type ReprobeOutcome =
   | 'no-connection';
 
 export type CandidateRefreshResult = 'updated' | 'unchanged' | 'skipped';
+
+export type SecureTokenReadResult =
+  | { status: 'present'; token: string }
+  | { status: 'absent' }
+  | { status: 'failure' };
 
 export type UseMobileConnection = {
   connections: MobileSavedConnection[];

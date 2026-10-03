@@ -8,10 +8,12 @@
  * online/visibility/resume/manual signals.
  *
  * An exhausted cycle (bounded retries gave up, endpoint still retained)
- * restarts as a fresh bounded cycle on a genuine online/foreground/manual
- * wake — a long outage must wake promptly instead of dead-ending until the
- * user restarts the app. Duplicate wakes collapse via the single in-flight
- * probe token; offline/hidden wakes never start a probe loop.
+ * enters an exhausted slow poll (60s cadence) while foreground+online,
+ * without spamming UI status back to 'recovering'. It restarts as a fresh
+ * bounded cycle on a genuine online/foreground/manual wake — a long outage
+ * must wake promptly instead of dead-ending until the user restarts the app.
+ * Duplicate wakes collapse via the single in-flight probe token;
+ * offline/hidden wakes never start a probe loop.
  *
  * Explicit disconnect (user picks another server, deletes the active
  * connection, or clears the endpoint) is distinct: it cancels recovery with
@@ -28,10 +30,13 @@
  * temporary failure.
  */
 
+import { recordMobileDiagnostic } from '@/lib/mobile-error-log';
+
 export type RecoveryProbeOutcome = 'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection';
 
 export const MOBILE_RECOVERY_MAX_ATTEMPTS = 8;
 export const MOBILE_RECOVERY_OFFLINE_HIDDEN_DELAY_MS = 60_000;
+export const MOBILE_RECOVERY_EXHAUSTED_POLL_MS = 60_000;
 
 const BASE_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000, 30_000];
 
@@ -110,6 +115,7 @@ export class MobileConnectionRecovery {
 
   /** Begin a fresh bounded cycle. Retains the endpoint; never clears stores. */
   start(): void {
+    recordMobileDiagnostic('recovery', { code: 'start' });
     this.startCycle(false);
   }
 
@@ -146,6 +152,7 @@ export class MobileConnectionRecovery {
 
   /** Abandon recovery: explicit disconnect, host switch, or unmount. */
   cancel(): void {
+    recordMobileDiagnostic('recovery', { code: 'cancel' });
     this.generation += 1;
     this.running = false;
     this.exhausted = false;
@@ -168,7 +175,15 @@ export class MobileConnectionRecovery {
     if (this.running || this.exhausted) return null;
     if (this.probingGeneration !== null) return null;
     if (isOfflineNow() || isHiddenNow()) return null;
-    const generation = this.generation;
+    return this.runGuardedProbe(this.generation);
+  }
+
+  /**
+   * Run one probe under the single-owner token. Returns `null` when the
+   * generation changed (cancel/restart) or the runtime identity changed
+   * mid-probe (host switch/disconnect): the validated endpoint is gone.
+   */
+  private async runGuardedProbe(generation: number): Promise<RecoveryProbeOutcome | null> {
     this.probingGeneration = generation;
     const runtimeBefore = this.getRuntimeIdentity();
     let outcome: RecoveryProbeOutcome;
@@ -182,6 +197,18 @@ export class MobileConnectionRecovery {
     if (generation !== this.generation) return null;
     if (this.getRuntimeIdentity() !== runtimeBefore) return null;
     return outcome;
+  }
+
+  /** Commit a non-retryable outcome and end the cycle; false for 'unreachable'. */
+  private settleTerminalOutcome(outcome: RecoveryProbeOutcome): boolean {
+    if (outcome === 'unreachable') return false;
+    this.running = false;
+    this.exhausted = false;
+    this.clearTimer();
+    if (outcome === 'needs-login') this.callbacks.onAuthExpired();
+    else if (outcome === 'no-connection') this.callbacks.onNoConnection();
+    else this.callbacks.onHealthy(outcome);
+    return true;
   }
 
   private clearTimer(): void {
@@ -201,6 +228,7 @@ export class MobileConnectionRecovery {
       this.exhausted = true;
       this.running = false;
       this.callbacks.onExhausted();
+      this.scheduleExhaustedPoll(generation);
       return;
     }
     const nextAttempt = this.attempt + 1;
@@ -258,42 +286,37 @@ export class MobileConnectionRecovery {
       this.scheduleNext(generation);
       return;
     }
-    this.probingGeneration = generation;
-    const runtimeBefore = this.getRuntimeIdentity();
-    let outcome: RecoveryProbeOutcome;
-    try {
-      outcome = await this.probe();
-    } catch {
-      outcome = 'unreachable';
-    } finally {
-      if (this.probingGeneration === generation) this.probingGeneration = null;
-    }
-    if (generation !== this.generation) return;
     // Host switch or explicit disconnect mid-probe: the endpoint this probe
     // validated is no longer current — commit nothing.
-    if (this.getRuntimeIdentity() !== runtimeBefore) return;
-
-    if (outcome === 'switched' || outcome === 'unchanged') {
-      this.running = false;
-      this.clearTimer();
-      this.callbacks.onHealthy(outcome);
-      return;
-    }
-    if (outcome === 'needs-login') {
-      this.running = false;
-      this.clearTimer();
-      this.callbacks.onAuthExpired();
-      return;
-    }
-    if (outcome === 'no-connection') {
-      this.running = false;
-      this.clearTimer();
-      this.callbacks.onNoConnection();
-      return;
-    }
+    const outcome = await this.runGuardedProbe(generation);
+    if (outcome === null || this.settleTerminalOutcome(outcome)) return;
     // 'unreachable': count the failure and back off. Foreground-paced,
     // bounded; offline/hidden uses the long cap and wakes on signals.
     this.attempt += 1;
     this.scheduleNext(generation);
+  }
+
+  private scheduleExhaustedPoll(generation: number): void {
+    if (generation !== this.generation || !this.exhausted) return;
+    this.clearTimer();
+    const delay =
+      isOfflineNow() || isHiddenNow()
+        ? MOBILE_RECOVERY_OFFLINE_HIDDEN_DELAY_MS
+        : MOBILE_RECOVERY_EXHAUSTED_POLL_MS;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.runExhaustedPoll(generation);
+    }, delay);
+  }
+
+  private async runExhaustedPoll(generation: number): Promise<void> {
+    if (generation !== this.generation || !this.exhausted) return;
+    if (this.probingGeneration !== null || isOfflineNow() || isHiddenNow()) {
+      this.scheduleExhaustedPoll(generation);
+      return;
+    }
+    const outcome = await this.runGuardedProbe(generation);
+    if (outcome === null || !this.exhausted) return;
+    if (!this.settleTerminalOutcome(outcome)) this.scheduleExhaustedPoll(generation);
   }
 }

@@ -9,6 +9,7 @@ import { connectionDisplayUrl, useMobileConnection } from './mobileConnections';
 import { isQrScanSupported, parseConnectionPayload, scanConnectionQr } from './mobileQrScan';
 import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileConnectionUi';
 import { MobileQrConnectionLoading, MobileQrScannerOverlay } from './MobileQrScannerOverlay';
+import { useNativeAndroidBackButton } from './mobileNativeChrome';
 
 export type MobileConnectionNotice = {
   kind: 'unreachable' | 'auth-expired';
@@ -120,6 +121,25 @@ export const MobileConnectionWelcome: React.FC<{
     setPassword('');
     conn.cancelPassword();
   }, [conn]);
+
+  const handleNativeBack = React.useCallback(() => {
+    if (isScanning) {
+      scanAbortRef.current?.abort();
+      setIsScanning(false);
+      return true;
+    }
+    if (pendingConnection) {
+      cancelPassword();
+      return true;
+    }
+    if (manualOpen && qrScanSupported) {
+      setManualOpen(false);
+      return true;
+    }
+    return false;
+  }, [cancelPassword, isScanning, manualOpen, pendingConnection, qrScanSupported]);
+
+  useNativeAndroidBackButton(handleNativeBack);
 
   return (
     <>

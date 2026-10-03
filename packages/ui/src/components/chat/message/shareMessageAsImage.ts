@@ -1,4 +1,5 @@
 import { toast } from '@/components/ui';
+import { saveOrShareFile } from '@/lib/nativeFileSave';
 
 export async function shareMessageAsImage(
   messageId: string,
@@ -78,14 +79,17 @@ export async function shareMessageAsImage(
 
     const fileName = `message-${messageId}.png`;
 
-    const link = document.createElement('a');
-    link.download = fileName;
-    link.href = dataUrl;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const result = await saveOrShareFile({
+      filename: fileName,
+      mimeType: 'image/png',
+      data: dataUrl,
+    });
 
-    toast.success('Image saved');
+    if (result === 'downloaded') {
+      toast.success('Image saved');
+    } else if (result === 'shared') {
+      toast.success('Image shared');
+    }
   } catch (error) {
     console.error('Failed to generate image:', error);
     toast.error('Failed to generate image');

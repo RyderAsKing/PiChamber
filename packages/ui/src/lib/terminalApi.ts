@@ -21,6 +21,8 @@ const TAG = 1;
 const MAX_PROJECTION_BYTES = 512 * 1024;
 const SOCKET_CONNECTING = 0;
 const SOCKET_OPEN = 1;
+const TERMINAL_KEEPALIVE_INTERVAL_MS = 45_000;
+const TERMINAL_PONG_TIMEOUT_MS = 10_000;
 /**
  * Switching terminal tabs detaches the old terminal before attaching the new one,
  * which momentarily leaves zero subscribers. Closing the socket there forced a
@@ -30,6 +32,11 @@ const SOCKET_OPEN = 1;
 const IDLE_SOCKET_GRACE_MS = 15_000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+const isHiddenOrOffline = (): boolean => (
+  (typeof document !== 'undefined' && document.visibilityState === 'hidden') ||
+  (typeof navigator !== 'undefined' && !navigator.onLine)
+);
 
 const encode = (message: Message): Uint8Array => {
   const payload = encoder.encode(JSON.stringify(message));
@@ -76,9 +83,10 @@ export class TerminalTransport {
   private projections = new Map<string, TerminalProjection>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private pongDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private idleCloseTimer: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
-  private wakeCleanup: (() => void) | null = null;
+  private persistentListenersInstalled = false;
   private generation = 0;
   private disposed = false;
 
@@ -86,7 +94,9 @@ export class TerminalTransport {
     refreshAuth: refreshRuntimeUrlAuthToken,
     openSocket: (urlAuthToken) => openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/terminal/ws', undefined, urlAuthToken)),
     clearUrlAuthToken: clearRuntimeUrlAuthToken,
-  }) {}
+  }) {
+    this.installPersistentListeners();
+  }
 
   subscribe(sessionId: string, handlers: TerminalHandlers): () => void {
     this.cancelIdleClose();
@@ -155,17 +165,50 @@ export class TerminalTransport {
     this.opening = null;
     this.subscribers.clear();
     this.projections.clear();
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.reconnectTimer = null;
+    this.cancelReconnect();
     this.cancelIdleClose();
-    this.wakeCleanup?.();
-    this.wakeCleanup = null;
+    this.removePersistentListeners();
     this.closeSocket();
   }
 
   forget(sessionId: string): void {
     this.projections.delete(sessionId);
   }
+
+  private installPersistentListeners(): void {
+    if (this.persistentListenersInstalled) return;
+    this.persistentListenersInstalled = true;
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pichamber:system-resume', this.handleWakeSignal);
+      window.addEventListener('online', this.handleWakeSignal);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.handleWakeSignal);
+    }
+  }
+
+  private removePersistentListeners(): void {
+    if (!this.persistentListenersInstalled) return;
+    this.persistentListenersInstalled = false;
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('pichamber:system-resume', this.handleWakeSignal);
+      window.removeEventListener('online', this.handleWakeSignal);
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleWakeSignal);
+    }
+  }
+
+  private handleWakeSignal = (): void => {
+    if (this.disposed || isHiddenOrOffline()) return;
+    if (this.reconnectTimer !== null) {
+      this.wakeReconnect();
+      return;
+    }
+    if (this.socket?.readyState === SOCKET_OPEN) {
+      this.sendPing();
+    }
+  };
 
   private async ensureConnected(): Promise<void> {
     if (this.disposed) throw new Error('Terminal runtime changed');
@@ -258,6 +301,7 @@ export class TerminalTransport {
   }
 
   private async handleMessage(raw: unknown): Promise<void> {
+    this.clearPongDeadline();
     const message = await decode(raw);
     if (!message || message.t === 'hello' || message.t === 'pong') return;
     if (message.t === 'error') {
@@ -308,27 +352,58 @@ export class TerminalTransport {
     try { this.socket.send(encode(message)); return true; } catch { return false; }
   }
 
+  private sendPing(): void {
+    if (this.disposed || !this.socket || this.socket.readyState !== SOCKET_OPEN) return;
+    if (isHiddenOrOffline()) return;
+    if (this.pongDeadlineTimer !== null) return;
+    if (!this.send({ t: 'ping', v: 3 })) return;
+    this.armPongDeadline();
+  }
+
+  private armPongDeadline(): void {
+    this.clearPongDeadline();
+    this.pongDeadlineTimer = setTimeout(() => {
+      this.handlePongTimeout();
+    }, TERMINAL_PONG_TIMEOUT_MS);
+  }
+
+  private clearPongDeadline(): void {
+    if (this.pongDeadlineTimer) {
+      clearTimeout(this.pongDeadlineTimer);
+      this.pongDeadlineTimer = null;
+    }
+  }
+
+  private handlePongTimeout(): void {
+    this.clearPongDeadline();
+    const socket = this.socket;
+    if (!socket) return;
+    // A half-open socket may not deliver `close` until the closing handshake
+    // times out. Detach it and run its close path now so reconnect starts
+    // immediately; the late native close event is then ignored.
+    const onclose = socket.onclose;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    socket.onclose = null;
+    try { socket.close(); } catch { /* already closing */ }
+    onclose?.({ code: 4000, reason: 'terminal keepalive timeout' });
+  }
+
+  private wakeReconnect(): void {
+    if (this.disposed || isHiddenOrOffline()) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    void this.ensureConnected().catch(() => this.scheduleReconnect());
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectTimer || this.disposed || this.subscribers.size === 0) return;
     this.failures += 1;
-    const slow = (typeof document !== 'undefined' && document.visibilityState === 'hidden') || (typeof navigator !== 'undefined' && !navigator.onLine);
-    const delay = slow ? 60_000 : Math.min(500 * 2 ** Math.min(this.failures - 1, 10), 8_000);
+    const delay = isHiddenOrOffline() ? 60_000 : Math.min(500 * 2 ** Math.min(this.failures - 1, 10), 8_000);
     for (const set of this.subscribers.values()) for (const sub of set) sub.handlers.onEvent({ type: 'reconnecting', attempt: this.failures, maxAttempts: Number.POSITIVE_INFINITY });
-    const wake = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-      this.wakeCleanup?.(); this.wakeCleanup = null;
-      void this.ensureConnected().catch(() => this.scheduleReconnect());
-    };
-    if (typeof window !== 'undefined') window.addEventListener('online', wake);
-    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', wake);
-    this.wakeCleanup = () => {
-      if (typeof window !== 'undefined') window.removeEventListener('online', wake);
-      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', wake);
-    };
-    this.reconnectTimer = setTimeout(wake, delay);
+    // The persistent resume/online/visibility listeners cut this wait short.
+    this.reconnectTimer = setTimeout(() => this.wakeReconnect(), delay);
   }
 
   private scheduleIdleClose(): void {
@@ -348,10 +423,30 @@ export class TerminalTransport {
     this.idleCloseTimer = null;
   }
 
-  private startKeepalive(): void { this.stopKeepalive(); this.keepaliveTimer = setInterval(() => this.send({ t: 'ping', v: 3 }), 45_000); }
-  private stopKeepalive(): void { if (this.keepaliveTimer) clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
-  private cancelReconnect(): void { if (this.reconnectTimer) clearTimeout(this.reconnectTimer); this.reconnectTimer = null; this.wakeCleanup?.(); this.wakeCleanup = null; }
-  private closeSocket(): void { this.stopKeepalive(); const socket = this.socket; this.socket = null; if (socket && (socket.readyState === SOCKET_CONNECTING || socket.readyState === SOCKET_OPEN)) socket.close(); }
+  private startKeepalive(): void {
+    this.stopKeepalive();
+    this.keepaliveTimer = setInterval(() => this.sendPing(), TERMINAL_KEEPALIVE_INTERVAL_MS);
+  }
+
+  private stopKeepalive(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+    this.clearPongDeadline();
+  }
+
+  private cancelReconnect(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  private closeSocket(): void {
+    this.stopKeepalive();
+    const socket = this.socket;
+    this.socket = null;
+    if (socket && (socket.readyState === SOCKET_CONNECTING || socket.readyState === SOCKET_OPEN)) socket.close();
+  }
 }
 
 let transport = new TerminalTransport();

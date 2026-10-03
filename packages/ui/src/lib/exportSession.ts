@@ -1,6 +1,7 @@
 import type { Message, Part } from '@/lib/chat/types';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { openDesktopPath, revealDesktopPath, saveDesktopMarkdownFile } from '@/lib/desktop';
+import { saveOrShareFile } from '@/lib/nativeFileSave';
 import { getRevealLabel } from '@/lib/utils';
 
 type SessionMessageRecord = { info: Message; parts: Part[] };
@@ -119,15 +120,13 @@ export function formatSessionAsMarkdown(
 }
 
 export function downloadAsMarkdown(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  // Web/desktop download synchronously inside the click; native share is
+  // async and a failed/cancelled share must not surface as an unhandled rejection.
+  saveOrShareFile({
+    filename,
+    mimeType: 'text/markdown;charset=utf-8',
+    data: content,
+  }).catch((error) => console.warn('[export] Markdown save failed', error));
 }
 
 export async function saveAsMarkdownDesktop(content: string, filename: string): Promise<string | null> {

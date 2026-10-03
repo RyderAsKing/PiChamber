@@ -18,6 +18,8 @@ let reprobeHandler: () => Promise<'switched' | 'unchanged' | 'unreachable' | 'ne
   async () => 'unchanged';
 
 let autoConnectCalls = 0;
+let autoConnectHandler: () => Promise<{ status: 'connected' | 'needs-login' | 'unreachable' | 'no-candidate'; label?: string }> =
+  async () => ({ status: 'no-candidate' });
 let autoLabel: string | null = 'Device A';
 
 let cfgInitialized = true;
@@ -48,6 +50,7 @@ const getCfgSnapshot = () => ({
 
 let shellMounts = 0;
 let shellUnmounts = 0;
+let buttonMounts = 0;
 let welcomeMounts = 0;
 const welcomeNotices: Array<{ kind: string; label: string } | null> = [];
 const syncPropsHistory: boolean[] = [];
@@ -76,8 +79,10 @@ const deferred = <T,>() => {
 
 mock.module('@/components/update/MobileAppUpdateToast', () => ({ MobileAppUpdateToast: () => null }));
 mock.module('@/components/ui/button', () => ({
-  Button: (props: { children?: React.ReactNode; onClick?: () => void }) =>
-    React.createElement('button', { onClick: props.onClick }, props.children),
+  Button: (props: { children?: React.ReactNode; onClick?: () => void }) => {
+    buttonMounts += 1;
+    return React.createElement('button', { onClick: props.onClick }, props.children);
+  },
 }));
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
 mock.module('@/components/ui/PiChamberLogo', () => ({ PiChamberLogo: () => null }));
@@ -116,6 +121,11 @@ mock.module('@/lib/persistence', () => ({ syncDesktopSettings: () => Promise.res
 mock.module('@/lib/mobile-error-log', () => ({
   startMobileErrorLogCapture: () => () => undefined,
   recordMobileDiagnostic: () => undefined,
+  recordMobileDiagnosticError: () => undefined,
+  buildMobileErrorLog: () => '',
+  exportMobileErrorLog: () => Promise.resolve('copied' as const),
+  flushMobileDiagnostics: () => undefined,
+  __resetMobileErrorLogForTests: () => undefined,
 }));
 mock.module('@/stores/useGlobalSessionsStore', () => ({
   refreshGlobalSessions: () => Promise.resolve(null),
@@ -187,7 +197,7 @@ mock.module('@/apps/MobileShell', () => ({
 mock.module('@/apps/mobileConnections', () => ({
   autoConnectLastInstance: () => {
     autoConnectCalls += 1;
-    return Promise.resolve({ status: 'no-candidate' as const });
+    return autoConnectHandler();
   },
   getAutoConnectTargetLabel: () => autoLabel,
   reprobeActiveConnection: () => {
@@ -345,6 +355,9 @@ const restores: Array<() => void> = [];
 function installMobileDom() {
   let online = true;
   let visible = true;
+  let virtualTime = 0;
+  let nextTimerId = 1;
+  const pendingTimers = new Map<number, { callback: () => void; dueTime: number; originalTimer: ReturnType<typeof setTimeout> }>();
   const winListeners = new Map<string, Set<(e: { type: string }) => void>>();
   const docListeners = new Map<string, Set<(e: { type: string }) => void>>();
 
@@ -391,8 +404,21 @@ function installMobileDom() {
     document,
     navigator: { userAgent: 'test' },
     location: { protocol: 'capacitor:', origin: 'capacitor://localhost', href: 'capacitor://localhost/', search: '' },
-    setTimeout: globalThis.setTimeout.bind(globalThis),
-    clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    setTimeout: (callback: () => void, delay = 0) => {
+      const id = nextTimerId++;
+      const originalTimer = globalThis.setTimeout(callback, delay);
+      pendingTimers.set(id, { callback, dueTime: virtualTime + delay, originalTimer });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (id: unknown) => {
+      const entry = pendingTimers.get(id as number);
+      if (entry) {
+        globalThis.clearTimeout(entry.originalTimer);
+        pendingTimers.delete(id as number);
+      } else {
+        globalThis.clearTimeout(id as ReturnType<typeof setTimeout>);
+      }
+    },
     matchMedia() { return { matches: false, addEventListener() {}, removeEventListener() {} }; },
     addEventListener(type: string, listener: (e: { type: string }) => void) {
       let set = winListeners.get(type);
@@ -466,7 +492,31 @@ function installMobileDom() {
         type: RUNTIME_AUTH_EXPIRED_EVENT,
       });
     },
+    advanceTime: async (ms: number) => {
+      virtualTime += ms;
+      const due: Array<{ id: number; callback: () => void }> = [];
+      for (const [id, entry] of pendingTimers.entries()) {
+        if (entry.dueTime <= virtualTime) {
+          due.push({ id, callback: entry.callback });
+        }
+      }
+      for (const { id, callback } of due) {
+        const entry = pendingTimers.get(id);
+        if (entry) {
+          globalThis.clearTimeout(entry.originalTimer);
+          pendingTimers.delete(id);
+          await act(async () => {
+            callback();
+          });
+        }
+      }
+      await flush();
+    },
     restore: () => {
+      for (const entry of pendingTimers.values()) {
+        globalThis.clearTimeout(entry.originalTimer);
+      }
+      pendingTimers.clear();
       g['document'] = previous['document'];
       g['window'] = previous['window'];
       g['navigator'] = previous['navigator'];
@@ -496,6 +546,7 @@ const resetControls = () => {
   reprobeCalls = 0;
   reprobeHandler = async () => 'unchanged';
   autoConnectCalls = 0;
+  autoConnectHandler = async () => ({ status: 'no-candidate' as const });
   autoLabel = 'Device A';
   cfgInitialized = true;
   cfgConnected = true;
@@ -507,6 +558,7 @@ const resetControls = () => {
   loadAgentsCalls = 0;
   shellMounts = 0;
   shellUnmounts = 0;
+  buttonMounts = 0;
   welcomeMounts = 0;
   welcomeNotices.length = 0;
   syncPropsHistory.length = 0;
@@ -598,6 +650,106 @@ describe('MobileApp recovery wiring (mounted)', () => {
     expect(welcomeMounts).toBe(0);
   });
 
+  test('cold launch with persisted endpoint + unreachable probe enters recovery, retains endpoint and drafts', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(switchCalls).toHaveLength(0);
+    expect(apiBaseUrl).toBe('https://server.example');
+    expect(isMobileConnectionUncertain()).toBe(true);
+    expect(lastSyncProp()).toBe(false);
+    expect(shellMounts).toBe(1);
+    expect(shellUnmounts).toBe(0);
+    expect(welcomeMounts).toBe(0);
+  });
+
+  test('cold launch with persisted endpoint + needs-login probe drops to connect screen with auth-expired notice', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'needs-login';
+    await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(switchCalls.length).toBeGreaterThan(0);
+    expect(switchCalls[switchCalls.length - 1]).toMatchObject({
+      apiBaseUrl: '',
+      runtimeKey: 'mobile-disconnected',
+    });
+    expect(apiBaseUrl).toBe('');
+    expect(isMobileConnectionUncertain()).toBe(false);
+    expect(welcomeMounts).toBeGreaterThan(0);
+    expect(welcomeNotices[welcomeNotices.length - 1]).toMatchObject({
+      kind: 'auth-expired',
+      label: 'Device A',
+    });
+    expect(shellMounts).toBe(0);
+  });
+
+  test('cold launch classification probe in flight beyond 4s suppresses full-screen recovery error until resolved', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    const gate = deferred<'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection'>();
+    reprobeHandler = () => gate.promise;
+
+    const { harness } = await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(isMobileConnectionUncertain()).toBe(false);
+
+    // Advance beyond the 4000ms native timeout while the probe is still pending.
+    await harness.advanceTime(4500);
+
+    // Probe is still pending: splash holds, recovery error button must NOT show.
+    expect(isMobileConnectionUncertain()).toBe(false);
+    expect(buttonMounts).toBe(0);
+    expect(shellMounts).toBe(0);
+    expect(welcomeMounts).toBe(0);
+
+    // Resolve probe as unreachable: should enter temporary recovery, mount shell, retain endpoint.
+    await act(async () => {
+      gate.resolve('unreachable');
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(isMobileConnectionUncertain()).toBe(true);
+    expect(shellMounts).toBe(1);
+    expect(switchCalls).toHaveLength(0);
+    expect(buttonMounts).toBe(0);
+  });
+
+  test('cold launch classification probe clears pending gate on outcome and allows 4s timeout if still disconnected', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    const gate = deferred<'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection'>();
+    reprobeHandler = () => gate.promise;
+
+    const { harness } = await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+
+    // Advance 4500ms: probe still pending, no button
+    await harness.advanceTime(4500);
+    expect(buttonMounts).toBe(0);
+
+    // Resolve probe as unchanged (server reachable, but bootstrap does not finish in this test)
+    await act(async () => {
+      gate.resolve('unchanged');
+      await Promise.resolve();
+    });
+    await flush();
+
+    // Classification resolved, but 4s post-resolution has not elapsed yet:
+    expect(buttonMounts).toBe(0);
+
+    // Advance 4500ms post-resolution: now timeout fires and button appears
+    await harness.advanceTime(4500);
+    expect(buttonMounts).toBeGreaterThan(0);
+  });
+
   test('established auth-expired cancels recovery, disconnects, and preserves drafts for re-login', async () => {
     reprobeHandler = async () => 'unchanged';
     const { harness } = await mountMobileApp();
@@ -639,5 +791,47 @@ describe('MobileApp recovery wiring (mounted)', () => {
     expect(initCalls).toBe(initAtMount);
     expect(apiBaseUrl).toBe('');
     expect(isMobileConnectionUncertain()).toBe(false);
+  });
+
+  test('cold launch with persisted endpoint + no-connection probe falling back to unreachable auto-connect drops to connect screen with unreachable notice', async () => {
+    // The persisted endpoint maps to no saved connection, so paced recovery
+    // could only end in 'no-connection'; surface why instead.
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'no-connection';
+    autoConnectHandler = async () => ({ status: 'unreachable', label: 'Device A' });
+    await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(autoConnectCalls).toBe(1);
+    expect(switchCalls[switchCalls.length - 1]).toMatchObject({
+      apiBaseUrl: '',
+      runtimeKey: 'mobile-disconnected',
+    });
+    expect(apiBaseUrl).toBe('');
+    expect(isMobileConnectionUncertain()).toBe(false);
+    expect(welcomeMounts).toBeGreaterThan(0);
+    expect(welcomeNotices[welcomeNotices.length - 1]).toMatchObject({ kind: 'unreachable', label: 'Device A' });
+    expect(shellMounts).toBe(0);
+  });
+
+  test('cold launch with persisted endpoint + no-connection probe falling back to no-candidate drops to connect screen', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'no-connection';
+    autoConnectHandler = async () => ({ status: 'no-candidate' });
+    await mountMobileApp();
+
+    expect(reprobeCalls).toBe(1);
+    expect(autoConnectCalls).toBe(1);
+    expect(switchCalls.length).toBeGreaterThan(0);
+    expect(switchCalls[switchCalls.length - 1]).toMatchObject({
+      apiBaseUrl: '',
+      runtimeKey: 'mobile-disconnected',
+    });
+    expect(apiBaseUrl).toBe('');
+    expect(isMobileConnectionUncertain()).toBe(false);
+    expect(welcomeMounts).toBeGreaterThan(0);
+    expect(shellMounts).toBe(0);
   });
 });

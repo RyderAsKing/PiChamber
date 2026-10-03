@@ -11,7 +11,7 @@ import {
 } from '@/lib/pi/event-reducer';
 import { mapWithConcurrency } from '@/lib/concurrency';
 import { bootstrapPiDirectory, type PiBootstrapHealth } from '@/lib/pi/bootstrap';
-import { recordMobileDiagnosticError } from '@/lib/mobile-error-log';
+import { recordMobileDiagnostic, recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { createBrowserUuid } from '@/lib/uuid';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
@@ -904,6 +904,15 @@ export class PiSessionStore {
     if (sessions.length > 0) raiseSessionOrderingBaselines(sessions);
   }
 
+  private recordClusterConnectionChange(nextConnection: PiConnectionState, error?: PiRequestError | null): void {
+    if (this.state.connection !== nextConnection) {
+      recordMobileDiagnostic('pi-connection', {
+        code: nextConnection,
+        detail: (nextConnection === 'error' || nextConnection === 'unavailable') && error ? error.code : undefined,
+      });
+    }
+  }
+
   dispose = () => {
     this.catalogCache.flush();
     this.resetLiveRuntimeState();
@@ -913,7 +922,9 @@ export class PiSessionStore {
     this.navigationCounter = 0;
     // Broadcast the reset so any mounted consumer sees the empty state
     // before the listener sets are torn down.
-    this.state = initialSessionStoreState();
+    const initial = initialSessionStoreState();
+    this.recordClusterConnectionChange(initial.connection);
+    this.state = initial;
     this.emitBroadcast();
     this.listenersByTopic.clear();
   };
@@ -929,6 +940,7 @@ export class PiSessionStore {
   };
   reportError = (error: unknown) => {
     const reported = asError(error);
+    this.recordClusterConnectionChange('error', reported);
     this.state = { ...this.state, error: reported, connection: 'error' };
     this.emitChrome();
     this.ensureConnectionRecovery(reported);
@@ -1006,6 +1018,7 @@ export class PiSessionStore {
   }
   clear = () => {
     this.resetLiveRuntimeState();
+    this.recordClusterConnectionChange('ready');
     this.state = { ...initialSessionStoreState(), connection: 'ready' };
     clearAllRevertNavigations();
     this.navigationGenerationById.clear();
@@ -1236,6 +1249,7 @@ export class PiSessionStore {
     this.pendingPreferredSessionId = null;
     // No session is in flight here, so no prefetch may survive either.
     this.clearTranscriptPrefetch();
+    this.recordClusterConnectionChange('loading');
     this.state = {
       ...this.state,
       directory: null,
@@ -1259,6 +1273,7 @@ export class PiSessionStore {
       } else {
         this.adoptStreamEpoch(healthEpoch);
       }
+      this.recordClusterConnectionChange('ready');
       this.state = {
         ...this.state,
         directory: null,
@@ -1708,6 +1723,7 @@ export class PiSessionStore {
     this.clearTranscriptPrefetch();
     this.cadence.dispose();
     this.stream?.dispose(); this.stream = null;
+    this.recordClusterConnectionChange('loading');
     this.state = {
       ...this.state,
       directory,
@@ -1824,6 +1840,7 @@ export class PiSessionStore {
       const liveGate = this.createListLiveGate(result, { streamAttaching: true });
       const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds, liveGate.options);
       const catalogChanged = nextCatalog !== this.state.catalog;
+      this.recordClusterConnectionChange('ready');
       this.state = {
         ...this.state,
         sessions: listedSessions,
@@ -2741,13 +2758,19 @@ export class PiSessionStore {
       && residentIsHydrated
       && !known
     ) {
-      if (this.state.connection !== 'ready' || this.state.error) {
-        this.state = { ...this.state, connection: 'ready', error: null };
+      // Opening a resident chat is not evidence the transport recovered.
+      // A cluster error re-verifies through the owned reconnect path, which
+      // commits 'ready' only from a verified health + snapshot + stream.
+      if (this.state.connection === 'error' || this.state.connection === 'unavailable') {
+        void this.reconnect(sessionId, expected, runtimeKey);
+      } else if (this.state.connection === 'ready' && this.state.error) {
+        this.state = { ...this.state, error: null };
         this.emitChrome();
       }
       return;
     }
     this.clearSessionLoadError(sessionId);
+    const attachedStream = this.stream;
     try {
       if (this.stream) {
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
@@ -2922,6 +2945,19 @@ export class PiSessionStore {
         }
         return;
       }
+      // The attached stream owns cluster liveness and only clears
+      // `connection: 'error'` on a health transition. A detail fetch that
+      // fails while that stream is still attached (e.g. a resume-time
+      // restore racing a waking network) fails this chat only; reporting it
+      // cluster-wide would latch the error behind a healthy stream.
+      if (
+        attachedStream
+        && this.stream === attachedStream
+        && asError(error).code !== 'DAEMON_AUTH_FAILED'
+      ) {
+        this.failSessionLoad(sessionId, asError(error));
+        return;
+      }
       this.reportError(error);
     }
   }
@@ -2944,6 +2980,7 @@ export class PiSessionStore {
       }
       return;
     }
+    this.recordClusterConnectionChange('ready');
     this.state = { ...this.state, connection: 'ready', error: null };
     this.emitChrome();
   }
@@ -3052,6 +3089,7 @@ export class PiSessionStore {
         for (const sId of result.reducerState.bySession.keys()) this.hydratedSessionIds.add(sId);
         const reconnectCatalog = this.applyCatalogFromEvents([], reducer);
         const catalogChanged = reconnectCatalog !== this.state.catalog;
+        this.recordClusterConnectionChange('ready');
         this.state = {
           ...this.state,
           reducer,

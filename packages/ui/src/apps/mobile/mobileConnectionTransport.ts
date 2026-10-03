@@ -16,6 +16,7 @@ import {
   MOBILE_FAST_PROBE_TIMEOUT_MS,
   MOBILE_NATIVE_HTTP_TIMEOUT_MS,
   RELAY_CONNECT_TIMEOUT_MS,
+  RELAY_FAST_PROBE_TIMEOUT_MS,
   RELAY_RACE_HEADSTART_MS,
   type AutoConnectOutcome,
   type CandidateRefreshResult,
@@ -45,6 +46,7 @@ import {
   serializeCandidate,
   upsertMobileConnection,
   migrateLegacyInlineTokens,
+  __resetMobileTokenCacheForTests,
 } from './mobileConnectionStorage';
 
 export const logDetail = (detail: Record<string, unknown>): string => {
@@ -101,9 +103,11 @@ export const getJsonRequestData = (
 
 export const nativeHttpRequest = async (
   url: string,
-  init?: RequestInit
+  init?: RequestInit,
+  options?: { timeoutMs?: number }
 ): Promise<MobileFetchResponse | null> => {
   if (!isCapacitorApp()) return null;
+  const timeoutMs = options?.timeoutMs ?? MOBILE_CONNECT_TIMEOUT_MS;
   try {
     const { CapacitorHttp } = await import('@capacitor/core');
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
@@ -112,6 +116,8 @@ export const nativeHttpRequest = async (
       method: init?.method || 'GET',
       headers,
       data: getJsonRequestData(init?.body),
+      connectTimeout: timeoutMs,
+      readTimeout: timeoutMs,
     });
     return {
       ok: response.status >= 200 && response.status < 300,
@@ -184,9 +190,10 @@ export const requestWithTimeout = async (
 ): Promise<MobileFetchResponse | null> => {
   const total = options?.totalTimeoutMs ?? MOBILE_CONNECT_TIMEOUT_MS;
   const startedAt = Date.now();
+  const nativeTimeoutMs = Math.min(MOBILE_NATIVE_HTTP_TIMEOUT_MS, total);
   const native = await raceWithTimeout(
-    Math.min(MOBILE_NATIVE_HTTP_TIMEOUT_MS, total),
-    nativeHttpRequest(url, init)
+    nativeTimeoutMs,
+    nativeHttpRequest(url, init, { timeoutMs: nativeTimeoutMs })
   );
   if (native) return native;
 
@@ -370,7 +377,7 @@ export const probeConnectionCandidates = async (
       relayCandidate.relay,
       token,
       undefined,
-      options?.fast ? MOBILE_FAST_PROBE_TIMEOUT_MS : undefined,
+      options?.fast ? RELAY_FAST_PROBE_TIMEOUT_MS : undefined,
       { keepTunnel: true, ...(shouldAbort ? { shouldAbort } : {}) }
     );
     if (shouldAbort?.()) {
@@ -493,10 +500,17 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
     if (!candidate.hasToken) {
       return { status: 'no-candidate' };
     }
-    token = await readSecureToken(secureTokenKeyOf(candidate));
-    if (!token) {
-      return { status: 'no-candidate' };
+    const readResult = await readSecureToken(secureTokenKeyOf(candidate));
+    if (readResult.status === 'failure') {
+      return { status: 'unreachable', label: candidate.label };
     }
+    if (readResult.status === 'absent' || !readResult.token) {
+      // The row says a credential was saved but the secure store has none
+      // (backup restore, reinstall, undecryptable entry): re-pair with a
+      // notice instead of silently dropping to the connect screen.
+      return { status: 'needs-login', label: candidate.label };
+    }
+    token = readResult.token;
   } else {
     token = candidate.clientToken;
     if (!token) return { status: 'no-candidate' };
@@ -651,14 +665,15 @@ export const validateActiveRuntimeSession = async (
   if (!isRelayModeActive())
     return validateMobileConnectionSession(input, options);
   const session = await raceWithTimeout(
-    options?.fast ? MOBILE_FAST_PROBE_TIMEOUT_MS : RELAY_CONNECT_TIMEOUT_MS,
+    options?.fast ? RELAY_FAST_PROBE_TIMEOUT_MS : RELAY_CONNECT_TIMEOUT_MS,
     runtimeFetch('/auth/session')
       .then((response): Response | null => response)
       .catch(() => null)
   );
-  if (!session) return true;
-  if (session.status === 401) return false;
-  if (!session.ok && session.status !== 404) return true;
+  // A timed-out or failed check never counts as healthy: a dead tunnel must
+  // fall through to candidate failover / recovery, matching the direct path.
+  if (!session) return false;
+  if (!session.ok && session.status !== 404) return false;
   const status = await readSessionStatus(session);
   return !(status && status.disabled !== true && status.authenticated === false);
 };
@@ -793,6 +808,12 @@ const trackReprobeFlight = (
   return tracked;
 };
 
+const executeReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
+  const outcome = await runReprobeActiveConnection();
+  recordMobileDiagnostic('reprobe', { code: outcome });
+  return outcome;
+};
+
 export const reprobeActiveConnection = (): Promise<ReprobeOutcome> => {
   // Single-owner core dedup: every caller (recovery controller idle/cycle
   // probes, cold-start classification, online/resume wakes, AND the background
@@ -809,12 +830,12 @@ export const reprobeActiveConnection = (): Promise<ReprobeOutcome> => {
   if (reprobeInFlight) {
     const previous = reprobeInFlight;
     const chained = previous.then(
-      () => runReprobeActiveConnection(),
-      () => runReprobeActiveConnection()
+      () => executeReprobeActiveConnection(),
+      () => executeReprobeActiveConnection()
     );
     return trackReprobeFlight(snapshotKey, chained);
   }
-  return trackReprobeFlight(snapshotKey, runReprobeActiveConnection());
+  return trackReprobeFlight(snapshotKey, executeReprobeActiveConnection());
 };
 
 const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
@@ -825,9 +846,18 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
 
   let token: string | undefined;
   if (isCapacitorApp()) {
-    token = active.hasToken
-      ? await readSecureToken(secureTokenKeyOf(active))
-      : undefined;
+    if (active.hasToken) {
+      const readResult = await readSecureToken(secureTokenKeyOf(active));
+      if (readResult.status === 'present') {
+        token = readResult.token;
+      } else {
+        if (isStale()) return 'no-connection';
+        // Read failure/timeout is temporary: let the recovery controller
+        // retry. An authoritatively absent token while active.hasToken is
+        // true can never recover by retrying — enter the re-pair flow.
+        return readResult.status === 'absent' ? 'needs-login' : 'unreachable';
+      }
+    }
     // Secure read resolved after a disconnect/switch: never use the old
     // credential and never commit — the selection is gone.
     if (isStale()) return 'no-connection';
@@ -1037,4 +1067,5 @@ export const __resetMobileProbeStateForTests = (): void => {
   reprobeInFlight = null;
   reprobeInFlightKey = '';
   candidateRefreshInFlight = false;
+  __resetMobileTokenCacheForTests();
 };

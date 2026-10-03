@@ -1,3 +1,5 @@
+import { raceSignalAbort } from './concurrency';
+import { isCapacitorApp } from './platform';
 import { getActiveRelayTunnel } from './relay/runtime-tunnel';
 import { TUNNEL_PARSE_BASE } from './relay/tunnel-payloads';
 import { buildRuntimeAuthHeaders } from './runtime-auth';
@@ -245,6 +247,8 @@ export const runtimeFetch = async (input: string | URL | Request, init: RuntimeF
   const relay = getActiveRelayTunnel();
   const relayPath = relay ? extractRelayPath(input, query) : null;
 
+  const signal = requestInit.signal ?? (input instanceof Request ? input.signal : undefined);
+
   let doFetch: () => Promise<Response>;
   let url: string;
   let method: string;
@@ -260,9 +264,14 @@ export const runtimeFetch = async (input: string | URL | Request, init: RuntimeF
     const resolvedInput = resolveRuntimeFetchInput(input, query);
     const inputHeaders = resolvedInput instanceof Request ? resolvedInput.headers : undefined;
     const headers = await mergeHeaders(inputHeaders, requestInit.headers, shouldAttachRuntimeAuth(resolvedInput));
-    doFetch = resolvedInput instanceof Request
+    let directFetch = resolvedInput instanceof Request
       ? () => fetch(new Request(resolvedInput, { ...requestInit, headers }))
       : () => fetch(resolvedInput, { ...requestInit, headers });
+    if (isCapacitorApp() && signal) {
+      const underlyingFetch = directFetch;
+      directFetch = () => raceSignalAbort(underlyingFetch, signal);
+    }
+    doFetch = directFetch;
     url =
       resolvedInput instanceof Request ? resolvedInput.url
       : resolvedInput instanceof URL ? resolvedInput.toString()

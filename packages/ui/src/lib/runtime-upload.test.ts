@@ -71,3 +71,38 @@ describe("runtimeUpload", () => {
     expect(headers.get("X-PiChamber-Filename")).toBe(encodeURIComponent("deploy allianceauth (v1.0).md"));
   });
 });
+
+describe("runtimeUpload on native Capacitor direct", () => {
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+
+  beforeEach(() => {
+    installFetchMock(() => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    (globalThis as Record<string, unknown>).window = {
+      Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" },
+      location: { protocol: "https:" },
+    };
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+
+  test("wraps a plain Blob as a File so native HTTP sends its bytes", async () => {
+    const blob = new Blob(["restored bytes"], { type: "image/png" });
+    await runtimeUpload("/api/pi/attachments", blob, { filename: "shot.png", mime: "image/png" });
+
+    const body = calls[0].init?.body;
+    expect(body).toBeInstanceOf(File);
+    expect((body as File).name).toBe("shot.png");
+    expect(await (body as File).text()).toBe("restored bytes");
+    expect(new Headers(calls[0].init?.headers).get("Content-Type")).toBe("application/octet-stream");
+  });
+
+  test("passes an existing File through unchanged", async () => {
+    const file = new File(["picked"], "picked.txt", { type: "text/plain" });
+    await runtimeUpload("/api/pi/attachments", file, { filename: "picked.txt", mime: "text/plain" });
+    expect(calls[0].init?.body).toBe(file);
+  });
+});

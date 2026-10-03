@@ -4,7 +4,7 @@ import { isDesktopShell } from '@/lib/desktop';
 export const isCapacitorApp = (): boolean => {
   if (typeof window === 'undefined') return false;
   const capacitor = (window as typeof window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
-  return capacitor?.isNativePlatform?.() === true || window.location.protocol === 'capacitor:';
+  return capacitor?.isNativePlatform?.() === true || window.location?.protocol === 'capacitor:';
 };
 
 /**
