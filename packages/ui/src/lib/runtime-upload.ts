@@ -1,3 +1,4 @@
+import { isCapacitorApp } from './platform';
 import { getActiveRelayTunnel } from './relay/runtime-tunnel';
 import { runtimeFetch } from './runtime-fetch';
 
@@ -40,6 +41,15 @@ const streamBlob = (
   });
 };
 
+// CapacitorHttp's patched fetch serializes only `File` bodies as bytes; a plain
+// Blob falls through to its JSON branch and is sent as "{}". Native direct
+// uploads therefore wrap Blobs (e.g. restored draft attachments) as Files. The
+// explicit octet-stream Content-Type below still wins over the File's type.
+const directBody = (file: Blob, options: RuntimeUploadOptions): Blob => {
+  if (!isCapacitorApp() || file instanceof File) return file;
+  return new File([file], options.filename, { type: options.mime || file.type });
+};
+
 /** Upload raw bytes through the active runtime transport, including relay mode. */
 export const runtimeUpload = async (
   path: string,
@@ -58,7 +68,7 @@ export const runtimeUpload = async (
       'X-PiChamber-Filename': encodeURIComponent(options.filename),
       'X-PiChamber-Mime': options.mime,
     },
-    body: isRelay ? streamBlob(file, options.signal, options.onProgress) : file,
+    body: isRelay ? streamBlob(file, options.signal, options.onProgress) : directBody(file, options),
     signal: options.signal,
     // ReadableStream request bodies require duplex:'half' in Chromium (supported in relay mode).
     // Direct native fetch uses Blob directly to avoid ERR_ALPN_NEGOTIATION_FAILED on HTTP/1.1.
