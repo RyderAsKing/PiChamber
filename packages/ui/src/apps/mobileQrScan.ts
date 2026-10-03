@@ -127,7 +127,37 @@ const scanWithBundledAndroidScanner = async (
       Promise.resolve(errorListener?.remove()),
       plugin.stopScan(),
     ]);
+    await restoreAndroidWebViewBackground();
   }
+};
+
+const rgbToHex = (color: string): string | null => {
+  const match = color.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
+  if (!match || (match[4] !== undefined && parseFloat(match[4]) === 0)) return null;
+  const r = parseInt(match[1], 10).toString(16).padStart(2, '0');
+  const g = parseInt(match[2], 10).toString(16).padStart(2, '0');
+  const b = parseInt(match[3], 10).toString(16).padStart(2, '0');
+  return `#${r}${g}${b}`;
+};
+
+const getDocumentBackgroundColorHex = (): string | null => {
+  if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return null;
+  return (
+    rgbToHex(window.getComputedStyle(document.documentElement).backgroundColor) ??
+    (document.body ? rgbToHex(window.getComputedStyle(document.body).backgroundColor) : null)
+  );
+};
+
+/**
+ * Repaint the native WebView with the theme background after a scan. Only
+ * effective once the scanner overlay has restored the page's own colors.
+ */
+export const restoreAndroidWebViewBackground = async (): Promise<void> => {
+  if (!isAndroid()) return;
+  const color = getDocumentBackgroundColorHex();
+  if (!color) return;
+  const { setNativeWebViewBackground } = await import('@/lib/nativeFileSave').catch(() => ({ setNativeWebViewBackground: undefined }));
+  await setNativeWebViewBackground?.(color);
 };
 
 export const isQrScanSupported = (): boolean => getScannerPlugin() !== null;

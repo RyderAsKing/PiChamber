@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { observeNativeKeyboardHeight, resetHardwareKeyboardDetection, startHardwareKeyboardBridge } from '@/lib/hardwareKeyboard';
+import { recordMobileDiagnostic } from '@/lib/mobile-error-log';
 
 /** True when running inside the native Capacitor shell (iOS/Android app). */
 export const isCapacitorMobileApp = (): boolean => {
@@ -28,6 +29,8 @@ export const useNativeMobileChrome = (): void => {
     if (capacitorPlatform === 'android') {
       root.classList.add('oc-platform-android');
     }
+
+    void installNativeAndroidBackButtonListener();
 
     // iOS reports hardware keyboards natively (GCKeyboard); adopting that
     // answer switches the layout off its keyboard-event inference entirely.
@@ -369,8 +372,10 @@ export const useNativeMobileLifecycle = (onResume: () => void): void => {
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden') {
         wasInactiveRef.current = true;
+        recordMobileDiagnostic('app-lifecycle', { code: 'hidden' });
         return;
       }
+      recordMobileDiagnostic('app-lifecycle', { code: 'visible' });
       resumeAfterInactive();
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -380,13 +385,17 @@ export const useNativeMobileLifecycle = (onResume: () => void): void => {
       if (disposed) return;
       const state = await App.addListener('appStateChange', ({ isActive }) => {
         document.documentElement.classList.toggle('oc-native-app-active', isActive);
+        recordMobileDiagnostic('app-lifecycle', { code: isActive ? 'resume' : 'pause' });
         if (!isActive) {
           wasInactiveRef.current = true;
           return;
         }
         resumeAfterInactive();
       });
-      const resume = await App.addListener('resume', resumeAfterInactive);
+      const resume = await App.addListener('resume', () => {
+        recordMobileDiagnostic('app-lifecycle', { code: 'resume' });
+        resumeAfterInactive();
+      });
       if (disposed) {
         void state.remove();
         void resume.remove();
@@ -402,29 +411,68 @@ export const useNativeMobileLifecycle = (onResume: () => void): void => {
   }, [onResume]);
 };
 
+type NativeBackHandler = () => boolean;
+
+const nativeBackHandlerStack: NativeBackHandler[] = [];
+let backButtonListener: Promise<{ remove: () => Promise<void> | void } | null> | null = null;
+
+export const dispatchNativeAndroidBackButton = (): boolean => {
+  for (let i = nativeBackHandlerStack.length - 1; i >= 0; i--) {
+    try {
+      if (nativeBackHandlerStack[i]()) {
+        return true;
+      }
+    } catch {
+      // Ignore error and fall through to previous handler
+    }
+  }
+  return false;
+};
+
+export const installNativeAndroidBackButtonListener = (): Promise<void> => {
+  if (!isCapacitorMobileApp()) return Promise.resolve();
+  if (!backButtonListener) {
+    backButtonListener = import('@capacitor/app')
+      .then(({ App }) =>
+        App.addListener('backButton', () => {
+          if (!dispatchNativeAndroidBackButton()) {
+            void App.minimizeApp().catch(() => undefined);
+          }
+        }),
+      )
+      .catch(() => null);
+  }
+  return backButtonListener.then(() => undefined);
+};
+
+export const uninstallNativeAndroidBackButtonListenerForTests = async (): Promise<void> => {
+  const handle = await backButtonListener?.catch(() => null);
+  await handle?.remove();
+  backButtonListener = null;
+  nativeBackHandlerStack.length = 0;
+};
+
+export const getNativeAndroidBackButtonHandlerCountForTests = (): number => {
+  return nativeBackHandlerStack.length;
+};
+
 export const useNativeAndroidBackButton = (onBack: () => boolean): void => {
+  const onBackRef = React.useRef(onBack);
+  onBackRef.current = onBack;
+
   React.useEffect(() => {
     if (!isCapacitorMobileApp()) return;
+    void installNativeAndroidBackButtonListener();
 
-    let disposed = false;
-    let remove: (() => void) | null = null;
-
-    void import('@capacitor/app').then(async ({ App }) => {
-      if (disposed) return;
-      const listener = await App.addListener('backButton', () => {
-        if (onBack()) return;
-        void App.minimizeApp().catch(() => undefined);
-      });
-      if (disposed) {
-        void listener.remove();
-        return;
-      }
-      remove = () => void listener.remove();
-    }).catch(() => undefined);
+    const handler = () => onBackRef.current();
+    nativeBackHandlerStack.push(handler);
 
     return () => {
-      disposed = true;
-      remove?.();
+      const index = nativeBackHandlerStack.lastIndexOf(handler);
+      if (index !== -1) {
+        nativeBackHandlerStack.splice(index, 1);
+      }
     };
-  }, [onBack]);
+  }, []);
 };
+

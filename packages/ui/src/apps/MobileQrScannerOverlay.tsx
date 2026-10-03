@@ -4,10 +4,19 @@ import { createPortal } from 'react-dom';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
+import { useNativeAndroidBackButton } from './mobileNativeChrome';
+import { restoreAndroidWebViewBackground } from './mobileQrScan';
 
 export const MobileQrScannerOverlay: React.FC<{ onCancel: () => void }> = ({ onCancel }) => {
   
   const overlayRef = React.useRef<HTMLDivElement>(null);
+
+  useNativeAndroidBackButton(
+    React.useCallback(() => {
+      onCancel();
+      return true;
+    }, [onCancel]),
+  );
 
   React.useLayoutEffect(() => {
     const htmlBackground = {
@@ -59,6 +68,9 @@ export const MobileQrScannerOverlay: React.FC<{ onCancel: () => void }> = ({ onC
       } else {
         document.body.style.removeProperty('background-color');
       }
+      // The scan resolves while this overlay still forces a transparent page,
+      // so the native WebView background can only be restored from here.
+      void restoreAndroidWebViewBackground();
     };
   }, []);
 
