@@ -2555,7 +2555,9 @@ export class PiSessionStore {
     fetched: PiReducerSessionState,
     existing: PiReducerSessionState | undefined,
   ): PiReducerSessionState {
-    return mergeHydratedSession(fetched, existing);
+    return mergeHydratedSession(fetched, existing, {
+      localSendPending: this.pendingPromptById.has(fetched.sessionId),
+    });
   }
 
   /** Records that a session was just touched — selected, hydrated, or
@@ -3079,15 +3081,32 @@ export class PiSessionStore {
           lastSequence: new Map(this.state.reducer.lastSequence),
         };
         const mergedSessionIds: PiSessionId[] = [];
+        const settledSessionIds: PiSessionId[] = [];
         for (const [sId, sState] of result.reducerState.bySession.entries()) {
-          const merged = this.mergeHydratedSession(sState, reducer.bySession.get(sId));
+          const previous = reducer.bySession.get(sId);
+          const merged = this.mergeHydratedSession(sState, previous);
           reducer.bySession.set(sId, merged);
           reducer.lastSequence.set(sId, merged.lastSequence);
           this.touchLastAccess(sId);
           mergedSessionIds.push(sId);
+          if (
+            (previous?.lifecycle === 'busy' || previous?.lifecycle === 'retry')
+            && merged.lifecycle !== 'busy'
+            && merged.lifecycle !== 'retry'
+          ) {
+            settledSessionIds.push(sId);
+          }
         }
         for (const sId of result.reducerState.bySession.keys()) this.hydratedSessionIds.add(sId);
-        const reconnectCatalog = this.applyCatalogFromEvents([], reducer);
+        // The resumed cursor can skip lifecycle events the snapshot already
+        // covers, so the snapshot is the only settle signal: mirror each
+        // merged session into its catalog row, as a hydrate commit does.
+        let reconnectCatalog = this.state.catalog;
+        for (const sId of mergedSessionIds) {
+          const merged = reducer.bySession.get(sId);
+          if (!merged) continue;
+          reconnectCatalog = applyLifecycleChange(reconnectCatalog, sId, catalogLifecycleFromReducer(merged.lifecycle), merged.retry);
+        }
         const catalogChanged = reconnectCatalog !== this.state.catalog;
         this.recordClusterConnectionChange('ready');
         this.state = {
@@ -3107,6 +3126,18 @@ export class PiSessionStore {
         // it missed, so residents and catalogs need no reload. A replay miss
         // (`resync` snapshot) or epoch change already queued a bounded
         // recovery of known directory catalogs and affected residents above.
+        for (const sId of settledSessionIds) this.promoteSession(sId, 'settled');
+        // A send the daemon accepted keeps the row busy through the merge
+        // above; an idle snapshot is only a hint for it. Confirm from a
+        // detail read taken after acceptance, as an idle listing does.
+        for (const sId of mergedSessionIds) {
+          if (!this.pendingPromptById.has(sId)) continue;
+          const generation = this.promptGenerationById.get(sId);
+          if (generation === undefined || this.acceptedPromptGenerationById.get(sId) !== generation) continue;
+          const snapshotLifecycle = result.reducerState.bySession.get(sId)?.lifecycle;
+          if (snapshotLifecycle === 'busy' || snapshotLifecycle === 'retry') continue;
+          this.reconcileAcceptedPromptFromList(sId);
+        }
         this.scheduleIdleEviction();
         if (epochChanged) this.publishSyncRecoveryState();
       } else if (!authRequired) {

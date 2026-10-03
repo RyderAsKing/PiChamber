@@ -203,6 +203,46 @@ describe("reconnectPiSession", () => {
     expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.sessionId).toBe(undefined)
   })
 
+  test("same-epoch reconnect resumes from the client cursor, not the detail head", async () => {
+    // The detail cursor is the daemon's global head. Resuming there would
+    // skip other sessions' events from the disconnect gap.
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-test-1",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 12,
+          streamEpoch: "epoch-test-1",
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 5,
+      streamEpoch: "epoch-test-1",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.lastSequence).toBe(5)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.fromSequence).toBe(5)
+    expect(result.reducerState.bySession.get("s1")?.lastSequence).toBe(12)
+  })
+
   test("returns failed when the session is not indexed", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

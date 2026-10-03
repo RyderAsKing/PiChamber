@@ -939,3 +939,96 @@ describe('reconnect recovery: activity carried over from a restarted daemon', ()
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Turn that ended while the client was suspended (same epoch)
+// ---------------------------------------------------------------------------
+
+describe('reconnect recovery: turn settled while suspended', () => {
+  // The app is suspended mid-turn and resumed after the turn ended. The
+  // reconnect detail is past the local cursor and reports the session idle,
+  // while the stream resumes from that detail's cursor and never replays the
+  // missed lifecycle events. The detail must settle both the chat and the row.
+  const seedBusy = (store: PiSessionStore) => {
+    seed(store, { residents: ['s1'], cursor: 100, streamEpoch: 'epoch-1' });
+    const storeInternal = internal(store);
+    const busy = reducerSession('s1', '/repo-a', 100);
+    busy.lifecycle = 'busy';
+    const catalog = storeInternal.state.catalog;
+    const row = catalog.byId.get('s1')!;
+    storeInternal.state = {
+      ...storeInternal.state,
+      reducer: { bySession: new Map([['s1', busy]]), lastSequence: new Map([['s1', 100]]) },
+      catalog: { ...catalog, byId: new Map([['s1', { ...row, lifecycle: 'busy', hydrated: true }]]) },
+    };
+  };
+
+  const reconnectWith = async (store: PiSessionStore, fetched: PiReducerSessionState) => {
+    reconnectImpl = async () => readyResult({ epoch: 'epoch-1', reducerState: [fetched], lastSequence: fetched.lastSequence });
+    try {
+      await internal(store).reconnect('s1', store.getRuntimeGeneration(), getRuntimeKey());
+    } finally {
+      reconnectImpl = async () => { throw new Error('not configured'); };
+    }
+  };
+
+  test('a newer idle detail settles the local busy turn and its sidebar row', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      const stubs = stubPiClient();
+      try {
+        await reconnectWith(store, reducerSession('s1', '/repo-a', 140));
+        const resident = store.getState().reducer.bySession.get('s1');
+        expect(resident?.lifecycle).toBe('idle');
+        expect(resident?.lastSequence).toBe(140);
+        expect(store.getState().catalog.byId.get('s1')?.lifecycle).toBe('idle');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a detail that still reports the turn running keeps it busy', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      const stubs = stubPiClient();
+      try {
+        const running = reducerSession('s1', '/repo-a', 140);
+        running.lifecycle = 'busy';
+        await reconnectWith(store, running);
+        expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
+        expect(store.getState().catalog.byId.get('s1')?.lifecycle).toBe('busy');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('an older idle detail cannot settle a newer local turn', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      const stubs = stubPiClient();
+      try {
+        await reconnectWith(store, reducerSession('s1', '/repo-a', 90));
+        expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
+        expect(store.getState().catalog.byId.get('s1')?.lifecycle).toBe('busy');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a send the daemon has not yet taken keeps the local turn busy', async () => {
+    await withStore(async (store) => {
+      seedBusy(store);
+      internal(store).pendingPromptById.add('s1');
+      const stubs = stubPiClient();
+      try {
+        await reconnectWith(store, reducerSession('s1', '/repo-a', 140));
+        expect(store.getState().reducer.bySession.get('s1')?.lifecycle).toBe('busy');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+});

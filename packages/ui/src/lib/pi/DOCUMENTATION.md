@@ -100,13 +100,15 @@ append-only session log first. The same restore runs when a live event
 arrives for a session whose transcript was dropped but whose `lastSequence`
 cursor remains. That restore forces `getSession` even if the live event already
 created a one-turn resident row, then overlays the JSONL log onto it. Reconnect resumes from
-`max(clientAppliedMax, snapshot.lastSequence)` so a quieter session cannot
-rewind the runtime stream into the retained event log — unless the
-health-verified epoch changed (daemon restart), in which case the old cursor
-belongs to a retired sequence space and the snapshot baseline is used
-verbatim (`epochChanged`); a blind max across epochs would let a new daemon
-whose sequence overtook the old cursor skip the head of the new sequence
-space. A snapshot published because the requested cursor could not be replayed
+the client's own applied cursor when it was established under the current
+epoch. The snapshot `lastSequence` is the daemon's global head, so resuming
+there would skip every other session's events from the disconnect gap (a
+background turn that ended while the app was suspended would stay busy); the
+reducer drops the selected session's replayed events at or below its snapshot.
+If the health-verified epoch changed (daemon restart), the old cursor belongs
+to a retired sequence space and the snapshot baseline is used verbatim
+(`epochChanged`); a blind max across epochs would let a new daemon whose
+sequence overtook the old cursor skip the head of the new sequence space. A snapshot published because the requested cursor could not be replayed
 (replay miss, restart, or retired-epoch cursor) is stamped `resync: true` to
 mark it as a recovery baseline rather than a routine attach. A session detail
 stamped with a retired epoch is rejected so its sequence from another space is
@@ -321,11 +323,14 @@ authoritative bootstrap.
 
 A successful explicit reconnect adopts `runStartedAt`/`serverNow` from the
 selected session detail before it merges the snapshot into the existing
-cluster. It then iterates any hydrated resident whose `lastSequence` is behind
-the resumed cursor, issuing a `getSession` and `commitHydratedSession` for each.
-A quiet background turn does not lose the disconnect gap. Accepted
-`session.snapshot` events also force-hydrate that session, because a snapshot
-means the bounded event log could not replay the disconnect gap.
+cluster. A local busy turn survives that merge only while the detail still
+reports it running, the detail is older than the local cursor, or this client
+has a send the daemon has not yet taken; a newer settled detail settles it.
+The merge also mirrors each merged session's lifecycle into its catalog row,
+so the sidebar settles with the chat. Background sessions catch up from the
+replayed gap. Accepted `session.snapshot` events also force-hydrate that
+session, because a snapshot means the bounded event log could not replay the
+disconnect gap.
 
 ### `ensureHydrated`
 

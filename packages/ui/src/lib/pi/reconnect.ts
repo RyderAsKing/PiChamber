@@ -229,14 +229,22 @@ export const reconnectPiSession = async (
     };
     const applied = applySnapshot(result.snapshotState, snapshotEvent.payload.snapshot);
     result.snapshotState = applied.state;
-    // Daemon sequences are global within one stream lifetime. Resume from
-    // the higher of the snapshot cursor and the client's already-applied max
-    // so a quieter session's getSession cannot rewind the directory stream
-    // into the retained log — unless the epoch changed, in which case the
-    // old cursor is meaningless and the snapshot baseline is used verbatim.
+    // Daemon sequences are global within one stream lifetime, and the
+    // detail cursor is that global head. Resume from the client's own cursor
+    // when it belongs to this epoch: jumping to the head would skip every
+    // other session's events from the disconnect gap (a turn that ended
+    // while the app was suspended would stay busy). The reducer drops this
+    // session's replayed events at or below the snapshot, and a cursor
+    // outside the retained window is answered with a resync snapshot. A
+    // changed epoch makes the old cursor meaningless, so the snapshot
+    // baseline is used verbatim; a cursor without an epoch keeps the
+    // higher of the two.
+    const lastKnownSequence = options.lastKnownSequence ?? -1;
     result.lastSequence = epochChanged
       ? detail.lastSequence
-      : Math.max(options.lastKnownSequence ?? -1, detail.lastSequence);
+      : establishedEpoch !== null && lastKnownSequence >= 0
+        ? lastKnownSequence
+        : Math.max(lastKnownSequence, detail.lastSequence);
   } catch (error) {
     const wrapped = toError(error);
     if (wrapped.code === 'INVALID_SESSION') {

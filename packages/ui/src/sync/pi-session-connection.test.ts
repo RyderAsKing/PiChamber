@@ -1159,9 +1159,11 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
       parts: createReducerPartMap([['p1', { id: 'p1', index: 0, type: 'text', text: 'hello', streaming: true }]]),
       streamingMessages: new Set(['a1']),
     });
+    // A mid-turn detail that reports the turn running and lacks the local
+    // in-flight assistant message.
     const fetched = reducerSession({
       sessionId: 's1',
-      lifecycle: 'idle',
+      lifecycle: 'busy',
       lastSequence: 12,
       messages: new Map([['old', history], ['u1', user]]),
     });
@@ -1325,6 +1327,7 @@ describe('PiSessionStore hydrate/overlay reconciliation', () => {
     });
     const fetched = reducerSession({
       sessionId: 's1',
+      lifecycle: 'busy',
       lastSequence: 12,
       messages: new Map([['entry_user', persistedUser]]),
     });
@@ -1867,6 +1870,9 @@ describe('PiSessionStore behaviour parity', () => {
       getSession: async (id) => ({
         session: { id, directory: '/repo', createdAt: 1, updatedAt: 1 },
         lastSequence: 9,
+        // The turn the live event started is still running on the daemon.
+        isStreaming: true,
+        lifecycle: 'busy',
         messages: [{
           message: { ...priorUser, sessionId: id, directory: '/repo' },
           parts: [{ id: 'u-old:text', index: 0, type: 'text', text: 'prior prompt' }],
