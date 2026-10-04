@@ -5,12 +5,11 @@ description: Connect a trusted device to a PiChamber server.
 
 The **host** is the computer that runs the PiChamber server.
 Connected devices use the host's projects, filesystem, Pi configuration, sessions, and provider credentials.
-Keep the host awake.
-Keep the server running.
-See [Quick start](/quickstart/) for local server instructions.
 
-These examples use port `3000`.
-Use your actual server port throughout.
+For access from connected devices, keep the host awake and the server active.
+
+The examples use port `3000`.
+Replace this port with your actual server port.
 
 ## Find the server port
 
@@ -38,25 +37,38 @@ The server prints the generated password when it starts.
    pichamber stop --port 3000
    ```
 
-2. Start the server with LAN access and a strong password:
+2. Start guided setup in an interactive terminal:
 
    ```sh
-   pichamber serve --port 3000 --lan --ui-password
+   pichamber serve
    ```
 
-3. Save the password under **UI password** securely.
-4. Find the host's local IP address.
+3. Select **Local network**.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Select **Browser UI and API**.
+7. Select **In the background**.
+8. Confirm the settings.
+9. Save the password under **UI password** securely.
+
+For scripts, CI, and non-interactive terminals, use explicit flags instead:
+
+```sh
+pichamber serve --port 3000 --lan --ui-password
+```
+
+1. Find the host's local IP address.
 
    On macOS, **System Settings → Wi-Fi → Details → TCP/IP** shows the address.
 
-5. On the other device, open the host's LAN URL.
+2. On the other device, open the host's LAN URL.
 
    If the address is `192.168.1.42`, the URL is `http://192.168.1.42:3000`.
 
-6. Enter the server password.
+3. Enter the server password.
 
 Startup flags do not change a running server.
-The server runs in the background.
+These wizard choices and the flag-based example start the server in the background.
 When the server generates a password, it prints output like this example.
 The example password is a placeholder.
 
@@ -106,31 +118,46 @@ This combination can cause a “Tunnel access required” screen.
 
    For other systems, follow [Cloudflare's installation instructions](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflared/downloads/).
 
-2. If no server runs on this port, start one with a strong password:
+2. If no server runs on this port, start guided setup:
 
    ```sh
-   pichamber serve --port 3000 --ui-password
+   pichamber serve
    ```
 
-   An existing server keeps its password and binding.
-   The LAN procedure describes how to stop and start the server with different settings.
-   Tunnel-only access does not require `--lan`.
+3. In guided setup, select **This machine only**.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Select **Browser UI and API**.
+7. Select **In the background**.
+8. Confirm the settings.
+9. Save the printed password.
 
-3. If a managed tunnel is active, stop it:
+If the server already runs, skip the setup steps.
+An existing server keeps its password and binding.
+The LAN procedure describes how to stop and start the server with different settings.
+Tunnel-only access does not require `--lan`.
+
+For scripts, CI, and non-interactive terminals, use explicit flags instead:
+
+```sh
+pichamber serve --port 3000 --ui-password
+```
+
+1. If a managed tunnel is active, stop it:
 
    ```sh
    pichamber tunnel stop --port 3000
    ```
 
-4. In another terminal, start the standalone tunnel:
+2. In another terminal, start the standalone tunnel:
 
    ```sh
    cloudflared tunnel --url http://127.0.0.1:3000
    ```
 
-5. Keep this terminal open.
-6. On the other device, open the printed `https://…trycloudflare.com` URL.
-7. Enter the server password.
+3. Keep this terminal open.
+4. On the other device, open the printed `https://…trycloudflare.com` URL.
+5. Enter the server password.
 
 LAN access and a standalone tunnel can operate together.
 A server with `--lan` also accepts loopback connections.
@@ -141,6 +168,8 @@ Remote devices use the standalone tunnel's HTTPS URL.
 Quick tunnels have temporary URLs.
 Cloudflare does not guarantee their availability.
 This procedure does not automatically restart the server or standalone tunnel after the host reboots.
+[Startup integration](/quickstart/#keep-it-running-after-reboot) can manage the server.
+It does not restart the standalone tunnel.
 
 ## Alternative: managed tunnel
 
@@ -149,25 +178,42 @@ Managed tunnel access requires a one-time browser link.
 The server does not allow ordinary password login on the managed tunnel's public hostname.
 
 1. If a standalone tunnel runs, press **Ctrl+C** in its terminal.
-2. Start the managed tunnel:
+2. Start guided tunnel setup in an interactive terminal:
 
    ```sh
-   pichamber tunnel start --port 3000 --mode quick
+   pichamber tunnel start
    ```
 
-3. Check the managed tunnel status:
+3. If saved profiles appear, select **Choose a mode manually**.
+4. Select the quick tunnel mode.
+5. If the CLI asks for a server, select the server on port `3000`.
+6. Confirm the settings.
+
+The CLI asks for a saved profile or tunnel mode.
+Other modes can require a hostname, token, or configuration file.
+The [CLI guide](/cli/) describes these choices.
+
+For scripts, CI, and non-interactive terminals, specify the server and mode:
+
+```sh
+pichamber tunnel start --port 3000 --mode quick
+```
+
+1. Check the managed tunnel status:
 
    ```sh
    pichamber tunnel status --port 3000
    ```
 
-4. Paste the full printed `https://…/connect?t=…` link directly into the intended browser.
-5. After the browser connects, bookmark the main site instead of the one-time browser link.
+2. Paste the full printed `https://…/connect?t=…` link directly into the intended browser.
+3. After the browser connects, bookmark the main site instead of the one-time browser link.
 
 The one-time browser link expires after 30 minutes and permits only one use.
 Keep the link private.
 Link previews or QR scanners can consume it.
 
+[Startup integration](/quickstart/#keep-it-running-after-reboot) can manage the server.
+It does not restore the managed tunnel after a server restart or host reboot.
 The [CLI guide](/cli/) describes stable hostnames and managed tunnel profiles.
 
 ## Stop the tunnel and server separately
@@ -211,6 +257,8 @@ When you stop a tunnel, the server continues to run.
    ```sh
    pichamber startup disable
    ```
+
+The [startup instructions](/quickstart/#keep-it-running-after-reboot) explain how the operating system manages the server.
 
 ## Pair a PiChamber client
 
