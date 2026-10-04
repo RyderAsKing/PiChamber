@@ -35,7 +35,8 @@ class FakeSession {
       getModels: () => [{ provider: 'test', id: 'model', name: 'Test model', contextWindow: 128_000, reasoning: true, thinkingLevelMap: { low: 1, high: null } }],
       getProvider: (providerId) => providerId === 'test' ? ({ name: 'Test provider' }) : undefined,
       getProviderAuthStatus: () => ({ configured: this.providerAuthenticated }),
-      login: async (_providerId, type, interaction) => {
+      login: async (_providerId, type, interaction, options) => {
+        this.lastLoginDeviceId = options?.getDeviceId?.();
         if (type === 'api_key') this.lastApiKey = await interaction.prompt({ type: 'secret', message: 'Key' });
         else {
           interaction.notify({ type: 'device_code', userCode: 'CODE', verificationUri: 'https://example.test/device' });
@@ -2048,7 +2049,8 @@ describe('Pi session daemon spike', () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
     const session = new FakeSession();
-    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    const settingsManager = { getOrCreateDeviceId: () => '00000000-0000-4000-8000-000000000001' };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, services: { settingsManager }, async dispose() {} }) });
     await daemon.start();
     const client = connectClient(endpoint);
     await client.authenticate();
@@ -2065,7 +2067,33 @@ describe('Pi session daemon spike', () => {
     await expect(client.request('providers.login.respond', { providerId: 'test', loginId, value: 'manual-code' })).resolves.toMatchObject({ result: { login: { id: loginId, state: 'pending' } } });
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(session.lastOAuthCode).toBe('manual-code');
+    // Pi 1.0 Sign in with ChatGPT requires the installation device ID.
+    expect(session.lastLoginDeviceId).toBe('00000000-0000-4000-8000-000000000001');
     await expect(client.request('providers.logout', { providerId: 'test' })).resolves.toMatchObject({ result: { authenticated: false } });
+    await client.close();
+  });
+
+  it('reports why a provider login failed without echoing callback query strings', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-login-fail-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession();
+    session.modelRuntime.login = async () => {
+      throw new Error('Token request failed', { cause: new Error('Bad callback http://127.0.0.1:1455/auth/callback?code=secret-code&state=s') });
+    };
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const started = await client.request('providers.login', { providerId: 'test', type: 'oauth' });
+    const loginId = started.result.login.id;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const status = await client.request('providers.login.status', { providerId: 'test', loginId });
+    expect(status.result.login).toMatchObject({
+      state: 'failed',
+      error: { code: 'PROVIDER_AUTH_REQUIRED', message: 'Token request failed: Bad callback http://127.0.0.1:1455/auth/callback' },
+    });
+    expect(JSON.stringify(status)).not.toContain('secret-code');
     await client.close();
   });
 

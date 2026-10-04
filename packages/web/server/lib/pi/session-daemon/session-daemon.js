@@ -2242,8 +2242,20 @@ export function createSessionDaemon({
     ...(attempt.prompt ? { prompt: attempt.prompt } : {}),
     ...(attempt.authUrl ? { authUrl: attempt.authUrl } : {}),
     ...(attempt.deviceCode ? { deviceCode: attempt.deviceCode } : {}),
-    ...(attempt.errorCode ? { error: { code: attempt.errorCode } } : {}),
+    ...(attempt.errorCode ? { error: { code: attempt.errorCode, ...(attempt.errorMessage ? { message: attempt.errorMessage } : {}) } } : {}),
   });
+
+  // Pi's login errors explain what to fix (state mismatch, wrong pasted URL,
+  // token endpoint rejection). Strip URL query strings so an echoed callback URL
+  // never carries an authorization code, and bound the length.
+  const describeLoginError = (error) => {
+    const parts = [];
+    for (let current = error, depth = 0; current && depth < 3; current = current.cause, depth += 1) {
+      if (typeof current.message === 'string' && current.message.trim()) parts.push(current.message.trim());
+    }
+    const message = parts.join(': ').replace(/(https?:\/\/[^\s?#]+)[?#]\S*/gi, '$1').replace(/\s+/g, ' ');
+    return message ? message.slice(0, 500) : undefined;
+  };
 
   const getLoginAttempt = (providerId, attemptId) => {
     const attempt = loginAttempts.get(attemptId);
@@ -2282,7 +2294,7 @@ export function createSessionDaemon({
     const controller = new AbortController();
     const attempt = {
       id: randomUUID(), providerId: payload.providerId, state: 'pending', controller,
-      prompt: undefined, authUrl: undefined, deviceCode: undefined, errorCode: undefined,
+      prompt: undefined, authUrl: undefined, deviceCode: undefined, errorCode: undefined, errorMessage: undefined,
       resolvePrompt: undefined, rejectPrompt: undefined,
     };
     attempt.expiry = expireLoginAttempt(attempt);
@@ -2322,9 +2334,20 @@ export function createSessionDaemon({
         }
       },
     };
-    void modelRuntime.login(payload.providerId, payload.type, interaction).then(
+    // Pi 1.0 OAuth flows such as Sign in with ChatGPT require a stable device ID
+    // for this installation; the Pi CLI passes the same option from global settings.
+    const settingsManager = activeRuntime.services?.settingsManager;
+    const loginOptions = typeof settingsManager?.getOrCreateDeviceId === 'function'
+      ? { getDeviceId: () => settingsManager.getOrCreateDeviceId() }
+      : undefined;
+    void modelRuntime.login(payload.providerId, payload.type, interaction, loginOptions).then(
       () => { attempt.state = 'complete'; attempt.prompt = undefined; },
-      () => { attempt.state = 'failed'; attempt.prompt = undefined; attempt.errorCode = 'PROVIDER_AUTH_REQUIRED'; },
+      (error) => {
+        attempt.state = 'failed';
+        attempt.prompt = undefined;
+        attempt.errorCode = 'PROVIDER_AUTH_REQUIRED';
+        attempt.errorMessage = describeLoginError(error);
+      },
     ).finally(() => {
       clearTimeout(attempt.expiry);
       const timer = setTimeout(() => loginAttempts.delete(attempt.id), 5 * 60 * 1_000);
