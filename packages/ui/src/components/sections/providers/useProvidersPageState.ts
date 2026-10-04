@@ -390,7 +390,14 @@ export function useProvidersPageState() {
       setLogin(result.login);
       if (result.login.state === 'complete') await refresh();
     } catch {
-      setLogin((current) => (current ? { ...current, state: 'failed', error: { code: 'PROVIDER_AUTH_REQUIRED' } } : current));
+      // The browser callback may have settled the login first; report its authoritative state.
+      try {
+        const status = await piClient.getProviderLogin(login.providerId, login.id, providerScope());
+        setLogin(status.login);
+        if (status.login.state === 'complete') await refresh();
+      } catch {
+        setLogin((current) => (current ? { ...current, state: 'failed', error: { code: 'PROVIDER_AUTH_REQUIRED' } } : current));
+      }
     } finally {
       setBusy(false);
     }

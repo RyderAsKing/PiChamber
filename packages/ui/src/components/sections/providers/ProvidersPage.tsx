@@ -181,7 +181,12 @@ export const ProvidersPage: React.FC = () => {
             />
           ) : null}
           {activeLogin?.state === 'failed' ? (
-            <p className="typography-meta text-[var(--status-error)]">Authorization was declined or did not complete.</p>
+            <div className="space-y-1">
+              <p className="typography-meta text-[var(--status-error)]">Authorization was declined or did not complete.</p>
+              {activeLogin.error?.message ? (
+                <p className="typography-meta break-words text-muted-foreground">{activeLogin.error.message}</p>
+              ) : null}
+            </div>
           ) : null}
         </SettingsSection>
 

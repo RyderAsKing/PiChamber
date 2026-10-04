@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Sign in with ChatGPT for the `openai` provider.** Pi 1.0's ChatGPT subscription login for the `openai` provider failed immediately in PiChamber. The daemon now passes Pi's installation device ID to provider logins the same way the Pi CLI does. The Providers page guides browser sign-in in two steps: open the sign-in page (with a copy-link button for another device), then paste the redirect URL. It rejects a pasted URL that isn't the redirect address before sending it. A failed login now shows Pi's reason, with URL query strings stripped so an authorization code never reaches the response. If the browser callback already settled the login, a later paste reports that state instead of a false failure (`session-daemon`, `routes`, `ProviderLoginFlow`).
+
 ## [1.0.4] - 2026-10-05
 
 GitHub pull requests and issues, Pi SDK 1.0.0 with MCP, codemode, and tool search, Pi extension UI in the chat, by-folder and timeline sidebar views, faster startup, and mobile reconnect fixes since 1.0.3.

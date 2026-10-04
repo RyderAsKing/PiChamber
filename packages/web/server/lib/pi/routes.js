@@ -437,7 +437,12 @@ const projectProviderLogin = (value) => {
       ...(Number.isFinite(login.deviceCode.expiresInSeconds) ? { expiresInSeconds: login.deviceCode.expiresInSeconds } : {}),
     };
   }
-  if (login.error && typeof login.error.code === 'string') projected.error = { code: login.error.code };
+  if (login.error && typeof login.error.code === 'string') {
+    projected.error = {
+      code: login.error.code,
+      ...(typeof login.error.message === 'string' && login.error.message.length <= 1_000 ? { message: login.error.message } : {}),
+    };
+  }
   return { login: projected };
 };
 

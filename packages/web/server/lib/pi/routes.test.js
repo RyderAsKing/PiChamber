@@ -528,7 +528,10 @@ describe('Pi runtime route', () => {
           id: 'login-1', providerId: 'provider', state: 'pending',
           deviceCode: { userCode: 'ABCD', verificationUri: 'https://example.test/device', secret: 'never-public' },
         } };
-        if (command === 'providers.login.respond') return { login: { id: 'login-1', providerId: 'provider', state: 'complete' } };
+        if (command === 'providers.login.respond') return { login: {
+          id: 'login-1', providerId: 'provider', state: 'failed',
+          error: { code: 'PROVIDER_AUTH_REQUIRED', message: 'OAuth state mismatch', stack: 'never-public' },
+        } };
         if (command === 'providers.logout') return { providerId: 'provider', authenticated: false };
         throw new Error(`Unexpected command ${command}`);
       },
@@ -543,7 +546,9 @@ describe('Pi runtime route', () => {
     const login = await fetch(`${base}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'api_key', apiKey: 'never-return-this' }) });
     expect(login.status).toBe(202);
     await expect(login.json()).resolves.toEqual({ login: { id: 'login-1', providerId: 'provider', state: 'pending', deviceCode: { userCode: 'ABCD', verificationUri: 'https://example.test/device' } } });
-    await expect((await fetch(`${base}/login/login-1/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: 'manual-code' }) })).json()).resolves.toEqual({ login: { id: 'login-1', providerId: 'provider', state: 'complete' } });
+    await expect((await fetch(`${base}/login/login-1/respond`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: 'manual-code' }) })).json()).resolves.toEqual({
+      login: { id: 'login-1', providerId: 'provider', state: 'failed', error: { code: 'PROVIDER_AUTH_REQUIRED', message: 'OAuth state mismatch' } },
+    });
     await expect((await fetch(`${base}/logout`, { method: 'POST' })).json()).resolves.toEqual({ providerId: 'provider', authenticated: false });
     expect(calls).toEqual([
       { command: 'providers.status', payload: { providerId: 'provider' } },
