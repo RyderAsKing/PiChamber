@@ -19,8 +19,8 @@ production GitHub updater provider. It supports native x64 and arm64 hosts.
    ```bash
    bun run updater:e2e:fixture -- run \
      --arch x64 \
-     --current /absolute/path/PiChamber-N-linux-x86_64.AppImage \
-     --next /absolute/path/PiChamber-N+1-linux-x86_64.AppImage \
+     --current /absolute/path/PiChamber-N-x86_64.AppImage \
+     --next /absolute/path/PiChamber-N+1-x86_64.AppImage \
      --version N+1 \
      --dir /tmp/pichamber-updater-e2e
    ```

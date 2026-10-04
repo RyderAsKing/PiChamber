@@ -111,7 +111,7 @@ export const verifyExtractedPayload = ({ root, targetArchitecture }) => {
 
 const findAppImage = (version, architecture) => {
   const suffix = linuxAppImageArchSuffix(architecture);
-  const expected = path.join(electronRoot, 'dist', `PiChamber-${version}-linux-${suffix}.AppImage`);
+  const expected = path.join(electronRoot, 'dist', `PiChamber-${version}-${suffix}.AppImage`);
   if (!fs.existsSync(expected)) throw new Error(`Linux AppImage not found: ${expected}`);
   return expected;
 };

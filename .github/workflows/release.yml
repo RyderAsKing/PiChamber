@@ -592,7 +592,7 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           set -euo pipefail
-          APPIMAGE="dist/PiChamber-${VERSION}-linux-${ARTIFACT_ARCH}.AppImage"
+          APPIMAGE="dist/PiChamber-${VERSION}-${ARTIFACT_ARCH}.AppImage"
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
           for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm; do
             node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$artifact" "$VERSION"
@@ -603,7 +603,7 @@ jobs:
         with:
           name: linux-release-${{ matrix.arch }}
           path: |
-            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-linux-${{ matrix.artifact_arch }}.AppImage
+            packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-${{ matrix.artifact_arch }}.AppImage
             packages/electron/dist/*.deb
             packages/electron/dist/*.rpm
             packages/electron/dist/${{ matrix.manifest }}
@@ -653,11 +653,11 @@ jobs:
           set -euo pipefail
           node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/x64/latest-linux.yml \
-            "artifacts/x64/PiChamber-${VERSION}-linux-x86_64.AppImage" \
+            "artifacts/x64/PiChamber-${VERSION}-x86_64.AppImage" \
             "$VERSION"
           node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/arm64/latest-linux-arm64.yml \
-            "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.AppImage" \
+            "artifacts/arm64/PiChamber-${VERSION}-arm64.AppImage" \
             "$VERSION"
           node packages/electron/scripts/verify-update-manifest.mjs \
             artifacts/latest-yml-x86_64-pc-windows-msvc/latest.yml \
@@ -696,10 +696,10 @@ jobs:
             "artifacts/windows-release-arm64/PiChamber-${VERSION}-win-arm64.exe.blockmap"
             "artifacts/windows-release-x64/PiChamber-${VERSION}-win-x64.exe"
             "artifacts/windows-release-x64/PiChamber-${VERSION}-win-x64.exe.blockmap"
-            "artifacts/x64/PiChamber-${VERSION}-linux-x86_64.AppImage"
+            "artifacts/x64/PiChamber-${VERSION}-x86_64.AppImage"
             "artifacts/x64/PiChamber-${VERSION}-linux-amd64.deb"
             "artifacts/x64/PiChamber-${VERSION}-linux-x86_64.rpm"
-            "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.AppImage"
+            "artifacts/arm64/PiChamber-${VERSION}-arm64.AppImage"
             "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.deb"
             "artifacts/arm64/PiChamber-${VERSION}-linux-aarch64.rpm"
           )
@@ -824,10 +824,10 @@ jobs:
             `PiChamber-${version}-win-arm64.exe.blockmap`,
             `PiChamber-${version}-win-x64.exe`,
             `PiChamber-${version}-win-x64.exe.blockmap`,
-            `PiChamber-${version}-linux-x86_64.AppImage`,
+            `PiChamber-${version}-x86_64.AppImage`,
             `PiChamber-${version}-linux-amd64.deb`,
             `PiChamber-${version}-linux-x86_64.rpm`,
-            `PiChamber-${version}-linux-arm64.AppImage`,
+            `PiChamber-${version}-arm64.AppImage`,
             `PiChamber-${version}-linux-arm64.deb`,
             `PiChamber-${version}-linux-aarch64.rpm`,
             prerelease ? 'rc-linux.yml' : 'latest-linux.yml',

@@ -258,7 +258,7 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           set -euo pipefail
-          APPIMAGE="dist/PiChamber-${VERSION}-linux-${ARTIFACT_ARCH}.AppImage"
+          APPIMAGE="dist/PiChamber-${VERSION}-${ARTIFACT_ARCH}.AppImage"
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
           for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm; do
             node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$artifact" "$VERSION"
@@ -269,7 +269,7 @@ jobs:
         with:
           name: desktop-release-smoke-linux-${{ matrix.arch }}
           path: |
-            packages/electron/dist/PiChamber-${{ steps.versions.outputs.app }}-linux-${{ matrix.artifact_arch }}.AppImage
+            packages/electron/dist/PiChamber-${{ steps.versions.outputs.app }}-${{ matrix.artifact_arch }}.AppImage
             packages/electron/dist/*.deb
             packages/electron/dist/*.rpm
             packages/electron/dist/${{ matrix.manifest }}

@@ -10,7 +10,7 @@ import { parseUpdateManifest, verifyUpdateManifest } from './verify-update-manif
 test('stages architecture-specific generic updater fixtures with valid metadata', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-updater-fixture-'));
   try {
-    const source = path.join(root, 'PiChamber-1.15.1-linux-arm64.AppImage');
+    const source = path.join(root, 'PiChamber-1.15.1-arm64.AppImage');
     const directory = path.join(root, 'feed');
     fs.writeFileSync(source, 'fixture-appimage');
     const result = stageUpdaterFixture({
@@ -27,7 +27,7 @@ test('stages architecture-specific generic updater fixtures with valid metadata'
       artifactPath: result.artifactPath,
       expectedVersion: '1.15.1',
     }), {
-      name: 'PiChamber-1.15.1-linux-arm64.AppImage',
+      name: 'PiChamber-1.15.1-arm64.AppImage',
       size: 16,
       version: '1.15.1',
     });

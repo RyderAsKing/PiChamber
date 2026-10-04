@@ -138,6 +138,9 @@
         }
       }
     },
+    "appImage": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
