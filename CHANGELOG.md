@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.4-rc.4] - 2026-10-04
+
+A fix for turns that ended while the app was suspended, plus Linux AppImage and daemon startup fixes, since 1.0.4-rc.3.
+
+- **Finished turns no longer show as running after resume.** Closing the app while the agent was working and reopening it after the turn ended left the chat's stop button and the sidebar row's working timer running. On reconnect, the session's state from the server now settles the turn in the chat and the sidebar. The event stream also resumes from the last event this client applied, so a turn that ended in another session while the app was away settles too (`pi-session-store`, `reconnect`).
+- **AppImages no longer need libfuse2, and the filename drops `linux` (#171).** AppImages are built with the static type2 runtime, so hosts with fuse3 but no `libfuse.so.2` mount the image instead of extracting it to `/tmp`. Before, a second launch that handed off to the running instance could delete that instance's files. The AppImage is now named `PiChamber-<version>-<arch>.AppImage`, which follows the AppImage naming convention. The `.deb` and `.rpm` names are unchanged. Existing installs update in place and keep their current filename (`package.json`, `main.mjs`, `release.yml`).
+- **Daemon spawn failures no longer crash the desktop app.** A session daemon that fails to launch now returns a recoverable `DAEMON_SPAWN_FAILED` error instead of crashing the main process (`supervisor`).
+
 ## [1.0.4-rc.3] - 2026-10-04
 
 Mobile reconnect and Android shell fixes, plus phone layout fixes, since 1.0.4-rc.2.
