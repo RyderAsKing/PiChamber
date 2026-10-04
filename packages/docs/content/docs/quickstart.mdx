@@ -3,37 +3,85 @@ title: Quick start
 description: Start an authenticated PiChamber server and open its browser UI.
 ---
 
-Start a local server:
+Run PiChamber on the computer that holds your projects, then connect from a
+browser or another PiChamber client. Install the CLI first: [Install](/install/).
+
+The computer running the server is the **host**. Sessions use its files, Pi
+configuration, and provider credentials—not those of the connecting device.
+Keep the host awake and the server running while you use it remotely.
+
+## Start a server
+
+For guided setup:
 
 ```sh
 pichamber serve
 ```
 
-In an interactive terminal, PiChamber asks where to listen, which port and
-password to use, whether to serve the browser UI, and whether to run in the
-background. Review the choices and confirm. For a script or non-interactive
-shell, provide the values yourself:
+Or start on a specific port with a generated password:
 
 ```sh
-pichamber serve --port 3000 --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --ui-password
 ```
 
-Open the URL printed by the command. The server starts its private Pi session
-daemon and loads the Pi configuration and sessions belonging to that host.
+Save the printed password. This command runs **in the background** and listens
+on `127.0.0.1` by default. Open `http://127.0.0.1:3000` on the host and sign in.
+You should see your sessions and be able to start a Pi session.
 
-Use the **Local network** choice or `--lan` only on a trusted network. Always
-set `--ui-password` when the server can be reached by another device. To pair a
-phone or another browser, run `pichamber connect-url --qr` on the server and
-scan the one-time link.
+Loopback (`127.0.0.1`) means **this computer only**. It is not the address to use
+on your phone. Add `--foreground` if you want the server attached to its terminal.
 
-You should land on the PiChamber session list and be able to start a new Pi
-session. If the browser reports that Pi is unavailable, see
-[Troubleshooting](/troubleshooting/). For the full set of guided and scripted
-commands, see the [CLI guide](/cli/).
+## Check and stop
+
+Forgot the port? List discovered instances and their ports:
+
+```sh
+pichamber status
+```
+
+Stop one server using its actual port:
+
+```sh
+pichamber stop --port 3000
+```
+
+Closing Terminal does not stop a background server. Background mode does not
+configure automatic startup after reboot. If you enabled startup integration,
+use `pichamber startup disable` to prevent automatic relaunch. See the
+[CLI guide](/cli/) for startup, logs, and restart commands.
+
+## Connect from another device
+
+**Same trusted Wi-Fi: no tunnel needed.** Restart a loopback-only server with
+LAN access and a new generated password:
+
+```sh
+pichamber stop --port 3000
+pichamber serve --port 3000 --lan --ui-password
+```
+
+Open `http://HOST-IP:3000` on the other device. On macOS, find the host IP in
+**System Settings → Wi-Fi → Details → TCP/IP**. Sign in with the new password.
+LAN HTTP access is intended for trusted networks.
+
+**Outside your network:** use a Cloudflare tunnel. LAN access and a tunnel can
+run together. Follow [Connect devices](/connect-devices/) for foreground tunnel
+commands, browser versus app pairing, and how to stop each kind of tunnel.
+
+For a PiChamber-managed tunnel, shut down remote access before the server:
+
+```sh
+pichamber tunnel stop --port 3000
+pichamber stop --port 3000
+```
+
+For a standalone `cloudflared` tunnel, press **Ctrl+C** in its terminal instead
+of using `pichamber tunnel stop`, then stop the server separately.
 
 ## Docker
 
-Copy `docker-compose.yml` from the repository, set `PICHAMBER_UI_PASSWORD`, and
-run `docker compose up -d`. Open the URL in the container logs, then pair other
-devices from the browser UI. See [Run PiChamber in Docker](/docker/) for projects,
-persistent data, upgrades, and ways to reuse an existing Pi configuration.
+Copy `docker-compose.yml` from the repository, set `PICHAMBER_UI_PASSWORD` to a
+strong password, and run `docker compose up -d`. See [Run PiChamber in Docker](/docker/)
+for host port bindings, projects, persistent data, and upgrades.
+
+If startup fails, see [Troubleshooting](/troubleshooting/).
