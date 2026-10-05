@@ -3,37 +3,201 @@ title: Quick start
 description: Start an authenticated PiChamber server and open its browser UI.
 ---
 
-Start a local server:
+Run PiChamber on the computer that holds your projects, then connect from a
+browser or another PiChamber client. Install the CLI first: [Install](/install/).
+
+The computer running the server is the **host**. Sessions use its files, Pi
+configuration, and provider credentials—not those of the connecting device.
+Keep the host awake and the server running while you use it remotely.
+
+The examples use port `3000`.
+Replace this port with your actual server port.
+
+## Start a server
+
+For guided setup, use an interactive terminal:
 
 ```sh
 pichamber serve
 ```
 
-In an interactive terminal, PiChamber asks where to listen, which port and
-password to use, whether to serve the browser UI, and whether to run in the
-background. Review the choices and confirm. For a script or non-interactive
-shell, provide the values yourself:
+The CLI asks for these settings:
+
+- Access: this machine only, the local network, or a custom bind address.
+- Server port.
+- UI password.
+- Browser UI and API, or API only.
+- Background or foreground mode.
+
+The CLI shows your choices before it starts the server.
+
+1. For local browser access, select **This machine only**.
+2. Set the port to `3000`.
+3. Select **Generate a secure password**.
+4. Select **Browser UI and API**.
+5. Select **In the background**.
+6. Confirm the settings.
+7. Save the printed password.
+8. Open `http://127.0.0.1:3000` on the host.
+9. Enter the password.
+
+The browser shows your session list after successful authentication.
+
+For scripts, CI, and non-interactive terminals, use explicit flags:
 
 ```sh
-pichamber serve --port 3000 --ui-password "choose-a-strong-password"
+pichamber serve --port 3000 --ui-password
 ```
 
-Open the URL printed by the command. The server starts its private Pi session
-daemon and loads the Pi configuration and sessions belonging to that host.
+By default, this command starts a background server on `127.0.0.1`.
+Without a configured password, `--ui-password` generates one.
 
-Use the **Local network** choice or `--lan` only on a trusted network. Always
-set `--ui-password` when the server can be reached by another device. To pair a
-phone or another browser, run `pichamber connect-url --qr` on the server and
-scan the one-time link.
+Loopback (`127.0.0.1`) means **this computer only**.
+It is not the address to use on your phone.
+Foreground mode keeps the server attached to its terminal.
+For the flag-based command, `--foreground` selects this mode.
 
-You should land on the PiChamber session list and be able to start a new Pi
-session. If the browser reports that Pi is unavailable, see
-[Troubleshooting](/troubleshooting/). For the full set of guided and scripted
-commands, see the [CLI guide](/cli/).
+## Check and stop
+
+Forgot the port? List discovered instances and their ports:
+
+```sh
+pichamber status
+```
+
+Stop one server using its actual port:
+
+```sh
+pichamber stop --port 3000
+```
+
+Closing the terminal does not stop a background server.
+Background mode does not configure automatic startup.
+See [Keep it running after reboot](#keep-it-running-after-reboot) for startup integration.
+The [CLI guide](/cli/) describes logs and restart commands.
+
+## Keep it running after reboot
+
+Startup integration lets the operating system manage the server.
+Use a globally installed CLI and a supported runtime.
+Startup integration uses the runtime that runs the CLI.
+See [Install](/install/) for runtime requirements.
+
+1. If a manually started server uses the required port, stop it:
+
+   ```sh
+   pichamber stop --port 3000
+   ```
+
+2. Start guided startup setup:
+
+   ```sh
+   pichamber startup enable
+   ```
+
+3. Select the access setting.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Confirm the settings.
+7. Save any generated password.
+
+The CLI installs and starts the service after confirmation.
+Choose **Local network** if other devices need direct LAN access.
+
+For scripts, CI, and non-interactive terminals, use explicit flags:
+
+```sh
+pichamber startup enable --port 3000 --ui-password
+```
+
+For LAN access, also include `--lan`:
+
+```sh
+pichamber startup enable --port 3000 --lan --ui-password
+```
+
+On macOS and Windows, the server starts at login, not before login.
+On Linux with systemd, root installs a system service that starts at boot.
+Other users install a user service.
+Its availability before login or after logout depends on the system's user-service configuration.
+Startup integration does not configure Android boot startup.
+
+Startup integration manages only the server.
+It does not restart standalone tunnels or restore managed tunnels.
+Start the required tunnel separately.
+
+1. To check startup integration, run:
+
+   ```sh
+   pichamber startup status
+   ```
+
+2. To prevent automatic server restart, disable startup integration:
+
+   ```sh
+   pichamber startup disable
+   ```
+
+The [CLI guide](/cli/) describes startup commands and platform requirements.
+
+## Connect from another device
+
+**Same trusted Wi-Fi: no tunnel needed.**
+A loopback-only server must restart before it accepts LAN connections.
+
+1. If a server already uses this port, stop it:
+
+   ```sh
+   pichamber stop --port 3000
+   ```
+
+2. Start guided setup:
+
+   ```sh
+   pichamber serve
+   ```
+
+3. Select **Local network**.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Select **Browser UI and API**.
+7. Select **In the background**.
+8. Confirm the settings.
+9. Save the printed password.
+
+For scripts, CI, and non-interactive terminals, use:
+
+```sh
+pichamber serve --port 3000 --lan --ui-password
+```
+
+1. Find the host's LAN IP address.
+
+   On macOS, **System Settings → Wi-Fi → Details → TCP/IP** shows the address.
+
+2. Open `http://HOST-IP:3000` on the other device.
+3. Enter the server password.
+
+LAN HTTP access is intended for trusted networks.
+
+**Outside your network:** use a Cloudflare tunnel. LAN access and a tunnel can
+run together. Follow [Connect devices](/connect-devices/) for foreground tunnel
+commands, browser versus app pairing, and how to stop each kind of tunnel.
+
+For a PiChamber-managed tunnel, shut down remote access before the server:
+
+```sh
+pichamber tunnel stop --port 3000
+pichamber stop --port 3000
+```
+
+For a standalone `cloudflared` tunnel, press **Ctrl+C** in its terminal instead
+of using `pichamber tunnel stop`, then stop the server separately.
 
 ## Docker
 
-Copy `docker-compose.yml` from the repository, set `PICHAMBER_UI_PASSWORD`, and
-run `docker compose up -d`. Open the URL in the container logs, then pair other
-devices from the browser UI. See [Run PiChamber in Docker](/docker/) for projects,
-persistent data, upgrades, and ways to reuse an existing Pi configuration.
+Copy `docker-compose.yml` from the repository, set `PICHAMBER_UI_PASSWORD` to a
+strong password, and run `docker compose up -d`. See [Run PiChamber in Docker](/docker/)
+for host port bindings, projects, persistent data, and upgrades.
+
+If startup fails, see [Troubleshooting](/troubleshooting/).

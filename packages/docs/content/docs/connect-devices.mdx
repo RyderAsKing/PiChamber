@@ -1,23 +1,325 @@
 ---
 title: Connect devices
-description: Pair a trusted device with an existing PiChamber server.
+description: Connect a trusted device to a PiChamber server.
 ---
 
-On the server, create a one-time pairing link:
+The **host** is the computer that runs the PiChamber server.
+Connected devices use the host's projects, filesystem, Pi configuration, sessions, and provider credentials.
+
+For access from connected devices, keep the host awake and the server active.
+
+The examples use port `3000`.
+Replace this port with your actual server port.
+
+## Find the server port
+
+1. If you do not know the port, list the discovered servers:
+
+   ```sh
+   pichamber status
+   ```
+
+This command does not scan every possible port.
+
+## Same Wi-Fi: no tunnel needed
+
+`--lan` allows connections from other devices.
+It does not set or change the password.
+Without `--lan`, the default `127.0.0.1` binding accepts connections only from the host.
+
+If no password exists, `--ui-password` without a value generates one.
+The server prints the generated password when it starts.
+`--ui-password "your-strong-password"` uses the value you supply instead.
+
+1. If a server already uses this port, stop it:
+
+   ```sh
+   pichamber stop --port 3000
+   ```
+
+2. Start guided setup in an interactive terminal:
+
+   ```sh
+   pichamber serve
+   ```
+
+3. Select **Local network**.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Select **Browser UI and API**.
+7. Select **In the background**.
+8. Confirm the settings.
+9. Save the password under **UI password** securely.
+
+For scripts, CI, and non-interactive terminals, use explicit flags instead:
 
 ```sh
-pichamber connect-url --qr
+pichamber serve --port 3000 --lan --ui-password
 ```
 
-If no server is running on the selected port, `connect-url` starts one before
-creating the link. Use `--port <port>` to select a running instance,
-`--server https://host.example.com` when the public URL differs from the local
-bind address, or `--relay` to include the private relay as a fallback.
+1. Find the host's local IP address.
 
-On a Docker server, open the browser UI first and use **Add a device** there.
-You can also run `docker compose exec pichamber bun packages/web/bin/cli.js connect-url --qr`
-from the compose directory.
+   On macOS, **System Settings → Wi-Fi → Details → TCP/IP** shows the address.
 
-Open or scan the link from the device you want to connect. Pairing grants that device access to the server's workspace, so use it only for devices you control. Revoke access from the server when a device is no longer trusted.
+2. On the other device, open the host's LAN URL.
 
-Remote PiChamber clients operate on the server's filesystem and use the server's Pi configuration and credentials.
+   If the address is `192.168.1.42`, the URL is `http://192.168.1.42:3000`.
+
+3. Enter the server password.
+
+Startup flags do not change a running server.
+These wizard choices and the flag-based example start the server in the background.
+When the server generates a password, it prints output like this example.
+The example password is a placeholder.
+
+```text
+┌  PiChamber Started
+│
+◆  port 3000 (PID: 12345)
+│
+◆  UI password
+│  <generated-password>
+│
+▲  save this password
+│  it is not shown again
+│
+●  visit: http://127.0.0.1:3000/
+│
+●  logs: pichamber logs -p 3000
+│
+└  daemon running
+```
+
+The printed `visit:` URL works only on the host.
+On another device, `127.0.0.1` refers to that device, not the host.
+
+Use LAN HTTP access only on trusted networks.
+Guest Wi-Fi isolation or the host firewall can block connections between devices.
+Do not disable protections broadly.
+
+## Internet access: standalone tunnel
+
+A **standalone tunnel** is a `cloudflared` process that you start directly.
+It lets a device outside your network reach the host over HTTPS.
+This procedure uses ordinary password login, not a one-time browser link.
+
+A **managed tunnel** is a tunnel that PiChamber starts and controls.
+An active managed tunnel changes browser authentication.
+Do not use the standalone tunnel procedure with an active managed tunnel.
+This combination can cause a “Tunnel access required” screen.
+
+1. If you do not have `cloudflared`, install it.
+
+   On macOS with Homebrew, use:
+
+   ```sh
+   brew install cloudflared
+   ```
+
+   For other systems, follow [Cloudflare's installation instructions](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflared/downloads/).
+
+2. If no server runs on this port, start guided setup:
+
+   ```sh
+   pichamber serve
+   ```
+
+3. In guided setup, select **This machine only**.
+4. Set the port to `3000`.
+5. Select **Generate a secure password**.
+6. Select **Browser UI and API**.
+7. Select **In the background**.
+8. Confirm the settings.
+9. Save the printed password.
+
+If the server already runs with a password, skip the setup steps.
+An existing server keeps its password and binding.
+A server without a password accepts every request that reaches it.
+The tunnel gives anyone with its URL that access.
+If the running server has no password, stop it and start it again with a password before you start the tunnel.
+The LAN procedure describes how to stop and start the server with different settings.
+Tunnel-only access does not require `--lan`.
+
+For scripts, CI, and non-interactive terminals, use explicit flags instead:
+
+```sh
+pichamber serve --port 3000 --ui-password
+```
+
+1. If a managed tunnel is active, stop it:
+
+   ```sh
+   pichamber tunnel stop --port 3000
+   ```
+
+2. In another terminal, start the standalone tunnel:
+
+   ```sh
+   cloudflared tunnel --url http://127.0.0.1:3000
+   ```
+
+3. Keep this terminal open.
+4. On the other device, open the printed `https://…trycloudflare.com` URL.
+5. Enter the server password.
+
+LAN access and a standalone tunnel can operate together.
+A server with `--lan` also accepts loopback connections.
+The same tunnel command works with that server.
+Local devices use `http://HOST-IP:3000`.
+Remote devices use the standalone tunnel's HTTPS URL.
+
+Quick tunnels have temporary URLs.
+Cloudflare does not guarantee their availability.
+This procedure does not automatically restart the server or standalone tunnel after the host reboots.
+[Startup integration](/quickstart/#keep-it-running-after-reboot) can manage the server.
+It does not restart the standalone tunnel.
+
+## Alternative: managed tunnel
+
+This procedure requires a server with a strong password and an installed `cloudflared` executable.
+Do not start a managed tunnel for a server without a password.
+Managed tunnel access requires a one-time browser link.
+The server does not allow ordinary password login on the managed tunnel's public hostname.
+
+1. If a standalone tunnel runs, press **Ctrl+C** in its terminal.
+2. Start guided tunnel setup in an interactive terminal:
+
+   ```sh
+   pichamber tunnel start --port 3000
+   ```
+
+3. If saved profiles appear, select **Choose a mode manually**.
+4. Select the quick tunnel mode.
+5. Confirm the settings.
+6. Copy the full `https://…/connect?t=…` link from the **Tunnel Started** output.
+
+The CLI asks for a saved profile or tunnel mode.
+Other modes can require a hostname, token, or configuration file.
+The [CLI guide](/cli/) describes these choices.
+
+For scripts, CI, and non-interactive terminals, specify the server and mode:
+
+```sh
+pichamber tunnel start --port 3000 --mode quick
+```
+
+1. Paste the one-time browser link directly into the intended browser.
+2. After the browser connects, bookmark the main site instead of the one-time browser link.
+
+Only `pichamber tunnel start` prints the one-time browser link.
+`pichamber tunnel status --port 3000` shows the public hostname, not the link.
+If you lose the link, start the tunnel again to get a new one.
+
+The one-time browser link expires after 30 minutes and permits only one use.
+Keep the link private.
+Link previews or QR scanners can consume it.
+
+[Startup integration](/quickstart/#keep-it-running-after-reboot) can manage the server.
+It does not restore the managed tunnel after a server restart or host reboot.
+The [CLI guide](/cli/) describes stable hostnames and managed tunnel profiles.
+
+## Stop the tunnel and server separately
+
+When you stop a tunnel, the server continues to run.
+`pichamber tunnel stop` does not control a standalone tunnel.
+
+### Stop a standalone tunnel
+
+1. Press **Ctrl+C** in the standalone tunnel's terminal.
+2. Stop the server:
+
+   ```sh
+   pichamber stop --port 3000
+   ```
+
+### Stop a managed tunnel
+
+1. Stop the managed tunnel:
+
+   ```sh
+   pichamber tunnel stop --port 3000
+   ```
+
+2. Stop the server:
+
+   ```sh
+   pichamber stop --port 3000
+   ```
+
+### Check the remaining servers
+
+1. List the remaining discovered servers:
+
+   ```sh
+   pichamber status
+   ```
+
+2. If you enabled startup integration, prevent automatic server restart:
+
+   ```sh
+   pichamber startup disable
+   ```
+
+The [startup instructions](/quickstart/#keep-it-running-after-reboot) explain how the operating system manages the server.
+
+## Pair a PiChamber client
+
+A one-time browser link and an app pairing link serve different purposes.
+App pairing links use `pichamber://connect`.
+They permit only one use and expire after ten minutes.
+Keep pairing links private.
+Pair only devices you trust.
+
+The host's browser UI has an **Add a device** control.
+The CLI can also generate an app pairing link.
+
+1. Generate an app pairing link with one of these methods.
+
+   In the host's browser UI, **Add a device** generates a link.
+
+   For LAN access, use this command instead:
+
+   ```sh
+   pichamber connect-url --port 3000 --qr
+   ```
+
+   For a standalone tunnel, use its actual public URL:
+
+   ```sh
+   pichamber connect-url --port 3000 --server https://YOUR-HOST.trycloudflare.com --qr
+   ```
+
+2. Scan or paste the app pairing link into the receiving PiChamber client.
+
+Use the receiving PiChamber client, not a browser address bar.
+QR output requires an interactive terminal.
+`--server` advertises an address.
+It does not create a tunnel.
+`connect-url` can start a server if none exists.
+It does not change an existing server.
+
+`--relay` adds a private relay fallback.
+The [CLI guide](/cli/) describes other connection options.
+
+## Docker hosts
+
+The browser UI has an **Add a device** control.
+The CLI requires an address that the receiving device can reach.
+For LAN access, Docker must publish the host port to the LAN.
+
+1. Open a terminal in the Compose directory.
+2. Replace the example address and port with your actual host mapping or public HTTPS URL.
+3. Generate an app pairing link:
+
+   ```sh
+   docker compose exec --user 1000:1000 -e HOME=/home/pichamber pichamber bun packages/web/bin/cli.js connect-url --server http://HOST-IP:32145 --qr
+   ```
+
+4. Scan or paste the app pairing link into the receiving PiChamber client.
+
+The `--user` and `HOME` options run the command as the server's user.
+Without them, the command writes the pairing link to a different data directory, and the server rejects the link.
+
+The default Compose binding accepts connections only from the host.
+Pairing does not make the server reachable from other devices.
+[Run PiChamber in Docker](/docker/) describes network bindings and persistent data.
