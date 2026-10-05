@@ -132,8 +132,11 @@ This combination can cause a “Tunnel access required” screen.
 8. Confirm the settings.
 9. Save the printed password.
 
-If the server already runs, skip the setup steps.
+If the server already runs with a password, skip the setup steps.
 An existing server keeps its password and binding.
+A server without a password accepts every request that reaches it.
+The tunnel gives anyone with its URL that access.
+If the running server has no password, stop it and start it again with a password before you start the tunnel.
 The LAN procedure describes how to stop and start the server with different settings.
 Tunnel-only access does not require `--lan`.
 
@@ -174,6 +177,7 @@ It does not restart the standalone tunnel.
 ## Alternative: managed tunnel
 
 This procedure requires a server with a strong password and an installed `cloudflared` executable.
+Do not start a managed tunnel for a server without a password.
 Managed tunnel access requires a one-time browser link.
 The server does not allow ordinary password login on the managed tunnel's public hostname.
 
@@ -181,13 +185,13 @@ The server does not allow ordinary password login on the managed tunnel's public
 2. Start guided tunnel setup in an interactive terminal:
 
    ```sh
-   pichamber tunnel start
+   pichamber tunnel start --port 3000
    ```
 
 3. If saved profiles appear, select **Choose a mode manually**.
 4. Select the quick tunnel mode.
-5. If the CLI asks for a server, select the server on port `3000`.
-6. Confirm the settings.
+5. Confirm the settings.
+6. Copy the full `https://…/connect?t=…` link from the **Tunnel Started** output.
 
 The CLI asks for a saved profile or tunnel mode.
 Other modes can require a hostname, token, or configuration file.
@@ -199,14 +203,12 @@ For scripts, CI, and non-interactive terminals, specify the server and mode:
 pichamber tunnel start --port 3000 --mode quick
 ```
 
-1. Check the managed tunnel status:
+1. Paste the one-time browser link directly into the intended browser.
+2. After the browser connects, bookmark the main site instead of the one-time browser link.
 
-   ```sh
-   pichamber tunnel status --port 3000
-   ```
-
-2. Paste the full printed `https://…/connect?t=…` link directly into the intended browser.
-3. After the browser connects, bookmark the main site instead of the one-time browser link.
+Only `pichamber tunnel start` prints the one-time browser link.
+`pichamber tunnel status --port 3000` shows the public hostname, not the link.
+If you lose the link, start the tunnel again to get a new one.
 
 The one-time browser link expires after 30 minutes and permits only one use.
 Keep the link private.
@@ -310,10 +312,13 @@ For LAN access, Docker must publish the host port to the LAN.
 3. Generate an app pairing link:
 
    ```sh
-   docker compose exec pichamber bun packages/web/bin/cli.js connect-url --server http://HOST-IP:32145 --qr
+   docker compose exec --user 1000:1000 -e HOME=/home/pichamber pichamber bun packages/web/bin/cli.js connect-url --server http://HOST-IP:32145 --qr
    ```
 
 4. Scan or paste the app pairing link into the receiving PiChamber client.
+
+The `--user` and `HOME` options run the command as the server's user.
+Without them, the command writes the pairing link to a different data directory, and the server rejects the link.
 
 The default Compose binding accepts connections only from the host.
 Pairing does not make the server reachable from other devices.
