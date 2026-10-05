@@ -11,6 +11,7 @@ import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { applyPersistedDirectoryPreferences } from '@/lib/directoryPersistence';
 import { syncDesktopSettings } from '@/lib/persistence';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
+import { startSettingsResumeSync } from '@/lib/settingsResumeSync';
 import { startTypographyWatcher } from '@/lib/typographyWatcher';
 import { ElectronMiniChatApp } from './ElectronMiniChatApp';
 
@@ -27,6 +28,7 @@ const initializeSharedPreferences = () => {
 
     startAppearanceAutoSave();
     startModelPrefsAutoSave();
+    startSettingsResumeSync();
     startTypographyWatcher();
   })();
 };

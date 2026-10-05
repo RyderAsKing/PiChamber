@@ -1,142 +1,64 @@
 import { useUIStore } from '@/stores/useUIStore';
-import { updateDesktopSettings } from '@/lib/persistence';
-import { getRuntimeKey, subscribeRuntimeEndpointWillChange } from '@/lib/runtime-switch';
+import { flushPendingSettings, updateDesktopSettings } from '@/lib/persistence';
+import type { DesktopSettings } from '@/lib/desktop';
+import {
+  areModelRefsEqual,
+  areRecentEffortsEqual,
+  areStringArraysEqual,
+} from '@/lib/persistence/settingsEquality';
 
-type ModelRef = { providerID: string; modelID: string };
-type ModelPrefsPayload = {
-  favoriteModels: ModelRef[];
-  hiddenModels: ModelRef[];
-  collapsedModelProviders: string[];
-  recentModels: ModelRef[];
-  recentAgents: string[];
-  recentEfforts: Record<string, string[]>;
-};
+type ModelPrefsSlice = Pick<
+  DesktopSettings,
+  'favoriteModels' | 'hiddenModels' | 'collapsedModelProviders' | 'recentModels' | 'recentAgents' | 'recentEfforts'
+>;
 
-const refsEqual = (a: ModelRef[], b: ModelRef[]): boolean => {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i]?.providerID !== b[i]?.providerID) return false;
-    if (a[i]?.modelID !== b[i]?.modelID) return false;
+type UIState = ReturnType<typeof useUIStore.getState>;
+
+// Only fields that changed are written. The server replaces each field it
+// receives, so sending the whole slice whenever one field changed (for
+// example `recentModels` after a send) let a window holding an older copy of
+// `hiddenModels` or `favoriteModels` overwrite newer preferences saved by
+// another client. Writes go straight to `updateDesktopSettings`, which owns
+// debouncing, runtime-owner draining, and the pending-write guard that keeps
+// `refreshDesktopSettings` from reverting a change that has not been sent.
+const diffModelPrefs = (state: UIState, prevState: UIState): ModelPrefsSlice => {
+  const diff: ModelPrefsSlice = {};
+  if (!areModelRefsEqual(state.favoriteModels, prevState.favoriteModels)) {
+    diff.favoriteModels = state.favoriteModels;
   }
-  return true;
-};
-
-const stringsEqual = (a: string[], b: string[]): boolean => {
-  if (a === b) return true;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
+  if (!areModelRefsEqual(state.hiddenModels, prevState.hiddenModels)) {
+    diff.hiddenModels = state.hiddenModels;
   }
-  return true;
+  if (!areStringArraysEqual(state.collapsedModelProviders, prevState.collapsedModelProviders)) {
+    diff.collapsedModelProviders = state.collapsedModelProviders;
+  }
+  if (!areModelRefsEqual(state.recentModels, prevState.recentModels)) {
+    diff.recentModels = state.recentModels;
+  }
+  if (!areStringArraysEqual(state.recentAgents, prevState.recentAgents)) {
+    diff.recentAgents = state.recentAgents;
+  }
+  if (!areRecentEffortsEqual(state.recentEfforts, prevState.recentEfforts)) {
+    diff.recentEfforts = state.recentEfforts;
+  }
+  return diff;
 };
-
-const recentEffortsEqual = (a: Record<string, string[]>, b: Record<string, string[]>): boolean => {
-  if (a === b) return true;
-  const aKeys = Object.keys(a);
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => Array.isArray(b[key]) && stringsEqual(a[key], b[key]));
-};
-
-const snapshotModelPrefs = (): ModelPrefsPayload => {
-  const state = useUIStore.getState();
-  return {
-    favoriteModels: state.favoriteModels,
-    hiddenModels: state.hiddenModels,
-    collapsedModelProviders: state.collapsedModelProviders,
-    recentModels: state.recentModels,
-    recentAgents: state.recentAgents,
-    recentEfforts: state.recentEfforts,
-  };
-};
-
-const modelPrefsEqual = (a: ModelPrefsPayload, b: ModelPrefsPayload): boolean => (
-  refsEqual(a.favoriteModels, b.favoriteModels) &&
-  refsEqual(a.hiddenModels, b.hiddenModels) &&
-  stringsEqual(a.collapsedModelProviders, b.collapsedModelProviders) &&
-  refsEqual(a.recentModels, b.recentModels) &&
-  stringsEqual(a.recentAgents, b.recentAgents) &&
-  recentEffortsEqual(a.recentEfforts, b.recentEfforts)
-);
-
-const cloneModelPrefs = (prefs: ModelPrefsPayload): ModelPrefsPayload => ({
-  favoriteModels: prefs.favoriteModels.slice(),
-  hiddenModels: prefs.hiddenModels.slice(),
-  collapsedModelProviders: prefs.collapsedModelProviders.slice(),
-  recentModels: prefs.recentModels.slice(),
-  recentAgents: prefs.recentAgents.slice(),
-  recentEfforts: Object.fromEntries(Object.entries(prefs.recentEfforts).map(([key, variants]) => [key, variants.slice()])),
-});
 
 export const startModelPrefsAutoSave = () => {
   if (typeof window === 'undefined') {
     return () => {};
   }
 
-  let timer: number | null = null;
-  let lastSent: ModelPrefsPayload | null = cloneModelPrefs(snapshotModelPrefs());
-  let scheduledRuntimeKey: string | null = null;
-
-  const flush = (immediate = false) => {
-    timer = null;
-    const runtimeKey = scheduledRuntimeKey;
-    scheduledRuntimeKey = null;
-    if (!runtimeKey || runtimeKey !== getRuntimeKey()) return;
-    const payload = snapshotModelPrefs();
-
-    if (lastSent && modelPrefsEqual(lastSent, payload)) {
-      return;
-    }
-
-    lastSent = cloneModelPrefs(payload);
-
-    void updateDesktopSettings(payload, { immediate }).catch(() => {});
-  };
-
-  const schedule = () => {
-    if (timer !== null) {
-      window.clearTimeout(timer);
-    }
-    scheduledRuntimeKey = getRuntimeKey();
-    timer = window.setTimeout(flush, 1200);
-  };
-
-  const unsubscribeRuntime = subscribeRuntimeEndpointWillChange((detail) => {
-    if (detail.runtimeKey === detail.previousRuntimeKey) return;
-    if (timer !== null) window.clearTimeout(timer);
-    flush(true);
-    lastSent = null;
-  });
-
   const unsubscribe = useUIStore.subscribe((state, prevState) => {
-    const next = {
-      favoriteModels: state.favoriteModels,
-      hiddenModels: state.hiddenModels,
-      collapsedModelProviders: state.collapsedModelProviders,
-      recentModels: state.recentModels,
-      recentAgents: state.recentAgents,
-      recentEfforts: state.recentEfforts,
-    };
-    const prev = {
-      favoriteModels: prevState.favoriteModels,
-      hiddenModels: prevState.hiddenModels,
-      collapsedModelProviders: prevState.collapsedModelProviders,
-      recentModels: prevState.recentModels,
-      recentAgents: prevState.recentAgents,
-      recentEfforts: prevState.recentEfforts,
-    };
-    if (modelPrefsEqual(next, prev)) {
+    const diff = diffModelPrefs(state, prevState);
+    if (Object.keys(diff).length === 0) {
       return;
     }
-    schedule();
+    void updateDesktopSettings(diff).catch(() => {});
   });
 
   return () => {
     unsubscribe();
-    unsubscribeRuntime();
-    if (timer !== null) {
-      window.clearTimeout(timer);
-    }
-    flush(true);
+    flushPendingSettings();
   };
 };

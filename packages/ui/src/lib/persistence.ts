@@ -825,3 +825,14 @@ export const updateDesktopSettings = async (
   }
   return flushed;
 };
+
+/**
+ * Send any debounced settings patch now, against its captured owner. Autosave
+ * lifecycles call this when they stop so a change made just before teardown
+ * is not left waiting on the debounce timer.
+ */
+export const flushPendingSettings = (): void => {
+  if (_pendingSettingsChanges === null) return;
+  if (_settingsFlushTimer) clearTimeout(_settingsFlushTimer);
+  void _flushSettingsUpdate({ skipInitialLoadGate: true });
+};
