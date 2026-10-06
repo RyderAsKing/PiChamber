@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -68,13 +69,14 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
   setInputBarOffset,
   isMobile,
 }) => {
+  const { t } = useTranslation();
   return (
-    <SettingsSection title={'Density & type'} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
+    <SettingsSection title={t('Density & type')} contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
       {shouldShow('fontSize') || shouldShow('terminalFontSize') ? (
         <SettingsTwoColumn>
           {shouldShow('fontSize') && (
             <SettingsStackedField
-              label={'Interface Font'}
+              label={t('Interface Font')}
               settingsItem="appearance.interface-font-size"
               controlClassName="w-full"
             >
@@ -83,7 +85,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                 onValueChange={(value) => setUiFont(value as UiFontOption)}
               >
                 <SelectTrigger
-                  aria-label={'Select interface font'}
+                  aria-label={t('Select interface font')}
                   size={SETTINGS_SELECT_SIZE}
                   className={SETTINGS_SELECT_TRIGGER_CLASS}
                 >
@@ -106,21 +108,21 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                 onClick={() => setUiFont(DEFAULT_UI_FONT)}
                 disabled={uiFont === DEFAULT_UI_FONT}
                 className={SETTINGS_ICON_BUTTON_CLASS}
-                aria-label={'Reset interface font'}
-                title={'Reset'}
+                aria-label={t('Reset interface font')}
+                title={t('Reset')}
               >
                 <Icon name="restart" className="h-3.5 w-3.5" />
               </Button>
             </SettingsStackedField>
           )}
           {shouldShow('terminalFontSize') && (
-            <SettingsStackedField label={'Code Font'} controlClassName="w-full">
+            <SettingsStackedField label={t('Code Font')} controlClassName="w-full">
               <Select
                 value={monoFont}
                 onValueChange={(value) => setMonoFont(value as MonoFontOption)}
               >
                 <SelectTrigger
-                  aria-label={'Select code font'}
+                  aria-label={t('Select code font')}
                   size={SETTINGS_SELECT_SIZE}
                   className={SETTINGS_SELECT_TRIGGER_CLASS}
                 >
@@ -143,8 +145,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                 onClick={() => setMonoFont(DEFAULT_MONO_FONT)}
                 disabled={monoFont === DEFAULT_MONO_FONT}
                 className={SETTINGS_ICON_BUTTON_CLASS}
-                aria-label={'Reset code font'}
-                title={'Reset'}
+                aria-label={t('Reset code font')}
+                title={t('Reset')}
               >
                 <Icon name="restart" className="h-3.5 w-3.5" />
               </Button>
@@ -159,7 +161,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
         <SettingsTwoColumn>
           {shouldShow('fontSize') && (
             <SettingsStackedField
-              label={'Interface Font Size'}
+              label={t('Interface Font Size')}
               settingsItem="appearance.interface-font-size"
               controlClassName="w-full"
             >
@@ -170,7 +172,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   min={50}
                   max={200}
                   step={5}
-                  aria-label={'Font size percentage'}
+                  aria-label={t('Font size percentage')}
                 />
                 <span className={SETTINGS_NUMBER_UNIT_CLASS}>%</span>
                 <Button
@@ -180,8 +182,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   onClick={() => setFontSize(100)}
                   disabled={fontSize === 100}
                   className={SETTINGS_ICON_BUTTON_CLASS}
-                  aria-label={'Reset font size'}
-                  title={'Reset'}
+                  aria-label={t('Reset font size')}
+                  title={t('Reset')}
                 >
                   <Icon name="restart" className="h-3.5 w-3.5" />
                 </Button>
@@ -190,7 +192,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('terminalFontSize') && (
             <SettingsStackedField
-              label={'Terminal Font Size'}
+              label={t('Terminal Font Size')}
               settingsItem="appearance.terminal-font-size"
               controlClassName="w-full"
             >
@@ -210,8 +212,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   onClick={() => setTerminalFontSize(13)}
                   disabled={terminalFontSize === 13}
                   className={SETTINGS_ICON_BUTTON_CLASS}
-                  aria-label={'Reset terminal font size'}
-                  title={'Reset'}
+                  aria-label={t('Reset terminal font size')}
+                  title={t('Reset')}
                 >
                   <Icon name="restart" className="h-3.5 w-3.5" />
                 </Button>
@@ -220,7 +222,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('editorFontSize') && (
             <SettingsStackedField
-              label={'Editor Font Size'}
+              label={t('Editor Font Size')}
               settingsItem="appearance.editor-font-size"
               controlClassName="w-full"
             >
@@ -240,8 +242,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   onClick={() => setEditorFontSize(13)}
                   disabled={editorFontSize === 13}
                   className={SETTINGS_ICON_BUTTON_CLASS}
-                  aria-label={'Reset editor font size'}
-                  title={'Reset'}
+                  aria-label={t('Reset editor font size')}
+                  title={t('Reset')}
                 >
                   <Icon name="restart" className="h-3.5 w-3.5" />
                 </Button>
@@ -255,7 +257,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
         <SettingsTwoColumn>
           {shouldShow('spacing') && (
             <SettingsStackedField
-              label={'Spacing Density'}
+              label={t('Spacing Density')}
               settingsItem="appearance.spacing-density"
               controlClassName="w-full"
             >
@@ -275,8 +277,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   onClick={() => setPadding(100)}
                   disabled={padding === 100}
                   className={SETTINGS_ICON_BUTTON_CLASS}
-                  aria-label={'Reset spacing'}
-                  title={'Reset'}
+                  aria-label={t('Reset spacing')}
+                  title={t('Reset')}
                 >
                   <Icon name="restart" className="h-3.5 w-3.5" />
                 </Button>
@@ -285,8 +287,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('inputBarOffset') && isMobile && (
             <SettingsStackedField
-              label={'Input Bar Offset'}
-              info={'Raise input bar to avoid OS-level screen obstructions like home bars.'}
+              label={t('Input Bar Offset')}
+              info={t('Raise input bar to avoid OS-level screen obstructions like home bars.')}
               settingsItem="appearance.input-bar-offset"
               controlClassName="w-full"
             >
@@ -306,8 +308,8 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
                   onClick={() => setInputBarOffset(0)}
                   disabled={inputBarOffset === 0}
                   className={SETTINGS_ICON_BUTTON_CLASS}
-                  aria-label={'Reset input bar offset'}
-                  title={'Reset'}
+                  aria-label={t('Reset input bar offset')}
+                  title={t('Reset')}
                 >
                   <Icon name="restart" className="h-3.5 w-3.5" />
                 </Button>

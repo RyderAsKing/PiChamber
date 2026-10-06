@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from '@/components/icon/Icon';
@@ -21,6 +22,7 @@ export const StartSessionDialog: React.FC<{
   busy: boolean;
   onChoose: (target: StartSessionTarget) => void;
 }> = ({ open, onOpenChange, issueNumber, issueTitle, busy, onChoose }) => {
+  const { t } = useTranslation();
   const [target, setTarget] = React.useState<StartSessionTarget>('worktree');
   const branch = issueWorktreeBranchName(issueNumber, issueTitle);
 
@@ -28,10 +30,10 @@ export const StartSessionDialog: React.FC<{
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
         <DialogHeader>
-          <DialogTitle>Start session from issue #{issueNumber}</DialogTitle>
-          <DialogDescription>Choose where the new session works. The composer is pre-filled — nothing is sent automatically.</DialogDescription>
+          <DialogTitle>{t('Start session from issue #{{number}}', { number: issueNumber })}</DialogTitle>
+          <DialogDescription>{t('Choose where the new session works. The composer is pre-filled — nothing is sent automatically.')}</DialogDescription>
         </DialogHeader>
-        <div className="flex flex-col gap-1" role="radiogroup" aria-label="Session location">
+        <div className="flex flex-col gap-1" role="radiogroup" aria-label={t("Session location")}>
           <button
             type="button"
             role="radio"
@@ -41,8 +43,8 @@ export const StartSessionDialog: React.FC<{
           >
             <Icon name={target === 'current' ? 'record-circle' : 'checkbox-blank-circle-fill'} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0">
-              <span className="block typography-ui-label text-foreground">Current checkout</span>
-              <span className="block typography-micro text-muted-foreground">Work directly where you are now.</span>
+              <span className="block typography-ui-label text-foreground">{t('Current checkout')}</span>
+              <span className="block typography-micro text-muted-foreground">{t('Work directly where you are now.')}</span>
             </span>
           </button>
           <button
@@ -54,16 +56,16 @@ export const StartSessionDialog: React.FC<{
           >
             <Icon name={target === 'worktree' ? 'record-circle' : 'checkbox-blank-circle-fill'} className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0">
-              <span className="block typography-ui-label text-foreground">New worktree</span>
+              <span className="block typography-ui-label text-foreground">{t('New worktree')}</span>
               <span className="block truncate font-mono typography-micro text-muted-foreground" title={branch}>
-                Branch {branch}
+                {t('Branch {{branch}}', { branch })}
               </span>
             </span>
           </button>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
-            Cancel
+            {t('Cancel')}
           </Button>
           <Button
             type="button"
@@ -71,9 +73,9 @@ export const StartSessionDialog: React.FC<{
             size="sm"
             onClick={() => onChoose(target)}
             disabled={busy}
-            aria-label={target === 'worktree' ? 'Create worktree and open session draft' : 'Open session draft in current checkout'}
+            aria-label={target === 'worktree' ? t('Create worktree and open session draft') : t('Open session draft in current checkout')}
           >
-            {busy ? 'Working…' : target === 'worktree' ? 'Create worktree' : 'Open draft'}
+            {busy ? t('Working…') : target === 'worktree' ? t('Create worktree') : t('Open draft')}
           </Button>
         </DialogFooter>
       </DialogContent>

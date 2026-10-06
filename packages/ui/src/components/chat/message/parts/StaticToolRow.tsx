@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -25,6 +26,7 @@ import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import { getToolSkillName } from './skillToolPresentation';
 import { TOOL_NORMAL_TITLE_STYLE, TOOL_ROW_DESCRIPTION_CLASS, TOOL_ROW_TITLE_CLASS } from './toolPartStyles';
 import { getToolIcon } from './toolPresentation';
+import i18n from '@/i18n';
 
 const ExternalLinkFavicon: React.FC<{ href: string }> = ({ href }) => {
     const [failed, setFailed] = React.useState(false);
@@ -134,7 +136,7 @@ const toTodoStatusKey = (value: unknown): 'pending' | 'in_progress' | 'completed
 
 const formatTodoSummary = (todos: unknown[]): string | null => {
     if (todos.length === 0) {
-        return '0 tasks';
+        return i18n.t('0 tasks');
     }
 
     let pending = 0;
@@ -153,10 +155,12 @@ const formatTodoSummary = (todos: unknown[]): string | null => {
 
     const activeCount = pending + inProgress;
     if (activeCount === 0) {
-        return '0 tasks';
+        return i18n.t('0 tasks');
     }
 
-    return `${activeCount} ${activeCount === 1 ? 'task' : 'tasks'}`;
+    return activeCount === 1
+        ? i18n.t('1 task')
+        : i18n.t('{{count}} tasks', { count: activeCount });
 };
 
 const getTodoSummaryFromActivity = (activity: TurnActivityPart): string | null => {
@@ -337,6 +341,7 @@ interface StaticToolRowProps {
 }
 
 const StaticToolRowInner: React.FC<StaticToolRowProps> = ({ toolName, activity, animateTailText }) => {
+    const { t } = useTranslation();
     const runtime = React.useContext(RuntimeAPIContext);
     const mobileActions = useMobileAppActions();
     const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
@@ -503,8 +508,8 @@ const StaticToolRowInner: React.FC<StaticToolRowProps> = ({ toolName, activity, 
                         }}
                         className={cn('inline-flex !min-h-0 h-5 min-w-0 flex-1 items-center truncate whitespace-nowrap text-left hover:opacity-90', TOOL_ROW_DESCRIPTION_CLASS)}
                         style={{ color: 'var(--tools-description)' }}
-                        title={`Open ${skillName} in Settings`}
-                        aria-label={`Open ${skillName} skill in Settings`}
+                        title={t('Open {{name}} in Settings', { name: skillName })}
+                        aria-label={t('Open {{name}} skill in Settings', { name: skillName })}
                     >
                         {skillName}
                     </button>
@@ -522,7 +527,7 @@ const StaticToolRowInner: React.FC<StaticToolRowProps> = ({ toolName, activity, 
             {durationLabel ? (
                 <span
                     className={cn('flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)}
-                    aria-label="Tool duration"
+                    aria-label={t("Tool duration")}
                 >
                     {durationLabel}
                 </span>

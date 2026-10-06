@@ -1,4 +1,6 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import {
   Dialog,
   DialogContent,
@@ -105,14 +107,14 @@ const isBlockedDisplayStatus = (status: HostDisplayStatus): boolean => {
 };
 
 const statusLabel = (status: HostDisplayStatus): string => {
-  if (status === 'ok') return 'Connected';
-  if (status === 'auth') return 'Auth required';
-  if (status === 'checking') return 'Checking';
-  if (status === 'update-recommended') return 'Update recommended';
-  if (status === 'incompatible') return 'Incompatible';
-  if (status === 'wrong-service') return 'Wrong service';
-  if (status === 'unreachable') return 'Unreachable';
-  return 'Unknown';
+  if (status === 'ok') return i18n.t('Connected');
+  if (status === 'auth') return i18n.t('Auth required');
+  if (status === 'checking') return i18n.t('Checking');
+  if (status === 'update-recommended') return i18n.t('Update recommended');
+  if (status === 'incompatible') return i18n.t('Incompatible');
+  if (status === 'wrong-service') return i18n.t('Wrong service');
+  if (status === 'unreachable') return i18n.t('Unreachable');
+  return i18n.t('Unknown');
 };
 
 type DesktopHostSwitcherDialogProps = {
@@ -128,6 +130,7 @@ export function DesktopHostSwitcherDialog({
   embedded = false,
   onHostSwitched,
 }: DesktopHostSwitcherDialogProps) {
+  const { t } = useTranslation();
   const setSettingsDialogOpen = useUIStore((state) => state.setSettingsDialogOpen);
   const setSettingsPage = useUIStore((state) => state.setSettingsPage);
 
@@ -169,8 +172,8 @@ export function DesktopHostSwitcherDialog({
   }, [allHosts, runtimeEndpointEpoch]);
   const currentDefaultLabel = React.useMemo(() => {
     const id = defaultHostId || LOCAL_HOST_ID;
-    return allHosts.find((h) => h.id === id)?.label || "Local";
-  }, [allHosts, defaultHostId]);
+    return allHosts.find((h) => h.id === id)?.label || t('Local');
+  }, [allHosts, defaultHostId, t]);
 
   const persist = React.useCallback(async (nextHosts: DesktopHost[], nextDefaultHostId: string | null) => {
     if (!isDesktopShell()) return;
@@ -182,11 +185,11 @@ export function DesktopHostSwitcherDialog({
       setConfigHosts(remote);
       setDefaultHostId(nextDefaultHostId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError(err instanceof Error ? err.message : t('Failed to save'));
     } finally {
       setIsSaving(false);
     }
-  }, []);
+  }, [t]);
 
   const openRemoteInstancesSettings = React.useCallback(() => {
     setSettingsPage('remote-instances');
@@ -206,13 +209,13 @@ export function DesktopHostSwitcherDialog({
       setConfigHosts(cfg.hosts || []);
       setDefaultHostId(cfg.defaultHostId ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load");
+      setError(err instanceof Error ? err.message : t('Failed to load'));
       setConfigHosts([]);
       setDefaultHostId(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const probeAll = React.useCallback(async (hosts: DesktopHost[]) => {
     if (!isDesktopShell()) return;
@@ -343,7 +346,7 @@ export function DesktopHostSwitcherDialog({
       setStatusById((prev) => ({ ...prev, [host.id]: finalStatus }));
 
       if (!transport) {
-        toast.error(`Instance "${redactSensitiveUrl(host.label)}" is unreachable`);
+        toast.error(t('Instance "{{label}}" is unreachable', { label: redactSensitiveUrl(host.label) }));
         setSwitchingHostId(null);
         return;
       }
@@ -366,7 +369,7 @@ export function DesktopHostSwitcherDialog({
       }));
 
       if (isBlockedHostStatus(probe.status)) {
-        toast.error(`Instance "${redactSensitiveUrl(host.label)}" is unreachable`);
+        toast.error(t('Instance "{{label}}" is unreachable', { label: redactSensitiveUrl(host.label) }));
         setSwitchingHostId(null);
         return;
       }
@@ -380,7 +383,7 @@ export function DesktopHostSwitcherDialog({
     } catch {
       window.location.href = target;
     }
-  }, [localOrigin, onHostSwitched, statusById]);
+  }, [localOrigin, onHostSwitched, statusById, t]);
 
   const cancelEdit = React.useCallback(() => {
     setEditingId(null);
@@ -401,7 +404,7 @@ export function DesktopHostSwitcherDialog({
 
     const resolved = resolveDesktopHostUrl(editUrl);
     if (!resolved) {
-      setError("Invalid URL (must be http/https)");
+      setError(t('Invalid URL (must be http/https)'));
       return;
     }
     const url = resolved.persistedUrl;
@@ -413,7 +416,7 @@ export function DesktopHostSwitcherDialog({
     if (resolved.redeemUrl) {
       window.location.assign(resolved.redeemUrl);
     }
-  }, [cancelEdit, configHosts, defaultHostId, editLabel, editUrl, editingId, persist]);
+  }, [cancelEdit, configHosts, defaultHostId, editLabel, editUrl, editingId, persist, t]);
 
   const setDefault = React.useCallback(async (id: string) => {
     const next = id === LOCAL_HOST_ID ? LOCAL_HOST_ID : id;
@@ -422,7 +425,7 @@ export function DesktopHostSwitcherDialog({
 
   const openInNewWindow = React.useCallback((host: DesktopHost) => {
     const reportFailure = (err: unknown) => {
-      toast.error("Failed to open new window", {
+      toast.error(t('Failed to open new window'), {
         description: err instanceof Error ? err.message : String(err),
       });
     };
@@ -436,7 +439,7 @@ export function DesktopHostSwitcherDialog({
     if (!origin) return;
     const target = toNavigationUrl(origin);
     desktopOpenNewWindowAtUrl(target, { clientToken: host.clientToken || null, requestHeaders: host.requestHeaders || null }).catch(reportFailure);
-  }, [localOrigin]);
+  }, [localOrigin, t]);
 
   if (!isDesktopShell()) {
     return null;
@@ -450,10 +453,10 @@ export function DesktopHostSwitcherDialog({
         <div className="flex-shrink-0 border-b border-[var(--interactive-border)] px-3 py-2">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 flex items-baseline gap-1.5 typography-ui-label">
-              <span className="font-medium text-foreground">{"Current"}</span>
+              <span className="font-medium text-foreground">{t('Current')}</span>
               <span className="max-w-[9rem] truncate text-muted-foreground">{redactSensitiveUrl(current.label)}</span>
               <span className="text-muted-foreground/50">•</span>
-              <span className="font-medium text-foreground">{"Default"}</span>
+              <span className="font-medium text-foreground">{t('Default')}</span>
               <span className="max-w-[9rem] truncate text-muted-foreground">{redactSensitiveUrl(currentDefaultLabel)}</span>
             </div>
             <button
@@ -465,7 +468,7 @@ export function DesktopHostSwitcherDialog({
               )}
               onClick={() => void probeAll(allHosts)}
               disabled={!desktopAvailable || isLoading || isProbing}
-              aria-label={"Refresh instances"}
+              aria-label={t('Refresh instances')}
             >
               <Icon name="refresh" className={cn('h-4 w-4', isProbing && 'animate-spin')} />
             </button>
@@ -475,10 +478,10 @@ export function DesktopHostSwitcherDialog({
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Icon name="server" className="h-5 w-5" />
-            {"Instance"}
+            {t('Instance')}
           </DialogTitle>
           <DialogDescription>
-            {"Switch between Local and remote PiChamber servers"}
+            {t('Switch between Local and remote PiChamber servers')}
           </DialogDescription>
         </DialogHeader>
       )}
@@ -486,9 +489,9 @@ export function DesktopHostSwitcherDialog({
       {!embedded && (
         <div className="flex items-center justify-between gap-2 flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="typography-meta text-muted-foreground">{"Current:"}</span>
+            <span className="typography-meta text-muted-foreground">{t('Current:')}</span>
             <span className="typography-ui-label text-foreground truncate">{redactSensitiveUrl(current.label)}</span>
-            <span className="typography-meta text-muted-foreground">{"Current default:"}</span>
+            <span className="typography-meta text-muted-foreground">{t('Current default:')}</span>
             <span className="typography-ui-label text-foreground truncate">{redactSensitiveUrl(currentDefaultLabel)}</span>
           </div>
           <div className="flex items-center gap-1">
@@ -500,7 +503,7 @@ export function DesktopHostSwitcherDialog({
               disabled={!desktopAvailable || isLoading || isProbing}
             >
               <Icon name="refresh" className={cn('h-4 w-4', isProbing && 'animate-spin')} />
-              {"Refresh"}
+              {t('Refresh')}
             </Button>
           </div>
         </div>
@@ -509,7 +512,7 @@ export function DesktopHostSwitcherDialog({
         {!desktopAvailable && (
           <div className="flex-shrink-0 rounded-lg border border-border/50 bg-muted/20 p-3">
             <div className="typography-meta text-muted-foreground">
-              {"Instance switcher is limited on this page. Use Local to recover."}
+              {t('Instance switcher is limited on this page. Use Local to recover.')}
             </div>
           </div>
         )}
@@ -517,7 +520,7 @@ export function DesktopHostSwitcherDialog({
         <div className="flex-1 min-h-0 overflow-y-auto">
           <div className={cn('space-y-1', embedded && 'space-y-1.5 px-3 py-1')}>
             {isLoading ? (
-              <div className="px-2 py-2 text-muted-foreground text-sm">{"Loading..."}</div>
+              <div className="px-2 py-2 text-muted-foreground text-sm">{t('Loading...')}</div>
             ) : (
               allHosts.map((host) => {
                 const isLocal = host.id === LOCAL_HOST_ID;
@@ -532,12 +535,12 @@ export function DesktopHostSwitcherDialog({
                 const isEditing = editingId === host.id;
                 const effectiveUrl = isLocal ? localOrigin : (normalizeHostUrl(host.url) || host.url);
                 const displayLabel = host.id === LOCAL_HOST_ID
-                  ? "Local"
+                  ? t('Local')
                   : redactSensitiveUrl(host.label);
                 // Relay-only hosts have a relay:// pseudo-URL that means nothing
                 // to a person — say how the connection works instead. Hosts with
                 // a direct leg show their address.
-                const displayUrl = host.relay && !host.apiUrl ? "via PiChamber Relay" : redactSensitiveUrl(effectiveUrl);
+                const displayUrl = host.relay && !host.apiUrl ? t('via PiChamber Relay') : redactSensitiveUrl(effectiveUrl);
 
                 return (
                   <div
@@ -559,7 +562,7 @@ export function DesktopHostSwitcherDialog({
                       )}
                       onClick={() => void handleSwitch(host)}
                       disabled={switchingHostId === host.id}
-                      aria-label={`Switch to ${displayLabel}`}
+                      aria-label={t('Switch to {{label}}', { label: displayLabel })}
                     >
                       <span className={cn('h-2 w-2 rounded-full flex-shrink-0', statusDotClass(statusKind))} />
                       {/* Same reading order as the settings device list: name +
@@ -572,16 +575,16 @@ export function DesktopHostSwitcherDialog({
                           </span>
                           {isActive && (
                             <span className="typography-micro flex-shrink-0 text-muted-foreground bg-muted px-1 rounded leading-none pb-px border border-border/50">
-                              {"Current"}
+                              {t('Current')}
                             </span>
                           )}
                         </div>
                         <div className={cn('typography-micro truncate', statusTextClass(statusKind))}>
                           {statusLabel(statusKind)}
                           {statusKind === 'ok' && typeof status?.latencyMs === 'number'
-                            ? ` · ${Math.max(0, Math.round(status.latencyMs))}ms ping`
+                            ? ` · ${t('{{latency}}ms ping', { latency: Math.max(0, Math.round(status.latencyMs)) })}`
                             : ''}
-                          {status?.via === 'relay' ? ` · ${"Relay"}` : ''}
+                          {status?.via === 'relay' ? ` · ${t('Relay')}` : ''}
                         </div>
                         <div className="typography-micro text-muted-foreground/70 truncate font-mono">
                           {displayUrl}
@@ -603,14 +606,14 @@ export function DesktopHostSwitcherDialog({
                                 : 'text-muted-foreground/60 hover:text-primary/80',
                             )}
                             onClick={() => void setDefault(host.id)}
-                            aria-label={isDefault ? "Default instance" : "Set as default"}
+                            aria-label={isDefault ? t('Default instance') : t('Set as default')}
                             disabled={isSaving || (!isDefault && isBlockedDisplayStatus(statusKind))}
                           >
                             {isDefault ? <Icon name="star-fill" className="h-4 w-4" /> : <Icon name="star" className="h-4 w-4" />}
                           </button>
                         </TooltipTrigger>
                         <TooltipContent sideOffset={6}>
-                          {isDefault ? "Default" : "Set as default"}
+                          {isDefault ? t('Default') : t('Set as default')}
                         </TooltipContent>
                       </Tooltip>
 
@@ -629,15 +632,15 @@ export function DesktopHostSwitcherDialog({
                               openInNewWindow(host);
                             }}
                             disabled={isBlockedDisplayStatus(statusKind)}
-                            aria-label={"Open in new window"}
+                            aria-label={t('Open in new window')}
                           >
                             <Icon name="window" className="h-4 w-4" />
                           </button>
                         </TooltipTrigger>
                         <TooltipContent sideOffset={6}>
                           {isBlockedDisplayStatus(statusKind)
-                            ? "Instance unreachable"
-                            : "Open in new window"}
+                            ? t('Instance unreachable')
+                            : t('Open in new window')}
                         </TooltipContent>
                       </Tooltip>
                     </div>
@@ -651,14 +654,14 @@ export function DesktopHostSwitcherDialog({
         {desktopAvailable && editingId && editingId !== LOCAL_HOST_ID && (
           <div className="flex-shrink-0 rounded-lg border border-border/50 bg-muted/20 p-3">
             <div className="flex items-center justify-between gap-2">
-              <div className="typography-ui-label font-medium text-foreground">{"Edit instance"}</div>
+              <div className="typography-ui-label font-medium text-foreground">{t('Edit instance')}</div>
               <div className="flex items-center gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={cancelEdit} disabled={isSaving}>
-                  {"Cancel"}
+                  {t('Cancel')}
                 </Button>
                 <Button type="button" size="sm" onClick={() => void commitEdit()} disabled={isSaving}>
                   {isSaving ? <Icon name="loader-4" className="h-4 w-4 animate-spin" /> : null}
-                  {"Save"}
+                  {t('Save')}
                 </Button>
               </div>
             </div>
@@ -667,7 +670,7 @@ export function DesktopHostSwitcherDialog({
                 value={editLabel}
                 onChange={(e) => setEditLabel(e.target.value)}
                 onKeyDown={stopDropdownTypeahead}
-                placeholder={"Label"}
+                placeholder={t('Label')}
                 disabled={isSaving}
               />
               <Input
@@ -688,7 +691,7 @@ export function DesktopHostSwitcherDialog({
             onClick={openRemoteInstancesSettings}
           >
             <Icon name="add" className="h-4 w-4" />
-            <span className="typography-ui-label">{"Add instance"}</span>
+            <span className="typography-ui-label">{t('Add instance')}</span>
           </button>
         </div>
 
@@ -716,6 +719,7 @@ export function DesktopHostSwitcherDialog({
 }
 
 export function DesktopHostSwitcherInline() {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
 
   if (!isDesktopShell()) {
@@ -733,7 +737,7 @@ export function DesktopHostSwitcherInline() {
         onClick={() => setOpen(true)}
       >
         <Icon name="server" className="h-4 w-4" />
-        {"Switch instance"}
+        {t('Switch instance')}
       </Button>
       <DesktopHostSwitcherDialog open={open} onOpenChange={setOpen} />
     </>

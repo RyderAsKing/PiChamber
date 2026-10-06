@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ const FoldedHistoryGate: React.FC<FoldedHistoryGateProps> = ({
     onLoadOlder,
     onLoadAll,
 }) => {
+    const { t } = useTranslation();
     const olderBatch = Math.min(HISTORY_FOLD_REVEAL_BATCH, foldedCount);
     const showLoadAll = foldedCount > olderBatch;
 
@@ -26,11 +28,11 @@ const FoldedHistoryGate: React.FC<FoldedHistoryGateProps> = ({
                     variant="secondary"
                     size="sm"
                     onClick={onLoadOlder}
-                    aria-label={"Load older history"}
+                    aria-label={t("Load older history")}
                     className="gap-1.5 rounded-full px-3.5"
                 >
                     <Icon name="history" className="size-3.5" />
-                    Load older history
+                    {t('Load older history')}
                 </Button>
                 {showLoadAll ? (
                     <Button
@@ -38,10 +40,10 @@ const FoldedHistoryGate: React.FC<FoldedHistoryGateProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={onLoadAll}
-                        aria-label={"Load all history"}
+                        aria-label={t("Load all history")}
                         className="rounded-full px-3.5 text-[var(--surface-mutedForeground)]"
                     >
-                        Load all history
+                        {t('Load all history')}
                     </Button>
                 ) : null}
             </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { elementScroll, useVirtualizer as useTanstackVirtualizer, type ReactVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 
 import FoldedHistoryGate from './components/FoldedHistoryGate';
@@ -653,6 +654,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
 }, ref) => {
     streamPerfMark('react.message_list_render');
     streamPerfCount('ui.message_list.render');
+    const { t } = useTranslation();
     const { hasMoreBefore, beforeCursor, loadOlder } = useSessionHistoryPagination(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
@@ -802,7 +804,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     const displayMessages = React.useMemo(() => streamPerfMeasure('ui.message_list.retry_overlay_ms', () => {
         const withRetry = applyRetryOverlay(baseDisplayMessages, {
             sessionId: retryOverlay?.sessionId ?? null,
-            message: retryOverlay?.message ?? 'Quota limit reached. Retrying automatically.',
+            message: retryOverlay?.message ?? t('Quota limit reached. Retrying automatically.'),
             confirmedAt: retryOverlay?.confirmedAt,
             fallbackTimestamp: retryOverlay?.fallbackTimestamp ?? 0,
         });
@@ -811,7 +813,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             compactionOverlay?.sessionId ?? null,
             compactionOverlay?.compaction ?? null,
         );
-    }), [baseDisplayMessages, compactionOverlay, retryOverlay]);
+    }), [baseDisplayMessages, compactionOverlay, retryOverlay, t]);
 
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,

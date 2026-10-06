@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { useUIStore } from '@/stores/useUIStore';
@@ -18,6 +19,7 @@ import { useDevicePairingState } from './useDevicePairingState';
 
 export const RemoteInstancesPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const { clientAuth } = useRuntimeAPIs();
   const showInstanceManagement = isDesktopShell();
@@ -90,11 +92,11 @@ export const RemoteInstancesPage: React.FC = () => {
   } = useDevicePairingState(clientAuth);
 
   return (
-    <SettingsPageLayout title={isMobile ? undefined : 'Remote Instances'}>
+    <SettingsPageLayout title={isMobile ? undefined : t('Remote Instances')}>
       {clientAuth ? (
         <SettingsSection
-          title={'Connect to this server'}
-          info={'Create a secure link or token so PiChamber Desktop can connect to this server.'}
+          title={t('Connect to this server')}
+          info={t('Create a secure link or token so PiChamber Desktop can connect to this server.')}
           divider={false}
           settingsItem="remote-instances.client-auth"
           contentClassName="space-y-3"
@@ -102,7 +104,7 @@ export const RemoteInstancesPage: React.FC = () => {
           <div>
             <Button type="button" size="xs" className="!font-normal" onClick={() => void openAddDevice()}>
               <Icon name="add" className="h-3.5 w-3.5" />
-              {'Add a device'}
+              {t('Add a device')}
             </Button>
           </div>
           <div className="space-y-2.5">
@@ -115,14 +117,14 @@ export const RemoteInstancesPage: React.FC = () => {
                   className="!font-normal"
                   onClick={() => void purgeRevokedRemoteClients()}
                 >
-                  {'Clear revoked'}
+                  {t('Clear revoked')}
                 </Button>
               </div>
             ) : null}
             {remoteClientsLoading && remoteClients.length === 0 && pendingPairings.length === 0 ? (
-              <p className="typography-meta text-muted-foreground">{'Loading tokens...'}</p>
+              <p className="typography-meta text-muted-foreground">{t('Loading tokens...')}</p>
             ) : remoteClients.length === 0 && pendingPairings.length === 0 ? (
-              <p className="typography-meta text-muted-foreground">{'No devices connected yet.'}</p>
+              <p className="typography-meta text-muted-foreground">{t('No devices connected yet.')}</p>
             ) : (
               <>
                 {pendingPairings.map((pending) => (
@@ -131,15 +133,15 @@ export const RemoteInstancesPage: React.FC = () => {
                       <div className="flex min-w-0 items-center gap-2">
                         <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)] animate-pulse" />
                         <p className="typography-ui-label text-foreground truncate">
-                          {pending.label || 'Device name — e.g. My iPhone'}
+                          {pending.label || t('Device name — e.g. My iPhone')}
                         </p>
                         {pending.usesRelay ? (
                           <span className="typography-micro text-muted-foreground bg-muted px-1 rounded shrink-0 leading-none pb-px border border-border/50">
-                            {'Relay'}
+                            {t('Relay')}
                           </span>
                         ) : null}
                       </div>
-                      <p className="typography-micro text-muted-foreground truncate">{'Waiting to connect…'}</p>
+                      <p className="typography-micro text-muted-foreground truncate">{t('Waiting to connect…')}</p>
                     </div>
                     <Button
                       type="button"
@@ -148,7 +150,7 @@ export const RemoteInstancesPage: React.FC = () => {
                       className="!font-normal"
                       onClick={() => void cancelPendingPairing(pending.id)}
                     >
-                      {'Cancel'}
+                      {t('Cancel')}
                     </Button>
                   </div>
                 ))}
@@ -159,19 +161,19 @@ export const RemoteInstancesPage: React.FC = () => {
                     !client.revokedAt &&
                     (isLocalDesktopClient || (Number.isFinite(lastUsedMs) && Date.now() - lastUsedMs < 90_000));
                   const statusText = client.revokedAt
-                    ? 'Revoked'
+                    ? t('Revoked')
                     : isOnline
                       ? client.lastTransport === 'relay' && !isLocalDesktopClient
-                        ? 'Connected · Relay'
-                        : 'Connected · Local network'
+                        ? t('Connected · Relay')
+                        : t('Connected · Local network')
                       : Number.isFinite(lastUsedMs)
-                        ? `Last used ${formatDateTimeForPreference(lastUsedMs, timeFormatPreference, {
+                        ? t('Last used {{time}}', { time: formatDateTimeForPreference(lastUsedMs, timeFormatPreference, {
                             month: 'short',
                             day: 'numeric',
                             hour: 'numeric',
                             minute: '2-digit',
-                          })}`
-                        : 'Never used';
+                          }) })
+                        : t('Never used');
                   return (
                     <div key={client.id} className="flex items-center justify-between gap-3 py-1.5">
                       <div className="min-w-0">
@@ -194,7 +196,7 @@ export const RemoteInstancesPage: React.FC = () => {
                           ) : null}
                           {isLocalDesktopClient ? (
                             <span className="typography-micro text-muted-foreground bg-muted px-1 rounded flex-shrink-0 leading-none pb-px border border-border/50">
-                              {'This device'}
+                              {t('This device')}
                             </span>
                           ) : null}
                           <span
@@ -215,7 +217,7 @@ export const RemoteInstancesPage: React.FC = () => {
                         onClick={() => void revokeRemoteClient(client)}
                         disabled={Boolean(client.revokedAt)}
                       >
-                        {'Revoke'}
+                        {t('Revoke')}
                       </Button>
                     </div>
                   );
@@ -229,8 +231,8 @@ export const RemoteInstancesPage: React.FC = () => {
 
       {showInstanceManagement ? (
         <SettingsSection
-          title={'Other PiChamber servers'}
-          info={'Servers this app can switch to. Import a pairing link from the other server, or add one by address.'}
+          title={t('Other PiChamber servers')}
+          info={t('Servers this app can switch to. Import a pairing link from the other server, or add one by address.')}
           settingsItem="remote-instances.direct-hosts"
           contentClassName="space-y-4"
           headerAction={
@@ -242,7 +244,7 @@ export const RemoteInstancesPage: React.FC = () => {
                 onClick={() => setDirectImportDialogOpen(true)}
                 disabled={directSaving}
               >
-                {'Import Link'}
+                {t('Import Link')}
               </Button>
               <Button
                 type="button"
@@ -253,32 +255,32 @@ export const RemoteInstancesPage: React.FC = () => {
                 disabled={directSaving}
               >
                 <Icon name="add" className="h-3.5 w-3.5" />
-                {'Add Server'}
+                {t('Add Server')}
               </Button>
             </div>
           }
         >
           <div className="space-y-2.5">
             {directLoading ? (
-              <p className="typography-meta text-muted-foreground">{'Loading instances...'}</p>
+              <p className="typography-meta text-muted-foreground">{t('Loading instances...')}</p>
             ) : directHosts.length === 0 ? (
-              <p className="typography-meta text-muted-foreground">{'No other servers added yet.'}</p>
+              <p className="typography-meta text-muted-foreground">{t('No other servers added yet.')}</p>
             ) : (
               directHosts.map((host) => {
                 const probe = directHostStatus[host.id];
                 const statusLabel = !probe
-                  ? 'Checking'
+                  ? t('Checking')
                   : probe.status === 'ok'
-                    ? 'Connected'
+                    ? t('Connected')
                     : probe.status === 'auth'
-                      ? 'Auth required'
+                      ? t('Auth required')
                       : probe.status === 'update-recommended'
-                        ? 'Update recommended'
+                        ? t('Update recommended')
                         : probe.status === 'incompatible'
-                          ? 'Incompatible'
+                          ? t('Incompatible')
                           : probe.status === 'wrong-service'
-                            ? 'Wrong service'
-                            : 'Unreachable';
+                            ? t('Wrong service')
+                            : t('Unreachable');
                 const isOnline = probe?.status === 'ok';
                 return (
                   <div key={host.id} className="py-1.5">
@@ -299,7 +301,7 @@ export const RemoteInstancesPage: React.FC = () => {
                             {redactSensitiveUrl(host.label)}
                           </p>
                           {directDefaultHostId === host.id ? (
-                            <span className="typography-micro text-muted-foreground shrink-0">{'Default'}</span>
+                            <span className="typography-micro text-muted-foreground shrink-0">{t('Default')}</span>
                           ) : null}
                           <span
                             className={cn(
@@ -309,13 +311,13 @@ export const RemoteInstancesPage: React.FC = () => {
                           >
                             {statusLabel}
                             {isOnline && typeof probe?.latencyMs === 'number'
-                              ? ` · ${Math.max(0, Math.round(probe.latencyMs))}ms ping`
+                              ? ` · ${Math.max(0, Math.round(probe.latencyMs))}${t('ms ping')}`
                               : ''}
                           </span>
                         </div>
                         <p className={cn('typography-micro text-muted-foreground truncate', host.apiUrl && 'font-mono')}>
                           {host.relay && !host.apiUrl
-                            ? 'via PiChamber Relay'
+                            ? t('via PiChamber Relay')
                             : redactSensitiveUrl(host.apiUrl || host.url)}
                         </p>
                       </div>
@@ -327,7 +329,7 @@ export const RemoteInstancesPage: React.FC = () => {
                           className="!font-normal"
                           onClick={() => void setDefaultDirectHost(host.id)}
                           disabled={directSaving || directDefaultHostId === host.id}
-                          aria-label={'Set as default'}
+                          aria-label={t('Set as default')}
                         >
                           {directDefaultHostId === host.id ? (
                             <Icon name="star-fill" className="h-3.5 w-3.5" />
@@ -345,7 +347,7 @@ export const RemoteInstancesPage: React.FC = () => {
                             disabled={directSaving}
                           >
                             <Icon name="pencil" className="h-3.5 w-3.5" />
-                            {'Edit'}
+                            {t('Edit')}
                           </Button>
                         )}
                         <Button
@@ -357,7 +359,7 @@ export const RemoteInstancesPage: React.FC = () => {
                           disabled={directSaving}
                         >
                           <Icon name="delete-bin" className="h-3.5 w-3.5" />
-                          {'Delete'}
+                          {t('Delete')}
                         </Button>
                       </div>
                     </div>

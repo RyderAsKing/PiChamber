@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,22 +33,22 @@ export const Dialogs: React.FC<DialogsProps> = ({
   onClose,
   inputRef,
 }) => {
-
+  const { t } = useTranslation();
   return (
     <Dialog open={!!activeDialog} onOpenChange={(open) => !open && onClose()}>
       <DialogContent initialFocus={inputRef}>
         <DialogHeader>
           <DialogTitle>
-            {activeDialog === 'createFile' && "Create File"}
-            {activeDialog === 'createFolder' && "Create Folder"}
-            {activeDialog === 'rename' && "Rename"}
-            {activeDialog === 'delete' && "Delete"}
+            {activeDialog === 'createFile' && t("Create File")}
+            {activeDialog === 'createFolder' && t("Create Folder")}
+            {activeDialog === 'rename' && t("Rename")}
+            {activeDialog === 'delete' && t("Delete")}
           </DialogTitle>
           <DialogDescription>
-            {activeDialog === 'createFile' && `Create a new file in ${dialogData?.path ?? "root"}`}
-            {activeDialog === 'createFolder' && `Create a new folder in ${dialogData?.path ?? "root"}`}
-            {activeDialog === 'rename' && `Rename ${dialogData?.name ?? ''}`}
-            {activeDialog === 'delete' && `Are you sure you want to delete ${dialogData?.name ?? ''}? This action cannot be undone.`}
+            {activeDialog === 'createFile' && t('Create a new file in {{path}}', { path: dialogData?.path ?? t("root") })}
+            {activeDialog === 'createFolder' && t('Create a new folder in {{path}}', { path: dialogData?.path ?? t("root") })}
+            {activeDialog === 'rename' && t('Rename {{name}}', { name: dialogData?.name ?? '' })}
+            {activeDialog === 'delete' && t('Are you sure you want to delete {{name}}? This action cannot be undone.', { name: dialogData?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
 
@@ -56,7 +57,7 @@ export const Dialogs: React.FC<DialogsProps> = ({
             <Input
               value={dialogInputValue}
               onChange={(e) => onDialogInputChange(e.target.value)}
-              placeholder={activeDialog === 'rename' ? "New name" : "Name"}
+              placeholder={activeDialog === 'rename' ? t("New name") : t("Name")}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   void onDialogSubmit();
@@ -69,7 +70,7 @@ export const Dialogs: React.FC<DialogsProps> = ({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={isDialogSubmitting}>
-            {"Cancel"}
+            {t("Cancel")}
           </Button>
           <Button
             variant={activeDialog === 'delete' ? 'destructive' : 'default'}
@@ -77,7 +78,7 @@ export const Dialogs: React.FC<DialogsProps> = ({
             disabled={isDialogSubmitting || (activeDialog !== 'delete' && !dialogInputValue.trim())}
           >
             {isDialogSubmitting ? <Icon name="loader-4" className="size-4 animate-spin" /> : (
-                activeDialog === 'delete' ? "Delete" : "Confirm"
+                activeDialog === 'delete' ? t("Delete") : t("Confirm")
             )}
           </Button>
         </DialogFooter>

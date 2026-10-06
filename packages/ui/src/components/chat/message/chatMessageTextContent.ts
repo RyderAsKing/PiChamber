@@ -4,6 +4,7 @@ import {
   isLikelyProviderAuthFailure,
   PROVIDER_AUTH_FAILURE_MESSAGE,
 } from '@/lib/messages/providerAuthError';
+import i18n from '@/i18n';
 
 export interface AssistantErrorInfo {
   text: string;
@@ -49,7 +50,7 @@ export const getAssistantError = (
 
   if (errorName === 'SessionRetry') {
     return {
-      text: `Retrying after an error:\n\`${detail}\``,
+      text: i18n.t('Retrying after an error:\n`{{detail}}`', { detail }),
       variant: 'info',
     };
   }
@@ -60,10 +61,10 @@ export const getAssistantError = (
     if (phase === 'running') {
       const text =
         reason === 'threshold'
-          ? 'Context is nearly full. Compacting automatically...'
+          ? i18n.t('Context is nearly full. Compacting automatically...')
           : reason === 'overflow'
-          ? 'Context limit reached. Compacting before retrying...'
-          : 'Compacting session context...';
+          ? i18n.t('Context limit reached. Compacting before retrying...')
+          : i18n.t('Compacting session context...');
       return { text, variant: 'info' };
     }
     if (phase === 'retrying') {
@@ -83,7 +84,7 @@ export const getAssistantError = (
           ? `\n\`${errorInfo.data.message.trim()}\``
           : '';
       return {
-        text: `Compaction failed temporarily. Retrying${count}...${reasonText}`,
+        text: i18n.t('Compaction failed temporarily. Retrying{{count}}...', { count }) + reasonText,
         variant: 'info',
       };
     }
@@ -98,26 +99,26 @@ export const getAssistantError = (
           : undefined;
       const reduction =
         before !== undefined && after !== undefined
-          ? `\n${before.toLocaleString()} → approximately ${after.toLocaleString()} tokens`
+          ? `\n${i18n.t('{{before}} → approximately {{after}} tokens', { before: before.toLocaleString(), after: after.toLocaleString() })}`
           : '';
       const retryingTurn =
         errorInfo.data?.willRetry === true
-          ? '\nRetrying the interrupted turn.'
+          ? `\n${i18n.t('Retrying the interrupted turn.')}`
           : '';
       return {
-        text: `Session compacted${reduction}${retryingTurn}`,
+        text: i18n.t('Session compacted') + reduction + retryingTurn,
         variant: 'info',
       };
     }
     if (phase === 'aborted') {
-      return { text: 'Compaction stopped.', variant: 'info' };
+      return { text: i18n.t('Compaction stopped.'), variant: 'info' };
     }
     const failure =
       typeof errorInfo.data?.message === 'string' &&
       errorInfo.data.message.trim()
         ? `\n\`${errorInfo.data.message.trim()}\``
         : '';
-    return { text: `Compaction failed.${failure}`, variant: 'error' };
+    return { text: i18n.t('Compaction failed.') + failure, variant: 'error' };
   }
 
   if (isLikelyProviderAuthFailure(detail)) {
@@ -129,13 +130,13 @@ export const getAssistantError = (
 
   if (detail.trim().toLowerCase() === 'aborted') {
     return {
-      text: 'The running turn was stopped before the next message could be sent.',
+      text: i18n.t('The running turn was stopped before the next message could be sent.'),
       variant: 'info',
     };
   }
 
   return {
-    text: `Failed to send message with error:\n\`${detail}\``,
+    text: i18n.t('Failed to send message with error:\n`{{detail}}`', { detail }),
     variant: 'error',
   };
 };

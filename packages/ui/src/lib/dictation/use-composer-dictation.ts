@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { fetchSttStatus } from './stt-status';
@@ -11,6 +12,7 @@ export interface ComposerDictationController extends DictationController {
 }
 
 export function useComposerDictation(): ComposerDictationController {
+  const { t } = useTranslation();
   const [state, setState] = React.useState<DictationState>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const [available, setAvailable] = React.useState(false);
@@ -91,11 +93,11 @@ export function useComposerDictation(): ComposerDictationController {
       captureRef.current = null;
       startedAtRef.current = 0;
       const nextError = cause instanceof Error ? cause : new Error(String(cause));
-      setError(nextError.name === 'NotAllowedError' ? 'Microphone access was denied' : nextError.message);
+      setError(nextError.name === 'NotAllowedError' ? t('Microphone access was denied') : nextError.message);
       setState('error');
       throw nextError;
     }
-  }, [available, state, stopCaptureAfterError]);
+  }, [available, state, stopCaptureAfterError, t]);
 
   const finish = React.useCallback(async () => {
     const client = clientRef.current;

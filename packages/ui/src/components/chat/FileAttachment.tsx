@@ -1,4 +1,5 @@
 import React, { useRef, memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useInputStore } from '@/sync/input-store';
 import type { AttachedFile } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -17,7 +18,8 @@ import { useDeviceInfo } from '@/lib/device';
 import type { ToolPopupContent } from './message/types';
 
 const FileAttachmentButton = memo(() => {
-  
+
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
   const isMobile = useUIStore((state) => state.isMobile);
@@ -30,7 +32,7 @@ const FileAttachmentButton = memo(() => {
         await addAttachedFile(file);
       } catch (error) {
         console.error('File attach failed', error);
-        toast.error(error instanceof Error ? error.message : "Failed to attach file");
+        toast.error(error instanceof Error ? error.message : t("Failed to attach file"));
       }
     }));
   };
@@ -64,13 +66,13 @@ const FileAttachmentButton = memo(() => {
               'hover:bg-muted text-muted-foreground',
               buttonSizeClass
             )}
-            aria-label={"Attach files"}
+            aria-label={t("Attach files")}
           >
             <Icon name="attachment-2" className={iconSizeClass} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="top">
-          <p>{"Attach files"}</p>
+          <p>{t("Attach files")}</p>
         </TooltipContent>
       </Tooltip>
     </>
@@ -108,6 +110,7 @@ const DraftAttachmentCard = memo(({
   gallery,
   galleryIndex,
 }: DraftAttachmentCardProps) => {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useDeviceInfo();
   const alwaysShowActions = isMobile || isTablet;
   const state = file.uploadState;
@@ -121,26 +124,26 @@ const DraftAttachmentCard = memo(({
   const extension = getFileExtension(file.filename);
   const size = formatFileSize(file.size);
   const stateLabel = state?.status === 'preparing'
-    ? 'Preparing attachment'
+    ? t('Preparing attachment')
     : state?.status === 'uploading'
-      ? 'Uploading attachment'
+      ? t('Uploading attachment')
       : state?.status === 'failed' || isExpired
-        ? 'Attachment upload failed'
+        ? t('Attachment upload failed')
         : state?.status === 'ready'
-          ? 'Attachment ready'
-          : 'Server attachment ready';
+          ? t('Attachment ready')
+          : t('Server attachment ready');
   const progress = state?.status === 'uploading' ? state.progress : null;
   const isUploading = state?.status === 'uploading' || state?.status === 'preparing';
   const uploadError = state?.status === 'failed'
     ? state.error
     : isExpired
-      ? 'Upload expired.'
+      ? t('Upload expired.')
       : null;
   const openPreview = () => {
     if (!onShowPopup || !imageUrl) return;
     onShowPopup({
       open: true,
-      title: file.filename || 'Image',
+      title: file.filename || t('Image'),
       content: '',
       metadata: { tool: 'image-preview', filename: file.filename, mime: file.mimeType, size: file.size },
       image: {
@@ -180,7 +183,7 @@ const DraftAttachmentCard = memo(({
               uploadError ? 'pr-14' : 'pr-8',
               imageUrl && onShowPopup && 'cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             )}
-            aria-label={imageUrl ? `Preview ${file.filename}` : undefined}
+            aria-label={imageUrl ? t('Preview {{filename}}', { filename: file.filename }) : undefined}
           >
             {isUploading ? (
               <UploadProgressIcon filename={file.filename} progress={progress} />
@@ -228,8 +231,8 @@ const DraftAttachmentCard = memo(({
           'absolute right-1 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90 z-10',
           alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
         )}
-        aria-label={`Remove ${file.filename}`}
-        title={`Remove ${file.filename}`}
+        aria-label={t('Remove {{filename}}', { filename: file.filename })}
+        title={t('Remove {{filename}}', { filename: file.filename })}
       >
         <Icon name="close" className="size-3.5" />
       </Button>
@@ -246,8 +249,8 @@ const DraftAttachmentCard = memo(({
             'absolute right-8 top-1 size-6 px-0 bg-[var(--surface-elevated)]/90 z-10',
             alwaysShowActions ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
           )}
-          aria-label={`Retry upload of ${file.filename}`}
-          title="Retry upload"
+          aria-label={t('Retry upload of {{filename}}', { filename: file.filename })}
+          title={t('Retry upload')}
         >
           <Icon name="refresh" className="size-3.5" />
         </Button>
@@ -352,27 +355,22 @@ interface MessageFilesDisplayProps {
 }
 
 export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }: MessageFilesDisplayProps) => {
-  
+  const { t } = useTranslation();
 
   const fileItems = files.filter(f => f.type === 'file' && (f.mime || f.url));
-
-  const extractFilename = (path?: string): string => {
-    if (!path) return 'Unnamed file';
-
-    const normalized = path.replace(/\\/g, '/');
-    const parts = normalized.split('/');
-    const filename = parts[parts.length - 1];
-
-    return filename || path;
-  };
 
   const resolveDisplayName = React.useCallback((file: FilePart): string => {
     const isGitHubLink = getGitHubLinkKind(file) !== null;
     if (isGitHubLink && typeof file.filename === 'string' && file.filename.trim().length > 0) {
       return file.filename.trim();
     }
-    return extractFilename(file.filename || file.url);
-  }, []);
+    const path = file.filename || file.url;
+    if (!path) return t('Unnamed file');
+    const normalized = path.replace(/\\/g, '/');
+    const parts = normalized.split('/');
+    const filename = parts[parts.length - 1];
+    return filename || path;
+  }, [t]);
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return '';
@@ -388,7 +386,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
     () =>
       imageFiles.flatMap((file) => {
         if (!file.url) return [];
-        const filename = resolveDisplayName(file) || 'Image';
+        const filename = resolveDisplayName(file) || t('Image');
         return [{
           url: file.url,
           mimeType: file.mime,
@@ -396,7 +394,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
           size: file.size,
         }];
       }),
-    [imageFiles, resolveDisplayName]
+    [imageFiles, resolveDisplayName, t]
   );
 
   const handleImageClick = React.useCallback((index: number) => {
@@ -407,7 +405,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
     const file = imageGallery[index];
     if (!file?.url) return;
 
-    const filename = file.filename || 'Image';
+    const filename = file.filename || t('Image');
 
     onShowPopup({
       open: true,
@@ -428,7 +426,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
         index,
       },
     });
-  }, [imageGallery, onShowPopup]);
+  }, [imageGallery, onShowPopup, t]);
 
   if (fileItems.length === 0) return null;
 
@@ -488,7 +486,7 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
           <div className="overflow-x-auto -mx-1 px-1 py-0.5 scrollbar-thin" data-no-drawer-swipe="true">
             <div className="flex snap-x snap-mandatory gap-2">
               {imageFiles.map((file, index) => {
-                const filename = resolveDisplayName(file) || 'Image';
+              const filename = resolveDisplayName(file) || t('Image');
 
                 return (
                   <Tooltip key={`img-${file.url || file.filename || index}`}>
@@ -620,13 +618,13 @@ export const MessageFilesDisplay = memo(({ files, onShowPopup, compact = false }
                   <Icon name="file" className={cn("text-muted-foreground shrink-0", compact ? "h-3.5 w-3.5" : "h-4 w-4")} />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{fileName}</p>
-                    <p className="text-xs text-status-info">{"Open in diagram view"}</p>
+                    <p className="text-xs text-status-info">{t("Open in diagram view")}</p>
                   </div>
                   <Icon name="external-link" className={cn("text-muted-foreground shrink-0", compact ? "h-3 w-3" : "h-3.5 w-3.5")} />
                 </button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{"Open in diagram view"}</p>
+                <p>{t("Open in diagram view")}</p>
               </TooltipContent>
             </Tooltip>
           );
@@ -690,6 +688,7 @@ interface ImageGalleryProps {
 }
 
 const ImageGallery = memo(({ urls, caption, onShowPopup }: ImageGalleryProps) => {
+  const { t } = useTranslation();
   if (urls.length === 0) return null;
 
   const getGridCols = () => {
@@ -708,7 +707,7 @@ const ImageGallery = memo(({ urls, caption, onShowPopup }: ImageGalleryProps) =>
             type="button"
             onClick={() => onShowPopup?.({
               open: true,
-              title: caption || `Image ${index + 1} of ${urls.length}`,
+              title: caption || t('Image {{current}} of {{total}}', { current: index + 1, total: urls.length }),
               content: '',
               image: {
                 url,
@@ -720,7 +719,7 @@ const ImageGallery = memo(({ urls, caption, onShowPopup }: ImageGalleryProps) =>
           >
             <img
               src={url}
-              alt={caption || `Image ${index + 1}`}
+              alt={caption || t('Image {{index}}', { index: index + 1 })}
               className="h-full w-full object-cover transition-transform group-hover:scale-105"
               loading="lazy"
             />

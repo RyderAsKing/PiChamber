@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useTerminalStore } from '@/stores/useTerminalStore';
@@ -36,6 +37,7 @@ type TerminalViewProps = {
 };
 
 export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView, terminalHeaderSlot }) => {
+  const { t } = useTranslation();
   const { terminal, runtime } = useRuntimeAPIs();
   const { currentTheme } = useThemeSystem();
   const terminalAppearanceRef = React.useRef<{
@@ -100,9 +102,9 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
       id: tab.id,
       label: tab.label,
       title: tab.label,
-      closeLabel: 'Close tab',
+      closeLabel: t('Close tab'),
     }));
-  }, [directoryTerminalState?.tabs]);
+  }, [directoryTerminalState?.tabs, t]);
 
   const terminalSessionId = activeTab?.terminalSessionId ?? null;
   const terminalLifecycle = activeTab?.lifecycle ?? 'idle';
@@ -286,7 +288,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
   if (!hasActiveContext) {
     return (
       <div className="flex h-full items-center justify-center p-4 text-center text-sm text-muted-foreground">
-        {'Select a session to open the terminal.'}
+        {t('Select a session to open the terminal.')}
       </div>
     );
   }
@@ -294,12 +296,12 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
   if (!effectiveDirectory) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground">
-        <p>{'No working directory available for this session.'}</p>
+        <p>{t('No working directory available for this session.')}</p>
         <button
           onClick={handleRestart}
           className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
         >
-          {'Retry'}
+          {t('Retry')}
         </button>
       </div>
     );
@@ -330,8 +332,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
           variant="ghost"
           className="h-8 w-8 shrink-0 p-0"
           onClick={handleCreateTab}
-          title={'New tab'}
-          aria-label={'New tab'}
+          title={t('New tab')}
+          aria-label={t('New tab')}
         >
           <Icon name="add" className="h-4 w-4" />
         </Button>
@@ -344,8 +346,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
             className="h-8 w-8 p-0"
             onClick={() => void handleRestart()}
             disabled={isRestarting}
-            title={'Restart terminal'}
-            aria-label={'Restart terminal'}
+            title={t('Restart terminal')}
+            aria-label={t('Restart terminal')}
           >
             <Icon name="restart" className="h-4 w-4" />
           </Button>
@@ -359,10 +361,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                 if (!effectiveDirectory) return;
                 openContextPreview(effectiveDirectory, previewUrl);
               }}
-              title={'Open preview pane'}
+              title={t('Open preview pane')}
             >
               <Icon name="global" className="h-3.5 w-3.5 shrink-0" />
-              <span className="whitespace-nowrap">{'Preview'}</span>
+              <span className="whitespace-nowrap">{t('Preview')}</span>
             </Button>
           ) : null}
         </div>
@@ -413,8 +415,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                 variant="ghost"
                 size="icon"
                 onClick={handleCreateTab}
-                title={'New tab'}
-                aria-label={'New tab'}
+                title={t('New tab')}
+                aria-label={t('New tab')}
               >
                 <Icon name="add" className="size-4" />
               </Button>
@@ -424,8 +426,8 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                 size="icon"
                 onClick={() => void handleRestart()}
                 disabled={isRestarting}
-                title={'Restart terminal'}
-                aria-label={'Restart terminal'}
+                title={t('Restart terminal')}
+                aria-label={t('Restart terminal')}
               >
                 <Icon name="restart" className="size-4" />
               </Button>
@@ -439,10 +441,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                     if (!effectiveDirectory) return;
                     openContextPreview(effectiveDirectory, previewUrl);
                   }}
-                  title={'Open preview pane'}
+                  title={t('Open preview pane')}
                 >
                   <Icon name="global" className="size-3.5 shrink-0" />
-                  <span className="whitespace-nowrap">{'Preview'}</span>
+                  <span className="whitespace-nowrap">{t('Preview')}</span>
                 </Button>
               ) : null}
               {onCloseView ? (
@@ -534,10 +536,10 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                 className="h-6 px-2 py-0 text-xs"
                 onClick={handleHardRestart}
                 disabled={isRestarting}
-                title={'Force kill and create fresh session'}
+                title={t('Force kill and create fresh session')}
                 type="button"
               >
-                {'Hard Restart'}
+                {t('Hard Restart')}
               </Button>
             )}
           </div>

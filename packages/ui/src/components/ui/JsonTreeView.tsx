@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -17,6 +18,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
   maxHeight = '100%',
   initiallyExpandedDepth = 2,
 }: JsonTreeViewProps) {
+  const { t } = useTranslation();
   const viewerRef = React.useRef<{ expandAll: () => void; collapseAll: () => void }>(null);
   const [parseError, setParseError] = React.useState<string | null>(null);
 
@@ -24,17 +26,17 @@ const JsonTreeView = React.memo(function JsonTreeView({
     try {
       const trimmed = jsonString.trim();
       if (!trimmed) {
-        setParseError("Empty JSON content");
+        setParseError(t("Empty JSON content"));
         return null;
       }
       const parsed = JSON.parse(trimmed);
       setParseError(null);
       return parsed;
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : "Invalid JSON");
+      setParseError(err instanceof Error ? err.message : t("Invalid JSON"));
       return null;
     }
-  }, [jsonString]);
+  }, [jsonString, t]);
 
   const handleExpandAll = React.useCallback(() => {
     viewerRef.current?.expandAll();
@@ -48,7 +50,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
     return (
       <div className={className}>
         <div className="rounded-md border border-[var(--interactive-border)] bg-[var(--syntax-base-background)] p-4">
-          <div className="mb-1 font-medium text-[var(--surface-foreground)]">{"Invalid JSON"}</div>
+          <div className="mb-1 font-medium text-[var(--surface-foreground)]">{t("Invalid JSON")}</div>
           <div className="font-mono text-xs text-[var(--surface-mutedForeground)]">{parseError}</div>
         </div>
       </div>
@@ -69,7 +71,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
           className="gap-1 text-xs text-muted-foreground"
         >
           <Icon name="arrow-down-s" className="h-3 w-3" />
-          {"Expand All"}
+          {t("Expand All")}
         </Button>
         <Button
           variant="ghost"
@@ -78,7 +80,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
           className="gap-1 text-xs text-muted-foreground"
         >
           <Icon name="arrow-up-s" className="h-3 w-3" />
-          {"Collapse All"}
+          {t("Collapse All")}
         </Button>
       </div>
       <div

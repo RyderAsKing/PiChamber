@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -28,6 +29,7 @@ interface SelectionPayload {
 const DESKTOP_MENU_SIDE_MARGIN_PX = 8;
 const DESKTOP_MENU_FALLBACK_WIDTH_PX = 280;
 export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerRef }) => {
+  const { t } = useTranslation();
   const [position, setPosition] = React.useState<MenuPosition>({ x: 0, y: 0, show: false });
   const [selectedText, setSelectedText] = React.useState('');
   const [selectedTextMarkdown, setSelectedTextMarkdown] = React.useState('');
@@ -342,11 +344,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={"Add to current chat"}
+            title={t("Add to current chat")}
             type="button"
           >
             <Icon name="add" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{"Add to chat"}</span>
+            <span className="min-w-0 whitespace-normal">{t("Add to chat")}</span>
           </button>
 
           <button
@@ -358,11 +360,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={"Create new session with selection"}
+            title={t("Create new session with selection")}
             type="button"
           >
             <Icon name="chat-new" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{"New session"}</span>
+            <span className="min-w-0 whitespace-normal">{t("New session")}</span>
           </button>
 
           <button
@@ -374,11 +376,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
               'active:opacity-80',
               'transition-opacity duration-150'
             )}
-            title={"Copy"}
+            title={t("Copy")}
             type="button"
           >
             <Icon name="file-copy" className="h-5 w-5 flex-shrink-0" />
-            <span className="min-w-0 whitespace-normal">{"Copy"}</span>
+            <span className="min-w-0 whitespace-normal">{t("Copy")}</span>
           </button>
 
         </div>
@@ -417,11 +419,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             'hover:bg-[var(--interactive-hover)]',
             'transition-colors duration-150'
           )}
-          title={"Add to current chat"}
+          title={t("Add to current chat")}
           type="button"
         >
           <Icon name="add" className="h-4 w-4" />
-          <span className="whitespace-nowrap">{"Add to chat"}</span>
+          <span className="whitespace-nowrap">{t("Add to chat")}</span>
         </button>
       
         <div className="w-px h-4 bg-[var(--interactive-border)]" />
@@ -435,11 +437,11 @@ export const TextSelectionMenu: React.FC<TextSelectionMenuProps> = ({ containerR
             'hover:bg-[var(--interactive-hover)]',
             'transition-colors duration-150'
           )}
-          title={"Create new session with selection"}
+          title={t("Create new session with selection")}
           type="button"
         >
           <Icon name="chat-new" className="h-4 w-4" />
-          <span className="whitespace-nowrap">{"New session"}</span>
+          <span className="whitespace-nowrap">{t("New session")}</span>
         </button>
 
       </div>

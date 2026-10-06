@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { GitAPI, GitWorktree } from '@/lib/api/types';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 type WorktreeLoadStatus = 'idle' | 'loading' | 'ready' | 'failed';
 
@@ -89,7 +90,7 @@ export const useWorktreeStore = create<WorktreeStore>()((set, get) => ({
         const isRepository = await git.checkIsGitRepository(normalizedRoot);
         const worktrees = isRepository
           ? await (() => {
-              if (!git.listGitWorktrees) throw new Error('Git worktrees are unavailable for this runtime.');
+              if (!git.listGitWorktrees) throw new Error(i18n.t('Git worktrees are unavailable for this runtime.'));
               return git.listGitWorktrees(normalizedRoot);
             })()
           : [];
@@ -119,7 +120,7 @@ export const useWorktreeStore = create<WorktreeStore>()((set, get) => ({
           || runtimeKey !== getRuntimeKey()
           || get().runtimeKey !== runtimeKey
         ) return null;
-        const message = error instanceof Error ? error.message : 'Failed to discover Git worktrees.';
+        const message = error instanceof Error ? error.message : i18n.t('Failed to discover Git worktrees.');
         set((state) => {
           const current = state.projects.get(normalizedRoot) ?? previous;
           const projects = new Map(state.projects);

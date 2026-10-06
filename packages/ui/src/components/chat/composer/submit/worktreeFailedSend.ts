@@ -27,6 +27,7 @@
  * the record so the task stays recoverable.
  */
 
+import i18n from '@/i18n';
 import { createChatDraftIdentity, getChatDraftIdentityKey, readChatDraft, writeChatDraft } from '@/lib/chatDraftPersistence';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -65,10 +66,16 @@ export const describeWorktreeAttachmentLimit = (args: {
   missingCount: number;
 }): { title: string; description: string } => {
   const toRemove = Math.max(1, args.currentCount + args.missingCount - args.limit);
-  const fileWord = (count: number): string => (count === 1 ? 'file' : 'files');
+  const fileWord = (count: number): string => (count === 1 ? i18n.t('file') : i18n.t('files'));
   return {
-    title: 'Too many attachments to restore',
-    description: `Remove ${toRemove} ${fileWord(toRemove)} to restore ${args.missingCount} ${fileWord(args.missingCount)}. You can attach up to ${args.limit} files to one message.`,
+    title: i18n.t('Too many attachments to restore'),
+    description: i18n.t('Remove {{toRemove}} {{toRemoveWord}} to restore {{missingCount}} {{missingWord}}. You can attach up to {{limit}} files to one message.', {
+      toRemove,
+      toRemoveWord: fileWord(toRemove),
+      missingCount: args.missingCount,
+      missingWord: fileWord(args.missingCount),
+      limit: args.limit,
+    }),
   };
 };
 
@@ -85,16 +92,16 @@ export const describeWorktreeRestoreFailure = (
   if (result.ok) return null;
   if (result.reason === 'runtime-mismatch') {
     return {
-      title: 'The runtime changed',
-      description: 'Your failed prompt was kept in Background tasks.',
+      title: i18n.t('The runtime changed'),
+      description: i18n.t('Your failed prompt was kept in Background tasks.'),
     };
   }
   if (result.reason === 'target-occupied') {
     return {
-      title: 'Draft already has content',
+      title: i18n.t('Draft already has content'),
       description: entrypoint === 'pending-composer'
-        ? 'Your restored prompt was kept in Background tasks.'
-        : 'Your failed prompt was kept in Background tasks.',
+        ? i18n.t('Your restored prompt was kept in Background tasks.')
+        : i18n.t('Your failed prompt was kept in Background tasks.'),
     };
   }
   if (result.reason === 'attachment-limit') {
@@ -106,8 +113,8 @@ export const describeWorktreeRestoreFailure = (
   return silent
     ? null
     : {
-        title: 'Could not restore the failed prompt',
-        description: 'Your prompt was kept in Background tasks.',
+        title: i18n.t('Could not restore the failed prompt'),
+        description: i18n.t('Your prompt was kept in Background tasks.'),
       };
 };
 

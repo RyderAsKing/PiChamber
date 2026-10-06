@@ -4,6 +4,7 @@ import { typography } from '@/lib/typography';
 import { formatToolInput, detectToolOutputLanguage } from '@/lib/toolHelpers';
 import { SimpleMarkdownRenderer } from '../MarkdownRenderer';
 import { Icon } from "@/components/icon/Icon";
+import i18n from '@/i18n';
 
 const cleanOutput = (output: string) => {
     let cleaned = output.replace(/^<file>\s*\n?/, '').replace(/\n?<\/file>\s*$/, '');
@@ -286,7 +287,9 @@ export const renderGrepOutput = (output: string, isMobile: boolean, options?: { 
                 style={typography.tool.popup}
             >
                 <div className="typography-meta text-muted-foreground mb-2">
-                    Found {lines.length} match{lines.length !== 1 ? 'es' : ''}
+                    {lines.length !== 1
+                        ? i18n.t('Found {{count}} matches', { count: lines.length })
+                        : i18n.t('Found 1 match')}
                 </div>
                 {Object.entries(fileGroups).map(([filepath, matches]) => (
                     <div key={filepath} className="space-y-1">
@@ -304,7 +307,7 @@ export const renderGrepOutput = (output: string, isMobile: boolean, options?: { 
                                         <div className="flex gap-2 min-w-0 flex-1">
                                             {match.lineNum && (
                                                 <span className="text-muted-foreground font-mono whitespace-nowrap">
-                                                    Line {match.lineNum}:
+                                                    {i18n.t('Line {{lineNum}}:', { lineNum: match.lineNum })}
                                                 </span>
                                             )}
                                             <span className="text-foreground font-mono break-words flex-1">
@@ -355,7 +358,9 @@ export const renderGlobOutput = (output: string, isMobile: boolean, options?: { 
                 style={typography.tool.popup}
             >
                 <div className="typography-meta text-muted-foreground mb-2">
-                    Found {paths.length} file{paths.length !== 1 ? 's' : ''}
+                    {paths.length !== 1
+                        ? i18n.t('Found {{count}} files', { count: paths.length })
+                        : i18n.t('Found 1 file')}
                 </div>
                 {sortedDirs.map((dir) => (
                     <div key={dir} className="space-y-1">

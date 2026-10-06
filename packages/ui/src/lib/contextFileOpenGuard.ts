@@ -1,4 +1,5 @@
 import type { FilesAPI } from '@/lib/api/types';
+import i18n from '@/i18n';
 import { MAX_OPEN_FILE_LINES, countLinesWithLimit } from '@/lib/fileOpenLimits';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isBinaryFile, isImageFile, isPdfFile, looksLikeBinaryText } from '@/lib/toolHelpers';
@@ -54,7 +55,7 @@ const readFileContent = async (
   });
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error((errorPayload as { error?: string }).error || 'Failed to read file');
+    throw new Error((errorPayload as { error?: string }).error || i18n.t('Failed to read file'));
   }
 
   return response.text();
@@ -93,16 +94,16 @@ export const validateContextFileOpen = async (
 export const getContextFileOpenFailureMessage = (reason: ContextFileOpenFailureReason): string => {
   if (reason === 'too-large') {
     const lines = MAX_OPEN_FILE_LINES.toLocaleString('en-US');
-    return `File is too large to open (>${lines} lines)`;
+    return i18n.t('File is too large to open (>{{lines}} lines)', { lines });
   }
 
   if (reason === 'missing') {
-    return "File not found";
+    return i18n.t('File not found');
   }
 
   if (reason === 'binary') {
-    return "Cannot preview binary file";
+    return i18n.t('Cannot preview binary file');
   }
 
-  return "Failed to open file";
+  return i18n.t('Failed to open file');
 };

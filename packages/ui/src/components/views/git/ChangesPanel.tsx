@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Button } from '@/components/ui/button';
 import {
@@ -85,6 +86,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
   onRevertAll,
   onRevertDirectory,
 }) => {
+  const { t } = useTranslation();
   const scrollRef = React.useRef<HTMLDivElement | null>(null);
   const gitChangesViewMode = useUIStore((state) => state.gitChangesViewMode);
   const isTreeView = gitChangesViewMode === 'tree';
@@ -365,8 +367,8 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
             className="flex min-w-0 flex-1 items-center gap-2 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={
               isExpanded
-                ? `Collapse directory ${directory.path}`
-                : `Expand directory ${directory.path}`
+                ? t('Collapse directory {{path}}', { path: directory.path })
+                : t('Expand directory {{path}}', { path: directory.path })
             }
           >
             {isExpanded ? (
@@ -385,8 +387,8 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => setPendingDirectoryRevert({ path: directory.path, paths: directoryPaths, count: directoryPaths.length })}
               disabled={isDirectoryReverting}
               className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)] disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label={`Revert changes in ${directory.path}`}
-              title={"Revert folder changes"}
+              aria-label={t('Revert changes in {{path}}', { path: directory.path })}
+              title={t("Revert folder changes")}
             >
               {isDirectoryReverting ? (
                 <Icon name="loader-4" className="size-3.5 animate-spin" />
@@ -399,15 +401,15 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
             type="button"
             onClick={() => group.onActionAll(directory.files.map((file) => file.path))}
             className="flex size-5 shrink-0 items-center justify-center rounded typography-micro font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-            aria-label={(group.actionSymbol === '+' ? `Stage all changes in ${directory.path}` : `Unstage all changes in ${directory.path}`)}
-            title={(group.actionSymbol === '+' ? `Stage all changes in ${directory.path}` : `Unstage all changes in ${directory.path}`)}
+            aria-label={(group.actionSymbol === '+' ? t('Stage all changes in {{path}}', { path: directory.path }) : t('Unstage all changes in {{path}}', { path: directory.path }))}
+            title={(group.actionSymbol === '+' ? t('Stage all changes in {{path}}', { path: directory.path }) : t('Unstage all changes in {{path}}', { path: directory.path }))}
           >
             {group.actionSymbol}
           </button>
         </div>
       );
     },
-    [expandedDirectories, isRevertingAll, onRevertDirectory, revertingPaths, toggleDirectoryExpanded]
+    [expandedDirectories, isRevertingAll, onRevertDirectory, revertingPaths, toggleDirectoryExpanded, t]
   );
 
   const renderRow = React.useCallback(
@@ -423,7 +425,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               className="gap-1.5 text-[var(--status-error)] hover:bg-[var(--status-error)]/10 hover:text-[var(--status-error)]"
             >
               <Icon name="arrow-go-back" className="size-3.5" />
-              {"Revert all"}
+              {t("Revert all")}
             </Button>
           </div>
         );
@@ -458,7 +460,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
         />
       );
     },
-    [diffStats, isRevertingAll, isTreeView, renderDirectory, renderHeader, revertingPaths, visibleGroups]
+    [diffStats, isRevertingAll, isTreeView, renderDirectory, renderHeader, revertingPaths, visibleGroups, t]
   );
 
   // A divider is drawn above a file/directory row only when the row directly above
@@ -512,7 +514,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               })}
             </div>
           ) : (
-            <div role="list" aria-label={"Changed files"}>
+            <div role="list" aria-label={t("Changed files")}>
               {rows.map((row, index) => (
                 <div
                   key={row.key}
@@ -539,16 +541,16 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{"Revert all changes?"}</DialogTitle>
+            <DialogTitle>{t("Revert all changes?")}</DialogTitle>
             <DialogDescription>
               {revertAllCount === 1
-                ? `Revert ${revertAllCount} changed file? This cannot be undone.`
-                : `Revert ${revertAllCount} changed files? This cannot be undone.`}
+                ? t('Revert {{count}} changed file? This cannot be undone.', { count: revertAllCount })
+                : t('Revert {{count}} changed files? This cannot be undone.', { count: revertAllCount })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setRevertAllOpen(false)} disabled={isRevertingAll}>
-              {"Cancel"}
+              {t("Cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -556,7 +558,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => void handleConfirmRevertAll()}
               disabled={isRevertingAll}
             >
-              {isRevertingAll ? "Reverting..." : "Revert all"}
+              {isRevertingAll ? t("Reverting...") : t("Revert all")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -570,18 +572,18 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{"Revert folder changes?"}</DialogTitle>
+            <DialogTitle>{t("Revert folder changes?")}</DialogTitle>
             <DialogDescription>
               {pendingDirectoryRevert
                 ? pendingDirectoryRevert.count === 1
-                  ? `This will discard local changes in ${pendingDirectoryRevert.count} file under ${pendingDirectoryRevert.path}.`
-                  : `This will discard local changes in ${pendingDirectoryRevert.count} files under ${pendingDirectoryRevert.path}.`
+                  ? t('This will discard local changes in {{count}} file under {{path}}.', { count: pendingDirectoryRevert.count, path: pendingDirectoryRevert.path })
+                  : t('This will discard local changes in {{count}} files under {{path}}.', { count: pendingDirectoryRevert.count, path: pendingDirectoryRevert.path })
                 : null}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setPendingDirectoryRevert(null)} disabled={isPendingDirectoryReverting}>
-              {"Cancel"}
+              {t("Cancel")}
             </Button>
             <Button
               variant="destructive"
@@ -589,7 +591,7 @@ export const ChangesPanel: React.FC<ChangesPanelProps> = ({
               onClick={() => void handleConfirmRevertDirectory()}
               disabled={isPendingDirectoryReverting || !pendingDirectoryRevert}
             >
-              {isPendingDirectoryReverting ? "Reverting..." : "Revert folder"}
+              {isPendingDirectoryReverting ? t("Reverting...") : t("Revert folder")}
             </Button>
           </DialogFooter>
         </DialogContent>

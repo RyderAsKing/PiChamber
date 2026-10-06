@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
@@ -129,6 +130,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   hideDirectoryControls = false,
   showOnlyMainWorkspace = false,
 }) => {
+  const { t } = useTranslation();
   streamPerfMark('react.session_sidebar_render');
   streamPerfCount('ui.session_sidebar.render');
   streamPerfCount(`ui.session_sidebar.render.${mobileVariant ? 'mobile' : 'desktop'}`);
@@ -339,7 +341,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       .some((worktree) => normalizePath(worktree.path) === normalizePath(selectedWorktreePath));
     if (!stillAvailable) {
       useSidebarSpaceStore.getState().clearSelectedWorktree();
-      toast.warning('The selected worktree is no longer available. Showing the project checkout instead.');
+      toast.warning(t('The selected worktree is no longer available. Showing the project checkout instead.'));
     }
   }, [availableWorktreesByProject, projects, selectedSpaceId, selectedWorktreePath]);
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
@@ -487,7 +489,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       mobileVariant={mobileVariant}
       onClick={() => openNewSessionDraftFromTree()}
     >
-      {"New session"}
+      {t("New session")}
     </SidebarSessionLikeButton>
   ), [mobileVariant, openNewSessionDraftFromTree]);
 
@@ -519,11 +521,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     void updateStore.checkForUpdates().then(() => {
       const { available, error } = useUpdateStore.getState();
       if (error) {
-        toast.error("Failed to check for updates", { description: error });
+        toast.error(t("Failed to check for updates"), { description: error });
         return;
       }
       if (!available) {
-        toast.success("You are on the latest version");
+        toast.success(t("You are on the latest version"));
         return;
       }
       setUpdateDialogOpen(true);
@@ -627,7 +629,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         toggleFolderCollapse(parentId);
       }
 
-      const newFolder = createFolder(scopeKey, "New folder", parentId);
+      const newFolder = createFolder(scopeKey, t("New folder"), parentId);
       setRenamingFolderId(newFolder.id);
       setRenameFolderDraft(newFolder.name);
       return newFolder;
@@ -898,7 +900,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         id: '__home__',
         path: '~',
         normalizedPath: '~',
-        label: 'No folder',
+        label: t('No folder'),
       },
       groups,
     };
@@ -922,8 +924,8 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const searchEmptyState = React.useMemo(() => (
     <div className="py-6 text-center text-muted-foreground">
-      <p className="typography-ui-label font-semibold">{"No matching sessions"}</p>
-      <p className="typography-meta mt-1">{"Try a different title, branch, folder, or path."}</p>
+      <p className="typography-ui-label font-semibold">{t("No matching sessions")}</p>
+      <p className="typography-meta mt-1">{t("Try a different title, branch, folder, or path.")}</p>
     </div>
   ), []);
 
@@ -1251,12 +1253,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     );
     if (hasActiveSession) {
       setCloseWorktreeConfirm({ ...pending, hasActiveSession: true });
-      toast.warning('Stop the active session before closing this worktree.');
+      toast.warning(t('Stop the active session before closing this worktree.'));
       return;
     }
 
     if (!git.deleteGitWorktree) {
-      toast.error('Closing worktrees is not supported by this runtime.');
+      toast.error(t('Closing worktrees is not supported by this runtime.'));
       return;
     }
 
@@ -1266,7 +1268,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         force,
       });
       if (!result?.success) {
-        throw new Error('Git worktree removal was not confirmed by the server.');
+        throw new Error(t('Git worktree removal was not confirmed by the server.'));
       }
 
       // Forced: this follows an explicit remove mutation, so the freshness
@@ -1293,13 +1295,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
       setCloseWorktreeConfirm(null);
       if (refreshed === null) {
-        toast.warning('Worktree closed, but the sidebar could not be refreshed.');
+        toast.warning(t('Worktree closed, but the sidebar could not be refreshed.'));
       } else {
-        toast.success('Worktree closed.');
+        toast.success(t('Worktree closed.'));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Try again.';
-      toast.error('Failed to close worktree.', { description: message });
+      const message = error instanceof Error ? error.message : t('Try again.');
+      toast.error(t('Failed to close worktree.'), { description: message });
     }
   }, [
     activeDirectoriesByProject,
@@ -1370,7 +1372,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
           role="alert"
           className="mx-2 mb-2 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-2 text-xs text-foreground"
         >
-          {"Unable to reach server"}
+          {t("Unable to reach server")}
         </div>
       ) : null}
 
@@ -1461,7 +1463,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
             size="lg"
             className="pointer-events-auto w-full shadow-lg"
             onClick={handleOpenNewSessionDraftFromHeader}
-            aria-label="New session"
+            aria-label={t("New session")}
           >
             <Icon name="chat-new" className="size-4" />
           </Button>

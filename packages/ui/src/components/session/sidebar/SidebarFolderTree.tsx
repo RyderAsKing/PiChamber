@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   MouseSensor,
@@ -104,6 +105,8 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   emptyState,
   searchEmptyState,
 }) => {
+  const { t } = useTranslation();
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
@@ -256,7 +259,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
             >
               <ProjectHeaderIdentity
                 id="__home__"
-                projectLabel="No folder"
+                projectLabel={t("No folder")}
                 mobileVariant={mobileVariant}
               />
               <ProjectHeaderChevron isCollapsed={isHomeCollapsed} mobileVariant={mobileVariant} />
@@ -285,8 +288,8 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                   onClick={() => setHomeLimit((prev) => prev + 7)}
                 >
                   {remainingHomeCount === 1
-                    ? "Show 1 more session"
-                    : `Show ${remainingHomeCount} more sessions`}
+                    ? t("Show 1 more session")
+                    : t('Show {{count}} more sessions', { count: remainingHomeCount })}
                 </SidebarSessionLikeButton>
               ) : null}
               {!hasSessionSearchQuery && homeLimit > 5 && allHomeSessions.length > 5 ? (
@@ -295,7 +298,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                   mobileVariant={mobileVariant}
                   onClick={() => setHomeLimit(5)}
                 >
-                  {"Show fewer sessions"}
+                  {t("Show fewer sessions")}
                 </SidebarSessionLikeButton>
               ) : null}
             </div>
@@ -309,7 +312,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
           mobileVariant={mobileVariant}
           onClick={onOpenDirectoryDialog}
         >
-          {"Add folder"}
+          {t("Add folder")}
         </SidebarSessionLikeButton>
       ) : null}
     </div>

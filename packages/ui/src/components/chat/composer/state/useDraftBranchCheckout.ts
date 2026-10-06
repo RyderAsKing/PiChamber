@@ -1,5 +1,6 @@
 import React from 'react';
 
+import i18n from '@/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -104,11 +105,11 @@ export function useDraftBranchCheckout<T>(input: {
         const branchIntent = params.intent;
         if (preflightInFlightRef.current || pending) return;
         if (!git) {
-            toast.error('Git is not available for the selected runtime.');
+            toast.error(i18n.t('Git is not available for the selected runtime.'));
             return;
         }
         if (branchIntent.runtimeKey !== getRuntimeKey()) {
-            toast.error('The runtime changed. Select the branch again before sending.');
+            toast.error(i18n.t('The runtime changed. Select the branch again before sending.'));
             return;
         }
 
@@ -121,14 +122,14 @@ export function useDraftBranchCheckout<T>(input: {
             const latestIntent = useSessionUIStore.getState().newSessionDraft.branchIntent;
             if (!draftBranchCheckoutReceiptMatches(branchIntent, latestIntent)) return;
             if (!branches.all.includes(branchIntent.branch) || branchIntent.branch.startsWith('remotes/')) {
-                toast.error(`Local branch ${branchIntent.branch} no longer exists.`);
+                toast.error(i18n.t('Local branch {{branch}} no longer exists.', { branch: branchIntent.branch }));
                 void fetchBranches(branchIntent.directory, git);
                 return;
             }
             if (status.mergeInProgress || status.rebaseInProgress || status.attentionReason) {
                 const operation = status.attentionReason
                     ?? (status.rebaseInProgress ? 'rebase' : 'merge');
-                toast.error(`Finish or abort the ${operation} before switching branches.`);
+                toast.error(i18n.t('Finish or abort the {{operation}} before switching branches.', { operation }));
                 return;
             }
             const currentBranch = status.current?.trim() || branches.current?.trim() || null;
@@ -154,7 +155,7 @@ export function useDraftBranchCheckout<T>(input: {
                 continuation: params.continuation,
             });
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to inspect the selected branch.');
+            toast.error(error instanceof Error ? error.message : i18n.t('Failed to inspect the selected branch.'));
         } finally {
             preflightInFlightRef.current = false;
         }
@@ -177,12 +178,12 @@ export function useDraftBranchCheckout<T>(input: {
         try {
             const draft = useSessionUIStore.getState().newSessionDraft;
             if (!draft.open || !draftBranchCheckoutReceiptMatches(draft.branchIntent, checkout)) {
-                throw Object.assign(new Error('The draft target changed. Press Send again to review the branch.'), {
+                throw Object.assign(new Error(i18n.t('The draft target changed. Press Send again to review the branch.')), {
                     terminal: true,
                 });
             }
             if (checkout.runtimeKey !== getRuntimeKey()) {
-                throw Object.assign(new Error('The runtime changed. Select the branch again before sending.'), {
+                throw Object.assign(new Error(i18n.t('The runtime changed. Select the branch again before sending.')), {
                     terminal: true,
                 });
             }
@@ -203,12 +204,12 @@ export function useDraftBranchCheckout<T>(input: {
             const latestCurrent = latestBranches.current?.trim() || null;
             if (latestCurrent !== checkout.currentBranch && latestCurrent !== checkout.branch) {
                 throw Object.assign(
-                    new Error(`The current branch changed to ${latestCurrent ?? 'detached HEAD'}. Press Send again to review it.`),
+                    new Error(i18n.t('The current branch changed to {{branch}}. Press Send again to review it.', { branch: latestCurrent ?? i18n.t('detached HEAD') })),
                     { terminal: true },
                 );
             }
             if (!latestBranches.all.includes(checkout.branch) || checkout.branch.startsWith('remotes/')) {
-                throw Object.assign(new Error(`Local branch ${checkout.branch} no longer exists.`), { terminal: true });
+                throw Object.assign(new Error(i18n.t('Local branch {{branch}} no longer exists.', { branch: checkout.branch })), { terminal: true });
             }
 
             if (latestCurrent !== checkout.branch) {
@@ -217,13 +218,13 @@ export function useDraftBranchCheckout<T>(input: {
                     localOnly: true,
                 });
                 if (result.currentBranch !== checkout.branch) {
-                    throw Object.assign(new Error(`Git did not confirm checkout of ${checkout.branch}.`), { terminal: true });
+                    throw Object.assign(new Error(i18n.t('Git did not confirm checkout of {{branch}}.', { branch: checkout.branch })), { terminal: true });
                 }
             }
 
             if (operationRef.current !== operation) return;
             if (checkout.runtimeKey !== getRuntimeKey()) {
-                toast.warning('The branch may have changed on the previous runtime. The message was not sent.');
+                toast.warning(i18n.t('The branch may have changed on the previous runtime. The message was not sent.'));
                 return;
             }
 
@@ -232,7 +233,7 @@ export function useDraftBranchCheckout<T>(input: {
             setReady(checkout.continuation, checkout);
         } catch (error) {
             if (operationRef.current !== operation) return;
-            const rawMessage = error instanceof Error ? error.message : 'Failed to check out the selected branch.';
+            const rawMessage = error instanceof Error ? error.message : i18n.t('Failed to check out the selected branch.');
             let currentAfterFailure: string | null | undefined;
             try {
                 currentAfterFailure = (await git.getGitBranches(checkout.directory)).current?.trim() || null;
@@ -247,7 +248,7 @@ export function useDraftBranchCheckout<T>(input: {
                 || currentAfterFailure === checkout.branch
                 || currentAfterFailure === undefined;
             const message = currentAfterFailure === checkout.branch
-                ? `Git switched to ${checkout.branch}, but reported an error: ${rawMessage} Review the repository, then press Send again.`
+                ? i18n.t('Git switched to {{branch}}, but reported an error: {{message}} Review the repository, then press Send again.', { branch: checkout.branch, message: rawMessage })
                 : rawMessage;
             setPending({
                 ...checkout,

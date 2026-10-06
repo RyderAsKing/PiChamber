@@ -7,6 +7,7 @@
 
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry'
 import { useUIStore } from '@/stores/useUIStore'
+import i18n from '@/i18n'
 import { create } from "zustand"
 
 // ---------------------------------------------------------------------------
@@ -188,9 +189,9 @@ export function dispatchSessionNotification(input: {
 
   const notifications = getRegisteredRuntimeAPIs()?.notifications
   if (!notifications) return
-  const body = input.title?.trim() || 'Open PiChamber to review the session.'
+  const body = input.title?.trim() || i18n.t('Open PiChamber to review the session.')
   void notifications.notify({
-    title: input.kind === 'error' ? 'Work failed' : 'Work completed',
+    title: input.kind === 'error' ? i18n.t('Work failed') : i18n.t('Work completed'),
     body,
     tag: `pichamber:${input.kind}:${input.sessionId}:${input.sequence}`,
     kind: input.kind,

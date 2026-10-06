@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -71,17 +72,18 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
   dockBadgeEnabled,
   setDockBadgeEnabled,
 }) => {
+  const { t } = useTranslation();
   return (
-    <SettingsSection title={'Color mode & Theme'} divider={false} contentClassName="space-y-4">
-      <SettingsControlGroup title={'Color mode'}>
-        <SettingsRadioGroup aria-label={'Color Mode'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
+    <SettingsSection title={t('Color mode & Theme')} divider={false} contentClassName="space-y-4">
+      <SettingsControlGroup title={t('Color mode')}>
+        <SettingsRadioGroup aria-label={t('Color Mode')} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
           {THEME_MODE_OPTIONS.map((option) => (
             <SettingsPreviewOption
               key={option.value}
               selected={themeMode === option.value}
               onSelect={() => setThemeMode(option.value)}
-              label={option.label}
-              ariaLabel={option.label}
+              label={t(option.label)}
+              ariaLabel={t(option.label)}
               preview={
                 <ColorModePreview
                   mode={option.value}
@@ -95,22 +97,22 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
       </SettingsControlGroup>
 
       {showMobileLayoutSetting && (
-        <SettingsStackedField label={'Mobile Layout'}>
+        <SettingsStackedField label={t('Mobile Layout')}>
           <SettingsChipGroup
             value={mobileLayoutPreference}
             options={MOBILE_LAYOUT_OPTIONS.map((option) => ({
               value: option.value,
-              label: option.label,
+              label: t(option.label),
             }))}
             onChange={onMobileLayoutPreferenceChange}
-            aria-label={'Mobile Layout'}
+            aria-label={t('Mobile Layout')}
           />
         </SettingsStackedField>
       )}
 
       <SettingsTwoColumn className="gap-4 @md:grid-cols-2 @md:gap-8 @3xl:gap-10">
         <SettingsStackedField
-          label={'Light Theme'}
+          label={t('Light Theme')}
           settingsItem="appearance.light-theme"
         >
           <Select
@@ -118,11 +120,11 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
             onValueChange={setLightThemePreference}
           >
             <SelectTrigger
-              aria-label={'Select light theme'}
+              aria-label={t('Select light theme')}
               size={SETTINGS_SELECT_SIZE}
               className={SETTINGS_SELECT_TRIGGER_CLASS}
             >
-              <SelectValue placeholder={'Select theme'}>
+              <SelectValue placeholder={t('Select theme')}>
                 {selectedLightTheme ? (
                   <span className="flex min-w-0 items-center gap-2">
                     <ThemeSwatch theme={selectedLightTheme} />
@@ -149,7 +151,7 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={'Dark Theme'}
+          label={t('Dark Theme')}
           settingsItem="appearance.dark-theme"
         >
           <Select
@@ -157,11 +159,11 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
             onValueChange={setDarkThemePreference}
           >
             <SelectTrigger
-              aria-label={'Select dark theme'}
+              aria-label={t('Select dark theme')}
               size={SETTINGS_SELECT_SIZE}
               className={SETTINGS_SELECT_TRIGGER_CLASS}
             >
-              <SelectValue placeholder={'Select theme'}>
+              <SelectValue placeholder={t('Select theme')}>
                 {selectedDarkTheme ? (
                   <span className="flex min-w-0 items-center gap-2">
                     <ThemeSwatch theme={selectedDarkTheme} />
@@ -212,10 +214,10 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
             name="restart"
             className={cn('h-3.5 w-3.5', themesReloading && 'animate-spin')}
           />
-          {themesReloading ? 'Reloading themes...' : 'Reload themes'}
+          {themesReloading ? t('Reloading themes...') : t('Reload themes')}
         </button>
         <SettingsInfoHint>
-          {'Import custom themes from ~/.config/pichamber/themes/'}
+          {t('Import custom themes from ~/.config/pichamber/themes/')}
         </SettingsInfoHint>
       </div>
 
@@ -224,9 +226,9 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
           <SettingsCheckboxRow
             checked={dockBadgeEnabled}
             onChange={setDockBadgeEnabled}
-            label={'Dock badge'}
-            info={'Show a count of chats with unseen activity on the macOS dock icon.'}
-            ariaLabel={'Dock badge'}
+            label={t('Dock badge')}
+            info={t('Show a count of chats with unseen activity on the macOS dock icon.')}
+            ariaLabel={t('Dock badge')}
           />
         </SettingsInset>
       )}

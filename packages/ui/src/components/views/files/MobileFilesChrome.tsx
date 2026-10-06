@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from '@/components/icon/Icon';
@@ -85,8 +86,9 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
   onBackFromEditor,
   onRefresh,
 }) => {
+  const { t } = useTranslation();
   if (!root) {
-    return <MobileFilesState message="Select a project to browse files." />;
+    return <MobileFilesState message={t("Select a project to browse files.")} />;
   }
 
   if (editorPath) {
@@ -98,7 +100,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
               type="button"
               variant="ghost"
               size="icon"
-              aria-label="Back"
+              aria-label={t("Back")}
               onClick={onBackFromEditor}
               style={{ touchAction: 'manipulation' }}
             >
@@ -113,10 +115,10 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
     );
   }
 
-  const directoryLabel = directory === root ? 'Project files' : getNameFromPath(directory);
+  const directoryLabel = directory === root ? t('Project files') : getNameFromPath(directory);
   const parentDirectory = canNavigateToParent(directory, root) ? getParentDirectory(directory) : null;
   const canGoBack = Boolean(parentDirectory) && !query.trim();
-  const parentLabel = parentDirectory === root ? 'Project files' : getNameFromPath(parentDirectory ?? '');
+  const parentLabel = parentDirectory === root ? t('Project files') : getNameFromPath(parentDirectory ?? '');
 
   const filesLeading = onClose || (canGoBack && parentDirectory) ? (
     <>
@@ -125,7 +127,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
           type="button"
           variant="ghost"
           size="icon"
-          aria-label="Close"
+          aria-label={t("Close")}
           onClick={onClose}
           style={{ touchAction: 'manipulation' }}
         >
@@ -137,7 +139,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
           type="button"
           variant="ghost"
           size="icon"
-          aria-label={`Back to ${getNameFromPath(parentDirectory)}`}
+          aria-label={t('Back to {{name}}', { name: getNameFromPath(parentDirectory) })}
           onClick={() => onOpenDirectory(parentDirectory)}
           style={{ touchAction: 'manipulation' }}
         >
@@ -158,7 +160,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Refresh files"
+            aria-label={t("Refresh files")}
             onClick={onRefresh}
             style={{ touchAction: 'manipulation' }}
           >
@@ -173,7 +175,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
           <Input
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Search files"
+            placeholder={t("Search files")}
             className="h-8 pl-7"
           />
         </div>
@@ -190,23 +192,23 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
             onOpenFile={onOpenFile}
           />
         ) : entries === undefined ? (
-          <MobileFilesState loading message="Loading..." />
+          <MobileFilesState loading message={t("Loading...")} />
         ) : (
           <div className="flex w-full min-w-0 flex-col px-1">
             {canGoBack && parentDirectory ? (
               <button
                 type="button"
                 className={cn(sidebarSessionRowClassNameMobile, 'px-2')}
-                aria-label={`Up one level to ${parentLabel}`}
+                aria-label={t('Up one level to {{label}}', { label: parentLabel })}
                 onClick={() => onOpenDirectory(parentDirectory)}
                 style={{ touchAction: 'manipulation' }}
               >
                 <Icon name="arrow-left" className={cn(sidebarRowIconClass(true), 'text-muted-foreground')} />
-                <span className={cn(sidebarRowLabelClass(true), 'flex-1 text-muted-foreground')}>Up one level</span>
+                <span className={cn(sidebarRowLabelClass(true), 'flex-1 text-muted-foreground')}>{t("Up one level")}</span>
               </button>
             ) : null}
             {entries.length === 0 ? (
-              <div className="px-3 py-8 text-center typography-ui-label text-muted-foreground">This directory is empty.</div>
+              <div className="px-3 py-8 text-center typography-ui-label text-muted-foreground">{t("This directory is empty.")}</div>
             ) : null}
             {entries.map((entry) => (
               <MobileFileRow
@@ -259,8 +261,9 @@ const MobileSearchResults: React.FC<{
   isSearching: boolean;
   onOpenFile: (path: string) => void;
 }> = ({ root, results, isSearching, onOpenFile }) => {
-  if (isSearching) return <MobileFilesState loading message="Loading..." />;
-  if (results.length === 0) return <MobileFilesState message="No files found." />;
+  const { t } = useTranslation();
+  if (isSearching) return <MobileFilesState loading message={t("Loading...")} />;
+  if (results.length === 0) return <MobileFilesState message={t("No files found.")} />;
 
   return (
     <div className="flex w-full min-w-0 flex-col px-1">

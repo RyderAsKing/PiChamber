@@ -1,5 +1,6 @@
 import React from "react";
 import { Icon } from "@/components/icon/Icon";
+import { useTranslation } from "react-i18next";
 import {
   SettingsCheckboxRow,
   SETTINGS_FIELD_LABEL_CLASS,
@@ -44,6 +45,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
   onChange,
   onRemove,
 }) => {
+  const { t } = useTranslation();
   const prefix = `custom-provider-${model.row}`;
   return (
     <div className="space-y-3 border-b border-border/60 pb-4 last:border-b-0">
@@ -54,7 +56,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               className={SETTINGS_FIELD_LABEL_CLASS}
               htmlFor={`${prefix}-id`}
             >
-              Model ID
+              {t('Model ID')}
             </label>
             <Input
               id={`${prefix}-id`}
@@ -74,7 +76,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               className={SETTINGS_FIELD_LABEL_CLASS}
               htmlFor={`${prefix}-name`}
             >
-              Display name
+              {t('Display name')}
             </label>
             <Input
               id={`${prefix}-name`}
@@ -82,7 +84,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               onChange={(event) =>
                 onChange("displayName", event.target.value, "displayName")
               }
-              placeholder="Same as Model ID"
+              placeholder={t('Same as Model ID')}
               className="mt-1 h-8 rounded-md px-3"
               disabled={busy}
               aria-invalid={Boolean(errors?.displayName) || undefined}
@@ -97,7 +99,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
           className={SETTINGS_ICON_BUTTON_CLASS}
           disabled={!removable || busy}
           onClick={onRemove}
-          aria-label="Remove model"
+          aria-label={t('Remove model')}
         >
           <Icon name="delete-bin" className="size-4" />
         </Button>
@@ -113,7 +115,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
         onClick={() => onChange("advancedOpen", !model.advancedOpen)}
         disabled={busy}
       >
-        <span>Advanced settings</span>
+        <span>{t('Advanced settings')}</span>
         <Icon
           name="arrow-down-s"
           className={cn(
@@ -133,7 +135,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               className={SETTINGS_FIELD_LABEL_CLASS}
               htmlFor={`${prefix}-context`}
             >
-              Context window
+              {t('Context window')}
             </label>
             <Input
               id={`${prefix}-context`}
@@ -158,7 +160,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               className={SETTINGS_FIELD_LABEL_CLASS}
               htmlFor={`${prefix}-max`}
             >
-              Max output tokens
+              {t('Max output tokens')}
             </label>
             <Input
               id={`${prefix}-max`}
@@ -176,20 +178,20 @@ export const CustomProviderModelFields: React.FC<Props> = ({
           </div>
 
           <div className="@xl:col-span-2">
-            <span className={SETTINGS_FIELD_LABEL_CLASS}>Input modalities</span>
+            <span className={SETTINGS_FIELD_LABEL_CLASS}>{t('Input modalities')}</span>
             <div className="mt-1 space-y-1.5">
               <SettingsCheckboxRow
                 checked={Boolean(model.inputText)}
                 onChange={(value) => onChange("inputText", value)}
-                label="Text"
-                ariaLabel="Text input"
+                label={t('Text')}
+                ariaLabel={t('Text input')}
                 disabled={busy}
               />
               <SettingsCheckboxRow
                 checked={Boolean(model.inputImage)}
                 onChange={(value) => onChange("inputImage", value)}
-                label="Image"
-                ariaLabel="Image input"
+                label={t('Image')}
+                ariaLabel={t('Image input')}
                 disabled={busy}
               />
             </div>
@@ -201,17 +203,17 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               onChange={(value) =>
                 onChange("supportsThinking", value, "thinkingLevelMap")
               }
-              label="Supports thinking"
-              ariaLabel="Supports thinking"
+              label={t('Supports thinking')}
+              ariaLabel={t('Supports thinking')}
               disabled={busy}
-              info="Pi defaults to off. Unchecked omits this setting."
+              info={t('Pi defaults to off. Unchecked omits this setting.')}
             />
             <div>
               <label
                 className={SETTINGS_FIELD_LABEL_CLASS}
                 htmlFor={`${prefix}-thinking`}
               >
-                Thinking levels
+                {t('Thinking levels')}
               </label>
               <ThinkingLevelsInput
                 id={`${prefix}-thinking`}

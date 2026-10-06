@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useGitHubScopeStore, useGitHubSelectedRepo } from '@/stores/useGitHubScopeStore';
@@ -26,6 +27,7 @@ export const GitHubSurfaceShell: React.FC<{
   onRefresh?: () => void;
   children: (ctx: { repo: string; directory: string }) => React.ReactNode;
 }> = ({ directory, isRefreshing, onRefresh, children }) => {
+  const { t } = useTranslation();
   const apis = useRuntimeAPIs();
   const github = apis.github ?? null;
 
@@ -58,7 +60,7 @@ export const GitHubSurfaceShell: React.FC<{
   if (!github) {
     return (
       <div className="flex h-full flex-col">
-        <GitHubUnavailableState info={{ reason: 'failed', message: 'GitHub is not available in this runtime.' }} />
+        <GitHubUnavailableState info={{ reason: 'failed', message: t('GitHub is not available in this runtime.') }} />
       </div>
     );
   }
@@ -66,7 +68,7 @@ export const GitHubSurfaceShell: React.FC<{
   if (scopeEntry?.isLoading && !scopeEntry.scope && !scopeEntry.error) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <GitHubListSkeleton label="Finding GitHub repositories" />
+        <GitHubListSkeleton label={t("Finding GitHub repositories")} />
       </div>
     );
   }
@@ -115,8 +117,8 @@ export const GitHubSurfaceShell: React.FC<{
           />
         </div>
         <div className="flex flex-col items-start gap-2 p-4">
-          <div className="typography-ui-header text-foreground">Select a repository</div>
-          <p className="typography-ui text-muted-foreground">Several repositories are in scope. Pick one to browse.</p>
+          <div className="typography-ui-header text-foreground">{t('Select a repository')}</div>
+          <p className="typography-ui text-muted-foreground">{t('Several repositories are in scope. Pick one to browse.')}</p>
         </div>
       </div>
     );

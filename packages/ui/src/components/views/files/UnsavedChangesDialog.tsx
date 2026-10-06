@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -25,12 +26,13 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
   onSaveAndContinue,
   onDiscardAndContinue,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Unsaved changes</DialogTitle>
-          <DialogDescription>Save your edits before continuing?</DialogDescription>
+          <DialogTitle>{t("Unsaved changes")}</DialogTitle>
+          <DialogDescription>{t("Save your edits before continuing?")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button
@@ -39,10 +41,10 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
             disabled={isSaving}
             className="border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)] hover:bg-[rgb(var(--status-success)/0.2)]"
           >
-            Save changes
+            {t("Save changes")}
           </Button>
           <Button variant="destructive" onClick={onDiscardAndContinue}>
-            Discard
+            {t("Discard")}
           </Button>
         </DialogFooter>
       </DialogContent>

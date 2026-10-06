@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { requestFileAccess } from '@/lib/desktop';
 import {
   hasAllowedManagedLocalConfigExtension,
@@ -12,6 +13,7 @@ export interface UseManagedLocalConfigOptions {
 
 export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalConfigOptions) {
   const [managedLocalConfigPath, setManagedLocalConfigPath] = React.useState<string | null>(null);
+  const { t } = useTranslation();
   const managedLocalConfigExtensionError = MANAGED_LOCAL_CONFIG_EXTENSION_ERROR_KEY;
   const managedLocalConfigFileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -30,7 +32,7 @@ export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalCon
     if (result.success && typeof result.path === 'string' && result.path.trim().length > 0) {
       const nextPath = result.path.trim();
       if (!hasAllowedManagedLocalConfigExtension(nextPath)) {
-        toast.error(managedLocalConfigExtensionError);
+        toast.error(t(managedLocalConfigExtensionError));
         return;
       }
       setManagedLocalConfigPath(nextPath);
@@ -39,7 +41,7 @@ export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalCon
     }
 
     managedLocalConfigFileInputRef.current?.click();
-  }, [managedLocalConfigExtensionError, saveTunnelSettings]);
+  }, [managedLocalConfigExtensionError, saveTunnelSettings, t]);
 
   const handleManagedLocalConfigInputChange = React.useCallback((value: string) => {
     const trimmed = value.trim();
@@ -48,11 +50,11 @@ export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalCon
 
   const handleManagedLocalConfigInputBlur = React.useCallback(async () => {
     if (managedLocalConfigPath && !hasAllowedManagedLocalConfigExtension(managedLocalConfigPath)) {
-      toast.error(managedLocalConfigExtensionError);
+      toast.error(t(managedLocalConfigExtensionError));
       return;
     }
     await saveTunnelSettings({ managedLocalTunnelConfigPath: managedLocalConfigPath });
-  }, [managedLocalConfigExtensionError, managedLocalConfigPath, saveTunnelSettings]);
+  }, [managedLocalConfigExtensionError, managedLocalConfigPath, saveTunnelSettings, t]);
 
   const handleManagedLocalConfigClear = React.useCallback(async () => {
     setManagedLocalConfigPath(null);
@@ -71,7 +73,7 @@ export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalCon
         return;
       }
       if (!hasAllowedManagedLocalConfigExtension(fallbackPath)) {
-        toast.error(managedLocalConfigExtensionError);
+        toast.error(t(managedLocalConfigExtensionError));
         return;
       }
 
@@ -79,7 +81,7 @@ export function useManagedLocalConfig({ saveTunnelSettings }: UseManagedLocalCon
       await saveTunnelSettings({ managedLocalTunnelConfigPath: fallbackPath });
       event.target.value = '';
     },
-    [managedLocalConfigExtensionError, saveTunnelSettings]
+    [managedLocalConfigExtensionError, saveTunnelSettings, t]
   );
 
   return {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { GitHubAvatar, GitHubLabelChip, formatGitHubRelativeTime } from './GitHubDetailScaffold';
 import { cn } from '@/lib/utils';
 
@@ -71,6 +72,7 @@ const LABEL_OVERFLOW = [
 export const GitHubRowLabels: React.FC<{ labels: Array<{ name: string; color?: string | null }> }> = ({
   labels,
 }) => {
+  const { t } = useTranslation();
   if (labels.length === 0) return null;
   return (
     <span className="flex min-w-0 shrink-0 items-center gap-1">
@@ -82,7 +84,7 @@ export const GitHubRowLabels: React.FC<{ labels: Array<{ name: string; color?: s
           <span key={label.name} className={cn('min-w-0', slot.show)}>
             <GitHubLabelChip name={label.name} color={label.color} />
             {remaining > 0 ? (
-              <span className={cn('ml-0.5 shrink-0', LABEL_OVERFLOW[index])} aria-label={`${remaining} more labels`}>
+              <span className={cn('ml-0.5 shrink-0', LABEL_OVERFLOW[index])} aria-label={t('{{count}} more labels', { count: remaining })}>
                 +{remaining}
               </span>
             ) : null}

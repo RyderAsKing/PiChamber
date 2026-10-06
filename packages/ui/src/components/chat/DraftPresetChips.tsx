@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     DndContext,
     MouseSensor,
@@ -68,6 +69,7 @@ const SortableChip: React.FC<{
     /** Hide the per-chip hover "x" (mobile uses the trash drop-zone instead). */
     hideRemove?: boolean;
 }> = ({ item, onInsert, onRemove, hideRemove }) => {
+    const { t } = useTranslation();
     const { currentTheme } = useThemeSystem();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
     const chipStyle: React.CSSProperties = {
@@ -98,8 +100,8 @@ const SortableChip: React.FC<{
                 <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                    aria-label={"Remove"}
-                    title={"Remove"}
+                    aria-label={t("Remove")}
+                    title={t("Remove")}
                     className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border text-muted-foreground shadow-sm hover:text-foreground group-hover/chip:flex"
                     style={chipStyle}
                 >
@@ -135,6 +137,7 @@ const StarterGroup: React.FC<{
  * add ("+") button so the swap reads as the same affordance toggling purpose.
  */
 const TrashDropZone: React.FC = () => {
+    const { t } = useTranslation();
     const { currentTheme } = useThemeSystem();
     const { setNodeRef, isOver } = useDroppable({ id: TRASH_DROPPABLE_ID });
 
@@ -142,8 +145,8 @@ const TrashDropZone: React.FC = () => {
         <button
             type="button"
             ref={setNodeRef}
-            aria-label={"Remove"}
-            title={"Remove"}
+            aria-label={t("Remove")}
+            title={t("Remove")}
             // Same box as the "+" button so the swap never shifts layout; on-hover
             // feedback is color-only (no resize).
             className={cn(
@@ -165,16 +168,17 @@ const StarterPickerList: React.FC<{
     onPick: (item: PinnableItem) => void;
     className?: string;
 }> = ({ pinnable, onPick, className }) => {
+    const { t } = useTranslation();
     return (
         <Command className={cn('min-h-0', className)}>
-            <CommandInput placeholder={"Search prompts…"} />
+            <CommandInput placeholder={t("Search prompts…")} />
             <CommandList>
-                <CommandEmpty>{"Nothing to add"}</CommandEmpty>
+                <CommandEmpty>{t("Nothing to add")}</CommandEmpty>
                 {PICKER_SECTIONS.map((section) => {
                     const list = pinnable.filter((item) => item.section === section.key);
                     if (list.length === 0) return null;
                     return (
-                        <CommandGroup key={section.key} heading={section.headingKey}>
+                        <CommandGroup key={section.key} heading={t(section.headingKey)}>
                             {list.map((item) => (
                                 <CommandItem
                                     key={`${item.type}:${item.name}`}
@@ -198,6 +202,7 @@ const AddStarterPicker: React.FC<{
     onOpen: () => void;
     onAdd: (item: PinnableItem) => void;
 }> = ({ pinnable, onOpen, onAdd }) => {
+    const { t } = useTranslation();
     const { currentTheme } = useThemeSystem();
     const [open, setOpen] = React.useState(false);
 
@@ -212,8 +217,8 @@ const AddStarterPicker: React.FC<{
             <DialogTrigger asChild>
                 <button
                     type="button"
-                    aria-label={"Add a starter"}
-                    title={"Add a starter"}
+                    aria-label={t("Add a starter")}
+                    title={t("Add a starter")}
                     className={cn(ROUND_ICON_BUTTON_CLASS, 'text-muted-foreground hover:bg-[var(--interactive-hover)] hover:text-foreground')}
                     style={{
                         backgroundColor: currentTheme?.colors?.surface?.elevated,
@@ -225,7 +230,7 @@ const AddStarterPicker: React.FC<{
             </DialogTrigger>
             <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-sm">
                 <DialogHeader className="px-4 pb-2 pt-4 text-left">
-                    <DialogTitle>{"Add a starter"}</DialogTitle>
+                    <DialogTitle>{t("Add a starter")}</DialogTitle>
                 </DialogHeader>
                 <StarterPickerList
                     pinnable={pinnable}

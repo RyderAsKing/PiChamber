@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { toast } from '@/components/ui';
@@ -103,6 +104,7 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
   onVisiblePathsChange,
   loadDiff,
 }) => {
+  const { t } = useTranslation();
   const [route, setRoute] = React.useState<MobileGitRoute>(() => (
     initialDiffPath
       ? { type: 'diff', path: initialDiffPath, staged: initialDiffStaged }
@@ -162,11 +164,11 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
     if (stagedChangeEntries.length > 0) {
       groups.push({
         id: 'staged',
-        title: 'Staged',
+        title: t('Staged'),
         entries: stagedChangeEntries,
         actionSymbol: '-',
-        actionAllLabel: 'Unstage all changes',
-        getActionLabel: (path) => `Unstage ${path}`,
+        actionAllLabel: t('Unstage all changes'),
+        getActionLabel: (path) => t('Unstage {{path}}', { path }),
         onActionFile: (path) => onMoveChangePaths([path], 'unstage'),
         onActionAll: (paths) => onMoveChangePaths(paths, 'unstage'),
         onViewDiff: (path) => handleViewChangeDiff(path, true),
@@ -179,11 +181,11 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
     if (unstagedChangeEntries.length > 0) {
       groups.push({
         id: 'unstaged',
-        title: 'Changes',
+        title: t('Changes'),
         entries: unstagedChangeEntries,
         actionSymbol: '+',
-        actionAllLabel: 'Stage all changes',
-        getActionLabel: (path) => `Stage ${path}`,
+        actionAllLabel: t('Stage all changes'),
+        getActionLabel: (path) => t('Stage {{path}}', { path }),
         onActionFile: (path) => onMoveChangePaths([path], 'stage'),
         onActionAll: (paths) => onMoveChangePaths(paths, 'stage'),
         onViewDiff: (path) => handleViewChangeDiff(path, false),
@@ -192,7 +194,7 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
     }
 
     return groups;
-  }, [handleViewChangeDiff, onMoveChangePaths, onRevertFile, stagedChangeEntries, unstagedChangeEntries]);
+  }, [handleViewChangeDiff, onMoveChangePaths, onRevertFile, stagedChangeEntries, unstagedChangeEntries, t]);
 
   const { label: surfaceLabel, icon: surfaceIcon } = getGitRailPresentation(isGitRepo);
 
@@ -209,16 +211,16 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
   ), [currentDirectory, status, surfaceIcon, surfaceLabel]);
 
   if (!currentDirectory) {
-    return renderListState(<MobileGitState message="Select a session or directory to view Git status" />);
+    return renderListState(<MobileGitState message={t("Select a session or directory to view Git status")} />);
   }
 
   if (isGitRepo === null || (isGitRepo === true && !status)) {
-    return renderListState(<MobileGitState loading message="Checking repository..." />);
+    return renderListState(<MobileGitState loading message={t("Checking repository...")} />);
   }
 
   if (isGitRepo === false) {
     return renderListState(
-      <React.Suspense fallback={<MobileGitState loading message="Loading last turn changes..." />}>
+      <React.Suspense fallback={<MobileGitState loading message={t("Loading last turn changes...")} />}>
         <DiffView
           diffScope="turn"
           hideStackedFileSidebar
@@ -299,22 +301,22 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
               onCommitMessageChange={onCommitMessageChange}
               onCommit={() => {
                 if (!commitMessage.trim()) {
-                  toast.error('Enter a commit message');
+                  toast.error(t('Enter a commit message'));
                   return;
                 }
                 if (stagedChangeEntries.length === 0) {
-                  toast.error('Select at least one file to commit');
+                  toast.error(t('Select at least one file to commit'));
                   return;
                 }
                 onCommit({ pushAfter: false });
               }}
               onCommitAndPush={() => {
                 if (!commitMessage.trim()) {
-                  toast.error('Enter a commit message');
+                  toast.error(t('Enter a commit message'));
                   return;
                 }
                 if (stagedChangeEntries.length === 0) {
-                  toast.error('Select at least one file to commit');
+                  toast.error(t('Select at least one file to commit'));
                   return;
                 }
                 onCommit({ pushAfter: true });
@@ -328,8 +330,8 @@ export const MobileGitChrome: React.FC<MobileGitChromeProps> = ({
         <div className="min-h-0 flex-1">
           <MobileGitState
             icon
-            message="Working tree clean"
-            description="There are no changed files in this workspace."
+            message={t("Working tree clean")}
+            description={t("There are no changed files in this workspace.")}
           />
         </div>
       )}
@@ -361,6 +363,7 @@ const MobileDiffDetail: React.FC<{
   onBack: () => void;
   onRetry: () => void;
 }> = ({ path, diff, fileExists, error, onBack, onRetry }) => {
+  const { t } = useTranslation();
   const language = React.useMemo(() => getLanguageFromExtension(path) || 'text', [path]);
 
   return (
@@ -371,7 +374,7 @@ const MobileDiffDetail: React.FC<{
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Back"
+            aria-label={t("Back")}
             onClick={onBack}
           >
             <Icon name="arrow-left" className="size-4" />
@@ -382,21 +385,21 @@ const MobileDiffDetail: React.FC<{
       />
       <div className="min-h-0 flex-1 overflow-hidden">
         {!fileExists ? (
-          <MobileGitState icon message="File is no longer changed" description="Go back to Changes and refresh the list." />
+          <MobileGitState icon message={t("File is no longer changed")} description={t("Go back to Changes and refresh the list.")} />
         ) : error ? (
           <div className="flex h-full items-center justify-center px-6 text-center">
             <div className="flex max-w-sm flex-col items-center gap-3">
-              <p className="typography-ui-label font-semibold text-foreground">Failed to load diff</p>
+              <p className="typography-ui-label font-semibold text-foreground">{t("Failed to load diff")}</p>
               <p className="typography-meta text-muted-foreground">{error}</p>
-              <Button type="button" size="sm" variant="outline" onClick={onRetry}>Retry</Button>
+              <Button type="button" size="sm" variant="outline" onClick={onRetry}>{t("Retry")}</Button>
             </div>
           </div>
         ) : !diff ? (
-          <MobileGitState loading message="Loading diff..." />
+          <MobileGitState loading message={t("Loading diff...")} />
         ) : diff.isBinary ? (
-          <MobileGitState icon message="Content of this file cannot be viewed." />
+          <MobileGitState icon message={t("Content of this file cannot be viewed.")} />
         ) : isImageFile(path) ? (
-          <MobileGitState icon message="Image diffs are not available in mobile Changes yet." />
+          <MobileGitState icon message={t("Image diffs are not available in mobile Changes yet.")} />
         ) : (
           <ScrollShadow
             className="h-full overflow-y-auto overflow-x-hidden p-3"

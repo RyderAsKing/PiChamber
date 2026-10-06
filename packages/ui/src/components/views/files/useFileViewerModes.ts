@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui';
 import type { FileContentRevision, FilesAPI } from '@/lib/api/types';
@@ -76,6 +77,7 @@ export function useFileViewerModes({
   onSaved,
   onConflict,
 }: UseFileViewerModesOptions) {
+  const { t } = useTranslation();
   const [textViewMode, setTextViewMode] = React.useState<TextViewMode>('edit');
   const [mdViewMode, setMdViewMode] = React.useState<PreviewViewMode>('edit');
   const [jsonViewMode, setJsonViewMode] = React.useState<JsonViewMode>('text');
@@ -196,7 +198,7 @@ export function useFileViewerModes({
     try {
       const result = await writeFile(path, xml, buildGuardedWriteOptions(expectedRevisionRef.current, options?.overwrite));
       if (!result?.success) {
-        toast.error('Failed to write file');
+        toast.error(t('Failed to write file'));
         return false;
       }
       if (!isDiagramSaveCurrent(saveScope)) {
@@ -223,10 +225,10 @@ export function useFileViewerModes({
         });
         return false;
       }
-      toast.error(error instanceof Error ? error.message : 'Save failed');
+      toast.error(error instanceof Error ? error.message : t('Save failed'));
       return false;
     }
-  }, [isDiagramSaveCurrent, recordDiagramContent, setDraftContent, writeFile]);
+  }, [isDiagramSaveCurrent, recordDiagramContent, setDraftContent, t, writeFile]);
 
   const showDiagramSaved = React.useCallback(() => {
     setDiagramSaved(true);

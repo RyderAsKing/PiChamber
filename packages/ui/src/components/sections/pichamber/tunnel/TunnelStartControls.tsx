@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -54,6 +55,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
   onStart,
   onOpenDocUrl,
 }) => {
+  const { t } = useTranslation();
   return (
     <div data-settings-item="tunnel.start" className="space-y-6">
       <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)] p-3">
@@ -66,9 +68,9 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
             {tunnelMode === 'managed-remote' && (
               <>
                 <p className="typography-meta text-[var(--status-info)]">
-                  {
+                  {t(
                     'Managed remote tunnels require a purchased domain in your Cloudflare account.'
-                  }
+                  )}
                 </p>
                 <button
                   type="button"
@@ -77,7 +79,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
                     onOpenDocUrl(MANAGED_REMOTE_TUNNEL_DOC_URL);
                   }}
                 >
-                  {'Check documentation on how to configure a managed remote tunnel'}
+                  {t('Check documentation on how to configure a managed remote tunnel')}
                   <Icon name="external-link" className="size-3.5" />
                 </button>
               </>
@@ -85,7 +87,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
             {tunnelMode === 'managed-local' && (
               <>
                 <p className="typography-meta text-[var(--status-info)]">
-                  {'Managed local tunnels use your local cloudflared configuration file.'}
+                  {t('Managed local tunnels use your local cloudflared configuration file.')}
                 </p>
                 <button
                   type="button"
@@ -94,16 +96,16 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
                     onOpenDocUrl(MANAGED_LOCAL_TUNNEL_DOC_URL);
                   }}
                 >
-                  {'Check documentation on managed local tunnel configuration'}
+                  {t('Check documentation on managed local tunnel configuration')}
                   <Icon name="external-link" className="size-3.5" />
                 </button>
               </>
             )}
             <p className="typography-meta text-[var(--status-info)]">
-              {`Start a ${
-                TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.label ??
-                'Quick'
-              } tunnel and generate a one-time connect link. Do not close the app while this tunnel is in use.`}
+              {t('Start a {{mode}} tunnel and generate a one-time connect link. Do not close the app while this tunnel is in use.', {
+                mode: t(TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.label ??
+                'Quick'),
+              })}
             </p>
           </div>
         </div>
@@ -112,7 +114,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
       {tunnelMode === 'managed-remote' && (
         <div className="space-y-1.5">
           <p className={SETTINGS_FIELD_LABEL_CLASS}>
-            {'Managed remote tunnel to connect'}
+            {t('Managed remote tunnel to connect')}
           </p>
           <Select
             value={selectedPresetId || (managedRemoteTunnelPresets[0]?.id ?? '')}
@@ -125,7 +127,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
             }
           >
             <SelectTrigger size={SETTINGS_SELECT_SIZE}>
-              <SelectValue placeholder={'Select saved tunnel'}>
+              <SelectValue placeholder={t('Select saved tunnel')}>
                 {selectedPreset?.name}
               </SelectValue>
             </SelectTrigger>
@@ -148,9 +150,9 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
               className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]"
             />
             <p className="typography-meta text-[var(--status-warning)]">
-              {
+              {t(
                 'Starting this tunnel replaces the active tunnel and revokes existing connect links and remote sessions.'
-              }
+              )}
             </p>
           </div>
         </div>
@@ -171,10 +173,10 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
         {state === 'starting' ? (
           <>
             <Icon name="loader-4" className="size-3.5 animate-spin" />{' '}
-            {'Starting tunnel...'}
+            {t('Starting tunnel...')}
           </>
         ) : (
-          'Start Tunnel'
+          t('Start Tunnel')
         )}
       </Button>
     </div>

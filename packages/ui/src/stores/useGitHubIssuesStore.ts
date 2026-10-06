@@ -12,6 +12,7 @@ import type {
 } from '@/lib/api/types';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
+import i18n from '@/i18n';
 import {
   buildGitHubResourceKey,
   useKeyedResourceEntry,
@@ -277,7 +278,7 @@ export const useGitHubIssuesStore = create<IssuesStoreState>()(
         const scope = detailScopeKey(repo, number);
         const detailKey = issueDetailKeyFor(repo, number);
         if (get().actingActions[scope]) {
-          return { ok: false, error: { kind: 'failed', message: 'An update is already in progress' } };
+          return { ok: false, error: { kind: 'failed', message: i18n.t('An update is already in progress') } };
         }
         set((state) => ({
           actingActions: { ...state.actingActions, [scope]: true },

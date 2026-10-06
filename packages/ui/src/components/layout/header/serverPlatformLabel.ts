@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { ServerPlatformMetadata } from './serverPlatformIcon';
 
 type ServerVersionInfo = ServerPlatformMetadata & {
@@ -22,5 +23,5 @@ export const displayServerPlatform = (metadata: ServerVersionInfo | null): strin
     }
     return 'Linux';
   }
-  return 'Server';
+  return i18n.t('Server');
 };

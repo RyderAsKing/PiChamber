@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -80,6 +81,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
   handleRevealPath,
   refreshDirectory,
 }) => {
+  const { t } = useTranslation();
   const hasTree = Boolean(root && childrenByDir[root]);
   const rootLoadError = root ? loadErrorsByDir[root] : null;
   // One O(expanded) build per snapshot, then O(1) membership per row
@@ -143,7 +145,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                     onClick={() => void refreshDirectory(node.path)}
                   >
                     <Icon name="refresh" className="size-3.5" />
-                    Refresh
+                    {t("Refresh")}
                   </Button>
                 </li>
               ) : null}
@@ -175,13 +177,13 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
               ref={searchInputRef}
               value={searchQuery}
               onChange={(e) => onSearchQueryChange(e.target.value)}
-              placeholder="Search files..."
+              placeholder={t("Search files...")}
               className="h-8 pl-8 pr-8 typography-meta"
             />
             {searchQuery.trim().length > 0 && (
               <button
                 type="button"
-                aria-label="Clear search"
+                aria-label={t("Clear search")}
                 className="absolute right-2 top-2 inline-flex size-4 items-center justify-center text-muted-foreground hover:text-foreground"
                 onClick={() => {
                   onSearchQueryChange('');
@@ -202,15 +204,15 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                     onOpenDialog('createFile', { path: currentDirectory, type: 'directory' })
                   }
                   className="size-8 p-0 flex-shrink-0"
-                  title="New File"
-                  aria-label="New File"
+                  title={t("New File")}
+                  aria-label={t("New File")}
                 >
                   <Icon name="file-add" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={6}>
-              New File
+              {t("New File")}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -223,15 +225,15 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                     onOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })
                   }
                   className="size-8 p-0 flex-shrink-0"
-                  title="New Folder"
-                  aria-label="New Folder"
+                  title={t("New Folder")}
+                  aria-label={t("New Folder")}
                 >
                   <Icon name="folder-add" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={6}>
-              New Folder
+              {t("New Folder")}
             </TooltipContent>
           </Tooltip>
           <Tooltip>
@@ -242,15 +244,15 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                   size="sm"
                   onClick={() => void refreshRoot()}
                   className="size-8 p-0 flex-shrink-0"
-                  title="Refresh"
-                  aria-label="Refresh"
+                  title={t("Refresh")}
+                  aria-label={t("Refresh")}
                 >
                   <Icon name="refresh" className="size-4" />
                 </Button>
               </span>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={6}>
-              Refresh
+              {t("Refresh")}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -264,7 +266,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
           {searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
-              Searching...
+              {t("Searching...")}
             </li>
           ) : searchResults.length > 0 ? (
             searchResults.map((node) => {
@@ -301,13 +303,13 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                 onClick={() => void refreshRoot()}
               >
                 <Icon name="refresh" className="size-3.5" />
-                Refresh
+                {t("Refresh")}
               </Button>
             </li>
           ) : hasTree ? (
             renderTree(root, 0)
           ) : (
-            <li className="px-2 py-1 typography-meta text-muted-foreground">Loading...</li>
+            <li className="px-2 py-1 typography-meta text-muted-foreground">{t("Loading...")}</li>
           )}
         </ul>
       </ScrollableOverlay>

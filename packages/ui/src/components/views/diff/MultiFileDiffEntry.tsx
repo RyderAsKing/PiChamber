@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useGitStore } from '@/stores/useGitStore';
@@ -63,6 +64,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   loadFullFiles = false,
   initialDiffData = null,
 }) {
+  const { t } = useTranslation();
   const { git } = useRuntimeAPIs();
   const cachedDiff = useGitStore(
     React.useCallback((state) => {
@@ -146,7 +148,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
       : git.getGitDiff(directory, { path: file.path, staged, contextLines });
     const timeoutMs = DIFF_REQUEST_TIMEOUT_MS;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+      setTimeout(() => reject(new Error(t('Timed out after {{timeoutMs}}ms', { timeoutMs }))), timeoutMs);
     });
 
     void Promise.race([fetchPromise, timeoutPromise])
@@ -188,7 +190,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
         lastDiffRequestRef.current = null;
       }
     };
-  }, [desiredContextMode, diffData, diffDataMatchesContextMode, diffRetryNonce, directory, file.path, fileStatusKey, git, initialDiffData, isExpanded, isMounted, loadFullFiles, setDiff, staged]);
+  }, [desiredContextMode, diffData, diffDataMatchesContextMode, diffRetryNonce, directory, file.path, fileStatusKey, git, initialDiffData, isExpanded, isMounted, loadFullFiles, setDiff, staged, t]);
 
   const handleToggle = React.useCallback(() => {
     handleOpenChange(!isExpanded);
@@ -213,15 +215,15 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
       await fetchStatus(directory, git);
     } catch (error) {
       const fallbackMessage = action === 'unstage'
-        ? 'Failed to unstage changes'
+        ? t('Failed to unstage changes')
         : action === 'stage'
-          ? 'Failed to stage changes'
-          : 'Failed to revert changes';
+          ? t('Failed to stage changes')
+          : t('Failed to revert changes');
       toast.error(error instanceof Error ? error.message : fallbackMessage);
     } finally {
       setFileAction((current) => (current === action ? null : current));
     }
-  }, [directory, fetchStatus, file.path, fileAction, git]);
+  }, [directory, fetchStatus, file.path, fileAction, git, t]);
 
   return (
     <div
@@ -317,7 +319,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
                 variant="ghost"
                 size="sm"
                 className="h-5 w-5 p-0 opacity-70 hover:opacity-100"
-                title={"Open this file in editor at change"}
+                title={t("Open this file in editor at change")}
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpenInEditor(file.path, diffData);
@@ -351,7 +353,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
           {diffLoadError ? (
             <div className="flex flex-col items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
               <div className="typography-ui-label font-semibold text-foreground">
-                {"Failed to load diff"}
+                {t("Failed to load diff")}
               </div>
               <div className="typography-meta text-muted-foreground max-w-[32rem] text-center">
                 {diffLoadError}
@@ -361,30 +363,30 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
                 className="typography-ui-label text-primary hover:underline"
                 onClick={() => setDiffRetryNonce((nonce) => nonce + 1)}
               >
-                {"Retry"}
+                {t("Retry")}
               </button>
             </div>
           ) : null}
           {isMounted && isLoading && !diffData && !diffLoadError ? (
             <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
-              {"Loading diff..."}
+              {t("Loading diff...")}
             </div>
           ) : null}
           {isMounted && diffData && !forceRenderLarge && (file.insertions + file.deletions) > LARGE_DIFF_CHANGED_LINES ? (
             <div className="flex flex-col items-center gap-2 px-4 py-8 text-sm text-muted-foreground">
               <div className="typography-ui-label font-semibold text-foreground">
-                {`Large diff (${file.insertions + file.deletions} changed lines)`}
+                {t('Large diff ({{count}} changed lines)', { count: file.insertions + file.deletions })}
               </div>
               <div className="typography-meta text-muted-foreground">
-                {"Rendering may be slow. You can still view the diff by clicking below."}
+                {t("Rendering may be slow. You can still view the diff by clicking below.")}
               </div>
               <button
                 type="button"
                 className="typography-ui-label text-primary hover:underline"
                 onClick={() => setForceRenderLarge(true)}
               >
-                {"Render anyway"}
+                {t("Render anyway")}
               </button>
             </div>
           ) : null}

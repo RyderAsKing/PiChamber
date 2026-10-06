@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 export type ClipboardCopyResult =
   | { ok: true; method: 'clipboard' | 'execCommand' }
   | { ok: false; error: string };
@@ -34,7 +36,7 @@ export async function copyTextToClipboard(text: string): Promise<ClipboardCopyRe
 
   return {
     ok: false,
-    error: clipboardError ?? 'Clipboard access denied in current context',
+    error: clipboardError ?? i18n.t('Clipboard access denied in current context'),
   };
 }
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
@@ -50,6 +51,7 @@ export const GitHubSearchInput: React.FC<{
   placeholder?: string;
   ariaLabel?: string;
 }> = ({ value, onChange, placeholder, ariaLabel }) => {
+  const { t } = useTranslation();
   const [draft, setDraft] = React.useState(value);
   React.useEffect(() => setDraft(value), [value]);
   // Lists pass inline arrows that change identity every parent render; a
@@ -71,8 +73,8 @@ export const GitHubSearchInput: React.FC<{
       <Input
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        placeholder={placeholder ?? 'Search'}
-        aria-label={ariaLabel ?? 'Search'}
+        placeholder={placeholder ?? t('Search')}
+        aria-label={ariaLabel ?? t('Search')}
         className="h-8 pl-7"
       />
     </span>
@@ -129,11 +131,12 @@ export const GitHubLoadMore: React.FC<{
   onLoadMore: () => void;
   label?: string;
 }> = ({ hasMore, isLoading, onLoadMore, label }) => {
+  const { t } = useTranslation();
   if (!hasMore) return null;
   return (
     <div className="flex justify-center px-2 py-2">
       <Button type="button" variant="outline" size="sm" onClick={onLoadMore} disabled={isLoading}>
-        {isLoading ? 'Loading…' : (label ?? 'Load more')}
+        {isLoading ? t('Loading…') : (label ?? t('Load more'))}
       </Button>
     </div>
   );
@@ -163,13 +166,14 @@ export const GitHubIncompleteNotice: React.FC<{
   searching: boolean;
   onSearchAll: () => void;
 }> = ({ matchSummary, searching, onSearchAll }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/60 px-2 py-1.5 typography-micro text-muted-foreground">
       <span className="min-w-0 flex-1 truncate" title={matchSummary}>
         {matchSummary}
       </span>
       <Button type="button" variant="ghost" size="xs" onClick={onSearchAll} disabled={searching}>
-        {searching ? 'Searching…' : 'Search all on GitHub'}
+        {searching ? t('Searching…') : t('Search all on GitHub')}
       </Button>
     </div>
   );
@@ -190,10 +194,11 @@ export const GitHubRemoteSection: React.FC<{
   onLoadMore: () => void;
   children: React.ReactNode;
 }> = ({ title, isSearching, error, hasResults, hasMore, isLoadingMore, onRetry, onLoadMore, children }) => {
+  const { t } = useTranslation();
   const errorText =
     error?.kind === 'rate-limited'
-      ? 'GitHub rate limit reached — try again in a little while.'
-      : "Couldn't search GitHub.";
+      ? t('GitHub rate limit reached — try again in a little while.')
+      : t("Couldn't search GitHub.");
   return (
     <section aria-label={title} className="border-t border-border/60">
       <p className="px-3 pb-0.5 pt-1.5 typography-micro font-medium text-muted-foreground">{title}</p>
@@ -202,7 +207,7 @@ export const GitHubRemoteSection: React.FC<{
           <Icon name="error-warning" className="size-3.5 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1">{errorText}</span>
           <Button type="button" variant="outline" size="xs" onClick={onRetry}>
-            Retry
+            {t('Retry')}
           </Button>
         </div>
       ) : null}
@@ -210,18 +215,18 @@ export const GitHubRemoteSection: React.FC<{
         <div className="flex flex-wrap items-center gap-2 px-3 py-1 typography-micro text-muted-foreground">
           <span className="min-w-0 flex-1">{errorText}</span>
           <Button type="button" variant="ghost" size="xs" onClick={onRetry}>
-            Retry
+            {t('Retry')}
           </Button>
         </div>
       ) : null}
       {!error && isSearching && !hasResults ? (
         <p className="px-3 py-2 typography-micro text-muted-foreground" role="status">
-          Searching GitHub…
+          {t('Searching GitHub…')}
         </p>
       ) : null}
       {hasResults ? <div className="flex flex-col p-1 pt-0.5">{children}</div> : null}
       {!error && hasResults ? (
-        <GitHubLoadMore hasMore={hasMore} isLoading={isLoadingMore} onLoadMore={onLoadMore} label="Load more results" />
+        <GitHubLoadMore hasMore={hasMore} isLoading={isLoadingMore} onLoadMore={onLoadMore} label={t("Load more results")} />
       ) : null}
     </section>
   );
@@ -233,20 +238,21 @@ export const SectionError: React.FC<{ error: GitHubErrorBody | null | undefined;
   onRetry,
   label,
 }) => {
+  const { t } = useTranslation();
   if (!shouldRenderSectionError(error)) return null;
   const detail = describeSectionError(error);
   return (
     <div
       className="flex items-center gap-2 rounded-md border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2 typography-micro text-foreground"
       role="alert"
-      aria-label={`${label} failed to load`}
+      aria-label={t('{{label}} failed to load', { label })}
     >
       <Icon name="error-warning" className="size-4 shrink-0 text-[var(--status-error)]" />
       <span className="min-w-0 flex-1 truncate">
-        {label} failed to load{error ? ` — ${detail}` : ''}
+        {t('{{label}} failed to load', { label })}{error ? ` — ${detail}` : ''}
       </span>
       <Button type="button" variant="outline" size="xs" onClick={onRetry}>
-        Retry
+        {t('Retry')}
       </Button>
     </div>
   );
@@ -258,21 +264,22 @@ export const GitHubNumberJumpRow: React.FC<{
   kindLabel: string;
   onOpen: () => void;
 }> = ({ number, kindLabel, onOpen }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col p-1">
       <button
         type="button"
         onClick={onOpen}
-        aria-label={`Open ${kindLabel} #${number}`}
+        aria-label={t('Open {{kind}} #{{number}}', { kind: kindLabel, number })}
         className="group/github-row flex w-full items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-interactive-hover"
       >
         <span className="inline-flex w-4 shrink-0 items-center justify-center">
           <Icon name="external-link" className="size-3.5 text-muted-foreground" aria-hidden="true" />
         </span>
         <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-          Open #{number}
+          {t('Open #{{number}}', { number })}
         </span>
-        <span className="shrink-0 typography-micro text-muted-foreground">Not in the loaded list</span>
+        <span className="shrink-0 typography-micro text-muted-foreground">{t('Not in the loaded list')}</span>
       </button>
     </div>
   );
@@ -280,12 +287,13 @@ export const GitHubNumberJumpRow: React.FC<{
 
 /** Stale banner: saved results with a failed refresh. One per surface. */
 export const GitHubStaleBanner: React.FC<{ onRetry: () => void }> = ({ onRetry }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-3 py-1.5 typography-micro text-foreground">
       <Icon name="error-warning" className="size-3.5 shrink-0 text-[var(--status-warning)]" />
-      <span className="min-w-0 flex-1 truncate">Showing saved results — last refresh failed</span>
-      <button type="button" onClick={onRetry} className="shrink-0 underline" aria-label="Retry GitHub refresh">
-        Retry
+      <span className="min-w-0 flex-1 truncate">{t('Showing saved results — last refresh failed')}</span>
+      <button type="button" onClick={onRetry} className="shrink-0 underline" aria-label={t("Retry GitHub refresh")}>
+        {t('Retry')}
       </button>
     </div>
   );
@@ -299,16 +307,17 @@ export const GitHubEmptyState: React.FC<{
   noItemsAction?: React.ReactNode;
   onClearFilters?: () => void;
 }> = ({ kind, noItemsTitle, noItemsBody, noItemsIcon, noItemsAction, onClearFilters }) => {
+  const { t } = useTranslation();
   if (kind === 'no-match') {
     return (
       <GitHubCenteredState
         icon="search"
-        title="Nothing matches these filters"
-        description="Try fewer words, or search by number, author, or label."
+        title={t("Nothing matches these filters")}
+        description={t("Try fewer words, or search by number, author, or label.")}
         action={
           onClearFilters ? (
             <Button type="button" variant="outline" size="sm" onClick={onClearFilters}>
-              Clear filters
+              {t('Clear filters')}
             </Button>
           ) : undefined
         }

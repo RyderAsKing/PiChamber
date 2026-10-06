@@ -3,6 +3,7 @@
  * requests so providers and their models can be defined from Settings.
  */
 
+import i18n from '@/i18n';
 import {
   validateAddProviderModel,
   type AddProviderModelFieldErrors,
@@ -308,32 +309,32 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
   const editingProviderID = input.editingProviderID?.trim();
 
   const idError = !providerID
-    ? "Provider ID is required"
+    ? i18n.t("Provider ID is required")
     : !PROVIDER_ID_PATTERN.test(providerID)
-      ? "Use lowercase letters, numbers, hyphens, or underscores"
+      ? i18n.t("Use lowercase letters, numbers, hyphens, or underscores")
       : undefined;
 
   const nameError = !name
-    ? "Display name is required"
+    ? i18n.t("Display name is required")
     : undefined;
 
   const urlError = !baseURL
-    ? "Base URL is required"
+    ? i18n.t("Base URL is required")
     : !BASE_URL_PATTERN.test(baseURL)
-      ? "Base URL must start with http:// or https://"
+      ? i18n.t("Base URL must start with http:// or https://")
       : undefined;
 
   const credentialsSatisfied = Boolean(env || key || (editingProviderID && input.allowExistingAuth && editingProviderID === providerID));
   const apiKeyError = credentialsSatisfied
     ? undefined
-    : "API key or {env:VAR_NAME} is required";
+    : i18n.t("API key or {env:VAR_NAME} is required");
 
   const disabled = disabledProviders.includes(providerID);
   const isSelfEdit = Boolean(editingProviderID && editingProviderID === providerID);
   const existsError = idError || isSelfEdit
     ? undefined
     : input.existingProviderIDs.has(providerID) && !disabled
-      ? "A provider with this ID is already connected"
+      ? i18n.t("A provider with this ID is already connected")
       : undefined;
 
   const seenModels = new Set<string>();
@@ -341,7 +342,7 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
     const validated = validateAddProviderModel(model);
     const id = model.modelId.trim();
     if (id && seenModels.has(id)) {
-      return { errors: { ...validated.errors, modelId: 'Duplicate' } };
+      return { errors: { ...validated.errors, modelId: i18n.t('Duplicate') } };
     }
     if (id) seenModels.add(id);
     return validated;
@@ -360,15 +361,15 @@ export function validateCustomProvider(input: ValidateCustomProviderInput): Vali
       return {};
     }
     const keyError = !headerKey
-      ? "Required"
+      ? i18n.t("Required")
       : seenHeaders.has(headerKey.toLowerCase())
-        ? "Duplicate"
+        ? i18n.t("Duplicate")
         : (() => {
             seenHeaders.add(headerKey.toLowerCase());
             return undefined;
           })();
     const valueError = !headerValue
-      ? "Required"
+      ? i18n.t("Required")
       : undefined;
     return { key: keyError, value: valueError };
   });

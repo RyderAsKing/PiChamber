@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -163,6 +164,7 @@ const TurnActivityRail: React.FC<{
     activeStreamingPhase,
     onContentChange,
 }) => {
+    const { t } = useTranslation();
     const { isMobile } = useDeviceInfo();
     const [visibleToolCount, setVisibleToolCount] = React.useState(INITIAL_VISIBLE_TOOL_COUNT);
     const activityPanel = useActivityPanelPresence(isExpanded);
@@ -338,10 +340,10 @@ const TurnActivityRail: React.FC<{
                                         variant="ghost"
                                         size="xs"
                                         className="-ml-1.5 mb-0.5 justify-start px-1.5 text-muted-foreground"
-                                        aria-label="Load earlier activity"
+                                        aria-label={t("Load earlier activity")}
                                         onClick={handleLoadEarlier}
                                     >
-                                        Load earlier activity
+                                        {t('Load earlier activity')}
                                     </Button>
                                 ) : null}
                                 <div className="min-w-0 space-y-1" data-chat-activity-list="true">

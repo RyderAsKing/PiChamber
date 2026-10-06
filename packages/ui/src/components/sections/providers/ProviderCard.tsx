@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
@@ -13,15 +14,18 @@ interface ProviderCardProps {
 
 /** Grid card for provider browse. Shows logo, label, model count, and auth status. */
 export const ProviderCard: React.FC<ProviderCardProps> = ({ provider, onSelect }) => {
+  const { t } = useTranslation();
   const modelCount = provider.models.length;
-  const modelLabel = modelCount === 1 ? '1 model' : `${modelCount} models`;
+  const modelLabel = modelCount === 1 ? t('1 model') : t('{{count}} models', { count: modelCount });
   const { hasLogo } = useProviderLogo(provider.id);
 
   return (
     <button
       type="button"
       onClick={() => onSelect(provider.id)}
-      aria-label={`${provider.label} provider, ${modelLabel}${provider.authenticated ? ', authenticated' : ''}`}
+      aria-label={provider.authenticated
+        ? t('{{label}} provider, {{models}}, authenticated', { label: provider.label, models: modelLabel })
+        : t('{{label}} provider, {{models}}', { label: provider.label, models: modelLabel })}
       className={cn(
         'group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left',
         'border-border/60 hover:bg-interactive-hover hover:border-border',
@@ -40,7 +44,7 @@ export const ProviderCard: React.FC<ProviderCardProps> = ({ provider, onSelect }
         {provider.authenticated ? (
           <span className="inline-flex items-center gap-1 typography-micro font-medium text-[var(--status-success)]">
             <Icon name="check" className="size-3.5" aria-hidden />
-            Connected
+            {t('Connected')}
           </span>
         ) : null}
       </div>

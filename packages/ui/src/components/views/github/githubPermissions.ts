@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { GitHubCapabilities } from '@/lib/api/types';
 
 /**
@@ -47,13 +48,13 @@ export const requiresPushOrAuthor = (access: ViewerAccess): boolean => {
 /** Comments and reviews require read access. */
 export const gateCommentAccess = (access: ViewerAccess): ActionGate => {
   if (!access || access.permissionFallback) return { allowed: true, reason: null };
-  if (access.capabilities?.canComment !== true) return { allowed: false, reason: 'You need read access to comment' };
+  if (access.capabilities?.canComment !== true) return { allowed: false, reason: i18n.t('You need read access to comment') };
   return { allowed: true, reason: null };
 };
 
 /** Shared title validation for the create-PR / create-issue forms. */
 export const titleValidationError = (title: string, maxLength: number): string | null => {
-  if (!title.trim()) return 'Enter a title';
-  if (title.trim().length > maxLength) return `Title is too long (max ${maxLength} characters)`;
+  if (!title.trim()) return i18n.t('Enter a title');
+  if (title.trim().length > maxLength) return i18n.t('Title is too long (max {{max}} characters)', { max: maxLength });
   return null;
 };

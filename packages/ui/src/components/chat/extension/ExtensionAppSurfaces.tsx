@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { parseExtensionAppCommand } from '@/lib/pi/extension-app-command';
@@ -48,6 +49,7 @@ export const ExtensionAppFrame: React.FC<{
   title?: string;
   html: string;
 }> = ({ sessionId, appId, title, html }) => {
+  const { t } = useTranslation();
   const [hidden, setHidden] = React.useState(false);
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const tokenRef = React.useRef<string>('');
@@ -82,8 +84,8 @@ export const ExtensionAppFrame: React.FC<{
         <span className="min-w-0 truncate typography-ui-label text-foreground" title={title ?? appId}>
           {title ?? appId}
         </span>
-        <Button variant="ghost" size="xs" onClick={() => setHidden(true)} aria-label="Hide app surface">
-          Hide
+        <Button variant="ghost" size="xs" onClick={() => setHidden(true)} aria-label={t('Hide app surface')}>
+          {t('Hide')}
         </Button>
       </div>
       <iframe

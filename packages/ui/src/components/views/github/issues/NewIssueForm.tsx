@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,7 @@ export const NewIssueForm: React.FC<{
   onCreated: (number: number) => void;
   onCancel: () => void;
 }> = ({ directory, repo, github, onCreated, onCancel }) => {
+  const { t } = useTranslation();
   const createIssue = useGitHubIssuesStore((state) => state.createIssue);
   const [title, setTitle] = React.useState('');
   const [body, setBody] = React.useState('');
@@ -44,15 +46,15 @@ export const NewIssueForm: React.FC<{
       .then((result) => {
         if (cancelled) return;
         setTemplates(result.templates);
-        setTemplatesNote(result.templates.length === 0 ? 'No markdown templates in this repository. YAML issue forms are not supported.' : null);
+        setTemplatesNote(result.templates.length === 0 ? t('No markdown templates in this repository. YAML issue forms are not supported.') : null);
       })
       .catch(() => {
-        if (!cancelled) setTemplatesNote('Issue templates are unavailable.');
+        if (!cancelled) setTemplatesNote(t('Issue templates are unavailable.'));
       });
     return () => {
       cancelled = true;
     };
-  }, [github, directory, repo]);
+  }, [github, directory, repo, t]);
 
   const applyTemplate = (filename: string) => {
     setTemplateName(filename);
@@ -80,10 +82,10 @@ export const NewIssueForm: React.FC<{
         github,
       );
       if (!result.ok || typeof result.number !== 'number') {
-        toast.error(result.error?.kind === 'failed' ? result.error.message : 'Could not create the issue');
+        toast.error(result.error?.kind === 'failed' ? result.error.message : t('Could not create the issue'));
         return;
       }
-      toast.success(`Issue #${result.number} created`);
+      toast.success(t('Issue #{{number}} created', { number: result.number }));
       onCreated(result.number);
     } finally {
       setSaving(false);
@@ -99,13 +101,13 @@ export const NewIssueForm: React.FC<{
             variant="ghost"
             size="icon"
             onClick={onCancel}
-            title="Back to issues"
-            aria-label="Back to issues"
+            title={t("Back to issues")}
+            aria-label={t("Back to issues")}
             className="size-6 shrink-0"
           >
             <Icon name="arrow-left" className="size-4" />
           </Button>
-          <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">New issue</h1>
+          <h1 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">{t('New issue')}</h1>
         </div>
       }
       tabs={[]}
@@ -114,13 +116,13 @@ export const NewIssueForm: React.FC<{
     >
       <div className="flex flex-col gap-3 px-4 py-3">
         <div className="flex flex-col gap-1">
-          <label htmlFor="new-issue-title" className="typography-micro font-medium text-muted-foreground">Title</label>
+          <label htmlFor="new-issue-title" className="typography-micro font-medium text-muted-foreground">{t('Title')}</label>
           <Input
             id="new-issue-title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
-            placeholder="Short summary"
-            aria-label="Issue title"
+            placeholder={t("Short summary")}
+            aria-label={t("Issue title")}
             className="h-8"
             maxLength={300}
           />
@@ -128,15 +130,15 @@ export const NewIssueForm: React.FC<{
         </div>
 
         <div className="flex flex-col gap-1">
-          <label htmlFor="new-issue-template" className="typography-micro font-medium text-muted-foreground">Template</label>
+          <label htmlFor="new-issue-template" className="typography-micro font-medium text-muted-foreground">{t('Template')}</label>
           <select
             id="new-issue-template"
-            aria-label="Issue template"
+            aria-label={t("Issue template")}
             value={templateName}
             onChange={(event) => applyTemplate(event.target.value)}
             className="h-8 rounded-md border border-border bg-[var(--surface-elevated)] px-2 typography-micro text-foreground"
           >
-            <option value="">No template</option>
+            <option value="">{t('No template')}</option>
             {templates.map((template) => (
               <option key={template.filename} value={template.filename}>
                 {template.name}
@@ -147,34 +149,34 @@ export const NewIssueForm: React.FC<{
         </div>
 
         <div className="flex flex-col gap-1">
-          <label htmlFor="new-issue-body" className="typography-micro font-medium text-muted-foreground">Body</label>
+          <label htmlFor="new-issue-body" className="typography-micro font-medium text-muted-foreground">{t('Body')}</label>
           <Textarea
             id="new-issue-body"
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="Describe the issue"
-            aria-label="Issue body"
+            placeholder={t("Describe the issue")}
+            aria-label={t("Issue body")}
             rows={8}
           />
           {errors.body ? <p className="typography-micro text-[var(--status-error)]" role="alert">{errors.body}</p> : null}
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="typography-micro font-medium text-muted-foreground">Labels</span>
+          <span className="typography-micro font-medium text-muted-foreground">{t('Labels')}</span>
           <GitHubLabelPicker candidates={metaLabels} loading={metaLoading} selected={labels} onChange={setLabels} />
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="typography-micro font-medium text-muted-foreground">Assignees</span>
+          <span className="typography-micro font-medium text-muted-foreground">{t('Assignees')}</span>
           <GitHubAssigneePicker candidates={metaAssignees} loading={metaLoading} selected={assignees} onChange={setAssignees} />
         </div>
 
         <div className="flex gap-2">
-          <Button type="button" size="sm" onClick={submit} disabled={saving || !title.trim()} aria-label="Create issue">
-            {saving ? 'Creating…' : 'Create issue'}
+          <Button type="button" size="sm" onClick={submit} disabled={saving || !title.trim()} aria-label={t("Create issue")}>
+            {saving ? t('Creating…') : t('Create issue')}
           </Button>
           <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={saving}>
-            Cancel
+            {t('Cancel')}
           </Button>
         </div>
       </div>

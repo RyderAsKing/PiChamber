@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SETTINGS_FIELD_LABEL_CLASS } from '@/components/sections/shared/SettingsSection';
@@ -30,13 +31,14 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
   onClear,
   onFileSelected,
 }) => {
+  const { t } = useTranslation();
   return (
     <div
       data-settings-item="tunnel.managed-local-config"
       className="space-y-2 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-3"
     >
       <div className="space-y-1.5">
-        <p className={SETTINGS_FIELD_LABEL_CLASS}>{'Configuration file'}</p>
+        <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('Configuration file')}</p>
         <input
           ref={fileInputRef}
           type="file"
@@ -49,7 +51,7 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
             value={managedLocalConfigPath || ''}
             onChange={(event) => onInputChange(event.target.value)}
             onBlur={onInputBlur}
-            placeholder={'Using default cloudflared config'}
+            placeholder={t('Using default cloudflared config')}
             className="h-7"
             disabled={disabled}
           />
@@ -57,7 +59,7 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
             variant="outline"
             size="xs"
             className="h-7 w-7 p-0"
-            aria-label={'Browse config file'}
+            aria-label={t('Browse config file')}
             onClick={onBrowse}
             disabled={disabled}
           >
@@ -68,7 +70,7 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
               variant="ghost"
               size="xs"
               className="h-7 w-7 p-0"
-              aria-label={'Clear config file'}
+              aria-label={t('Clear config file')}
               onClick={onClear}
               disabled={disabled}
             >
@@ -78,12 +80,12 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
         </div>
         <p className="typography-meta text-muted-foreground/70">
           {managedLocalConfigPath
-            ? 'Custom config file will be used when starting the tunnel.'
-            : 'When empty, cloudflared uses its default config (~/.cloudflared/config.yml).'}
+            ? t('Custom config file will be used when starting the tunnel.')
+            : t('When empty, cloudflared uses its default config (~/.cloudflared/config.yml).')}
         </p>
         {isManagedLocalConfigPathInvalid && (
           <p className="typography-meta text-[var(--status-error)]">
-            {managedLocalConfigExtensionError}
+            {t(managedLocalConfigExtensionError)}
           </p>
         )}
       </div>

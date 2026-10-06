@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -41,6 +42,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
   onSelectFile,
   onCloseFile,
 }) => {
+  const { t } = useTranslation();
   if (!showEditorTabsRow) return null;
 
   return (
@@ -49,7 +51,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
         <button
           type="button"
           onClick={onBackMobile}
-          aria-label="Back"
+          aria-label={t("Back")}
           className="inline-flex size-7 flex-shrink-0 items-center justify-center mr-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Icon name="arrow-left-s" className="size-5" />
@@ -63,7 +65,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
               <button
                 type="button"
                 className="inline-flex min-w-0 max-w-full items-center gap-1 text-left typography-ui-label font-medium"
-                aria-label="Open files"
+                aria-label={t("Open files")}
               >
                 <FileTypeIcon
                   filePath={selectedFile.path}
@@ -120,7 +122,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
                         onCloseFile(file.path);
                       }}
                       className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]"
-                      aria-label={`Close ${file.name}`}
+                      aria-label={t('Close {{name}}', { name: file.name })}
                     >
                       <Icon name="close" className="size-3.5" />
                     </button>
@@ -130,7 +132,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <div className="typography-ui-label font-medium truncate">Select a file</div>
+          <div className="typography-ui-label font-medium truncate">{t("Select a file")}</div>
         )
       ) : openFiles.length > 0 ? (
         <div className="relative min-w-0 flex-1">
@@ -185,7 +187,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
                       'rounded-sm p-0.5 text-[var(--surface-muted-foreground)] hover:text-[var(--surface-foreground)]',
                       !isActive && !alwaysShowActions && 'opacity-0 group-hover:opacity-100',
                     )}
-                    aria-label={`Close ${file.name}`}
+                    aria-label={t('Close {{name}}', { name: file.name })}
                   >
                     <Icon name="close" className="size-3.5" />
                   </button>
@@ -195,7 +197,7 @@ export const FileTabsRow: React.FC<FileTabsRowProps> = ({
           </div>
         </div>
       ) : (
-        <div className="typography-ui-label font-medium truncate">Select a file</div>
+        <div className="typography-ui-label font-medium truncate">{t("Select a file")}</div>
       )}
     </div>
   );

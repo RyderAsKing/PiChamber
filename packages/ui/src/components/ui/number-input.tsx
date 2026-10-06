@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 
 import { useDeviceInfo } from "@/lib/device"
 import { cn } from "@/lib/utils"
@@ -57,7 +58,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
     },
     ref
   ) => {
-    
+    const { t } = useTranslation()
     const [draft, setDraft] = React.useState(() => (value == null ? '' : String(value)))
     const { isMobile } = useDeviceInfo()
     const ignoreNextClickRef = React.useRef(false)
@@ -235,7 +236,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         >
           <button
             type="button"
-            aria-label={"Decrease value"}
+            aria-label={t("Decrease value")}
             disabled={decrementDisabled}
             onTouchStart={handleMobileTouchActivate(handleMobileDecrement)}
             onClick={handleMobileClickActivate(handleMobileDecrement)}
@@ -262,7 +263,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
 
           <button
             type="button"
-            aria-label={"Increase value"}
+            aria-label={t("Increase value")}
             disabled={incrementDisabled}
             onTouchStart={handleMobileTouchActivate(handleMobileIncrement)}
             onClick={handleMobileClickActivate(handleMobileIncrement)}
@@ -290,7 +291,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
       >
         <button
           type="button"
-          aria-label={"Decrease value"}
+          aria-label={t("Decrease value")}
           disabled={decrementDisabled}
           onClick={() => commitValue(committedValueRef.current - step)}
           className={cn(
@@ -325,7 +326,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         />
         <button
           type="button"
-          aria-label={"Increase value"}
+          aria-label={t("Increase value")}
           disabled={incrementDisabled}
           onClick={() => commitValue(committedValueRef.current + step)}
           className={cn(

@@ -51,6 +51,7 @@ import {
 import { useInputStore } from "./input-store"
 import { useSelectionStore } from "./selection-store"
 import { getRuntimeKey } from "@/lib/runtime-switch"
+import i18n from "@/i18n"
 import { clearLastActiveSession, persistLastActiveSession } from "./last-session-cache"
 import {
   type AttachedFile,
@@ -529,7 +530,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   ) => {
     const capturedTarget = options?.target
     if (capturedTarget && capturedTarget.runtimeKey !== getRuntimeKey()) {
-      throw new Error("Message was not sent because the runtime changed.")
+      throw new Error(i18n.t("Message was not sent because the runtime changed."))
     }
 
     // Clear non-Git changed-files bar on new user message for current session.
@@ -559,7 +560,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
         draftSnapshot: options?.draftSnapshot,
         initialInputKind: options?.initialInputKind,
       })
-      if (!createdDraftSession) throw new Error("Failed to create session")
+      if (!createdDraftSession) throw new Error(i18n.t("Failed to create session"))
 
       const mergedAdditionalParts = createdDraftSession.syntheticParts?.length
         ? [...(additionalParts || []), ...createdDraftSession.syntheticParts]
@@ -770,7 +771,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const preview = String(targetMessage.text ?? '').slice(0, 50) + ((targetMessage.text?.length ?? 0) > 50 ? "..." : "") || "[No text]";
     await get().revertToMessage(sessionId, targetMessage.id);
     const { toast } = await import("sonner");
-    toast.success(`Reverted — conversation rewound. Files on disk were not changed.`);
+    toast.success(i18n.t("Reverted — conversation rewound. Files on disk were not changed."));
     void preview;
   },
 
@@ -780,7 +781,7 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
   handleSlashRedo: async (sessionId) => {
     await unrevertSessionAction(sessionId)
     const { toast } = await import("sonner");
-    toast.success("Restored all messages");
+    toast.success(i18n.t("Restored all messages"));
   },
 
   // ---------------------------------------------------------------------------

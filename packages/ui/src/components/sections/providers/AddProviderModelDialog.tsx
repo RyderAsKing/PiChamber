@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -19,6 +20,7 @@ import { Icon } from "@/components/icon/Icon";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui";
 import { piClient } from "@/lib/pi/client";
+import i18n from "@/i18n";
 import {
   deferredSettingsMessage,
   isDeferredPiMutation,
@@ -54,18 +56,18 @@ const mapAddError = (error: unknown): string => {
       ? String((error as { code?: unknown }).code)
       : undefined;
   if (code === "INVALID_ARGUMENT") {
-    return "Could not add this model. It may already exist, or this provider cannot accept manual models.";
+    return i18n.t("Could not add this model. It may already exist, or this provider cannot accept manual models.");
   }
   if (code === "PROVIDER_NOT_FOUND") {
-    return "This provider is no longer available. Refresh providers and try again.";
+    return i18n.t("This provider is no longer available. Refresh providers and try again.");
   }
   if (code === "PI_MODEL_CONFIG_INVALID") {
-    return "Pi model configuration is invalid.";
+    return i18n.t("Pi model configuration is invalid.");
   }
   if (code) {
-    return `Could not add model (${code}). Try again.`;
+    return i18n.t("Could not add model ({{code}}). Try again.", { code });
   }
-  return "Could not add model. Try again.";
+  return i18n.t("Could not add model. Try again.");
 };
 
 /**
@@ -84,6 +86,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
   initialAdvancedOpen = false,
 }) => {
   const [modelId, setModelId] = React.useState("");
+  const { t } = useTranslation();
   const [displayName, setDisplayName] = React.useState("");
   const [contextWindowText, setContextWindowText] = React.useState("");
   const [maxTokensText, setMaxTokensText] = React.useState("");
@@ -164,7 +167,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
       if (deferred) {
         toast.info(deferredSettingsMessage("Model"));
       } else {
-        toast.success("Model added");
+        toast.success(t("Model added"));
       }
       onOpenChange(false);
       await onAdded?.({ deferred, providerId, modelId: payload.id });
@@ -190,9 +193,9 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
         )}
       >
         <DialogHeader>
-          <DialogTitle>Add model</DialogTitle>
+          <DialogTitle>{t("Add model")}</DialogTitle>
           <DialogDescription>
-            {`Add a manual model to ${providerLabel}. Only the Model ID is required.`}
+            {t("Add a manual model to {{provider}}. Only the Model ID is required.", { provider: providerLabel })}
           </DialogDescription>
         </DialogHeader>
 
@@ -203,7 +206,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                 className={SETTINGS_FIELD_LABEL_CLASS}
                 htmlFor="add-model-id"
               >
-                Model ID
+                {t("Model ID")}
               </label>
               <span className="text-xs text-[var(--status-error)]" aria-hidden>
                 *
@@ -224,7 +227,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
               aria-describedby={
                 fieldErrors.modelId ? "add-model-id-error" : undefined
               }
-              aria-label="Model ID"
+              aria-label={t("Model ID")}
               aria-required="true"
             />
             {fieldErrors.modelId ? (
@@ -249,7 +252,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
               onClick={() => setAdvancedOpen((current) => !current)}
               className="w-full justify-between px-0"
             >
-              <span>Advanced settings</span>
+              <span>{t("Advanced settings")}</span>
               <Icon
                 name="arrow-down-s"
                 className={cn(
@@ -272,10 +275,10 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       className={SETTINGS_FIELD_LABEL_CLASS}
                       htmlFor="add-model-label"
                     >
-                      Display name
+                      {t("Display name")}
                     </label>
                     <SettingsInfoHint contentClassName="max-w-xs">
-                      Shown in pickers.
+                      {t("Shown in pickers.")}
                     </SettingsInfoHint>
                   </div>
                   <Input
@@ -285,7 +288,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       setDisplayName(event.target.value);
                       clearError("displayName");
                     }}
-                    placeholder="Same as Model ID"
+                    placeholder={t("Same as Model ID")}
                     className="h-8"
                     disabled={saving}
                     aria-invalid={Boolean(fieldErrors.displayName) || undefined}
@@ -294,13 +297,13 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       "add-model-label-error",
                       Boolean(fieldErrors.displayName),
                     )}
-                    aria-label="Display name"
+                    aria-label={t("Display name")}
                   />
                   <p
                     id="add-model-label-hint"
                     className={cn(SETTINGS_HELPER_CLASS, "mt-1")}
                   >
-                    Defaults to the Model ID. Leave empty to omit.
+                    {t("Defaults to the Model ID. Leave empty to omit.")}
                   </p>
                   {fieldErrors.displayName ? (
                     <p
@@ -319,7 +322,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       className={SETTINGS_FIELD_LABEL_CLASS}
                       htmlFor="add-model-context"
                     >
-                      Context window
+                      {t("Context window")}
                     </label>
                   </div>
                   <Input
@@ -341,13 +344,13 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       "add-model-context-error",
                       Boolean(fieldErrors.contextWindow),
                     )}
-                    aria-label="Context window"
+                    aria-label={t("Context window")}
                   />
                   <p
                     id="add-model-context-hint"
                     className={cn(SETTINGS_HELPER_CLASS, "mt-1")}
                   >
-                    {`Pi uses ${PI_DEFAULT_CONTEXT_WINDOW.toLocaleString()} when empty.`}
+                    {t("Pi uses {{count}} when empty.", { count: PI_DEFAULT_CONTEXT_WINDOW.toLocaleString() })}
                   </p>
                   {fieldErrors.contextWindow ? (
                     <p
@@ -366,7 +369,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       className={SETTINGS_FIELD_LABEL_CLASS}
                       htmlFor="add-model-max-tokens"
                     >
-                      Max output tokens
+                      {t("Max output tokens")}
                     </label>
                   </div>
                   <Input
@@ -386,13 +389,13 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       "add-model-max-tokens-error",
                       Boolean(fieldErrors.maxTokens),
                     )}
-                    aria-label="Max output tokens"
+                    aria-label={t("Max output tokens")}
                   />
                   <p
                     id="add-model-max-tokens-hint"
                     className={cn(SETTINGS_HELPER_CLASS, "mt-1")}
                   >
-                    {`Pi uses ${PI_DEFAULT_MAX_TOKENS.toLocaleString()} when empty.`}
+                    {t("Pi uses {{count}} when empty.", { count: PI_DEFAULT_MAX_TOKENS.toLocaleString() })}
                   </p>
                   {fieldErrors.maxTokens ? (
                     <p
@@ -411,10 +414,10 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       className={SETTINGS_FIELD_LABEL_CLASS}
                       id="add-model-input-label"
                     >
-                      Input modalities
+                      {t("Input modalities")}
                     </span>
                     <SettingsInfoHint contentClassName="max-w-xs">
-                      Select one or both; leave both off to omit.
+                      {t("Select one or both; leave both off to omit.")}
                     </SettingsInfoHint>
                   </div>
                   <div
@@ -426,15 +429,15 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                     <SettingsCheckboxRow
                       checked={inputText}
                       onChange={(next) => setInputText(next)}
-                      label="Text"
-                      ariaLabel="Text input"
+                      label={t("Text")}
+                      ariaLabel={t("Text input")}
                       disabled={saving}
                     />
                     <SettingsCheckboxRow
                       checked={inputImage}
                       onChange={(next) => setInputImage(next)}
-                      label="Image"
-                      ariaLabel="Image input"
+                      label={t("Image")}
+                      ariaLabel={t("Image input")}
                       disabled={saving}
                     />
                   </div>
@@ -442,7 +445,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                     id="add-model-input-hint"
                     className={cn(SETTINGS_HELPER_CLASS, "mt-1")}
                   >
-                    Defaults to text when omitted.
+                    {t("Defaults to text when omitted.")}
                   </p>
                 </div>
 
@@ -453,10 +456,10 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       setSupportsThinking(next);
                       clearError("thinkingLevelMap");
                     }}
-                    label="Supports thinking"
-                    ariaLabel="Supports thinking"
+                    label={t("Supports thinking")}
+                    ariaLabel={t("Supports thinking")}
                     disabled={saving}
-                    info="Pi defaults to off. Checked sends true; unchecked omits the field."
+                    info={t("Pi defaults to off. Checked sends true; unchecked omits the field.")}
                   />
 
                   <div>
@@ -465,7 +468,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                         className={SETTINGS_FIELD_LABEL_CLASS}
                         htmlFor="add-model-thinking-map"
                       >
-                        Thinking levels
+                        {t("Thinking levels")}
                       </label>
                     </div>
                     <ThinkingLevelsInput
@@ -482,7 +485,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       id="add-model-thinking-map-hint"
                       className={cn(SETTINGS_HELPER_CLASS, "mt-1")}
                     >
-                      Requires Supports thinking.
+                      {t("Requires Supports thinking.")}
                     </p>
                     {fieldErrors.thinkingLevelMap ? (
                       <p
@@ -516,10 +519,10 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
               onClick={() => handleOpenChange(false)}
               disabled={saving}
             >
-              Cancel
+              {t("Cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={saving}>
-              {saving ? "Adding…" : "Add model"}
+              {saving ? t("Adding…") : t("Add model")}
             </Button>
           </DialogFooter>
         </form>

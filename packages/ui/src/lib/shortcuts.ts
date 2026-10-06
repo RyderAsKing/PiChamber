@@ -1,5 +1,6 @@
 import { isMacOS } from '@/lib/utils';
 import { isDesktopShell } from '@/lib/desktop';
+import i18n from '@/i18n';
 
 type ShortcutModifier = 'mod' | 'shift' | 'alt' | 'option' | 'ctrl';
 type ShortcutKey = string;
@@ -336,13 +337,13 @@ function parseShortcut(combo: ShortcutCombo): ParsedShortcut {
 
 export function formatShortcutForDisplay(combo: ShortcutCombo): string {
   if (isUnassignedShortcut(combo)) {
-    return 'Unassigned';
+    return i18n.t('Unassigned');
   }
 
   const parsed = parseShortcut(combo);
 
   if (!parsed.key && parsed.modifiers.size === 0) {
-    return 'Unassigned';
+    return i18n.t('Unassigned');
   }
 
   const parts: string[] = [];

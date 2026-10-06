@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui';
 import {
@@ -47,6 +48,7 @@ import { getFileIcon, type FileStatus } from './sidebar/sidebarFileRowHelpers';
 // --- Main component ---
 
 export const SidebarFilesTree: React.FC = () => {
+  const { t } = useTranslation();
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
@@ -155,9 +157,9 @@ export const SidebarFilesTree: React.FC = () => {
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
     void files.revealPath(targetPath).catch(() => {
-      toast.error("Failed to reveal path");
+      toast.error(t('Failed to reveal path'));
     });
-  }, [files]);
+  }, [files, t]);
 
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes = entries
@@ -507,7 +509,7 @@ export const SidebarFilesTree: React.FC = () => {
                   <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
                   <Button variant="ghost" size="xs" className="h-6 gap-1" onClick={() => void refreshDirectory(node.path)}>
                     <Icon name="refresh" className="h-3.5 w-3.5" />
-                    {"Refresh"}
+                    {t('Refresh')}
                   </Button>
                 </li>
               ) : null}
@@ -531,13 +533,13 @@ export const SidebarFilesTree: React.FC = () => {
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={"Search files..."}
+            placeholder={t('Search files...')}
             className="h-8 pl-8 pr-8 typography-meta"
           />
           {searchQuery.trim().length > 0 ? (
             <button
               type="button"
-              aria-label={"Clear search"}
+              aria-label={t('Clear search')}
               className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setSearchQuery('');
@@ -558,14 +560,14 @@ export const SidebarFilesTree: React.FC = () => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
                   className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New File"}
-                  aria-label={"New File"}
+                  title={t('New File')}
+                  aria-label={t('New File')}
                 >
                   <Icon name="file-add" className="h-4 w-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{t('New File')}</TooltipContent>
           </Tooltip>
         )}
         {canCreateFolder && (
@@ -577,25 +579,25 @@ export const SidebarFilesTree: React.FC = () => {
                   size="sm"
                   onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
                   className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New Folder"}
-                  aria-label={"New Folder"}
+                  title={t('New Folder')}
+                  aria-label={t('New Folder')}
                 >
                   <Icon name="folder-add" className="h-4 w-4" />
                 </Button>
               </span>
             </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
+            <TooltipContent side="bottom" sideOffset={6}>{t('New Folder')}</TooltipContent>
           </Tooltip>
         )}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex flex-shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
+              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={t('Refresh')} aria-label={t('Refresh')}>
                 <Icon name="refresh" className="h-4 w-4" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={6}>{t('Refresh')}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -607,14 +609,14 @@ export const SidebarFilesTree: React.FC = () => {
                   if (root) collapseAllExpandedPaths(root);
                 }}
                 className="h-8 w-8 p-0 flex-shrink-0"
-                title={"Collapse all folders"}
-                aria-label={"Collapse all folders"}
+                title={t('Collapse all folders')}
+                aria-label={t('Collapse all folders')}
               >
                 <Icon name="collapse-vertical" className="h-4 w-4" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={6}>{t('Collapse all folders')}</TooltipContent>
         </Tooltip>
         </div>
       </div>
@@ -624,7 +626,7 @@ export const SidebarFilesTree: React.FC = () => {
           {searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
               <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-              {"Searching..."}
+              {t('Searching...')}
             </li>
           ) : searchResults.length > 0 ? (
             searchResults.map((node) => {
@@ -663,13 +665,13 @@ export const SidebarFilesTree: React.FC = () => {
               <span>{rootLoadError}</span>
               <Button variant="outline" size="xs" className="w-fit gap-1.5" onClick={() => void refreshRoot()}>
                 <Icon name="refresh" className="h-3.5 w-3.5" />
-                {"Refresh"}
+                {t('Refresh')}
               </Button>
             </li>
           ) : hasTree && root ? (
             renderTree(root, 0)
           ) : (
-            <li className="px-2 py-1 typography-meta text-muted-foreground">{"Loading..."}</li>
+            <li className="px-2 py-1 typography-meta text-muted-foreground">{t('Loading...')}</li>
           )}
         </ul>
       </ScrollableOverlay>
@@ -679,16 +681,16 @@ export const SidebarFilesTree: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {activeDialog === 'createFile' && "Create File"}
-              {activeDialog === 'createFolder' && "Create Folder"}
-              {activeDialog === 'rename' && "Rename"}
-              {activeDialog === 'delete' && "Delete"}
+              {activeDialog === 'createFile' && t('Create File')}
+              {activeDialog === 'createFolder' && t('Create Folder')}
+              {activeDialog === 'rename' && t('Rename')}
+              {activeDialog === 'delete' && t('Delete')}
             </DialogTitle>
             <DialogDescription>
-              {activeDialog === 'createFile' && `Create a new file in ${dialogData?.path ?? 'root'}`}
-              {activeDialog === 'createFolder' && `Create a new folder in ${dialogData?.path ?? 'root'}`}
-              {activeDialog === 'rename' && `Rename ${dialogData?.name ?? ''}`}
-              {activeDialog === 'delete' && `Are you sure you want to delete ${dialogData?.name ?? ''}? This action cannot be undone.`}
+              {activeDialog === 'createFile' && t('Create a new file in {{path}}', { path: dialogData?.path ?? 'root' })}
+              {activeDialog === 'createFolder' && t('Create a new folder in {{path}}', { path: dialogData?.path ?? 'root' })}
+              {activeDialog === 'rename' && t('Rename {{name}}', { name: dialogData?.name ?? '' })}
+              {activeDialog === 'delete' && t('Are you sure you want to delete {{name}}? This action cannot be undone.', { name: dialogData?.name ?? '' })}
             </DialogDescription>
           </DialogHeader>
 
@@ -698,7 +700,7 @@ export const SidebarFilesTree: React.FC = () => {
                 ref={dialogInputRef}
                 value={dialogInputValue}
                 onChange={(e) => setDialogInputValue(e.target.value)}
-                placeholder={activeDialog === 'rename' ? "New name" : "Name"}
+                placeholder={activeDialog === 'rename' ? t('New name') : t('Name')}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     void handleDialogSubmit();
@@ -711,7 +713,7 @@ export const SidebarFilesTree: React.FC = () => {
 
           <DialogFooter>
             <Button variant="outline" onClick={handleCloseDialog} disabled={isDialogSubmitting}>
-              {"Cancel"}
+              {t('Cancel')}
             </Button>
             <Button
               variant={activeDialog === 'delete' ? 'destructive' : 'default'}
@@ -719,7 +721,7 @@ export const SidebarFilesTree: React.FC = () => {
               disabled={isDialogSubmitting || (activeDialog !== 'delete' && !dialogInputValue.trim())}
             >
               {isDialogSubmitting ? <Icon name="loader-4" className="size-4 animate-spin" /> : (
-                activeDialog === 'delete' ? "Delete" : "Confirm"
+                activeDialog === 'delete' ? t('Delete') : t('Confirm')
               )}
             </Button>
           </DialogFooter>

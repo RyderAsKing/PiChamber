@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { updateDesktopSettings } from '@/lib/persistence';
 import type { ManagedRemoteTunnelPreset, TunnelMode } from './tunnelTypes';
 import { createPresetId, normalizePresetHostname } from './tunnelHelpers';
@@ -18,6 +19,7 @@ export function useTunnelPresetsState({
   setManagedRemoteValidationError,
 }: UseTunnelPresetsStateOptions) {
   const [managedRemoteTunnelPresets, setManagedRemoteTunnelPresets] = React.useState<ManagedRemoteTunnelPreset[]>([]);
+  const { t } = useTranslation();
   const [expandedManagedRemoteTunnels, setExpandedManagedRemoteTunnels] = React.useState<Record<string, boolean>>({});
   const [selectedPresetId, setSelectedPresetId] = React.useState<string>('');
   const [sessionTokensByPresetId, setSessionTokensByPresetId] = React.useState<Record<string, string>>({});
@@ -56,10 +58,10 @@ export function useTunnelPresetsState({
           return next;
         });
       } catch {
-        toast.error('Failed to save managed remote tunnel token');
+        toast.error(t('Failed to save managed remote tunnel token'));
       }
     },
-    [sessionTokensByPresetId]
+    [sessionTokensByPresetId, t]
   );
 
   const persistSelectedPreset = React.useCallback(
@@ -69,10 +71,10 @@ export function useTunnelPresetsState({
           managedRemoteTunnelPresets: presets,
         });
       } catch {
-        toast.error('Failed to save selected managed remote tunnel');
+        toast.error(t('Failed to save selected managed remote tunnel'));
       }
     },
-    []
+    [t]
   );
 
   const handleSelectPreset = React.useCallback(
@@ -95,20 +97,20 @@ export function useTunnelPresetsState({
     const token = newPresetToken.trim();
 
     if (!name) {
-      toast.error('Tunnel name is required');
+      toast.error(t('Tunnel name is required'));
       return;
     }
     if (!hostname) {
-      toast.error('Managed remote tunnel hostname is required');
+      toast.error(t('Managed remote tunnel hostname is required'));
       return;
     }
     if (!token) {
-      toast.error('Managed remote tunnel token is required');
+      toast.error(t('Managed remote tunnel token is required'));
       return;
     }
 
     if (managedRemoteTunnelPresets.some((preset) => preset.hostname === hostname)) {
-      toast.error('This hostname already exists');
+      toast.error(t('This hostname already exists'));
       return;
     }
 
@@ -143,7 +145,7 @@ export function useTunnelPresetsState({
       hostname: nextPreset.hostname,
       token,
     });
-    toast.success('Managed remote tunnel saved');
+    toast.success(t('Managed remote tunnel saved'));
   }, [
     managedRemoteTunnelPresets,
     newPresetHostname,
@@ -153,6 +155,7 @@ export function useTunnelPresetsState({
     saveTunnelSettings,
     sessionTokensByPresetId,
     setManagedRemoteValidationError,
+    t,
   ]);
 
   const handleRemovePreset = React.useCallback(
@@ -195,7 +198,7 @@ export function useTunnelPresetsState({
         managedRemoteTunnelPresetTokens: nextTokenMap,
       });
 
-      toast.success('Managed remote tunnel removed');
+      toast.success(t('Managed remote tunnel removed'));
     },
     [
       managedRemoteTunnelPresets,
@@ -203,6 +206,7 @@ export function useTunnelPresetsState({
       selectedPresetId,
       sessionTokensByPresetId,
       setManagedRemoteValidationError,
+      t,
     ]
   );
 

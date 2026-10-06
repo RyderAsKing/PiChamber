@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { toast } from '@/components/ui/toast';
@@ -11,6 +12,7 @@ const TOAST_ID = 'mobile-app-update-available';
 const DISMISSED_VERSION_KEY = 'mobile-app-update-toast-dismissed-version';
 
 export const MobileAppUpdateToast: React.FC = () => {
+  const { t } = useTranslation();
   const available = useUpdateStore((state) => state.available);
   const runtimeType = useUpdateStore((state) => state.runtimeType);
   const version = useUpdateStore((state) => state.info?.version);
@@ -33,26 +35,26 @@ export const MobileAppUpdateToast: React.FC = () => {
 
     seenVersionsRef.current.add(version);
 
-    toast.info("PiChamber update available", {
+    toast.info(t('PiChamber update available'), {
       id: TOAST_ID,
-      description: `Version ${version} is ready for Android.`,
+      description: t('Version {{version}} is ready for Android.', { version }),
       duration: Infinity,
       icon: <Icon name="download" className="h-4 w-4 text-muted-foreground" />,
       action: {
-        label: "Download",
+        label: t('Download'),
         onClick: () => {
           void openExternalUrl(downloadUrl);
         },
       },
       cancel: {
-        label: "Dismiss",
+        label: t('Dismiss'),
         onClick: () => {
           getDeferredSafeStorage().setItem(DISMISSED_VERSION_KEY, version);
           toast.dismiss(TOAST_ID);
         },
       },
     });
-  }, [available, downloadUrl, runtimeType, version]);
+  }, [available, downloadUrl, runtimeType, t, version]);
 
   return null;
 };

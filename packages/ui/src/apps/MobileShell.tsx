@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { AboutSettings } from '@/components/sections/pichamber/AboutSettings';
 import { ChatView } from '@/components/views/ChatView';
@@ -64,6 +65,7 @@ export type MobileShellProps = {
 };
 
 export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDeleted }) => {
+  const { t } = useTranslation();
   const [sessionsSheetOpen, setSessionsSheetOpen] = React.useState(false);
   const [activeSurface, setActiveSurface] = React.useState<MobileSurface | null>(null);
   // Phone right drawer with the workspace tabs; the tab persists across
@@ -555,7 +557,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
               <IpadSidebarResizeHandle
                 side="left"
                 isResizing={leftResize.isResizing}
-                ariaLabel={"Resize left panel"}
+                ariaLabel={t("Resize left panel")}
                 handleProps={leftResize.handleProps}
               />
             ) : null}
@@ -658,7 +660,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
               <IpadSidebarResizeHandle
                 side="right"
                 isResizing={rightResize.isResizing}
-                ariaLabel={"Resize right panel"}
+                ariaLabel={t("Resize right panel")}
                 handleProps={rightResize.handleProps}
               />
             ) : null}
@@ -685,8 +687,8 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={"Instances"}
-            title={"Instances"}
+            ariaLabel={t("Instances")}
+            title={t("Instances")}
           >
             <MobileInstancesSurface
               onConnect={closeSurface}
@@ -701,7 +703,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={"Settings"}
+            ariaLabel={t("Settings")}
             headerless
           >
             <ErrorBoundary>
@@ -721,8 +723,8 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={"Update"}
-            title={"Update"}
+            ariaLabel={t("Update")}
+            title={t("Update")}
           >
             <ErrorBoundary>
               <div className="h-full overflow-auto px-5 py-4">

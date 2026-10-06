@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 import {
     Dialog,
     DialogContent,
@@ -42,6 +43,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
     onRevert,
     onFork,
 }) => {
+    const t = i18n.t.bind(i18n);
     const { isMobile } = useDeviceInfo();
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     const [sessionTreeRevision, setSessionTreeRevision] = React.useState(0);
@@ -297,9 +299,9 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
             await onRevert(selected.message.info.id);
             onOpenChange(false);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to revert');
+            toast.error(error instanceof Error ? error.message : t('Failed to revert'));
         }
-    }, [filteredMessages, isStreaming, onRevert, onOpenChange, selectedIndex]);
+    }, [filteredMessages, isStreaming, onRevert, onOpenChange, selectedIndex, t]);
 
     const handleForkSelected = React.useCallback(async () => {
         const total = filteredMessages.length;
@@ -311,9 +313,9 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
             await onFork(selected.message.info.id);
             onOpenChange(false);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to fork');
+            toast.error(error instanceof Error ? error.message : t('Failed to fork'));
         }
-    }, [filteredMessages, isStreaming, onFork, onOpenChange, selectedIndex]);
+    }, [filteredMessages, isStreaming, onFork, onOpenChange, selectedIndex, t]);
 
     const handleListKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
         const total = filteredMessages.length;
@@ -357,10 +359,10 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Icon name="time" className="h-5 w-5" />
-                        {"Conversation Timeline"}
+                        {t("Conversation Timeline")}
                     </DialogTitle>
                     <DialogDescription>
-                        {isMobile ? "Tap a message, then Revert or Fork" : "Arrow keys to move • Enter to jump"}
+                        {isMobile ? t("Tap a message, then Revert or Fork") : t("Arrow keys to move • Enter to jump")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -368,7 +370,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                     <div className="relative mt-2">
                         <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                         <Input
-                            placeholder={"Search messages..."}
+                            placeholder={t("Search messages...")}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={handleSearchKeyDown}
@@ -390,15 +392,15 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                             {isLoadingEarlier && (
                                 <Icon name="loader-4" className="size-4 animate-spin" />
                             )}
-                            {"Load older messages"}
+                            {t("Load older messages")}
                         </Button>
                     </div>
                 )}
 
-                <div ref={listRef} tabIndex={0} onKeyDown={handleListKeyDown} className="flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-ring rounded" aria-label="Message list">
+                <div ref={listRef} tabIndex={0} onKeyDown={handleListKeyDown} className="flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-ring rounded" aria-label={t("Message list")}>
                     {filteredMessages.length === 0 ? (
                         <div className="text-center text-muted-foreground py-8">
-                            {searchQuery ? "No messages found" : "No messages in this session yet"}
+                            {searchQuery ? t("No messages found") : t("No messages in this session yet")}
                         </div>
                     ) : (
                         filteredMessages.map(({ message }, index) => {
@@ -456,7 +458,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                                             "flex-1 min-w-0 typography-small truncate",
                                             isSelected ? "text-interactive-selection-foreground" : "text-foreground"
                                         )}>
-                                            {snippet ?? (preview || "[No text content]")}
+                                            {snippet ?? (preview || t("[No text content]"))}
                                             {!snippet && preview && preview.length >= 80 && '…'}
                                         </p>
 
@@ -478,7 +480,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                             onClick={() => void handleRevertSelected()}
                         >
                             <Icon name="history" className="h-4 w-4" />
-                            Revert
+                            {t("Revert")}
                         </Button>
                         <Button
                             type="button"
@@ -489,7 +491,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                             onClick={() => void handleForkSelected()}
                         >
                             <Icon name="git-branch" className="h-4 w-4" />
-                            Fork
+                            {t("Fork")}
                         </Button>
                     </div>
                 )}

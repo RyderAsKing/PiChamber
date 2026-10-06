@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -26,6 +27,7 @@ type ConnectedServerMenuProps = {
 };
 
 export function ConnectedServerMenu({ open, onOpenChange }: ConnectedServerMenuProps) {
+  const { t } = useTranslation();
   const [metadata, setMetadata] = React.useState<ServerVersionInfo | null>(null);
 
   const refresh = React.useCallback(async () => {
@@ -63,7 +65,7 @@ export function ConnectedServerMenu({ open, onOpenChange }: ConnectedServerMenuP
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              aria-label="Show connected server information"
+              aria-label={t('Show connected server information')}
               className={cn(DESKTOP_HEADER_ICON_BUTTON_CLASS, 'w-auto max-w-[14rem] justify-start gap-1.5 px-2.5')}
             >
               <Icon
@@ -71,11 +73,11 @@ export function ConnectedServerMenu({ open, onOpenChange }: ConnectedServerMenuP
                 className="h-[18px] w-[18px] shrink-0"
                 style={icon.color ? { color: icon.color } : undefined}
               />
-              <span className="truncate typography-ui-label font-medium text-foreground">{'This server'}</span>
+              <span className="truncate typography-ui-label font-medium text-foreground">{t('This server')}</span>
             </button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
-        <TooltipContent><p>{'Connected server information'}</p></TooltipContent>
+        <TooltipContent><p>{t('Connected server information')}</p></TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-3">
         <div className="flex items-center justify-between gap-4">
@@ -91,16 +93,16 @@ export function ConnectedServerMenu({ open, onOpenChange }: ConnectedServerMenuP
         </div>
         <div className="mt-3 border-t border-[var(--interactive-border)] pt-3 typography-micro">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="shrink-0 text-muted-foreground">{'Address'}</span>
+            <span className="shrink-0 text-muted-foreground">{t('Address')}</span>
             <button
               type="button"
               className="ml-auto flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-foreground hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              title={`Copy ${address}`}
-              aria-label="Copy server address"
+              title={t('Copy {{address}}', { address })}
+              aria-label={t('Copy server address')}
               onClick={() => {
                 void copyTextToClipboard(address).then((result) => {
-                  if (result.ok) toast.success('Server address copied');
-                  else toast.error('Could not copy server address');
+                  if (result.ok) toast.success(t('Server address copied'));
+                  else toast.error(t('Could not copy server address'));
                 });
               }}
             >

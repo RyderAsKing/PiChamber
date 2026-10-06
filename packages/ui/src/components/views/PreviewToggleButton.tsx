@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -21,9 +22,10 @@ export const PreviewToggleButton: React.FC<PreviewToggleButtonProps> = ({
   currentMode,
   onToggle,
 }) => {
+  const { t } = useTranslation();
   const isPreview = currentMode === 'preview';
-  const ariaLabel = isPreview ? 'Switch to edit mode' : 'Switch to preview mode';
-  const tooltipText = isPreview ? 'Edit' : 'Preview';
+  const ariaLabel = isPreview ? t('Switch to edit mode') : t('Switch to preview mode');
+  const tooltipText = isPreview ? t('Edit') : t('Preview');
 
   return (
     <Tooltip>

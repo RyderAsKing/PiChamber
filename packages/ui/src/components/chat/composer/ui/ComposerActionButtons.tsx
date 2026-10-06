@@ -7,6 +7,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { StopIcon } from '@/components/icons/StopIcon';
@@ -45,9 +46,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         isSending = false,
         onPrimaryAction,
         onQueueMessage,
-        onAbort,
+    onAbort,
     } = props;
-    
+    const { t } = useTranslation();
+
 
     const sendButton = (
         <button
@@ -68,8 +70,8 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     : 'opacity-30',
                 isSending && 'animate-pulse'
             )}
-            aria-label={isSending ? "Creating session…" : disabledReason || "Send message"}
-            title={isSending ? "Creating session…" : disabledReason || undefined}
+            aria-label={isSending ? t("Creating session…") : disabledReason || t("Send message")}
+            title={isSending ? t("Creating session…") : disabledReason || undefined}
         >
             {isSending
                 ? <Icon name="loader-4" className={cn(sendIconSizeClass, 'animate-spin')} />
@@ -98,7 +100,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                         'absolute z-20 bottom-full left-1/2 -translate-x-1/2 mb-1',
                         currentSessionId && canSend ? 'text-primary hover:text-primary' : 'opacity-30'
                     )}
-                    aria-label={disabledReason || "Add follow-up"}
+                    aria-label={disabledReason || t("Add follow-up")}
                     title={disabledReason || undefined}
                 >
                     <Icon name="send-plane-2" className={cn(sendIconSizeClass, '-rotate-90')} />
@@ -111,7 +113,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     footerIconButtonClass,
                     'text-[var(--status-error)] hover:text-[var(--status-error)]'
                 )}
-                aria-label={"Stop generating"}
+                aria-label={t("Stop generating")}
             >
                 <StopIcon className={cn(stopIconSizeClass)} />
             </button>

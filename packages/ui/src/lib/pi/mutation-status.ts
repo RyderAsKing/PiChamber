@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 interface PiMutationStatus {
   deferred?: boolean;
 }
@@ -15,9 +17,9 @@ export const isDeferredPiMutation = (value: unknown): value is PiMutationStatus 
 );
 
 export const deferredSettingsMessage = (subject: string): string => (
-  `${subject} saved. It will apply when active sessions are idle.`
+  i18n.t('{{subject}} saved. It will apply when active sessions are idle.', { subject })
 );
 
 export const busySettingsMessage = (subject: string): string => (
-  `${subject} could not be changed while a session is running. Try again when it finishes.`
+  i18n.t('{{subject}} could not be changed while a session is running. Try again when it finishes.', { subject })
 );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog } from '@base-ui/react/dialog';
 import type { Session } from '@/lib/chat/types';
 import { Icon } from '@/components/icon/Icon';
@@ -25,6 +26,7 @@ type DirectoryBucket = {
 const PAGE_SIZE = 100;
 
 export function ArchiveView(): React.ReactNode {
+  const { t } = useTranslation();
   const open = useUIStore((state) => state.isArchivePageOpen);
   const setOpen = useUIStore((state) => state.setArchivePageOpen);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
@@ -56,12 +58,12 @@ export function ArchiveView(): React.ReactNode {
         directory,
         label: directory
           ? (formatDirectoryName(directory, homeDirectory) || directory)
-          : "other projects",
+          : t('other projects'),
         sessions: [session],
       });
     }
     return [...byDirectory.values()].sort((a, b) => b.sessions.length - a.sessions.length);
-  }, [homeDirectory, sortedSessions]);
+  }, [homeDirectory, sortedSessions, t]);
 
   // Search spans every archived session; the directory filter applies only
   // while not searching.
@@ -92,12 +94,12 @@ export function ArchiveView(): React.ReactNode {
   const restoreSession = React.useCallback((session: Session) => {
     void unarchiveSession(session.id).then((success) => {
       if (success) {
-        toast.success("Session restored");
+        toast.success(t('Session restored'));
       } else {
-        toast.error("Failed to restore session");
+        toast.error(t('Failed to restore session'));
       }
     });
-  }, [ unarchiveSession]);
+  }, [unarchiveSession, t]);
 
   if (!open) return null;
 
@@ -133,12 +135,12 @@ export function ArchiveView(): React.ReactNode {
               type="button"
               onClick={() => sessionEvents.requestDelete({ sessions: sessionsForDelete, mode: 'session' })}
               className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover/dir:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-              aria-label={`Delete all archived sessions in ${label}`}
+              aria-label={t('Delete all archived sessions in {{label}}', { label })}
             >
               <Icon name="delete-bin" className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={4}>{"Delete all archived sessions in this project"}</TooltipContent>
+          <TooltipContent side="bottom" sideOffset={4}>{t('Delete all archived sessions in this project')}</TooltipContent>
         </Tooltip>
       ) : null}
     </div>
@@ -150,12 +152,12 @@ export function ArchiveView(): React.ReactNode {
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/25 dark:bg-black/40 transition-opacity duration-150 data-[starting-style]:opacity-0 data-[ending-style]:opacity-0" />
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 max-[640px]:p-2 pointer-events-none">
           <Dialog.Popup className="pointer-events-auto relative flex h-[min(84vh,720px)] max-h-[calc(100dvh-2rem)] w-[min(92vw,960px)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-background shadow-2xl transition-all duration-150 data-[starting-style]:scale-[0.98] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.98] data-[ending-style]:opacity-0 max-[640px]:h-[calc(100dvh-1rem)] max-[640px]:max-h-none max-[640px]:w-[calc(100vw-1rem)] max-[640px]:rounded-xl">
-            <Dialog.Title className="sr-only">{"Archived sessions"}</Dialog.Title>
+            <Dialog.Title className="sr-only">{t('Archived sessions')}</Dialog.Title>
             <Dialog.Description className="sr-only">
-              {"Browse and restore archived sessions."}
+              {t('Browse and restore archived sessions.')}
             </Dialog.Description>
             <Dialog.Close
-              aria-label="Close archived sessions"
+              aria-label={t('Close archived sessions')}
               className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-md bg-background/80 text-muted-foreground backdrop-blur-sm hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
               <Icon name="close" className="size-4" />
@@ -166,7 +168,7 @@ export function ArchiveView(): React.ReactNode {
           <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {renderDirectoryItem(
               '__all__',
-              "All directories",
+              t('All directories'),
               totalCount,
               selectedDirectory === null,
               () => selectDirectory(null),
@@ -194,14 +196,14 @@ export function ArchiveView(): React.ReactNode {
                   setQuery(event.target.value);
                   setVisibleCount(PAGE_SIZE);
                 }}
-                placeholder={"Search archived sessions"}
+                placeholder={t('Search archived sessions')}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-3 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
               />
             </div>
             <span className="flex-shrink-0 typography-micro text-muted-foreground">
               {filteredSessions.length === 1
-                ? `${filteredSessions.length} archived session`
-                : `${filteredSessions.length} archived sessions`}
+                ? t('{{count}} archived session', { count: filteredSessions.length })
+                : t('{{count}} archived sessions', { count: filteredSessions.length })}
             </span>
           </div>
 
@@ -210,7 +212,7 @@ export function ArchiveView(): React.ReactNode {
               {visibleSessions.length === 0 ? (
                 <div className="py-10 text-center text-muted-foreground">
                   <p className="typography-ui-label font-semibold">
-                    {normalizedQuery ? "No matching archived sessions" : "No archived sessions"}
+                    {normalizedQuery ? t('No matching archived sessions') : t('No archived sessions')}
                   </p>
                 </div>
               ) : visibleSessions.map((session) => {
@@ -250,7 +252,7 @@ export function ArchiveView(): React.ReactNode {
                         restoreSession(session);
                       }}
                       className="absolute right-7 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={`Restore ${getSessionDisplayTitle(session)}`}
+                      aria-label={t('Restore {{title}}', { title: getSessionDisplayTitle(session) })}
                     >
                       <Icon name="inbox-unarchive" className="h-3.5 w-3.5" />
                     </button>
@@ -261,7 +263,7 @@ export function ArchiveView(): React.ReactNode {
                         sessionEvents.requestDelete({ sessions: [session], mode: 'session' });
                       }}
                       className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity pointer-events-none hover:text-destructive group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                      aria-label={`Delete ${getSessionDisplayTitle(session)}`}
+                      aria-label={t('Delete {{title}}', { title: getSessionDisplayTitle(session) })}
                     >
                       <Icon name="delete-bin" className="h-3.5 w-3.5" />
                     </button>
@@ -274,7 +276,7 @@ export function ArchiveView(): React.ReactNode {
                   onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}
                   className="mt-1 flex items-center justify-start rounded-md px-2 py-1 text-left text-xs text-muted-foreground/70 leading-tight hover:text-foreground hover:underline"
                 >
-                  {"Show more sessions"}
+                  {t('Show more sessions')}
                 </button>
               ) : null}
             </div>

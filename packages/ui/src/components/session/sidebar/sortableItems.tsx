@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
@@ -98,6 +99,8 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   setOpenSidebarMenuKey,
   statusIndicator = null,
 }) => {
+  const { t } = useTranslation();
+
   const {
     listeners,
     setNodeRef,
@@ -125,16 +128,16 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
       {showCreateButtons && !hideDirectoryControls && onNewSession && (
         <Item onClick={onNewSession}>
           <Icon name="add" className="mr-1.5 h-4 w-4" />
-          {"New session"}
+          {t("New session")}
         </Item>
       )}
       <Item onClick={onRenameStart}>
         <Icon name="pencil-ai" className="mr-1.5 h-4 w-4" />
-        {"Edit folder"}
+        {t("Edit folder")}
       </Item>
       <Item onClick={onClose} className="text-destructive focus:text-destructive">
         <Icon name="close" className="mr-1.5 h-4 w-4" />
-        {"Close folder"}
+        {t("Close folder")}
       </Item>
     </>
   );
@@ -255,7 +258,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                               ? 'opacity-100'
                               : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
-                        aria-label={"Folder menu"}
+                        aria-label={t("Folder menu")}
                         onPointerDown={handleMenuTriggerPointerDown}
                         onMouseDown={handleMenuTriggerMouseDown}
                         onClick={handleMenuTriggerClick}
@@ -286,13 +289,13 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                             ? 'opacity-100'
                             : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
                         )}
-                        aria-label={"New session"}
+                        aria-label={t("New session")}
                       >
                         <Icon name="add" className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={4}>
-                      <p>{"New session"}</p>
+                      <p>{t("New session")}</p>
                     </TooltipContent>
                   </Tooltip>
                 </div>

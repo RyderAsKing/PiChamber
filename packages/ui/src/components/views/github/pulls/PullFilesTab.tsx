@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from '@base-ui/react/popover';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -48,6 +49,7 @@ const FileJumpRow: React.FC<{
   showDir: boolean;
   onSelectFile: (filename: string) => void;
 }> = React.memo(({ file, viewed, threadCount, pendingCount, showDir, onSelectFile }) => {
+  const { t } = useTranslation();
   const kind = statusKindForFile(file.status);
   const { dir, base } = splitFilePath(file.filename);
   return (
@@ -55,7 +57,7 @@ const FileJumpRow: React.FC<{
       type="button"
       onClick={() => onSelectFile(file.filename)}
       title={file.filename}
-      aria-label={`Go to ${file.filename}`}
+      aria-label={t('Go to {{path}}', { path: file.filename })}
       className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left hover:bg-interactive-hover"
     >
       <Icon name={statusIconForFile(kind)} className={cn('size-3.5 shrink-0', statusTintForFile(kind))} aria-hidden="true" />
@@ -67,19 +69,19 @@ const FileJumpRow: React.FC<{
       {threadCount > 0 ? (
         <span
           className="inline-flex shrink-0 items-center gap-0.5 typography-micro text-muted-foreground"
-          title={`${threadCount} ${threadCount === 1 ? 'conversation' : 'conversations'}`}
+          title={threadCount === 1 ? t('{{count}} conversation', { count: threadCount }) : t('{{count}} conversations', { count: threadCount })}
         >
           <Icon name="chat-1" className="size-3" aria-hidden="true" />
           <span className="tabular-nums">{threadCount}</span>
         </span>
       ) : null}
       {pendingCount > 0 ? (
-        <span className="shrink-0 tabular-nums typography-micro text-muted-foreground" title={`${pendingCount} pending`}>
+        <span className="shrink-0 tabular-nums typography-micro text-muted-foreground" title={t('{{count}} pending', { count: pendingCount })}>
           +{pendingCount}
         </span>
       ) : null}
       {viewed ? (
-        <Icon name="check" className="size-3.5 shrink-0 text-[var(--status-success)]" aria-label="Viewed" />
+        <Icon name="check" className="size-3.5 shrink-0 text-[var(--status-success)]" aria-label={t("Viewed")} />
       ) : null}
     </button>
   );
@@ -94,6 +96,7 @@ const FileJumpList: React.FC<{
   pendingCounts: ReadonlyMap<string, number>;
   onSelectFile: (filename: string) => void;
 }> = ({ files, viewedPaths, threadCounts, pendingCounts, onSelectFile }) => {
+  const { t } = useTranslation();
   const [filter, setFilter] = React.useState('');
   const groups = React.useMemo(() => groupFilesByFolder(files), [files]);
   const viewedSet = React.useMemo(() => new Set(viewedPaths), [viewedPaths]);
@@ -113,18 +116,18 @@ const FileJumpList: React.FC<{
       <Input
         value={filter}
         onChange={(event) => setFilter(event.target.value)}
-        placeholder="Filter files"
-        aria-label="Filter files"
+        placeholder={t("Filter files")}
+        aria-label={t("Filter files")}
         className="h-7 shrink-0 typography-micro"
       />
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" role="list" aria-label="Changed files">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" role="list" aria-label={t("Changed files")}>
         {visibleGroups.length === 0 ? (
           <p className="px-1.5 py-2 typography-micro text-muted-foreground">
-            {files.length === 0 ? 'No changed files' : 'No files match'}
+            {files.length === 0 ? t('No changed files') : t('No files match')}
           </p>
         ) : (
           visibleGroups.map((group) => (
-            <div key={group.folder} role="group" aria-label={group.folder || 'Repository root'}>
+            <div key={group.folder} role="group" aria-label={group.folder || t('Repository root')}>
               {groups.length > 1 ? (
                 <p className="truncate px-1.5 pt-1.5 pb-0.5 typography-micro text-muted-foreground" title={group.folder || '/'}>
                   {group.folder || '/'}
@@ -157,6 +160,7 @@ const FilesJumpControl: React.FC<{
   pendingCounts: ReadonlyMap<string, number>;
   onSelectFile: (filename: string) => void;
 }> = (props) => {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const { onSelectFile } = props;
   const handleSelect = React.useCallback(
@@ -175,18 +179,18 @@ const FilesJumpControl: React.FC<{
             variant="ghost"
             size="xs"
             className="shrink-0"
-            aria-label={`Jump to file, ${props.files.length} ${props.files.length === 1 ? 'file' : 'files'}`}
-            title="Jump to file"
+            aria-label={props.files.length === 1 ? t('Jump to file, {{count}} file', { count: props.files.length }) : t('Jump to file, {{count}} files', { count: props.files.length })}
+            title={t("Jump to file")}
           />
         }
       >
         <Icon name="file" className="size-3.5" aria-hidden="true" />
-        Files
+        {t('Files')}
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner className="z-50" side="bottom" align="start" sideOffset={4} collisionPadding={8}>
           <Popover.Popup
-            aria-label="Jump to file"
+            aria-label={t("Jump to file")}
             className="flex max-h-[min(28rem,calc(100dvh-4rem))] w-[min(22rem,calc(100vw-2rem))] flex-col rounded-lg border border-border/60 bg-[var(--surface-elevated)] p-1.5 shadow-lg"
           >
             <FileJumpList {...props} onSelectFile={handleSelect} />
@@ -248,6 +252,7 @@ export const PullFilesTab: React.FC<{
   /** Refresh callback after the review popover submits (detail read). */
   onReviewSubmitted?: () => void;
 }> = (props) => {
+  const { t } = useTranslation();
   const { directory, repo, number, github, access, headSha = null } = props;
   const files = props.files?.files ?? EMPTY_FILES;
   const viewedPaths = useViewedFilePaths(repo, number);
@@ -327,21 +332,21 @@ export const PullFilesTab: React.FC<{
   const sidebarRef = React.useRef<HTMLElement | null>(null);
   const sidebarHeight = useStickySidebarHeight(sidebarRef, visibleFiles.length > 0);
   const viewedSet = React.useMemo(() => new Set(viewedPaths), [viewedPaths]);
-  const fileCountLabel = files.length === 1 ? '1 file' : `${files.length} files`;
+  const fileCountLabel = files.length === 1 ? t('1 file') : t('{{count}} files', { count: files.length });
   const viewedLabel =
     files.length === 0
-      ? 'Nothing viewed yet'
-      : `${viewedCount}/${files.length} viewed`;
+      ? t('Nothing viewed yet')
+      : t('{{viewed}}/{{total}} viewed', { viewed: viewedCount, total: files.length });
 
   return (
-    <section aria-label="Changed files" className="@container flex flex-col gap-2" data-diff-virtual-content>
-      <SectionError error={props.filesError} onRetry={props.onRetryFiles} label="Changed files" />
-      <SectionError error={props.threadsError} onRetry={props.onRetryDetail} label="Review threads" />
+    <section aria-label={t("Changed files")} className="@container flex flex-col gap-2" data-diff-virtual-content>
+      <SectionError error={props.filesError} onRetry={props.onRetryFiles} label={t("Changed files")} />
+      <SectionError error={props.threadsError} onRetry={props.onRetryDetail} label={t("Review threads")} />
       <div className="sticky top-0 z-10 flex h-8 shrink-0 items-center gap-2 border-b border-border/60 bg-[var(--surface-background)] px-1 text-[12px]">
         <span className="shrink-0 text-muted-foreground">{fileCountLabel}</span>
         <GitHubDiffStat additions={totals.additions} deletions={totals.deletions} />
         <span className="shrink-0 tabular-nums text-muted-foreground" aria-label={viewedLabel}>
-          {viewedCount}/{files.length} viewed
+          {t('{{viewed}}/{{total}} viewed', { viewed: viewedCount, total: files.length })}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-0.5">
           <PullReviewControl
@@ -367,8 +372,8 @@ export const PullFilesTab: React.FC<{
             variant="ghost"
             size="icon"
             onClick={expandAll}
-            aria-label="Expand all files"
-            title="Expand all files"
+            aria-label={t("Expand all files")}
+            title={t("Expand all files")}
             className="size-7"
           >
             <Icon name="expand-up-down" className="size-3.5" />
@@ -378,8 +383,8 @@ export const PullFilesTab: React.FC<{
             variant="ghost"
             size="icon"
             onClick={collapseAll}
-            aria-label="Collapse all files"
-            title="Collapse all files"
+            aria-label={t("Collapse all files")}
+            title={t("Collapse all files")}
             className="size-7"
           >
             <Icon name="collapse-vertical" className="size-3.5" />
@@ -387,16 +392,16 @@ export const PullFilesTab: React.FC<{
         </span>
       </div>
       {props.filesLoading && visibleFiles.length === 0 ? (
-        <GitHubListSkeleton rows={5} label="Loading changed files" />
+        <GitHubListSkeleton rows={5} label={t("Loading changed files")} />
       ) : null}
       {!props.filesLoading && visibleFiles.length === 0 ? (
-        <p className="px-1 py-4 typography-micro text-muted-foreground">No changed files</p>
+        <p className="px-1 py-4 typography-micro text-muted-foreground">{t('No changed files')}</p>
       ) : null}
       {visibleFiles.length > 0 ? (
         <div className="flex min-h-0 items-start gap-3">
           <aside
             ref={sidebarRef}
-            aria-label="Changed files"
+            aria-label={t("Changed files")}
             style={sidebarHeight != null ? { height: sidebarHeight } : undefined}
             className="sticky top-10 hidden max-h-[calc(100dvh-10rem)] w-60 shrink-0 flex-col @4xl:flex"
           >
@@ -434,14 +439,14 @@ export const PullFilesTab: React.FC<{
       {files.length > visibleFileCount ? (
         <div>
           <Button type="button" variant="outline" size="sm" onClick={() => setVisibleFileCount(visibleFileCount + FILE_WINDOW)}>
-            Show more files
+            {t('Show more files')}
           </Button>
         </div>
       ) : null}
       {props.filesHasMore ? (
         <div>
           <Button type="button" variant="outline" size="sm" onClick={props.onLoadMoreFiles}>
-            Load more files
+            {t('Load more files')}
           </Button>
         </div>
       ) : null}

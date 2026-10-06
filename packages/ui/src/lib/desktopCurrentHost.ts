@@ -6,6 +6,7 @@ import {
   type DesktopHost,
 } from '@/lib/desktopHosts';
 import { getRuntimeApiBaseUrl, getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 /**
  * Which configured instance the window is actually talking to.
@@ -21,7 +22,7 @@ export const LOCAL_HOST_ID = 'local';
 
 export const buildLocalDesktopHost = (localOrigin?: string | null): DesktopHost => ({
   id: LOCAL_HOST_ID,
-  label: 'Local',
+  label: i18n.t('Local'),
   url: localOrigin || getLocalDesktopOrigin(),
 });
 
@@ -94,7 +95,7 @@ export const resolveCurrentDesktopHost = (hosts: DesktopHost[]): ResolvedDesktop
   }
 
   if (runtimeApiBaseUrl && locationMatchesHost(runtimeApiBaseUrl, localOrigin)) {
-    return { id: LOCAL_HOST_ID, label: 'Local', url: normalizedLocal };
+    return { id: LOCAL_HOST_ID, label: i18n.t('Local'), url: normalizedLocal };
   }
 
   const runtimeMatch = hosts.find((host) => (
@@ -110,7 +111,7 @@ export const resolveCurrentDesktopHost = (hosts: DesktopHost[]): ResolvedDesktop
   }
 
   if (currentHref && locationMatchesHost(currentHref, localOrigin)) {
-    return { id: LOCAL_HOST_ID, label: 'Local', url: normalizedLocal };
+    return { id: LOCAL_HOST_ID, label: i18n.t('Local'), url: normalizedLocal };
   }
 
   const match = hosts.find((host) => (currentHref ? locationMatchesHost(currentHref, host.url) : false));
@@ -120,14 +121,14 @@ export const resolveCurrentDesktopHost = (hosts: DesktopHost[]): ResolvedDesktop
   }
 
   if (currentHref.startsWith('pichamber-ui://')) {
-    return { id: LOCAL_HOST_ID, label: 'Local', url: normalizedLocal };
+    return { id: LOCAL_HOST_ID, label: i18n.t('Local'), url: normalizedLocal };
   }
 
   // Nothing configured matches. Naming the address is still more use than the
   // bare word "Instance"; the redaction strips anything credential-shaped.
   return {
     id: 'custom',
-    label: redactSensitiveUrl(normalizedCurrent || 'Instance'),
+    label: redactSensitiveUrl(normalizedCurrent || i18n.t('Instance')),
     url: normalizedCurrent,
   };
 };

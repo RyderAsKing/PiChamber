@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -43,13 +44,14 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
   saving,
   onAdd,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{"Add Server"}</DialogTitle>
+          <DialogTitle>{t('Add Server')}</DialogTitle>
           <DialogDescription>
-            {"Add another PiChamber server by URL. Use this when the server is already running and you have a connection token."}
+            {t('Add another PiChamber server by URL. Use this when the server is already running and you have a connection token.')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -63,7 +65,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
             className="h-8"
             value={label}
             onChange={(event) => onLabelChange(event.target.value)}
-            placeholder={"Label (optional)"}
+            placeholder={t('Label (optional)')}
             disabled={saving}
           />
           <Input
@@ -79,19 +81,19 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
               className="h-8"
               value={token}
               onChange={(event) => onTokenChange(event.target.value)}
-              placeholder={"Connection token (optional for trusted local servers)"}
+              placeholder={t('Connection token (optional for trusted local servers)')}
               type="password"
               disabled={saving}
             />
             <p className="px-1 typography-micro text-muted-foreground">
-              {"Connection tokens are saved on this device and used only when this app connects to that server."}
+              {t('Connection tokens are saved on this device and used only when this app connects to that server.')}
             </p>
           </div>
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <SettingsGroupTitle>{"Additional headers"}</SettingsGroupTitle>
+              <SettingsGroupTitle>{t('Additional headers')}</SettingsGroupTitle>
               <SettingsInfoHint>
-                {"Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token."}
+                {t('Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token.')}
               </SettingsInfoHint>
             </div>
             {headers.map((header) => (
@@ -106,7 +108,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
                       )
                     )
                   }
-                  placeholder={"Header name"}
+                  placeholder={t('Header name')}
                   disabled={saving}
                 />
                 <Input
@@ -119,7 +121,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
                       )
                     )
                   }
-                  placeholder={"Header value"}
+                  placeholder={t('Header value')}
                   type="password"
                   disabled={saving}
                 />
@@ -129,7 +131,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
                     onHeadersChange((items) => items.filter((item) => item.id !== header.id))
                   }
                   className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-                  aria-label={"Remove header"}
+                  aria-label={t('Remove header')}
                   disabled={saving}
                 >
                   <Icon name="close" className="h-4 w-4" />
@@ -145,7 +147,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
               disabled={saving}
             >
               <Icon name="add" className="h-3.5 w-3.5" />
-              {"Add header"}
+              {t('Add header')}
             </Button>
           </div>
           <div className="flex justify-end gap-2">
@@ -157,7 +159,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
-              {"Cancel"}
+              {t('Cancel')}
             </Button>
             <Button
               type="submit"
@@ -165,7 +167,7 @@ export const AddDirectHostDialog: React.FC<AddDirectHostDialogProps> = ({
               className="!font-normal"
               disabled={saving || !url.trim()}
             >
-              {"Add Server"}
+              {t('Add Server')}
             </Button>
           </div>
         </form>
@@ -203,13 +205,14 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
   saving,
   onSave,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{"Edit"}</DialogTitle>
+          <DialogTitle>{t('Edit')}</DialogTitle>
           <DialogDescription>
-            {"Servers this app can switch to. Import a pairing link from the other server, or add one by address."}
+            {t('Servers this app can switch to. Import a pairing link from the other server, or add one by address.')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -223,7 +226,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
             className="h-8"
             value={label}
             onChange={(event) => onLabelChange(event.target.value)}
-            placeholder={"Label (optional)"}
+            placeholder={t('Label (optional)')}
             disabled={saving}
           />
           <Input
@@ -238,15 +241,15 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
             className="h-8"
             value={token}
             onChange={(event) => onTokenChange(event.target.value)}
-            placeholder={"Connection token (optional for trusted local servers)"}
+            placeholder={t('Connection token (optional for trusted local servers)')}
             type="password"
             disabled={saving}
           />
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
-              <SettingsGroupTitle>{"Additional headers"}</SettingsGroupTitle>
+              <SettingsGroupTitle>{t('Additional headers')}</SettingsGroupTitle>
               <SettingsInfoHint>
-                {"Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token."}
+                {t('Optional HTTP headers for desktop API requests. Authorization is reserved for the connection token.')}
               </SettingsInfoHint>
             </div>
             {headers.map((header) => (
@@ -261,7 +264,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
                       )
                     )
                   }
-                  placeholder={"Header name"}
+                  placeholder={t('Header name')}
                   disabled={saving}
                 />
                 <Input
@@ -274,7 +277,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
                       )
                     )
                   }
-                  placeholder={"Header value"}
+                  placeholder={t('Header value')}
                   type="password"
                   disabled={saving}
                 />
@@ -284,7 +287,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
                     onHeadersChange((items) => items.filter((item) => item.id !== header.id))
                   }
                   className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--status-error-background)] hover:text-[var(--status-error)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]"
-                  aria-label={"Remove header"}
+                  aria-label={t('Remove header')}
                   disabled={saving}
                 >
                   <Icon name="close" className="h-4 w-4" />
@@ -300,7 +303,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
               disabled={saving}
             >
               <Icon name="add" className="h-3.5 w-3.5" />
-              {"Add header"}
+              {t('Add header')}
             </Button>
           </div>
           <div className="flex justify-end gap-2">
@@ -312,10 +315,10 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
-              {"Cancel"}
+              {t('Cancel')}
             </Button>
             <Button type="submit" size="xs" className="!font-normal" disabled={saving}>
-              {"Save Changes"}
+              {t('Save Changes')}
             </Button>
           </div>
         </form>
@@ -341,13 +344,14 @@ export const ImportDirectConnectDialog: React.FC<ImportDirectConnectDialogProps>
   saving,
   onImport,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{"Import Link"}</DialogTitle>
+          <DialogTitle>{t('Import Link')}</DialogTitle>
           <DialogDescription>
-            {"Paste a connection link from another PiChamber server."}
+            {t('Paste a connection link from another PiChamber server.')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -374,7 +378,7 @@ export const ImportDirectConnectDialog: React.FC<ImportDirectConnectDialogProps>
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
-              {"Cancel"}
+              {t('Cancel')}
             </Button>
             <Button
               type="submit"
@@ -382,7 +386,7 @@ export const ImportDirectConnectDialog: React.FC<ImportDirectConnectDialogProps>
               className="!font-normal"
               disabled={saving || !link.trim()}
             >
-              {"Import Link"}
+              {t('Import Link')}
             </Button>
           </div>
         </form>

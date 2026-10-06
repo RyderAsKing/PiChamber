@@ -8,6 +8,7 @@ import {
 } from './session-directory-resolution';
 import { readLastActiveSession } from './last-session-cache';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
 import { isPiThinkingLevel } from '@/lib/pi/thinking';
@@ -243,7 +244,7 @@ export async function materializeOpenDraftSession(
       branchDirectory !== draftDirectory
     ) {
       throw new Error(
-        'The selected branch no longer matches this draft target.'
+        i18n.t('The selected branch no longer matches this draft target.')
       );
     }
     if (
@@ -253,7 +254,7 @@ export async function materializeOpenDraftSession(
       )
     ) {
       throw new Error(
-        'Confirm the selected branch before creating this session.'
+        i18n.t('Confirm the selected branch before creating this session.')
       );
     }
   }
@@ -270,7 +271,7 @@ export async function materializeOpenDraftSession(
       !normalizePath(receipt.path)
     ) {
       throw new Error(
-        'Create the selected worktree before creating this session.'
+        i18n.t('Create the selected worktree before creating this session.')
       );
     }
   }
@@ -321,7 +322,7 @@ export async function materializeOpenDraftSession(
       closeDraft: false,
     }
   );
-  if (!created?.id) throw new Error('Failed to create session');
+  if (!created?.id) throw new Error(i18n.t('Failed to create session'));
 
   const createdDirectory = normalizePath(
     created.directory ?? draftDirectoryOverride ?? null

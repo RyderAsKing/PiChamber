@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Theme } from '@/types/theme';
 import type { ToolPopupContent } from '../message/types';
 import type { MermaidControlOptions, MermaidRender } from './decorate';
@@ -24,6 +25,7 @@ export const useMermaidInlineInteractions = ({
   enablePanZoom?: boolean;
   allowMermaidWheelEvents?: boolean;
 }) => {
+  const { t } = useTranslation();
   React.useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -71,7 +73,7 @@ export const useMermaidInlineInteractions = ({
         return;
       }
 
-      const filename = `Diagram ${blockIndex + 1}`;
+      const filename = t('Diagram {{index}}', { index: blockIndex + 1 });
       onShowPopup({
         open: true,
         title: filename,
@@ -126,6 +128,7 @@ export const useMermaidInlineInteractions = ({
     enableFullscreen,
     enablePanZoom,
     onShowPopup,
+    t,
   ]);
 };
 

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import i18n from '@/i18n';
 import { toast } from '@/components/ui';
 import { appendInlineText } from '../text';
 import { collectDroppedFiles, hasDraggedFiles } from './dataTransfer';
@@ -130,7 +131,7 @@ export function useComposerDrop({
           return false;
         }
       }));
-      if (!results.some(Boolean)) toast.error("Failed to attach file");
+      if (!results.some(Boolean)) toast.error(i18n.t("Failed to attach file"));
     }
   }, [addAttachedFile, composerRef, confirmedMentionsRef, cursorPosRef, enabled, messageRef, setMessage]);
 

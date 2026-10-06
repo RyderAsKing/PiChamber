@@ -1,5 +1,6 @@
 import React from 'react';
 
+import i18n from '@/i18n';
 import { toast } from '@/components/ui';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import {
@@ -152,10 +153,10 @@ export function useComposerPaste({
           try {
             const attached = await addAttachedFile(file);
             if (!attached) {
-              toast.error('Failed to attach pasted text as file');
+              toast.error(i18n.t('Failed to attach pasted text as file'));
             }
           } catch {
-            toast.error('Failed to attach pasted text as file');
+            toast.error(i18n.t('Failed to attach pasted text as file'));
           }
           return;
         }
@@ -200,10 +201,10 @@ export function useComposerPaste({
                 createOversizedPastedTextFile(pastedText)
               );
               if (!attached) {
-                toast.error('Failed to attach pasted text as file');
+                toast.error(i18n.t('Failed to attach pasted text as file'));
               }
             } catch {
-              toast.error('Failed to attach pasted text as file');
+              toast.error(i18n.t('Failed to attach pasted text as file'));
             }
           })()
         : null;
@@ -217,7 +218,7 @@ export function useComposerPaste({
         } catch (error) {
           console.error('Clipboard image attach failed', error);
           toast.error(
-            error instanceof Error ? error.message : 'Failed to attach image from clipboard'
+            error instanceof Error ? error.message : i18n.t('Failed to attach image from clipboard')
           );
         } finally {
           pendingPastedAttachmentFilenamesRef.current.delete(filename);

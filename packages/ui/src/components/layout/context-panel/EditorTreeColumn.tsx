@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { SidebarFilesTree } from '../SidebarFilesTree';
 import { useUIStore } from '@/stores/useUIStore';
@@ -10,6 +11,7 @@ const EDITOR_TREE_MAX_WIDTH = 480;
 // The editor surface's file-tree column: docked on the right, resizable from
 // its left edge, and animated open/closed like the app sidebars.
 export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) => {
+  const { t } = useTranslation();
   const width = useUIStore((state) => state.contextEditorTreeWidth);
   const setWidth = useUIStore((state) => state.setContextEditorTreeWidth);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -109,7 +111,7 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
           onPointerCancel={handlePointerEnd}
           role="separator"
           aria-orientation="vertical"
-          aria-label={"Resize context panel"}
+          aria-label={t('Resize context panel')}
         />
       )}
       <div

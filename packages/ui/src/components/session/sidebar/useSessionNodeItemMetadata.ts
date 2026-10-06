@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -36,6 +37,8 @@ export function useSessionNodeItemMetadata({
   expansionKey: string;
   hasSessionSearchQuery: boolean;
 }) {
+  const { t } = useTranslation();
+
   const session = node.session;
   const sessionDirectory =
     normalizePath((session as Session & { directory?: string | null }).directory ?? null) ??
@@ -84,23 +87,23 @@ export function useSessionNodeItemMetadata({
     if (!prSummary) return null;
     switch (prSummary.visualState) {
       case 'merged':
-        return 'Merged';
+        return t('Merged');
       case 'open':
         return prSummary.canMerge === true ||
           prSummary.mergeableState === 'clean' ||
           prSummary.checks?.state === 'success'
-          ? 'Ready to merge'
-          : 'PR open';
+          ? t('Ready to merge')
+          : t('PR open');
       case 'blocked':
-        return prSummary.mergeableState === 'dirty' ? 'Merge conflicts' : 'Merge blocked';
+        return prSummary.mergeableState === 'dirty' ? t('Merge conflicts') : t('Merge blocked');
       case 'draft':
-        return 'Draft PR';
+        return t('Draft PR');
       case 'closed':
-        return 'Closed';
+        return t('Closed');
       default:
         return null;
     }
-  }, [prSummary]);
+  }, [prSummary, t]);
 
   const selectionScopeKey = projectId ?? sessionDirectory ?? null;
   const selectionModeEnabled = useSessionMultiSelectStore((state) => state.enabled);

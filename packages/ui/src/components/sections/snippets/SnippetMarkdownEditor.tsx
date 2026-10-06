@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -34,15 +35,19 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
   onChange,
   readOnly = false,
   initialMode = 'preview',
-  placeholder = 'Enter snippet text... Use markdown to format your snippet. It will expand as #name in the composer.',
-  contentLabel = 'Snippet content',
+  placeholder,
+  contentLabel,
   settingsItem,
   minHeight = 220,
   hideExpandsNote = false,
   triggerPreview,
-  triggerActionLabel = 'Expands as',
+  triggerActionLabel,
   variableChips,
 }) => {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('Enter snippet text... Use markdown to format your snippet. It will expand as #name in the composer.');
+  const resolvedContentLabel = contentLabel ?? t('Snippet content');
+  const resolvedTriggerActionLabel = triggerActionLabel ?? t('Expands as');
   const [mode, setMode] = React.useState<SnippetEditorMode>(() => readOnly ? 'preview' : initialMode);
   const hasContent = value.trim().length > 0;
 
@@ -85,7 +90,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             onClick={() => setMode('preview')}
           >
             <Icon name="eye" className="size-3.5" aria-hidden />
-            Preview
+            {t('Preview')}
           </Button>
           <Button
             variant="chip"
@@ -96,11 +101,11 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             className={cn(readOnly && 'opacity-50')}
           >
             <Icon name="edit" className="size-3.5" aria-hidden />
-            Write
+            {t('Write')}
           </Button>
         </div>
         {readOnly ? (
-          <span className="hidden typography-micro text-muted-foreground @xl:inline">Read-only</span>
+          <span className="hidden typography-micro text-muted-foreground @xl:inline">{t('Read-only')}</span>
         ) : null}
       </div>
 
@@ -108,14 +113,14 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
         <div className="p-0">
           {variableChips && variableChips.length > 0 ? (
             <div className="flex flex-wrap items-center gap-1.5 border-b border-border/60 bg-muted/20 px-3 py-2">
-              <span className="typography-micro text-muted-foreground">Variables</span>
+              <span className="typography-micro text-muted-foreground">{t('Variables')}</span>
               {variableChips.map((chip) => (
                 <Button
                   key={chip.value}
                   variant="chip"
                   size="xs"
                   onClick={() => insertVariable(chip.value)}
-                  aria-label={chip.hint ?? `Insert ${chip.value}`}
+                  aria-label={chip.hint ?? t('Insert {{value}}', { value: chip.value })}
                   title={chip.hint ?? chip.value}
                 >
                   <span className="font-mono">{chip.label ?? chip.value}</span>
@@ -127,7 +132,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             ref={textareaRef}
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
+            placeholder={resolvedPlaceholder}
             simple
             fillContainer={false}
             outerClassName="border-0 ring-0 rounded-none bg-transparent"
@@ -136,7 +141,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
               'placeholder:text-muted-foreground/70',
             )}
             style={{ minHeight }}
-            aria-label={contentLabel}
+            aria-label={resolvedContentLabel}
           />
         </div>
       ) : (
@@ -147,10 +152,10 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 py-10 text-center">
               <Icon name="file-text" className="size-6 text-muted-foreground/50" aria-hidden />
               <p className="typography-meta text-muted-foreground">
-                {readOnly ? 'No content' : 'Nothing to preview'}
+                {readOnly ? t('No content') : t('Nothing to preview')}
               </p>
               {!readOnly ? (
-                <p className="typography-micro text-muted-foreground">Start writing in the Write tab to see a live preview.</p>
+                <p className="typography-micro text-muted-foreground">{t('Start writing in the Write tab to see a live preview.')}</p>
               ) : null}
             </div>
           )}
@@ -162,12 +167,12 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
           {!hideExpandsNote && triggerPreview ? (
             <span className="flex items-center gap-1.5">
               <Icon name="information" className="size-3.5 shrink-0 opacity-60" aria-hidden />
-              {triggerActionLabel} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{triggerPreview}</code> in the composer
+              {resolvedTriggerActionLabel} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{triggerPreview}</code> {t('in the composer')}
             </span>
           ) : (
             <span />
           )}
-          <span className="tabular-nums">{value.length} chars</span>
+          <span className="tabular-nums">{t('{{count}} chars', { count: value.length })}</span>
         </div>
       ) : null}
     </div>

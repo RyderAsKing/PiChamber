@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Part } from '@/lib/chat/types';
 import MessageList, { type MessageListHandle } from './MessageList';
 import { StatusRowContainer } from './StatusRowContainer';
@@ -97,6 +98,7 @@ export const ChatViewport = React.memo(
     isLoadingOlderPrompts,
     onLoadEarlierPrompts,
   }: ChatViewportProps) => {
+    const { t } = useTranslation();
     const promptPreviewsByTurnIdRef = React.useRef<Map<string, Part[]>>(new Map());
     // Cache normalized parts per source array so unchanged messages keep the
     // same reference and the memo below can bail out to the previous map.
@@ -233,7 +235,7 @@ export const ChatViewport = React.memo(
                     {isLoadingOlder && (
                       <Icon name="loader-4" className="size-4 animate-spin" />
                     )}
-                    {"Load older messages"}
+                    {t("Load older messages")}
                   </Button>
                 </div>
               )}
@@ -275,7 +277,7 @@ export const ChatViewport = React.memo(
                     role="status"
                     data-turn-reconnecting="true"
                   >
-                    Reconnecting · last seen working
+                    {t('Reconnecting · last seen working')}
                   </span>
                 </div>
               ) : null}

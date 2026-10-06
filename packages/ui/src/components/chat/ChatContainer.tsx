@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Message } from '@/lib/chat/types';
 
 import { ChatInput } from './ChatInput';
@@ -63,7 +64,7 @@ type ChatContainerProps = {
 };
 
 export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, autoOpenDraft = true }) => {
-    
+    const { t } = useTranslation();
     // Session UI state
     const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
     const currentSessionDirectory = useSessionUIStore((s) => s.currentSessionDirectory);
@@ -166,10 +167,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
         return {
             sessionId: currentSessionId,
-            message: rawMessage || DEFAULT_RETRY_MESSAGE,
+            message: rawMessage || t(DEFAULT_RETRY_MESSAGE),
             confirmedAt: (sessionStatusForCurrent as { confirmedAt?: number }).confirmedAt,
         };
-    }, [currentSessionId, sessionStatusForCurrent]);
+    }, [currentSessionId, sessionStatusForCurrent, t]);
     const compaction = useSessionCompaction(currentSessionId ?? '');
     const compactionOverlay = React.useMemo(() => currentSessionId && compaction
         ? { sessionId: currentSessionId, compaction }
@@ -496,15 +497,15 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 								<Icon name="error-warning" className="size-4" />
 							</div>
 							<p className="typography-ui-label font-medium text-foreground">
-								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE' ? "Session is open elsewhere" : "Session could not be loaded"}
+								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE' ? t("Session is open elsewhere") : t("Session could not be loaded")}
 							</p>
 							<p className="typography-meta mt-1 text-muted-foreground">
 								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE'
-									? "Another PiChamber instance is using this session. Close it there, then try again."
-									: "Check the connection and try loading this session again."}
+									? t("Another PiChamber instance is using this session. Close it there, then try again.")
+									: t("Check the connection and try loading this session again.")}
 							</p>
 							<Button variant="outline" size="sm" className="mt-4" onClick={retrySessionLoad}>
-								{"Try again"}
+								{t("Try again")}
 							</Button>
 						</div>
 					</div>
@@ -528,7 +529,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                     <div className="flex flex-col items-center gap-3">
                         <PiChamberLogo width={120} height={120} isAnimated />
                         {isSendingNewSession ? (
-                            <p role="status" className="typography-meta animate-pulse text-muted-foreground">{"Creating session…"}</p>
+                            <p role="status" className="typography-meta animate-pulse text-muted-foreground">{t("Creating session…")}</p>
                         ) : null}
                     </div>
                 </div>

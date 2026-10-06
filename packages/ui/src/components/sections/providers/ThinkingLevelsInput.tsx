@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SETTINGS_HELPER_CLASS } from '@/components/sections/shared/SettingsSection';
@@ -24,6 +25,7 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
   id,
 }) => {
   const [draft, setDraft] = React.useState('');
+  const { t } = useTranslation();
   const values = parseThinkingLevelEntries(value);
 
   const addDraft = () => {
@@ -40,7 +42,7 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
   return (
     <div className="space-y-2">
       {values.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5" aria-label="Configured thinking levels">
+        <div className="flex flex-wrap gap-1.5" aria-label={t('Configured thinking levels')}>
           {values.map((entry) => (
             <Button
               key={entry}
@@ -48,7 +50,7 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
               variant="chip"
               size="xs"
               disabled={disabled}
-              aria-label={`Remove ${entry}`}
+              aria-label={t('Remove {{entry}}', { entry })}
               onClick={() => onChange(values.filter((value) => value !== entry).join('\n'))}
             >
               <span className="font-mono text-xs normal-case">{entry}</span>
@@ -72,10 +74,10 @@ export const ThinkingLevelsInput: React.FC<ThinkingLevelsInputProps> = ({
         className="h-8 font-mono text-xs"
         disabled={disabled}
         aria-invalid={hasError || undefined}
-        aria-label="Add thinking level"
+        aria-label={t('Add thinking level')}
       />
       <p className={SETTINGS_HELPER_CLASS}>
-        Press Enter or comma to add a value. Use low-effort for standard values, or low=&quot;value&quot; and low=null for explicit mappings.
+        {t('Press Enter or comma to add a value. Use low-effort for standard values, or low="value" and low=null for explicit mappings.')}
       </p>
     </div>
   );

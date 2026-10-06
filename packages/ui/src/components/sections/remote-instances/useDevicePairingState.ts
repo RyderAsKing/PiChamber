@@ -1,5 +1,6 @@
 import React from 'react';
 import QRCode from 'qrcode';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import type { ClientAuthAPI, PendingPairingRecord, RemoteClientRecord } from '@/lib/api/types';
@@ -19,6 +20,7 @@ import {
 
 export function useDevicePairingState(clientAuth: ClientAuthAPI | undefined) {
   const [remoteClients, setRemoteClients] = React.useState<RemoteClientRecord[]>([]);
+  const { t } = useTranslation();
   const [pendingPairings, setPendingPairings] = React.useState<PendingPairingRecord[]>([]);
   const [remoteClientsLoading, setRemoteClientsLoading] = React.useState(false);
   const [remoteClientLabel, setRemoteClientLabel] = React.useState('');
@@ -75,9 +77,9 @@ export function useDevicePairingState(clientAuth: ClientAuthAPI | undefined) {
     setCreatedPairingId(null);
     setAddDeviceOpen(false);
     if (remoteClients.some((client) => client.pairingId === createdPairingId)) {
-      toast.success('Device connected.');
+      toast.success(t('Device connected.'));
     }
-  }, [addDeviceOpen, addDevicePhase, createdPairingId, pendingPairings, remoteClients]);
+  }, [addDeviceOpen, addDevicePhase, createdPairingId, pendingPairings, remoteClients, t]);
 
   const cancelPendingPairing = React.useCallback(
     async (id: string) => {

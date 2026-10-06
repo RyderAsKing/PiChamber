@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { cn } from '@/lib/utils';
 import type { DiscoveredSkill } from '@/stores/useSkillsStore';
@@ -12,14 +13,15 @@ interface SkillCardProps {
 
 /** Grid card for skill browse. Shows name, description, and optional location pill. */
 export const SkillCard: React.FC<SkillCardProps> = ({ skill, onSelect, showLocationPill = true }) => {
-  const locationLabel = skill.location === 'project' ? 'Project' : skill.location === 'global' ? 'Global' : skill.location;
-  const description = skill.description?.trim() || 'No description';
+  const { t } = useTranslation();
+  const locationLabel = skill.location === 'project' ? t('Project') : skill.location === 'global' ? t('Global') : skill.location;
+  const description = skill.description?.trim() || t('No description');
 
   return (
     <button
       type="button"
       onClick={() => onSelect(skill.name)}
-      aria-label={`${skill.name} skill, ${locationLabel}`}
+      aria-label={t('{{name}} skill, {{location}}', { name: skill.name, location: locationLabel })}
       className={cn(
         'group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left',
         'border-border/60 hover:bg-interactive-hover hover:border-border',

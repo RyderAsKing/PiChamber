@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -40,8 +41,8 @@ export const GitHubCommentForm: React.FC<{
 }> = ({
   draft,
   onDraftChange,
-  placeholder = 'Leave a comment',
-  ariaLabel = 'Leave a comment',
+  placeholder,
+  ariaLabel,
   busy,
   error,
   disabledReason,
@@ -49,6 +50,7 @@ export const GitHubCommentForm: React.FC<{
   onSubmitComment,
   onDraftBlur,
 }) => {
+  const { t } = useTranslation();
   const fieldRef = React.useRef<HTMLTextAreaElement>(null);
   const [multiline, setMultiline] = React.useState(false);
   // Line height + vertical padding are read once: per-keystroke
@@ -83,7 +85,7 @@ export const GitHubCommentForm: React.FC<{
   return (
     <form
       className="flex flex-col gap-2 border-t border-border/60 pt-5"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? t('Leave a comment')}
       onSubmit={(event) => {
         event.preventDefault();
         onSubmitComment();
@@ -95,8 +97,8 @@ export const GitHubCommentForm: React.FC<{
           ref={fieldRef}
           rows={1}
           value={draft}
-          placeholder={`${placeholder} (⌘↩)`}
-          aria-label={ariaLabel}
+          placeholder={`${placeholder ?? t('Leave a comment')} (⌘↩)`}
+          aria-label={ariaLabel ?? t('Leave a comment')}
           disabled={locked}
           onChange={(event) => onDraftChange(event.target.value)}
           onBlur={() => onDraftBlur?.()}
@@ -134,10 +136,10 @@ export const GitHubCommentForm: React.FC<{
           variant="default"
           size="xs"
           disabled={empty || locked}
-          title={disabledReason ?? 'Post comment'}
+          title={disabledReason ?? t('Post comment')}
           onClick={onSubmitComment}
         >
-          {busy === 'comment' ? 'Posting…' : 'Comment'}
+          {busy === 'comment' ? t('Posting…') : t('Comment')}
         </Button>
       </div>
       {error ? (

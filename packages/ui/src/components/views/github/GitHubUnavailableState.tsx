@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- reason mapping colocated with the state component by design */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
@@ -42,11 +43,12 @@ export const toUnavailableInfo = (error: GitHubErrorBody | null | undefined): Gi
 };
 
 const CopyableCommand: React.FC<{ command: string; label?: string }> = ({ command, label }) => {
+  const { t } = useTranslation();
   const handleCopy = React.useCallback(() => {
     void copyTextToClipboard(command).then((result) => {
-      toast[result.ok ? 'success' : 'error'](result.ok ? 'Command copied' : 'Failed to copy command');
-    }).catch(() => toast.error('Failed to copy command'));
-  }, [command]);
+      toast[result.ok ? 'success' : 'error'](result.ok ? t('Command copied') : t('Failed to copy command'));
+    }).catch(() => toast.error(t('Failed to copy command')));
+  }, [command, t]);
   return (
     <span className="inline-flex max-w-full items-center gap-1.5">
       <code className="min-w-0 truncate rounded bg-[var(--surface-muted)] px-1.5 py-0.5 font-mono typography-micro text-foreground">
@@ -56,8 +58,8 @@ const CopyableCommand: React.FC<{ command: string; label?: string }> = ({ comman
         type="button"
         onClick={handleCopy}
         className="shrink-0 rounded p-1 text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
-        title={label ?? `Copy ${command}`}
-        aria-label={label ?? `Copy ${command}`}
+        title={label ?? t('Copy {{command}}', { command })}
+        aria-label={label ?? t('Copy {{command}}', { command })}
       >
         <Icon name="file-copy" className="size-3.5" />
       </button>
@@ -88,10 +90,11 @@ export const GitHubUnavailableState: React.FC<{
   onRetry?: () => void;
   isRetrying?: boolean;
 }> = ({ info, onRetry, isRetrying }) => {
+  const { t } = useTranslation();
   const retryButton = onRetry ? (
     <Button type="button" variant="outline" size="sm" onClick={onRetry} disabled={isRetrying}>
       <Icon name="refresh" className="size-3.5" />
-      {isRetrying ? 'Checking…' : 'Check again'}
+      {isRetrying ? t('Checking…') : t('Check again')}
     </Button>
   ) : null;
 
@@ -100,10 +103,10 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="github-fill"
-          title="GitHub CLI not found"
-          description="Install the GitHub CLI on the machine running PiChamber to browse pull requests and issues."
+          title={t("GitHub CLI not found")}
+          description={t("Install the GitHub CLI on the machine running PiChamber to browse pull requests and issues.")}
         >
-          <CopyableCommand command="gh --version" label="Copy gh version check" />
+          <CopyableCommand command="gh --version" label={t("Copy gh version check")} />
           {retryButton}
         </Centered>
       );
@@ -111,10 +114,10 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="github-fill"
-          title="GitHub CLI too old"
-          description="Update gh on the machine running PiChamber, then check again."
+          title={t("GitHub CLI too old")}
+          description={t("Update gh on the machine running PiChamber, then check again.")}
         >
-          <CopyableCommand command="gh upgrade" label="Copy gh upgrade command" />
+          <CopyableCommand command="gh upgrade" label={t("Copy gh upgrade command")} />
           {retryButton}
         </Centered>
       );
@@ -122,10 +125,10 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="github-fill"
-          title="Not signed in"
-          description="Run gh auth login on the machine running PiChamber, then check again."
+          title={t("Not signed in")}
+          description={t("Run gh auth login on the machine running PiChamber, then check again.")}
         >
-          <CopyableCommand command="gh auth login" label="Copy gh auth login command" />
+          <CopyableCommand command="gh auth login" label={t("Copy gh auth login command")} />
           {retryButton}
         </Centered>
       );
@@ -133,24 +136,24 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="git-repository"
-          title="Not a GitHub repository"
-          description="This directory is a git repository, but none of its remotes point at GitHub."
+          title={t("Not a GitHub repository")}
+          description={t("This directory is a git repository, but none of its remotes point at GitHub.")}
         />
       );
     case 'no-repository':
       return (
         <Centered
           icon="git-repository"
-          title="No repository here"
-          description="Open a directory inside a git repository to browse pull requests and issues."
+          title={t("No repository here")}
+          description={t("Open a directory inside a git repository to browse pull requests and issues.")}
         />
       );
     case 'no-access':
       return (
         <Centered
           icon="lock"
-          title="No access"
-          description="The signed-in GitHub account cannot access this repository. Check the remote and the account in Settings."
+          title={t("No access")}
+          description={t("The signed-in GitHub account cannot access this repository. Check the remote and the account in Settings.")}
         >
           {retryButton}
         </Centered>
@@ -161,10 +164,10 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="shield-keyhole"
-          title="Missing token scope"
-          description={`The GitHub token needs ${scopes.length > 0 ? scopes.join(', ') : 'more scope'}. Run this on the machine running PiChamber, then check again.`}
+          title={t("Missing token scope")}
+          description={t('The GitHub token needs {{scopes}}. Run this on the machine running PiChamber, then check again.', { scopes: scopes.length > 0 ? scopes.join(', ') : t('more scope') })}
         >
-          <CopyableCommand command={command} label="Copy gh auth refresh command" />
+          <CopyableCommand command={command} label={t("Copy gh auth refresh command")} />
           {retryButton}
         </Centered>
       );
@@ -174,8 +177,8 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="hourglass"
-          title="Rate limited"
-          description={retryLabel ? `GitHub rate limit reached. Try again after ${retryLabel}.` : 'GitHub rate limit reached. Try again shortly.'}
+          title={t("Rate limited")}
+          description={retryLabel ? t('GitHub rate limit reached. Try again after {{time}}.', { time: retryLabel }) : t('GitHub rate limit reached. Try again shortly.')}
         >
           {retryButton}
         </Centered>
@@ -186,8 +189,8 @@ export const GitHubUnavailableState: React.FC<{
       return (
         <Centered
           icon="error-warning"
-          title="Something went wrong"
-          description={info.message || 'GitHub request failed'}
+          title={t("Something went wrong")}
+          description={info.message || t('GitHub request failed')}
         >
           {retryButton}
         </Centered>

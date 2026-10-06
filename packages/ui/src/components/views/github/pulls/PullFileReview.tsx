@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { DiffLineAnnotation, SelectedLineRange } from '@pierre/diffs';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -51,7 +52,9 @@ type PullLineAnnotation = DiffLineAnnotation<PullLineAnnotationData>;
 const PendingReviewCommentCard: React.FC<{
   comment: PendingReviewLineComment;
   onRemove: () => void;
-}> = ({ comment, onRemove }) => (
+}> = ({ comment, onRemove }) => {
+  const { t } = useTranslation();
+  return (
   <div
     className="rounded-md border border-dashed border-border p-2.5 typography-ui text-foreground"
     contentEditable={false}
@@ -59,13 +62,13 @@ const PendingReviewCommentCard: React.FC<{
   >
     <div className="flex items-center gap-1.5 typography-micro text-muted-foreground">
       <Icon name="chat-1" className="size-3.5 shrink-0" aria-hidden="true" />
-      <span>Pending — sent when you submit the review</span>
+      <span>{t('Pending — sent when you submit the review')}</span>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        aria-label="Discard this comment"
-        title="Discard this comment"
+        aria-label={t("Discard this comment")}
+        title={t("Discard this comment")}
         onClick={onRemove}
         className="ml-auto size-6"
       >
@@ -74,7 +77,8 @@ const PendingReviewCommentCard: React.FC<{
     </div>
     <p className="mt-1.5 whitespace-pre-wrap break-words">{comment.body}</p>
   </div>
-);
+  );
+};
 
 /** A conversation already on the host, with reply and resolve controls. */
 const ReviewThreadCard: React.FC<{
@@ -88,6 +92,7 @@ const ReviewThreadCard: React.FC<{
   onReply: (body: string) => Promise<boolean>;
   onToggleResolved: () => void;
 }> = ({ thread, replyAllowed, replyDisabledReason, resolveAllowed, resolveDisabledReason, busy, onReply, onToggleResolved }) => {
+  const { t } = useTranslation();
   // A resolved thread is finished work: it opens collapsed and stays one line until asked for.
   const [expanded, setExpanded] = React.useState(!thread.resolved);
   const [replying, setReplying] = React.useState(false);
@@ -129,7 +134,7 @@ const ReviewThreadCard: React.FC<{
           aria-expanded={expanded}
           onClick={() => setExpanded((current) => !current)}
         >
-          {thread.resolved ? 'Resolved' : 'Open'} · {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
+          {thread.resolved ? t('Resolved') : t('Open')} · {commentCount} {commentCount === 1 ? t('comment') : t('comments')}
         </button>
         <Button
           type="button"
@@ -137,11 +142,11 @@ const ReviewThreadCard: React.FC<{
           size="xs"
           className="ml-auto"
           disabled={!resolveAllowed || busy}
-          title={resolveDisabledReason ?? (thread.resolved ? 'Reopen this conversation' : 'Resolve this conversation')}
-          aria-label={thread.resolved ? 'Reopen conversation' : 'Resolve conversation'}
+          title={resolveDisabledReason ?? (thread.resolved ? t('Reopen this conversation') : t('Resolve this conversation'))}
+          aria-label={thread.resolved ? t('Reopen conversation') : t('Resolve conversation')}
           onClick={onToggleResolved}
         >
-          {thread.resolved ? 'Unresolve' : 'Resolve'}
+          {thread.resolved ? t('Unresolve') : t('Resolve')}
         </Button>
       </div>
 
@@ -162,8 +167,8 @@ const ReviewThreadCard: React.FC<{
                   autoFocus
                   value={reply}
                   rows={2}
-                  placeholder="Reply"
-                  aria-label="Reply to this conversation"
+                  placeholder={t("Reply")}
+                  aria-label={t("Reply to this conversation")}
                   disabled={sending || busy}
                   onChange={(event) => setReply(event.target.value)}
                   onKeyDown={(event) => {
@@ -188,21 +193,21 @@ const ReviewThreadCard: React.FC<{
                 />
                 <div className="mt-1.5 flex justify-end gap-1.5">
                   <Button type="button" variant="ghost" size="xs" onClick={() => setReplying(false)}>
-                    Cancel
+                    {t('Cancel')}
                   </Button>
                   <Button type="button" variant="default" size="xs" disabled={sending || busy || reply.trim().length === 0} onClick={() => void send()}>
-                    {sending ? 'Replying…' : 'Reply'}
+                    {sending ? t('Replying…') : t('Reply')}
                   </Button>
                 </div>
               </div>
             ) : (
               <Button type="button" variant="ghost" size="xs" className="mt-2" onClick={() => setReplying(true)}>
-                Reply
+                {t('Reply')}
               </Button>
             )
           ) : replyDisabledReason ? (
             <p className="mt-2 typography-micro text-muted-foreground" title={replyDisabledReason}>
-              Reply unavailable — {replyDisabledReason.charAt(0).toLowerCase() + replyDisabledReason.slice(1)}
+              {t('Reply unavailable — {{reason}}', { reason: replyDisabledReason.charAt(0).toLowerCase() + replyDisabledReason.slice(1) })}
             </p>
           ) : null}
         </>
@@ -220,6 +225,7 @@ const InlineDraftBox: React.FC<{
   onAddToReview: (body: string) => void;
   onSendToAgent: (body: string) => void;
 }> = ({ path, line, sendingToAgent, onCancel, onAddToReview, onSendToAgent }) => {
+  const { t } = useTranslation();
   const [text, setText] = React.useState('');
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
   const trimmed = text.trim();
@@ -249,8 +255,8 @@ const InlineDraftBox: React.FC<{
         ref={textareaRef}
         value={text}
         rows={3}
-        placeholder="Add a comment…"
-        aria-label={`Comment on ${path} line ${line}`}
+        placeholder={t("Add a comment…")}
+        aria-label={t('Comment on {{path}} line {{line}}', { path, line })}
         onChange={(event) => setText(event.target.value)}
         onFocus={(event) => {
           const end = event.currentTarget.value.length;
@@ -277,22 +283,22 @@ const InlineDraftBox: React.FC<{
         className="mt-1.5 min-h-16 w-full rounded-md border border-border bg-[var(--surface-elevated)] p-2 typography-ui text-foreground"
       />
       <div className="mt-1.5 flex items-center gap-1.5">
-        <span className="mr-auto typography-micro text-muted-foreground">Ctrl/Cmd+Enter to add</span>
+        <span className="mr-auto typography-micro text-muted-foreground">{t('Ctrl/Cmd+Enter to add')}</span>
         <Button type="button" variant="ghost" size="xs" onClick={onCancel}>
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button
           type="button"
           variant="outline"
           size="xs"
           disabled={!trimmed || sendingToAgent}
-          title="Send this line to the agent"
+          title={t("Send this line to the agent")}
           onClick={() => onSendToAgent(trimmed)}
         >
-          {sendingToAgent ? 'Sending…' : 'Send to agent'}
+          {sendingToAgent ? t('Sending…') : t('Send to agent')}
         </Button>
         <Button type="button" variant="default" size="xs" disabled={!trimmed} onClick={submit}>
-          Add to review
+          {t('Add to review')}
         </Button>
       </div>
     </div>
@@ -321,6 +327,7 @@ const FileCardInner: React.FC<{
   access: ViewerAccess;
   onThreadsChanged: () => void;
 }> = ({ file, collapsed, onToggleCollapse, viewed, onToggleViewed, blobUrl, threads, directory, repo, number, github, access, onThreadsChanged }) => {
+  const { t } = useTranslation();
   const threadAction = useGitHubPullRequestsStore((state) => state.threadAction);
   // Actions only (stable references): subscribing to the whole store would
   // re-render every FileCard on each keystroke/draft change elsewhere.
@@ -347,7 +354,7 @@ const FileCardInner: React.FC<{
       const realLine =
         anchorSide === 'deletions' ? lineMaps.syntheticToOld.get(range.end) : lineMaps.syntheticToNew.get(range.end);
       if (realLine == null) {
-        toast.error('That line is outside the rendered hunks');
+        toast.error(t('That line is outside the rendered hunks'));
         return;
       }
       setDraft({
@@ -357,7 +364,7 @@ const FileCardInner: React.FC<{
         realSide: anchorSide === 'deletions' ? 'LEFT' : 'RIGHT',
       });
     },
-    [commentGate.allowed, lineMaps],
+    [commentGate.allowed, lineMaps, t],
   );
 
   const statusKind = statusKindForFile(file.status);
@@ -447,7 +454,7 @@ const FileCardInner: React.FC<{
     async (thread: GitHubReviewThread, body: string): Promise<boolean> => {
       const commentId = thread.comments[thread.comments.length - 1]?.id ?? null;
       if (typeof commentId !== 'number') {
-        toast.error('Cannot reply to this thread yet');
+        toast.error(t('Cannot reply to this thread yet'));
         return false;
       }
       if (threadBusy) return false;
@@ -455,17 +462,17 @@ const FileCardInner: React.FC<{
       try {
         const result = await threadAction(directory, repo, number, thread.id, { action: 'reply', body, commentId }, github);
         if (!result.ok) {
-          toast.error('Failed to post reply');
+          toast.error(t('Failed to post reply'));
           return false;
         }
-        toast.success('Reply posted');
+        toast.success(t('Reply posted'));
         onThreadsChanged();
         return true;
       } finally {
         setThreadBusy(false);
       }
     },
-    [directory, repo, number, github, threadAction, threadBusy, onThreadsChanged],
+    [directory, repo, number, github, threadAction, threadBusy, onThreadsChanged, t],
   );
 
   const handleToggleResolved = React.useCallback(
@@ -474,15 +481,15 @@ const FileCardInner: React.FC<{
       setThreadBusy(true);
       void threadAction(directory, repo, number, thread.id, thread.resolved ? { action: 'unresolve' } : { action: 'resolve' }, github)
         .then((result) => {
-          if (!result.ok) toast.error('Failed to update thread');
+          if (!result.ok) toast.error(t('Failed to update thread'));
           else {
-            toast.success(thread.resolved ? 'Thread reopened' : 'Thread resolved');
+            toast.success(thread.resolved ? t('Thread reopened') : t('Thread resolved'));
             onThreadsChanged();
           }
         })
         .finally(() => setThreadBusy(false));
     },
-    [directory, repo, number, github, threadAction, threadBusy, onThreadsChanged],
+    [directory, repo, number, github, threadAction, threadBusy, onThreadsChanged, t],
   );
 
   const renderAnnotation = React.useCallback(
@@ -524,7 +531,7 @@ const FileCardInner: React.FC<{
                 side: target.realSide,
               });
               setDraft(null);
-              toast.success('Added to review');
+              toast.success(t('Added to review'));
             }}
             onSendToAgent={(body) => {
               const target = annotation.metadata.draft;
@@ -544,13 +551,13 @@ const FileCardInner: React.FC<{
         ) : null}
       </div>
     ),
-    [replyGate.allowed, replyGate.reason, resolveGate.allowed, resolveGate.reason, threadBusy, handleReply, handleToggleResolved, removePendingComment, addPendingComment, repo, number, file.filename, fileKey, sendingKey, directory, send],
+    [replyGate.allowed, replyGate.reason, resolveGate.allowed, resolveGate.reason, threadBusy, handleReply, handleToggleResolved, removePendingComment, addPendingComment, repo, number, file.filename, fileKey, sendingKey, directory, send, t],
   );
 
   return (
     <article className="overflow-hidden rounded-md border border-border/60">
       <div className="sticky top-8 z-[5] flex items-center gap-1.5 bg-[var(--surface-muted)] px-2 py-1.5">
-        <Button type="button" variant="ghost" size="icon" onClick={() => onToggleCollapse(file.filename)} aria-label={collapsed ? `Expand ${file.filename}` : `Collapse ${file.filename}`} title={collapsed ? 'Expand' : 'Collapse'} className="size-6">
+        <Button type="button" variant="ghost" size="icon" onClick={() => onToggleCollapse(file.filename)} aria-label={collapsed ? t('Expand {{path}}', { path: file.filename }) : t('Collapse {{path}}', { path: file.filename })} title={collapsed ? t('Expand') : t('Collapse')} className="size-6">
           <Icon name={collapsed ? 'arrow-right-s' : 'arrow-down-s'} className="size-4" />
         </Button>
         <Icon name={statusIconForFile(statusKind)} className={cn('size-3.5 shrink-0', statusTintForFile(statusKind))} aria-hidden="true" />
@@ -565,7 +572,7 @@ const FileCardInner: React.FC<{
         ) : null}
         <GitHubDiffStat additions={file.additions} deletions={file.deletions} className="typography-micro" />
         {threads.length > 0 || filePendings.length > 0 ? (
-          <span className="inline-flex shrink-0 items-center gap-1 typography-micro text-muted-foreground" title={`${threads.length} ${threads.length === 1 ? 'conversation' : 'conversations'}${filePendings.length > 0 ? `, ${filePendings.length} pending` : ''}`}>
+          <span className="inline-flex shrink-0 items-center gap-1 typography-micro text-muted-foreground" title={(threads.length === 1 ? t('{{count}} conversation', { count: threads.length }) : t('{{count}} conversations', { count: threads.length })) + (filePendings.length > 0 ? ', ' + t('{{count}} pending', { count: filePendings.length }) : '')}>
             <Icon name="chat-1" className="size-3.5" aria-hidden="true" />
             {threads.length > 0 ? <span className="tabular-nums">{openThreadCount > 0 ? openThreadCount : threads.length}</span> : null}
             {filePendings.length > 0 ? <span className="tabular-nums">+{filePendings.length}</span> : null}
@@ -575,9 +582,9 @@ const FileCardInner: React.FC<{
           <Checkbox
             checked={viewed}
             onChange={(next) => onToggleViewed(file.filename, next)}
-            ariaLabel={viewed ? `Mark ${file.filename} as not viewed` : `Mark ${file.filename} as viewed`}
+            ariaLabel={viewed ? t('Mark {{path}} as not viewed', { path: file.filename }) : t('Mark {{path}} as viewed', { path: file.filename })}
           />
-          <span className="typography-micro text-muted-foreground">Viewed</span>
+          <span className="typography-micro text-muted-foreground">{t('Viewed')}</span>
         </span>
         <Button
           type="button"
@@ -587,9 +594,9 @@ const FileCardInner: React.FC<{
             void send({ key: `${fileKey}-agent`, kind: 'file', directory, repo, number, contextType: 'pr', contextOptions: { includeDiff: true }, detail: file.filename })
           }
           disabled={sendingKey === `${fileKey}-agent`}
-          aria-label={`Send ${file.filename} to agent`}
+          aria-label={t('Send {{path}} to agent', { path: file.filename })}
         >
-          Send to agent
+          {t('Send to agent')}
         </Button>
       </div>
       {!collapsed ? (
@@ -597,7 +604,7 @@ const FileCardInner: React.FC<{
           {orphans.length > 0 ? (
             <div className="flex flex-col gap-1.5 rounded-md bg-[var(--surface-muted)] px-2 py-2">
               <p className="typography-micro text-muted-foreground">
-                Other conversations ({orphans.length}) — {orphans.length === 1 ? 'this line is' : 'these lines are'} no longer in the diff
+                {orphans.length === 1 ? t('Other conversations ({{count}}) — this line is no longer in the diff', { count: orphans.length }) : t('Other conversations ({{count}}) — these lines are no longer in the diff', { count: orphans.length })}
               </p>
               {orphans.map((thread) => (
                 <ReviewThreadCard
@@ -618,10 +625,10 @@ const FileCardInner: React.FC<{
             <div className="flex items-center gap-2 rounded-md bg-[var(--surface-muted)] px-3 py-3 typography-ui">
               <Icon name="file" className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <p className="min-w-0 flex-1 truncate text-muted-foreground">
-                Large diff — {changedLinesForFile(file)} changed lines
+                {t('Large diff — {{count}} changed lines', { count: changedLinesForFile(file) })}
               </p>
               <Button type="button" variant="outline" size="sm" onClick={() => setLargeLoaded(true)}>
-                Load diff
+                {t('Load diff')}
               </Button>
             </div>
           ) : file.patch ? (
@@ -644,11 +651,11 @@ const FileCardInner: React.FC<{
           ) : (
             <div className="flex items-center gap-2 rounded-md bg-[var(--surface-muted)] px-3 py-3 typography-ui">
               <Icon name="file" className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-              <p className="min-w-0 flex-1 text-muted-foreground">Diff not available for this file.</p>
+              <p className="min-w-0 flex-1 text-muted-foreground">{t('Diff not available for this file.')}</p>
               {blobUrl ? (
                 <Button type="button" variant="link" size="sm" asChild>
                   <a href={blobUrl} target="_blank" rel="noreferrer">
-                    Open on GitHub
+                    {t('Open on GitHub')}
                   </a>
                 </Button>
               ) : null}

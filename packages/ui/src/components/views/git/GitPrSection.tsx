@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { useGitHubSelectedRepo, useGitHubScopeStore } from '@/stores/useGitHubScopeStore';
@@ -21,6 +22,7 @@ const GitExistingPrRow: React.FC<{
   branch: string;
   repo: string;
 }> = ({ directory, branch, repo }) => {
+  const { t } = useTranslation();
   const key = React.useMemo(() => getGitHubPrStatusKey(directory, branch), [directory, branch]);
   const entry = useGitHubPrStatusStore((state) => (key ? state.results[key] ?? null : null));
   const summary = usePrVisualSummary(key);
@@ -29,15 +31,15 @@ const GitExistingPrRow: React.FC<{
   if (!pr) return null;
   const label = summary
     ? summary.visualState === 'merged'
-      ? `Pull request #${summary.number}, merged`
+      ? t('Pull request #{{number}}, merged', { number: summary.number })
       : summary.visualState === 'draft'
-        ? `Draft pull request #${summary.number}`
+        ? t('Draft pull request #{{number}}', { number: summary.number })
         : summary.visualState === 'blocked'
-          ? `Pull request #${summary.number}, checks failing`
+          ? t('Pull request #{{number}}, checks failing', { number: summary.number })
           : summary.visualState === 'closed'
-            ? `Pull request #${summary.number}, closed`
-            : `Pull request #${summary.number}, open`
-    : `Pull request #${pr.number}, open`;
+            ? t('Pull request #{{number}}, closed', { number: summary.number })
+            : t('Pull request #{{number}}, open', { number: summary.number })
+    : t('Pull request #{{number}}, open', { number: pr.number });
   const open = () => openPullRequestInSurface(directory, repo, pr.number);
 
   return (
@@ -45,20 +47,20 @@ const GitExistingPrRow: React.FC<{
       <button
         type="button"
         onClick={open}
-        aria-label={`Open ${label} in Pull requests`}
+        aria-label={t('Open {{label}} in Pull requests', { label })}
         title={label}
         className="absolute inset-0 rounded-md hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       />
       <span className="pointer-events-none flex min-w-0 flex-1 items-center gap-1.5">
         <GitHubStateGlyph kind="pr" state={pr.state} draft={pr.draft} />
         <span className="shrink-0 font-mono typography-micro tabular-nums text-muted-foreground">#{pr.number}</span>
-        <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground" title={pr.title || `Pull request #${pr.number}`}>
-          {pr.title || `Pull request #${pr.number}`}
+        <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground" title={pr.title || t('Pull request #{{number}}', { number: pr.number })}>
+          {pr.title || t('Pull request #{{number}}', { number: pr.number })}
         </span>
         <GitHubChecksGlyph state={entry?.checks?.state ?? null} />
       </span>
       <Button type="button" variant="ghost" size="xs" onClick={open} className="relative shrink-0">
-        Open
+        {t('Open')}
       </Button>
     </div>
   );
@@ -69,11 +71,12 @@ const GitNoPrRow: React.FC<{
   headBranch: string;
   onExpand: () => void;
 }> = ({ headBranch, onExpand }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex min-w-0 items-center gap-2 py-1">
       <Icon name="git-pull-request" className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <p className="flex min-w-0 flex-1 items-center gap-1.5 typography-micro text-muted-foreground">
-        <span className="shrink-0">No pull request for</span>
+        <span className="shrink-0">{t('No pull request for')}</span>
         <code
           className="min-w-0 max-w-44 truncate rounded bg-[var(--surface-muted)] px-1 py-px font-mono text-foreground"
           title={headBranch}
@@ -82,7 +85,7 @@ const GitNoPrRow: React.FC<{
         </code>
       </p>
       <Button type="button" variant="default" size="xs" onClick={onExpand} className="shrink-0">
-        Create pull request
+        {t('Create pull request')}
       </Button>
     </div>
   );

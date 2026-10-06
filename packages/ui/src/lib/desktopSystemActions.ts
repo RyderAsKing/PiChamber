@@ -6,6 +6,7 @@ import {
   isDesktopLocalOriginActive,
   isDesktopShell,
 } from './desktopBridge';
+import i18n from '@/i18n';
 import type {
   CloseToTrayStatus,
   FetchDesktopInstalledAppsResult,
@@ -210,11 +211,11 @@ export const requestDirectoryAccess = async (
       const selected = await getDesktopBridge()?.openDialog?.({
         directory: true,
         multiple: false,
-        title: 'Select Working Directory',
+        title: i18n.t('Select Working Directory'),
         ...(directoryPath ? { defaultPath: directoryPath } : {}),
       });
       if (!selected || typeof selected !== 'string') {
-        return { success: false, error: 'Directory selection cancelled' };
+        return { success: false, error: i18n.t('Directory selection cancelled') };
       }
       return { success: true, path: selected };
     } catch (error) {
@@ -223,7 +224,7 @@ export const requestDirectoryAccess = async (
     }
   }
 
-  return { success: false, error: 'Native directory picker not available' };
+  return { success: false, error: i18n.t('Native directory picker not available') };
 };
 
 const isDesktopFileGrantResult = (
@@ -240,23 +241,23 @@ export const requestFileAccess = async (
       const selected = await getDesktopBridge()?.openDialog?.({
         directory: false,
         multiple: false,
-        title: 'Select File',
+        title: i18n.t('Select File'),
         returnGrant: true,
         ...(options?.filters ? { filters: options.filters } : {}),
         ...(options?.defaultPath ? { defaultPath: options.defaultPath } : {}),
       });
       if (!selected) {
-        return { success: false, error: 'File selection cancelled' };
+        return { success: false, error: i18n.t('File selection cancelled') };
       }
       if (typeof selected === 'string') {
         return { success: true, path: selected };
       }
       if (!isDesktopFileGrantResult(selected)) {
-        return { success: false, error: 'File selection cancelled' };
+        return { success: false, error: i18n.t('File selection cancelled') };
       }
       const path = typeof selected.path === 'string' ? selected.path : '';
       if (!path) {
-        return { success: false, error: 'File selection cancelled' };
+        return { success: false, error: i18n.t('File selection cancelled') };
       }
       return {
         success: true,
@@ -269,7 +270,7 @@ export const requestFileAccess = async (
     }
   }
 
-  return { success: false, error: 'Native file picker not available' };
+  return { success: false, error: i18n.t('Native file picker not available') };
 };
 
 export const requestExistingFileAccess = async (
@@ -277,21 +278,21 @@ export const requestExistingFileAccess = async (
 ): Promise<{ success: boolean; path?: string; outsideFileGrant?: string; error?: string }> => {
   const targetPath = typeof path === 'string' ? path.trim() : '';
   if (!targetPath) {
-    return { success: false, error: 'Path is required' };
+    return { success: false, error: i18n.t('Path is required') };
   }
   if (!hasDesktopInvoke() || !isDesktopLocalOriginActive()) {
-    return { success: false, error: 'Native file access not available' };
+    return { success: false, error: i18n.t('Native file access not available') };
   }
 
   try {
     const selected = await getDesktopBridge()?.grantFileAccess?.(targetPath);
     if (!isDesktopFileGrantResult(selected)) {
-      return { success: false, error: 'File access was not granted' };
+      return { success: false, error: i18n.t('File access was not granted') };
     }
     const grantedPath = typeof selected.path === 'string' ? selected.path : '';
     const outsideFileGrant = typeof selected.outsideFileGrant === 'string' ? selected.outsideFileGrant : '';
     if (!grantedPath || !outsideFileGrant) {
-      return { success: false, error: 'File access was not granted' };
+      return { success: false, error: i18n.t('File access was not granted') };
     }
     return { success: true, path: grantedPath, outsideFileGrant };
   } catch (error) {
@@ -321,9 +322,9 @@ export const getDesktopUpdateChannel = async (): Promise<'stable' | 'rc'> => {
 };
 
 export const setDesktopUpdateChannel = async (channel: 'stable' | 'rc'): Promise<'stable' | 'rc'> => {
-  if (!hasDesktopInvoke()) throw new Error('Desktop update settings are unavailable.');
+  if (!hasDesktopInvoke()) throw new Error(i18n.t('Desktop update settings are unavailable.'));
   const saved = await invokeDesktop<unknown>('desktop_set_update_channel', { channel });
-  if (saved !== 'stable' && saved !== 'rc') throw new Error('Unable to save the desktop update channel.');
+  if (saved !== 'stable' && saved !== 'rc') throw new Error(i18n.t('Unable to save the desktop update channel.'));
   return saved;
 };
 

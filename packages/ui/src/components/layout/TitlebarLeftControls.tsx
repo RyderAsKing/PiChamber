@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -36,6 +37,7 @@ const TABLET_TOGGLE_BUTTON_CLASS =
  */
 export const TitlebarLeftControls: React.FC = () => {
   const isSidebarOpen = useUIStore((state) => state.isSidebarOpen);
+  const { t } = useTranslation();
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const overlayRef = React.useRef<HTMLDivElement | null>(null);
@@ -136,14 +138,14 @@ export const TitlebarLeftControls: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenWindowsAppMenu}
-                aria-label={"Open PiChamber menu"}
+                aria-label={t('Open PiChamber menu')}
                 className={cn(ICON_BUTTON_CLASS, 'shrink-0')}
               >
                 <Icon name="menu-2" className="h-[18px] w-[18px]" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{"PiChamber menu"}</p>
+              <p>{t('PiChamber menu')}</p>
             </TooltipContent>
           </Tooltip>
         ) : null}
@@ -154,7 +156,7 @@ export const TitlebarLeftControls: React.FC = () => {
               <button
                 type="button"
                 onClick={toggleSidebar}
-                aria-label={"Open sessions"}
+                aria-label={t('Open sessions')}
                 className={cn(
                   isTabletLayoutEnabled ? TABLET_TOGGLE_BUTTON_CLASS : ICON_BUTTON_CLASS,
                   'shrink-0',
@@ -167,7 +169,7 @@ export const TitlebarLeftControls: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{`Open sessions (${toggleShortcut})`}</p>
+              <p>{t('Open sessions ({{shortcut}})', { shortcut: toggleShortcut })}</p>
             </TooltipContent>
           </Tooltip>
         ) : null}

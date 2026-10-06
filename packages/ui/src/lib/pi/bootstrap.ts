@@ -16,6 +16,7 @@
  * Callers may inject a bounded retry policy without hiding failures.
  */
 
+import i18n from '@/i18n';
 import {
   createPiEventStream,
   fetchPiRuntimeHealth,
@@ -181,7 +182,7 @@ export const bootstrapPiDirectory = async (
     if (!epochSupported) {
       const error = {
         code: 'DAEMON_PROTOCOL_MISMATCH' as const,
-        message: 'The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.',
+        message: i18n.t('The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.'),
       };
       result.health = {
         state: 'unavailable',

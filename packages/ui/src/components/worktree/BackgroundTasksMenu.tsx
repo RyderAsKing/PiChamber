@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { Icon } from '@/components/icon/Icon';
@@ -40,6 +41,7 @@ const shortWorktreeTaskId = (key: string): string => {
 export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> = ({
   variant = 'desktop',
 }) => {
+  const t = i18n.t.bind(i18n);
   const entriesMap = useWorktreeCreationStore((state) => state.entries);
   const [open, setOpen] = React.useState(false);
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -96,7 +98,7 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
               : 'pointer-events-auto inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-border bg-sidebar px-3 typography-ui-label font-medium text-foreground shadow-lg hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
             variant === 'desktop' && 'relative w-auto px-2.5',
           )}
-          aria-label="Background tasks"
+          aria-label={t('Background tasks')}
           onPointerEnter={(event) => {
             if (event.pointerType !== 'mouse') return;
             cancelClose();
@@ -111,7 +113,7 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
           ) : (
             <Icon name="task" className="size-[18px]" />
           )}
-          <span>Background tasks</span>
+          <span>{t('Background tasks')}</span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -122,9 +124,9 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
         onPointerLeave={scheduleClose}
       >
         <div className="border-b border-border px-3 py-2.5">
-          <p className="typography-ui-label font-medium text-foreground">Background tasks</p>
+          <p className="typography-ui-label font-medium text-foreground">{t('Background tasks')}</p>
           <p className="typography-micro text-muted-foreground">
-            {activeCount === 1 ? '1 worktree is being created' : `${activeCount} worktrees are being created`}
+            {activeCount === 1 ? t('1 worktree is being created') : t('{{count}} worktrees are being created', { count: activeCount })}
           </p>
         </div>
         <div className="divide-y divide-border">
@@ -136,22 +138,22 @@ export const BackgroundTasksMenu: React.FC<{ variant?: 'desktop' | 'mobile' }> =
     </DropdownMenu>
   );
 };
-
 const BackgroundTaskRow: React.FC<{
   entry: WorktreeCreationEntry;
   onOpen: () => void;
 }> = ({ entry, onOpen }) => {
+  const t = i18n.t.bind(i18n);
   const failed = entry.state?.phase === 'failed';
   const active = Boolean(entry.state && !failed);
   const pending = isWorktreePromptPending(entry);
   const completed = isWorktreeTaskCompleted(entry);
   const title = failed
-    ? entry.state?.label ?? 'Worktree creation failed'
+    ? entry.state?.label ?? t('Worktree creation failed')
     : active
-      ? entry.state?.label ?? 'Creating worktree...'
+      ? entry.state?.label ?? t('Creating worktree...')
       : pending
-        ? 'Sending prompt...'
-        : `Worktree ready: ${entry.branch ?? entry.receipt?.branch ?? 'new worktree'}`;
+        ? t('Sending prompt...')
+        : t('Worktree ready: {{branch}}', { branch: entry.branch ?? entry.receipt?.branch ?? t('new worktree') });
 
   return (
     <div className="flex items-start gap-3 px-3 py-3">
@@ -176,14 +178,14 @@ const BackgroundTaskRow: React.FC<{
             <Button
               type="button"
               size="xs"
-              aria-label={`Restore draft for ${entry.intent.sourceDirectory} from ${entry.intent.startRef} (task ${shortWorktreeTaskId(entry.key)})`}
+              aria-label={t('Restore draft for {{directory}} from {{startRef}} (task {{taskId}})', { directory: entry.intent.sourceDirectory, startRef: entry.intent.startRef, taskId: shortWorktreeTaskId(entry.key) })}
               onClick={() => {
                 const result = restoreWorktreeFailedSend(entry.key);
                 const copy = describeWorktreeRestoreFailure(result, 'background-task');
                 if (copy) toast.error(copy.title, { description: copy.description });
               }}
             >
-              Restore draft
+              {t('Restore draft')}
             </Button>
           ) : null}
           <Button
@@ -192,20 +194,20 @@ const BackgroundTaskRow: React.FC<{
             size="xs"
             onClick={() => useWorktreeCreationStore.getState().dismissFailed(entry.key)}
           >
-            Dismiss
+            {t('Dismiss')}
           </Button>
         </div>
       ) : null}
       {completed ? (
         <div className="flex shrink-0 items-center gap-1">
-          <Button type="button" size="xs" onClick={onOpen}>Open</Button>
+          <Button type="button" size="xs" onClick={onOpen}>{t('Open')}</Button>
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-6"
             onClick={() => useWorktreeCreationStore.getState().clearEntry(entry.key)}
-            aria-label="Dismiss completed task"
+            aria-label={t('Dismiss completed task')}
           >
             <Icon name="close" className="size-3.5" />
           </Button>

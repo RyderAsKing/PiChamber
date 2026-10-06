@@ -1,5 +1,6 @@
 import React from 'react';
 
+import i18n from '@/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { ProjectEntry } from '@/lib/api/types';
 import { formatDirectoryName } from '@/lib/utils';
@@ -191,7 +192,7 @@ export function useDraftTarget(enabled: boolean) {
         [explicitBranch, isDraftOpen, selectedDirectoryBranches?.all],
     );
 
-    const selectedDraftBranchLabel = selectedBranchName ?? (selectedDirectoryIsGitRepo === true ? 'Detached HEAD' : null);
+    const selectedDraftBranchLabel = selectedBranchName ?? (selectedDirectoryIsGitRepo === true ? i18n.t('Detached HEAD') : null);
     const shouldShowDraftBranchSelector = selectedDirectoryIsGitRepo === true
         && Boolean(selectedDraftBranchLabel || draftBranchItems.length > 0 || isDiscoveringDraftBranches);
 

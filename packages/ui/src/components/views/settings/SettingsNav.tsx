@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipTrigger } from '@/components/ui/tooltip';
@@ -60,6 +61,7 @@ export function SettingsNav({
   activeRemoteLabel,
   mobileAppActions,
 }: SettingsNavProps): React.ReactNode {
+  const { t } = useTranslation();
   const hasSearchQuery = settingsSearchQuery.trim().length > 0;
   const effectiveHasSearchQuery = isMobile
     ? isMobileSettingsSearchOpen && hasSearchQuery
@@ -99,19 +101,19 @@ export function SettingsNav({
                           aria-hidden
                         />
                         <span className="text-[var(--status-success)]">
-                          Connected
+                          {t("Connected")}
                         </span>
                       </span>
                     </div>
                     <div className="typography-micro text-muted-foreground truncate">
-                      Manage instances & pair devices
+                      {t("Manage instances & pair devices")}
                     </div>
                   </>
                 ) : (
                   <>
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="typography-ui-label font-medium text-foreground truncate">
-                        Not connected
+                        {t("Not connected")}
                       </span>
                       <span className="flex items-center gap-1.5 shrink-0 typography-micro">
                         <span
@@ -119,12 +121,12 @@ export function SettingsNav({
                           aria-hidden
                         />
                         <span className="text-muted-foreground">
-                          Select a server
+                          {t("Select a server")}
                         </span>
                       </span>
                     </div>
                     <div className="typography-micro text-muted-foreground truncate">
-                      Manage instances & pair devices
+                      {t("Manage instances & pair devices")}
                     </div>
                   </>
                 )}
@@ -144,15 +146,15 @@ export function SettingsNav({
               value={settingsSearchQuery}
               onChange={(event) => setSettingsSearchQuery(event.target.value)}
               onKeyDown={handleSettingsSearchKeyDown}
-              placeholder={"Search settings"}
-              aria-label={"Search settings"}
+              placeholder={t("Search settings")}
+              aria-label={t("Search settings")}
               className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
             />
             {hasSearchQuery && (
               <button
                 type="button"
                 onClick={() => setSettingsSearchQuery('')}
-                aria-label={"Clear settings search"}
+                aria-label={t("Clear settings search")}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground sm:h-5 sm:w-5"
               >
                 <Icon name="close" className="h-3.5 w-3.5" />
@@ -216,7 +218,7 @@ export function SettingsNav({
               })()
             ) : (
               <div className="px-2 py-6 text-center typography-ui text-muted-foreground">
-                {"No matching settings"}
+                {t("No matching settings")}
               </div>
             )
           ) : (
@@ -243,9 +245,9 @@ export function SettingsNav({
               return visibleGroups.map(({ group, pages }, groupIndex) => {
                 const groupLabel =
                   group === 'projects'
-                    ? 'Workspace'
+                    ? t('Workspace')
                     : group === 'agent'
-                      ? 'Agent'
+                      ? t('Agent')
                       : null;
                 return (
                   <div key={group} className="space-y-0.5">
@@ -290,7 +292,7 @@ export function SettingsNav({
                                 </span>
                                 {page.slug === 'tunnel' && (
                                   <span className="shrink-0 typography-micro px-1 rounded leading-none pb-px text-[var(--status-warning)] bg-[var(--status-warning)]/10">
-                                    {"beta"}
+                                    {t("beta")}
                                   </span>
                                 )}
                               </span>

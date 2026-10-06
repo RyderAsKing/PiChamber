@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 
 /**
@@ -17,11 +18,12 @@ export function UploadProgressIcon({
   /** 0-100, or null while the size is indeterminate (e.g. preparing). */
   progress: number | null;
 }) {
+  const { t } = useTranslation();
   const clamped = clampUploadProgress(progress);
   return (
     <span
       role="progressbar"
-      aria-label={`Uploading ${filename}`}
+      aria-label={t('Uploading {{filename}}', { filename })}
       aria-valuemin={0}
       aria-valuemax={100}
       {...(clamped !== null ? { 'aria-valuenow': clamped } : {})}

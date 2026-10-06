@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { DesktopHostSwitcherInline } from '@/components/desktop/DesktopHostSwitcher';
 import {
   AuthLockCard,
@@ -14,6 +15,7 @@ export interface SessionAuthGateProps {
 export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
   children,
 }) => {
+  const { t } = useTranslation();
   const {
     state,
     password,
@@ -55,7 +57,7 @@ export const SessionAuthGate: React.FC<SessionAuthGateProps> = ({
           <div className="w-full max-w-xs">
             <DesktopHostSwitcherInline />
             <p className="mt-1 text-center typography-micro text-muted-foreground">
-              {"Use Local if remote is unreachable."}
+              {t('Use Local if remote is unreachable.')}
             </p>
           </div>
         )}

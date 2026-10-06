@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { GitHubSurfaceShell } from './GitHubSurfaceShell';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -51,6 +52,7 @@ const IssuesBody: React.FC<{
   /** Which header hosts the slot (`desktop` ContextPanel or `drawer` mobile/tablet). */
   headerActionsPresentation?: GitHubHeaderActionsPresentation;
 }> = ({ directory, repo, isRefreshing, registerRefresh, onRefreshChange, headerActionsSlot = null, headerActionsPresentation = 'drawer' }) => {
+  const { t } = useTranslation();
   const apis = useRuntimeAPIs();
   const github = apis.github ?? null;
   const filters = useIssuesFilters(directory, repo);
@@ -190,10 +192,10 @@ const IssuesBody: React.FC<{
   });
   const incompleteSummary = React.useMemo(() => {
     if (complete || !hasRelevantData || !filterActive) return null;
-    const match = items.length === 1 ? '1 match' : `${items.length} matches`;
-    const loaded = loadedCount === 1 ? '1 most recent loaded issue' : `${loadedCount} most recent loaded issues`;
-    return `Showing ${match} from the ${loaded}`;
-  }, [complete, hasRelevantData, filterActive, items.length, loadedCount]);
+    const match = items.length === 1 ? t('1 match') : t('{{count}} matches', { count: items.length });
+    const loaded = loadedCount === 1 ? t('1 most recent loaded issue') : t('{{count}} most recent loaded issues', { count: loadedCount });
+    return t('Showing {{match}} from the {{loaded}}', { match, loaded });
+  }, [complete, hasRelevantData, filterActive, items.length, loadedCount, t]);
 
   const detailEntry = useIssueDetailEntry(repo, selectedNumber);
   const commentsEntry = useIssueCommentsEntry(repo, selectedNumber);
@@ -302,6 +304,7 @@ export const IssuesSurface: React.FC<{
   /** Which header hosts the slot (`desktop` ContextPanel or `drawer` mobile/tablet). */
   headerActionsPresentation?: GitHubHeaderActionsPresentation;
 }> = ({ headerActionsSlot = null, headerActionsPresentation = 'drawer' }) => {
+  const { t } = useTranslation();
   const directory = useEffectiveDirectory() ?? '';
   const [refreshing, setRefreshing] = React.useState(false);
   const refreshRef = React.useRef<(() => void) | null>(null);
@@ -313,7 +316,7 @@ export const IssuesSurface: React.FC<{
   if (!directory) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center">
-        <p className="typography-ui text-muted-foreground">Open a project to browse issues.</p>
+        <p className="typography-ui text-muted-foreground">{t('Open a project to browse issues.')}</p>
       </div>
     );
   }

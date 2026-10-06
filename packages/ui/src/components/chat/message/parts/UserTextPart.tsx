@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { Part } from '@/lib/chat/types';
 import type { AgentMentionInfo } from '../types';
@@ -20,6 +21,7 @@ type UserTextPartProps = {
 };
 
 const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMention }) => {
+    const { t } = useTranslation();
     const partWithText = part as PartWithText;
     const rawText = partWithText.text;
     const serializedText = typeof rawText === 'string' ? rawText : partWithText.content || partWithText.value || '';
@@ -121,7 +123,7 @@ const UserTextPart: React.FC<UserTextPartProps> = ({ part, messageId, agentMenti
                     type="button"
                     onClick={handleCollapse}
                     className="absolute top-0 right-0 z-10 flex items-center justify-center rounded-sm bg-[var(--surface-elevated)] p-0.5 text-[var(--surface-mutedForeground)] hover:text-[var(--surface-foreground)] hover:bg-[var(--interactive-hover)] transition-colors"
-                    aria-label={"Collapse user message"}
+                    aria-label={t("Collapse user message")}
                 >
                     <Icon name="arrow-up-s" className="h-3.5 w-3.5" />
                 </button>

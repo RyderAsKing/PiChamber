@@ -9,6 +9,7 @@ import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { selectStreamingAssistantMessageId } from '@/sync/suspend-live-tail-records';
 import { isFullySyntheticMessage } from '@/lib/messages/synthetic';
 import { useCurrentSessionActivity } from './useSessionActivity';
+import i18n from '@/i18n';
 
 type AssistantActivity = 'idle' | 'streaming' | 'tooling' | 'cooldown' | 'permission';
 
@@ -167,7 +168,8 @@ const normalizeStatusToolName = (toolName: string): string => {
 
 const getToolStatusPhrase = (toolName: string): string => {
     const normalized = normalizeStatusToolName(toolName);
-    return TOOL_STATUS_PHRASES[normalized] ?? `using ${normalized.replaceAll('_', ' ')}`;
+    const phrase = TOOL_STATUS_PHRASES[normalized];
+    return phrase ? i18n.t(phrase) : i18n.t('using {{tool}}', { tool: normalized.replaceAll('_', ' ') });
 };
 
 const hashString = (value: string): number => {
@@ -179,7 +181,7 @@ const hashString = (value: string): number => {
 };
 
 const getStableWorkingPhrase = (key: string): string => {
-    return WORKING_PHRASES[hashString(key) % WORKING_PHRASES.length] ?? 'working';
+    return i18n.t(WORKING_PHRASES[hashString(key) % WORKING_PHRASES.length] ?? 'working');
 };
 
 const isToolPart = (part: Part): part is ToolPart => part.type === 'tool';
@@ -238,8 +240,8 @@ export const getAssistantActivityStatus = (parts: Part[], genericKey: string): P
     const statusText = (() => {
         if (activePartType === 'editing' && activeToolName) return getToolStatusPhrase(activeToolName);
         if (activePartType === 'tool' && activeToolName) return getToolStatusPhrase(activeToolName);
-        if (activePartType === 'reasoning') return 'thinking';
-        if (activePartType === 'text') return 'writing response';
+        if (activePartType === 'reasoning') return i18n.t('thinking');
+        if (activePartType === 'text') return i18n.t('writing response');
         return getStableWorkingPhrase(genericKey);
     })();
 
@@ -270,7 +272,7 @@ export const getPiAssistantActivityStatus = (
             return {
                 activePartType: 'reasoning',
                 activeToolName: undefined,
-                statusText: 'thinking',
+                statusText: i18n.t('thinking'),
                 isGenericStatus: false,
             };
         }
@@ -279,7 +281,7 @@ export const getPiAssistantActivityStatus = (
             return {
                 activePartType: 'text',
                 activeToolName: undefined,
-                statusText: 'writing response',
+                statusText: i18n.t('writing response'),
                 isGenericStatus: false,
             };
         }

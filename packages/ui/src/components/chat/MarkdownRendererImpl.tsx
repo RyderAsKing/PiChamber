@@ -1,5 +1,6 @@
 import React from 'react';
 import morphdom from 'morphdom';
+import { useTranslation } from 'react-i18next';
 import { renderMermaidSVG } from 'beautiful-mermaid';
 import type { Part } from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
@@ -90,19 +91,20 @@ const useDecorateContext = (
   onPreviewLoopback?: (url: string) => void,
   mermaidControls: MermaidControlOptions = DEFAULT_MERMAID_CONTROLS,
 ): DecorateContext => {
+  const { t } = useTranslation();
   const labels: DecorateLabels = React.useMemo(() => ({
-    copy: "Copy code",
-    copied: "Copied",
-    copyTable: "Copy table",
-    downloadTable: "Download table",
-    copyDiagram: "Copy source",
-    downloadDiagram: "Download SVG",
-    zoomInDiagram: "Zoom in",
-    zoomOutDiagram: "Zoom out",
-    resetDiagramView: "Reset view",
-    previewLabel: "Preview",
-    previewTitle: "Open preview pane",
-  }), []);
+    copy: t("Copy code"),
+    copied: t("Copied"),
+    copyTable: t("Copy table"),
+    downloadTable: t("Download table"),
+    copyDiagram: t("Copy source"),
+    downloadDiagram: t("Download SVG"),
+    zoomInDiagram: t("Zoom in"),
+    zoomOutDiagram: t("Zoom out"),
+    resetDiagramView: t("Reset view"),
+    previewLabel: t("Preview"),
+    previewTitle: t("Open preview pane"),
+  }), [t]);
 
   return React.useMemo<DecorateContext>(() => {
     const colors = mermaidColorsFromTheme(currentTheme);

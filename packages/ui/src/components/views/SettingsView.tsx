@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { cn, getModifierLabel } from "@/lib/utils";
 import { useUIStore } from "@/stores/useUIStore";
 import { useProjectsStore } from "@/stores/useProjectsStore";
@@ -50,6 +51,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   visiblePageSlugs,
   initialMobileStage = "nav",
 }) => {
+  const { t } = useTranslation();
   const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
   const mobileAppActions = useMobileAppActions();
@@ -189,44 +191,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const getPageTitle = React.useCallback((slug: SettingsPageSlug): string => {
     switch (slug) {
       case "general":
-        return "General";
+        return t("General");
       case "projects":
-        return "Projects";
+        return t("Projects");
       case "remote-instances":
-        return "Remote Instances";
+        return t("Remote Instances");
       case "providers":
-        return "Providers";
+        return t("Providers");
       case "behavior":
-        return "Behavior";
+        return t("Behavior");
       case "skills.installed":
-        return "Skills";
+        return t("Skills");
       case "git":
-        return "Git";
+        return t("Git");
       case "appearance":
-        return "Appearance";
+        return t("Appearance");
       case "chat":
-        return "Chat";
+        return t("Chat");
       case "dictation":
-        return "Dictation";
+        return t("Dictation");
       case "shortcuts":
-        return "Shortcuts";
+        return t("Shortcuts");
       case "sessions":
-        return "Sessions";
+        return t("Sessions");
       case "snippets":
-        return "Snippets";
+        return t("Snippets");
       case "prompt-templates":
-        return "Prompt templates";
+        return t("Prompt templates");
       case "notifications":
-        return "Notifications";
+        return t("Notifications");
       case "tunnel":
-        return "External Tunnel";
+        return t("External Tunnel");
       case "about":
-        return "About";
+        return t("About");
       case "home":
       default:
-        return "Settings";
+        return t("Settings");
     }
-  }, []);
+  }, [t]);
 
   const searchRuntimeCtx = React.useMemo(
     () => ({
@@ -297,8 +299,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const showOpenPageSidebarButton =
     mobileStage === "page-content" && activePageMeta?.kind === "split";
   const mobileBackButtonLabel = showBackButton
-    ? "Back to Settings"
-    : "Close settings";
+    ? t("Back to Settings")
+    : t("Close settings");
   const shortcutKey = getModifierLabel();
 
   const handleMobilePageSidebarItemSelect = React.useCallback(() => {
@@ -489,7 +491,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={handleBack}
-                aria-label={"Back"}
+                aria-label={t("Back")}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <Icon name="arrow-left-s" className="h-5 w-5" />

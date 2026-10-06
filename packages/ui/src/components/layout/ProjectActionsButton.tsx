@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,6 +33,7 @@ export const ProjectActionsButton = ({
   compact = false,
   allowMobile = false,
 }: ProjectActionsButtonProps) => {
+  const { t } = useTranslation();
   const {
     shouldRender,
     isLoading,
@@ -84,8 +86,8 @@ export const ProjectActionsButton = ({
               )}
               onClick={handlePrimaryClick}
               aria-label={selectedRunning
-                ? `Stop ${resolvedSelected.name}`
-                : `Run ${resolvedSelected.name}`}
+                ? t('Stop {{name}}', { name: resolvedSelected.name })
+                : t('Run {{name}}', { name: resolvedSelected.name })}
             >
               {isStoppingSelected || isWaitingForSelectedPreview
                 ? <Icon name="loader-4" className="h-5 w-5 animate-spin text-[var(--status-warning)]" />
@@ -95,7 +97,7 @@ export const ProjectActionsButton = ({
             </button>
           </TooltipTrigger>
           {isAutoDiscoverSelected ? (
-            <TooltipContent sideOffset={6}>{"Automatically discover and run the development server"}</TooltipContent>
+            <TooltipContent sideOffset={6}>{t('Automatically discover and run the development server')}</TooltipContent>
           ) : null}
         </Tooltip>
         {showSelectedPreviewButton ? (
@@ -104,13 +106,13 @@ export const ProjectActionsButton = ({
               <button
                 type="button"
                 className="app-region-no-drag -ml-1 inline-flex h-9 w-7 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={"Open Preview"}
+                aria-label={t('Open Preview')}
                 onClick={handleOpenSelectedPreview}
               >
                 <Icon name="global" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
+            <TooltipContent sideOffset={6}>{t('Open Preview')}</TooltipContent>
           </Tooltip>
         ) : null}
         <DropdownMenu>
@@ -118,7 +120,7 @@ export const ProjectActionsButton = ({
             <button
               type="button"
               className="app-region-no-drag -ml-1 inline-flex h-9 w-5 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              aria-label={"Choose project action"}
+              aria-label={t('Choose project action')}
             >
               <Icon name="arrow-down-s" className="h-3.5 w-3.5" />
             </button>
@@ -126,7 +128,7 @@ export const ProjectActionsButton = ({
           <DropdownMenuContent align="end" className="w-52 max-h-[70vh] overflow-y-auto">
             <DropdownMenuItem className="flex items-center gap-2" onClick={openProjectActionsSettings}>
               <Icon name="add" className="h-4 w-4" />
-              <span className="typography-ui-label text-foreground">{"Add new action"}</span>
+              <span className="typography-ui-label text-foreground">{t('Add new action')}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {displayActions.map((entry) => {
@@ -185,8 +187,8 @@ export const ProjectActionsButton = ({
               'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed'
             )}
             aria-label={selectedRunning
-              ? `Stop ${resolvedSelected.name}`
-              : `Run ${resolvedSelected.name}`}
+              ? t('Stop {{name}}', { name: resolvedSelected.name })
+              : t('Run {{name}}', { name: resolvedSelected.name })}
           >
             <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
               {isStoppingSelected || isWaitingForSelectedPreview
@@ -198,7 +200,7 @@ export const ProjectActionsButton = ({
           </button>
         </TooltipTrigger>
         {isAutoDiscoverSelected ? (
-          <TooltipContent sideOffset={6}>{"Automatically discover and run the development server"}</TooltipContent>
+          <TooltipContent sideOffset={6}>{t('Automatically discover and run the development server')}</TooltipContent>
         ) : null}
       </Tooltip>
 
@@ -213,12 +215,12 @@ export const ProjectActionsButton = ({
                 'border-l border-[var(--interactive-border)] text-foreground',
                 'hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
               )}
-              aria-label={"Open Preview"}
+              aria-label={t('Open Preview')}
             >
               <Icon name="global" className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
+          <TooltipContent sideOffset={6}>{t('Open Preview')}</TooltipContent>
         </Tooltip>
       ) : null}
 
@@ -231,7 +233,7 @@ export const ProjectActionsButton = ({
               'border-l border-[var(--interactive-border)] text-muted-foreground',
               'hover:bg-interactive-hover hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
             )}
-            aria-label={"Choose project action"}
+            aria-label={t('Choose project action')}
           >
             <Icon name="arrow-down-s" className="h-4 w-4" />
           </button>
@@ -239,7 +241,7 @@ export const ProjectActionsButton = ({
         <DropdownMenuContent align="start" className="w-52 max-h-[70vh] overflow-y-auto">
           <DropdownMenuItem className="flex items-center gap-2" onClick={openProjectActionsSettings}>
             <Icon name="add" className="h-4 w-4" />
-            <span className="typography-ui-label text-foreground">{"Add new action"}</span>
+            <span className="typography-ui-label text-foreground">{t('Add new action')}</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {displayActions.map((entry) => {

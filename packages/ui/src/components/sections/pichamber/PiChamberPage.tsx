@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { PiChamberVisualSettings } from './PiChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
@@ -22,7 +23,7 @@ interface PiChamberPageProps {
 }
 
 export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
-    
+    const { t } = useTranslation();
     const { isMobile } = useDeviceInfo();
     const showAbout = isMobile && isWebRuntime();
     const showDesktopNetworkSettings = isDesktopShell();
@@ -67,7 +68,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         }
     };
 
-    const pageTitle = {
+    const pageTitle = t({
         general: "General",
         visual: "Appearance",
         chat: "Chat",
@@ -77,9 +78,9 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         github: "Git",
         notifications: "Notifications",
         tunnel: "External Tunnel",
-    }[section];
+    }[section]);
 
-    const pageDescription = {
+    const pageDescriptionEntry = {
         general: "App startup, security, connection, privacy, and diagnostics.",
         visual: "Customize how PiChamber looks and feels.",
         chat: "Configure how messages and tools are displayed.",
@@ -90,6 +91,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         notifications: "Choose when and how you get notified.",
         tunnel: "Expose this instance over a remote tunnel.",
     }[section];
+    const pageDescription = pageDescriptionEntry ? t(pageDescriptionEntry) : undefined;
 
     return (
         <SettingsPageLayout

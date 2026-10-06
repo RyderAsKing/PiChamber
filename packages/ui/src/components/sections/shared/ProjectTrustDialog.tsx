@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -14,7 +15,7 @@ import {
 
 /** Resolves Pi's persisted project-resource trust decision before protected resources are shown. */
 export const ProjectTrustDialog: React.FC<{ onResolved?: () => void }> = ({ onResolved }) => {
-  
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
 
@@ -36,7 +37,7 @@ export const ProjectTrustDialog: React.FC<{ onResolved?: () => void }> = ({ onRe
       }
       onResolved?.();
     } catch (error) {
-      const message = error instanceof Error && error.message ? error.message : 'Failed to update project trust';
+      const message = error instanceof Error && error.message ? error.message : t('Failed to update project trust');
       if (isSessionBusyError(error)) {
         toast.info(busySettingsMessage('Project trust'));
       } else {
@@ -50,12 +51,12 @@ export const ProjectTrustDialog: React.FC<{ onResolved?: () => void }> = ({ onRe
   return <Dialog open={open} onOpenChange={() => {}}>
     <DialogContent className="max-w-md">
       <DialogHeader>
-        <DialogTitle>{"Trust this project?"}</DialogTitle>
-        <DialogDescription>{"This project contains Pi settings, skills, prompts, or extensions. Trusting it allows Pi to load those project resources."}</DialogDescription>
+        <DialogTitle>{t('Trust this project?')}</DialogTitle>
+        <DialogDescription>{t('This project contains Pi settings, skills, prompts, or extensions. Trusting it allows Pi to load those project resources.')}</DialogDescription>
       </DialogHeader>
       <DialogFooter>
-        <Button variant="ghost" size="sm" disabled={saving} onClick={() => void decide(false)}>{"Keep untrusted"}</Button>
-        <Button size="sm" disabled={saving} onClick={() => void decide(true)}>{"Trust project"}</Button>
+        <Button variant="ghost" size="sm" disabled={saving} onClick={() => void decide(false)}>{t('Keep untrusted')}</Button>
+        <Button size="sm" disabled={saving} onClick={() => void decide(true)}>{t('Trust project')}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

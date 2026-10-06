@@ -6,6 +6,7 @@
  * through to Pi's skill and extension registries.
  */
 
+import i18n from '@/i18n';
 import { toast } from '@/components/ui/toast';
 
 export interface ParsedSlashCommand {
@@ -77,7 +78,7 @@ export async function tryExecuteLocalSlashCommand({
     }
     if (name === 'compact') {
         if (!currentSessionId) {
-            toast.error('Open a session before compacting.');
+            toast.error(i18n.t('Open a session before compacting.'));
             return true;
         }
         await onCompactSession(currentSessionId, argument.trim() || undefined);

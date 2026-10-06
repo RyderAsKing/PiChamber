@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ import type { ProjectIdentitySaveData } from '@/components/sections/projects/use
 /** Projects settings — browse grid + detail, like Providers/Skills/Snippets. */
 export const ProjectsPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const projects = useProjectsStore((state) => state.projects);
   const updateProjectMeta = useProjectsStore((state) => state.updateProjectMeta);
   const selectedId = useUIStore((state) => state.settingsProjectsSelectedId);
@@ -82,7 +84,7 @@ export const ProjectsPage: React.FC = () => {
               variant="ghost"
               size="xs"
               onClick={() => setSelectedId(null)}
-              aria-label="Back to projects"
+              aria-label={t('Back to projects')}
               className="-ml-1 h-7 w-7 p-0"
             >
               <Icon name="arrow-left-s" className="size-4" />
@@ -103,23 +105,23 @@ export const ProjectsPage: React.FC = () => {
   if (projects.length === 0) {
     return (
       <SettingsPageLayout
-        title={isMobile ? undefined : 'Projects'}
-        description={isMobile ? undefined : 'Manage your projects and worktrees. Add a project to configure its defaults and actions.'}
+        title={isMobile ? undefined : t('Projects')}
+        description={isMobile ? undefined : t('Manage your projects and worktrees. Add a project to configure its defaults and actions.')}
         headerEnd={
           <Button variant="outline" size="sm" onClick={handleAddProject}>
             <Icon name="add" className="size-4" />
-            Add project
+            {t('Add project')}
           </Button>
         }
       >
-        <SettingsSection title="Projects" divider={false} settingsItem="projects.browse">
+        <SettingsSection title={t('Projects')} divider={false} settingsItem="projects.browse">
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon name="folders" className="size-8 text-muted-foreground/60" aria-hidden />
-            <p className="typography-meta text-muted-foreground">No projects yet</p>
-            <p className="typography-micro max-w-sm text-muted-foreground">Add a local directory to start saving per-project defaults, session history, and header actions.</p>
+            <p className="typography-meta text-muted-foreground">{t('No projects yet')}</p>
+            <p className="typography-micro max-w-sm text-muted-foreground">{t('Add a local directory to start saving per-project defaults, session history, and header actions.')}</p>
             <Button variant="outline" size="sm" onClick={handleAddProject}>
               <Icon name="add" className="size-4" />
-              Add project
+              {t('Add project')}
             </Button>
           </div>
         </SettingsSection>
@@ -129,8 +131,8 @@ export const ProjectsPage: React.FC = () => {
 
   return (
     <SettingsPageLayout
-      title={isMobile ? undefined : 'Projects'}
-      description={isMobile ? undefined : 'Manage your projects and worktrees. Click a card to configure its defaults and actions.'}
+      title={isMobile ? undefined : t('Projects')}
+      description={isMobile ? undefined : t('Manage your projects and worktrees. Click a card to configure its defaults and actions.')}
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 max-w-full">
@@ -142,15 +144,15 @@ export const ProjectsPage: React.FC = () => {
             <Input
               value={projectQuery}
               onChange={(event) => setProjectQuery(event.target.value)}
-              placeholder="Search projects"
-              aria-label="Search projects"
+              placeholder={t('Search projects')}
+              aria-label={t('Search projects')}
               className="h-9 w-[18rem] max-w-full pl-8"
             />
             {projectQuery ? (
               <button
                 type="button"
                 onClick={() => setProjectQuery('')}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
               >
                 <Icon name="close" className="size-4" />
@@ -159,17 +161,17 @@ export const ProjectsPage: React.FC = () => {
           </div>
           <Button variant="outline" size="sm" onClick={handleAddProject}>
             <Icon name="add" className="size-4" />
-            Add project
+            {t('Add project')}
           </Button>
         </div>
       }
     >
-      <SettingsSection title="Projects" divider={false} settingsItem="projects.browse">
+      <SettingsSection title={t('Projects')} divider={false} settingsItem="projects.browse">
         {filteredProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <p className="typography-meta text-muted-foreground">No projects match “{projectQuery}”.</p>
+            <p className="typography-meta text-muted-foreground">{t('No projects match “{{query}}”.', { query: projectQuery })}</p>
             <Button variant="ghost" size="xs" onClick={() => setProjectQuery('')}>
-              Clear search
+              {t('Clear search')}
             </Button>
           </div>
         ) : (
@@ -180,7 +182,7 @@ export const ProjectsPage: React.FC = () => {
             <button
               type="button"
               onClick={handleAddProject}
-              aria-label="Add project"
+              aria-label={t('Add project')}
               className={cn(
                 'group flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4',
                 'border-border/60 bg-transparent text-muted-foreground',
@@ -192,8 +194,8 @@ export const ProjectsPage: React.FC = () => {
               <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
                 <Icon name="add" className="size-5" />
               </span>
-              <span className="typography-ui-label font-medium">Add project</span>
-              <span className="typography-micro text-muted-foreground">Local directory</span>
+              <span className="typography-ui-label font-medium">{t('Add project')}</span>
+              <span className="typography-micro text-muted-foreground">{t('Local directory')}</span>
             </button>
           </div>
         )}

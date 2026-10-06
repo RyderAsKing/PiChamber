@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { cn } from '@/lib/utils';
 import { getToolMetadata } from '@/lib/toolHelpers';
@@ -156,6 +157,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
     onShowPopup,
     animateTailText = true,
 }) => {
+    const { t } = useTranslation();
     const sessionId = useSessionUIStore((store) => store.currentSessionId);
     const deferredBody = (part.state as { deferredBody?: unknown } | undefined)?.deferredBody === true;
     const hydratedPart = useSessionReducerPart(sessionId, part.id, isExpanded && deferredBody);
@@ -613,11 +615,11 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 animate={animateTailText}
                                 showFileIcons
                                 textClassName={TOOL_ROW_DESCRIPTION_CLASS}
-                                openDiffLabel={"Open file diff"}
+                                openDiffLabel={t("Open file diff")}
                                 onFileClick={runtime?.editor ? openApplyPatchFile : undefined}
                             />
                             {typeof effectiveTimeStart === 'number' ? (
-                                <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
+                                <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label={t("Tool duration")}>
                                     <LiveDuration
                                         start={effectiveTimeStart}
                                         end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}
@@ -725,7 +727,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                     </div>
                 ) : null}
                 {!isMultiFileApplyPatch && typeof effectiveTimeStart === 'number' ? (
-                    <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
+                    <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label={t("Tool duration")}>
                         <LiveDuration
                             start={effectiveTimeStart}
                             end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}
@@ -848,13 +850,14 @@ class ToolPartErrorBoundary extends React.Component<{
 }
 
 const ToolPart: React.FC<ToolPartProps> = (props) => {
+    const { t } = useTranslation();
     const toolName = normalizeToolName(props.part.tool) || 'tool';
     const displayName = getToolMetadata(toolName).displayName;
 
     return (
         <ToolPartErrorBoundary
             displayName={displayName}
-            errorLabel={"Error:"}
+            errorLabel={t("Error:")}
             resetKey={props.part}
             toolName={toolName}
         >

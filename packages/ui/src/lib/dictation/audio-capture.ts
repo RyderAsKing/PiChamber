@@ -1,4 +1,5 @@
 import { DICTATION_AUDIO_WORKLET_SOURCE } from './audio-worklet';
+import i18n from '@/i18n';
 
 const OUTPUT_RATE = 16_000;
 const CHUNK_SAMPLES = 4_000;
@@ -47,7 +48,7 @@ export class DictationAudioCapture {
   async start(): Promise<void> {
     if (this.stream) return;
     const Context = contextConstructor();
-    if (!Context || !navigator.mediaDevices?.getUserMedia) throw new Error('Microphone recording is not supported');
+    if (!Context || !navigator.mediaDevices?.getUserMedia) throw new Error(i18n.t('Microphone recording is not supported'));
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     if (this.cancelled) {
       stream.getTracks().forEach((track) => track.stop());

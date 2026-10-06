@@ -1,8 +1,10 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import type { DesktopHost } from '@/lib/desktopHosts';
 
 export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): string | null {
+  const { t } = useTranslation();
   const [activeRemoteLabel, setActiveRemoteLabel] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -43,12 +45,12 @@ export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): st
       const url = getRuntimeApiBaseUrl();
       const key = getRuntimeKey();
       if (key === 'local') {
-        setActiveRemoteLabel('Local');
+        setActiveRemoteLabel(t('Local'));
         return;
       }
       if (key.startsWith('relay:')) {
         const serverId = key.split(':')[1]?.split('@')[0];
-        setActiveRemoteLabel(serverId ? `Relay ${serverId.slice(0, 8)}` : 'Private relay');
+        setActiveRemoteLabel(serverId ? t('Relay {{id}}', { id: serverId.slice(0, 8) }) : t('Private relay'));
         return;
       }
       if (key.startsWith('host:')) {
@@ -70,7 +72,7 @@ export function useActiveRemoteLabel(mobileAppInstanceLabel?: string | null): st
 
     void update();
     return subscribeRuntimeEndpointChanged(() => void update());
-  }, [mobileAppInstanceLabel]);
+  }, [mobileAppInstanceLabel, t]);
 
   return activeRemoteLabel;
 }

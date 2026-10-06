@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { GitWorktree } from '@/lib/api/types';
 import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
@@ -22,6 +23,7 @@ type Args = {
 const isArchivedSession = (session: Session): boolean => Boolean(session.time?.archived);
 
 export const useSessionGrouping = (args: Args) => {
+  const { t } = useTranslation();
   const buildGroupSearchText = React.useCallback((group: SessionGroup): string => {
     return [group.label, group.branch ?? '', group.description ?? '', group.directory ?? ''].join(' ').toLowerCase();
   }, []);
@@ -118,8 +120,8 @@ export const useSessionGrouping = (args: Args) => {
       const groups: SessionGroup[] = [{
         id: 'root',
         label: (projectIsRepo && projectRootBranch && projectRootBranch !== 'HEAD')
-          ? `project root: ${projectRootBranch}`
-          : "project root",
+          ? t('project root: {{branch}}', { branch: projectRootBranch })
+          : t("project root"),
         branch: projectRootBranch ?? null,
         description: normalizedProjectRoot ? formatPathForDisplay(normalizedProjectRoot, args.homeDirectory) : null,
         isMain: true,
@@ -133,7 +135,7 @@ export const useSessionGrouping = (args: Args) => {
       for (const { worktree, directory } of normalizedWorktrees) {
         groups.push({
           id: `worktree:${directory}`,
-          label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
+          label: worktree.branch || (worktree.detached ? t('Detached HEAD') : worktree.name),
           branch: worktree.branch,
           description: formatPathForDisplay(directory, args.homeDirectory),
           isMain: false,
@@ -148,9 +150,9 @@ export const useSessionGrouping = (args: Args) => {
       if (archivedNodes.length > 0) {
         groups.push({
           id: 'archived',
-          label: "archived",
+          label: t("archived"),
           branch: null,
-          description: "Archived and unassigned sessions",
+          description: t("Archived and unassigned sessions"),
           isMain: false,
           isArchivedBucket: true,
           worktree: null,
@@ -162,7 +164,7 @@ export const useSessionGrouping = (args: Args) => {
 
       return groups;
     },
-    [args.homeDirectory, args.pinnedSessionIds, args.sessionOrderRanks],
+    [args.homeDirectory, args.pinnedSessionIds, args.sessionOrderRanks, t],
   );
 
   return {

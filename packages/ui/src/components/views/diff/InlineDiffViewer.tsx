@@ -1,13 +1,15 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getLanguageFromExtension, isImageFile } from '@/lib/toolHelpers';
 import { PierreDiffViewer } from '../PierreDiffViewer';
 import type { DiffData } from './diffTypes';
 
 export const BinaryDiffPlaceholder = React.memo(function BinaryDiffPlaceholder() {
+  const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-border/60 bg-background px-3 py-2">
-      <div className="typography-meta text-muted-foreground">{"Content of this file cannot be viewed."}</div>
+      <div className="typography-meta text-muted-foreground">{t("Content of this file cannot be viewed.")}</div>
     </div>
   );
 });
@@ -23,6 +25,7 @@ export const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(func
   diff,
   renderSideBySide,
 }) {
+  const { t } = useTranslation();
   const hasOriginal = diff.original.length > 0;
   const hasModified = diff.modified.length > 0;
 
@@ -39,10 +42,10 @@ export const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(func
       <div className={containerClass}>
         {hasOriginal && (
           <div className={imageContainerClass}>
-            <span className="typography-meta text-muted-foreground font-medium">{"Original"}</span>
+            <span className="typography-meta text-muted-foreground font-medium">{t("Original")}</span>
             <img
               src={diff.original}
-              alt={`Original: ${filePath}`}
+              alt={t('Original: {{filePath}}', { filePath })}
               className={renderSideBySide ? "max-w-full max-h-[70vh] object-contain" : "max-w-full object-contain"}
               style={{ imageRendering: 'auto' }}
             />
@@ -51,11 +54,11 @@ export const InlineImageDiffViewer = React.memo<InlineImageDiffViewerProps>(func
         {hasModified && (
           <div className={imageContainerClass}>
             <span className="typography-meta text-muted-foreground font-medium">
-              {hasOriginal ? "Modified" : "New"}
+              {hasOriginal ? t("Modified") : t("New")}
             </span>
             <img
               src={diff.modified}
-              alt={`Modified: ${filePath}`}
+              alt={t('Modified: {{filePath}}', { filePath })}
               className={renderSideBySide ? "max-w-full max-h-[70vh] object-contain" : "max-w-full object-contain"}
               style={{ imageRendering: 'auto' }}
             />

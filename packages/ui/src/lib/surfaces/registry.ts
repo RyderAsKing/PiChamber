@@ -1,5 +1,6 @@
 import type { IconName } from '@/components/icon/icons';
 import type { ContextPanelMode } from '@/stores/useUIStore';
+import i18n from '@/i18n';
 
 export type ContextSurfaceId =
   | 'editor'
@@ -122,14 +123,14 @@ export const getGitRailPresentation = (isGitRepo: boolean | null): Pick<ContextS
   if (isGitRepo === false) {
     return {
       icon: 'arrow-left-right',
-      label: "Changes",
-      description: "Review working and last-turn changes",
+      label: i18n.t("Changes"),
+      description: i18n.t("Review working and last-turn changes"),
     };
   }
   return {
     icon: GIT_SURFACE?.icon ?? 'git-branch',
-    label: GIT_SURFACE?.label ?? "Git",
-    description: GIT_SURFACE?.description ?? "Review diffs, commit, and push",
+    label: i18n.t(GIT_SURFACE?.label ?? "Git"),
+    description: i18n.t(GIT_SURFACE?.description ?? "Review diffs, commit, and push"),
   };
 };
 

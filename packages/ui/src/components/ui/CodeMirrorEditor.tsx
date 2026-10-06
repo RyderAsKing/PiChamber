@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 
 import { createVimModeExtensions } from '@/lib/codemirror/vimModeExtension';
 import { cn } from '@/lib/utils';
+import i18n from '@/i18n';
 
 /** Patches `title` attributes onto CodeMirror search-panel controls for icon-only tooltips. */
 const buttonTooltips: Record<string, string> = {
@@ -31,12 +32,12 @@ function patchSearchTooltips(root: HTMLElement) {
   if (!panel) return;
   for (const [name, title] of Object.entries(buttonTooltips)) {
     const btn = panel.querySelector(`button[name="${name}"]`) as HTMLElement | null;
-    if (btn && !btn.title) btn.title = title;
+    if (btn && !btn.title) btn.title = i18n.t(title);
   }
   for (const [name, title] of Object.entries(checkboxTooltips)) {
     const input = panel.querySelector(`input[name="${name}"]`) as HTMLElement | null;
     const label = input?.parentElement;
-    if (label && !label.title) label.title = title;
+    if (label && !label.title) label.title = i18n.t(title);
   }
 }
 

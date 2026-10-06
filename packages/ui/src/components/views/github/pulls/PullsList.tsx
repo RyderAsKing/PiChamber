@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- list component colocated with its row-checks hook by design */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { GitHubPullRequestSummary } from '@/lib/api/types';
 import {
   GitHubChecksGlyph,
@@ -77,6 +78,7 @@ export const PullsList: React.FC<{
   headerActionsSlot = null,
   headerActionsPresentation = 'drawer',
 }) => {
+  const { t } = useTranslation();
   const isDefaultFilters = filters.state === 'open' && filters.involvement === 'all' && !filters.search.trim();
 
   const renderRow = React.useCallback((pr: GitHubPullRequestSummary) => (
@@ -95,17 +97,17 @@ export const PullsList: React.FC<{
             <GitHubRowBranches head={pr.head} base={pr.base} />
             {pr.draft ? (
               <span className="shrink-0 rounded bg-[var(--surface-muted)] px-1 typography-micro text-muted-foreground">
-                Draft
+                {t('Draft')}
               </span>
             ) : null}
           </>
         }
         updatedAt={pr.updatedAt}
         onOpen={() => onOpen(pr.number)}
-        ariaLabel={`Open pull request #${pr.number} ${pr.title}`}
+        ariaLabel={t('Open pull request #{{number}} {{title}}', { number: pr.number, title: pr.title })}
       />
     </li>
-  ), [checksByUrl, onOpen]);
+  ), [checksByUrl, onOpen, t]);
 
   return (
     <GitHubListView
@@ -119,39 +121,39 @@ export const PullsList: React.FC<{
       error={error}
       searchValue={filters.search}
       onSearchChange={(value) => onFiltersChange({ search: value })}
-      searchPlaceholder="Search pull requests, or label:bug"
-      searchAriaLabel="Search pull requests"
+      searchPlaceholder={t("Search pull requests, or label:bug")}
+      searchAriaLabel={t("Search pull requests")}
       toolbarControls={
         <GitHubListMenus
           stateValue={filters.state}
-          stateOptions={PULL_STATE_TABS.map((tab) => ({ id: tab.id, label: tab.label }))}
+          stateOptions={PULL_STATE_TABS.map((tab) => ({ id: tab.id, label: t(tab.label) }))}
           onStateChange={(id) => onFiltersChange({ state: id as PullsFilters['state'] })}
           involvementValue={filters.involvement}
-          involvementOptions={PULL_INVOLVEMENT_TABS.map((tab) => ({ id: tab.id, label: tab.label }))}
+          involvementOptions={PULL_INVOLVEMENT_TABS.map((tab) => ({ id: tab.id, label: t(tab.label) }))}
           onInvolvementChange={(id) => onFiltersChange({ involvement: id as PullsFilters['involvement'] })}
           sortValue={filters.sort}
-          sortOptions={PULL_SORT_OPTIONS.map((option) => ({ id: option.id, label: option.label }))}
+          sortOptions={PULL_SORT_OPTIONS.map((option) => ({ id: option.id, label: t(option.label) }))}
           onSortChange={(id) => onFiltersChange({ sort: id as PullsFilters['sort'] })}
-          sortAriaLabel="Sort pull requests"
+          sortAriaLabel={t("Sort pull requests")}
         />
       }
       headerActionsSlot={headerActionsSlot}
       headerActionsPresentation={headerActionsPresentation}
       isDefaultFilters={isDefaultFilters}
-      stateLabel={PULL_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state}
-      kindSingular="pull request"
-      kindPlural="pull requests"
-      noItemsTitle={filters.state === 'open' ? 'No open pull requests' : 'No pull requests yet'}
-      noItemsBody="Pull requests for this repository appear here."
+      stateLabel={t(PULL_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state)}
+      kindSingular={t("pull request")}
+      kindPlural={t("pull requests")}
+      noItemsTitle={filters.state === 'open' ? t('No open pull requests') : t('No pull requests yet')}
+      noItemsBody={t("Pull requests for this repository appear here.")}
       noItemsIcon="git-pull-request"
-      listAriaLabel="Pull requests"
-      skeletonLabel="Loading pull requests"
+      listAriaLabel={t("Pull requests")}
+      skeletonLabel={t("Loading pull requests")}
       updatedAtOf={(pr) => pr.updatedAt}
       countComplete={countComplete}
       incompleteNotice={incompleteNotice}
       remote={remote}
       numberJump={numberJump}
-      numberJumpKind="pull request"
+      numberJumpKind={t("pull request")}
       onClearFilters={onClearFilters}
       onLoadMore={onLoadMore}
       onRetry={onRetry}

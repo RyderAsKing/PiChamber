@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   DragOverlay,
@@ -107,7 +108,8 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
   nonCompositedIndicator = false,
   className,
 }) => {
-  
+  const { t } = useTranslation();
+
   const isMobile = useUIStore((state) => state.isMobile);
   const { isTablet } = useDeviceInfo();
   const alwaysShowCloseControls = isMobile || isTablet;
@@ -404,7 +406,7 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
         )}
         style={isScrollable ? { scrollbarWidth: 'none', msOverflowStyle: 'none' } : undefined}
         role="tablist"
-        aria-label={"Tabs"}
+        aria-label={t("Tabs")}
       >
         {usesActivePillIndicator && pillRect ? (
           <div
@@ -491,8 +493,8 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
                     event.stopPropagation();
                     onClose?.(item.id);
                   }}
-                  aria-label={item.closeLabel ?? `Close ${item.label} tab`}
-                  title={item.closeLabel ?? `Close ${item.label} tab`}
+                  aria-label={item.closeLabel ?? t('Close {{label}} tab', { label: item.label })}
+                  title={item.closeLabel ?? t('Close {{label}} tab', { label: item.label })}
                 >
                   <Icon name="close" className="h-3.5 w-3.5" />
                 </span>
@@ -603,8 +605,8 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
                           ? 'text-muted-foreground hover:bg-interactive-hover/60 hover:text-foreground'
                           : 'text-muted-foreground opacity-0 hover:bg-interactive-hover/80 hover:text-foreground group-hover:opacity-100')
                     )}
-                    aria-label={item.closeLabel ?? `Close ${item.label} tab`}
-                    title={item.closeLabel ?? `Close ${item.label} tab`}
+                    aria-label={item.closeLabel ?? t('Close {{label}} tab', { label: item.label })}
+                    title={item.closeLabel ?? t('Close {{label}} tab', { label: item.label })}
                   >
                     <Icon name="close" className="h-3 w-3" />
                   </button>

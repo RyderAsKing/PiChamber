@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   MouseSensor,
@@ -116,6 +117,7 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
   chartPercentage,
   chartDetails,
 }) => {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: surface.id,
   });
@@ -194,39 +196,39 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
                         <span className="text-muted-foreground">{`${formatTokensCompact(chartDetails.totalTokens)}/${formatTokensCompact(chartDetails.contextLimit)}`}</span>
                       </span>
                     ) : (
-                      <span className="typography-micro text-muted-foreground">{"No data yet"}</span>
+                      <span className="typography-micro text-muted-foreground">{t('No data yet')}</span>
                     )}
                   </span>
                 </div>
                 {chartDetails.hasData ? (
                   <>
                     <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                      <span className="text-muted-foreground">{"Used tokens"}</span>
+                      <span className="text-muted-foreground">{t('Used tokens')}</span>
                       <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.totalTokens)}</span>
                     </div>
                     <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                      <span className="text-muted-foreground">{"Context limit"}</span>
+                      <span className="text-muted-foreground">{t('Context limit')}</span>
                       <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.contextLimit)}</span>
                     </div>
                     <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                      <span className="text-muted-foreground">{"Output limit"}</span>
+                      <span className="text-muted-foreground">{t('Output limit')}</span>
                       <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.outputLimit)}</span>
                     </div>
                     {typeof chartDetails.cacheRead === 'number' && typeof chartDetails.cacheWrite === 'number' ? (
                       <>
                         <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                          <span className="text-muted-foreground">{"Cache read"}</span>
+                          <span className="text-muted-foreground">{t('Cache read')}</span>
                           <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.cacheRead)}</span>
                         </div>
                         <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                          <span className="text-muted-foreground">{"Cache write"}</span>
+                          <span className="text-muted-foreground">{t('Cache write')}</span>
                           <span className="font-medium text-foreground tabular-nums">{formatTokensCompact(chartDetails.cacheWrite)}</span>
                         </div>
                       </>
                     ) : null}
                     {typeof chartDetails.cacheHitPercent === 'number' ? (
                       <div className="flex justify-between rounded-xl px-2.5 py-1.5 typography-micro">
-                        <span className="text-muted-foreground">{"Cache hit"}</span>
+                        <span className="text-muted-foreground">{t('Cache hit')}</span>
                         <span className="font-medium text-foreground tabular-nums">{`${chartDetails.cacheHitPercent.toFixed(1)}%`}</span>
                       </div>
                     ) : null}
@@ -254,6 +256,7 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
 };
 
 export const ContextPanelRail: React.FC = () => {
+  const { t } = useTranslation();
   const effectiveDirectory = useEffectiveDirectory();
   const directoryKey = effectiveDirectory ? normalizeContextPanelDirectoryKey(effectiveDirectory) : '';
 
@@ -526,7 +529,7 @@ export const ContextPanelRail: React.FC = () => {
 
   return (
     <nav
-      aria-label={"Panel surfaces"}
+      aria-label={t('Panel surfaces')}
       className="flex h-full w-11 flex-shrink-0 flex-col items-center gap-1 bg-background py-2"
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -549,10 +552,12 @@ export const ContextPanelRail: React.FC = () => {
                 description={railSurface.description}
                 badgeCount={badgeCount}
                 badgeAriaLabel={badgeCount !== null
-                  ? (badgeCount === 1 ? `${label}, ${badgeCount} changed file` : `${label}, ${badgeCount} changed files`)
+                  ? (badgeCount === 1
+                    ? t('{{label}}, {{count}} changed file', { label, count: badgeCount })
+                    : t('{{label}}, {{count}} changed files', { label, count: badgeCount }))
                   : null}
                 badgeDescription={badgeCount !== null
-                  ? (badgeCount === 1 ? `${badgeCount} changed file` : `${badgeCount} changed files`)
+                  ? (badgeCount === 1 ? t('{{count}} changed file', { count: badgeCount }) : t('{{count}} changed files', { count: badgeCount }))
                   : null}
                 chartPercentage={isContextSurface ? railChartPercentage : undefined}
                 chartDetails={isContextSurface ? railChartDetails : undefined}

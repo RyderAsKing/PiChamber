@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useDurationTickerNow } from '@/hooks/useDurationTicker';
 import {
@@ -26,6 +27,7 @@ export const SessionActivityDuration: React.FC<{
   running: boolean;
   className?: string;
 }> = ({ sessionId, running, className }) => {
+  const { t } = useTranslation();
   const startedAt = useSessionActivityStartedAt(sessionId);
   const settledMs = useSessionSettledDurationMs(sessionId);
   const now = useDurationTickerNow(running, TICK_MS);
@@ -35,8 +37,8 @@ export const SessionActivityDuration: React.FC<{
 
   const label = formatSessionActivityDuration(durationMs);
   const description = running
-    ? `Active for ${label}`
-    : `Last turn took ${label}`;
+    ? t('Active for {{duration}}', { duration: label })
+    : t('Last turn took {{duration}}', { duration: label });
 
   return (
     <span

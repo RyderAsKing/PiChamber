@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -24,6 +25,7 @@ type PreviewPaneProps = {
 };
 
 export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) => {
+  const { t } = useTranslation();
   const { currentTheme } = useThemeSystem();
   const [reloadNonce, bumpReload] = React.useReducer((x: number) => x + 1, 0);
   const [proxyRegistrationNonce, bumpProxyRegistration] = React.useReducer((x: number) => x + 1, 0);
@@ -149,7 +151,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
   const attachPreviewAnnotation = React.useCallback((target: PreviewElementMetadata) => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey || !effectiveDirectory) {
-      toast.error("Open a chat session before attaching preview annotations");
+      toast.error(t('Open a chat session before attaching preview annotations'));
       return;
     }
 
@@ -180,9 +182,9 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
         screenshotAttached: attachedScreenshot,
         intro: "This is a selected DOM element from the in-app preview.",
       }));
-      toast.success("Preview annotation attached to chat");
+      toast.success(t('Preview annotation attached to chat'));
     })();
-  }, [addAttachedFile, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
+  }, [addAttachedFile, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl, t]);
 
   React.useEffect(() => {
     setBridgeReady(false);
@@ -296,7 +298,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
         const stack = stringify(data.stack);
         pushConsoleEvent({
           level: 'runtime',
-          message: stringify(data.message) || "Runtime error",
+          message: stringify(data.message) || t('Runtime error'),
           details: [location, stack].filter(Boolean).join('\n'),
           ts: typeof data.ts === 'number' ? data.ts : Date.now(),
         });
@@ -344,7 +346,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
     return () => {
       window.removeEventListener('message', handler);
     };
-  }, [attachPreviewAnnotation, isLoopback, onNavigate]);
+  }, [attachPreviewAnnotation, isLoopback, onNavigate, t]);
 
   const consoleErrorCount = consoleEvents.filter((event) => event.level === 'error' || event.level === 'runtime' || event.level === 'resource').length;
   const filteredConsoleEvents = consoleEvents.filter((event) => getPreviewConsoleFilterMatch(event, consoleFilter));
@@ -363,17 +365,17 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
 
     void copyTextToClipboard(`${header}${text}`).then((result) => {
       if (result.ok) {
-        toast.success("Preview console copied");
+        toast.success(t('Preview console copied'));
       } else {
-        toast.error("Failed to copy preview console");
+        toast.error(t('Failed to copy preview console'));
       }
     });
-  }, [consoleEvents, effectiveSrc, rawUrl]);
+  }, [consoleEvents, effectiveSrc, rawUrl, t]);
 
   const attachConsoleEvents = React.useCallback(() => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey || !effectiveDirectory) {
-      toast.error("Open a chat session before attaching preview logs");
+      toast.error(t('Open a chat session before attaching preview logs'));
       return;
     }
 
@@ -389,8 +391,8 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
     }).join('\n');
 
     appendPendingSyntheticText(`These are browser console logs from the dev server running for this project.\n\n${header}${text}`);
-    toast.success("Preview console attached to chat");
-  }, [consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl]);
+    toast.success(t('Preview console attached to chat'));
+  }, [consoleEvents, currentSessionId, effectiveDirectory, effectiveSrc, newSessionDraftOpen, rawUrl, t]);
 
   // Out-of-band upstream probe: iframes don't expose HTTP status to the parent,
   // so when the proxy returns a 502 (upstream dev server is offline) the iframe
@@ -545,7 +547,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
     <div className="absolute inset-0 flex flex-col">
       <div className="flex items-center gap-1 border-b border-border bg-[var(--surface-background)] px-2 py-1">
         <div className="min-w-0 flex-1 truncate typography-micro text-muted-foreground" title={headerSrc || rawUrl}>
-          {headerSrc || rawUrl || "No preview URL"}
+          {headerSrc || rawUrl || t('No preview URL')}
         </div>
         <Button
           type="button"
@@ -553,8 +555,8 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
           variant="ghost"
           className="h-7 w-7 p-0"
           onClick={() => bumpReload()}
-          title={"Reload preview"}
-          aria-label={"Reload preview"}
+          title={t('Reload preview')}
+          aria-label={t('Reload preview')}
           disabled={!effectiveSrc}
         >
           <Icon name="refresh" className="h-3.5 w-3.5" />
@@ -568,8 +570,8 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
             if (!directSrc) return;
             void openExternalUrl(directSrc);
           }}
-          title={"Open in browser"}
-          aria-label={"Open in browser"}
+          title={t('Open in browser')}
+          aria-label={t('Open in browser')}
           disabled={!directSrc}
         >
           <Icon name="external-link" className="h-3.5 w-3.5" />
@@ -581,8 +583,8 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
             variant={inspectMode ? 'secondary' : 'ghost'}
             className="h-7 gap-1 px-2"
             onClick={() => setInspectMode((value) => !value)}
-            title={"Inspect preview element"}
-            aria-label={"Inspect preview element"}
+            title={t('Inspect preview element')}
+            aria-label={t('Inspect preview element')}
             disabled={!bridgeReady}
           >
             <Icon name="cursor" className="h-3.5 w-3.5" />
@@ -595,8 +597,8 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
             variant={consoleOpen ? 'secondary' : 'ghost'}
             className="h-7 gap-1 px-2"
             onClick={() => setConsoleOpen((value) => !value)}
-            title={bridgeReady ? "Open preview console" : "Waiting for preview console"}
-            aria-label={bridgeReady ? "Open preview console" : "Waiting for preview console"}
+            title={bridgeReady ? t('Open preview console') : t('Waiting for preview console')}
+            aria-label={bridgeReady ? t('Open preview console') : t('Waiting for preview console')}
             disabled={!bridgeReady && consoleEvents.length === 0}
           >
             <Icon name="terminal-box" className="h-3.5 w-3.5" />
@@ -609,20 +611,20 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
       <div className="relative min-h-0 flex-1 bg-background">
         {showUpstreamStarting ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-            <div>{"Starting dev server..."}</div>
-            <div className="text-xs opacity-70">{"Waiting for the server to accept connections."}</div>
+            <div>{t('Starting dev server...')}</div>
+            <div className="text-xs opacity-70">{t('Waiting for the server to accept connections.')}</div>
           </div>
         ) : showUpstreamUnreachable ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center text-sm text-muted-foreground">
-            <div>{"Dev server is not responding."}</div>
-            <div className="text-xs opacity-70">{"Make sure your dev server is still running, then retry."}</div>
+            <div>{t('Dev server is not responding.')}</div>
+            <div className="text-xs opacity-70">{t('Make sure your dev server is still running, then retry.')}</div>
             <Button
               type="button"
               size="sm"
               variant="outline"
               onClick={() => bumpReload()}
             >
-              {"Retry"}
+              {t('Retry')}
             </Button>
           </div>
         ) : effectiveSrc && (!isLoopback || upstreamState === 'reachable') ? (
@@ -631,7 +633,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
               ref={iframeRef}
               key={`${effectiveSrc}:${reloadNonce}`}
               src={effectiveSrc}
-              title={"Preview"}
+              title={t('Preview')}
               className="h-full w-full border-0"
               style={{ colorScheme: previewColorScheme }}
               onLoad={handlePreviewFrameLoad}
@@ -657,24 +659,24 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
           </div>
         ) : showLoading ? (
           <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
-            {"Connecting preview proxy..."}
+            {t('Connecting preview proxy...')}
           </div>
         ) : showError ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-sm text-muted-foreground">
-            <div>{"Could not start preview proxy."}</div>
+            <div>{t('Could not start preview proxy.')}</div>
             {proxyState.status === 'error' ? (
               <div className="text-center text-xs opacity-70">{proxyState.message}</div>
             ) : null}
           </div>
         ) : (
           <div className="flex h-full items-center justify-center px-6 text-sm text-muted-foreground">
-            {"Preview needs a valid http(s) URL."}
+            {t('Preview needs a valid http(s) URL.')}
           </div>
         )}
         {consoleOpen ? (
           <div className="absolute inset-x-3 bottom-3 z-10 max-h-[45%] overflow-hidden rounded-xl border border-border/70 bg-[var(--surface-elevated)] shadow-lg">
             <div className="flex items-center justify-between border-b border-border/50 px-3 py-2">
-              <div className="typography-ui-label text-foreground">{"Preview console"}</div>
+              <div className="typography-ui-label text-foreground">{t('Preview console')}</div>
               <div className="flex items-center gap-1">
                 <Button
                   type="button"
@@ -683,7 +685,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
                   onClick={attachConsoleEvents}
                   disabled={consoleEvents.length === 0}
                 >
-                  {"Attach"}
+                  {t('Attach')}
                 </Button>
                 <Button
                   type="button"
@@ -692,7 +694,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
                   onClick={copyConsoleEvents}
                   disabled={consoleEvents.length === 0}
                 >
-                  {"Copy"}
+                  {t('Copy')}
                 </Button>
                 <Button
                   type="button"
@@ -701,7 +703,7 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
                   onClick={() => setConsoleEvents([])}
                   disabled={consoleEvents.length === 0}
                 >
-                  {"Clear"}
+                  {t('Clear')}
                 </Button>
               </div>
             </div>
@@ -715,20 +717,20 @@ export const PreviewPane: React.FC<PreviewPaneProps> = ({ rawUrl, onNavigate }) 
                   onClick={() => setConsoleFilter(filter)}
                 >
                   {filter === 'all'
-                    ? "All"
+                    ? t('All')
                     : filter === 'errors'
-                      ? "Errors"
+                      ? t('Errors')
                       : filter === 'warnings'
-                        ? "Warnings"
-                        : "Logs"}
+                        ? t('Warnings')
+                        : t('Logs')}
                 </Button>
               ))}
             </div>
             <div className="max-h-64 overflow-auto p-2 typography-code text-xs">
               {consoleEvents.length === 0 ? (
-                <div className="px-2 py-3 text-muted-foreground">{"No preview console events yet."}</div>
+                <div className="px-2 py-3 text-muted-foreground">{t('No preview console events yet.')}</div>
               ) : filteredConsoleEvents.length === 0 ? (
-                <div className="px-2 py-3 text-muted-foreground">{"No events match this filter."}</div>
+                <div className="px-2 py-3 text-muted-foreground">{t('No events match this filter.')}</div>
               ) : filteredConsoleEvents.map((event) => (
                 <div key={event.id} className="border-b border-border/30 px-2 py-1 last:border-b-0">
                   <div className="flex gap-2">

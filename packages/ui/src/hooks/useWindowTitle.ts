@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
@@ -25,6 +26,7 @@ const buildWindowTitle = (projectLabel: string | null, instanceLabel: string | n
 };
 
 const useWindowTitle = () => {
+  const { t } = useTranslation();
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const extensionTitle = usePiSessionSnapshot(
     (state) => currentSessionId ? state.reducer.bySession.get(currentSessionId)?.extensionTitle ?? null : null,
@@ -87,13 +89,13 @@ const useWindowTitle = () => {
 
         const cfg = await desktopHostsGet();
         const match = cfg.hosts.find((host) => runtimeApiBaseUrl ? locationMatchesHost(runtimeApiBaseUrl, getDesktopHostApiUrl(host)) : false);
-        const nextLabel = match?.label?.trim() ? redactSensitiveUrl(match.label.trim()) : 'Instance';
+        const nextLabel = match?.label?.trim() ? redactSensitiveUrl(match.label.trim()) : t('Instance');
         if (!cancelled) {
           setInstanceLabel(nextLabel);
         }
       } catch {
         if (!cancelled) {
-          setInstanceLabel('Instance');
+        setInstanceLabel(t('Instance'));
         }
       }
     };
@@ -109,7 +111,7 @@ const useWindowTitle = () => {
       cancelled = true;
       window.removeEventListener('focus', handleFocus);
     };
-  }, []);
+  }, [t]);
 
   const title = React.useMemo(
     () => buildWindowTitle(extensionTitle?.trim() || projectLabel, instanceLabel),

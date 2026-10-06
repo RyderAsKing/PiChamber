@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui';
 import type { FilesAPI } from '@/lib/api/types';
@@ -55,6 +56,7 @@ export function useFileEditorSave({
   currentSaveScope,
   onConflict,
 }: UseFileEditorSaveOptions) {
+  const { t } = useTranslation();
   const [isSaving, setIsSaving] = React.useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = React.useState<'idle' | 'saved'>('idle');
   const [saveConflict, setSaveConflict] = React.useState<FileEditorConflict | null>(null);
@@ -91,7 +93,7 @@ export function useFileEditorSave({
 
   const saveDraft = React.useCallback(async (options?: { overwrite?: boolean }) => {
     if (!selectedPath || !writeFile) {
-      toast.error('Saving not supported');
+      toast.error(t('Saving not supported'));
       return false;
     }
 
@@ -128,7 +130,7 @@ export function useFileEditorSave({
       const writeOptions = buildGuardedWriteOptions(expectedRevision, options?.overwrite);
       const result = await writeFile(selectedPath, contentToWrite, writeOptions);
       if (!result?.success) {
-        toast.error('Failed to write file');
+        toast.error(t('Failed to write file'));
         return false;
       }
       if (!isSaveCompletionCurrent(saveScope)) {
@@ -156,12 +158,12 @@ export function useFileEditorSave({
         onConflictRef.current?.(conflict);
         return false;
       }
-      toast.error(error instanceof Error ? error.message : 'Save failed');
+      toast.error(error instanceof Error ? error.message : t('Save failed'));
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [draftContent, expectedRevision, fileContent, fileLoading, isDirty, isNonEditableBinary, isSaveCompletionCurrent, lineEnding, loadedPath, onSaved, selectedPath, writeFile]);
+  }, [draftContent, expectedRevision, fileContent, fileLoading, isDirty, isNonEditableBinary, isSaveCompletionCurrent, lineEnding, loadedPath, onSaved, selectedPath, t, writeFile]);
 
   const saveNow = React.useCallback(async (options?: { overwrite?: boolean }) => {
     cancelPendingAutosave();

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   SETTINGS_OPTION_STACK_CLASS,
@@ -27,16 +28,17 @@ export const DiagnosticsSection: React.FC<DiagnosticsSectionProps> = ({
   processRecordingError,
   onProcessRecordingEnabledChange,
 }) => {
+  const { t } = useTranslation();
   return (
-    <SettingsSection title={'Diagnostics'} contentClassName={SETTINGS_OPTION_STACK_CLASS}>
+    <SettingsSection title={t('Diagnostics')} contentClassName={SETTINGS_OPTION_STACK_CLASS}>
       <SettingsCheckboxRow
         checked={perfHudEnabled}
         onChange={onPerfHudEnabledChange}
-        label={'Performance overlay'}
-        info={
+        label={t('Performance overlay')}
+        info={t(
           'Shows live frame time, long tasks, and render counters. Adds overhead. Stays on this device only, and is not a substitute for profile:idle or profile:session.'
-        }
-        ariaLabel={'Performance overlay'}
+        )}
+        ariaLabel={t('Performance overlay')}
         settingsItem="general.performance-overlay"
       />
       {processRecordingSupported ? (
@@ -44,14 +46,14 @@ export const DiagnosticsSection: React.FC<DiagnosticsSectionProps> = ({
           checked={processRecordingEnabled}
           onChange={onProcessRecordingEnabledChange}
           disabled={processRecordingSaving}
-          label={'Record Electron process performance'}
-          info={
+          label={t('Record Electron process performance')}
+          info={t(
             'Samples CPU and memory for Electron processes every 10 seconds and writes a local diagnostics file. Recording continues after restart until disabled.'
-          }
+          )}
           description={processRecordingError ?? (processRecordingEnabled && !processRecordingActive
-            ? 'Recording could not start. Disable it and try again.'
+            ? t('Recording could not start. Disable it and try again.')
             : undefined)}
-          ariaLabel={'Record Electron process performance'}
+          ariaLabel={t('Record Electron process performance')}
           settingsItem="general.process-performance-recording"
         />
       ) : null}

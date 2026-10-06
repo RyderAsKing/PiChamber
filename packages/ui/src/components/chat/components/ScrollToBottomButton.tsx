@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -10,7 +11,8 @@ interface ScrollToBottomButtonProps {
 }
 
 const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, onClick }) => {
-    
+    const { t } = useTranslation();
+
     return (
         <div
             className={cn(
@@ -23,7 +25,7 @@ const ScrollToBottomButton: React.FC<ScrollToBottomButtonProps> = ({ visible, on
                 size="sm"
                 onClick={onClick}
                 className="size-8 rounded-full [corner-shape:round] p-0 shadow-none bg-background/95 hover:bg-interactive-hover"
-                aria-label={"Scroll to bottom"}
+                aria-label={t("Scroll to bottom")}
             >
                 <Icon name="arrow-down" className="h-4 w-4" />
             </Button>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,13 +41,14 @@ const TriggerRow: React.FC<{
     onChange: (next: CommandTrigger) => void;
     onRemove: () => void;
 }> = ({ trigger, index, onChange, onRemove }) => {
+    const { t } = useTranslation();
     const inputClass = 'h-9 w-full bg-transparent text-sm';
     return (
         <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center">
             <Input
                 value={trigger.label}
-                placeholder="Label"
-                aria-label={`Trigger ${index + 1} label`}
+                placeholder={t('Label')}
+                aria-label={t('Trigger {{index}} label', { index: index + 1 })}
                 onChange={(event) => onChange({ ...trigger, label: event.target.value })}
                 className={cn(inputClass, '@xl:w-36')}
             />
@@ -54,23 +56,23 @@ const TriggerRow: React.FC<{
                 <span className="text-sm text-muted-foreground">/</span>
                 <Input
                     value={trigger.command}
-                    placeholder="command"
-                    aria-label={`Trigger ${index + 1} command`}
+                    placeholder={t('command')}
+                    aria-label={t('Trigger {{index}} command', { index: index + 1 })}
                     onChange={(event) => onChange({ ...trigger, command: event.target.value })}
                     className={cn(inputClass, 'w-40')}
                 />
             </div>
             <Input
                 value={trigger.args ?? ''}
-                placeholder="Arguments (optional)"
-                aria-label={`Trigger ${index + 1} arguments`}
+                placeholder={t('Arguments (optional)')}
+                aria-label={t('Trigger {{index}} arguments', { index: index + 1 })}
                 onChange={(event) => onChange({ ...trigger, args: event.target.value })}
                 className={cn(inputClass, 'flex-1')}
             />
             <input
                 value={trigger.combo ? trigger.combo.replace(/\+/g, '+') : ''}
-                placeholder="Keybinding"
-                aria-label={`Trigger ${index + 1} keybinding`}
+                placeholder={t('Keybinding')}
+                aria-label={t('Trigger {{index}} keybinding', { index: index + 1 })}
                 readOnly
                 onKeyDown={(event) => {
                     const combo = keyboardEventToCombo(event);
@@ -80,7 +82,7 @@ const TriggerRow: React.FC<{
                 }}
                 className={cn(inputClass, 'w-32 rounded-md border')}
             />
-            <Button variant="ghost" size="icon" onClick={onRemove} aria-label={`Remove trigger ${trigger.label}`}>
+            <Button variant="ghost" size="icon" onClick={onRemove} aria-label={t('Remove trigger {{label}}', { label: trigger.label })}>
                 <Icon name="close" className="size-4" />
             </Button>
         </div>
@@ -93,6 +95,7 @@ const TriggerRow: React.FC<{
  */
 export const CommandTriggersSettings: React.FC = () => {
     const triggers = useUIStore((state) => state.commandTriggers);
+    const { t } = useTranslation();
 
     const persist = React.useCallback(async (next: CommandTrigger[]) => {
         useUIStore.setState({ commandTriggers: next });
@@ -122,13 +125,13 @@ export const CommandTriggersSettings: React.FC = () => {
     };
 
     return (
-        <SettingsSection title="Command triggers" divider={false} settingsItem="shortcuts.command-triggers">
+        <SettingsSection title={t('Command triggers')} divider={false} settingsItem="shortcuts.command-triggers">
             <SettingsFieldRow
-                label="Quick actions"
-                info="Buttons above the composer and optional keybindings that run a slash command in the current session. Keybindings must include a modifier and never shadow built-in shortcuts."
+                label={t('Quick actions')}
+                info={t('Buttons above the composer and optional keybindings that run a slash command in the current session. Keybindings must include a modifier and never shadow built-in shortcuts.')}
             >
                 <Button size="sm" variant="outline" onClick={addTrigger} disabled={triggers.length >= MAX_COMMAND_TRIGGERS}>
-                    Add trigger
+                    {t('Add trigger')}
                 </Button>
             </SettingsFieldRow>
             {triggers.length > 0 && (
@@ -146,7 +149,7 @@ export const CommandTriggersSettings: React.FC = () => {
             )}
             {triggers.length === 0 && (
                 <p className="pb-2 text-sm text-muted-foreground">
-                    No command triggers yet. Add one to pin a slash command as a button.
+                    {t('No command triggers yet. Add one to pin a slash command as a button.')}
                 </p>
             )}
         </SettingsSection>

@@ -1,6 +1,7 @@
 import { runtimeFetch } from './runtime-fetch';
 import { getRuntimeKey } from './runtime-switch';
 import { getRuntimeUrlResolver } from './runtime-url';
+import i18n from '@/i18n';
 
 export interface FilesystemEntry {
   name: string;
@@ -176,23 +177,23 @@ export async function pickLocalDirectory(defaultPath = ''): Promise<DirectoryPic
     if (response.status === 501) {
       return {
         status: 'unavailable',
-        error: typeof data?.error === 'string' ? data.error : 'Folder picker is not available.',
+        error: typeof data?.error === 'string' ? data.error : i18n.t('Folder picker is not available.'),
       };
     }
     if (!response.ok) {
       return {
         status: 'failed',
-        error: typeof data?.error === 'string' ? data.error : 'Failed to select directory.',
+        error: typeof data?.error === 'string' ? data.error : i18n.t('Failed to select directory.'),
       };
     }
     if (typeof data?.path === 'string' && data.path.trim()) {
       return { status: 'picked', path: data.path.trim() };
     }
-    return { status: 'failed', error: 'Failed to select directory.' };
+    return { status: 'failed', error: i18n.t('Failed to select directory.') };
   } catch (error) {
     return {
       status: 'failed',
-      error: error instanceof Error ? error.message : 'Failed to select directory.',
+      error: error instanceof Error ? error.message : i18n.t('Failed to select directory.'),
     };
   }
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -50,6 +51,7 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
     deferEarlierMessages,
     activityPartIds,
 }) => {
+    const { t } = useTranslation();
     const [revealedCount, setRevealedCount] = React.useState(INITIAL_ASSISTANT_MESSAGE_COUNT);
     const firstMessage = assistantMessages[0];
     const finalResponseMessages = React.useMemo(
@@ -129,11 +131,11 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
                     variant="secondary"
                     size="sm"
                     onClick={loadEarlier}
-                    aria-label="Load earlier response"
+                    aria-label={t("Load earlier response")}
                     className="gap-1.5 rounded-full px-3.5"
                 >
                     <Icon name="history" className="size-3.5" />
-                    Load earlier response
+                    {t('Load earlier response')}
                 </Button>
                 {showLoadAll ? (
                     <Button
@@ -141,10 +143,10 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={loadAll}
-                        aria-label="Load full response"
+                        aria-label={t("Load full response")}
                         className="rounded-full px-3.5 text-[var(--surface-mutedForeground)]"
                     >
-                        Load full response
+                        {t('Load full response')}
                     </Button>
                 ) : null}
             </div>

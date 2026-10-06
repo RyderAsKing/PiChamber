@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from '@base-ui/react/popover';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -42,6 +43,7 @@ export const PullCommentForm: React.FC<{
   access: ViewerAccess;
   onCommented: () => void;
 }> = ({ directory, repo, number, github, pr, access, onCommented }) => {
+  const { t } = useTranslation();
   const addComment = useGitHubPullRequestsStore((state) => state.addComment);
   const performAction = useGitHubPullRequestsStore((state) => state.performAction);
   const clearCommentDraft = useGitHubPendingReviewStore((state) => state.clearCommentDraft);
@@ -49,8 +51,8 @@ export const PullCommentForm: React.FC<{
   const { busy, error, submit } = useCommentWithFollowUp({
     postComment: (body) => addComment(directory, repo, number, body, github),
     runFollowUp: (followUp) => performAction(directory, repo, number, followUp, github),
-    verbs: { close: 'close', reopen: 'reopen' },
-    doneLabels: { close: 'Closed with comment', reopen: 'Reopened with comment' },
+    verbs: { close: t('close'), reopen: t('reopen') },
+    doneLabels: { close: t('Closed with comment'), reopen: t('Reopened with comment') },
     afterPost: () => {
       onDraftChange('');
       clearCommentDraft(repo, number);
@@ -70,7 +72,7 @@ export const PullCommentForm: React.FC<{
       draft={draft}
       onDraftChange={onDraftChange}
       onDraftBlur={flushDraft}
-      ariaLabel="Leave a comment on this pull request"
+      ariaLabel={t("Leave a comment on this pull request")}
       busy={busy}
       error={error}
       disabledReason={commentGate.reason}
@@ -78,8 +80,8 @@ export const PullCommentForm: React.FC<{
         followUpAction
           ? {
               id: followUpAction,
-              label: followUpAction === 'close' ? 'Close with comment' : 'Reopen with comment',
-              busyLabel: followUpAction === 'close' ? 'Closing…' : 'Reopening…',
+              label: followUpAction === 'close' ? t('Close with comment') : t('Reopen with comment'),
+              busyLabel: followUpAction === 'close' ? t('Closing…') : t('Reopening…'),
               onRun: () => void submit(followUpAction, draft),
               allowed: followUpGate?.allowed === true,
               reason: followUpGate?.reason,
@@ -108,6 +110,7 @@ const ReviewForm: React.FC<{
   textareaRef: React.Ref<HTMLTextAreaElement>;
   onSubmit: () => void;
 }> = ({ repo, number, verdicts, summary, verdict, pendingCount, busy, textareaRef, onSubmit }) => {
+  const { t } = useTranslation();
   const setSummary = useGitHubPendingReviewStore((state) => state.setSummary);
   const setVerdict = useGitHubPendingReviewStore((state) => state.setVerdict);
   const selected = verdicts.includes(verdict) ? verdict : verdicts[0] ?? 'comment';
@@ -119,8 +122,8 @@ const ReviewForm: React.FC<{
         ref={textareaRef}
         rows={3}
         value={summary}
-        placeholder="Summarize your review (optional)"
-        aria-label="Review summary"
+        placeholder={t("Summarize your review (optional)")}
+        aria-label={t("Review summary")}
         disabled={busy}
         onChange={(event) => setSummary(repo, number, event.target.value)}
         onKeyDown={(event) => {
@@ -140,17 +143,17 @@ const ReviewForm: React.FC<{
       />
       <div className="mt-2 flex items-center justify-between gap-2">
         <label className="inline-flex min-w-0 items-center gap-1.5">
-          <span className="sr-only">Review verdict</span>
+          <span className="sr-only">{t('Review verdict')}</span>
           <select
             value={selected}
             disabled={busy}
             onChange={(event) => setVerdict(repo, number, event.target.value as PullReviewVerdict)}
-            aria-label="Review verdict"
+            aria-label={t("Review verdict")}
             className="h-7 max-w-40 truncate rounded-md border border-border bg-[var(--surface-elevated)] px-1.5 typography-micro text-foreground"
           >
             {verdicts.map((option) => (
               <option key={option} value={option}>
-                {VERDICT_LABELS[option]}
+                {t(VERDICT_LABELS[option])}
               </option>
             ))}
           </select>
@@ -162,12 +165,16 @@ const ReviewForm: React.FC<{
           disabled={busy || !submittable}
           title={
             submittable
-              ? `Submit review${pendingCount > 0 ? ` with ${pendingCount} ${pendingCount === 1 ? 'line comment' : 'line comments'}` : ''}`
-              : 'Add a summary or a line comment first'
+              ? pendingCount > 0
+                ? pendingCount === 1
+                  ? t('Submit review with {{count}} line comment', { count: pendingCount })
+                  : t('Submit review with {{count}} line comments', { count: pendingCount })
+                : t('Submit review')
+              : t('Add a summary or a line comment first')
           }
           onClick={onSubmit}
         >
-          {busy ? 'Submitting…' : 'Submit review'}
+          {busy ? t('Submitting…') : t('Submit review')}
         </Button>
       </div>
     </div>
@@ -189,6 +196,7 @@ export const PullReviewControl: React.FC<{
   size?: 'xs' | 'sm';
   onReviewSubmitted?: () => void;
 }> = ({ directory, repo, number, github, access, size = 'sm', onReviewSubmitted }) => {
+  const { t } = useTranslation();
   const submitReviewAction = useGitHubPullRequestsStore((state) => state.submitReview);
   const removeComments = useGitHubPendingReviewStore((state) => state.removeComments);
   const clearSummary = useGitHubPendingReviewStore((state) => state.clearSummary);
@@ -236,7 +244,7 @@ export const PullReviewControl: React.FC<{
       );
       if (!result.ok) {
         // Keep everything: retyping the review is not the answer to a failed submit.
-        toast.error(result.error?.kind === 'failed' ? result.error.message : 'Failed to submit review');
+        toast.error(result.error?.kind === 'failed' ? result.error.message : t('Failed to submit review'));
         return;
       }
       // More remarks may have arrived while the host accepted this snapshot:
@@ -248,7 +256,7 @@ export const PullReviewControl: React.FC<{
         submittedComments.map((comment) => comment.id),
       );
       clearSummary(repo, number, submittedSummary);
-      toast.success(effectiveVerdict === 'approve' ? 'Pull request approved' : effectiveVerdict === 'request-changes' ? 'Changes requested' : 'Review submitted');
+      toast.success(effectiveVerdict === 'approve' ? t('Pull request approved') : effectiveVerdict === 'request-changes' ? t('Changes requested') : t('Review submitted'));
       setOpen(false);
       onReviewSubmitted?.();
     } finally {
@@ -256,7 +264,7 @@ export const PullReviewControl: React.FC<{
     }
   };
 
-  const reviewLabel = pendingCount > 0 ? `Review · ${pendingCount}` : 'Review';
+  const reviewLabel = pendingCount > 0 ? t('Review · {{count}}', { count: pendingCount }) : t('Review');
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -269,10 +277,12 @@ export const PullReviewControl: React.FC<{
             className="shrink-0"
             aria-label={
               pendingCount > 0
-                ? `Review pull request, ${pendingCount} ${pendingCount === 1 ? 'line comment' : 'line comments'} pending`
-                : 'Review pull request'
+                ? pendingCount === 1
+                  ? t('Review pull request, {{count}} line comment pending', { count: pendingCount })
+                  : t('Review pull request, {{count}} line comments pending', { count: pendingCount })
+                : t('Review pull request')
             }
-            title={reviewStarted ? 'Finish your review' : 'Approve, request changes, or comment with a review'}
+            title={reviewStarted ? t('Finish your review') : t('Approve, request changes, or comment with a review')}
           />
         }
       >
@@ -282,14 +292,16 @@ export const PullReviewControl: React.FC<{
       <Popover.Portal>
         <Popover.Positioner className="z-50" side="top" align="end" sideOffset={8} collisionPadding={8}>
           <Popover.Popup
-            aria-label="Review pull request"
+            aria-label={t("Review pull request")}
             className="w-[min(24rem,calc(100vw-2rem))] rounded-lg border border-border/60 bg-[var(--surface-elevated)] p-3 shadow-lg"
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <p className="min-w-0 truncate typography-ui-label text-foreground">
                 {pendingCount > 0
-                  ? `Review · ${pendingCount} ${pendingCount === 1 ? 'line comment' : 'line comments'}`
-                  : 'Review pull request'}
+                  ? pendingCount === 1
+                    ? t('Review · {{count}} line comment', { count: pendingCount })
+                    : t('Review · {{count}} line comments', { count: pendingCount })
+                  : t('Review pull request')}
               </p>
               <div className="flex shrink-0 items-center gap-1">
                 {pendingCount > 0 ? (
@@ -297,8 +309,8 @@ export const PullReviewControl: React.FC<{
                     type="button"
                     variant="ghost"
                     size="icon"
-                    aria-label="Discard pending line comments"
-                    title="Discard pending line comments"
+                    aria-label={t("Discard pending line comments")}
+                    title={t("Discard pending line comments")}
                     disabled={reviewBusy}
                     onClick={() => clearComments(repo, number)}
                     className="size-6"
@@ -310,7 +322,7 @@ export const PullReviewControl: React.FC<{
                   type="button"
                   variant="ghost"
                   size="icon"
-                  aria-label="Close review"
+                  aria-label={t("Close review")}
                   onClick={() => setOpen(false)}
                   className="size-6"
                 >

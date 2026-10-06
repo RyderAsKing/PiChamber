@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { GitHubErrorBody, GitHubAPIError } from '@/lib/api/types';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 /**
  * Generic keyed async-resource helper for GitHub list/detail entries.
@@ -48,7 +49,7 @@ export const buildGitHubResourceKey = (parts: Array<string | number | null | und
 const toResourceError = (error: unknown): GitHubResourceError => {
   const body = (error as GitHubAPIError | null)?.body;
   if (body && typeof body.kind === 'string') return body as GitHubErrorBody;
-  return { kind: 'failed', message: error instanceof Error ? error.message : 'GitHub request failed' };
+  return { kind: 'failed', message: error instanceof Error ? error.message : i18n.t('GitHub request failed') };
 };
 
 export type KeyedAsyncResource<TData> = {

@@ -5,6 +5,7 @@ import type { GitHubAPI, GitHubChecksSummary, GitHubErrorBody, GitHubPullRequest
 import { GitHubAPIError } from '@/lib/api/types';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
+import i18n from '@/i18n';
 
 /**
  * Current-branch PR status for Git chips and sidebar badges (plan §7.2).
@@ -72,7 +73,7 @@ const emptyEntry = (): GitHubPrStatusEntry => ({
 const toStatusError = (error: unknown): GitHubErrorBody => {
   const body = (error as GitHubAPIError | null)?.body;
   if (body && typeof body.kind === 'string') return body as GitHubErrorBody;
-  return { kind: 'failed', message: error instanceof Error ? error.message : 'PR status check failed' };
+  return { kind: 'failed', message: error instanceof Error ? error.message : i18n.t('PR status check failed') };
 };
 
 const evictOldestBranches = (

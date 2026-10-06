@@ -1,6 +1,7 @@
 import type { Session } from '@/lib/chat/types';
 import { formatDirectoryName } from '@/lib/utils';
 import { normalizePath } from '@/lib/pathNormalization';
+import i18n from '@/i18n';
 export { normalizePath };
 
 export const selectExpandedParentKeysForContext = (
@@ -38,10 +39,10 @@ const formatDateLabel = (value: string | number) => {
   yesterday.setDate(today.getDate() - 1);
 
   if (isSameDay(targetDate, today)) {
-    return "Today";
+    return i18n.t("Today");
   }
   if (isSameDay(targetDate, yesterday)) {
-    return "Yesterday";
+    return i18n.t("Yesterday");
   }
   const formatted = targetDate.toLocaleDateString('en-US', {
     month: 'short',
@@ -61,9 +62,9 @@ export const formatSessionDateLabel = (updatedMs: number): string => {
 
   if (isSameDay(updatedDate, today)) {
     const diff = Date.now() - updatedMs;
-    if (diff < 60_000) return "Just now";
-    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}min ago`;
-    return `${Math.floor(diff / 3_600_000)}h ago`;
+    if (diff < 60_000) return i18n.t("Just now");
+    if (diff < 3_600_000) return i18n.t('{{count}}min ago', { count: Math.floor(diff / 60_000) });
+    return i18n.t('{{count}}h ago', { count: Math.floor(diff / 3_600_000) });
   }
 
   return formatDateLabel(updatedMs);
@@ -80,21 +81,21 @@ export const formatSessionCompactDateLabel = (updatedMs: number): string => {
   const year = 365 * day;
 
   if (diff < hour) {
-    return `${Math.max(1, Math.floor(diff / minute))}m`;
+    return i18n.t('{{count}}m', { count: Math.max(1, Math.floor(diff / minute)) });
   }
   if (diff < day) {
-    return `${Math.floor(diff / hour)}h`;
+    return i18n.t('{{count}}h', { count: Math.floor(diff / hour) });
   }
   if (diff < week) {
-    return `${Math.floor(diff / day)}d ago`;
+    return i18n.t('{{count}}d ago', { count: Math.floor(diff / day) });
   }
   if (diff < 5 * week) {
-    return `${Math.floor(diff / week)}w ago`;
+    return i18n.t('{{count}}w ago', { count: Math.floor(diff / week) });
   }
   if (diff < year) {
-    return `${Math.floor(diff / month)}mo`;
+    return i18n.t('{{count}}mo', { count: Math.floor(diff / month) });
   }
-  return `${Math.floor(diff / year)}y ago`;
+  return i18n.t('{{count}}y ago', { count: Math.floor(diff / year) });
 };
 
 export const isPathWithinProject = (directory?: string | null, projectPath?: string | null): boolean => {
@@ -137,16 +138,16 @@ export const resolveArchivedFolderName = (session: Session, projectRoot: string 
   const projectWorktree = normalizePath((session as Session & { project?: { worktree?: string | null } | null }).project?.worktree ?? null);
   const resolved = sessionDirectory ?? projectWorktree;
   if (!resolved) {
-    return 'unassigned';
+    return i18n.t('unassigned');
   }
   if (projectRoot && resolved === projectRoot) {
-    return 'project root';
+    return i18n.t('project root');
   }
   const source = projectRoot && resolved.startsWith(`${projectRoot}/`)
     ? resolved.slice(projectRoot.length + 1)
     : resolved;
   const segments = source.split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? 'unassigned';
+  return segments[segments.length - 1] ?? i18n.t('unassigned');
 };
 
 export const formatProjectLabel = (label: string): string => {

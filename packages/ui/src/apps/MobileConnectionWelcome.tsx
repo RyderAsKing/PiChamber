@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ export const MobileConnectionWelcome: React.FC<{
   /** Why the user landed here (failed cold-launch auto-connect) — shown as a banner. */
   notice?: MobileConnectionNotice | null;
 }> = ({ onConnected, notice = null }) => {
+  const { t } = useTranslation();
   const conn = useMobileConnection(onConnected);
   const { connections, isBusy, isPasswordBusy, error, pendingConnection } = conn;
   const [serverUrl, setServerUrl] = React.useState('');
@@ -86,16 +88,16 @@ export const MobileConnectionWelcome: React.FC<{
           await conn.redeemPairingConnection(result.pairing);
           break;
         case 'permission-denied':
-          conn.setError("Camera access is off. Enable it in Settings to scan a QR code.");
+          conn.setError(t("Camera access is off. Enable it in Settings to scan a QR code."));
           break;
         case 'invalid':
-          conn.setError("That QR code is not an PiChamber connection code.");
+          conn.setError(t("That QR code is not an PiChamber connection code."));
           break;
         case 'unsupported':
-          conn.setError("QR scanning is only available in the installed mobile app.");
+          conn.setError(t("QR scanning is only available in the installed mobile app."));
           break;
         case 'failed':
-          conn.setError("Could not scan that QR code. Try again or enter the URL manually.");
+          conn.setError(t("Could not scan that QR code. Try again or enter the URL manually."));
           break;
         case 'cancelled':
         default:
@@ -108,7 +110,7 @@ export const MobileConnectionWelcome: React.FC<{
         setIsScanning(false);
       }
     }
-  }, [conn, isBusy]);
+  }, [conn, isBusy, t]);
 
   React.useEffect(() => () => scanAbortRef.current?.abort(), []);
 
@@ -149,7 +151,7 @@ export const MobileConnectionWelcome: React.FC<{
       <div className="m-auto flex w-full max-w-[360px] shrink-0 flex-col items-center gap-9 py-8">
         <div className="flex flex-col items-center gap-5 text-center">
           <PiChamberLogo width={72} height={72} className="size-[72px]" />
-          <h1 className="typography-h2 text-foreground">{"Connect to PiChamber"}</h1>
+          <h1 className="typography-h2 text-foreground">{t("Connect to PiChamber")}</h1>
         </div>
 
         {notice ? (
@@ -162,8 +164,8 @@ export const MobileConnectionWelcome: React.FC<{
             </span>
             <p className="min-w-0 flex-1 typography-small text-foreground">
               {notice.kind === 'auth-expired'
-                ? `Access to ${notice.label} has expired or was revoked. Sign in again.`
-                : `Couldn't reach ${notice.label}. Check that the server is running.`}
+                ? t('Access to {{label}} has expired or was revoked. Sign in again.', { label: notice.label })
+                : t("Couldn't reach {{label}}. Check that the server is running.", { label: notice.label })}
             </p>
           </div>
         ) : null}
@@ -177,7 +179,7 @@ export const MobileConnectionWelcome: React.FC<{
               <div className="min-w-0 text-left">
                 <p className="truncate typography-ui-label text-foreground">{pendingConnection.label}</p>
                 <p className="truncate typography-small text-muted-foreground">
-                  {pendingConnection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(pendingConnection) : "via PiChamber Relay"}
+                  {pendingConnection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(pendingConnection) : t("via PiChamber Relay")}
                 </p>
               </div>
             </div>
@@ -185,15 +187,15 @@ export const MobileConnectionWelcome: React.FC<{
               {...mobileInputKeyboardProps}
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              placeholder={"PiChamber password"}
-              aria-label={"Password"}
+              placeholder={t("PiChamber password")}
+              aria-label={t("Password")}
               type="password"
               autoFocus
               className={mobileConnectionInputClass}
             />
             {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
             <Button type="submit" size="lg" className="mt-1 h-12 w-full" disabled={isPasswordBusy || !password.trim()}>
-              {isPasswordBusy ? "Connecting..." : "Unlock and connect"}
+              {isPasswordBusy ? t("Connecting...") : t("Unlock and connect")}
             </Button>
             <Button
               type="button"
@@ -202,7 +204,7 @@ export const MobileConnectionWelcome: React.FC<{
               className="w-full"
               onClick={cancelPassword}
             >
-              {"Use another server"}
+              {t("Use another server")}
             </Button>
           </form>
         ) : (
@@ -217,11 +219,10 @@ export const MobileConnectionWelcome: React.FC<{
                   onClick={() => void handleScanQr()}
                   disabled={isScanning || isBusy}
                 >
-                  <Icon name="scan-2" className={cn('size-[18px]', isScanning && 'animate-pulse')} />
-                  {isBusy ? "Connecting..." : "Scan QR code"}
+                  {isBusy ? t("Connecting...") : t("Scan QR code")}
                 </Button>
                 <p className="px-2 text-center typography-small text-muted-foreground">
-                  {"On your computer, open «Add a device» to show a QR code, then scan it here."}
+                  {t("On your computer, open «Add a device» to show a QR code, then scan it here.")}
                 </p>
               </div>
             ) : null}
@@ -231,7 +232,7 @@ export const MobileConnectionWelcome: React.FC<{
             {connections.length > 0 ? (
               <section className="flex w-full flex-col gap-2.5">
                 <h2 className="text-center typography-micro uppercase tracking-[0.14em] text-muted-foreground">
-                  {"Saved connections"}
+                  {t("Saved connections")}
                 </h2>
                 <div className="overflow-hidden rounded-[18px] border border-border/70 bg-surface-elevated">
                   {connections.map((connection) => {
@@ -255,8 +256,8 @@ export const MobileConnectionWelcome: React.FC<{
                           <span className="block truncate typography-ui-label text-foreground">{connection.label}</span>
                           <span className={cn('block truncate typography-small', isConnectingRow ? 'text-foreground' : 'text-muted-foreground')}>
                             {isConnectingRow
-                              ? "Connecting..."
-                              : connection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(connection) : "via PiChamber Relay"}
+                              ? t("Connecting...")
+                              : connection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(connection) : t("via PiChamber Relay")}
                           </span>
                         </span>
                         {isConnectingRow
@@ -278,7 +279,7 @@ export const MobileConnectionWelcome: React.FC<{
                   aria-expanded={manualOpen}
                   className="mx-auto flex items-center gap-1 rounded-full px-2 py-1 typography-small text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
-                  <span>{"Connect by address"}</span>
+                  <span>{t("Connect by address")}</span>
                   <Icon name="arrow-down-s" className={cn('size-4 transition-transform duration-200', manualOpen && 'rotate-180')} />
                 </button>
               ) : null}
@@ -293,7 +294,7 @@ export const MobileConnectionWelcome: React.FC<{
                       value={serverUrl}
                       onChange={(event) => handleUrlChange(event.target.value)}
                       placeholder={"http://192.168.1.74:2606"}
-                      aria-label={"Server URL"}
+                      aria-label={t("Server URL")}
                       type="url"
                       inputMode="url"
                       autoCapitalize="none"
@@ -303,8 +304,8 @@ export const MobileConnectionWelcome: React.FC<{
                     <input
                       value={connectionName}
                       onChange={(event) => setConnectionName(event.target.value)}
-                      placeholder={"Optional display name"}
-                      aria-label={"Name"}
+                      placeholder={t("Optional display name")}
+                      aria-label={t("Name")}
                       autoComplete="off"
                       autoCapitalize="words"
                       autoCorrect="off"
@@ -316,16 +317,16 @@ export const MobileConnectionWelcome: React.FC<{
                       {...mobileInputKeyboardProps}
                       value={clientToken}
                       onChange={(event) => setClientToken(event.target.value)}
-                      placeholder={"Paste access token"}
-                      aria-label={"Client token"}
+                      placeholder={t("Paste access token")}
+                      aria-label={t("Client token")}
                       tabIndex={manualOpen ? undefined : -1}
                       autoCapitalize="none"
                       className={cn(mobileConnectionInputClass, 'text-center')}
                     />
-                    <p className="px-1 text-center typography-micro text-muted-foreground">{"Only needed if your server requires a token instead of a password."}</p>
+                    <p className="px-1 text-center typography-micro text-muted-foreground">{t("Only needed if your server requires a token instead of a password.")}</p>
                     {error ? <p className="px-1 text-center typography-small text-[var(--status-error)]">{error}</p> : null}
                     <Button type="submit" variant={qrScanSupported ? 'outline' : 'default'} size="lg" className="h-12 w-full" disabled={isBusy || isScanning || !serverUrl.trim()}>
-                      {isBusy ? "Connecting..." : "Connect"}
+                      {isBusy ? t("Connecting...") : t("Connect")}
                     </Button>
                   </form>
                 </div>

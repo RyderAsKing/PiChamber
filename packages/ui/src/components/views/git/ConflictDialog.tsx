@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,7 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
   onAbort,
   onClearState,
 }) => {
+  const { t } = useTranslation();
   const { git } = useRuntimeAPIs();
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
@@ -59,13 +61,13 @@ export const ConflictDialog: React.FC<ConflictDialogProps> = ({
         setConflictDetails(details);
       })
       .catch((err) => {
-        const message = err instanceof Error ? err.message : "Failed to load conflict details";
+        const message = err instanceof Error ? err.message : t("Failed to load conflict details");
         setLoadError(message);
       })
       .finally(() => {
         setIsLoading(false);
       });
-  }, [directory, git, open]);
+  }, [directory, git, open, t]);
 
   const buildConflictContext = React.useCallback(async (): Promise<{
     visibleText: string;
@@ -116,12 +118,12 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
   const handleResolveInCurrentSession = async () => {
     const context = await buildConflictContext();
     if (!context) {
-      toast.error("No conflict details available");
+      toast.error(t("No conflict details available"));
       return;
     }
 
     if (!currentSessionId) {
-      toast.error("No active session", { description: "Open or create a session to resolve conflicts." });
+      toast.error(t("No active session"), { description: t("Open or create a session to resolve conflicts.") });
       return;
     }
 
@@ -140,7 +142,7 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
   const handleResolveInNewSession = async () => {
     const context = await buildConflictContext();
     if (!context) {
-      toast.error("No conflict details available");
+      toast.error(t("No conflict details available"));
       return;
     }
 
@@ -159,7 +161,7 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
     onOpenChange(false);
   };
 
-  const operationLabel = operation === 'merge' ? "Merge" : "Rebase";
+  const operationLabel = operation === 'merge' ? t("Merge") : t("Rebase");
   const displayFiles = conflictDetails?.unmergedFiles || conflictFiles;
 
   return (
@@ -169,30 +171,30 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
           <DialogHeader>
             <div className="flex items-center gap-2">
               <Icon name="alert" className="size-5 shrink-0 text-[var(--status-warning)]" />
-              <DialogTitle>{`${operationLabel} conflicts detected`}</DialogTitle>
+              <DialogTitle>{t('{{operation}} conflicts detected', { operation: operationLabel })}</DialogTitle>
             </div>
             <DialogDescription>
-              {`Resolve the ${operation} conflicts to continue.`}
+              {t('Resolve the {{operation}} conflicts to continue.', { operation })}
             </DialogDescription>
           </DialogHeader>
 
           {isLoading && (
             <div className="flex items-center justify-center gap-2 py-4 text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
-              <span className="typography-meta">{"Loading conflict details..."}</span>
+              <span className="typography-meta">{t("Loading conflict details...")}</span>
             </div>
           )}
 
           {loadError && (
             <div className="rounded-lg bg-[var(--status-error-bg)] p-3 text-[var(--status-error)] typography-meta break-words">
-              {`Failed to load conflict details: ${loadError}`}
+              {t('Failed to load conflict details: {{error}}', { error: loadError })}
             </div>
           )}
 
           {displayFiles.length > 0 && (
             <div className="space-y-2 overflow-hidden">
               <div className="flex items-center justify-between">
-                <p className="typography-meta text-muted-foreground">{"Conflicted files:"}</p>
+                <p className="typography-meta text-muted-foreground">{t("Conflicted files:")}</p>
                 <span className="typography-micro px-1.5 py-0.5 rounded bg-[var(--surface-elevated)] text-muted-foreground">
                   {displayFiles.length}
                 </span>
@@ -215,7 +217,7 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
 
           {conflictDetails?.headInfo && (
             <div className="space-y-1 overflow-hidden">
-              <p className="typography-meta text-muted-foreground">{"HEAD information:"}</p>
+              <p className="typography-meta text-muted-foreground">{t("HEAD information:")}</p>
               <div className="typography-micro text-foreground font-mono bg-[var(--surface-elevated)] rounded-lg p-3 max-h-24 overflow-y-auto break-words whitespace-pre-wrap">
                 {conflictDetails.headInfo}
               </div>
@@ -236,7 +238,7 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
               ) : (
                 <Icon name="add" className="size-4" />
               )}
-              {"Resolve in new session"}
+              {t("Resolve in new session")}
             </Button>
             <Button
               variant="outline"
@@ -249,14 +251,14 @@ Inspect each conflicted file and both sides of every conflict. Report a concise 
               ) : (
                 <Icon name="chat-1" className="size-4" />
               )}
-              {"Resolve in current session"}
+              {t("Resolve in current session")}
             </Button>
             <div className="flex gap-2 pt-1">
               <Button variant="ghost" size="sm" onClick={handleContinueLater} className="flex-1">
-                {"Continue later"}
+                {t("Continue later")}
               </Button>
               <Button variant="destructive" size="sm" onClick={handleAbort} className="flex-1">
-                {`Abort ${operationLabel}`}
+                {t('Abort {{operation}}', { operation: operationLabel })}
               </Button>
             </div>
           </div>

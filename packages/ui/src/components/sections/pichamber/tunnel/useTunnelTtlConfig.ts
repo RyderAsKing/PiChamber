@@ -1,10 +1,12 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { BOOTSTRAP_TTL_OPTIONS, SESSION_TTL_OPTIONS } from './tunnelHelpers';
 
 export function useTunnelTtlConfig() {
   const [bootstrapTtlMs, setBootstrapTtlMs] = React.useState<number | null>(30 * 60 * 1000);
+  const { t } = useTranslation();
   const [sessionTtlMs, setSessionTtlMs] = React.useState<number>(8 * 60 * 60 * 1000);
   const [isSavingTtl, setIsSavingTtl] = React.useState(false);
 
@@ -17,12 +19,12 @@ export function useTunnelTtlConfig() {
           tunnelSessionTtlMs: nextSessionTtlMs,
         });
       } catch {
-        toast.error('Failed to save tunnel TTL settings');
+        toast.error(t('Failed to save tunnel TTL settings'));
       } finally {
         setIsSavingTtl(false);
       }
     },
-    [],
+    [t],
   );
 
   const handleBootstrapTtlChange = React.useCallback(

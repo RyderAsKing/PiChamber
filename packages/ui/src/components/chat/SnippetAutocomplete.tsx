@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { cn, fuzzyMatch } from "@/lib/utils";
 import { useSnippetsStore } from "@/stores/useSnippetsStore";
 import { useUIStore } from "@/stores/useUIStore";
@@ -29,6 +30,7 @@ export const SnippetAutocomplete = React.forwardRef<
   SnippetAutocompleteHandle,
   SnippetAutocompleteProps
 >(({ searchQuery, onSnippetSelect, onClose, style }, ref) => {
+  const { t } = useTranslation();
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const isMobile = useUIStore((state) => state.isMobile);
   const mobileMaxHeight = useMobileAutocompleteMaxHeight(
@@ -153,7 +155,7 @@ export const SnippetAutocomplete = React.forwardRef<
     <div
       ref={containerRef}
       role="listbox"
-      aria-label="Snippets"
+      aria-label={t("Snippets")}
       aria-activedescendant={
         selectedIndex === 0
           ? "snippet-option-new"
@@ -190,7 +192,7 @@ export const SnippetAutocomplete = React.forwardRef<
         >
           <div className="min-w-0 flex-1">
             <div className="typography-ui-label font-medium">
-              Create a new snippet
+              {t("Create a new snippet")}
             </div>
             <div
               className={cn(
@@ -200,7 +202,7 @@ export const SnippetAutocomplete = React.forwardRef<
                   : "text-muted-foreground",
               )}
             >
-              Save reusable text for the # picker
+              {t("Save reusable text for the # picker")}
             </div>
           </div>
         </div>
@@ -209,7 +211,7 @@ export const SnippetAutocomplete = React.forwardRef<
             const optionIndex = index + 1;
             const isSelected = optionIndex === selectedIndex;
             const sourceLabel =
-              snippet.source === "project" ? "Project" : "Global";
+              snippet.source === "project" ? t("Project") : t("Global");
             const preview = snippetPreview(snippet);
             return (
               <div
@@ -264,13 +266,13 @@ export const SnippetAutocomplete = React.forwardRef<
           })
         ) : (
           <div className="px-3 py-4 typography-ui-label text-muted-foreground">
-            No snippets found
+            {t("No snippets found")}
           </div>
         )}
       </ScrollableOverlay>
       {!isMobile && (
         <div className="border-t border-border/60 px-3 py-2 text-xs leading-4 text-muted-foreground">
-          ↑↓ Navigate · Enter Select · Esc Close
+          {t("↑↓ Navigate · Enter Select · Esc Close")}
         </div>
       )}
     </div>

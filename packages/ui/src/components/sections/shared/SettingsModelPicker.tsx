@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { useTranslation } from 'react-i18next';
 import { ModelPickerList, type ModelPickerEntry, type ModelPickerProvider } from '@/components/model-picker/ModelPickerList';
 import { ProviderLogo } from '@/components/ui/ProviderLogo';
 import { dropdownTriggerVariants } from '@/components/ui/dropdown-trigger';
@@ -48,6 +49,7 @@ export const SettingsModelPicker: React.FC<SettingsModelPickerProps> = ({
   isModelAllowed,
   onChange,
 }) => {
+  const { t } = useTranslation();
   const providers = useConfigStore((state) => state.providers);
   const modelsMetadata = useConfigStore((state) => state.modelsMetadata);
   const hiddenModels = useUIStore((state) => state.hiddenModels);
@@ -124,7 +126,21 @@ export const SettingsModelPicker: React.FC<SettingsModelPickerProps> = ({
           searchQuery={searchQuery}
           onSearchQueryChange={setSearchQuery}
           onSelect={handleSelect}
-          labels={{ ...MODEL_PICKER_LABELS, notSelected: noneLabel }}
+          labels={{
+            searchPlaceholder: t(MODEL_PICKER_LABELS.searchPlaceholder),
+            noResults: t(MODEL_PICKER_LABELS.noResults),
+            favorites: t(MODEL_PICKER_LABELS.favorites),
+            recent: t(MODEL_PICKER_LABELS.recent),
+            favorite: t(MODEL_PICKER_LABELS.favorite),
+            unfavorite: t(MODEL_PICKER_LABELS.unfavorite),
+            capabilities: t(MODEL_PICKER_LABELS.capabilities),
+            capabilityToolCalling: t(MODEL_PICKER_LABELS.capabilityToolCalling),
+            capabilityReasoning: t(MODEL_PICKER_LABELS.capabilityReasoning),
+            input: t(MODEL_PICKER_LABELS.input),
+            output: t(MODEL_PICKER_LABELS.output),
+            costPerMillion: t(MODEL_PICKER_LABELS.costPerMillion),
+            notSelected: noneLabel,
+          }}
           selectedModel={value ? { providerID: value.providerId, modelID: value.modelId } : null}
           hiddenModels={pickerHiddenModels}
           isModelAllowed={isModelAllowed}
@@ -144,8 +160,8 @@ export const SettingsModelPicker: React.FC<SettingsModelPickerProps> = ({
             over.providerID,
             over.modelID,
           )}
-          reorderFavoriteAriaLabel="Reorder favorite"
-          reorderFavoriteTitle="Drag to reorder favorite"
+          reorderFavoriteAriaLabel={t('Reorder favorite')}
+          reorderFavoriteTitle={t('Drag to reorder favorite')}
         />
       </DropdownMenuContent>
     </DropdownMenu>

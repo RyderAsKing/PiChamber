@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SessionFolderItem } from '../SessionFolderItem';
@@ -28,6 +29,8 @@ import { useSessionGroupFolders } from './useSessionGroupFolders';
 export type { SessionGroupSectionProps } from './sessionGroupTypes';
 
 function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNode {
+  const { t } = useTranslation();
+
   const {
     group,
     groupKey,
@@ -257,7 +260,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     ? getSessionNodesActivityState(sourceGroupNodes, activeActivitySessionIds, unreadActivitySessionIds)
     : null;
   const groupActivityIndicator = groupActivityState ? (
-    <CollapsedActivityIndicator state={groupActivityState} activeLabel={'Session active'} unreadLabel={'Unread updates'} />
+    <CollapsedActivityIndicator state={groupActivityState} activeLabel={t('Session active')} unreadLabel={t('Unread updates')} />
   ) : null;
 
   type FolderEntry = (typeof allFoldersForGroup)[number];
@@ -428,7 +431,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
         group.isArchivedBucket ? (
           <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
-            {'No archived sessions yet.'}
+            {t('No archived sessions yet.')}
           </div>
         ) : (
           <SidebarSessionLikeButton
@@ -440,7 +443,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               });
             }}
           >
-            {'New session'}
+            {t('New session')}
           </SidebarSessionLikeButton>
         )
       ) : null}
@@ -449,12 +452,12 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           icon="arrow-down-s"
           onClick={() => showMoreGroupSessions(groupKey, visibleSessions.length)}
         >
-          {remainingCount === 1 ? 'Show 1 more session' : `Show ${remainingCount} more sessions`}
+          {remainingCount === 1 ? t('Show 1 more session') : t('Show {{count}} more sessions', { count: remainingCount })}
         </SidebarSessionLikeButton>
       ) : null}
       {canShowLess ? (
         <SidebarSessionLikeButton icon="arrow-up-s" onClick={() => resetGroupSessionLimit(groupKey)}>
-          {'Show fewer sessions'}
+          {t('Show fewer sessions')}
         </SidebarSessionLikeButton>
       ) : null}
     </SessionFolderDndScope>

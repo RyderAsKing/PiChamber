@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
@@ -84,6 +85,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   onHeaderControlsStateChange,
   toolbarSlot = null,
 }) => {
+  const { t } = useTranslation();
   const {
     effectiveDirectory,
     isGitRepo,
@@ -207,7 +209,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
         {showFileSidebar && (
           <section className="hidden lg:flex w-72 flex-col rounded-xl border border-border/60 bg-background/70 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/40">
-              <span className="typography-ui-header font-semibold text-foreground">{"Files"}</span>
+              <span className="typography-ui-header font-semibold text-foreground">{t('Files')}</span>
               <span className="typography-meta text-muted-foreground">{changedFiles.length}</span>
             </div>
             <FileList
@@ -269,7 +271,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     if (!effectiveDirectory) {
       return (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {"Select a session directory to view diffs"}
+          {t('Select a session directory to view diffs')}
         </div>
       );
     }
@@ -278,7 +280,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
       return (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
           <Icon name="loader-4" className="size-4 animate-spin" />
-          {"Loading repository status..."}
+          {t('Loading repository status...')}
         </div>
       );
     }
@@ -286,7 +288,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     if (activeDiffScope !== 'turn' && activeDiffScope !== 'branch' && isGitRepo === false) {
       return (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {"Not a git repository. Use the Git tab to initialize or change directories."}
+          {t('Not a git repository. Use the Git tab to initialize or change directories.')}
         </div>
       );
     }
@@ -295,7 +297,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
       return (
         <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
           <Icon name="loader-4" className="size-4 animate-spin" />
-          {"Loading branch changes..."}
+          {t('Loading branch changes...')}
         </div>
       );
     }
@@ -303,7 +305,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     if (activeDiffScope === 'branch' && branchDiffError) {
       return (
         <div className="flex flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">
-          {`Failed to load branch changes: ${branchDiffError}`}
+          {t('Failed to load branch changes: {{error}}', { error: branchDiffError })}
         </div>
       );
     }
@@ -311,7 +313,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
     if (changedFiles.length === 0) {
       return (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          {activeDiffScope === 'turn' ? "No last turn changes to display" : "Working tree clean, no changes to display"}
+          {activeDiffScope === 'turn' ? t('No last turn changes to display') : t('Working tree clean, no changes to display')}
         </div>
       );
     }
@@ -354,10 +356,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
           <div className="flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground shrink-0">
             <span className="typography-ui-label font-medium text-foreground">
               {isLoadingStatus && !status
-                ? "Loading changes..."
+                ? t('Loading changes...')
                 : changedFiles.length === 1
-                ? `${changedFiles.length} file changed`
-                : `${changedFiles.length} files changed`}
+                ? t('{{count}} file changed', { count: changedFiles.length })
+                : t('{{count}} files changed', { count: changedFiles.length })}
             </span>
           </div>
         )}
@@ -370,11 +372,11 @@ export const DiffView: React.FC<DiffViewProps> = ({
               'diff-toolbar__expand-button h-7 flex-shrink-0 gap-1 px-1.5 text-muted-foreground hover:text-foreground',
               'ml-auto'
             )}
-            title={expandedFiles.size > 0 ? "Collapse all" : "Expand all"}
+            title={expandedFiles.size > 0 ? t('Collapse all') : t('Expand all')}
           >
             <Icon name="expand-up-down" className="size-4" />
             <span className="diff-toolbar__expand-label typography-ui-label">
-              {expandedFiles.size > 0 ? "Collapse all" : "Expand all"}
+              {expandedFiles.size > 0 ? t('Collapse all') : t('Expand all')}
             </span>
           </Button>
         )}
@@ -386,7 +388,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 size="sm"
                 onClick={() => setLoadFullFiles((value) => !value)}
                 aria-pressed={loadFullFiles}
-                aria-label={loadFullFiles ? "Unload full files" : "Load full files"}
+                aria-label={loadFullFiles ? t('Unload full files') : t('Load full files')}
                 className={cn(
                   'h-7 w-7 flex-shrink-0 p-0 text-muted-foreground hover:text-foreground',
                   loadFullFiles && 'bg-interactive-selection text-interactive-selection-foreground'
@@ -396,7 +398,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{loadFullFiles ? "Unload full files" : "Load full files"}</p>
+              <p>{loadFullFiles ? t('Unload full files') : t('Load full files')}</p>
             </TooltipContent>
           </Tooltip>
         )}
@@ -409,7 +411,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
               'h-5 w-5 p-0 transition-opacity',
               diffWrapLines ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-60 hover:opacity-100'
             )}
-            title={diffWrapLines ? "Disable line wrap" : "Enable line wrap"}
+            title={diffWrapLines ? t('Disable line wrap') : t('Enable line wrap')}
           >
             <Icon name="text-wrap" className="size-4" />
           </Button>

@@ -5,6 +5,7 @@ import { runtimeFetch } from './runtime-fetch';
 import { getRuntimeUrlResolver } from './runtime-url';
 import { clearRuntimeUrlAuthToken, refreshRuntimeUrlAuthToken } from './runtime-auth';
 import { isTerminalShell } from './terminalShell';
+import i18n from '@/i18n';
 
 type Message = Record<string, unknown> & { t: string; s?: string; q?: number };
 type Subscriber = { handlers: TerminalHandlers; lastSequence: number };
@@ -156,7 +157,7 @@ export class TerminalTransport {
     this.closeSocket();
     await this.ensureConnected();
     if (isReplaced()) throw new Error('Terminal runtime changed');
-    if (!this.send({ t: 'write', v: 3, s: sessionId, d: data })) throw new Error('Terminal connection is unavailable');
+    if (!this.send({ t: 'write', v: 3, s: sessionId, d: data })) throw new Error(i18n.t('Terminal connection is unavailable'));
   }
 
   dispose(): void {
@@ -248,7 +249,7 @@ export class TerminalTransport {
         const timeout = setTimeout(() => {
           invalidatePreOpenAuth();
           pendingSocket?.close();
-          finish(new Error('Terminal connection timed out'));
+          finish(new Error(i18n.t('Terminal connection timed out')));
         }, 10_000);
         try {
           const socket = this.dependencies.openSocket(urlAuthToken);
@@ -268,7 +269,7 @@ export class TerminalTransport {
           socket.onerror = () => {
             const current = isCurrentSocket();
             if (current) invalidatePreOpenAuth();
-            finish(new Error('Terminal WebSocket failed'));
+            finish(new Error(i18n.t('Terminal WebSocket failed')));
             if (current && this.subscribers.size > 0) this.scheduleReconnect();
           };
           socket.onclose = () => {
@@ -281,11 +282,11 @@ export class TerminalTransport {
               invalidatePreOpenAuth();
             }
             if (this.socket === socket) this.socket = null;
-            finish(new Error('Terminal WebSocket closed'));
+            finish(new Error(i18n.t('Terminal WebSocket closed')));
             if (current && this.subscribers.size > 0) this.scheduleReconnect();
           };
         } catch (error) {
-          finish(error instanceof Error ? error : new Error('Terminal WebSocket failed'));
+          finish(error instanceof Error ? error : new Error(i18n.t('Terminal WebSocket failed')));
           if (!this.disposed && this.subscribers.size > 0) this.scheduleReconnect();
         }
       });
@@ -305,7 +306,7 @@ export class TerminalTransport {
     const message = await decode(raw);
     if (!message || message.t === 'hello' || message.t === 'pong') return;
     if (message.t === 'error') {
-      const error = new Error(typeof message.message === 'string' ? message.message : 'Terminal error') as TerminalError;
+      const error = new Error(typeof message.message === 'string' ? message.message : i18n.t('Terminal error')) as TerminalError;
       if (typeof message.code === 'string') error.code = message.code;
       const targets = message.s ? [message.s] : [...this.subscribers.keys()];
       for (const id of targets) for (const sub of this.subscribers.get(id) ?? []) sub.handlers.onError?.(error, message.fatal === true);
@@ -478,12 +479,12 @@ const bumpTerminalTransportGeneration = (): void => {
 
 export async function createTerminalSession(options: CreateTerminalOptions): Promise<TerminalSession> {
   const response = await runtimeFetch('/api/terminal/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(options) });
-  if (!response.ok) throw await responseError(response, 'Failed to create terminal session');
+  if (!response.ok) throw await responseError(response, i18n.t('Failed to create terminal session'));
   return response.json() as Promise<TerminalSession>;
 }
 export async function listTerminalShells(): Promise<TerminalShellOption[]> {
   const response = await runtimeFetch('/api/terminal/shells');
-  if (!response.ok) throw await responseError(response, 'Failed to list terminal shells');
+  if (!response.ok) throw await responseError(response, i18n.t('Failed to list terminal shells'));
   const payload = await response.json().catch(() => []);
   return Array.isArray(payload)
     ? payload.filter((entry): entry is TerminalShellOption => (
@@ -501,7 +502,7 @@ async function command(path: string, method: string, body?: unknown): Promise<Re
     options.body = JSON.stringify(body);
   }
   const response = await runtimeFetch(path, options);
-  if (!response.ok) throw await responseError(response, 'Terminal command failed');
+  if (!response.ok) throw await responseError(response, i18n.t('Terminal command failed'));
   return response;
 }
 export async function resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void> { await command(`/api/terminal/${sessionId}/resize`, 'POST', { cols, rows }); }

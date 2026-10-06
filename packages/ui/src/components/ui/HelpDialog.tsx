@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,7 @@ const renderShortcut = (id: string, fallbackCombo: string, overrides: Record<str
 };
 
 export const HelpDialog: React.FC = () => {
+  const { t } = useTranslation();
   const isHelpDialogOpen = useUIStore((state) => state.isHelpDialogOpen);
   const setHelpDialogOpen = useUIStore((state) => state.setHelpDialogOpen);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
@@ -143,7 +145,7 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'toggle_terminal',
-          descriptionKey: 'helpDialog.item.toggleTerminalDock',
+          descriptionKey: "Toggle Terminal Dock",
           icon: "window",
           keys: '',
         },
@@ -165,7 +167,7 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'toggle_services_menu',
-          descriptionKey: 'helpDialog.item.toggleServicesMenu',
+          descriptionKey: "Toggle Services Menu",
           icon: "stack",
           keys: '',
         },
@@ -185,10 +187,10 @@ export const HelpDialog: React.FC = () => {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon name="command" className="h-5 w-5" />
-            {"Keyboard Shortcuts"}
+            {t("Keyboard Shortcuts")}
           </DialogTitle>
           <DialogDescription>
-            {"Use these keyboard shortcuts to navigate PiChamber efficiently"}
+            {t("Use these keyboard shortcuts to navigate PiChamber efficiently")}
           </DialogDescription>
         </DialogHeader>
 
@@ -197,7 +199,7 @@ export const HelpDialog: React.FC = () => {
             {shortcuts.map((section) => (
               <div key={section.categoryKey} className="min-w-0 break-inside-avoid">
                 <h3 className="typography-meta font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  {section.categoryKey}
+                  {t(section.categoryKey)}
                 </h3>
                 <div className="space-y-1">
                   {section.items
@@ -216,7 +218,7 @@ export const HelpDialog: React.FC = () => {
                             <Icon name={shortcut.icon} className="h-3.5 w-3.5 text-muted-foreground" />
                           )}
                           <span className="typography-meta">
-                            {shortcut.descriptionKey}
+                            {t(shortcut.descriptionKey)}
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
@@ -224,7 +226,7 @@ export const HelpDialog: React.FC = () => {
                             <React.Fragment key={`${keyCombo}-${i}`}>
                               {i > 0 && (
                                 <span className="typography-meta text-muted-foreground mx-1">
-                                  {"or"}
+                                  {t("or")}
                                 </span>
                               )}
                               <kbd className="inline-flex items-center gap-1 px-1.5 py-0.5 typography-meta font-mono bg-muted rounded border border-border/20">

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -61,11 +62,12 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
   disabled,
   onAction,
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center gap-0.5 rounded-full border border-[var(--interactive-border)]/45 bg-[var(--surface-background)]/95 px-1 py-0.5 shadow-sm backdrop-blur-md">
       {staged ? (
         <FileDiffActionButton
-          label={`Unstage ${filePath}`}
+          label={t('Unstage {{filePath}}', { filePath })}
           icon="arrow-go-back"
           loading={busyAction === 'unstage'}
           disabled={disabled}
@@ -74,7 +76,7 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
       ) : (
         <>
           <FileDiffActionButton
-            label={`Revert changes in ${filePath}`}
+            label={t('Revert changes in {{filePath}}', { filePath })}
             icon="arrow-go-back"
             loading={busyAction === 'discard'}
             disabled={disabled}
@@ -82,7 +84,7 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
             onClick={() => onAction('discard')}
           />
           <FileDiffActionButton
-            label={`Stage ${filePath}`}
+            label={t('Stage {{filePath}}', { filePath })}
             icon="add"
             loading={busyAction === 'stage'}
             disabled={disabled}

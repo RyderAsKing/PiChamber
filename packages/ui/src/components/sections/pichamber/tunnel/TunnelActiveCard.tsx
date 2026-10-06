@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -35,17 +36,18 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
   tunnelMode,
   primaryCtaClass,
 }) => {
+  const { t } = useTranslation();
   return (
     <section data-settings-item="tunnel.start" className="space-y-4 px-2 pb-2 pt-0">
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           <div className="size-2 shrink-0 rounded-full bg-[var(--status-success)]" />
-          <p className="typography-meta font-medium text-foreground">{'Tunnel ready'}</p>
+          <p className="typography-meta font-medium text-foreground">{t('Tunnel ready')}</p>
         </div>
 
         <div>
           <p className="typography-meta mb-1 text-muted-foreground/70">
-            {'Public URL (not accessible without a token)'}
+            {t('Public URL (not accessible without a token)')}
           </p>
           <code className="typography-code block truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
             {tunnelInfo.url}
@@ -56,7 +58,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
           <>
             <div>
               <p className="typography-meta mb-1 text-muted-foreground/70">
-                {'Connect link'}
+                {t('Connect link')}
               </p>
               <div className="flex items-center gap-2">
                 <code className="typography-code flex-1 truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
@@ -73,11 +75,11 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
                   ) : (
                     <Icon name="file-copy" className="size-3.5" />
                   )}
-                  {copied ? 'Copied' : 'Copy all'}
+                  {copied ? t('Copied') : t('Copy all')}
                 </Button>
               </div>
               <p className="typography-meta mt-1 text-muted-foreground/70">
-                {'Expires'}: {tunnelInfo.bootstrapExpiresAt ? remainingText : 'Never'}
+                {t('Expires')}: {tunnelInfo.bootstrapExpiresAt ? remainingText : t('Never')}
               </p>
             </div>
 
@@ -85,14 +87,14 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
               {qrDataUrl ? (
                 <img
                   src={qrDataUrl}
-                  alt={'Tunnel connect QR code'}
+                  alt={t('Tunnel connect QR code')}
                   className="size-48"
                 />
               ) : (
                 <div className="size-48 rounded bg-muted/30" />
               )}
               <p className="typography-meta text-muted-foreground">
-                {'Scan with your phone to connect.'}
+                {t('Scan with your phone to connect.')}
               </p>
             </div>
           </>
@@ -113,7 +115,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
             className={primaryCtaClass}
           >
             <Icon name="restart" className="size-3.5" />
-            {'New connect link'}
+            {t('New connect link')}
           </Button>
 
           <Button
@@ -126,10 +128,10 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
             {stopping ? (
               <>
                 <Icon name="loader-4" className="size-3.5 animate-spin" />{' '}
-                {'Stopping...'}
+                {t('Stopping...')}
               </>
             ) : (
-              'Stop Tunnel'
+              t('Stop Tunnel')
             )}
           </Button>
         </div>

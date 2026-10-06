@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -44,6 +45,7 @@ const GroupPrBadge: React.FC<{ directory: string | null; number: number; color?:
   number,
   color,
 }) => {
+  const { t } = useTranslation();
   const repo = useGitHubSelectedRepo(directory);
   if (!directory || !repo) {
     return (
@@ -64,8 +66,8 @@ const GroupPrBadge: React.FC<{ directory: string | null; number: number; color?:
       }}
       className="ml-auto flex-shrink-0 rounded text-[0.72rem] font-medium leading-none hover:bg-interactive-hover"
       style={color ? { color } : undefined}
-      title={`Open PR #${number} in Pull requests`}
-      aria-label={`Open pull request #${number} in Pull requests`}
+      title={t('Open PR #{{number}} in Pull requests', { number })}
+      aria-label={t('Open pull request #{{number}} in Pull requests', { number })}
     >
       #{number}
     </button>
@@ -95,6 +97,7 @@ export function SessionGroupHeader({
   setSessionSwitcherOpen,
   openNewSessionDraft,
 }: SessionGroupHeaderProps) {
+  const { t } = useTranslation();
   return (
     <div
       className={cn(
@@ -110,7 +113,7 @@ export function SessionGroupHeader({
           onToggleCollapsedGroup(groupKey);
         }
       }}
-      aria-label={isCollapsed ? `Expand ${group.label}` : `Collapse ${group.label}`}
+      aria-label={isCollapsed ? t('Expand {{label}}', { label: group.label }) : t('Collapse {{label}}', { label: group.label })}
       aria-expanded={!isCollapsed}
     >
       <div
@@ -230,13 +233,13 @@ export function SessionGroupHeader({
                   });
                 }}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                aria-label={`Delete archived sessions in ${group.label}`}
+                aria-label={t('Delete archived sessions in {{label}}', { label: group.label })}
               >
                 <Icon name="delete-bin" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={4}>
-              <p>{'Delete archived sessions'}</p>
+              <p>{t('Delete archived sessions')}</p>
             </TooltipContent>
           </Tooltip>
         </div>
@@ -266,13 +269,13 @@ export function SessionGroupHeader({
                   });
                 }}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                aria-label={`New draft session in ${group.label}`}
+                aria-label={t('New draft session in {{label}}', { label: group.label })}
               >
                 <Icon name="add" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" sideOffset={4}>
-              <p>{'New draft session'}</p>
+              <p>{t('New draft session')}</p>
             </TooltipContent>
           </Tooltip>
         </div>

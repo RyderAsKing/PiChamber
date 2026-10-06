@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -56,12 +57,13 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
   selectedMobileKeyboardModeLabel,
   onSetMobileKeyboardMode,
 }) => {
+  const { t } = useTranslation();
   return (
-    <SettingsSection title={'App install'} divider={false} className="pb-0" contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
+    <SettingsSection title={t('App install')} divider={false} className="pb-0" contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
       {showPwaInstallNameSetting && (
         <SettingsFieldRow
-          label={'Install App Name'}
-          info={'Used by PWA installation process.'}
+          label={t('Install App Name')}
+          info={t('Used by PWA installation process.')}
           settingsItem="appearance.pwa-install-name"
           alignEnd={false}
           controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -80,7 +82,7 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
             }}
             className="min-w-0 flex-1"
             maxLength={64}
-            aria-label={'PWA install app name'}
+            aria-label={t('PWA install app name')}
           />
           <Button
             size="sm"
@@ -91,8 +93,8 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
               void onApplyPwaInstallName('');
             }}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={'Reset install app name'}
-            title={'Reset'}
+            aria-label={t('Reset install app name')}
+            title={t('Reset')}
           >
             <Icon name="restart" className="h-3.5 w-3.5" />
           </Button>
@@ -101,8 +103,8 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
 
       {showPwaOrientationSetting && (
         <SettingsFieldRow
-          label={'Install Orientation'}
-          description={'Used by the installed web app. Reinstall the PWA after changing this.'}
+          label={t('Install Orientation')}
+          description={t('Used by the installed web app. Reinstall the PWA after changing this.')}
           settingsItem="appearance.pwa-orientation"
           alignEnd={false}
           controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -115,18 +117,18 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
             }}
           >
             <SelectTrigger
-              aria-label={'PWA install orientation'}
+              aria-label={t('PWA install orientation')}
               size={SETTINGS_SELECT_SIZE}
               className={SETTINGS_CLUSTER_CONTROL_CLASS}
             >
-              <SelectValue placeholder={'Select orientation'}>
+              <SelectValue placeholder={t('Select orientation')}>
                 {selectedPwaOrientationLabel}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {PWA_ORIENTATION_OPTIONS.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
-                  {option.label}
+                  {t(option.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -140,8 +142,8 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
             }}
             disabled={pwaOrientation === 'system'}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={'Reset install orientation'}
-            title={'Reset'}
+            aria-label={t('Reset install orientation')}
+            title={t('Reset')}
           >
             <Icon name="restart" className="h-3.5 w-3.5" />
           </Button>
@@ -150,10 +152,10 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
 
       {showMobileKeyboardModeSetting && (
         <SettingsFieldRow
-          label={'Mobile Keyboard Behavior'}
-          info={
+          label={t('Mobile Keyboard Behavior')}
+          info={t(
             'Default browser behavior is safest. Resize content asks supported browsers to shrink the app when the on-screen keyboard opens.'
-          }
+          )}
           settingsItem="appearance.mobile-keyboard-mode"
           alignEnd={false}
           controlClassName={SETTINGS_CONTROL_CLUSTER_CLASS}
@@ -166,18 +168,18 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
             }}
           >
             <SelectTrigger
-              aria-label={'Mobile keyboard behavior'}
+              aria-label={t('Mobile keyboard behavior')}
               size={SETTINGS_SELECT_SIZE}
               className={SETTINGS_CLUSTER_CONTROL_CLASS}
             >
-              <SelectValue placeholder={'Select keyboard behavior'}>
+              <SelectValue placeholder={t('Select keyboard behavior')}>
                 {selectedMobileKeyboardModeLabel}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {MOBILE_KEYBOARD_MODE_OPTIONS.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
-                  {option.label}
+                  {t(option.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -191,8 +193,8 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
             }}
             disabled={mobileKeyboardMode === 'native'}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={'Reset mobile keyboard behavior'}
-            title={'Reset'}
+            aria-label={t('Reset mobile keyboard behavior')}
+            title={t('Reset')}
           >
             <Icon name="restart" className="h-3.5 w-3.5" />
           </Button>

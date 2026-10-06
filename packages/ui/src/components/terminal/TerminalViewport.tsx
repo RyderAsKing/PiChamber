@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Terminal as XtermTerminal } from '@xterm/xterm';
 import type { FitAddon as XtermFitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -128,6 +129,7 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
     },
     ref,
   ) => {
+    const { t } = useTranslation();
     const containerRef = React.useRef<HTMLDivElement>(null);
     const terminalRef = React.useRef<XtermTerminal | null>(null);
     const fitRef = React.useRef<XtermFitAddon | null>(null);
@@ -662,7 +664,7 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
         />
         <ContextMenuContent className="min-w-[180px]">
           <ContextMenuItem disabled={!menuHasSelection} onClick={handleCopy}>
-            <Icon name="file-copy" className="mr-2 h-4 w-4" /> {'Copy'}
+            <Icon name="file-copy" className="mr-2 h-4 w-4" /> {t('Copy')}
           </ContextMenuItem>
           <ContextMenuItem onClick={handlePaste}>
             <Icon name="clipboard" className="mr-2 h-4 w-4" /> {'Paste'}

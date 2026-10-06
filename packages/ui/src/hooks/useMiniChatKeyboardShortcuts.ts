@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
 import { toast } from '@/components/ui';
 import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
@@ -11,6 +12,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 
 export const useMiniChatKeyboardShortcuts = () => {
+  const { t } = useTranslation();
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
   const activeProject = useProjectsStore((state) => state.getActiveProject());
@@ -64,7 +66,7 @@ export const useMiniChatKeyboardShortcuts = () => {
 
         event.preventDefault();
         void cycleComposerThinking(1).catch(() => {
-          toast.error("Couldn't update thinking");
+          toast.error(t("Couldn't update thinking"));
         });
         return;
       }
@@ -91,5 +93,5 @@ export const useMiniChatKeyboardShortcuts = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeProject?.id, activeProject?.path, currentDirectory, openNewSessionDraft, shortcutOverrides]);
+  }, [activeProject?.id, activeProject?.path, currentDirectory, openNewSessionDraft, shortcutOverrides, t]);
 };

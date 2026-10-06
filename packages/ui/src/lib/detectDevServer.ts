@@ -1,4 +1,5 @@
 import type { PiChamberProjectAction } from './pichamberConfig';
+import i18n from '@/i18n';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
@@ -41,7 +42,7 @@ export async function detectDevServerCommand(
   if (devAction) {
     return {
       command: devAction.command,
-      label: devAction.name || 'Start Preview',
+      label: devAction.name || i18n.t('Start Preview'),
       actionId: devAction.id,
       previewUrlHint: devAction.openUrl,
     };
@@ -56,7 +57,7 @@ export async function detectDevServerCommand(
       const pmCommand = pm === 'npm' ? 'npm run' : pm === 'yarn' ? 'yarn' : pm === 'pnpm' ? 'pnpm' : pm === 'bun' ? 'bun run --shell=bun' : 'npm run';
       return {
         command: `${pmCommand} ${devScript}`,
-        label: `Start (${devScript})`,
+        label: i18n.t('Start ({{script}})', { script: devScript }),
       };
     }
   }
@@ -68,7 +69,7 @@ export async function detectDevServerCommand(
     const resolvedPort = typeof port === 'number' && Number.isFinite(port) && port > 0 ? port : 8000;
     return {
       command: `python3 -m http.server ${resolvedPort}`,
-      label: 'Static preview',
+      label: i18n.t('Static preview'),
       previewUrlHint: `http://127.0.0.1:${resolvedPort}/`,
     };
   }

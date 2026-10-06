@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isExternalHttpUrl, openExternalUrl } from '@/lib/url';
 import { useUIStore } from '@/stores/useUIStore';
@@ -353,6 +354,7 @@ export const useFileReferenceInteractions = ({
   preferRuntimeEditor?: boolean;
   enabled: boolean;
 }) => {
+  const { t } = useTranslation();
   const annotationDebounceRef = React.useRef<number | null>(null);
 
   React.useEffect(() => {
@@ -360,6 +362,7 @@ export const useFileReferenceInteractions = ({
     if (!container) {
       return;
     }
+    const openFileTitle = t('Open file');
     let cancelled = false;
     const fileReferenceLinkLimit = getFileReferenceLinkLimit();
     const fileReferencesEnabled = enabled && !isMobileSurfaceRuntime();
@@ -368,7 +371,7 @@ export const useFileReferenceInteractions = ({
       candidate.removeAttribute('data-pichamber-file-link');
       candidate.removeAttribute('data-pichamber-file-ref');
       candidate.removeAttribute('data-pichamber-file-path');
-      if (candidate.getAttribute('title') === 'Open file') {
+      if (candidate.getAttribute('title') === openFileTitle) {
         candidate.removeAttribute('title');
       }
       if (candidate.tagName.toLowerCase() !== 'a') {
@@ -463,7 +466,7 @@ export const useFileReferenceInteractions = ({
             'data-pichamber-file-path',
             latestResolved.resolvedPath
           );
-          candidate.setAttribute('title', 'Open file');
+          candidate.setAttribute('title', openFileTitle);
           if (candidate.tagName.toLowerCase() !== 'a') {
             candidate.setAttribute('role', 'button');
             candidate.setAttribute('tabindex', '0');
@@ -582,5 +585,5 @@ export const useFileReferenceInteractions = ({
       container.removeEventListener('click', handleClick);
       container.removeEventListener('keydown', handleKeyDown);
     };
-  }, [containerRef, editor, effectiveDirectory, preferRuntimeEditor, enabled]);
+  }, [containerRef, editor, effectiveDirectory, preferRuntimeEditor, enabled, t]);
 };

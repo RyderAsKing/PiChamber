@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -11,6 +13,7 @@ interface ComposerVoiceButtonProps {
 }
 
 export function ComposerVoiceButton({ available, disabled, className, iconClassName, onStart }: ComposerVoiceButtonProps) {
+  const { t } = useTranslation();
   if (!available) return null;
   return (
     <Button
@@ -20,8 +23,8 @@ export function ComposerVoiceButton({ available, disabled, className, iconClassN
       className={className}
       disabled={disabled}
       onClick={onStart}
-      title="Start dictation"
-      aria-label="Start dictation"
+      title={t("Start dictation")}
+      aria-label={t("Start dictation")}
     >
       <Icon name="mic" className={cn('size-4', iconClassName)} />
     </Button>

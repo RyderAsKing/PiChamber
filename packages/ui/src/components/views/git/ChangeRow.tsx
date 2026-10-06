@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from "@/components/icon/Icon";
@@ -35,9 +36,10 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
   actionAtStart = false,
   showRevert = true,
 }) {
+  const { t } = useTranslation();
   const descriptor = useMemo(() => describeGitChange(file), [file]);
-  
-  const indicatorLabel = descriptor.description;
+
+  const indicatorLabel = t(descriptor.description);
   const insertions = stats?.insertions ?? 0;
   const deletions = stats?.deletions ?? 0;
 
@@ -143,7 +145,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
                 onClick={handleRevertClick}
                 disabled={isReverting}
                 className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label={`Revert changes in ${file.path}`}
+                aria-label={t('Revert changes in {{path}}', { path: file.path })}
               >
                 {isReverting ? (
                   <Icon name="loader-4" className="size-3.5 animate-spin" />
@@ -152,7 +154,7 @@ export const ChangeRow = React.memo<ChangeRowProps>(function ChangeRow({
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={8}>{"Revert changes"}</TooltipContent>
+            <TooltipContent sideOffset={8}>{t("Revert changes")}</TooltipContent>
           </Tooltip>
         ) : null}
         {actionAtStart ? null : actionButton}

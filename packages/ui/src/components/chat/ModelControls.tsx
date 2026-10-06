@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { focusChatInput } from './composer/editor/dom';
 import {
     DropdownMenu,
@@ -68,8 +69,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     mobilePanel,
     onMobilePanelChange,
 }) => {
+    const { t } = useTranslation();
     const { isReady, isUnavailable } = usePiReadiness();
-    const readinessLabel = isUnavailable ? "Unavailable" : "Loading...";
+    const readinessLabel = isUnavailable ? t("Unavailable") : t("Loading...");
     const providers = useConfigStore((state) => state.providers);
     const currentProviderId = useConfigStore((state) => state.currentProviderId);
     const currentModelId = useConfigStore((state) => state.currentModelId);
@@ -287,16 +289,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         : currentProviderId && currentModelId
             ? getModelMetadata(currentProviderId, currentModelId)
             : undefined;
-    const localizeMetaLabel = React.useCallback((label: string) => {
-        if (label === 'Tool calling') return "Tool calling";
-        if (label === 'Reasoning') return "Reasoning";
-        if (label === 'Text') return "Text";
-        if (label === 'Image') return "Image";
-        if (label === 'Video') return "Video";
-        if (label === 'Audio') return "Audio";
-        if (label === 'PDF') return "PDF";
-        return label;
-    }, []);
+    const localizeMetaLabel = React.useCallback((label: string) => t(label), [t]);
 
     const currentCapabilityIcons = React.useMemo(
         () => getCapabilityIcons(currentMetadata).map((icon) => ({ ...icon, label: localizeMetaLabel(icon.label) })),
@@ -317,15 +310,15 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const hasVariants = availableVariants.length > 0;
 
     const costRows = [
-        { label: 'Input', value: formatCost(currentMetadata?.cost?.input) },
-        { label: 'Output', value: formatCost(currentMetadata?.cost?.output) },
-        { label: 'Cache read', value: formatCost(currentMetadata?.cost?.cache_read) },
-        { label: 'Cache write', value: formatCost(currentMetadata?.cost?.cache_write) },
+        { label: t('Input'), value: formatCost(currentMetadata?.cost?.input) },
+        { label: t('Output'), value: formatCost(currentMetadata?.cost?.output) },
+        { label: t('Cache read'), value: formatCost(currentMetadata?.cost?.cache_read) },
+        { label: t('Cache write'), value: formatCost(currentMetadata?.cost?.cache_write) },
     ];
 
     const limitRows = [
-        { label: 'Context', value: formatTokens(currentMetadata?.limit?.context) },
-        { label: 'Output', value: formatTokens(currentMetadata?.limit?.output) },
+        { label: t('Context'), value: formatTokens(currentMetadata?.limit?.context) },
+        { label: t('Output'), value: formatTokens(currentMetadata?.limit?.output) },
     ];
 
     const existingSessionRestoreRef = React.useRef<string | null>(null);
@@ -810,9 +803,9 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     };
 
     const getCurrentModelDisplayName = () => {
-        if (!currentModelId) return "Select model";
+        if (!currentModelId) return t("Select model");
         const currentModel = models.find((m: ProviderModel) => m.id === currentModelId);
-        return getModelDisplayName(currentModel, currentModelId) || "Select model";
+        return getModelDisplayName(currentModel, currentModelId) || t("Select model");
     };
 
     const truncateForMobile = React.useCallback((value: string, limit: number) => {
@@ -1089,18 +1082,18 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
         };
 
         const modelPickerLabels = {
-            searchPlaceholder: "Search models",
-            noResults: "No models found",
-            favorites: "Favorites",
-            recent: "Recent",
-            favorite: "Favorite",
-            unfavorite: "Unfavorite",
-            capabilities: "Capabilities",
-            capabilityToolCalling: "Tool calling",
-            capabilityReasoning: "Reasoning",
-            input: "Input",
-            output: "Output",
-            costPerMillion: "Cost ($/1M tokens)",
+            searchPlaceholder: t("Search models"),
+            noResults: t("No models found"),
+            favorites: t("Favorites"),
+            recent: t("Recent"),
+            favorite: t("Favorite"),
+            unfavorite: t("Unfavorite"),
+            capabilities: t("Capabilities"),
+            capabilityToolCalling: t("Tool calling"),
+            capabilityReasoning: t("Reasoning"),
+            input: t("Input"),
+            output: t("Output"),
+            costPerMillion: t("Cost ($/1M tokens)"),
         };
 
         const renderThinkingSlot = (entry: ModelPickerEntry, { isHighlighted, isSelected }: { isHighlighted: boolean; isSelected: boolean }) => {
@@ -1118,7 +1111,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
 
             return (
                 <span className={cn('typography-micro whitespace-nowrap', wasAdjusted ? 'text-foreground' : 'text-muted-foreground')}>
-                    Thinking: {displayLabel}
+                    {t('Thinking: {{level}}', { level: displayLabel })}
                 </span>
             );
         };
@@ -1196,7 +1189,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     <span className="flex size-4 items-center justify-center text-muted-foreground">
                                         <Icon name="add" className="size-4 -mr-0.5" />
                                     </span>
-                                    <span className="font-medium text-foreground">{"Add new provider"}</span>
+                                    <span className="font-medium text-foreground">{t("Add new provider")}</span>
                                 </button>
                             </div>
                             <ModelPickerList
@@ -1223,8 +1216,8 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                     over.providerID,
                                     over.modelID,
                                 )}
-                                reorderFavoriteAriaLabel={"Reorder favorite"}
-                                reorderFavoriteTitle={"Drag to reorder favorite"}
+                                reorderFavoriteAriaLabel={t("Reorder favorite")}
+                                reorderFavoriteTitle={t("Drag to reorder favorite")}
                                 tooltipsEnabled={isModelSelectorOpen}
                                 onEscape={() => setModelSelectorOpen(false)}
                             />

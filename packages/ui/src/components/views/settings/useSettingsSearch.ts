@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { useSnippetsStore } from "@/stores/useSnippetsStore";
 import { usePromptTemplatesStore } from "@/stores/usePromptTemplatesStore";
 import { usePiProviderSelectionStore } from "@/lib/pi/provider-selection";
@@ -37,6 +38,7 @@ export function useSettingsSearch({
   containerRef: React.RefObject<HTMLDivElement | null>;
   settingsSlug: SettingsPageSlug;
 }) {
+  const { t } = useTranslation();
   const [settingsSearchQuery, setSettingsSearchQuery] = React.useState("");
   const [isMobileSettingsSearchOpen, setIsMobileSettingsSearchOpen] =
     React.useState(false);
@@ -64,7 +66,7 @@ export function useSettingsSearch({
       if (result.id.startsWith("snippets.")) {
         const store = useSnippetsStore.getState();
         const name = nextUniqueName(
-          "new-snippet",
+          t("new-snippet"),
           store.snippets.map((snippet) => snippet.name),
         );
         store.setSnippetDraft({ name, scope: "global" });
@@ -75,7 +77,7 @@ export function useSettingsSearch({
       if (result.id.startsWith("prompt-templates.")) {
         const store = usePromptTemplatesStore.getState();
         const name = nextUniqueName(
-          "new-prompt",
+          t("new-prompt"),
           store.prompts.map((prompt) => prompt.name),
         );
         store.setPromptDraft({ name, location: "global" });
@@ -91,7 +93,7 @@ export function useSettingsSearch({
 
       return result.id;
     },
-    [],
+    [t],
   );
 
   const groupedSettingsSearchResults = React.useMemo(() => {

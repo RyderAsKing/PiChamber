@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
 interface CommitInputProps {
@@ -21,7 +22,7 @@ export const CommitInput: React.FC<CommitInputProps> = ({
   hasTouchInput = false,
   isMobile = false,
 }) => {
-  
+  const { t } = useTranslation();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize based on content (layout phase to avoid mount flicker)
@@ -55,7 +56,7 @@ export const CommitInput: React.FC<CommitInputProps> = ({
       ref={textareaRef}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder ?? "Commit message"}
+      placeholder={placeholder ?? t("Commit message")}
       rows={1}
       disabled={disabled}
       autoCorrect={hasTouchInput ? 'on' : 'off'}

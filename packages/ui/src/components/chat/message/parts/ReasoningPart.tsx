@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { animate, type AnimationPlaybackControls } from 'motion';
 import type { Part } from '@/lib/chat/types';
 import { cn } from '@/lib/utils';
@@ -135,6 +136,7 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
     actions,
     withinActivityRail = false,
 }) => {
+    const { t } = useTranslation();
     // Reasoning is always shown, collapsible, and initially collapsed for both
     // live and history mounts. The block never automatically opens or closes;
     // only click/keyboard toggles change disclosure, and that explicit choice
@@ -162,8 +164,8 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
         [isStreaming, text],
     );
     const toggleAriaLabel = isExpanded
-        ? "Collapse reasoning trace"
-        : "Expand reasoning trace";
+        ? t("Collapse reasoning trace")
+        : t("Expand reasoning trace");
 
     const handleToggle = React.useCallback(() => {
         setShouldRenderExpandedContent(true);
@@ -370,9 +372,9 @@ export const ReasoningTimelineBlock: React.FC<ReasoningTimelineBlockProps> = ({
                         active={isStreaming}
                         className={cn('flex h-5 items-center typography-markdown font-medium text-[length:var(--text-markdown)] leading-none tracking-normal')}
                         style={TOOL_NORMAL_TITLE_STYLE}
-                        title={variant === 'justification' ? 'Justification' : 'Thinking'}
+                        title={variant === 'justification' ? t('Justification') : t('Thinking')}
                     >
-                        {variant === 'justification' ? 'Justification' : 'Thinking'}
+                        {variant === 'justification' ? t('Justification') : t('Thinking')}
                     </MinDurationShineText>
                 </div>
 

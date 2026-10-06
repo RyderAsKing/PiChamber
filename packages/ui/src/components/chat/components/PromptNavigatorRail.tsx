@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Part } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
@@ -96,6 +97,7 @@ export function PromptNavigatorRail({
     isLoadingOlder,
     onLoadEarlier,
 }: PromptNavigatorRailProps) {
+    const { t } = useTranslation();
     const isKeyboardNavOpen = useUIStore((state) => state.isPromptNavigatorPanelOpen);
     const setPromptNavigatorPanelOpen = useUIStore((state) => state.setPromptNavigatorPanelOpen);
     const gutterRef = React.useRef<HTMLDivElement | null>(null);
@@ -153,9 +155,9 @@ export function PromptNavigatorRail({
     const hasMoreAbove = clampedWindowStart > 0;
     const hasMoreBelow = windowEnd < prompts.length;
 
-    const emptyPreviewLabel = "[No text content]";
-    const currentPromptLabel = "Current prompt";
-    const loadMoreLabel = "Load more prompts";
+    const emptyPreviewLabel = t("[No text content]");
+    const currentPromptLabel = t("Current prompt");
+    const loadMoreLabel = t("Load more prompts");
 
     const activeIndex = React.useMemo(() => {
         if (!activeTurnId) {
@@ -531,7 +533,7 @@ export function PromptNavigatorRail({
     return (
         <nav
             ref={navRef}
-            aria-label={"Prompt navigation"}
+            aria-label={t("Prompt navigation")}
             className="pointer-events-none absolute top-1/2 z-20 -translate-y-1/2"
             style={{ right: `${railRightPx}px` }}
         >

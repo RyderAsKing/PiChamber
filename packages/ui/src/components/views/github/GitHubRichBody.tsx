@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- sanitizer helpers colocated with their component by design */
 import React from 'react';
+import i18n from '@/i18n';
 import DOMPurify from 'dompurify';
 import { openExternalUrl } from '@/lib/url';
 
@@ -243,7 +244,7 @@ export const GitHubRichBody: React.FC<{ html: string; fallbackUrl?: string | nul
       link.href = href;
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
-      link.textContent = IMAGE_UNAVAILABLE_LABEL;
+      link.textContent = i18n.t(IMAGE_UNAVAILABLE_LABEL);
       link.className = 'typography-micro underline underline-offset-2';
       target.replaceWith(link);
     },

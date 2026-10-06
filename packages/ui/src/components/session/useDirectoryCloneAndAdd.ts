@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -34,6 +35,7 @@ export function useDirectoryCloneAndAdd({
   const setActiveMainTab = useUIStore((s) => s.setActiveMainTab);
   const setSessionSwitcherOpen = useUIStore((s) => s.setSessionSwitcherOpen);
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
+  const { t } = useTranslation();
 
   const [isConfirming, setIsConfirming] = React.useState(false);
   const [isCloneMode, setIsCloneMode] = React.useState(false);
@@ -70,7 +72,7 @@ export function useDirectoryCloneAndAdd({
         if (isCloneMode) {
           const remoteUrl = cloneRemoteUrl.trim();
           if (!remoteUrl) {
-            toast.error('Enter a repository URL before cloning.');
+            toast.error(t('Enter a repository URL before cloning.'));
             return;
           }
           const response = await runtimeFetch('/api/fs/clone', {
@@ -82,7 +84,7 @@ export function useDirectoryCloneAndAdd({
             }),
           });
           if (!response.ok) {
-            throw new Error('Failed to clone git repository');
+            throw new Error(t('Failed to clone git repository'));
           }
           const data = (await response.json()) as { path?: string };
           selectedTarget = data.path || target;
@@ -94,20 +96,20 @@ export function useDirectoryCloneAndAdd({
             body: JSON.stringify({ path: target }),
           });
           if (!response.ok) {
-            throw new Error('Failed to select directory');
+            throw new Error(t('Failed to select directory'));
           }
         }
         const project = addProject(selectedTarget);
         if (!project) {
-          toast.error('Failed to add folder', {
-            description: 'Please select a valid directory path.',
+          toast.error(t('Failed to add folder'), {
+            description: t('Please select a valid directory path.'),
           });
           return;
         }
         openProjectDraft(project.id, project.path);
       } catch (error) {
-        toast.error('Failed to select directory', {
-          description: error instanceof Error ? error.message : 'Unknown error occurred.',
+        toast.error(t('Failed to select directory'), {
+          description: error instanceof Error ? error.message : t('Unknown error occurred.'),
         });
       } finally {
         setIsConfirming(false);
@@ -123,6 +125,7 @@ export function useDirectoryCloneAndAdd({
       openProjectDraft,
       shouldCreateTarget,
       targetPath,
+      t,
     ],
   );
 
@@ -142,16 +145,16 @@ export function useDirectoryCloneAndAdd({
     typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
 
   const submitActionLabel = isAlreadyAdded
-    ? 'Already added'
+    ? t('Already added')
     : isCloneMode
       ? isConfirming
-        ? 'Cloning...'
-        : 'Clone & add'
+        ? t('Cloning...')
+        : t('Clone & add')
       : isConfirming
-        ? 'Adding...'
+        ? t('Adding...')
         : shouldCreateTarget
-          ? 'Create & add'
-          : 'Add folder';
+          ? t('Create & add')
+          : t('Add folder');
 
   return {
     isConfirming,

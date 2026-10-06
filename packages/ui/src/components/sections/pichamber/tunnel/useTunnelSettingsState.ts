@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { openExternalUrl } from '@/lib/url';
@@ -33,6 +34,7 @@ import { useTunnelTimers } from './useTunnelTimers';
 
 export function useTunnelSettingsState() {
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
+  const { t } = useTranslation();
   const [state, setState] = React.useState<TunnelState>('checking');
   const [tunnelInfo, setTunnelInfo] = React.useState<TunnelInfo | null>(null);
   const [activeTunnelMode, setActiveTunnelMode] = React.useState<TunnelMode | null>(null);
@@ -82,12 +84,12 @@ export function useTunnelSettingsState() {
           setTunnelProvider(payload.tunnelProvider);
         }
       } catch {
-        toast.error('Failed to save tunnel settings');
+        toast.error(t('Failed to save tunnel settings'));
       } finally {
         setIsSavingMode(false);
       }
     },
-    [],
+    [t],
   );
 
   const presetsState = useTunnelPresetsState({
@@ -372,7 +374,7 @@ export function useTunnelSettingsState() {
       } catch {
         if (!signal.aborted) {
           setState('error');
-          setErrorMessage('Failed to check tunnel availability');
+          setErrorMessage(t('Failed to check tunnel availability'));
         }
       }
     },
@@ -384,6 +386,7 @@ export function useTunnelSettingsState() {
       setSavedTokenPresetIds,
       setSelectedPresetId,
       setSessionTtlMs,
+      t,
     ],
   );
 
@@ -402,8 +405,8 @@ export function useTunnelSettingsState() {
       managedLocalConfigPath &&
       !hasAllowedManagedLocalConfigExtension(managedLocalConfigPath)
     ) {
-      setErrorMessage(managedLocalConfigExtensionError);
-      toast.error(managedLocalConfigExtensionError);
+      setErrorMessage(t(managedLocalConfigExtensionError));
+      toast.error(t(managedLocalConfigExtensionError));
       return;
     }
 
@@ -416,8 +419,8 @@ export function useTunnelSettingsState() {
       if (tunnelMode === 'managed-remote') {
         if (!selectedPreset) {
           setState('idle');
-          setManagedRemoteValidationError('Select or add a managed remote tunnel first');
-          toast.error('Select or add a managed remote tunnel first');
+          setManagedRemoteValidationError(t('Select or add a managed remote tunnel first'));
+          toast.error(t('Select or add a managed remote tunnel first'));
           return;
         }
 
@@ -458,21 +461,21 @@ export function useTunnelSettingsState() {
           data.error.includes('Managed remote tunnel token is required')
         ) {
           setState('idle');
-          setManagedRemoteValidationError('Managed remote tunnel token is required before starting');
-          toast.error('Add a managed remote tunnel token before starting');
+          setManagedRemoteValidationError(t('Managed remote tunnel token is required before starting'));
+          toast.error(t('Add a managed remote tunnel token before starting'));
           return;
         }
         setState('error');
-        setErrorMessage(data.error || 'Failed to start tunnel');
-        toast.error(data.error || 'Failed to start tunnel');
+        setErrorMessage(data.error || t('Failed to start tunnel'));
+        toast.error(data.error || t('Failed to start tunnel'));
         return;
       }
 
       const startedUrl = typeof data.url === 'string' ? data.url : '';
       if (!startedUrl) {
         setState('error');
-        setErrorMessage('Tunnel started but no public URL was returned');
-        toast.error('Tunnel started but no public URL was returned');
+        setErrorMessage(t('Tunnel started but no public URL was returned'));
+        toast.error(t('Tunnel started but no public URL was returned'));
         return;
       }
 
@@ -505,23 +508,23 @@ export function useTunnelSettingsState() {
         const invalidatedSessionCount =
           typeof data.invalidatedSessionCount === 'number' ? data.invalidatedSessionCount : 0;
         if (revokedBootstrapCount === 1 && invalidatedSessionCount === 1) {
-          toast.warning('Replaced previous tunnel: revoked 1 link, invalidated 1 session.');
+          toast.warning(t('Replaced previous tunnel: revoked 1 link, invalidated 1 session.'));
         } else if (revokedBootstrapCount === 1) {
-          toast.warning(`Replaced previous tunnel: revoked 1 link, invalidated ${invalidatedSessionCount} sessions.`);
+          toast.warning(t('Replaced previous tunnel: revoked 1 link, invalidated {{count}} sessions.', { count: invalidatedSessionCount }));
         } else if (invalidatedSessionCount === 1) {
-          toast.warning(`Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated 1 session.`);
+          toast.warning(t('Replaced previous tunnel: revoked {{count}} links, invalidated 1 session.', { count: revokedBootstrapCount }));
         } else {
           toast.warning(
-            `Replaced previous tunnel: revoked ${revokedBootstrapCount} links, invalidated ${invalidatedSessionCount} sessions.`,
+            t('Replaced previous tunnel: revoked {{links}} links, invalidated {{sessions}} sessions.', { links: revokedBootstrapCount, sessions: invalidatedSessionCount }),
           );
         }
       } else {
-        toast.success('Tunnel link ready');
+        toast.success(t('Tunnel link ready'));
       }
     } catch {
       setState('error');
-      setErrorMessage('Failed to start tunnel');
-      toast.error('Failed to start tunnel');
+      setErrorMessage(t('Failed to start tunnel'));
+      toast.error(t('Failed to start tunnel'));
     }
   }, [
     managedLocalConfigExtensionError,
@@ -534,6 +537,7 @@ export function useTunnelSettingsState() {
     setSavedTokenPresetIds,
     tunnelMode,
     tunnelProvider,
+    t,
   ]);
 
   const handleStop = React.useCallback(async () => {
@@ -557,13 +561,13 @@ export function useTunnelSettingsState() {
       setTunnelInfo(null);
       setActiveTunnelMode(null);
       setState('idle');
-      toast.success('Tunnel stopped');
+      toast.success(t('Tunnel stopped'));
     } catch {
       setState('error');
-      setErrorMessage('Failed to stop tunnel');
-      toast.error('Failed to stop tunnel');
+      setErrorMessage(t('Failed to stop tunnel'));
+      toast.error(t('Failed to stop tunnel'));
     }
-  }, [setSavedTokenPresetIds]);
+  }, [setSavedTokenPresetIds, t]);
 
   const handleCopyUrl = React.useCallback(async () => {
     if (!tunnelInfo?.connectUrl) {
@@ -573,12 +577,12 @@ export function useTunnelSettingsState() {
     try {
       await navigator.clipboard.writeText(tunnelInfo.connectUrl);
       setCopied(true);
-      toast.success('Connect link copied');
+      toast.success(t('Connect link copied'));
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error('Failed to copy URL');
+      toast.error(t('Failed to copy URL'));
     }
-  }, [tunnelInfo?.connectUrl]);
+  }, [tunnelInfo?.connectUrl, t]);
 
   const handleModeChange = React.useCallback(
     async (value: TunnelMode) => {

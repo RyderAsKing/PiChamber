@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -28,6 +29,7 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 
 export const DesktopNetworkSettings: React.FC = () => {
+  const { t } = useTranslation();
   const isDesktop = isDesktopShell();
   const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
   const isMacDesktop = isLocalDesktop
@@ -73,7 +75,7 @@ export const DesktopNetworkSettings: React.FC = () => {
           headers: { Accept: 'application/json' },
         });
         if (!response.ok) {
-          throw new Error("Failed to load desktop settings");
+          throw new Error(t('Failed to load desktop settings'));
         }
 
         const data = (await response.json().catch(() => null)) as null | {
@@ -103,7 +105,7 @@ export const DesktopNetworkSettings: React.FC = () => {
         setError(null);
       } catch (cause) {
         if (!cancelled) {
-          setError(cause instanceof Error ? cause.message : "Failed to load desktop settings");
+          setError(cause instanceof Error ? cause.message : t('Failed to load desktop settings'));
         }
       } finally {
         if (!cancelled) {
@@ -115,7 +117,7 @@ export const DesktopNetworkSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isLocalDesktop]);
+  }, [isLocalDesktop, t]);
 
   React.useEffect(() => {
     if (!isDesktop) {
@@ -264,16 +266,16 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopLaunchAtLogin(nextValue);
       if (!status?.supported) {
-        throw new Error("Launch at login is not supported on this system");
+        throw new Error(t('Launch at login is not supported on this system'));
       }
       setLaunchAtLoginEnabled(status.enabled);
     } catch (cause) {
       setLaunchAtLoginEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : "Failed to update launch at login setting");
+      setError(cause instanceof Error ? cause.message : t('Failed to update launch at login setting'));
     } finally {
       setIsSavingLaunchAtLogin(false);
     }
-  }, [isSavingLaunchAtLogin, launchAtLoginEnabled, launchAtLoginSupported]);
+  }, [isSavingLaunchAtLogin, launchAtLoginEnabled, launchAtLoginSupported, t]);
 
   const handleMinimizeToTrayToggle = React.useCallback(async () => {
     if (!minimizeToTraySupported || isSavingMinimizeToTray) {
@@ -288,19 +290,19 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopMinimizeToTray(nextValue);
       if (!status) {
-        throw new Error("Failed to update system tray setting");
+        throw new Error(t('Failed to update system tray setting'));
       }
       if (!status.supported) {
-        throw new Error("System tray background mode is not supported on this system");
+        throw new Error(t('System tray background mode is not supported on this system'));
       }
       setMinimizeToTrayEnabled(status.enabled);
     } catch (cause) {
       setMinimizeToTrayEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : "Failed to update system tray setting");
+      setError(cause instanceof Error ? cause.message : t('Failed to update system tray setting'));
     } finally {
       setIsSavingMinimizeToTray(false);
     }
-  }, [isSavingMinimizeToTray, minimizeToTrayEnabled, minimizeToTraySupported]);
+  }, [isSavingMinimizeToTray, minimizeToTrayEnabled, minimizeToTraySupported, t]);
 
   const handleCloseToTrayToggle = React.useCallback(async () => {
     if (!closeToTraySupported || isSavingCloseToTray) {
@@ -315,19 +317,19 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopCloseToTray(nextValue);
       if (!status) {
-        throw new Error("Failed to update close behavior");
+        throw new Error(t('Failed to update close behavior'));
       }
       if (!status.supported) {
-        throw new Error("Closing to the system tray is not supported on this system");
+        throw new Error(t('Closing to the system tray is not supported on this system'));
       }
       setCloseToTrayEnabled(status.enabled);
     } catch (cause) {
       setCloseToTrayEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : "Failed to update close behavior");
+      setError(cause instanceof Error ? cause.message : t('Failed to update close behavior'));
     } finally {
       setIsSavingCloseToTray(false);
     }
-  }, [closeToTrayEnabled, closeToTraySupported, isSavingCloseToTray]);
+  }, [closeToTrayEnabled, closeToTraySupported, isSavingCloseToTray, t]);
 
   const handleKeepAwakeToggle = React.useCallback(async () => {
     if (!keepAwakeSupported || isSavingKeepAwake) {
@@ -342,16 +344,16 @@ export const DesktopNetworkSettings: React.FC = () => {
     try {
       const status = await setDesktopKeepAwake(nextValue);
       if (!status?.supported) {
-        throw new Error("Preventing sleep is not supported on this system");
+        throw new Error(t('Preventing sleep is not supported on this system'));
       }
       setKeepAwakeEnabled(status.enabled);
     } catch (cause) {
       setKeepAwakeEnabled(!nextValue);
-      setError(cause instanceof Error ? cause.message : "Failed to update keep awake setting");
+      setError(cause instanceof Error ? cause.message : t('Failed to update keep awake setting'));
     } finally {
       setIsSavingKeepAwake(false);
     }
-  }, [isSavingKeepAwake, keepAwakeEnabled, keepAwakeSupported]);
+  }, [isSavingKeepAwake, keepAwakeEnabled, keepAwakeSupported, t]);
 
   const handleSaveAndRestart = React.useCallback(async () => {
     if (!isDirty) {
@@ -376,7 +378,7 @@ export const DesktopNetworkSettings: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save desktop settings");
+        throw new Error(t('Failed to save desktop settings'));
       }
 
       setSavedValue(draftValue);
@@ -385,13 +387,13 @@ export const DesktopNetworkSettings: React.FC = () => {
 
       const restarted = await restartDesktopApp();
       if (!restarted) {
-        throw new Error("Saved, but failed to restart app");
+        throw new Error(t('Saved, but failed to restart app'));
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to save desktop settings");
+      setError(cause instanceof Error ? cause.message : t('Failed to save desktop settings'));
       setIsSaving(false);
     }
-  }, [draftMacMenuBarEnabled, draftPassword, draftValue, isDirty]);
+  }, [draftMacMenuBarEnabled, draftPassword, draftValue, isDirty, t]);
 
   if (!isDesktop) {
     return null;
@@ -399,7 +401,7 @@ export const DesktopNetworkSettings: React.FC = () => {
 
   return (
     <>
-      <SettingsSection title={"Desktop"}>
+      <SettingsSection title={t('Desktop')}>
         <div className="space-y-3">
         {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || closeToTraySupported || keepAwakeSupported) ? (
           <div className={SETTINGS_OPTION_STACK_CLASS}>
@@ -412,9 +414,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleLaunchAtLoginToggle();
                 }}
                 disabled={isSavingLaunchAtLogin}
-                label={"Start PiChamber when you log in"}
-                info={"Starts the app in the background without opening a window. Use the desktop status icon to open it."}
-                ariaLabel={"Start PiChamber at login"}
+                label={t('Start PiChamber when you log in')}
+                info={t('Starts the app in the background without opening a window. Use the desktop status icon to open it.')}
+                ariaLabel={t('Start PiChamber at login')}
               />
             ) : null}
 
@@ -424,9 +426,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                 checked={draftMacMenuBarEnabled}
                 onChange={setDraftMacMenuBarEnabled}
                 disabled={isLoading || isSaving}
-                label={"Show PiChamber in the menu bar"}
-                info={"Requires an app restart. When off, PiChamber does not create the menu bar item or run its session, approval, and usage updates."}
-                ariaLabel={"Show PiChamber in the macOS menu bar"}
+                label={t('Show PiChamber in the menu bar')}
+                info={t('Requires an app restart. When off, PiChamber does not create the menu bar item or run its session, approval, and usage updates.')}
+                ariaLabel={t('Show PiChamber in the macOS menu bar')}
               />
             ) : null}
 
@@ -439,9 +441,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleMinimizeToTrayToggle();
                 }}
                 disabled={isSavingMinimizeToTray}
-                label={"Minimize to the system tray"}
-                info={"Hides PiChamber in the system tray instead of leaving it in the taskbar when you minimize the window."}
-                ariaLabel={"Minimize PiChamber to the system tray"}
+                label={t('Minimize to the system tray')}
+                info={t('Hides PiChamber in the system tray instead of leaving it in the taskbar when you minimize the window.')}
+                ariaLabel={t('Minimize PiChamber to the system tray')}
               />
             ) : null}
 
@@ -454,9 +456,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleCloseToTrayToggle();
                 }}
                 disabled={isSavingCloseToTray}
-                label={"Close to the system tray"}
-                info={"Keeps PiChamber running in the system tray when you close the main window. Turn this off to quit the app when the window closes."}
-                ariaLabel={"Close PiChamber to the system tray"}
+                label={t('Close to the system tray')}
+                info={t('Keeps PiChamber running in the system tray when you close the main window. Turn this off to quit the app when the window closes.')}
+                ariaLabel={t('Close PiChamber to the system tray')}
               />
             ) : null}
 
@@ -469,9 +471,9 @@ export const DesktopNetworkSettings: React.FC = () => {
                   void handleKeepAwakeToggle();
                 }}
                 disabled={isSavingKeepAwake}
-                label={"Keep computer awake while PiChamber is running"}
-                info={"Prevents system sleep so phones can keep reaching this app. The screen can still turn off."}
-                ariaLabel={"Keep computer awake while PiChamber is running"}
+                label={t('Keep computer awake while PiChamber is running')}
+                info={t('Prevents system sleep so phones can keep reaching this app. The screen can still turn off.')}
+                ariaLabel={t('Keep computer awake while PiChamber is running')}
               />
             ) : null}
           </div>
@@ -484,16 +486,16 @@ export const DesktopNetworkSettings: React.FC = () => {
       </SettingsSection>
 
       {isLocalDesktop ? (
-        <SettingsSection title={"Desktop Network Access"}>
+        <SettingsSection title={t('Desktop Network Access')}>
           <div className="space-y-3">
         <SettingsStackedField
           settingsItem="sessions.desktop-ui-password"
           label={(
             <label htmlFor="desktop-ui-password">
-              {"Desktop UI Password"}
+              {t('Desktop UI Password')}
             </label>
           )}
-          info={"PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login."}
+          info={t('PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login.')}
         >
           <Input
             id="desktop-ui-password"
@@ -501,7 +503,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             className="h-8 min-w-0 flex-1"
             value={draftPassword}
             onChange={(event) => handlePasswordChange(event.target.value)}
-            placeholder={"No password required"}
+            placeholder={t('No password required')}
             disabled={isLoading || isSaving}
             required={draftValue}
             aria-invalid={lanRequiresPassword}
@@ -512,7 +514,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             size="xs"
             onClick={() => setShowPassword((current: boolean) => !current)}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={(showPassword ? "Hide password" : "Show password")}
+            aria-label={(showPassword ? t('Hide password') : t('Show password'))}
             aria-pressed={showPassword}
           >
             <Icon name={showPassword ? 'eye-off' : 'eye'} className="h-4 w-4" />
@@ -525,21 +527,21 @@ export const DesktopNetworkSettings: React.FC = () => {
             checked={draftValue}
             onChange={setDraftValue}
             disabled={isLoading || isSaving}
-            label={"Let other devices on your local network open this app"}
-            info={"Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect."}
+            label={t('Let other devices on your local network open this app')}
+            info={t('Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect.')}
             description={(
               <>
                 <span className="block text-[var(--status-warning)]/85">
-                  {"Warning: while enabled, the app is reachable by anyone on the same local network."}
+                  {t('Warning: while enabled, the app is reachable by anyone on the same local network.')}
                 </span>
                 {lanRequiresPassword || lanBlockedByMissingPassword ? (
                   <span className="block text-[var(--status-warning)]/85">
-                    {"LAN access requires a Desktop UI Password. Until one is set, the desktop app starts local-only."}
+                    {t('LAN access requires a Desktop UI Password. Until one is set, the desktop app starts local-only.')}
                   </span>
                 ) : null}
               </>
             )}
-            ariaLabel={"Allow LAN access to desktop sidecar"}
+            ariaLabel={t('Allow LAN access to desktop sidecar')}
           />
         </div>
 
@@ -550,8 +552,8 @@ export const DesktopNetworkSettings: React.FC = () => {
         {lanUrl ? (
           <div className="typography-micro text-muted-foreground/80">
             {isDirty && !savedValue
-              ? "After restart, open from another device: "
-              : "Open from another device: "}
+              ? t('After restart, open from another device: ')
+              : t('Open from another device: ')}
             <span className="font-mono text-foreground">{lanUrl}</span>
           </div>
         ) : null}
@@ -564,7 +566,7 @@ export const DesktopNetworkSettings: React.FC = () => {
             disabled={saveDisabled}
             className="shrink-0 !font-normal"
           >
-            {isSaving ? "Saving..." : "Save + Restart"}
+            {isSaving ? t('Saving...') : t('Save + Restart')}
           </Button>
         </div>
           </div>

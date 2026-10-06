@@ -4,6 +4,7 @@ import { isValidElement } from "react"
 import { toast as sonnerToast } from "sonner"
 import type { ExternalToast } from "sonner"
 import { copyTextToClipboard } from '@/lib/clipboard'
+import i18n from '@/i18n'
 
 const copyToClipboard = async (text: string) => {
   const result = await copyTextToClipboard(text)
@@ -51,7 +52,7 @@ export const toast = {
     return sonnerToast.success(message, {
       ...data,
       action: data?.action || {
-        label: 'OK',
+        label: i18n.t('OK'),
         onClick: () => {},
       },
     })
@@ -60,7 +61,7 @@ export const toast = {
     return sonnerToast.info(message, {
       ...data,
       action: data?.action || {
-        label: 'OK',
+        label: i18n.t('OK'),
         onClick: () => {},
       },
     })
@@ -69,7 +70,7 @@ export const toast = {
     return sonnerToast.error(message, {
       ...data,
       action: data?.action || {
-        label: 'Copy',
+        label: i18n.t('Copy'),
         onClick: () => copyToClipboard(getToastCopyText(message, data)),
       },
     })
@@ -78,7 +79,7 @@ export const toast = {
     return sonnerToast.warning(message, {
       ...data,
       action: data?.action || {
-        label: 'Copy',
+        label: i18n.t('Copy'),
         onClick: () => copyToClipboard(getToastCopyText(message, data)),
       },
     })

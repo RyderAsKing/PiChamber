@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
@@ -55,6 +56,7 @@ const SessionMetadataOverlay: React.FC<{
   contextDisplay: ContextDisplay;
   cacheSubtitle?: string | null;
 }> = ({ open, onClose, anchorRef, contextDisplay }) => {
+  const { t } = useTranslation();
   const { panelRef, wrapperRef, shouldRender, isExiting, anchorLeft, isPopover } = useMobileHeaderOverlay({
     open,
     onClose,
@@ -69,7 +71,7 @@ const SessionMetadataOverlay: React.FC<{
       <div
         ref={panelRef}
         role="tooltip"
-        aria-label={"Context usage for current conversation"}
+        aria-label={t("Context usage for current conversation")}
         className={cn(
           'overflow-y-auto overscroll-contain rounded-lg border border-border/70 bg-[var(--surface-elevated)] p-2 shadow-[0_8px_24px_rgb(0_0_0_/_0.18)] will-change-transform',
           isPopover ? 'absolute origin-top-left' : 'mx-3 mt-2',
@@ -92,7 +94,7 @@ const SessionMetadataOverlay: React.FC<{
             <>
               <MetadataRow
                 iconNode={<ContextProgressIcon percentage={contextDisplay.percentage} />}
-                label={"Context"}
+                label={t("Context")}
               >
                 <span className="inline-flex items-baseline gap-1.5 tabular-nums">
                   <span className={cn('font-semibold', contextDisplay.colorClass)}>{contextDisplay.percentage.toFixed(1)}%</span>
@@ -101,23 +103,23 @@ const SessionMetadataOverlay: React.FC<{
               </MetadataRow>
               {contextDisplay.cacheRead !== null && contextDisplay.cacheWrite !== null ? (
                 <>
-                  <MetadataRow icon="stack" label={"Cache read"}>
+                  <MetadataRow icon="stack" label={t("Cache read")}>
                     <span className="tabular-nums">{formatTokens(contextDisplay.cacheRead)}</span>
                   </MetadataRow>
-                  <MetadataRow icon="edit" label={"Cache write"}>
+                  <MetadataRow icon="edit" label={t("Cache write")}>
                     <span className="tabular-nums">{formatTokens(contextDisplay.cacheWrite)}</span>
                   </MetadataRow>
                 </>
               ) : null}
               {contextDisplay.cacheHitPercent !== null ? (
-                <MetadataRow icon="check" label={"Cache hit"}>
+                <MetadataRow icon="check" label={t("Cache hit")}>
                   <span className="tabular-nums">{contextDisplay.cacheHitPercent.toFixed(1)}%</span>
                 </MetadataRow>
               ) : null}
             </>
           ) : (
             <div className="px-2.5 py-2 typography-meta text-muted-foreground">
-              {"Context usage is not available for this conversation yet."}
+              {t("Context usage is not available for this conversation yet.")}
             </div>
           )}
         </div>
@@ -149,6 +151,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
   effectiveDirectory: string | null;
   isNewSessionDraftOpen: boolean;
 }) {
+  const { t } = useTranslation();
   const metadataTriggerRef = React.useRef<HTMLButtonElement>(null);
   const activeSessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveDirectory ?? undefined);
   const providers = useConfigStore((state) => state.providers);
@@ -246,8 +249,8 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         ref={metadataTriggerRef}
         type="button"
         className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={"Show context usage for current conversation"}
-        title={"Context usage"}
+        aria-label={t("Show context usage for current conversation")}
+        title={t("Context usage")}
         aria-expanded={open}
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}

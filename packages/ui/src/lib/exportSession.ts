@@ -1,5 +1,6 @@
 import type { Message, Part } from '@/lib/chat/types';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
+import i18n from '@/i18n';
 import { openDesktopPath, revealDesktopPath, saveDesktopMarkdownFile } from '@/lib/desktop';
 import { saveOrShareFile } from '@/lib/nativeFileSave';
 import { getRevealLabel } from '@/lib/utils';
@@ -48,7 +49,7 @@ function formatAssistantModel(record: SessionMessageRecord): string {
 }
 
 function formatMessageHeader(record: SessionMessageRecord): string {
-  const label = record.info.role === 'user' ? 'User' : 'Assistant';
+  const label = record.info.role === 'user' ? i18n.t('User') : i18n.t('Assistant');
   const timestamp = formatTimestamp(record.info.time?.created);
   const assistantModel = formatAssistantModel(record);
   const details = timestamp && assistantModel
@@ -76,7 +77,7 @@ function formatMessageAsMarkdown(record: SessionMessageRecord): string {
 function formatChildSessionAsMarkdown(child: ChildSessionExport, depth: number): string {
   const heading = '#'.repeat(Math.min(depth + 1, 6));
   const agentLabel = child.agent ? ` — ${child.agent}` : '';
-  const childHeader = `${heading} Sub-agent: ${child.title}${agentLabel}\n\n---\n\n`;
+  const childHeader = `${heading} ${i18n.t('Sub-agent: {{title}}', { title: `${child.title}${agentLabel}` })}\n\n---\n\n`;
 
   const childBody = child.records
     .map(formatMessageAsMarkdown)
@@ -97,10 +98,10 @@ export function formatSessionAsMarkdown(
   sessionTitle?: string | null,
   childSessions?: ChildSessionExport[],
 ): string {
-  const title = sessionTitle?.trim() || 'Session';
+  const title = sessionTitle?.trim() || i18n.t('Session');
   const date = new Date().toISOString().split('T')[0];
 
-  const header = `# ${title}\n\n*Exported on ${date}*\n\n---\n\n`;
+  const header = `# ${title}\n\n*${i18n.t('Exported on {{date}}', { date })}*\n\n---\n\n`;
 
   const body = messages
     .map(formatMessageAsMarkdown)

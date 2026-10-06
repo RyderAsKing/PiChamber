@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -58,6 +59,7 @@ export const GitHistoryDialog = React.memo<GitHistoryDialogProps>(function GitHi
   onConflict,
   onActionSuccess,
 }) {
+  const { t } = useTranslation();
   if (!mode) return null;
 
   return (
@@ -66,7 +68,7 @@ export const GitHistoryDialog = React.memo<GitHistoryDialogProps>(function GitHi
         <DialogHeader>
           <div className="flex items-center justify-between gap-2">
             <DialogTitle>
-              {mode === 'graph' ? "Graph" : "History"}
+              {mode === 'graph' ? t("Graph") : t("History")}
             </DialogTitle>
             <Button
               type="button"
@@ -75,18 +77,18 @@ export const GitHistoryDialog = React.memo<GitHistoryDialogProps>(function GitHi
               className="mr-6 h-7 shrink-0 gap-1.5 px-2"
               onClick={onRefresh}
               disabled={isRefreshing}
-              title={"Refresh"}
-              aria-label={"Refresh"}
+              title={t("Refresh")}
+              aria-label={t("Refresh")}
             >
               <Icon
                 name="refresh"
                 className={cn('size-4', isRefreshing && 'animate-spin')}
               />
-              {"Refresh"}
+              {t("Refresh")}
             </Button>
           </div>
           <DialogDescription>
-            {"Browse recent commits and inspect changed files."}
+            {t("Browse recent commits and inspect changed files.")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex-1 min-h-0">

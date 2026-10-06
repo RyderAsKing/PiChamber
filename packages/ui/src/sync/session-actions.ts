@@ -4,6 +4,7 @@ import { piSessionToUiSession } from '@/lib/chat/pi-to-renderable';
 import type { PiThinkingLevel } from '@/lib/pi/types';
 import { useInputStore } from '@/sync/input-store';
 import { getRevertNavigation } from '@/sync/revert-navigation-store';
+import i18n from '@/i18n';
 
 export type ArchiveSessionsOptions = Record<string, unknown>;
 export type DeleteSessionOptions = Record<string, unknown>;
@@ -103,13 +104,13 @@ export async function revertToMessage(sessionId: string, messageId: string): Pro
 }
 
 export async function restoreRevertedMessage(sessionId: string, messageId: string): Promise<void> {
-  if (!getRevertNavigation(sessionId)) throw new Error('No reverted conversation is available to restore.');
+  if (!getRevertNavigation(sessionId)) throw new Error(i18n.t('No reverted conversation is available to restore.'));
   await store().navigate(sessionId, messageId);
 }
 
 export async function unrevertSession(sessionId: string): Promise<void> {
   const target = getRevertNavigation(sessionId)?.previousLeafId;
-  if (!target) throw new Error('No reverted conversation is available to restore.');
+  if (!target) throw new Error(i18n.t('No reverted conversation is available to restore.'));
   await store().navigate(sessionId, target);
 }
 
@@ -120,7 +121,7 @@ export async function forkFromMessage(sessionId: string, messageId?: string): Pr
 export async function waitForConnectionOrThrow(): Promise<void> {
   const snapshot = store().getState();
   if (snapshot.connection === 'ready') return;
-  throw snapshot.error ?? new Error('Pi runtime is unavailable');
+  throw snapshot.error ?? new Error(i18n.t('Pi runtime is unavailable'));
 }
 
 export async function compactSession(sessionId: string, customInstructions?: string): Promise<void> {

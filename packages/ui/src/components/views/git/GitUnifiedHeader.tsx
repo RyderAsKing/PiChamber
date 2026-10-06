@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -82,6 +83,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
   branchAvailable,
   diffHeaderState,
 }) => {
+  const { t } = useTranslation();
   const hasViewsMenu =
     onOpenHistory ||
     onOpenGraph ||
@@ -154,13 +156,13 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
                     variant="ghost"
                     size="sm"
                     className="h-8 w-8 px-0"
-                    aria-label={"Repository views"}
+                    aria-label={t("Repository views")}
                   >
                     <Icon name="more-fill" className="size-4" />
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
-              <TooltipContent sideOffset={8}>{"Repository views"}</TooltipContent>
+              <TooltipContent sideOffset={8}>{t("Repository views")}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="max-w-[min(360px,calc(100vw-2rem))]">
               {remotes.map((remote) => (
@@ -177,31 +179,31 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
               {onOpenHistory ? (
                 <DropdownMenuItem onSelect={onOpenHistory}>
                   <Icon name="history" className="size-4" />
-                  {"History"}
+                  {t("History")}
                 </DropdownMenuItem>
               ) : null}
               {onOpenGraph ? (
                 <DropdownMenuItem onSelect={onOpenGraph}>
                   <Icon name="git-branch" className="size-4" />
-                  {"Graph"}
+                  {t("Graph")}
                 </DropdownMenuItem>
               ) : null}
               {onOpenStashes ? (
                 <DropdownMenuItem onSelect={onOpenStashes}>
                   <Icon name="archive-stack" className="size-4" />
-                  {"Stashes"}
+                  {t("Stashes")}
                 </DropdownMenuItem>
               ) : null}
               {onOpenUpdateBranch ? (
                 <DropdownMenuItem onSelect={onOpenUpdateBranch}>
                   <Icon name="git-merge" className="size-4" />
-                  {"Update branch"}
+                  {t("Update branch")}
                 </DropdownMenuItem>
               ) : null}
               {onOpenReintegrateCommits ? (
                 <DropdownMenuItem onSelect={onOpenReintegrateCommits}>
                   <Icon name="split-cells-horizontal" className="size-4" />
-                  {"Re-integrate commits"}
+                  {t("Re-integrate commits")}
                 </DropdownMenuItem>
               ) : null}
               {hasViewsMenu && diffHeaderState !== null ? (
@@ -213,7 +215,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
                   onSelect={diffHeaderState.onExpandOrCollapseAll}
                 >
                   <Icon name="expand-up-down" className="size-4" />
-                  {diffHeaderState.expandedCount > 0 ? "Collapse all" : "Expand all"}
+                  {diffHeaderState.expandedCount > 0 ? t("Collapse all") : t("Expand all")}
                 </DropdownMenuItem>
               ) : null}
               {diffHeaderState !== null ? (
@@ -222,7 +224,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
                   onSelect={diffHeaderState.onToggleLoadFullFiles}
                 >
                   <Icon name="file-download" className="size-4" />
-                  <span className="flex-1">{"Load full files"}</span>
+                  <span className="flex-1">{t("Load full files")}</span>
                   {diffHeaderState.loadFullFiles ? (
                     <Icon name="check" className="size-4" />
                   ) : null}
@@ -234,7 +236,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
                   onSelect={diffHeaderState.onToggleWrapLines}
                 >
                   <Icon name="text-wrap" className="size-4" />
-                  <span className="flex-1">{"Wrap lines"}</span>
+                  <span className="flex-1">{t("Wrap lines")}</span>
                   {diffHeaderState.wrapLines ? (
                     <Icon name="check" className="size-4" />
                   ) : null}
@@ -250,8 +252,8 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
                     className="size-4"
                   />
                   {diffHeaderState.layoutMode === 'side-by-side'
-                    ? "Switch to unified view"
-                    : "Switch to side-by-side view"}
+                    ? t("Switch to unified view")
+                    : t("Switch to side-by-side view")}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>

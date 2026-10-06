@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   PointerSensor,
@@ -143,6 +144,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
   renderVersion,
   tooltipsEnabled = true,
 }) => {
+  const { t } = useTranslation();
   const selectionStoreRef = React.useRef<IndexSelectionStore | null>(null);
   if (!selectionStoreRef.current) selectionStoreRef.current = createIndexSelectionStore();
   const selectionStore = selectionStoreRef.current;
@@ -394,7 +396,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
                   rowClassName,
                 )}
               >
-                <span className="font-medium text-muted-foreground">{labels.notSelected || 'Not Selected'}</span>
+                <span className="font-medium text-muted-foreground">{labels.notSelected || t('Not Selected')}</span>
                 {!selectedModel ? <Icon name="check" className="h-4 w-4 text-primary ml-auto flex-shrink-0" /> : null}
               </button>
             </div>

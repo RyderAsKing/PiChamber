@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -55,26 +56,26 @@ export interface ErrorScreenProps {
 }
 
 export const ErrorScreen: React.FC<ErrorScreenProps> = ({ onRetry, errorType = 'network', retryAfter, children }) => {
+  const { t } = useTranslation();
   const isRateLimit = errorType === 'rate-limit';
   const minutes = retryAfter ? Math.ceil(retryAfter / 60) : 1;
-
   return (
     <AuthShell>
       <div className="flex flex-col items-center gap-6 text-center">
         <div className="space-y-2">
           <h1 className="typography-ui-header font-semibold text-destructive">
-            {isRateLimit ? "Too many attempts" : "Unable to reach server"}
+            {isRateLimit ? t('Too many attempts') : t('Unable to reach server')}
           </h1>
           <p className="typography-meta text-muted-foreground max-w-xs">
             {isRateLimit
               ? (minutes > 1
-                ? `Please wait ${minutes} minutes before trying again.`
-                : `Please wait ${minutes} minute before trying again.`)
-              : "We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings."}
+                ? t('Please wait {{minutes}} minutes before trying again.', { minutes })
+                : t('Please wait {{minutes}} minute before trying again.', { minutes }))
+              : t("We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings.")}
           </p>
         </div>
         <Button type="button" onClick={onRetry} className="w-full max-w-xs">
-          {"Retry"}
+          {t('Retry')}
         </Button>
         {children}
       </div>
@@ -121,6 +122,7 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
   onPasskeyUnlock,
   onPasskeySetupOnly,
 }) => {
+  const { t } = useTranslation();
   const canUsePasskey = supportsPasskeys && passkeyStatus.hasPasskeys;
   const canOfferPasskeySetup = supportsPasskeys && !passkeyStatus.hasPasskeys;
 
@@ -129,12 +131,12 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
       <div className="flex flex-col items-center gap-6 w-full max-w-xs">
         <div className="flex flex-col items-center gap-1 text-center">
           <h1 className="text-xl font-semibold text-foreground">
-            {isTunnelLocked ? "Tunnel access required" : "Unlock PiChamber"}
+            {isTunnelLocked ? t('Tunnel access required') : t('Unlock PiChamber')}
           </h1>
           <p className="typography-meta text-muted-foreground">
             {isTunnelLocked
-              ? "Open this tunnel using the one-time connect link from the desktop app."
-              : "This session is password-protected."}
+              ? t('Open this tunnel using the one-time connect link from the desktop app.')
+              : t('This session is password-protected.')}
           </p>
         </div>
 
@@ -155,8 +157,8 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                 )}
                 <span>
                   {isPasskeyBusy && activePasskeyAction === 'auth'
-                    ? "Cancel passkey"
-                    : "Use passkey"}
+                    ? t('Cancel passkey')
+                    : t('Use passkey')}
                 </span>
               </Button>
             )}
@@ -168,7 +170,7 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                   ref={passwordInputRef}
                   type="password"
                   autoComplete="current-password"
-                  placeholder={"Enter password"}
+                  placeholder={t('Enter password')}
                   value={password}
                   onChange={(event) => {
                     setPassword(event.target.value);
@@ -186,7 +188,7 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                 type="submit"
                 size="icon"
                 disabled={!password || isSubmitting}
-                aria-label={isSubmitting ? "Unlocking" : "Unlock"}
+                aria-label={isSubmitting ? t('Unlocking') : t('Unlock')}
               >
                 {isSubmitting ? (
                   <Icon name="loader-4" className="h-4 w-4 animate-spin" />
@@ -202,11 +204,11 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                     checked={trustDevice}
                     onChange={setTrustDevice}
                     disabled={isSubmitting}
-                    ariaLabel={"Trust this device"}
+                    ariaLabel={t('Trust this device')}
                     className="size-4"
                     iconClassName="size-4"
                   />
-                  <span>{"Trust this device"}</span>
+                  <span>{t('Trust this device')}</span>
                 </label>
                 <Button
                   type="button"
@@ -217,8 +219,8 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                   disabled={isSubmitting}
                 >
                   {isPasskeyBusy && activePasskeyAction === 'register'
-                    ? "Cancel passkey setup"
-                    : "Add passkey"}
+                    ? t('Cancel passkey setup')
+                    : t('Add passkey')}
                 </Button>
               </div>
             ) : (
@@ -227,11 +229,11 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
                   checked={trustDevice}
                   onChange={setTrustDevice}
                   disabled={isSubmitting}
-                  ariaLabel={"Trust this device"}
+                  ariaLabel={t('Trust this device')}
                   className="size-4"
                   iconClassName="size-4"
                 />
-                <span>{"Trust this device"}</span>
+                <span>{t('Trust this device')}</span>
               </label>
             )}
             {errorMessage && (
@@ -246,7 +248,7 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
           <div className="w-full">
             <DesktopHostSwitcherInline />
             <p className="mt-1 text-center typography-micro text-muted-foreground">
-              {"Use Local if remote is unreachable."}
+              {t('Use Local if remote is unreachable.')}
             </p>
           </div>
         )}

@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { GitHubIssue } from '@/lib/api/types';
 import type { IssueStatePatch } from '@/stores/useGitHubIssuesStore';
 import {
@@ -51,24 +52,24 @@ export const gateIssueAction = (
   issue: Pick<GitHubIssue, 'state'> | null,
   access?: ViewerAccess,
 ): IssueActionGate => {
-  if (!issue && action !== 'comment') return { allowed: false, reason: 'Issue is still loading' };
+  if (!issue && action !== 'comment') return { allowed: false, reason: i18n.t('Issue is still loading') };
   switch (action) {
     case 'close':
-      if (issue?.state === 'closed') return { allowed: false, reason: 'Already closed' };
-      if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to close' };
+      if (issue?.state === 'closed') return { allowed: false, reason: i18n.t('Already closed') };
+      if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to close') };
       return { allowed: true, reason: null };
     case 'reopen':
-      if (issue?.state !== 'closed') return { allowed: false, reason: 'Already open' };
-      if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to reopen' };
+      if (issue?.state !== 'closed') return { allowed: false, reason: i18n.t('Already open') };
+      if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to reopen') };
       return { allowed: true, reason: null };
     case 'edit':
-      if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to edit' };
+      if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to edit') };
       return { allowed: true, reason: null };
     case 'labels':
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to change labels' };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to change labels') };
       return { allowed: true, reason: null };
     case 'assignees':
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to change assignees' };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to change assignees') };
       return { allowed: true, reason: null };
     case 'comment':
       return gateCommentAccess(access);
@@ -85,25 +86,25 @@ export const issueStateConfirmCopy = (
   switch (action) {
     case 'close-not-planned':
       return {
-        title: `Close issue #${number} as not planned?`,
-        detail: 'The issue will close without being completed. You can reopen it later.',
-        confirm: 'Close as not planned',
-        progress: 'Closing…',
+        title: i18n.t('Close issue #{{number}} as not planned?', { number }),
+        detail: i18n.t('The issue will close without being completed. You can reopen it later.'),
+        confirm: i18n.t('Close as not planned'),
+        progress: i18n.t('Closing…'),
       };
     case 'reopen':
       return {
-        title: `Reopen issue #${number}?`,
-        detail: 'The issue will return to its previous open state.',
-        confirm: 'Reopen issue',
-        progress: 'Reopening…',
+        title: i18n.t('Reopen issue #{{number}}?', { number }),
+        detail: i18n.t('The issue will return to its previous open state.'),
+        confirm: i18n.t('Reopen issue'),
+        progress: i18n.t('Reopening…'),
       };
     case 'close-completed':
     default:
       return {
-        title: `Close issue #${number} as completed?`,
-        detail: 'The issue will be recorded as completed. You can reopen it later.',
-        confirm: 'Close as completed',
-        progress: 'Closing…',
+        title: i18n.t('Close issue #{{number}} as completed?', { number }),
+        detail: i18n.t('The issue will be recorded as completed. You can reopen it later.'),
+        confirm: i18n.t('Close as completed'),
+        progress: i18n.t('Closing…'),
       };
   }
 };
@@ -125,7 +126,7 @@ export const validateCreateIssue = (input: { title: string; body?: string }): Cr
   const errors: CreateIssueValidation['errors'] = {};
   const titleError = titleValidationError(input.title, 300);
   if (titleError) errors.title = titleError;
-  if (input.body !== undefined && input.body.length > 200_000) errors.body = 'Body is too long';
+  if (input.body !== undefined && input.body.length > 200_000) errors.body = i18n.t('Body is too long');
   return { ok: Object.keys(errors).length === 0, errors };
 };
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { openExternalUrl } from '@/lib/url';
 import { Button } from '@/components/ui/button';
@@ -28,7 +29,7 @@ type InstanceService = {
  * or wrong URLs.
  */
 export const InstanceServiceUrls: React.FC<{ className?: string }> = ({ className }) => {
-  
+  const { t } = useTranslation();
   const [info, setInfo] = React.useState<InstanceServiceInfo | null>(null);
 
   React.useEffect(() => {
@@ -67,14 +68,14 @@ export const InstanceServiceUrls: React.FC<{ className?: string }> = ({ classNam
   if (info?.port !== null && info?.port !== undefined) {
     services.push({
       key: 'application',
-      label: "Application",
+      label: t('Application'),
       url: `http://localhost:${info.port}/`,
     });
   }
   if (info?.tunnelUrl) {
     services.push({
       key: 'tunnel',
-      label: "Tunnel",
+      label: t('Tunnel'),
       url: info.tunnelUrl,
     });
   }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
@@ -48,7 +49,8 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   cacheWrite,
   cacheHitPercent,
 }) => {
-  
+  const { t } = useTranslation();
+
   const [mobileTooltipOpen, setMobileTooltipOpen] = React.useState(false);
   const colorPct = typeof colorPercentage === 'number' ? colorPercentage : percentage;
   const progressPct = clampPercent(percentage) ?? 0;
@@ -87,12 +89,12 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   const safeCacheWrite = hasCache ? Math.max(0, cacheWrite as number) : 0;
   const hasCacheHit = typeof cacheHitPercent === 'number' && Number.isFinite(cacheHitPercent);
   const tooltipLines = [
-    `Used tokens: ${formatTokens(totalTokens)}`,
-    `Context limit: ${formatTokens(contextLimit)}`,
-    `Output limit: ${formatTokens(safeOutputLimit)}`,
-    ...(hasCache ? [`Cache read: ${formatTokens(safeCacheRead)}`, `Cache write: ${formatTokens(safeCacheWrite)}`] : []),
-    ...(hasCacheHit ? [`Cache hit: ${(cacheHitPercent as number).toFixed(1)}%`] : []),
-    `${Math.min(percentage, 999).toFixed(1)}% used`,
+    t('Used tokens: {{value}}', { value: formatTokens(totalTokens) }),
+    t('Context limit: {{value}}', { value: formatTokens(contextLimit) }),
+    t('Output limit: {{value}}', { value: formatTokens(safeOutputLimit) }),
+    ...(hasCache ? [t('Cache read: {{value}}', { value: formatTokens(safeCacheRead) }), t('Cache write: {{value}}', { value: formatTokens(safeCacheWrite) })] : []),
+    ...(hasCacheHit ? [t('Cache hit: {{value}}%', { value: (cacheHitPercent as number).toFixed(1) })] : []),
+    t('{{value}}% used', { value: Math.min(percentage, 999).toFixed(1) }),
   ];
 
   const isInteractive = !isMobile && typeof onClick === 'function';
@@ -160,7 +162,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
     <button
       type="button"
       className={sharedClassName}
-      aria-label={"Context usage"}
+      aria-label={t("Context usage")}
       aria-pressed={pressed}
       onClick={onClick}
     >
@@ -169,7 +171,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
   ) : (
     <div
       className={sharedClassName}
-      aria-label={"Context usage"}
+      aria-label={t("Context usage")}
       onClick={isMobile ? () => setMobileTooltipOpen(true) : undefined}
     >
       {contextContent}
@@ -183,42 +185,42 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
         <MobileOverlayPanel
           open={mobileTooltipOpen}
           onClose={() => setMobileTooltipOpen(false)}
-          title={"Context Usage"}
+          title={t("Context Usage")}
         >
           <div className="flex flex-col gap-1.5">
             <div className="rounded-xl border border-border/40 bg-sidebar/30 px-3 py-2 space-y-1">
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{"Used tokens"}</span>
+                <span className="typography-meta text-muted-foreground">{t("Used tokens")}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(totalTokens)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{"Context limit"}</span>
+                <span className="typography-meta text-muted-foreground">{t("Context limit")}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(contextLimit)}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="typography-meta text-muted-foreground">{"Output limit"}</span>
+                <span className="typography-meta text-muted-foreground">{t("Output limit")}</span>
                 <span className="typography-meta text-foreground font-medium">{formatTokens(safeOutputLimit)}</span>
               </div>
               {hasCache ? (
                 <>
                   <div className="flex justify-between items-center">
-                    <span className="typography-meta text-muted-foreground">{"Cache read"}</span>
+                    <span className="typography-meta text-muted-foreground">{t("Cache read")}</span>
                     <span className="typography-meta text-foreground font-medium">{formatTokens(safeCacheRead)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="typography-meta text-muted-foreground">{"Cache write"}</span>
+                    <span className="typography-meta text-muted-foreground">{t("Cache write")}</span>
                     <span className="typography-meta text-foreground font-medium">{formatTokens(safeCacheWrite)}</span>
                   </div>
                 </>
               ) : null}
               {hasCacheHit ? (
                 <div className="flex justify-between items-center">
-                  <span className="typography-meta text-muted-foreground">{"Cache hit"}</span>
+                  <span className="typography-meta text-muted-foreground">{t("Cache hit")}</span>
                   <span className="typography-meta text-foreground font-medium">{(cacheHitPercent as number).toFixed(1)}%</span>
                 </div>
               ) : null}
               <div className="flex justify-between items-center pt-1 border-t border-border/40">
-                <span className="typography-meta text-muted-foreground">{"Usage"}</span>
+                <span className="typography-meta text-muted-foreground">{t("Usage")}</span>
                 <span className={cn('typography-meta font-semibold', getPercentageColor(colorPct))}>
                   {Math.min(percentage, 999).toFixed(1)}%
                 </span>

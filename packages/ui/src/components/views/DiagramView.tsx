@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { useUIStore } from '@/stores/useUIStore';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
@@ -20,6 +21,7 @@ type DiagramSaveConflict = FileSaveConflictDetails & {
 const toDisplayPath = (path: string): string => path.split('/').pop() || path;
 
 export function DiagramView() {
+  const { t } = useTranslation();
   const { files } = useRuntimeAPIs();
 
   const [filePath, setFilePath] = React.useState<string | null>(null);
@@ -76,7 +78,7 @@ export function DiagramView() {
         // offer an empty editor with an unguarded save that could overwrite
         // a potentially existing target. Surface the failure and clear the
         // active file so the user can reopen through the picker.
-        toast.error('Failed to read file');
+        toast.error(t('Failed to read file'));
         setFilePath(null);
         filePathRef.current = null;
         savedXmlRef.current = '';
@@ -90,7 +92,7 @@ export function DiagramView() {
       revisionRef.current = result.revision;
     } catch (error) {
       if (!isCurrent(loadId, loadRuntimeKey, path)) return;
-      toast.error(error instanceof Error ? error.message : 'Failed to read file');
+      toast.error(error instanceof Error ? error.message : t('Failed to read file'));
       setFilePath(null);
       filePathRef.current = null;
       savedXmlRef.current = '';
@@ -103,7 +105,7 @@ export function DiagramView() {
         setLoading(false);
       }
     }
-  }, [files, isCurrent]);
+  }, [files, isCurrent, t]);
 
   React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
     loadIdRef.current += 1;
@@ -207,7 +209,7 @@ export function DiagramView() {
       const outcome = await persistBytes(savePath, dirtyXml, false, saveGeneration, saveRuntimeKey);
       if (outcome.stale) return;
       if (!outcome.success) {
-        toast.error('Failed to write file');
+        toast.error(t('Failed to write file'));
         return;
       }
       commitWritten(dirtyXml, outcome.revision);
@@ -224,13 +226,13 @@ export function DiagramView() {
         );
         return;
       }
-      toast.error(error instanceof Error ? error.message : 'Save failed');
+      toast.error(error instanceof Error ? error.message : t('Save failed'));
     } finally {
       if (saveOpRef.current === op) {
         setIsSaving(false);
       }
     }
-  }, [commitWritten, filePath, files, isCurrent, isResolvingConflict, isSaving, openConflict, persistBytes]);
+  }, [commitWritten, filePath, files, isCurrent, isResolvingConflict, isSaving, openConflict, persistBytes, t]);
 
   const handleConflictReload = React.useCallback(async () => {
     const details = saveConflict;
@@ -255,7 +257,7 @@ export function DiagramView() {
       const entry = await files?.readFile?.(details.path);
       if (!isCurrent(reloadGeneration, reloadRuntimeKey, details.path)) return;
       if (!entry) {
-        toast.error('Failed to read file');
+        toast.error(t('Failed to read file'));
         return;
       }
       savedXmlRef.current = entry.content ?? '';
@@ -266,13 +268,13 @@ export function DiagramView() {
       setShowConflictCompare(false);
     } catch (error) {
       if (!isCurrent(reloadGeneration, reloadRuntimeKey, details.path)) return;
-      toast.error(error instanceof Error ? error.message : 'Failed to read file');
+      toast.error(error instanceof Error ? error.message : t('Failed to read file'));
     } finally {
       if (resolveOpRef.current === op) {
         setIsResolvingConflict(false);
       }
     }
-  }, [files, isCurrent, isResolvingConflict, saveConflict]);
+  }, [files, isCurrent, isResolvingConflict, saveConflict, t]);
 
   const handleConflictOverwrite = React.useCallback(async () => {
     const details = saveConflict;
@@ -282,13 +284,13 @@ export function DiagramView() {
     const overwriteRuntimeKey = details.runtimeKey;
     const writeFile = files?.writeFile;
     if (!writeFile) {
-      toast.error('Saving not supported');
+      toast.error(t('Saving not supported'));
       return;
     }
     const latest = editorRef.current?.getXml();
     const content = latest ?? details.dirtyContent;
     if (!content) {
-      toast.error('Failed to write file');
+      toast.error(t('Failed to write file'));
       return;
     }
     const op = resolveOpRef.current + 1;
@@ -298,7 +300,7 @@ export function DiagramView() {
       const outcome = await persistBytes(details.path, content, true, overwriteGeneration, overwriteRuntimeKey);
       if (outcome.stale) return;
       if (!outcome.success) {
-        toast.error('Failed to write file');
+        toast.error(t('Failed to write file'));
         return;
       }
       commitWritten(content, outcome.revision);
@@ -317,13 +319,13 @@ export function DiagramView() {
         );
         return;
       }
-      toast.error(error instanceof Error ? error.message : 'Save failed');
+      toast.error(error instanceof Error ? error.message : t('Save failed'));
     } finally {
       if (resolveOpRef.current === op) {
         setIsResolvingConflict(false);
       }
     }
-  }, [commitWritten, files, isCurrent, isResolvingConflict, openConflict, persistBytes, saveConflict]);
+  }, [commitWritten, files, isCurrent, isResolvingConflict, openConflict, persistBytes, saveConflict, t]);
 
   const handleConflictClose = React.useCallback(() => {
     if (isResolvingConflict || isSaving) return;
@@ -337,7 +339,7 @@ export function DiagramView() {
     return (
       <div className="flex h-full items-center justify-center p-3">
         <div className="typography-ui text-muted-foreground">
-          {"Pick a file from the tree."}
+          {t('Pick a file from the tree.')}
         </div>
       </div>
     );
@@ -360,7 +362,7 @@ export function DiagramView() {
           type="button"
           onClick={() => void saveDiagram()}
           className="size-6 flex items-center justify-center rounded-md text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title={"Save diagram"}
+          title={t('Save diagram')}
         >
           <Icon name="save-3" className="size-4" />
         </button>
@@ -368,7 +370,7 @@ export function DiagramView() {
           type="button"
           onClick={() => useUIStore.getState().setActiveMainTab('chat')}
           className="size-6 flex items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title={"Close diagram view"}
+          title={t('Close diagram view')}
         >
           <Icon name="close" className="size-4" />
         </button>

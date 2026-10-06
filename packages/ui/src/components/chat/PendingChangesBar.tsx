@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useGitStore, useIsGitRepo } from '@/stores/useGitStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
@@ -17,7 +18,8 @@ import { ChangedFilesList } from './ChangedFilesList';
 import { changedFilesPopoverClassName, changedFilesPopoverStyle } from './changedFilesPopover';
 
 export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.memo(({ align = 'start' }) => {
-    
+    const { t } = useTranslation();
+
     const [isExpanded, setIsExpanded] = React.useState(false);
     const popoverRef = React.useRef<HTMLDivElement>(null);
     const currentDirectory = useEffectiveDirectory() ?? null;
@@ -97,9 +99,9 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
 
     const fileCount = gitChangedFiles.length;
     const labelHead = fileCount === 1
-        ? `${fileCount} file`
-        : `${fileCount} files`;
-    const mobileLabel = fileCount === 1 ? "1 change" : `${fileCount} changes`;
+        ? t('1 file')
+        : t('{{count}} files', { count: fileCount });
+    const mobileLabel = fileCount === 1 ? t('1 change') : t('{{count}} changes', { count: fileCount });
     const changesTriggerContent = (
         <>
             <Icon
@@ -116,7 +118,7 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
                         {labelHead}
                     </span>
                     <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
-                        {"changed"}
+                        {t("changed")}
                     </span>
                 </>
             )}

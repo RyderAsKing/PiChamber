@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { NumberInput } from '@/components/ui/number-input';
 import {
@@ -47,6 +48,7 @@ const thinkingSelectOptions = (levels: PiThinkingLevel[], stored?: PiThinkingLev
 
 export const DefaultsSettings: React.FC = () => {
   const providers = useConfigStore((state) => state.providers);
+  const { t } = useTranslation();
   const modelsMetadata = useConfigStore((state) => state.modelsMetadata);
   const loadProviders = useConfigStore((state) => state.loadProviders);
   const setProvider = useConfigStore((state) => state.setProvider);
@@ -158,8 +160,8 @@ export const DefaultsSettings: React.FC = () => {
 
   if (loadState === 'failed' && !pichamber) {
     return (
-      <SettingsSection title="Session Defaults" divider={false}>
-        <p className="typography-meta text-[var(--status-error)]">{"Session defaults are unavailable."}</p>
+      <SettingsSection title={t('Session Defaults')} divider={false}>
+        <p className="typography-meta text-[var(--status-error)]">{t('Session defaults are unavailable.')}</p>
       </SettingsSection>
     );
   }
@@ -176,20 +178,20 @@ export const DefaultsSettings: React.FC = () => {
 
   return (
     <SettingsSection
-      title="Session Defaults"
+      title={t('Session Defaults')}
       divider={false}
-      info="New sessions use these models. Leave a picker on its fallback to keep Pi's own default."
+      info={t("New sessions use these models. Leave a picker on its fallback to keep Pi's own default.")}
     >
       <div className={SETTINGS_FIELDS_STACK_CLASS}>
         <SettingsFieldRow
           settingsItem="sessions.default-model"
-          label="Default Model"
-          info="The model new sessions start with. Unset keeps Pi's default."
+          label={t('Default Model')}
+          info={t("The model new sessions start with. Unset keeps Pi's default.")}
         >
           <SettingsModelPicker
             value={pichamber?.defaultModel ?? null}
-            noneLabel="Default"
-            ariaLabel="Default model"
+            noneLabel={t('Default')}
+            ariaLabel={t('Default model')}
             onChange={handleDefaultModelChange}
           />
         </SettingsFieldRow>
@@ -197,8 +199,8 @@ export const DefaultsSettings: React.FC = () => {
         {showDefaultThinking && pichamber?.defaultModel ? (
           <SettingsFieldRow
             settingsItem="sessions.default-thinking"
-            label="Default Thinking"
-            info="Thinking level for new sessions that start with the default model. Unset keeps Pi's default for that model."
+            label={t('Default Thinking')}
+            info={t("Thinking level for new sessions that start with the default model. Unset keeps Pi's default for that model.")}
           >
             <Select
               value={defaultStoredThinking ?? FALLBACK_THINKING}
@@ -209,17 +211,17 @@ export const DefaultsSettings: React.FC = () => {
                 );
               }}
             >
-              <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label="Default thinking">
+              <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label={t('Default thinking')}>
                 <SelectValue>
                   {(value) => {
-                    if (value === FALLBACK_THINKING) return "Default";
+                    if (value === FALLBACK_THINKING) return t('Default');
                     if (value) return PI_THINKING_LEVEL_LABELS[value as PiThinkingLevel] ?? (value as string);
                     return "";
                   }}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={FALLBACK_THINKING}>{"Default"}</SelectItem>
+                <SelectItem value={FALLBACK_THINKING}>{t('Default')}</SelectItem>
                 {thinkingSelectOptions(defaultThinkingLevels, defaultStoredThinking).map((level) => (
                   <SelectItem key={level} value={level}>{PI_THINKING_LEVEL_LABELS[level]}</SelectItem>
                 ))}
@@ -230,26 +232,26 @@ export const DefaultsSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.small-model"
-          label="Small Model"
-          info="A cheap model for quick utility tasks like short recaps and summaries."
+          label={t('Small Model')}
+          info={t('A cheap model for quick utility tasks like short recaps and summaries.')}
         >
           <SettingsModelPicker
             value={pichamber?.smallModel ?? null}
-            noneLabel="Use default small model"
-            ariaLabel="Small model"
+            noneLabel={t('Use default small model')}
+            ariaLabel={t('Small model')}
             onChange={(model) => { void persist({ smallModel: model }); }}
           />
         </SettingsFieldRow>
 
         <SettingsFieldRow
           settingsItem="sessions.walkthrough-model"
-          label="Changes Walkthrough Model"
-          info="The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used."
+          label={t('Changes Walkthrough Model')}
+          info={t('The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used.')}
         >
           <SettingsModelPicker
             value={pichamber?.walkthroughModel ?? null}
-            noneLabel="Small model"
-            ariaLabel="Changes walkthrough model"
+            noneLabel={t('Small model')}
+            ariaLabel={t('Changes walkthrough model')}
             isModelAllowed={isStructuredOutputCapable}
             onChange={(model) => { void persist({ walkthroughModel: model }); }}
           />
@@ -257,8 +259,8 @@ export const DefaultsSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.default-retry-limit"
-          label="Default retry limit"
-          info="How many times Pi automatically retries a failed agent turn before stopping. Applies to new sessions when no per-run limit is set. Set to 0 to disable automatic retries. Existing sessions keep their own limit until you change it."
+          label={t('Default retry limit')}
+          info={t('How many times Pi automatically retries a failed agent turn before stopping. Applies to new sessions when no per-run limit is set. Set to 0 to disable automatic retries. Existing sessions keep their own limit until you change it.')}
         >
           <div className={SETTINGS_CONTROL_CLUSTER_CLASS}>
             <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
@@ -267,14 +269,14 @@ export const DefaultsSettings: React.FC = () => {
                 min={0}
                 max={10}
                 step={1}
-                aria-label="Default retry limit"
+                aria-label={t('Default retry limit')}
                 onValueChange={(value) => {
                   if (!Number.isFinite(value)) return;
                   const clamped = Math.max(0, Math.min(10, Math.round(value)));
                   void persist({ defaultRetryLimit: clamped });
                 }}
               />
-              <span className={SETTINGS_NUMBER_UNIT_CLASS}>retries</span>
+              <span className={SETTINGS_NUMBER_UNIT_CLASS}>{t('retries')}</span>
             </div>
           </div>
         </SettingsFieldRow>
@@ -284,8 +286,8 @@ export const DefaultsSettings: React.FC = () => {
             settingsItem="sessions.deletion-dialog"
             checked={showDeletionDialog}
             onChange={setShowDeletionDialog}
-            label="Show Deletion Dialog"
-            ariaLabel="Show deletion dialog"
+            label={t('Show Deletion Dialog')}
+            ariaLabel={t('Show deletion dialog')}
           />
         </SettingsInset>
       </div>

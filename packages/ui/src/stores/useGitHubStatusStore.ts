@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { GitHubAPI, GitHubStatus } from '@/lib/api/types';
 import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 export const GITHUB_STATUS_STALE_MS = 60_000;
 const FOCUS_REFRESH_THROTTLE_MS = 30_000;
@@ -88,7 +89,7 @@ export const useGitHubStatusStore = create<StatusState>()(
             // Failure preserves last-known status; it never clears to empty.
             set({
               isLoading: false,
-              error: error instanceof Error ? error.message : 'GitHub status check failed',
+              error: error instanceof Error ? error.message : i18n.t('GitHub status check failed'),
             });
             return get().status;
           }

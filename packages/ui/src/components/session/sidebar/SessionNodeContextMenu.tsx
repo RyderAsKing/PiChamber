@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { Session } from '@/lib/chat/types';
 import { ContextMenu } from '@base-ui/react/context-menu';
 import {
@@ -47,7 +49,8 @@ function renderSessionMenuItems(
     Sub: React.ElementType;
     SubTrigger: React.ElementType;
     SubContent: React.ElementType;
-  }
+  },
+  t: TFunction,
 ) {
   const {
     session,
@@ -75,14 +78,14 @@ function renderSessionMenuItems(
         className="[&>svg]:mr-1"
       >
         <Icon name="pencil-ai" className="mr-1 h-4 w-4" />
-        {'Rename'}
+        {t('Rename')}
       </Item>
       <Item
         onClick={() => handleCopySessionId(session.id)}
         className="[&>svg]:mr-1"
       >
         <Icon name="file-copy" className="mr-1 h-4 w-4" />
-        {'Copy session ID'}
+        {t('Copy session ID')}
       </Item>
       <Item
         onClick={() =>
@@ -99,7 +102,7 @@ function renderSessionMenuItems(
         ) : (
           <Icon name="pushpin" className="mr-1 h-4 w-4" />
         )}
-        {isPinnedSession ? 'Unpin session' : 'Pin session'}
+        {isPinnedSession ? t('Unpin session') : t('Pin session')}
       </Item>
 
       <Item
@@ -109,7 +112,7 @@ function renderSessionMenuItems(
         className="[&>svg]:mr-1"
       >
         <Icon name="download" className="mr-1 h-4 w-4" />
-        {'Export Markdown'}
+        {t('Export Markdown')}
       </Item>
 
       {isElectron ? (
@@ -119,7 +122,7 @@ function renderSessionMenuItems(
           className="[&>svg]:mr-1"
         >
           <Icon name="window" className="mr-1 h-4 w-4" />
-          <span className="truncate">{'Open in Mini Chat Window'}</span>
+          <span className="truncate">{t('Open in Mini Chat Window')}</span>
         </Item>
       ) : null}
 
@@ -130,7 +133,7 @@ function renderSessionMenuItems(
           onClick={() => handleDeleteSession(session, { archivedBucket })}
         >
           <Icon name="inbox-archive" className="mr-1 h-4 w-4" />
-          {'Archive'}
+          {t('Archive')}
         </Item>
       ) : null}
       {archivedBucket ? (
@@ -139,7 +142,7 @@ function renderSessionMenuItems(
           onClick={() => handleRestoreSession(session)}
         >
           <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
-          {'Restore'}
+          {t('Restore')}
         </Item>
       ) : null}
       <Item
@@ -152,13 +155,14 @@ function renderSessionMenuItems(
         }
       >
         <Icon name="delete-bin" className="mr-1 h-4 w-4" />
-        {'Delete'}
+        {t('Delete')}
       </Item>
     </>
   );
 }
 
 export function SessionNodeDropdownMenuContent(props: SessionNodeMenuItemsProps) {
+  const { t } = useTranslation();
   const { renamingFolderId, editingIdRef } = props;
   return (
     <DropdownMenuContent
@@ -172,12 +176,13 @@ export function SessionNodeDropdownMenuContent(props: SessionNodeMenuItemsProps)
         Sub: DropdownMenuSub,
         SubTrigger: DropdownMenuSubTrigger,
         SubContent: DropdownMenuSubContent,
-      })}
+      }, t)}
     </DropdownMenuContent>
   );
 }
 
 export function SessionNodeContextMenuContent(props: SessionNodeMenuItemsProps) {
+  const { t } = useTranslation();
   const { renamingFolderId, editingIdRef } = props;
   return (
     <ContextMenu.Portal>
@@ -244,7 +249,7 @@ export function SessionNodeContextMenuContent(props: SessionNodeMenuItemsProps) 
                 </ContextMenu.Positioner>
               </ContextMenu.Portal>
             ),
-          })}
+          }, t)}
         </ContextMenu.Popup>
       </ContextMenu.Positioner>
     </ContextMenu.Portal>

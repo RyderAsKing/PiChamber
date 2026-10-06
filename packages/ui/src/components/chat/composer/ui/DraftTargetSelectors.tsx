@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -85,7 +86,9 @@ const WorktreeModeToggle = ({
     onChange?: (enabled: boolean) => void;
     showCheck?: boolean;
     chromeLess?: boolean;
-}) => (
+}) => {
+    const { t } = useTranslation();
+    return (
     <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
             <Button
@@ -98,28 +101,31 @@ const WorktreeModeToggle = ({
                 onClick={() => onChange?.(!checked)}
             >
                 <Icon name="git-branch" className="size-3.5" />
-                <span className="truncate">New worktree</span>
+                <span className="truncate">{t('New worktree')}</span>
                 {checked && showCheck ? <Icon name="check" className="size-3.5" /> : null}
             </Button>
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={6} className="max-w-72">
-            Starts from the selected branch's latest commit. Uncommitted changes are not copied.
+            {t("Starts from the selected branch's latest commit. Uncommitted changes are not copied.")}
         </TooltipContent>
     </Tooltip>
-);
+    );
+};
 
 const BranchValue = ({ label, startFrom = false }: { label: string | null; startFrom?: boolean }) => {
-    const displayLabel = label ?? 'Branch';
+    const { t } = useTranslation();
+    const displayLabel = label ?? t('Branch');
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5" title={label ?? undefined}>
             <Icon name="git-branch" className="size-3.5 shrink-0 text-muted-foreground" />
-            {startFrom && label ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+            {startFrom && label ? <span className="shrink-0 text-muted-foreground/70">{t('from')}</span> : null}
             <span className="truncate">{displayLabel}</span>
         </span>
     );
 };
 
 function BranchCopyButton({ branchName }: { branchName: string | null }) {
+    const { t } = useTranslation();
     const { value: copied, show } = useTransientValue(false, 2000);
     const handleCopy = React.useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
@@ -129,9 +135,9 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
         if (result.ok) {
             show(true);
         } else {
-            toast.error('Failed to copy');
+            toast.error(t('Failed to copy'));
         }
-    }, [branchName, show]);
+    }, [branchName, show, t]);
     if (!branchName) return null;
     return (
         <Tooltip>
@@ -141,7 +147,7 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                    aria-label="Copy branch name"
+                    aria-label={t("Copy branch name")}
                     onClick={(event) => { void handleCopy(event); }}
                 >
                     {copied
@@ -149,13 +155,14 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
                         : <Icon name="file-copy" className="size-3.5" />}
                 </Button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{copied ? 'Copied' : 'Copy branch name'}</TooltipContent>
+            <TooltipContent sideOffset={6}>{copied ? t('Copied') : t('Copy branch name')}</TooltipContent>
         </Tooltip>
     );
 }
 
 /** Desktop project selector and branch target. Existing sessions render a read-only branch label. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
+    const { t } = useTranslation();
     const {
         projects,
         selectedProject,
@@ -212,7 +219,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                         </SelectTrigger>
                         <SelectContent className="w-max min-w-56">
                             <SelectGroup>
-                                <SelectLabel>{branchLoading ? 'Loading branches...' : 'Local branches'}</SelectLabel>
+                                <SelectLabel>{branchLoading ? t('Loading branches...') : t('Local branches')}</SelectLabel>
                                 {branchOptions.map((branch) => (
                                     <SelectItem key={branch.value} value={branch.value} className="max-w-[28rem] truncate">
                                         {branch.label}
@@ -244,6 +251,7 @@ export function MobileDraftTargetTriggers(
         'selectedProject' | 'selectedBranchName' | 'selectedBranchLabel' | 'branchInteractive' | 'showBranchSelector' | 'showProjectSelector' | 'showWorktreeSelector' | 'worktreeMode' | 'onWorktreeModeChange' | 'endAccessory' | 'theme'
     > & { onOpenPicker: (picker: 'project' | 'branch') => void },
 ) {
+    const { t } = useTranslation();
     const {
         selectedProject,
         selectedBranchName,
@@ -293,8 +301,8 @@ export function MobileDraftTargetTriggers(
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
-                        <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
+                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">{t('from')}</span> : null}
+                        <span className="truncate">{displayBranchLabel ?? t('Branch')}</span>
                         <Icon name="arrow-down-s" className="h-3 w-3 shrink-0 text-muted-foreground" />
                     </button>
                 ) : showBranchSelector ? (
@@ -303,8 +311,8 @@ export function MobileDraftTargetTriggers(
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
-                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
-                        <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
+                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">{t('from')}</span> : null}
+                        <span className="truncate">{displayBranchLabel ?? t('Branch')}</span>
                         <BranchCopyButton branchName={selectedBranchName} />
                     </div>
                 ) : null}
@@ -325,6 +333,7 @@ export function MobileDraftTargetSheets(
         onQueryChange?: (query: string) => void;
     },
 ) {
+    const { t } = useTranslation();
     const {
         projects,
         selectedProject,
@@ -367,7 +376,7 @@ export function MobileDraftTargetSheets(
             <MobileOverlayPanel
                 open={showProjectSelector && openPicker === 'project'}
                 onClose={() => onOpenPickerChange(null)}
-                title="Project"
+                title={t("Project")}
             >
                 <div className="flex flex-col py-1">
                     {projects.length > 5 ? (
@@ -375,7 +384,7 @@ export function MobileDraftTargetSheets(
                             <Input
                                 value={projectSearch}
                                 onChange={(event) => setProjectSearch(event.target.value)}
-                                placeholder="Search projects..."
+                                placeholder={t("Search projects...")}
                                 className="h-8 typography-meta"
                                 autoFocus
                             />
@@ -408,7 +417,7 @@ export function MobileDraftTargetSheets(
             <MobileOverlayPanel
                 open={branchInteractive && showBranchSelector && openPicker === 'branch'}
                 onClose={() => onOpenPickerChange(null)}
-                title="Branch"
+                title={t("Branch")}
             >
                 <div className="flex flex-col py-1">
                     {branchOptions.length > 5 ? (
@@ -416,7 +425,7 @@ export function MobileDraftTargetSheets(
                             <Input
                                 value={query}
                                 onChange={(event) => onQueryChange?.(event.target.value)}
-                                placeholder="Search branches..."
+                                placeholder={t("Search branches...")}
                                 className="h-8 typography-meta"
                                 autoFocus
                             />

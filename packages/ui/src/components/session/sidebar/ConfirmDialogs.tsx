@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,6 +27,7 @@ function SessionMutationDialogFooter(props: {
   confirmLabel: 'Archive' | 'Delete';
 }): React.ReactNode {
   const { showDeletionDialog, setShowDeletionDialog, onCancel, onConfirm, confirmLabel } = props;
+  const { t } = useTranslation();
   return (
     <DialogFooter className="w-full sm:items-center sm:justify-between">
       <button
@@ -35,7 +37,7 @@ function SessionMutationDialogFooter(props: {
         aria-pressed={!showDeletionDialog}
       >
         {!showDeletionDialog ? <Icon name="checkbox" className="h-4 w-4 text-primary" /> : <Icon name="checkbox-blank" className="h-4 w-4" />}
-        {"Never ask"}
+        {t("Never ask")}
       </button>
       <div className="flex items-center gap-2">
         <button
@@ -43,14 +45,14 @@ function SessionMutationDialogFooter(props: {
           onClick={onCancel}
           className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 typography-ui-label text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
-          {"Cancel"}
+          {t("Cancel")}
         </button>
         <button
           type="button"
           onClick={() => void onConfirm()}
           className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
         >
-          {confirmLabel}
+          {t(confirmLabel)}
         </button>
       </div>
     </DialogFooter>
@@ -66,6 +68,7 @@ export function SessionDeleteConfirmDialog(props: {
 }): React.ReactNode {
   
   const { value, setValue, showDeletionDialog, setShowDeletionDialog, onConfirm } = props;
+  const { t } = useTranslation();
   const sessionDisplayTitle = (session: Session): string => getSessionDisplayTitle(session);
 
   return (
@@ -73,20 +76,20 @@ export function SessionDeleteConfirmDialog(props: {
       <DialogContent showCloseButton={false} className="max-w-sm gap-5">
         <DialogHeader>
           <DialogTitle>{value?.archivedBucket
-            ? "Delete session?"
-            : "Archive session?"}</DialogTitle>
+            ? t("Delete session?")
+            : t("Archive session?")}</DialogTitle>
           <DialogDescription>
             {value && value.descendantCount > 0
               ? value.archivedBucket
                 ? value.descendantCount === 1
-                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be permanently deleted.`
-                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
+                  ? t('"{{title}}" and its {{count}} sub-task will be permanently deleted.', { title: sessionDisplayTitle(value.session), count: value.descendantCount })
+                  : t('"{{title}}" and its {{count}} sub-tasks will be permanently deleted.', { title: sessionDisplayTitle(value.session), count: value.descendantCount })
                 : value.descendantCount === 1
-                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be archived.`
-                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be archived.`
+                  ? t('"{{title}}" and its {{count}} sub-task will be archived.', { title: sessionDisplayTitle(value.session), count: value.descendantCount })
+                  : t('"{{title}}" and its {{count}} sub-tasks will be archived.', { title: sessionDisplayTitle(value.session), count: value.descendantCount })
               : value?.archivedBucket
-                ? `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be permanently deleted.`
-                : `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be archived.`}
+                ? t('"{{title}}" will be permanently deleted.', { title: value?.session ? sessionDisplayTitle(value.session) : t("Untitled Session") })
+                : t('"{{title}}" will be archived.', { title: value?.session ? sessionDisplayTitle(value.session) : t("Untitled Session") })}
           </DialogDescription>
         </DialogHeader>
         <SessionMutationDialogFooter
@@ -115,22 +118,23 @@ export function BulkSessionDeleteConfirmDialog(props: {
 }): React.ReactNode {
   
   const { value, setValue, showDeletionDialog, setShowDeletionDialog, onConfirm } = props;
+  const { t } = useTranslation();
   const archived = value?.archivedBucket === true;
   const n = value?.sessionCount ?? 0;
   const title = archived
     ? (n === 1
-      ? "Delete session?"
-      : "Delete sessions?")
+      ? t("Delete session?")
+      : t("Delete sessions?"))
     : (n === 1
-      ? "Archive session?"
-      : "Archive sessions?");
+      ? t("Archive session?")
+      : t("Archive sessions?"));
   const description = archived
     ? (n === 1
-      ? `${n} session will be permanently deleted.`
-      : `${n} sessions will be permanently deleted.`)
+      ? t('{{count}} session will be permanently deleted.', { count: n })
+      : t('{{count}} sessions will be permanently deleted.', { count: n }))
     : (n === 1
-      ? `${n} session will be archived.`
-      : `${n} sessions will be archived.`);
+      ? t('{{count}} session will be archived.', { count: n })
+      : t('{{count}} sessions will be archived.', { count: n }));
 
   return (
     <Dialog open={Boolean(value)} onOpenChange={(open) => { if (!open) setValue(null); }}>
@@ -173,6 +177,7 @@ export function WorktreeCloseConfirmDialog(props: {
 }): React.ReactNode {
   const { value, setValue, onConfirm } = props;
   const { git } = useRuntimeAPIs();
+  const { t } = useTranslation();
   const [status, setStatus] = React.useState<GitStatus | null>(null);
   const [statusCheckFailed, setStatusCheckFailed] = React.useState(false);
   const [discardChangesConfirmed, setDiscardChangesConfirmed] = React.useState(false);
@@ -208,8 +213,8 @@ export function WorktreeCloseConfirmDialog(props: {
   const hasUnpublishedCommits = (status?.ahead ?? 0) > 0;
   const isDetachedWithUnpublishedCommits = hasUnpublishedCommits && !value?.worktree.branch;
   const branchRetentionMessage = value?.worktree.branch
-    ? 'The local branch will be kept.'
-    : 'No local branch will be deleted.';
+    ? t('The local branch will be kept.')
+    : t('No local branch will be deleted.');
   const canConfirm = Boolean(
     value
       && status
@@ -239,27 +244,27 @@ export function WorktreeCloseConfirmDialog(props: {
     >
       <DialogContent showCloseButton={false} className="max-w-md gap-5">
         <DialogHeader>
-          <DialogTitle>{"Close worktree?"}</DialogTitle>
+          <DialogTitle>{t("Close worktree?")}</DialogTitle>
           <DialogDescription>
-            {`Closing "${worktreeLabel}" removes its worktree directory. ${branchRetentionMessage}`}
+            {t('Closing "{{label}}" removes its worktree directory. {{retention}}', { label: worktreeLabel, retention: branchRetentionMessage })}
           </DialogDescription>
         </DialogHeader>
 
         {statusCheckFailed ? (
           <div role="alert" className="flex items-start gap-2 rounded-lg border border-[var(--status-error-border)] bg-[var(--status-error-background)] p-3">
             <Icon name="alert" className="mt-0.5 size-4 shrink-0 text-[var(--status-error)]" />
-            <p className="typography-ui-label text-foreground">{"Unable to check this worktree's status. Refresh and try again."}</p>
+            <p className="typography-ui-label text-foreground">{t("Unable to check this worktree's status. Refresh and try again.")}</p>
           </div>
         ) : status === null ? (
           <p className="typography-ui-label text-muted-foreground" aria-live="polite">
-            {"Checking worktree status…"}
+            {t("Checking worktree status…")}
           </p>
         ) : null}
 
         {value?.hasActiveSession ? (
           <div role="alert" className="flex items-start gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
             <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
-            <p className="typography-ui-label text-foreground">{"Stop the active session before closing this worktree."}</p>
+            <p className="typography-ui-label text-foreground">{t("Stop the active session before closing this worktree.")}</p>
           </div>
         ) : null}
 
@@ -268,17 +273,17 @@ export function WorktreeCloseConfirmDialog(props: {
             <div className="flex items-start gap-2">
               <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
               <p className="typography-ui-label text-foreground">
-                {"This worktree has uncommitted changes. They will be permanently removed."}
+                {t("This worktree has uncommitted changes. They will be permanently removed.")}
               </p>
             </div>
             <label className="flex items-start gap-2 pl-6 typography-ui-label text-foreground">
               <Checkbox
                 checked={discardChangesConfirmed}
                 onChange={setDiscardChangesConfirmed}
-                ariaLabel="Confirm removal of uncommitted changes"
+                ariaLabel={t("Confirm removal of uncommitted changes")}
                 className="mt-0.5"
               />
-              <span>{"I understand that the uncommitted changes will be lost."}</span>
+              <span>{t("I understand that the uncommitted changes will be lost.")}</span>
             </label>
           </div>
         ) : null}
@@ -287,25 +292,25 @@ export function WorktreeCloseConfirmDialog(props: {
           <div className="space-y-3">
             <p className="typography-ui-label text-muted-foreground">
               {status?.ahead === 1
-                ? `This worktree has 1 unpushed commit. ${branchRetentionMessage}`
-                : `This worktree has ${status?.ahead} unpushed commits. ${branchRetentionMessage}`}
+                ? t('This worktree has 1 unpushed commit. {{retention}}', { retention: branchRetentionMessage })
+                : t('This worktree has {{count}} unpushed commits. {{retention}}', { count: status?.ahead, retention: branchRetentionMessage })}
             </p>
             {isDetachedWithUnpublishedCommits ? (
               <div className="space-y-3 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3">
                 <div className="flex items-start gap-2">
                   <Icon name="error-warning" className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]" />
                   <p className="typography-ui-label text-foreground">
-                    {"Because this worktree is detached, its unpushed commits may be lost."}
+                    {t("Because this worktree is detached, its unpushed commits may be lost.")}
                   </p>
                 </div>
                 <label className="flex items-start gap-2 pl-6 typography-ui-label text-foreground">
                   <Checkbox
                     checked={discardChangesConfirmed}
                     onChange={setDiscardChangesConfirmed}
-                    ariaLabel="Confirm removal of unpushed detached commits"
+                    ariaLabel={t("Confirm removal of unpushed detached commits")}
                     className="mt-0.5"
                   />
-                  <span>{"I understand that the unpushed commits may be lost."}</span>
+                  <span>{t("I understand that the unpushed commits may be lost.")}</span>
                 </label>
               </div>
             ) : null}
@@ -314,10 +319,10 @@ export function WorktreeCloseConfirmDialog(props: {
 
         <DialogFooter className="sm:justify-end">
           <Button variant="outline" size="sm" onClick={() => setValue(null)} disabled={isSubmitting}>
-            {"Cancel"}
+            {t("Cancel")}
           </Button>
           <Button variant="destructive" size="sm" onClick={() => void handleConfirm()} disabled={!canConfirm}>
-            {isSubmitting ? "Closing…" : "Close worktree"}
+            {isSubmitting ? t("Closing…") : t("Close worktree")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -332,20 +337,21 @@ export function FolderDeleteConfirmDialog(props: {
 }): React.ReactNode {
   
   const { value, setValue, onConfirm } = props;
+  const { t } = useTranslation();
 
   return (
     <Dialog open={Boolean(value)} onOpenChange={(open) => { if (!open) setValue(null); }}>
       <DialogContent showCloseButton={false} className="max-w-sm gap-5">
         <DialogHeader>
-          <DialogTitle>{"Delete folder?"}</DialogTitle>
+          <DialogTitle>{t("Delete folder?")}</DialogTitle>
           <DialogDescription>
             {value && (value.subFolderCount > 0 || value.sessionCount > 0)
               ? value.subFolderCount > 0
                 ? value.subFolderCount === 1
-                  ? `"${value.folderName}" will be deleted along with ${value.subFolderCount} sub-folder. Sessions inside will not be deleted.`
-                  : `"${value.folderName}" will be deleted along with ${value.subFolderCount} sub-folders. Sessions inside will not be deleted.`
-                : `"${value.folderName}" will be deleted. Sessions inside will not be deleted.`
-              : `"${value?.folderName ?? ''}" will be permanently deleted.`}
+                  ? t('"{{name}}" will be deleted along with {{count}} sub-folder. Sessions inside will not be deleted.', { name: value.folderName, count: value.subFolderCount })
+                  : t('"{{name}}" will be deleted along with {{count}} sub-folders. Sessions inside will not be deleted.', { name: value.folderName, count: value.subFolderCount })
+                : t('"{{name}}" will be deleted. Sessions inside will not be deleted.', { name: value.folderName })
+              : t('"{{name}}" will be permanently deleted.', { name: value?.folderName ?? '' })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -354,14 +360,14 @@ export function FolderDeleteConfirmDialog(props: {
             onClick={() => setValue(null)}
             className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 typography-ui-label text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
           >
-            {"Cancel"}
+            {t("Cancel")}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="inline-flex h-8 items-center justify-center rounded-md bg-destructive px-3 typography-ui-label text-destructive-foreground hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50"
           >
-            {"Delete"}
+            {t("Delete")}
           </button>
         </DialogFooter>
       </DialogContent>

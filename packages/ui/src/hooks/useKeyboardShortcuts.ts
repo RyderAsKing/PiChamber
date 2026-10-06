@@ -21,6 +21,7 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { cycleComposerThinking } from '@/lib/pi/apply-composer-thinking';
 import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { cycleDraftFolder, cycleSessionFolder } from '@/lib/folderCycle';
@@ -44,6 +45,7 @@ const fireCommandTrigger = (trigger: CommandTrigger): void => {
 };
 
 export const useKeyboardShortcuts = () => {
+  const { t } = useTranslation();
   const openNewSessionDraft = useSessionUIStore((s) => s.openNewSessionDraft);
   const armAbortPrompt = useSessionUIStore((s) => s.armAbortPrompt);
   const clearAbortPrompt = useSessionUIStore((s) => s.clearAbortPrompt);
@@ -460,7 +462,7 @@ export const useKeyboardShortcuts = () => {
 
         e.preventDefault();
         void cycleComposerThinking(1).catch(() => {
-          toast.error("Couldn't update thinking");
+          toast.error(t("Couldn't update thinking"));
         });
 
         return;
@@ -574,6 +576,7 @@ export const useKeyboardShortcuts = () => {
     activeProject?.id,
     activeProject?.path,
     shortcutOverrides,
+    t,
   ]);
 
   React.useEffect(() => {

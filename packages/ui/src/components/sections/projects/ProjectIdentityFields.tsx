@@ -1,5 +1,6 @@
 import React from 'react';
 import { Input } from '@/components/ui/input';
+import { useTranslation } from 'react-i18next';
 import {
   SETTINGS_FIELDS_STACK_CLASS,
   SettingsStackedField,
@@ -18,6 +19,7 @@ type ProjectIdentityFieldsProps = {
 const FULL_WIDTH_CONTROL = 'w-full max-w-none';
 
 export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ form }) => {
+  const { t } = useTranslation();
   const {
     name,
     setName,
@@ -37,34 +39,34 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
 
   return (
     <ProjectSettingsSubsection
-      title={"Project"}
+      title={t('Project')}
       divider={false}
     >
       <div className={SETTINGS_FIELDS_STACK_CLASS}>
         <SettingsStackedField
-          label={"Name"}
+          label={t('Name')}
           settingsItem="projects.name"
           controlClassName={FULL_WIDTH_CONTROL}
         >
           <Input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder={"Project name"}
-            aria-label={"Project name"}
+            placeholder={t('Project name')}
+            aria-label={t('Project name')}
             className="h-8 w-full rounded-md px-3"
           />
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={"Default model"}
-          info={"Used when starting a new chat in this project. Unset keeps the global session default."}
+          label={t('Default model')}
+          info={t('Used when starting a new chat in this project. Unset keeps the global session default.')}
           settingsItem="projects.default-model"
           controlClassName={FULL_WIDTH_CONTROL}
         >
           <SettingsModelPicker
             value={parsedDefaultModel}
-            noneLabel={"Use global default"}
-            ariaLabel={"Default model for new chats"}
+            noneLabel={t('Use global default')}
+            ariaLabel={t('Default model for new chats')}
             className={FULL_WIDTH_CONTROL}
             onChange={(model) => {
               if (!model) {
