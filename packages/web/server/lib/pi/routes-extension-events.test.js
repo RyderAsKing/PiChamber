@@ -201,6 +201,61 @@ describe('extension public projections', () => {
     }));
     expect(projectedUntracked?.payload.snapshot.extensionDraftTracked).toBeUndefined();
   });
+
+  it('projects session.input frames and drops malformed pending summaries', () => {
+    expect(projectEventFrame(frame('session.input', { pending: { count: 2, kind: 'approval', since: 50 } })))
+      .toMatchObject({
+        name: 'session.input',
+        sessionId: 'sess-1',
+        directory: '/work',
+        payload: { pending: { count: 2, kind: 'approval', since: 50 } },
+      });
+    expect(projectEventFrame(frame('session.input', { pending: null }))?.payload).toEqual({ pending: null });
+    // Unknown kinds normalize; extra keys never cross the boundary.
+    expect(projectEventFrame(frame('session.input', {
+      pending: { count: 150, kind: 'question', since: 7, sessionId: 'sneaky' },
+    }))?.payload).toEqual({ pending: { count: 99, kind: 'input', since: 7 } });
+    expect(projectEventFrame(frame('session.input', { pending: { count: 'many' } }))).toBeNull();
+    expect(projectEventFrame(frame('session.input', {}))).toBeNull();
+    expect(projectEventFrame(frame('session.input', { pending: { count: 1, kind: 'input' } }))).toBeNull();
+  });
+
+  it('projects snapshot inputState and omits malformed values', () => {
+    const projected = projectEventFrame(frame('session.snapshot', {
+      isStreaming: false,
+      lifecycle: 'idle',
+      queue: { steering: 0, followUp: 0 },
+      lastSequence: 5,
+      inputState: { pending: { count: 1, kind: 'input', since: 9 } },
+    }));
+    expect(projected?.payload.snapshot.inputState).toEqual({ pending: { count: 1, kind: 'input', since: 9 } });
+
+    const cleared = projectEventFrame(frame('session.snapshot', {
+      isStreaming: false,
+      lifecycle: 'idle',
+      queue: { steering: 0, followUp: 0 },
+      lastSequence: 5,
+      inputState: { pending: null },
+    }));
+    expect(cleared?.payload.snapshot.inputState).toEqual({ pending: null });
+
+    const malformed = projectEventFrame(frame('session.snapshot', {
+      isStreaming: false,
+      lifecycle: 'idle',
+      queue: { steering: 0, followUp: 0 },
+      lastSequence: 5,
+      inputState: { pending: { count: 1 } },
+    }));
+    expect(malformed?.payload.snapshot.inputState).toBeUndefined();
+
+    const unknown = projectEventFrame(frame('session.snapshot', {
+      isStreaming: false,
+      lifecycle: 'idle',
+      queue: { steering: 0, followUp: 0 },
+      lastSequence: 5,
+    }));
+    expect(unknown?.payload.snapshot.inputState).toBeUndefined();
+  });
 });
 
 describe('POST /api/pi/sessions/:sessionId/editor-draft', () => {

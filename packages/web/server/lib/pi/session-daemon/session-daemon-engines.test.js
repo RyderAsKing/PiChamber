@@ -510,6 +510,95 @@ describe('session daemon engines', () => {
     await subscriber.close().catch(() => {});
   });
 
+  it('normalizes engine session.input and republishes it canonically', async () => {
+    const engine = new FakeEngine('fake');
+    const { root } = await startDaemon({ engines: [(host) => { engine.host = host; return engine; }] });
+    await send('sessions.create', { engine: 'fake' });
+
+    const subscriber = connectClient(currentEndpoint);
+    await subscriber.authenticate();
+    engine.host.publish('session.input', { pending: { count: 2, kind: 'exotic', since: 123, extra: true } }, 'engine-session-1', root);
+    const event = await subscriber.next((message) => message.kind === 'event' && message.event === 'session.input');
+    expect(event.payload).toMatchObject({
+      sessionId: 'engine-session-1',
+      directory: root,
+      pending: { count: 2, kind: 'input', since: 123 },
+    });
+    await subscriber.close().catch(() => {});
+
+    expect(() => engine.host.publish('session.input', { pending: { count: 'many' } }, 'engine-session-1', root)).toThrow(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+    expect(() => engine.host.publish('session.input', {}, 'engine-session-1', root)).toThrow(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+  });
+
+  it('carries engine inputState on rows, snapshots, and details with index fallback', async () => {
+    const engine = new FakeEngine('fake');
+    const { root } = await startDaemon({ engines: [(host) => { engine.host = host; return engine; }] });
+    await send('sessions.create', { engine: 'fake' });
+    await send('sessions.create', { engine: 'fake' });
+    // engine-session-2 reports its own value; engine-session-1 carries none
+    // and falls back to the index summary from its session.input event.
+    engine.listSessions = async () => [
+      { session: { ...engine.sessions.get('engine-session-1') }, updatedAt: Date.now() },
+      {
+        session: { ...engine.sessions.get('engine-session-2') },
+        updatedAt: Date.now(),
+        inputState: { pending: { count: 2, kind: 'approval', since: 40 } },
+      },
+    ];
+    engine.host.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 'engine-session-1', root);
+
+    const listed = await send('sessions.list', { directory: root });
+    const first = listed.result.sessions.find((item) => item.session.id === 'engine-session-1');
+    expect(first.inputState.pending).toEqual({ count: 1, kind: 'input', since: 50 });
+    expect(Number.isSafeInteger(first.inputState.sequence)).toBe(true);
+    const second = listed.result.sessions.find((item) => item.session.id === 'engine-session-2');
+    expect(second.inputState).toEqual({
+      pending: { count: 2, kind: 'approval', since: 40 },
+      sequence: first.inputState.sequence,
+    });
+
+    const snapshotClient = connectClient(currentEndpoint);
+    const snapshot = await snapshotClient.authenticate({ sessionId: 'engine-session-1' });
+    expect(snapshot.payload.inputState).toEqual({ pending: { count: 1, kind: 'input', since: 50 } });
+    await snapshotClient.close().catch(() => {});
+
+    const opened = await send('sessions.open', { sessionId: 'engine-session-1' });
+    expect(opened.result.inputState).toEqual({ pending: { count: 1, kind: 'input', since: 50 } });
+
+    const pending = await send('sessions.pendingInput', {});
+    expect(pending.result.sessions).toEqual([
+      { sessionId: 'engine-session-1', directory: root, pending: { count: 1, kind: 'input', since: 50 } },
+    ]);
+    expect(Number.isSafeInteger(pending.result.sequence)).toBe(true);
+    expect(pending.result.streamEpoch).toBe(currentStreamEpoch);
+
+    // Engine deletion forgets pending-input state without a session.input.
+    const subscriber = connectClient(currentEndpoint);
+    await subscriber.authenticate();
+    const seen = subscriber.next((message) => message.kind === 'event' && message.event === 'session.input'
+      && message.payload?.sessionId === 'engine-session-1');
+    engine.host.publish('session.deleted', {}, 'engine-session-1', root);
+    await subscriber.next((message) => message.kind === 'event' && message.event === 'session.deleted'
+      && message.payload?.sessionId === 'engine-session-1');
+    const afterDelete = await send('sessions.pendingInput', {});
+    expect(afterDelete.result.sessions).toEqual([]);
+    await Promise.race([
+      seen.then(() => 'published'),
+      new Promise((resolve) => setTimeout(() => resolve('silent'), 100)),
+    ]).then((outcome) => expect(outcome).toBe('silent'));
+    await subscriber.close().catch(() => {});
+  });
+
+  it('advertises sessions.pendingInput in runtime.health', async () => {
+    await startDaemon({});
+    const health = await send('runtime.health');
+    expect(health.result.capabilities).toContain('sessions.pendingInput');
+  });
+
   it('redacts attachment paths on every engine output', async () => {
     const leakedPath = '/tmp/pi-clipboard-7f7ec702-256a-4783-855c-df34e3ecedab.pdf';
     const engine = new FakeEngine('fake');

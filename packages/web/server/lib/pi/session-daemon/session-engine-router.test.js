@@ -305,3 +305,136 @@ describe('session engine router', () => {
     expect(allocateSequence).not.toHaveBeenCalled();
   });
 });
+
+describe('session engine router pending input', () => {
+  const makeIndex = () => {
+    const applied = [];
+    const forgotten = [];
+    const summaries = new Map();
+    return {
+      applied,
+      forgotten,
+      pendingInput: {
+        applyEngineSummary: (sessionId, directory, summary) => {
+          applied.push({ sessionId, directory, summary });
+          summaries.set(sessionId, summary);
+        },
+        summaryFor: (sessionId) => summaries.get(sessionId) ?? null,
+        forgetSession: (sessionId) => {
+          forgotten.push(sessionId);
+          summaries.delete(sessionId);
+        },
+      },
+    };
+  };
+
+  it('folds engine session.input into the index instead of publishing it directly', () => {
+    const { pendingInput, applied } = makeIndex();
+    const { router, published } = makeRouter({ pendingInput, getSequence: () => 42 });
+    router.publish('session.input', { pending: { count: 2, kind: 'exotic', since: 77, extra: true } }, 's1', '/work');
+    expect(applied).toEqual([{ sessionId: 's1', directory: '/work', summary: { count: 2, kind: 'input', since: 77 } }]);
+    expect(published).toEqual([]);
+  });
+
+  it('rejects malformed engine session.input without publishing anything', () => {
+    const { pendingInput, applied } = makeIndex();
+    const { router, published } = makeRouter({ pendingInput });
+    expect(() => router.publish('session.input', { pending: { count: 'many' } }, 's1', '/work')).toThrow(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+    expect(() => router.publish('session.input', {}, 's1', '/work')).toThrow(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+    expect(applied).toEqual([]);
+    expect(published).toEqual([]);
+  });
+
+  it('forgets index state before publishing engine session.deleted', () => {
+    const { pendingInput, forgotten } = makeIndex();
+    const { router, published } = makeRouter({ pendingInput });
+    router.publish('session.deleted', {}, 's1', '/work');
+    expect(forgotten).toEqual(['s1']);
+    expect(published).toEqual([{ event: 'session.deleted', payload: {}, sessionId: 's1', directory: '/work' }]);
+  });
+
+  it('stamps engine list rows from the engine value or the index fallback', async () => {
+    const { pendingInput } = makeIndex();
+    pendingInput.summaryFor = (sessionId) => (sessionId === 'fallback-1' ? { count: 1, kind: 'approval', since: 9 } : null);
+    const registry = makeRegistry([]);
+    registry.size = 1;
+    registry.listSessions = async () => ({
+      items: [
+        { session: { id: 'engine-1', engine: 'fake' }, inputState: { pending: { count: 3, kind: 'approval', since: 50 } } },
+        { session: { id: 'fallback-1', engine: 'fake' } },
+        { session: { id: 'broken-1', engine: 'fake' }, inputState: { pending: { count: 'many' } } },
+      ],
+      failed: [],
+    });
+    const { router } = makeRouter({ getRegistry: () => registry, pendingInput, getSequence: () => 7 });
+    const merged = await router.mergeSessionList([], '/work');
+    expect(merged.sessions).toEqual([
+      {
+        session: { id: 'engine-1', engine: 'fake' },
+        inputState: { pending: { count: 3, kind: 'approval', since: 50 }, sequence: 7 },
+      },
+      {
+        session: { id: 'fallback-1', engine: 'fake' },
+        inputState: { pending: { count: 1, kind: 'approval', since: 9 }, sequence: 7 },
+      },
+      {
+        session: { id: 'broken-1', engine: 'fake' },
+        inputState: { pending: null, sequence: 7 },
+      },
+    ]);
+  });
+
+  it('stamps engine snapshots with daemon-owned inputState after safe fields', async () => {
+    const { pendingInput } = makeIndex();
+    const engine = makeEngine('fake', {
+      ownsSession: () => true,
+      snapshot: () => ({ directory: '/work', inputState: { pending: { count: 'many' } }, injected: true }),
+    });
+    const { router } = makeRouter({
+      getRegistry: () => makeRegistry([engine]),
+      pendingInput,
+      getSequence: () => 7,
+    });
+    const snapshot = router.snapshotEvent('s1', {});
+    expect(snapshot.payload.inputState).toEqual({ pending: null });
+    expect(snapshot.payload.injected).toBe(true);
+
+    const valued = makeEngine('valued', {
+      ownsSession: () => true,
+      snapshot: () => ({ directory: '/work', inputState: { pending: { count: 2, kind: 'approval', since: 11 } } }),
+    });
+    const { router: valuedRouter } = makeRouter({
+      getRegistry: () => makeRegistry([valued]),
+      pendingInput,
+      getSequence: () => 7,
+    });
+    expect(valuedRouter.snapshotEvent('s1', {}).payload.inputState).toEqual({
+      pending: { count: 2, kind: 'approval', since: 11 },
+    });
+  });
+
+  it('stamps engine details with the index summary unless the engine supplied a valid one', async () => {
+    const { pendingInput } = makeIndex();
+    pendingInput.summaryFor = () => ({ count: 1, kind: 'input', since: 5 });
+    const engine = makeEngine('fake', {
+      ownsSession: (id) => id === 'engine-1',
+      handlers: {
+        'sessions.open': async () => ({ session: { id: 'engine-1' }, messages: [] }),
+        'sessions.messages': async () => ({
+          session: { id: 'engine-1' },
+          messages: [],
+          inputState: { pending: { count: 2, kind: 'approval', since: 9 } },
+        }),
+      },
+    });
+    const { router, details } = makeRouter({ getRegistry: () => makeRegistry([engine]), pendingInput });
+    await router.dispatch({}, { command: 'sessions.open', requestId: 'r1', payload: { sessionId: 'engine-1' } });
+    expect(details[0].detail.inputState).toEqual({ pending: { count: 1, kind: 'input', since: 5 } });
+    await router.dispatch({}, { command: 'sessions.messages', requestId: 'r2', payload: { sessionId: 'engine-1' } });
+    expect(details[1].detail.inputState).toEqual({ pending: { count: 2, kind: 'approval', since: 9 } });
+  });
+});

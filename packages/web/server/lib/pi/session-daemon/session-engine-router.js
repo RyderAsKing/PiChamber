@@ -17,6 +17,7 @@ import {
   ENGINE_SESSION_COMMANDS,
   ENGINE_UNSUPPORTED_OPERATION,
 } from './session-engines.js';
+import { normalizePendingInputSummary } from './pending-input.js';
 
 const DETAIL_COMMANDS = new Set([
   'sessions.open',
@@ -51,6 +52,8 @@ const invalidArgument = (createError, message) => {
  *   getStreamEpoch: () => string,
  *   allocateSequence: () => number,
  *   protocolVersion: number,
+ *   pendingInput?: { applyEngineSummary: (sessionId: string, directory: string, summary: object | null) => void, summaryFor: (sessionId: string) => object | null, forgetSession: (sessionId: string) => void },
+ *   getSequence?: () => number,
  * }} deps
  */
 export const createSessionEngineRouter = ({
@@ -66,6 +69,8 @@ export const createSessionEngineRouter = ({
   getStreamEpoch,
   allocateSequence,
   protocolVersion,
+  pendingInput,
+  getSequence,
 } = {}) => {
   // Redaction is mandatory: engine output never reaches the wire unredacted.
   if (typeof redact !== 'function') throw new TypeError('Session engine output requires a redact function.');
@@ -94,6 +99,23 @@ export const createSessionEngineRouter = ({
     if (typeof directory !== 'string' || directory.length === 0 || !isAbsolute(directory)) {
       return fail('INVALID_ARGUMENT', 'The session engine event directory is invalid.');
     }
+    // Engines MUST publish `session.input { pending }` on every pending-input
+    // transition for live updates. The summary is normalized and folded into
+    // the daemon pending-input index, which publishes the canonical event;
+    // the engine payload itself is never published directly.
+    if (event === 'session.input') {
+      const pending = normalizePendingInputSummary(payload?.pending);
+      if (pending === undefined) {
+        return fail('INVALID_ARGUMENT', 'The session engine pending input is invalid.');
+      }
+      pendingInput?.applyEngineSummary(sessionId, directory, pending);
+      return;
+    }
+    // `session.deleted` already tells clients; drop pending-input state
+    // without publishing a redundant `session.input`.
+    if (event === 'session.deleted') {
+      pendingInput?.forgetSession(sessionId);
+    }
     const { sessionId: _payloadSessionId, directory: _payloadDirectory, ...cleanPayload } = payload ?? {};
     publish(event, applyRedact(cleanPayload), sessionId, directory);
   };
@@ -116,6 +138,11 @@ export const createSessionEngineRouter = ({
     if (typeof safeFields?.directory !== 'string' || safeFields.directory.length === 0
       || !isAbsolute(safeFields.directory)) return undefined;
     const nextSequence = allocateSequence();
+    // Daemon-owned pending input: the engine MAY carry
+    // `inputState: { pending }` on snapshot fields; otherwise the last
+    // `session.input` summary from the index applies. Placed after spreading
+    // safeFields so the engine cannot inject a malformed value.
+    const snapshotPending = normalizePendingInputSummary(safeFields?.inputState?.pending);
     return {
       sequence: nextSequence,
       payload: {
@@ -123,6 +150,9 @@ export const createSessionEngineRouter = ({
         lifecycle: 'idle',
         queue: { steering: 0, followUp: 0 },
         ...safeFields,
+        inputState: {
+          pending: snapshotPending === undefined ? (pendingInput?.summaryFor(sessionId) ?? null) : snapshotPending,
+        },
         sessionId,
         directory: safeFields.directory,
         ...(resync ? { resync: true } : {}),
@@ -135,10 +165,19 @@ export const createSessionEngineRouter = ({
   const stampDetail = (detail, engineId) => {
     if (!detail || typeof detail !== 'object') return detail;
     const safe = applyRedact(detail);
+    const detailPending = normalizePendingInputSummary(safe?.inputState?.pending);
+    const sessionId = safe?.session && typeof safe.session === 'object' ? safe.session.id : undefined;
+    const withInput = {
+      inputState: {
+        pending: detailPending === undefined
+          ? (typeof sessionId === 'string' ? (pendingInput?.summaryFor(sessionId) ?? null) : null)
+          : detailPending,
+      },
+    };
     if (safe.session && typeof safe.session === 'object') {
-      return { ...safe, session: { ...safe.session, engine: engineId } };
+      return { ...safe, ...withInput, session: { ...safe.session, engine: engineId } };
     }
-    return safe;
+    return { ...safe, ...withInput };
   };
 
   const runHandler = async (engine, command, payload) => {
@@ -246,6 +285,9 @@ export const createSessionEngineRouter = ({
     const registry = getRegistry?.();
     if (!registry || registry.size === 0) return { sessions: piSessions };
     const engineSessions = await registry.listSessions(targetDir);
+    // Sampled once when the engine result is merged so every engine row
+    // carries the same sequence.
+    const observedSequence = typeof getSequence === 'function' ? getSequence() : 0;
     const seenSessionIds = new Set(piSessions.map((item) => item?.session?.id));
     const mergedSessions = [...piSessions];
     const failedSessionEngines = [...engineSessions.failed];
@@ -255,7 +297,20 @@ export const createSessionEngineRouter = ({
         continue;
       }
       seenSessionIds.add(item?.session?.id);
-      mergedSessions.push(item);
+      // Engines MAY carry `inputState: { pending }` on list rows; a missing
+      // or malformed value falls back to the index without failing the row.
+      // The redaction step above never breaks this: the summary carries only
+      // count/kind/since, never paths.
+      const rowPending = normalizePendingInputSummary(item?.inputState?.pending);
+      mergedSessions.push({
+        ...item,
+        inputState: {
+          pending: rowPending === undefined
+            ? (pendingInput?.summaryFor(item?.session?.id) ?? null)
+            : rowPending,
+          sequence: observedSequence,
+        },
+      });
     }
     return {
       sessions: mergedSessions,

@@ -14,6 +14,18 @@
  * `redact` dependency (the daemon passes `redactAttachmentValues`), so a
  * server-local attachment path an engine echoes back never reaches the
  * public wire.
+ *
+ * Pending input: engines MAY carry `inputState: { pending }` on list rows,
+ * snapshot fields, and detail results, where `pending` is
+ * `{ count, kind, since }` (`count` an integer 1..99, `kind` `'input'` or
+ * `'approval'`, `since` epoch ms of the oldest open request) or `null` when
+ * authoritatively nothing is pending. `kind: 'approval'` marks a
+ * permission-style request; `'input'` marks any other request. A missing or
+ * malformed value falls back to the daemon index without failing the row.
+ * Engines MUST publish `session.input { pending }` on every pending-input
+ * transition for live updates; the daemon normalizes the summary (unknown
+ * kinds become `'input'`) and republishes it canonically, rejecting a
+ * malformed summary as `INVALID_ARGUMENT`.
  */
 
 /**

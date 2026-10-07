@@ -72,6 +72,7 @@ import {
   logSessionEngineError,
 } from './session-engines.js';
 import { createSessionEngineRouter } from './session-engine-router.js';
+import { createPendingInputIndex } from './pending-input.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -590,6 +591,14 @@ export function createSessionDaemon({
     for (const client of clients) writeLine(client, line);
   };
 
+  // Daemon-level pending-input state: whether a session is blocked waiting
+  // for the user. Daemon-hosted blocking requests (extension dialogs) and
+  // engine-reported summaries both feed it; every device learns it without
+  // opening the session. Declared before the bridge so dialogs register.
+  const pendingInput = createPendingInputIndex({
+    publish,
+    onHostedSessionSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+  });
   const extensionBridge = createExtensionBridge({
     publish,
     resolveDirectory,
@@ -602,6 +611,7 @@ export function createSessionDaemon({
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
+    pendingInput,
   });
   const {
     buildExtensionBindings,
@@ -735,6 +745,9 @@ export function createSessionDaemon({
         ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
         ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
         ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
+        ...(session.sessionId
+          ? { inputState: { pending: pendingInput.summaryFor(session.sessionId) } }
+          : {}),
       },
     });
   };
@@ -794,6 +807,7 @@ export function createSessionDaemon({
     await resourceReloadQueue.catch(() => {});
     resourceReloadsByRuntime.clear();
     clearExtensionState(undefined);
+    pendingInput.clear();
     const leased = [];
     try {
       for (const tracked of runtimeRegistry?.listAll?.() ?? []) {
@@ -1002,6 +1016,11 @@ export function createSessionDaemon({
 
   const isIdleDisposalSafe = (sessionId, targetRuntime) => {
     if (!targetRuntime) return false;
+    // A session blocked on a hosted input request (e.g. an extension dialog
+    // opened while idle) must survive the idle timer so a user who walks
+    // away finds it still pending later. Deletion and daemon stop still
+    // cancel dialogs as before.
+    if (isValidIdleSessionId(sessionId) && pendingInput.hasHostedRequests(sessionId)) return false;
     if (isValidIdleSessionId(sessionId) && (activeSessionRequests.get(sessionId) ?? 0) > 0) return false;
     if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return false;
     if (activeSessionInputs.has(targetRuntime)) return false;
@@ -1045,9 +1064,11 @@ export function createSessionDaemon({
       const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
       try {
         if (targetRuntime === runtime) rememberRuntimeSession();
-        // Pending extension dialogs are cancelled with an authoritative
-        // dismiss event so no extension thread blocks forever on a
-        // disposed runtime.
+        // Kept for safety: while a hosted input request is pending the idle
+        // guard above refuses disposal, so this cancel path is normally
+        // unreachable from idle disposal. Deletion and daemon stop still
+        // cancel dialogs with an authoritative dismiss event so no extension
+        // thread blocks forever on a disposed runtime.
         clearExtensionState(sessionId);
         extensionToolRenderer.clearSession(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
@@ -1087,6 +1108,7 @@ export function createSessionDaemon({
           activeRunStartedAt.delete(sessionId);
           shutdownRequestedBySession.delete(sessionId);
           publish('session.deleted', {}, sessionId, targetCwd);
+          pendingInput.forgetSession(sessionId);
         }
       } catch {
         // A failed disposal retains ownership (registry entry, lease, and
@@ -1269,6 +1291,9 @@ export function createSessionDaemon({
         ...(safeFirstMessage ? { preview: safeFirstMessage } : {}),
         updatedAt,
         ...(liveById.has(session.id) ? { live: liveById.get(session.id) } : {}),
+        // Daemon-level pending input: authoritatively null when nothing is
+        // pending, always stamped with the same observed sequence as `live`.
+        inputState: { pending: pendingInput.summaryFor(session.id), sequence: observedSequence },
       };
     });
   };
@@ -1893,6 +1918,7 @@ export function createSessionDaemon({
       ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
+      inputState: { pending: pendingInput.summaryFor(session.sessionId) },
     };
   };
 
@@ -3530,6 +3556,9 @@ export function createSessionDaemon({
       // catalog, transcript, activity, and caches. Archive and directory moves
       // keep the session id and never publish this event.
       publish('session.deleted', {}, sessionId, targetDir);
+      // `session.deleted` already tells clients; drop pending-input state
+      // without publishing a redundant `session.input`.
+      pendingInput.forgetSession(sessionId);
     } finally {
       // Deletion never re-arms idle lifetime.
       clearIdleDisposal(sessionId);
@@ -3956,6 +3985,8 @@ export function createSessionDaemon({
     getStreamEpoch: () => streamEpoch,
     allocateSequence: () => ++sequence,
     protocolVersion: PROTOCOL_VERSION,
+    pendingInput,
+    getSequence: () => sequence,
   });
 
   const handleRequest = async (socket, message) => {
@@ -3991,7 +4022,7 @@ export function createSessionDaemon({
               'runtime.claim', 'runtime.shutdown',
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
-              'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.abort', 'sessions.setModel',
+              'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
@@ -4237,6 +4268,18 @@ export function createSessionDaemon({
                 ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
               })),
           },
+        });
+        return;
+      }
+      case 'sessions.pendingInput': {
+        // Daemon-level pending-input state for every session with an open
+        // request. No arguments, not session-scoped, never routed to
+        // engines: engine summaries are already folded into the index.
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { sessions: pendingInput.list(), sequence, streamEpoch },
         });
         return;
       }

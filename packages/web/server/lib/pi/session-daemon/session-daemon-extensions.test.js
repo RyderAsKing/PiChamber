@@ -479,7 +479,7 @@ describe('Pi session daemon extension bridging', () => {
     await client.close();
   });
 
-  it('cancels pending dialogs when the owning runtime is disposed at idle timeout', async () => {
+  it('keeps pending dialogs across idle timeout and re-arms disposal after the last one settles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-idle-'));
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
@@ -487,6 +487,7 @@ describe('Pi session daemon extension bridging', () => {
     await mkdir(agentDir, { recursive: true });
     const endpoint = join(root, 'daemon.sock');
     const session = new ExtensibleFakeSession();
+    let disposeCount = 0;
 
     daemon = createSessionDaemon({
       endpoint,
@@ -498,7 +499,7 @@ describe('Pi session daemon extension bridging', () => {
         if (hooks?.createExtensionBindings) {
           await session.bindExtensions(hooks.createExtensionBindings(session));
         }
-        return { session, cwd: projectDir, async dispose() {} };
+        return { session, cwd: projectDir, async dispose() { disposeCount += 1; } };
       },
     });
     await daemon.start();
@@ -509,15 +510,144 @@ describe('Pi session daemon extension bridging', () => {
     // Idle disposal is scheduled by Pi's settled lifecycle event.
     session.emit({ type: 'agent_settled' });
     const settled = { value: 'pending' };
-    const dialogPromise = session.boundBindings.uiContext.confirm('Waiting…', 'Idle disposal will cancel this');
+    const dialogPromise = session.boundBindings.uiContext.confirm('Waiting…', 'Idle disposal must wait for this');
     dialogPromise.then(() => {
       settled.value = 'settled';
     });
     await client.next((message) => message.event === 'extension.dialog');
 
+    // The idle timer elapses while the dialog is pending: the runtime must
+    // survive and the dialog must stay unanswered.
     await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(settled.value).toBe('settled');
-    await expect(dialogPromise).resolves.toBe(false);
+    expect(settled.value).toBe('pending');
+    expect(disposeCount).toBe(0);
+
+    // Answering the last dialog re-arms the idle timer and disposal happens.
+    const dialogMsg = client.events.find((message) => message.event === 'extension.dialog');
+    await client.request('extensions.respond', { requestId: dialogMsg.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(disposeCount).toBe(1);
+    await client.close();
+  });
+
+  it('tracks pending input across dialog open, answer, and timeout', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+    // Register the waiter before opening the dialog: both frames publish in
+    // the same tick, so capturing freshness afterwards would miss them.
+    const waitInput = () => {
+      const seen = client.events.length;
+      return client.next((message) => client.events.indexOf(message) >= seen && message.event === 'session.input');
+    };
+
+    const awaitInput1 = waitInput();
+    const firstPromise = ui.confirm('First?', 'Question one');
+    const dialog1 = await client.next((message) => message.event === 'extension.dialog' && message.payload?.title === 'First?');
+    const input1 = await awaitInput1;
+    expect(input1.payload.sessionId).toBe('pi-session-ext');
+    expect(input1.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(typeof input1.payload.pending.since).toBe('number');
+    // Event order is extension.dialog then session.input.
+    expect(client.events.indexOf(dialog1)).toBeLessThan(client.events.indexOf(input1));
+    const firstSince = input1.payload.pending.since;
+
+    const awaitInput2 = waitInput();
+    const secondPromise = ui.select('Second?', ['A', 'B']);
+    const dialog2 = await client.next((message) => message.event === 'extension.dialog' && message.payload?.title === 'Second?');
+    const input2 = await awaitInput2;
+    expect(input2.payload.pending).toMatchObject({ count: 2, kind: 'input', since: firstSince });
+    expect(client.events.indexOf(dialog2)).toBeLessThan(client.events.indexOf(input2));
+
+    const awaitInput3 = waitInput();
+    await client.request('extensions.respond', { requestId: dialog1.payload.requestId, confirmed: true });
+    await expect(firstPromise).resolves.toBe(true);
+    const dismiss1 = await client.next((message) => message.event === 'extension.dialog.dismiss'
+      && message.payload?.requestId === dialog1.payload.requestId);
+    expect(dismiss1.payload.reason).toBe('answered');
+    const input3 = await awaitInput3;
+    expect(input3.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(input3.payload.pending.since).toBeGreaterThanOrEqual(firstSince);
+    expect(client.events.indexOf(dismiss1)).toBeLessThan(client.events.indexOf(input3));
+
+    const awaitInput4 = waitInput();
+    await client.request('extensions.respond', { requestId: dialog2.payload.requestId, value: 'B' });
+    await expect(secondPromise).resolves.toBe('B');
+    const input4 = await awaitInput4;
+    expect(input4.payload.pending).toBeNull();
+
+    // Timeout settles through the same path and clears pending state.
+    const awaitTimeoutInput = waitInput();
+    const timeoutPromise = ui.confirm('Timeout?', 'Question two', { timeout: 20 });
+    const timeoutDialog = await client.next((message) => message.event === 'extension.dialog'
+      && message.payload?.title === 'Timeout?');
+    const timeoutInput = await awaitTimeoutInput;
+    expect(timeoutInput.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    await expect(timeoutPromise).resolves.toBe(false);
+    const timeoutDismiss = await client.next((message) => message.event === 'extension.dialog.dismiss'
+      && message.payload?.requestId === timeoutDialog.payload.requestId);
+    expect(timeoutDismiss.payload.reason).toBe('timeout');
+    // The clearing publish fires with the dismiss in the same tick, so match
+    // by position after the dismiss instead of registration freshness.
+    const timeoutCleared = await client.next((message) => message.event === 'session.input'
+      && message.payload?.pending === null
+      && client.events.indexOf(message) > client.events.indexOf(timeoutDismiss));
+    expect(timeoutCleared.payload.pending).toBeNull();
+    await client.close();
+  });
+
+  it('exposes pending input in snapshots, list rows, details, and sessions.pendingInput', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+
+    const dialogPromise = ui.confirm('Pending?', 'Someone must answer');
+    const dialog = await client.next((message) => message.event === 'extension.dialog');
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending?.count === 1);
+
+    const listed = await client.request('sessions.list', {});
+    const row = listed.result.sessions.find((item) => item.session.id === 'pi-session-ext');
+    expect(row.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(Number.isSafeInteger(row.inputState.sequence)).toBe(true);
+
+    const opened = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(opened.result.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+
+    // A reconnect snapshot carries the same authoritative pending state.
+    const watcher = connectClient(endpoint);
+    const snapshot = await watcher.authenticate();
+    expect(snapshot.payload.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+    await watcher.close();
+
+    await client.request('extensions.respond', { requestId: dialog.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending === null);
+
+    const cleared = await client.request('sessions.list', {});
+    const clearedRow = cleared.result.sessions.find((item) => item.session.id === 'pi-session-ext');
+    expect(clearedRow.inputState).toEqual({ pending: null, sequence: expect.any(Number) });
+
+    const pending = await client.request('sessions.pendingInput', {});
+    expect(pending.result.sessions).toEqual([]);
+    expect(Number.isSafeInteger(pending.result.sequence)).toBe(true);
+    expect(typeof pending.result.streamEpoch).toBe('string');
+    await client.close();
+  });
+
+  it('reports open dialogs from sessions.pendingInput', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const dialogPromise = session.boundBindings.uiContext.confirm('Pending?', 'Someone must answer');
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending?.count === 1);
+    const pending = await client.request('sessions.pendingInput', {});
+    expect(pending.result.sessions).toHaveLength(1);
+    expect(pending.result.sessions[0]).toMatchObject({
+      sessionId: 'pi-session-ext',
+      pending: { count: 1, kind: 'input' },
+    });
+    expect(typeof pending.result.sessions[0].directory).toBe('string');
+    expect(Number.isSafeInteger(pending.result.sequence)).toBe(true);
+    const dialog = client.events.find((message) => message.event === 'extension.dialog');
+    await client.request('extensions.respond', { requestId: dialog.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
     await client.close();
   });
 
