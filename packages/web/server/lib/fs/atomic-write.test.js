@@ -113,4 +113,21 @@ describe.each(variants)('%s', (_name, write, defaultFs) => {
     expect(await readFile(file, 'utf8')).toBe('old');
     expect(await readdir(root)).toEqual(['settings.json']);
   });
+
+  it('resolves with the new content in place when the final chmod fails', async () => {
+    const root = await makeRoot();
+    const file = join(root, 'settings.json');
+    await writeFile(file, 'old');
+    const chmodFailure = Object.assign(new Error('chmod failed'), { code: 'EPERM' });
+    const failingFs = {
+      ...defaultFs,
+      chmod: async () => { throw chmodFailure; },
+      chmodSync: () => { throw chmodFailure; },
+    };
+
+    await expect(write(file, 'new', { fs: failingFs })).resolves.toBe(file);
+
+    expect(await readFile(file, 'utf8')).toBe('new');
+    expect(await readdir(root)).toEqual(['settings.json']);
+  });
 });

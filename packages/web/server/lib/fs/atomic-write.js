@@ -83,7 +83,8 @@ export const writeFileAtomic = async (file, data, {
     await fs.rm(temporary, { force: true }).catch(() => {});
     throw error;
   }
-  if (process.platform !== 'win32') await fs.chmod(target, mode);
+  // Best effort: the new content is already in place, so a chmod failure must not fail the save.
+  if (process.platform !== 'win32') await fs.chmod(target, mode).catch(() => {});
   return target;
 };
 
@@ -103,6 +104,8 @@ export const writeFileAtomicSync = (file, data, {
     try { fs.rmSync(temporary, { force: true }); } catch {}
     throw error;
   }
-  if (process.platform !== 'win32') fs.chmodSync(target, mode);
+  if (process.platform !== 'win32') {
+    try { fs.chmodSync(target, mode); } catch {}
+  }
   return target;
 };
