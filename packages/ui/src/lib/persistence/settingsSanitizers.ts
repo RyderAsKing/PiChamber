@@ -513,6 +513,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (typeof candidate.expandedEditorToolbar === 'boolean') {
     result.expandedEditorToolbar = candidate.expandedEditorToolbar;
   }
+  if (typeof candidate.wrapLinesByDefault === 'boolean') {
+    result.wrapLinesByDefault = candidate.wrapLinesByDefault;
+  }
   if (
     typeof candidate.fontSize === 'number' &&
     Number.isFinite(candidate.fontSize)

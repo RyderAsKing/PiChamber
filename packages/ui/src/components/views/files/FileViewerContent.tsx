@@ -11,6 +11,8 @@ import { CodeMirrorEditor } from '@/components/ui/CodeMirrorEditor';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
 import { JsonTreeView } from '@/components/ui/JsonTreeView';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+import { PIERRE_STICKY_SCROLLBAR_HIDE_CSS } from '@/components/views/pierreScrollSync';
+import { StickyHorizontalScrollbar } from '@/components/views/StickyHorizontalScrollbar';
 import { cn } from '@/lib/utils';
 import { getLanguageFromExtension, isDrawioFile } from '@/lib/toolHelpers';
 import {
@@ -120,10 +122,15 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
   const isMarkdown = Boolean(selectedFile?.path && isMarkdownFile(selectedFile.path));
   const isHtml = Boolean(selectedFile?.path && isHtmlFile(selectedFile.path));
 
+  const pierreFileHostRef = React.useRef<HTMLDivElement | null>(null);
+
   const renderShikiFileView = () => {
     if (!selectedFile) return null;
+    // The wrapper creates no scroll container, so the proxy bar below
+    // sticks to the outer ScrollableOverlay pane. CodeMirror edit mode is
+    // untouched (its own .cm-scroller is already the pane).
     return (
-      <div className="h-full">
+      <div className="relative h-full" ref={pierreFileHostRef}>
         <PierreFile
           file={{
             name: selectedFile.name,
@@ -135,10 +142,15 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
             overflow: wrapLines ? 'wrap' : 'scroll',
             theme: pierreTheme,
             themeType: shikiThemeType,
+            // Hide Pierre's native bottom bar while the sticky proxy bar
+            // drives the shadow scroller. Wrap mode keeps native behavior:
+            // the rule only matches `[data-overflow="scroll"]`.
+            ...(wrapLines ? {} : { unsafeCSS: PIERRE_STICKY_SCROLLBAR_HIDE_CSS }),
           }}
           className="block h-full w-full"
           style={{ height: '100%' }}
         />
+        <StickyHorizontalScrollbar hostRef={pierreFileHostRef} enabled={!wrapLines} />
       </div>
     );
   };

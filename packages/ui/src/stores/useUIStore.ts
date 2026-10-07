@@ -152,7 +152,10 @@ interface UIStore {
 
   diffLayoutPreference: 'dynamic' | 'inline' | 'side-by-side';
   diffFileLayout: Record<string, 'inline' | 'side-by-side'>;
-  diffWrapLines: boolean;
+  /** Session-only override for diff line wrapping; null follows wrapLinesByDefault. */
+  diffWrapLinesOverride: boolean | null;
+  /** Persisted default for line wrapping in the file viewer and diffs. */
+  wrapLinesByDefault: boolean;
   /** Width of the walkthrough table of contents, in pixels. */
   walkthroughTocWidth: number;
   gitChangesViewMode: 'flat' | 'tree';
@@ -280,6 +283,7 @@ interface UIStore {
   setDiffLayoutPreference: (mode: 'dynamic' | 'inline' | 'side-by-side') => void;
   setDiffFileLayout: (filePath: string, mode: 'inline' | 'side-by-side') => void;
   setDiffWrapLines: (wrap: boolean) => void;
+  setWrapLinesByDefault: (value: boolean) => void;
   setWalkthroughTocWidth: (width: number) => void;
   setGitChangesViewMode: (mode: 'flat' | 'tree') => void;
   setTimelineDialogOpen: (open: boolean) => void;
@@ -377,7 +381,8 @@ export const useUIStore = create<UIStore>()(
         recentEfforts: {},
         diffLayoutPreference: 'inline',
         diffFileLayout: {},
-        diffWrapLines: false,
+        diffWrapLinesOverride: null,
+        wrapLinesByDefault: true,
         walkthroughTocWidth: 224,
         gitChangesViewMode: 'flat',
         isTimelineDialogOpen: false,
@@ -1141,7 +1146,11 @@ export const useUIStore = create<UIStore>()(
         },
 
         setDiffWrapLines: (wrap) => {
-          set({ diffWrapLines: wrap });
+          set({ diffWrapLinesOverride: wrap });
+        },
+
+        setWrapLinesByDefault: (value) => {
+          set({ wrapLinesByDefault: value, diffWrapLinesOverride: null });
         },
 
         setWalkthroughTocWidth: (width) => {
@@ -1460,12 +1469,23 @@ export const useUIStore = create<UIStore>()(
       {
         name: 'ui-store',
         storage: createDeferredSafeJSONStorage(),
-        version: 20,
+        version: 21,
         migrate: (persistedState, version) => {
           if (!persistedState || typeof persistedState !== 'object') {
             return persistedState;
           }
           const state = persistedState as Record<string, unknown>;
+
+          // v20 -> v21: diff line wrap is now a persisted default
+          // (wrapLinesByDefault) plus a session-only override. Drop any
+          // stale persisted diffWrapLines key so it cannot restore behavior.
+          if (version < 21) {
+            delete state.diffWrapLines;
+            delete state.diffWrapLinesOverride;
+            if (typeof state.wrapLinesByDefault !== 'boolean') {
+              state.wrapLinesByDefault = true;
+            }
+          }
 
           // v19 -> v20: retire notification templates and event toggles that
           // are not part of the completion/error notification contract.
@@ -1642,6 +1662,8 @@ export const useUIStore = create<UIStore>()(
           delete state.stickyUserHeader;
           delete state.promptNavigatorEnabled;
           delete state.showSplitAssistantMessageActions;
+          // Retired persisted diff wrap flag (now a session-only override).
+          delete state.diffWrapLines;
 
           state.contextPanelByDirectory = sanitizeContextPanelByDirectory(state.contextPanelByDirectory);
 
@@ -1683,6 +1705,10 @@ export const useUIStore = create<UIStore>()(
 
           if (typeof state.autoSaveEnabled !== 'boolean') {
             state.autoSaveEnabled = true;
+          }
+
+          if (typeof state.wrapLinesByDefault !== 'boolean') {
+            state.wrapLinesByDefault = true;
           }
 
           state.contextRailOrder = Array.isArray(state.contextRailOrder)
@@ -1733,7 +1759,7 @@ export const useUIStore = create<UIStore>()(
           recentAgents: state.recentAgents,
           recentEfforts: state.recentEfforts,
           diffLayoutPreference: state.diffLayoutPreference,
-          diffWrapLines: state.diffWrapLines,
+          wrapLinesByDefault: state.wrapLinesByDefault,
           walkthroughTocWidth: state.walkthroughTocWidth,
           gitChangesViewMode: state.gitChangesViewMode,
           nativeNotificationsEnabled: state.nativeNotificationsEnabled,

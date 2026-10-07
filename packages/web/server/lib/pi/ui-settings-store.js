@@ -39,6 +39,7 @@ const PORTABLE_FIELDS = new Set([
   'weekStartPreference',
   'sidebarViewMode',
   'expandedEditorToolbar',
+  'wrapLinesByDefault',
   'fontSize', 'terminalFontSize', 'editorFontSize', 'uiFont', 'monoFont', 'padding',
   'cornerRadius', 'inputBarOffset', 'shortcutOverrides', 'commandTriggers',
   'favoriteModels', 'hiddenModels', 'collapsedModelProviders', 'recentModels',

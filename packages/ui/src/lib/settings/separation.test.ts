@@ -180,6 +180,17 @@ describe("settings separation for snippets and prompt templates", () => {
     expect(promptResults.some((r) => r.page === "snippets")).toBe(false);
   });
 
+  test("finds the wrap-lines default from word-wrap queries", () => {
+    for (const query of ["word wrap", "Word wrap", "soft wrap", "line wrap"]) {
+      const results = buildSettingsSearchResults({
+        query,
+        runtimeCtx,
+        getPageTitle,
+      });
+      expect(results.some((r) => r.id === "appearance.wrap-lines-by-default")).toBe(true);
+    }
+  });
+
   test("snippets page performs no prompt-resource requests", () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const source = readFileSync(

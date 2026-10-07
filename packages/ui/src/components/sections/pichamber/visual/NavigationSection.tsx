@@ -38,6 +38,8 @@ export interface NavigationSectionProps {
   setAutoSaveEnabled: (enabled: boolean) => void;
   expandedEditorToolbar: boolean;
   onExpandedEditorToolbarChange: (expanded: boolean) => void;
+  wrapLinesByDefault: boolean;
+  onWrapLinesByDefaultChange: (enabled: boolean) => void;
   showTerminalQuickKeysOnDesktop: boolean;
   setShowTerminalQuickKeysOnDesktop: (show: boolean) => void;
   showTerminalShellSetting: boolean;
@@ -59,6 +61,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   setAutoSaveEnabled,
   expandedEditorToolbar,
   onExpandedEditorToolbarChange,
+  wrapLinesByDefault,
+  onWrapLinesByDefaultChange,
   showTerminalQuickKeysOnDesktop,
   setShowTerminalQuickKeysOnDesktop,
   showTerminalShellSetting,
@@ -129,6 +133,16 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
             label={'Always show editor toolbar (docked under the file tabs)'}
             ariaLabel={'Always show editor toolbar'}
             settingsItem="appearance.expanded-editor-toolbar"
+          />
+        )}
+        {shouldShow('wrapLinesByDefault') && (
+          <SettingsCheckboxRow
+            checked={wrapLinesByDefault}
+            onChange={onWrapLinesByDefaultChange}
+            label={'Wrap long lines by default'}
+            ariaLabel={'Wrap long lines by default'}
+            info={'Applies to the file viewer and diffs. The wrap toggle in each view overrides it until reload.'}
+            settingsItem="appearance.wrap-lines-by-default"
           />
         )}
         {shouldShow('terminalQuickKeys') && (

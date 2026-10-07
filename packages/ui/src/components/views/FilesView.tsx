@@ -28,7 +28,7 @@ import { useTransientValue } from '@/hooks/useTransientValue';
 import { Icon } from "@/components/icon/Icon";
 import { ensurePierreThemeRegistered } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
-import { isBrowserClientRuntime, openDesktopFileInApp, openDesktopPath } from '@/lib/desktop';
+import { isBrowserClientRuntime, isDesktopLocalOriginActive, isDesktopShell, openDesktopFileInApp, openDesktopPath } from '@/lib/desktop';
 import { useOpenInAppsStore } from '@/stores/useOpenInAppsStore';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { MobileFilesChrome } from './files/MobileFilesChrome';
@@ -113,7 +113,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const [showMobilePageContent, setShowMobilePageContent] = React.useState(false);
   const [mobileDirectory, setMobileDirectory] = React.useState(root);
   const [mobileRefreshing, setMobileRefreshing] = React.useState(false);
-  const [wrapLines, setWrapLines] = React.useState(true);
+  const [wrapLinesOverride, setWrapLinesOverride] = React.useState<boolean | null>(null);
+  const wrapLinesByDefault = useUIStore((state) => state.wrapLinesByDefault);
+  const wrapLines = wrapLinesOverride ?? wrapLinesByDefault;
+  const setWrapLines = React.useCallback((value: boolean) => {
+    setWrapLinesOverride(value);
+  }, []);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
   const [isFloatingToolbarOpen, setIsFloatingToolbarOpen] = React.useState(false);
@@ -341,14 +346,16 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     clearSelectedPath: clearSelectedFile,
   });
   const canReveal = Boolean(files.revealPath);
+  const canOpenInDesktopApp = isDesktopShell() && isDesktopLocalOriginActive();
   const openInApps = useOpenInAppsStore((state) => state.availableApps);
   const openInCacheStale = useOpenInAppsStore((state) => state.isCacheStale);
   const initializeOpenInApps = useOpenInAppsStore((state) => state.initialize);
   const loadOpenInApps = useOpenInAppsStore((state) => state.loadInstalledApps);
 
   React.useEffect(() => {
+    if (!canOpenInDesktopApp) return;
     initializeOpenInApps();
-  }, [initializeOpenInApps]);
+  }, [canOpenInDesktopApp, initializeOpenInApps]);
 
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
@@ -1450,6 +1457,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         isDirty={isDirty}
         onSaveDraft={saveDraft}
         onToggleAutoSave={() => setAutoSaveEnabled(!autoSaveEnabled)}
+        canOpenInDesktopApp={canOpenInDesktopApp}
         openInApps={openInApps}
         openInCacheStale={openInCacheStale}
         onOpenInApp={handleOpenInApp}

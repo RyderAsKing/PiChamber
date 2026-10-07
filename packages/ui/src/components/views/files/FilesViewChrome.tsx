@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from '@/components/icon/Icon';
 import { cn, getRevealLabel } from '@/lib/utils';
+import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { getDisplayPath, type FileNode } from './filesViewModel';
 
 export const OpenInAppListIcon = ({ label, iconDataUrl }: { label: string; iconDataUrl?: string }) => {
@@ -159,7 +160,8 @@ export const FileRow: React.FC<FileRowProps> = ({
   const isDir = node.type === 'directory';
   const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
   const canDownload = !isDir && Boolean(downloadFile);
-  const canRevealPath = canReveal && !isBrowserClient;
+  const isLocalDesktop = isDesktopShell() && isDesktopLocalOriginActive();
+  const canRevealPath = canReveal && !isBrowserClient && isLocalDesktop;
   const hasMenuActions = canRename || canCreateFile || canCreateFolder || canDelete || canDownload || canRevealPath;
 
   const handleContextMenu = React.useCallback((event?: React.MouseEvent) => {

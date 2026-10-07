@@ -148,6 +148,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['editor', 'toolbar', 'tabs', 'docked', 'files'],
   },
   {
+    id: 'appearance.wrap-lines-by-default',
+    page: 'appearance',
+    title: "Wrap long lines by default",
+    description: "Applies to the file viewer and diffs. The wrap toggle in each view overrides it until reload.",
+    keywords: ['word wrap', 'wrap', 'line wrap', 'soft wrap', 'wrap lines', 'diff', 'editor'],
+  },
+  {
     id: 'appearance.file-editor-keymap',
     page: 'general',
     title: "File editor keymap",

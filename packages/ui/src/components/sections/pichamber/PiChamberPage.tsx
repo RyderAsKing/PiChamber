@@ -149,6 +149,7 @@ const VisualSectionContent: React.FC = () => {
         'fontSize',
         'terminalFontSize',
         'editorFontSize',
+        'wrapLinesByDefault',
         'spacing',
         'inputBarOffset',
     ]} />;

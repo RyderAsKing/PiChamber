@@ -29,6 +29,7 @@ export interface FileViewerToolbarProps {
   isDirty: boolean;
   onSaveDraft: () => Promise<unknown> | void;
   onToggleAutoSave: () => void;
+  canOpenInDesktopApp?: boolean;
   openInApps: Array<{ id: string; label: string; appName: string; iconDataUrl?: string }>;
   openInCacheStale: boolean;
   onOpenInApp: (app: { id: string; label: string; appName: string }) => Promise<void>;
@@ -85,6 +86,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
   isDirty,
   onSaveDraft,
   onToggleAutoSave,
+  canOpenInDesktopApp = true,
   openInApps,
   openInCacheStale,
   onOpenInApp,
@@ -207,6 +209,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
         </>
       )}
 
+      {canOpenInDesktopApp ? (
       <DropdownMenu onOpenChange={onToolbarDropdownOpenChange}>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -247,6 +250,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
+      ) : null}
 
       {!isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && (
         <>

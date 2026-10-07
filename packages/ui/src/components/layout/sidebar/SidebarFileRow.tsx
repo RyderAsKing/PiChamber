@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn, getRevealLabel } from '@/lib/utils';
+import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { Icon } from "@/components/icon/Icon";
 import { getFileIcon, type FileStatus } from './sidebarFileRowHelpers';
 import {
@@ -80,7 +81,7 @@ export const FileRow: React.FC<FileRowProps> = ({
   const isDir = node.type === 'directory';
   const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
   const canDownload = !isDir && Boolean(downloadFile);
-  const canRevealPath = canReveal && !isBrowserClient;
+  const canRevealPath = canReveal && !isBrowserClient && isDesktopShell() && isDesktopLocalOriginActive();
   const hasMenuActions = canRename || canCreateFile || canCreateFolder || canDelete || canDownload || canRevealPath;
 
   const [contextMenuOpen, setContextMenuOpen] = React.useState(false);

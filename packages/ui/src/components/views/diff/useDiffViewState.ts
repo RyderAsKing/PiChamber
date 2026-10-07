@@ -80,12 +80,13 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
   const diffLayoutPreference = useUIStore((state) => state.diffLayoutPreference);
   const diffFileLayout = useUIStore((state) => state.diffFileLayout);
   const setDiffFileLayout = useUIStore((state) => state.setDiffFileLayout);
-  const diffWrapLinesStore = useUIStore((state) => state.diffWrapLines);
+  const diffWrapLinesOverride = useUIStore((state) => state.diffWrapLinesOverride);
+  const wrapLinesByDefault = useUIStore((state) => state.wrapLinesByDefault);
   const setDiffWrapLines = useUIStore((state) => state.setDiffWrapLines);
   const openContextFileAtLine = useUIStore((state) => state.openContextFileAtLine);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveDirectory ?? undefined);
-  const diffWrapLines = diffWrapLinesStore;
+  const diffWrapLines = diffWrapLinesOverride ?? wrapLinesByDefault;
   const forcedStaged = activeDiffScope === 'staged' ? true : activeDiffScope === 'working' ? false : null;
   const activeDiffStaged = forcedStaged ?? displayFileStaged;
 

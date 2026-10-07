@@ -333,6 +333,7 @@ export const materializeAuthoritativeUiSettings = (
     weekStartPreference: defaults.weekStartPreference,
     sidebarViewMode: defaults.sidebarViewMode,
     expandedEditorToolbar: defaults.expandedEditorToolbar,
+    wrapLinesByDefault: defaults.wrapLinesByDefault,
     draftStartersVisible: defaults.draftStartersVisible,
     fontSize: defaults.fontSize,
     terminalFontSize: defaults.terminalFontSize,
