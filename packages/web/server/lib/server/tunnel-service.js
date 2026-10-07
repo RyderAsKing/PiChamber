@@ -7,6 +7,7 @@ import {
   startCloudflareManagedRemoteTunnel,
   startCloudflareManagedLocalTunnel,
 } from '../cloudflare-tunnel.js';
+import { writeFileAtomicSync } from '../fs/atomic-write.js';
 import { getTunnelDependencyInstallInfo } from '../tunnels/install-help.js';
 import { TUNNEL_PROVIDER_CLOUDFLARE } from '../tunnels/types.js';
 
@@ -51,15 +52,8 @@ export const createTunnelService = ({
 
   const writeTokenStore = (token, hostname) => {
     try {
-      fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
       // Atomic replace so a concurrent server never reads a torn token.
-      const temporary = `${tokenPath}.tmp-${process.pid}-${Date.now()}`;
-      try {
-        fs.writeFileSync(temporary, JSON.stringify({ token, hostname }), { mode: 0o600 });
-        fs.renameSync(temporary, tokenPath);
-      } catch {
-        try { fs.rmSync(temporary, { force: true }); } catch {}
-      }
+      writeFileAtomicSync(tokenPath, JSON.stringify({ token, hostname }));
     } catch {}
   };
 

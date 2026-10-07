@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import path from 'node:path';
+import { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile } from 'node:fs/promises';
 
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
 import { DEFAULT_LOCAL_STT_MODEL, isLocalSttModelId } from './local/model-catalog.js';
 
@@ -45,7 +44,7 @@ const publicConfig = (config) => ({
   providers: config.providers.map(({ apiKey, ...provider }) => ({ ...provider, apiKeyConfigured: Boolean(apiKey) })),
 });
 
-export function createSttConfigStore({ file, fs = { chmod, mkdir, readFile, rename, rm, writeFile } }) {
+export function createSttConfigStore({ file, fs = { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile } }) {
   let mutation = Promise.resolve();
   const read = async () => {
     try { return normalizeConfig(JSON.parse(await fs.readFile(file, 'utf8'))); }
@@ -63,17 +62,8 @@ export function createSttConfigStore({ file, fs = { chmod, mkdir, readFile, rena
       }
       if (typeof changes?.deleteProviderId === 'string') providers = providers.filter((entry) => entry.id !== changes.deleteProviderId);
       const next = normalizeConfig({ ...current, ...changes, providers });
-      await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-      const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
-      try {
-        await fs.writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-        await fs.rename(temporary, file);
-        if (process.platform !== 'win32') await fs.chmod(file, 0o600);
-        return next;
-      } catch (error) {
-        await fs.rm(temporary, { force: true }).catch(() => {});
-        throw error;
-      }
+      await writeFileAtomic(file, `${JSON.stringify(next, null, 2)}\n`, { fs });
+      return next;
     }));
     mutation = operation.catch(() => {});
     return operation;
