@@ -360,6 +360,18 @@ describe("PiService", () => {
     expect(await client.deletePromptTemplate("prompt-1", "/work")).toEqual({ skills: [], prompts: [], agents: [] });
   });
 
+  test("listEngines reads the public engine collection", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/engines")
+      expect(call.init?.method).toBe("GET")
+      return jsonResponse({ engines: [{ id: "other", label: "Other", commands: ["sessions.open"] }] })
+    })
+    const client = new PiService()
+    expect(await client.listEngines()).toEqual({
+      engines: [{ id: "other", label: "Other", commands: ["sessions.open"] }],
+    })
+  })
+
   test("listProviders returns the parsed payload", async () => {
     installFetchMock(() =>
       jsonResponse({

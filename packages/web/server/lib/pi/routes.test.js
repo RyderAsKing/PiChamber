@@ -1098,6 +1098,114 @@ describe('Pi runtime route', () => {
     }
   });
 
+  it('projects engine sessions and filters incompleteEngines without touching Pi rows', async () => {
+    const listResult = {
+      streamEpoch: 'epoch-engines',
+      sessions: [
+        { session: { id: 'engine-session-1', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 'example-engine' }, updatedAt: 2 },
+        { session: { id: 'pi-session-1', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+        { session: { id: 'reserved', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 'pi' }, updatedAt: 2 },
+        { session: { id: 'bad', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 'Bad Id' }, updatedAt: 2 },
+        { session: { id: 'num', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 42 }, updatedAt: 2 },
+      ],
+      incompleteEngines: ['example-engine', 'pi', 'Bad Id', 42],
+    };
+    const detail = {
+      session: { id: 'engine-session-1', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 'example-engine' },
+      messages: [],
+      lastSequence: 4,
+      isStreaming: false,
+      lifecycle: 'idle',
+    };
+    const runtime = {
+      request: async (command) => (command === 'sessions.list' ? listResult : detail),
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+    const listed = await fetch(`${base}/sessions?directory=%2Fworkspace`);
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toEqual({
+      streamEpoch: 'epoch-engines',
+      incompleteEngines: ['example-engine'],
+      sessions: [
+        { session: { id: 'engine-session-1', directory: '/workspace', createdAt: 1, updatedAt: 2, engine: 'example-engine' }, updatedAt: 2 },
+        { session: { id: 'pi-session-1', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+        { session: { id: 'reserved', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+        { session: { id: 'bad', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+        { session: { id: 'num', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 },
+      ],
+    });
+
+    const read = await fetch(`${base}/sessions/engine-session-1`);
+    expect(read.status).toBe(200);
+    await expect(read.json()).resolves.toMatchObject({ session: { id: 'engine-session-1', engine: 'example-engine' } });
+  });
+
+  it('omits incompleteEngines when absent or invalid and maps engine errors to 409', async () => {
+    const runtime = {
+      request: async (command) => {
+        if (command === 'sessions.list') return { sessions: [], incompleteEngines: ['pi', 42] };
+        const error = new Error('ENGINE_UNSUPPORTED_OPERATION');
+        error.code = 'ENGINE_UNSUPPORTED_OPERATION';
+        throw error;
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi`;
+    const listed = await fetch(`${base}/sessions?directory=%2Fworkspace`);
+    expect(listed.status).toBe(200);
+    await expect(listed.json()).resolves.toEqual({ sessions: [] });
+
+    const unsupported = await fetch(`${base}/sessions/engine-session-9`);
+    expect(unsupported.status).toBe(409);
+    await expect(unsupported.json()).resolves.toEqual({ error: { code: 'ENGINE_UNSUPPORTED_OPERATION' } });
+  });
+
+  it('projects the engine collection through a whitelisting projector', async () => {
+    const runtime = {
+      request: async (command) => {
+        expect(command).toBe('engines.list');
+        return {
+          engines: [
+            { id: 'example-engine', label: 'Example', commands: ['sessions.open', 'sessions.create', 'bogus', 42] },
+            { id: 'other', label: 'Other', commands: [] },
+          ],
+        };
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/engines`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      engines: [
+        { id: 'example-engine', label: 'Example', commands: ['sessions.open', 'sessions.create'] },
+        { id: 'other', label: 'Other', commands: [] },
+      ],
+    });
+  });
+
+  it('maps engine listing failures instead of returning an empty list', async () => {
+    const runtime = {
+      request: async () => {
+        const error = new Error('ENGINE_TIMEOUT');
+        error.code = 'ENGINE_TIMEOUT';
+        throw error;
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/engines`);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: { code: 'ENGINE_TIMEOUT' } });
+  });
+
   it('validates and forwards older transcript page requests', async () => {
     const calls = [];
     const detail = {

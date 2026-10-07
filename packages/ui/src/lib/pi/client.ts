@@ -22,6 +22,7 @@ import { runtimeUpload, type RuntimeUploadProgress } from '@/lib/runtime-upload'
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   type PiError,
+  type PiEngineListResponse,
   type PiPromptInput,
   type PiPromptResult,
   type PiProviderListResponse,
@@ -781,6 +782,11 @@ export class PiService {
   async listProviders(scope?: PiClientScope): Promise<PiProviderListResponse> {
     assertRuntimeUnchanged(scope);
     return jsonRequest<undefined, PiProviderListResponse>('/api/pi/providers', { method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) });
+  }
+
+  async listEngines(scope?: PiClientScope): Promise<PiEngineListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiEngineListResponse>('/api/pi/engines', { method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) });
   }
 
   async refreshProviders(scope?: PiClientScope): Promise<PiProviderListResponse> {

@@ -2,6 +2,7 @@ import { readFile, chmod, rename, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import { createSessionDaemon } from './session-daemon.js';
+import { sessionEngineFactories } from './engines/index.js';
 
 const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
 
@@ -114,6 +115,7 @@ if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !server
       credential,
       cwd,
       ...(agentDir ? { agentDir } : {}),
+      engines: sessionEngineFactories,
       profileKey,
       serverInstanceId,
       serverPid,

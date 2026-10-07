@@ -86,6 +86,7 @@ export type PiErrorCode =
   | 'SESSION_JSONL_UNREADABLE'
   | 'SESSION_IN_USE'
   | 'SESSION_LEASE_UNAVAILABLE'
+  | 'ENGINE_UNSUPPORTED_OPERATION'
   | 'RUNTIME_DISPOSAL_FAILED'
   | 'ARCHIVE_METADATA_INVALID'
   | 'ASSISTANT_ERROR';
@@ -166,6 +167,9 @@ export interface PiSessionListResponse {
   sessions: PiSessionListItem[];
   /** Optional cursor for paginated loading. */
   nextCursor?: string | null;
+  /** Engine ids whose listing failed for this directory. The listing is
+   *  partial and must not be treated as authoritative for those engines' rows. */
+  incompleteEngines?: string[];
   /** Opaque stream-lifetime id of the daemon that produced this response.
    *  A value different from the client's established epoch means the
    *  response predates a daemon restart and must not be committed. */
@@ -178,6 +182,20 @@ export interface PiSessionCreateInput {
   cwd: string;
   model?: PiModelRef;
   thinking?: PiThinkingLevel;
+  /** Non-Pi session engine id (`'pi'` forces the built-in runtime). */
+  engine?: string;
+}
+
+/** A registered non-Pi session engine and the commands it implements. */
+export interface PiEngineInfo {
+  id: string;
+  label: string;
+  commands: string[];
+}
+
+/** `GET /api/pi/engines` response. Empty when no engines are registered. */
+export interface PiEngineListResponse {
+  engines: PiEngineInfo[];
 }
 
 export interface PiSessionDetailResponse extends Pick<

@@ -37,6 +37,8 @@ export interface PiSession {
   id: PiSessionId;
   /** Canonical directory the session belongs to (server-confirmed). */
   directory: PiDirectory;
+  /** Non-Pi session engine id; absent for built-in Pi sessions. */
+  engine?: string;
   title?: string;
   parentId?: PiSessionId | null;
   createdAt: number;
