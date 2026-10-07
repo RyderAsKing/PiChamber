@@ -24,6 +24,7 @@ import {
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
+import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -69,6 +70,7 @@ const writeDaemonError = (res, error) => {
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
+        || code === ENGINE_UNSUPPORTED_OPERATION
         ? 409
         : code === 'OPERATION_EXPIRED'
           ? 410
@@ -108,6 +110,7 @@ const projectSession = (value) => {
   return {
     id: value.id,
     directory: value.directory,
+    ...(isValidEngineId(value.engine) ? { engine: value.engine } : {}),
     ...(typeof value.title === 'string' ? { title: value.title } : {}),
     ...(typeof value.parentId === 'string' || value.parentId === null ? { parentId: value.parentId } : {}),
     createdAt: value.createdAt,
@@ -372,6 +375,21 @@ const projectProviders = (value) => {
             ...(Array.isArray(model.thinkingLevels) ? { thinkingLevels: model.thinkingLevels.filter((level) => isPiThinkingLevel(level)) } : {}),
           };
         }),
+      };
+    }),
+  };
+};
+
+const projectEngines = (value) => {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.engines)) throw protocolMismatch();
+  return {
+    engines: value.engines.map((engine) => {
+      if (!engine || typeof engine !== 'object' || !isValidEngineId(engine.id)
+        || typeof engine.label !== 'string' || !Array.isArray(engine.commands)) throw protocolMismatch();
+      return {
+        id: engine.id,
+        label: engine.label,
+        commands: engine.commands.filter((command) => ENGINE_HANDLER_COMMANDS.has(command)),
       };
     }),
   };
@@ -1118,6 +1136,15 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  app.get('/api/pi/engines', async (_req, res) => {
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('engines.list');
+      res.json(projectEngines(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
   app.post('/api/pi/providers/refresh', async (req, res) => {
     const directory = typeof req.body?.directory === 'string' && req.body.directory.length > 0 ? req.body.directory : undefined;
     try {
@@ -1694,8 +1721,12 @@ export const registerPiRuntimeRoutes = (app, {
         ...(typeof directory === 'string' ? { directory } : {}),
       });
       const archived = await archiveStore.read();
+      const incompleteEngines = Array.isArray(result?.incompleteEngines)
+        ? result.incompleteEngines.filter((engineId) => isValidEngineId(engineId))
+        : [];
       res.json({
         ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
+        ...(incompleteEngines.length > 0 ? { incompleteEngines } : {}),
         sessions: projectSessionList(result?.sessions).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),

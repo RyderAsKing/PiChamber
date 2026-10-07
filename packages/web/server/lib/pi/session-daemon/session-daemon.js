@@ -66,6 +66,11 @@ import {
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import {
+  createSessionEngineRegistry,
+  logSessionEngineError,
+} from './session-engines.js';
+import { createSessionEngineRouter } from './session-engine-router.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -210,6 +215,7 @@ export function createSessionDaemon({
     }
   },
   extensionToolRenderer: injectExtensionToolRenderer,
+  engines = [],
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new SessionDaemonProtocolError('INVALID_ENDPOINT', 'The session daemon endpoint must be local.');
@@ -225,6 +231,9 @@ export function createSessionDaemon({
   }
   if (!Number.isFinite(sendOperationTtlMs) || sendOperationTtlMs <= 0) {
     throw new SessionDaemonProtocolError('INVALID_SEND_OPERATION_TTL', 'The session daemon send operation ttl is invalid.');
+  }
+  if (!Array.isArray(engines) || engines.some((factory) => typeof factory !== 'function')) {
+    throw new SessionDaemonProtocolError('INVALID_ENGINES', 'The session engine list is invalid.');
   }
 
   let server;
@@ -273,6 +282,10 @@ export function createSessionDaemon({
     }
   };
   let runtimeRegistry;
+  // Session engine registry. Created in `start()` (empty when no factories
+  // are registered); every routing branch guards on `size > 0` so the
+  // zero-engine path runs exactly the Pi-only code.
+  let engineRegistry;
   let runtimeStartPromise;
   let idleDisposeTimer;
   let dormantSession;
@@ -652,6 +665,18 @@ export function createSessionDaemon({
   };
 
   const publishSnapshot = (socket, requestedSessionId, { resync = false } = {}) => {
+    const engineSnapshot = engineRouter.snapshotEvent(requestedSessionId, { resync });
+    if (engineSnapshot) {
+      writeFrame(socket, {
+        protocolVersion: PROTOCOL_VERSION,
+        kind: 'event',
+        event: 'session.snapshot',
+        streamEpoch,
+        sequence: engineSnapshot.sequence,
+        payload: engineSnapshot.payload,
+      });
+      return;
+    }
     const targetRuntime = requestedSessionId ? runtimeRegistry?.findBySessionId(requestedSessionId) : runtime;
     const session = targetRuntime?.session
       ? { sessionId: targetRuntime.session.sessionId, isStreaming: targetRuntime.session.isStreaming }
@@ -3104,7 +3129,7 @@ export function createSessionDaemon({
       : null,
   });
 
-  const sessionInput = async (payload, delivery) => {
+  const sessionInput = async (payload, delivery, execute = runSessionInput) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
@@ -3159,7 +3184,7 @@ export function createSessionDaemon({
       claimEntry = claimed.entry;
     }
     try {
-      const result = await runSessionInput(payload, delivery);
+      const result = await execute(payload, delivery);
       claimEntry?.settle({ accepted: true, receipt: { accepted: true, messageId: result.messageId } });
       return result;
     } catch (error) {
@@ -3889,11 +3914,31 @@ export function createSessionDaemon({
     }
   };
 
+  // Session engine router: all ownership-first dispatch lives in
+  // `session-engine-router.js`; the daemon keeps thin call sites so upstream
+  // Pi merges stay conflict-free. Each method guards on an empty registry,
+  // so the zero-engine path runs exactly the Pi-only code.
+  const engineRouter = createSessionEngineRouter({
+    getRegistry: () => engineRegistry,
+    resolveDirectory,
+    sessionInput,
+    redact: (value) => redactAttachmentValues(value),
+    createError: (code, message) => new SessionDaemonProtocolError(code, message),
+    logEngineError: (engineId, event, error) => logSessionEngineError(undefined, engineId, event, error),
+    writeFrame,
+    writeDetail: writeDetailResponse,
+    publish,
+    getStreamEpoch: () => streamEpoch,
+    allocateSequence: () => ++sequence,
+    protocolVersion: PROTOCOL_VERSION,
+  });
+
   const handleRequest = async (socket, message) => {
     if (message.protocolVersion !== PROTOCOL_VERSION || message.kind !== 'request' || typeof message.requestId !== 'string') {
       throw new SessionDaemonProtocolError('INVALID_REQUEST', 'The daemon request is invalid.');
     }
 
+    if (engineRouter.hasEngines() && await engineRouter.dispatch(socket, message)) return;
     // Central idle-lifetime guard: hold one session refcount across the
     // whole dispatch so a concurrent short read cannot re-arm (or a timer
     // fire and dispose) while a longer operation on the same session is
@@ -3922,7 +3967,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
@@ -4007,9 +4052,31 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { directory: targetDir } });
         return;
       }
+      case 'engines.list': {
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: engineRouter.describe(),
+        });
+        return;
+      }
       case 'providers.list': {
         const result = await listProviders(message.payload?.directory);
-        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        if (!engineRouter.hasEngines()) {
+          writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+          return;
+        }
+        const merged = await engineRouter.mergeProviders(result);
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: {
+            providers: merged.providers,
+            ...(merged.incompleteEngines ? { incompleteEngines: merged.incompleteEngines } : {}),
+          },
+        });
         return;
       }
       case 'providers.refresh': {
@@ -4150,13 +4217,29 @@ export function createSessionDaemon({
       }
       case 'sessions.list': {
         const sessions = await listSessionItems(message.payload?.directory || message.payload?.cwd);
+        if (!engineRouter.hasEngines()) {
+          writeFrame(socket, {
+            protocolVersion: PROTOCOL_VERSION,
+            kind: 'response',
+            requestId: message.requestId,
+            // Stamp the stream lifetime so clients can reject a listing that a
+            // previous daemon process generated after an epoch change.
+            result: { sessions, streamEpoch },
+          });
+          return;
+        }
+        const listDir = message.payload?.directory || message.payload?.cwd;
+        const listTargetDir = listDir ? await resolveDirectory(listDir) : (activeDirectory || cwd);
+        const merged = await engineRouter.mergeSessionList(sessions, listTargetDir);
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
           requestId: message.requestId,
-          // Stamp the stream lifetime so clients can reject a listing that a
-          // previous daemon process generated after an epoch change.
-          result: { sessions, streamEpoch },
+          result: {
+            sessions: merged.sessions,
+            streamEpoch,
+            ...(merged.incompleteEngines ? { incompleteEngines: merged.incompleteEngines } : {}),
+          },
         });
         return;
       }
@@ -4247,6 +4330,7 @@ export function createSessionDaemon({
         return;
       }
       case 'sessions.create': {
+        if ((engineRouter.hasEngines() || message.payload?.engine !== undefined) && await engineRouter.create(socket, message)) return;
         const result = await createSession(message.payload);
         writeDetailResponse(socket, message.requestId, result);
         return;
@@ -4469,6 +4553,19 @@ export function createSessionDaemon({
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
+      engineRegistry = await createSessionEngineRegistry({
+        factories: engines,
+        host: {
+          publish: (...args) => engineRouter.publish(...args),
+          prepareAttachments: (attachments) => prepareAttachmentContent(attachments),
+          streamEpoch,
+          agentDir,
+          dataDir: resolvePiChamberDataDir(),
+          logger: (engineId, event, error) => logSessionEngineError(undefined, engineId, event, error),
+          createError: (code, message) => new SessionDaemonProtocolError(code, message),
+        },
+        redact: (value) => redactAttachmentValues(value),
+      });
 
       try {
         if (platform !== 'win32') {
@@ -4494,6 +4591,8 @@ export function createSessionDaemon({
         started = true;
       } catch (error) {
         messageEntryAliases.clear();
+        await engineRegistry?.disposeAll().catch(() => {});
+        engineRegistry = undefined;
         await disposeRuntime();
         server = undefined;
         throw error;
@@ -4551,6 +4650,14 @@ export function createSessionDaemon({
       // only when still current so a newer owner's record is never erased.
       for (const pendingFailedCreate of [...pendingFailedCreateCleanups.values()]) {
         await drainPendingFailedCreateCleanup(pendingFailedCreate.sessionId).catch(() => false);
+      }
+      if (engineRegistry) {
+        try {
+          await engineRegistry.disposeAll();
+        } catch {
+          // An engine disposal failure must not prevent remaining teardown.
+        }
+        engineRegistry = undefined;
       }
       server = undefined;
       started = false;
