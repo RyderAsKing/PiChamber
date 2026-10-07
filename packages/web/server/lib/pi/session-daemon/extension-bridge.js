@@ -61,6 +61,7 @@ export const createExtensionBridge = ({
   getDefaultDirectory,
   getSequence,
   protocolError,
+  renderExtensionMessage,
   requestSessionShutdown,
 }) => {
   const extensionStatusesBySession = new Map();
@@ -687,11 +688,23 @@ export const createExtensionBridge = ({
         ? textFromContent(message.content)
         : '';
     const timestamp = Number.isFinite(message.timestamp) ? message.timestamp : Date.now();
+    // A throwing renderer never breaks publication: the message still goes
+    // out with text/details and other sessions are unaffected.
+    let render;
+    try {
+      const ownerSession = findRuntimeBySessionId(sessionId)?.session;
+      if (ownerSession && typeof renderExtensionMessage === 'function') {
+        render = renderExtensionMessage(ownerSession, message);
+      }
+    } catch {
+      render = undefined;
+    }
     publish('extension.message', {
       id: `custom-${sessionId}-${getSequence() + 1}`,
       customType: message.customType,
       text: redactAttachmentPaths(text),
       ...(message.details !== undefined ? { details: redactAttachmentValues(message.details) } : {}),
+      ...(render ? { render } : {}),
       createdAt: timestamp,
     }, sessionId, directory);
   };

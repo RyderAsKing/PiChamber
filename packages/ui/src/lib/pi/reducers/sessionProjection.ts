@@ -10,12 +10,14 @@ import type {
   PiAssistantMessage,
   PiAttachment,
   PiCompactionInfo,
+  PiExtensionMessageRender,
   PiModelRef,
   PiRetryInfo,
   PiSessionLifecycleState,
   PiThinkingLevel,
   PiUserMessage,
 } from '../types';
+import { sanitizeExtensionMessageRender } from '../extension-ui';
 import type {
   PiProjectedMessage,
   PiProjectedMessagePart,
@@ -87,6 +89,7 @@ export const canReuseProjectedMessage = (
   && previous.parentId === resolveParentId(session, message.parentId)
   && previous.text === message.text
   && previous.thinking === message.thinking
+  && previous.render === message.render
   && previous.streaming === message.streaming
   && previous.createdAt === message.createdAt
   && previous.durationMs === message.durationMs
@@ -120,6 +123,7 @@ export const projectReducerMessage = (
     ...(message.customType !== undefined ? { customType: message.customType } : {}),
     ...(message.data !== undefined ? { data: message.data } : {}),
     ...(message.details !== undefined ? { details: message.details } : {}),
+    ...(message.render !== undefined ? { render: message.render } : {}),
     text: message.text,
     thinking: message.thinking,
     streaming: message.streaming,
@@ -282,6 +286,7 @@ export const hydrateSessionFromDetail = (
         text?: string;
         data?: unknown;
         details?: unknown;
+        render?: PiExtensionMessageRender;
       };
       parts: Array<{
         id: string;
@@ -349,6 +354,9 @@ export const hydrateSessionFromDetail = (
 
   for (const { message, parts } of (detail.messages ?? [])) {
     const isExtension = message.role === 'extension';
+    const extensionRender = isExtension
+      ? sanitizeExtensionMessageRender(message.render)
+      : undefined;
     const reducerMessage: PiReducerMessage = {
       id: message.id,
       sessionId: detail.session.id,
@@ -357,6 +365,7 @@ export const hydrateSessionFromDetail = (
       ...(isExtension && message.customType ? { customType: message.customType } : {}),
       ...(isExtension && message.data !== undefined ? { data: message.data } : {}),
       ...(isExtension && message.details !== undefined ? { details: message.details } : {}),
+      ...(extensionRender ? { render: extensionRender } : {}),
       ...(message.parentId ? { parentId: message.parentId } : {}),
       createdAt: message.createdAt,
       text: message.text ?? '',

@@ -393,6 +393,92 @@ describe('Pi session daemon extension bridging', () => {
     expect(items[1].message).toMatchObject({ id: 'cm-1', customType: 'my-extension', text: 'inline note', details: { answer: 42 } });
   });
 
+  it('renders live custom messages and replays the same render from history', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const seen = [];
+    session.extensionRunner = {
+      getMessageRenderer: (customType) => {
+        if (customType !== 'my-extension') return undefined;
+        return (msg, options, theme) => {
+          seen.push(msg);
+          return { render: (width) => [`rendered:${width}:${options.expanded ? 'full' : 'short'}:${msg.content}   `] };
+        };
+      },
+    };
+
+    const timestamp = Date.now();
+    session.emit({
+      type: 'message_end',
+      message: { role: 'custom', customType: 'my-extension', content: 'Status update', display: true, details: { count: 3 }, timestamp },
+    });
+    const live = await client.next((message) => message.event === 'extension.message' && message.payload?.customType === 'my-extension');
+    expect(live.payload).toMatchObject({ text: 'Status update', details: { count: 3 } });
+    const expectedRender = {
+      message: ['rendered:100:short:Status update'],
+      messageExpanded: ['rendered:100:full:Status update'],
+    };
+    expect(live.payload.render).toEqual(expectedRender);
+    // Collapsed and expanded calls saw the live message with Pi terminal args.
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ role: 'custom', customType: 'my-extension', content: 'Status update', timestamp });
+    expect(seen[1]).toBe(seen[0]);
+
+    // The same custom message replayed from persisted history yields the same render.
+    session.entries.push({
+      type: 'custom_message',
+      id: 'cm-1',
+      customType: 'my-extension',
+      content: 'Status update',
+      display: true,
+      details: { count: 3 },
+      timestamp: new Date(timestamp).toISOString(),
+    });
+    const opened = await client.request('sessions.open', { sessionId: session.sessionId });
+    const replayed = opened.result.messages.find((item) => item.message.id === 'cm-1');
+    expect(replayed.message).toMatchObject({ role: 'extension', customType: 'my-extension', text: 'Status update' });
+    expect(replayed.message.render).toEqual(expectedRender);
+    // Replay rebuilt the renderer input from the entry, identical to the live message.
+    expect(seen.at(-1)).toEqual(seen[0]);
+    await client.close();
+  });
+
+  it('still publishes custom messages without render when the renderer fails or is absent', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    session.extensionRunner = {
+      getMessageRenderer: (customType) => {
+        if (customType === 'throwing') return () => { throw new Error('render boom'); };
+        if (customType === 'empty') return () => undefined;
+        return undefined;
+      },
+    };
+
+    session.emit({
+      type: 'message_end',
+      message: { role: 'custom', customType: 'throwing', content: 'first', display: true, details: { n: 1 }, timestamp: Date.now() },
+    });
+    const failed = await client.next((message) => message.event === 'extension.message' && message.payload?.customType === 'throwing');
+    expect(failed.payload.text).toBe('first');
+    expect(failed.payload.details).toEqual({ n: 1 });
+    expect('render' in failed.payload).toBe(false);
+
+    session.emit({
+      type: 'message_end',
+      message: { role: 'custom', customType: 'empty', content: 'second', display: true, timestamp: Date.now() },
+    });
+    const empty = await client.next((message) => message.event === 'extension.message' && message.payload?.customType === 'empty');
+    expect(empty.payload.text).toBe('second');
+    expect('render' in empty.payload).toBe(false);
+
+    session.emit({
+      type: 'message_end',
+      message: { role: 'custom', customType: 'unregistered', content: 'third', display: true, timestamp: Date.now() },
+    });
+    const missing = await client.next((message) => message.event === 'extension.message' && message.payload?.customType === 'unregistered');
+    expect(missing.payload.text).toBe('third');
+    expect('render' in missing.payload).toBe(false);
+    await client.close();
+  });
+
   it('cancels pending dialogs when the owning runtime is disposed at idle timeout', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-idle-'));
     const projectDir = join(root, 'project');

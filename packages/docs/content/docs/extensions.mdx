@@ -21,6 +21,7 @@ On top of that compatibility layer, extensions can render rich UI directly insid
 | `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
 | `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
 | `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
+| `registerMessageRenderer()` (custom message renderers) | Rendered lines shown as the message body; expanded lines behind Show more, raw text under Raw message (see below) |
 | TUI-only surfaces (`custom()`, editor manipulation, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
@@ -240,6 +241,16 @@ All extension UI travels through the normal authenticated event stream
 (`/api/pi/events` via `runtimeFetch` / relay tunnel). No second WebSocket or
 custom origin is required; browser, Electron, and Capacitor clients share the
 same transport.
+
+### Custom message renderers
+
+When an extension registers a message renderer (for example a
+`subagent-notification` renderer), the daemon renders the custom message at
+100 columns and attaches the ANSI lines to the message. PiChamber shows those
+lines as the message body. Longer output hides behind a Show more toggle that
+swaps to the expanded lines, and the original text plus details stay
+available under a collapsed-by-default Raw message disclosure. Messages
+without a renderer keep the existing note display.
 
 ### Anything else falls back gracefully
 

@@ -17,6 +17,7 @@ import {
   nextExtensionFeedId,
 } from './reducerHelpers';
 import type { PiSessionId } from '../types';
+import { sanitizeExtensionMessageRender } from '../extension-ui';
 
 export const reduceExtensionEntry = (
   session: PiReducerSessionState,
@@ -49,6 +50,7 @@ export const reduceExtensionMessage = (
   payload: PiExtensionMessageEvent['payload'],
 ): void => {
   if (!payload.customType) return;
+  const render = sanitizeExtensionMessageRender(payload.render);
   const extensionMessage: PiReducerMessage = {
     id: payload.id,
     sessionId,
@@ -56,6 +58,7 @@ export const reduceExtensionMessage = (
     role: 'extension',
     customType: payload.customType,
     ...(payload.details !== undefined ? { details: payload.details } : {}),
+    ...(render ? { render } : {}),
     createdAt: payload.createdAt,
     text: payload.text ?? '',
     thinking: '',

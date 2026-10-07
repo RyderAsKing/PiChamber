@@ -242,10 +242,10 @@ const sanitizeNavigation = (value) => {
   };
 };
 
-export const projectToolRender = (render) => {
+const projectRenderLines = (render, keys) => {
   if (!render || typeof render !== 'object' || Array.isArray(render)) return undefined;
   const projected = {};
-  for (const key of ['call', 'result', 'resultExpanded']) {
+  for (const key of keys) {
     const lines = render[key];
     if (Array.isArray(lines)) {
       const sanitized = [];
@@ -261,6 +261,17 @@ export const projectToolRender = (render) => {
     }
   }
   return Object.keys(projected).length > 0 ? projected : undefined;
+};
+
+export const projectToolRender = (render) => projectRenderLines(render, ['call', 'result', 'resultExpanded']);
+
+// Extension message renders share the tool-render line bounds. An expanded
+// slot without a collapsed slot is dropped; malformed shapes degrade to
+// undefined instead of failing the frame or message.
+export const projectMessageRender = (render) => {
+  const projected = projectRenderLines(render, ['message', 'messageExpanded']);
+  if (!projected || !projected.message) return undefined;
+  return projected.messageExpanded ? projected : { message: projected.message };
 };
 
 const projectFilePart = (part) => {
@@ -281,6 +292,7 @@ const projectSessionDetail = (value) => {
     const message = item.message;
     if (typeof message.id !== 'string' || typeof message.sessionId !== 'string' || typeof message.directory !== 'string'
       || !Number.isFinite(message.createdAt) || (message.role !== 'user' && message.role !== 'assistant' && message.role !== 'extension')) throw protocolMismatch();
+    const messageRender = message.role === 'extension' ? projectMessageRender(message.render) : undefined;
     const projected = {
       id: message.id, sessionId: message.sessionId, directory: message.directory, role: message.role, createdAt: message.createdAt,
       ...(typeof message.parentId === 'string' ? { parentId: message.parentId } : {}),
@@ -299,6 +311,7 @@ const projectSessionDetail = (value) => {
       ...(message.role === 'extension' && typeof message.customType === 'string' ? { customType: message.customType } : {}),
       ...(message.role === 'extension' && message.data !== undefined ? { data: message.data } : {}),
       ...(message.role === 'extension' && message.details !== undefined ? { details: message.details } : {}),
+      ...(messageRender ? { render: messageRender } : {}),
     };
     const parts = item.parts.map((part) => {
       if (!part || typeof part !== 'object' || typeof part.type !== 'string' || typeof part.id !== 'string' || !Number.isSafeInteger(part.index)) throw protocolMismatch();
@@ -757,7 +770,8 @@ export const projectEventFrame = (frame) => {
       if (typeof frame.payload.customType !== 'string' || frame.payload.customType.length === 0 || frame.payload.customType.length > 256) return null;
       if (typeof frame.payload.text !== 'string') return null;
       if (!Number.isFinite(frame.payload.createdAt)) return null;
-      return { ...common, payload: { id: frame.payload.id.slice(0, 512), customType: frame.payload.customType.slice(0, 256), text: frame.payload.text.slice(0, 50000), ...(frame.payload.details !== undefined ? { details: frame.payload.details } : {}), createdAt: frame.payload.createdAt } };
+      const render = projectMessageRender(frame.payload.render);
+      return { ...common, payload: { id: frame.payload.id.slice(0, 512), customType: frame.payload.customType.slice(0, 256), text: frame.payload.text.slice(0, 50000), ...(frame.payload.details !== undefined ? { details: frame.payload.details } : {}), ...(render ? { render } : {}), createdAt: frame.payload.createdAt } };
     }
     case 'extension.notify': {
       if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;

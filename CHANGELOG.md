@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Extension message renderers show inline.** Custom messages from an extension that calls `pi.registerMessageRenderer` now render the way the Pi terminal shows them instead of as raw text. For example, `@tintinweb/pi-subagents` completion notices show the plugin's summary instead of their `<task-notification>` XML. The daemon runs the renderer collapsed and expanded with the extension theme, on live messages and in history, and redacts attachment paths in its output. The chat shows the collapsed lines with a Show more toggle, and the original text and details move into a collapsed Raw message section. A renderer that throws or returns nothing leaves the message as a plain note. The route caps each render at 200 lines of 2000 characters (`extension-message-render`, `routes`, `ExtensionNoteRow`).
+
 - **Sign in with ChatGPT for the `openai` provider.** Pi 1.0's ChatGPT subscription login for the `openai` provider failed immediately in PiChamber. The daemon now passes Pi's installation device ID to provider logins the same way the Pi CLI does. The Providers page guides browser sign-in in two steps: open the sign-in page (with a copy-link button for another device), then paste the redirect URL. It rejects a pasted URL that isn't the redirect address before sending it. A failed login now shows Pi's reason, with URL query strings stripped so an authorization code never reaches the response. If the browser callback already settled the login, a later paste reports that state instead of a false failure (`session-daemon`, `routes`, `ProviderLoginFlow`).
 
 ## [1.0.4] - 2026-10-05

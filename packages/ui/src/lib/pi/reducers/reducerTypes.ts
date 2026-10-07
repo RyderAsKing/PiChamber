@@ -8,6 +8,7 @@ import type {
 import type {
   PiAttachment,
   PiCompactionInfo,
+  PiExtensionMessageRender,
   PiModelRef,
   PiRetryInfo,
   PiSessionLifecycleState,
@@ -62,6 +63,8 @@ export interface PiReducerMessage {
   data?: unknown;
   /** Extension-role only: details payload of a custom message (`sendMessage`). */
   details?: unknown;
+  /** Extension-role only: daemon-rendered lines (`registerMessageRenderer`). */
+  render?: PiExtensionMessageRender;
   /** User message that owns this assistant turn. */
   parentId?: string;
   /** Created-at (ms epoch) the reducer keeps for ordering. */
@@ -205,6 +208,8 @@ export interface PiProjectedMessage {
   data?: unknown;
   /** Extension-role only: custom message details payload. */
   details?: unknown;
+  /** Extension-role only: daemon-rendered lines (`registerMessageRenderer`). */
+  render?: PiExtensionMessageRender;
   text: string;
   thinking: string;
   streaming: boolean;

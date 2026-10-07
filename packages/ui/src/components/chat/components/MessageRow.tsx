@@ -5,6 +5,7 @@ import ChatMessage from '../ChatMessage';
 import { ExtensionMessageCard } from '../message/parts/extension/ExtensionMessageCard';
 import { ExtensionNoteRow } from '../message/parts/extension/ExtensionNoteRow';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
+import type { PiExtensionMessageRender } from '@/lib/pi/types';
 import {
   areOptionalNeighborMessagesEqual,
   areRelevantTurnGroupingContextsEqual,
@@ -49,10 +50,12 @@ export const MessageRow = React.memo<MessageRowProps>(
       data?: unknown;
       details?: unknown;
       text?: string;
+      render?: PiExtensionMessageRender;
     };
 
     // Extension-authored content renders through declarative UI cards when recognized,
-    // or compact note rows for custom text/fallback messages.
+    // or compact note rows for custom text/fallback messages. Daemon-rendered
+    // message lines (`registerMessageRenderer`) ride the note row, never the card.
     if (info.role === 'extension') {
       const parsed = parseExtensionChatItem({
         customType: info.customType,
@@ -79,6 +82,7 @@ export const MessageRow = React.memo<MessageRowProps>(
               text={typeof info.text === 'string' ? info.text : undefined}
               data={info.data}
               details={info.details}
+              render={info.render}
             />
           )}
         </div>

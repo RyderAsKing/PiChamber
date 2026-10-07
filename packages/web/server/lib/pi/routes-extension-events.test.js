@@ -4,6 +4,7 @@ import express from 'express';
 import {
   projectEventFrame,
   projectExtensionList,
+  projectMessageRender,
   projectToolRender,
   registerPiRuntimeRoutes,
 } from './routes.js';
@@ -408,6 +409,140 @@ describe('projectToolRender and tool render route passthrough', () => {
         result: ['result output'],
         resultExpanded: ['result expanded'],
       });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
+describe('projectMessageRender and message render route passthrough', () => {
+  it('sanitizes message render shapes and bounds lines', () => {
+    expect(projectMessageRender(null)).toBeUndefined();
+    expect(projectMessageRender('not-an-object')).toBeUndefined();
+    expect(projectMessageRender([])).toBeUndefined();
+    expect(projectMessageRender({})).toBeUndefined();
+    expect(projectMessageRender({ message: [] })).toBeUndefined();
+    // An expanded slot without a collapsed slot is dropped.
+    expect(projectMessageRender({ messageExpanded: ['only expanded'] })).toBeUndefined();
+    expect(projectMessageRender({ message: 'not-an-array', messageExpanded: ['expanded'] })).toBeUndefined();
+
+    expect(projectMessageRender({ message: ['collapsed'] })).toEqual({ message: ['collapsed'] });
+    expect(projectMessageRender({ message: ['collapsed'], messageExpanded: ['expanded'] })).toEqual({
+      message: ['collapsed'],
+      messageExpanded: ['expanded'],
+    });
+
+    const longLine = 'a'.repeat(2500);
+    const manyLines = Array.from({ length: 250 }, (_, i) => `line-${i}`);
+    const sanitized = projectMessageRender({ message: [longLine, 123, null, 'valid'], messageExpanded: manyLines });
+    expect(sanitized.message).toHaveLength(2);
+    expect(sanitized.message[0]).toHaveLength(2000);
+    expect(sanitized.message[1]).toBe('valid');
+    expect(sanitized.messageExpanded).toHaveLength(200);
+    // Tool render keys never leak into message renders.
+    expect(projectMessageRender({ message: ['ok'], call: ['tool'] })).toEqual({ message: ['ok'] });
+  });
+
+  it('leaves projectToolRender behavior unchanged', () => {
+    expect(projectToolRender({ call: ['c'], result: ['r'], resultExpanded: ['e'] })).toEqual({
+      call: ['c'],
+      result: ['r'],
+      resultExpanded: ['e'],
+    });
+    // Message render keys never leak into tool renders.
+    expect(projectToolRender({ call: ['c'], message: ['m'] })).toEqual({ call: ['c'] });
+  });
+
+  it('projects extension.message frames with sanitized render and drops malformed shapes', () => {
+    const rendered = projectEventFrame(frame('extension.message', {
+      id: 'm1',
+      customType: 'my-extension',
+      text: 'hi',
+      createdAt: 1000,
+      render: { message: ['collapsed'], messageExpanded: ['expanded'] },
+    }));
+    expect(rendered?.payload.render).toEqual({ message: ['collapsed'], messageExpanded: ['expanded'] });
+
+    const manyLines = Array.from({ length: 250 }, (_, i) => `line-${i}`);
+    const capped = projectEventFrame(frame('extension.message', {
+      id: 'm1',
+      customType: 'my-extension',
+      text: 'hi',
+      createdAt: 1000,
+      render: { message: manyLines },
+    }));
+    expect(capped?.payload.render.message).toHaveLength(200);
+
+    // Invalid render shapes are dropped, not protocol errors.
+    for (const render of [{ message: 'not-an-array' }, { messageExpanded: ['orphan'] }, 'nope', 42]) {
+      const dropped = projectEventFrame(frame('extension.message', {
+        id: 'm1',
+        customType: 'my-extension',
+        text: 'hi',
+        createdAt: 1000,
+        render,
+      }));
+      expect(dropped).not.toBeNull();
+      expect('render' in dropped.payload).toBe(false);
+    }
+
+    const plain = projectEventFrame(frame('extension.message', {
+      id: 'm1',
+      customType: 'my-extension',
+      text: 'hi',
+      createdAt: 1000,
+    }));
+    expect(plain).not.toBeNull();
+    expect('render' in plain.payload).toBe(false);
+  });
+
+  it('passes sanitized render on session detail extension messages and drops malformed shapes', async () => {
+    const runtime = {
+      request: async (command) => {
+        if (command === 'sessions.open') {
+          return {
+            session: { id: 'sess-ext', directory: '/work', createdAt: 1000, updatedAt: 1000 },
+            messages: [
+              {
+                message: {
+                  id: 'm1', sessionId: 'sess-ext', directory: '/work', role: 'extension',
+                  customType: 'my-extension', text: 'hi', createdAt: 1000,
+                  render: { message: ['collapsed'], messageExpanded: ['expanded'] },
+                },
+                parts: [],
+              },
+              {
+                message: {
+                  id: 'm2', sessionId: 'sess-ext', directory: '/work', role: 'extension',
+                  customType: 'my-extension', text: 'hi', createdAt: 1000,
+                  render: { messageExpanded: ['orphan'] },
+                },
+                parts: [],
+              },
+            ],
+            lastSequence: 1,
+            isStreaming: false,
+            lifecycle: 'idle',
+          };
+        }
+        throw new Error(`Unexpected command ${command}`);
+      },
+    };
+
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    const server = await new Promise((resolve, reject) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+      s.once('error', reject);
+    });
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/sess-ext?directory=%2Fwork`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.messages[0].message.render).toEqual({ message: ['collapsed'], messageExpanded: ['expanded'] });
+      expect('render' in data.messages[1].message).toBe(false);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }

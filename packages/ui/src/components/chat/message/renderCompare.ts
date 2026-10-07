@@ -145,7 +145,10 @@ const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boole
     && (left as { clientRole?: unknown }).clientRole === (right as { clientRole?: unknown }).clientRole
     && (left as { userMessageMarker?: unknown }).userMessageMarker === (right as { userMessageMarker?: unknown }).userMessageMarker
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.created ?? null)
-    && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null);
+    && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null)
+    // Extension message renders ride on `info` (not parts); without this a
+    // late-arriving render for the same message id never re-renders the row.
+    && (left as { render?: unknown }).render === (right as { render?: unknown }).render;
 };
 
 export const areRenderRelevantMessagesEqual = (left: MessageRecord, right: MessageRecord): boolean => {

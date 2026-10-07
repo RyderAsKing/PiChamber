@@ -131,6 +131,17 @@ export interface PiAssistantMessage extends PiMessageBase {
  * (`pi.sendMessage`, projected with `text` and optional `details`). Rendered
  * by the extension UI renderer registry; never sent to the model by PiChamber.
  */
+/**
+ * Daemon-rendered ANSI lines for a custom extension message
+ * (`registerMessageRenderer`). Already sanitized, redacted, and capped
+ * server-side. `messageExpanded` is present only when it differs from
+ * `message`.
+ */
+export interface PiExtensionMessageRender {
+  message: string[];
+  messageExpanded?: string[];
+}
+
 export interface PiExtensionMessage extends PiMessageBase {
   role: 'extension';
   /** The pi customType that authored this item (e.g. `pichamber.ui`). */
@@ -141,6 +152,8 @@ export interface PiExtensionMessage extends PiMessageBase {
   data?: unknown;
   /** Arbitrary details payload for custom messages (`message.details`). */
   details?: unknown;
+  /** Daemon-rendered lines for custom messages with a message renderer. */
+  render?: PiExtensionMessageRender;
 }
 
 /**

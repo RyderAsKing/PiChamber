@@ -21,6 +21,7 @@
  */
 
 import { normalizeCommandArgs } from './command-triggers';
+import type { PiExtensionMessageRender } from './types';
 
 export const PI_EXTENSION_UI_CUSTOM_TYPE = 'pichamber.ui';
 
@@ -242,6 +243,33 @@ const parseProps = (
 const truncateForFallback = (value: string, maxLength = 2_000): string => (
   value.length > maxLength ? `${value.slice(0, maxLength)}…` : value
 );
+
+const asStringLines = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const lines: string[] = [];
+  for (const line of value) {
+    if (typeof line !== 'string') return undefined;
+    lines.push(line);
+  }
+  return lines;
+};
+
+/**
+ * Accept a daemon-supplied message render (`registerMessageRenderer`
+ * output). The daemon sanitizes, redacts, and caps these lines; this only
+ * drops malformed shapes so a corrupt payload degrades to the raw fallback
+ * instead of breaking the transcript. A valid `message` with an invalid
+ * `messageExpanded` keeps the collapsed lines and drops the expanded view.
+ */
+export const sanitizeExtensionMessageRender = (value: unknown): PiExtensionMessageRender | undefined => {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const message = asStringLines(record.message);
+  if (!message) return undefined;
+  if (record.messageExpanded === undefined) return { message };
+  const messageExpanded = asStringLines(record.messageExpanded);
+  return messageExpanded ? { message, messageExpanded } : { message };
+};
 
 /**
  * Parse one extension-authored chat item into its renderable form.
