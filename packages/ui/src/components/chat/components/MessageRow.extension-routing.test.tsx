@@ -108,6 +108,47 @@ describe('MessageRow extension routing (ungrouped)', () => {
     expect(chatMessageRenderedIds).toEqual([]);
   });
 
+  test('extension message render rides the note row, never the rich card', () => {
+    const markup = renderUngrouped(
+      makeExtensionEntry('ext-render-1', {
+        text: 'Explore repo completed',
+        details: { tools: 3 },
+        render: {
+          message: ['✓ Explore repo completed', '  3 tool uses · 12.4k tokens'],
+          messageExpanded: ['✓ Explore repo completed', '  full file list'],
+        },
+      }),
+    );
+
+    expect(markup).toContain('data-extension-ui="ext-render-1"');
+    expect(markup).toContain('data-extension-message-render="true"');
+    expect(markup).toContain('3 tool uses');
+    expect(markup).toContain('Show more');
+    expect(markup).toContain('Raw message');
+    expect(markup).not.toContain('data-markdown-content');
+
+    expect(chatMessageRenderCount).toBe(0);
+    expect(chatMessageRenderedIds).toEqual([]);
+  });
+
+  test('pichamber.ui descriptor keeps rich card behavior when a render is present', () => {
+    const markup = renderUngrouped(
+      makeExtensionEntry('ext-gui-render-1', {
+        customType: 'pichamber.ui',
+        data: { component: 'progress', props: { label: 'Indexing', value: 40, max: 200 } },
+        render: { message: ['Indexing 40/200'] },
+      }),
+    );
+
+    expect(markup).toContain('data-extension-ui="ext-gui-render-1"');
+    expect(markup).toContain('Indexing');
+    expect(markup).toContain('20%');
+    expect(markup).not.toContain('data-extension-message-render="true"');
+
+    expect(chatMessageRenderCount).toBe(0);
+    expect(chatMessageRenderedIds).toEqual([]);
+  });
+
   test('spy validity: non-extension input does reach the mocked ChatMessage', () => {
     const entry: ChatMessageEntry = {
       info: { id: 'assistant-spy-check', role: 'assistant' } as Message,

@@ -37,6 +37,7 @@ import {
   createExtensionToolRenderer,
   installExtensionGlobalTheme,
 } from './extension-tool-render.js';
+import { createExtensionMessageRenderer } from './extension-message-render.js';
 import { getBuiltinExtensionFactories } from './builtin-extensions.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
@@ -216,6 +217,7 @@ export function createSessionDaemon({
   },
   extensionToolRenderer: injectExtensionToolRenderer,
   engines = [],
+  extensionMessageRenderer: injectExtensionMessageRenderer,
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new SessionDaemonProtocolError('INVALID_ENDPOINT', 'The session daemon endpoint must be local.');
@@ -241,6 +243,8 @@ export function createSessionDaemon({
   const extensionTheme = createExtensionTheme();
   installExtensionGlobalTheme(extensionTheme);
   const extensionToolRenderer = injectExtensionToolRenderer ?? createExtensionToolRenderer({ theme: extensionTheme });
+  const extensionMessageRenderer = injectExtensionMessageRenderer
+    ?? createExtensionMessageRenderer({ theme: extensionTheme, redactAttachmentPaths: (value) => redactAttachmentPaths(value) });
   let ownerServerInstanceId = typeof serverInstanceId === 'string' && serverInstanceId.length > 0 ? serverInstanceId : null;
   let ownerServerPid = Number.isInteger(serverPid) && serverPid > 0 ? serverPid : null;
   const leaseOwner = () => {
@@ -596,6 +600,7 @@ export function createSessionDaemon({
     getDefaultDirectory: () => activeDirectory || cwd,
     getSequence: () => sequence,
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
+    renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
   });
   const {
@@ -1602,7 +1607,7 @@ export function createSessionDaemon({
           : Array.isArray(entry.content)
             ? textFromContent(entry.content)
             : '';
-        return [{
+        const projected = {
           message: {
             id: entry.id, sessionId: session.sessionId, directory: targetDir, role: 'extension',
             customType: entry.customType,
@@ -1611,7 +1616,11 @@ export function createSessionDaemon({
             ...(entry.details !== undefined ? { details: redactAttachmentValues(entry.details) } : {}),
           },
           parts: [],
-        }];
+        };
+        // Renderer input is rebuilt from the entry so replay sees exactly
+        // what the live path received; the render itself resolves lazily.
+        pendingMessageRenders.set(projected, () => extensionMessageRenderer.renderEntry(session, entry));
+        return [projected];
       }
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
       const timestamp = Date.parse(entry.timestamp);
@@ -1754,6 +1763,22 @@ export function createSessionDaemon({
     return projected;
   };
 
+  // Custom message renders run extension code too, so they resolve lazily
+  // for the same reason: only for messages a page actually selects.
+  const pendingMessageRenders = new WeakMap();
+  const materializeMessageRenders = (projected) => {
+    const resolve = projected && pendingMessageRenders.get(projected);
+    if (!resolve) return projected;
+    pendingMessageRenders.delete(projected);
+    try {
+      const render = resolve();
+      if (render) projected.message.render = render;
+    } catch {}
+    return projected;
+  };
+
+  const materializePendingRenders = (projected) => materializeMessageRenders(materializeToolRenders(projected));
+
   const projectMessagePage = (messages, options = {}) => {
     const requestedLimit = options.limit ?? SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT;
     if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > SESSION_DAEMON_MAX_MESSAGE_PAGE_LIMIT) {
@@ -1771,7 +1796,7 @@ export function createSessionDaemon({
     let start = end;
     let pageBytes = 2;
     while (start > 0 && end - start < requestedLimit) {
-      const candidate = materializeToolRenders(messages[start - 1]);
+      const candidate = materializePendingRenders(messages[start - 1]);
       const candidateBytes = Buffer.byteLength(JSON.stringify(candidate));
       if (start < end && pageBytes + candidateBytes + 1 > SESSION_DAEMON_MESSAGE_PAGE_TARGET_BYTES) break;
       start -= 1;
@@ -1782,7 +1807,7 @@ export function createSessionDaemon({
     const firstMessage = selected[0]?.message;
     if (firstMessage?.role === 'assistant' && typeof firstMessage.parentId === 'string') {
       anchorIndex = messages.findIndex((entry, index) => index < start && entry?.message?.id === firstMessage.parentId);
-      if (anchorIndex >= 0) selected.unshift(materializeToolRenders(messages[anchorIndex]));
+      if (anchorIndex >= 0) selected.unshift(materializePendingRenders(messages[anchorIndex]));
     }
     const beginsAtAdjacentAnchor = anchorIndex === start - 1;
     const cursorIndex = beginsAtAdjacentAnchor ? anchorIndex : start;

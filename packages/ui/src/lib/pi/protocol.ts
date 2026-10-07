@@ -22,6 +22,7 @@ import type {
   PiAttachment,
   PiAssistantMessage,
   PiCompactionInfo,
+  PiExtensionMessageRender,
   PiModel,
   PiModelRef,
   PiProvider,
@@ -947,6 +948,8 @@ export type PiExtensionMessageEvent = PiEventEnvelope<
     customType: string;
     text: string;
     details?: unknown;
+    /** Daemon-rendered ANSI lines when the extension registered a message renderer. */
+    render?: PiExtensionMessageRender;
     createdAt: number;
   }
 >;

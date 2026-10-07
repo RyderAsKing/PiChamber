@@ -29,6 +29,17 @@ const sanitizeLines = (lines) => {
   return sanitized.length > 0 ? sanitized : undefined;
 };
 
+// Render one TUI component to sanitized ANSI lines. Shared by tool renders
+// and extension message renders so both sides keep the same width and bounds.
+export const renderComponentLines = (component, width = TOOL_RENDER_WIDTH) => {
+  try {
+    if (!component || typeof component.render !== 'function') return undefined;
+    return sanitizeLines(component.render(width));
+  } catch {
+    return undefined;
+  }
+};
+
 export function createExtensionToolRenderer({
   theme,
   schedule = setTimeout,
@@ -57,9 +68,7 @@ export function createExtensionToolRenderer({
       };
       const component = definition.renderCall(args, theme, context);
       if (entry.lastComponents) entry.lastComponents.call = component;
-      if (component && typeof component.render === 'function') {
-        return sanitizeLines(component.render(TOOL_RENDER_WIDTH));
-      }
+      return renderComponentLines(component);
     } catch {}
     return undefined;
   };
@@ -84,9 +93,7 @@ export function createExtensionToolRenderer({
       };
       const component = definition.renderResult(result, { expanded, isPartial }, theme, context);
       if (entry.lastComponents) entry.lastComponents[slot] = component;
-      if (component && typeof component.render === 'function') {
-        return sanitizeLines(component.render(TOOL_RENDER_WIDTH));
-      }
+      return renderComponentLines(component);
     } catch {}
     return undefined;
   };
