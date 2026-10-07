@@ -16,6 +16,8 @@ import {
 
 import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
+import { PIERRE_STICKY_SCROLLBAR_HIDE_CSS } from './pierreScrollSync';
+import { StickyHorizontalScrollbar } from './StickyHorizontalScrollbar';
 import { useWorkerPool } from '@/contexts/DiffWorkerProvider';
 import { ensurePierreThemeRegistered, getResolvedShikiTheme } from '@/lib/shiki/appThemeRegistry';
 import { getDefaultTheme } from '@/lib/theme/themes';
@@ -663,8 +665,14 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
     ...(onGutterUtilityClick ? { onGutterUtilityClick } : {}),
     ...(onLineSelectionEnd ? { onLineSelectionEnd } : {}),
     renderAnnotation: bridgedRenderAnnotation,
-    unsafeCSS: WEBKIT_SCROLL_FIX_CSS,
-  }), [bridgedRenderAnnotation, darkTheme.metadata.id, enableGutterUtility, enableLineSelection, isDark, isLargeContent, lightTheme.metadata.id, onGutterUtilityClick, onLineSelectionEnd, renderSideBySide, wrapLines]);
+    // Inline diffs hide Pierre's native per-file bar (it sits at the bottom
+    // of each file's diff) in favor of the sticky proxy bar mounted below.
+    // `fill` keeps its native pane-height bar. Wrap mode is unaffected: the
+    // hide rule only matches `[data-overflow="scroll"]` and no proxy mounts.
+    unsafeCSS: layout === 'inline'
+      ? `${WEBKIT_SCROLL_FIX_CSS}\n${PIERRE_STICKY_SCROLLBAR_HIDE_CSS}`
+      : WEBKIT_SCROLL_FIX_CSS,
+  }), [bridgedRenderAnnotation, darkTheme.metadata.id, enableGutterUtility, enableLineSelection, isDark, isLargeContent, layout, lightTheme.metadata.id, onGutterUtilityClick, onLineSelectionEnd, renderSideBySide, wrapLines]);
 
   useEffect(() => {
     const container = diffContainerRef.current;
@@ -856,11 +864,16 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
     );
   }
 
-  // Fallback for 'inline' layout
+  // Fallback for 'inline' layout.
+  // The wrapper intentionally creates no scroll container (no auto/scroll/
+  // hidden overflow on either axis): horizontal overflow lives inside
+  // Pierre's shadow `[data-code]` scroller, and keeping this box out of the
+  // sticky chain lets the proxy bar below stick to the outer vertical pane.
   return (
     <div className={cn("relative", "w-full")}>
-      <div ref={diffRootRef} className="pierre-diff-wrapper w-full overflow-x-auto overflow-y-visible relative" data-no-drawer-swipe="true">
+      <div ref={diffRootRef} className="pierre-diff-wrapper w-full relative" data-no-drawer-swipe="true">
       <div ref={diffContainerRef} className="w-full" />
+      <StickyHorizontalScrollbar hostRef={diffContainerRef} enabled={!wrapLines} />
     </div>
   </div>
   );

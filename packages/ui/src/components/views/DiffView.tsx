@@ -221,7 +221,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
           <ScrollableOverlay
             ref={diffScrollRef}
             outerClassName="min-h-0 h-full"
-            className="[overflow-anchor:none] pb-16"
+            className="[overflow-anchor:none]"
             disableHorizontal
             observeMutations={false}
             preventOverscroll
@@ -259,6 +259,10 @@ export const DiffView: React.FC<DiffViewProps> = ({
                 />
               ))}
             </div>
+            {/* Trailing space as a spacer, not padding: sticky bottom insets
+                respect scroll-container padding, which would float each
+                file's sticky horizontal scrollbar above the pane edge. */}
+            <div aria-hidden="true" className="h-16 shrink-0" />
           </ScrollableOverlay>
         </div>
       </div>

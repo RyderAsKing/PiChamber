@@ -404,7 +404,10 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
         </div>
       </div>
       {isExpanded && (
-        <div className="relative overflow-hidden bg-background">
+        // overflow-clip (not hidden): still clips, but does not create a
+        // scroll container, so the sticky proxy scrollbar inside resolves
+        // against the outer vertical pane.
+        <div className="relative overflow-clip bg-background">
           {!isMounted && !diffLoadError ? (
             <div className="h-40 border border-border/40 bg-background/40" />
           ) : null}
