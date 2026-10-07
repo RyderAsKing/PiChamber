@@ -9,6 +9,12 @@ import type { DiffViewMode } from '@/components/chat/message/types';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui';
 import { cn } from '@/lib/utils';
 import { getRuntimeKey } from '@/lib/runtime-switch';
@@ -72,6 +78,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   const setDiff = useGitStore((state) => state.setDiff);
   const fetchStatus = useGitStore((state) => state.fetchStatus);
   const setDiffFileLayout = useUIStore((state) => state.setDiffFileLayout);
+  const setDiffWrapLines = useUIStore((state) => state.setDiffWrapLines);
 
   const [diffRetryNonce, setDiffRetryNonce] = React.useState(0);
   const [diffLoadError, setDiffLoadError] = React.useState<string | null>(null);
@@ -340,6 +347,59 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
               }}
               className="opacity-70"
             />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0 opacity-70 hover:opacity-100"
+                  title={"File view options"}
+                  aria-label={"File view options"}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                  }}
+                >
+                  <Icon name="more-2-fill" className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setDiffWrapLines(!wrapLines);
+                  }}
+                >
+                  <Icon name="text-wrap" className="size-4" />
+                  <span className="flex-1">{"Wrap lines"}</span>
+                  {wrapLines ? (
+                    <Icon name="check" className="size-4" />
+                  ) : null}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setDiffFileLayout(file.path, renderSideBySide ? 'inline' : 'side-by-side');
+                  }}
+                >
+                  <Icon
+                    name={renderSideBySide ? 'align-justify' : 'layout-column'}
+                    className="size-4"
+                  />
+                  {renderSideBySide
+                    ? "Switch to unified view"
+                    : "Switch to side-by-side view"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

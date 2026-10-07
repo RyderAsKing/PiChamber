@@ -51,6 +51,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const { browserTab } = usePwaDetection();
     const expandedEditorToolbar = useUIStore(state => state.expandedEditorToolbar);
     const setExpandedEditorToolbar = useUIStore(state => state.setExpandedEditorToolbar);
+    const wrapLinesByDefault = useUIStore(state => state.wrapLinesByDefault);
+    const setWrapLinesByDefault = useUIStore(state => state.setWrapLinesByDefault);
     const autoSaveEnabled = useUIStore(state => state.autoSaveEnabled);
     const setAutoSaveEnabled = useUIStore(state => state.setAutoSaveEnabled);
     const fontSize = useUIStore(state => state.fontSize);
@@ -130,6 +132,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setExpandedEditorToolbar(enabled);
         void updateDesktopSettings({ expandedEditorToolbar: enabled });
     }, [setExpandedEditorToolbar]);
+
+    const handleWrapLinesByDefaultChange = React.useCallback((enabled: boolean) => {
+        setWrapLinesByDefault(enabled);
+        void updateDesktopSettings({ wrapLinesByDefault: enabled });
+    }, [setWrapLinesByDefault]);
 
     const handleTimeFormatPreferenceChange = React.useCallback((value: 'auto' | '12h' | '24h') => {
         setTimeFormatPreference(value);
@@ -254,7 +261,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const showMobileLayoutSetting = isMobile && isWebRuntime() && !isDesktopShell();
     const hasAppearanceSettings = (shouldShow('theme') || showMobileLayoutSetting || shouldShow('pwaInstallName') || shouldShow('pwaOrientation') || shouldShow('timeFormat') || shouldShow('weekStart'));
     const hasLayoutSettings = shouldShow('fontSize') || shouldShow('terminalFontSize') || shouldShow('editorFontSize') || shouldShow('spacing') || (shouldShow('inputBarOffset') && isMobile);
-    const hasNavigationSettings = shouldShow('sidebarViewMode') || shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar');
+    const hasNavigationSettings = shouldShow('sidebarViewMode') || shouldShow('terminalQuickKeys') || ((shouldShow('terminalShell') || shouldShow('terminalLoginShell'))) || shouldShow('fileEditorKeymap') || shouldShow('autoSaveEnabled') || shouldShow('expandedEditorToolbar') || shouldShow('wrapLinesByDefault');
     const hasBehaviorSettings = shouldShow('diffLayout')
         || shouldShow('followUpBehavior');
     const showBehaviorMessageOptions = shouldShow('diffLayout')
@@ -472,6 +479,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     setAutoSaveEnabled={setAutoSaveEnabled}
                     expandedEditorToolbar={expandedEditorToolbar}
                     onExpandedEditorToolbarChange={handleExpandedEditorToolbarChange}
+                    wrapLinesByDefault={wrapLinesByDefault}
+                    onWrapLinesByDefaultChange={handleWrapLinesByDefaultChange}
                     showTerminalQuickKeysOnDesktop={showTerminalQuickKeysOnDesktop}
                     setShowTerminalQuickKeysOnDesktop={setShowTerminalQuickKeysOnDesktop}
                     showTerminalShellSetting={showTerminalShellSetting}

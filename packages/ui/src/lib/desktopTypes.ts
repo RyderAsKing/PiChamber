@@ -111,6 +111,7 @@ export type DesktopSettings = {
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
   sidebarViewMode?: SidebarViewMode;
   expandedEditorToolbar?: boolean;
+  wrapLinesByDefault?: boolean;
   fontSize?: number;
   terminalFontSize?: number;
   terminalShell?: TerminalShell;

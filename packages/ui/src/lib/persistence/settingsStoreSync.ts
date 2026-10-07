@@ -184,6 +184,12 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     store.setExpandedEditorToolbar(settings.expandedEditorToolbar);
   }
   if (
+    typeof settings.wrapLinesByDefault === 'boolean' &&
+    settings.wrapLinesByDefault !== store.wrapLinesByDefault
+  ) {
+    store.setWrapLinesByDefault(settings.wrapLinesByDefault);
+  }
+  if (
     typeof settings.fontSize === 'number' &&
     Number.isFinite(settings.fontSize) &&
     settings.fontSize !== store.fontSize

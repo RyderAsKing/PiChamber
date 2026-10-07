@@ -187,4 +187,5 @@ export type VisibleSetting =
   | 'reportUsage'
   | 'perfHud'
   | 'expandedEditorToolbar'
+  | 'wrapLinesByDefault'
   | 'autoSaveEnabled';

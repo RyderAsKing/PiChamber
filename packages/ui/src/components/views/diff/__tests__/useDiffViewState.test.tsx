@@ -40,7 +40,8 @@ mock.module('@/stores/useUIStore', () => {
     diffLayoutPreference: 'inline',
     diffFileLayout: {},
     setDiffFileLayout: () => undefined,
-    diffWrapLines: false,
+    diffWrapLinesOverride: null,
+    wrapLinesByDefault: true,
     setDiffWrapLines: () => undefined,
     openContextFileAtLine: () => undefined,
   };
