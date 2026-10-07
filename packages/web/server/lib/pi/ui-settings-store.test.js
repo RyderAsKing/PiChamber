@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readlink, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -271,5 +271,24 @@ describe('Pi UI settings store', () => {
     await expect(store.read()).rejects.toThrow('UI_SETTINGS_INVALID');
     const changes = JSON.parse('{"constructor":{"polluted":true}}');
     await expect(store.write(changes)).rejects.toThrow('UI_SETTINGS_INVALID');
+  });
+
+  it('keeps a symlinked settings.json and writes through to its target', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-ui-settings-'));
+    const dotfiles = join(root, 'dotfiles');
+    const config = join(root, 'config');
+    await mkdir(dotfiles);
+    await mkdir(config);
+    const target = join(dotfiles, 'settings.json');
+    const file = join(config, 'settings.json');
+    await writeFile(target, JSON.stringify({ __pichamberSettingsScope: 'portable-v1', themeId: 'old' }));
+    await symlink('../dotfiles/settings.json', file);
+    const store = createPiUiSettingsStore({ file, runtimeFile: join(config, 'runtime-state.json') });
+
+    await store.write({ themeId: 'new' });
+
+    expect((await lstat(file)).isSymbolicLink()).toBe(true);
+    expect(await readlink(file)).toBe('../dotfiles/settings.json');
+    expect(await readJson(target)).toMatchObject({ themeId: 'new' });
   });
 });

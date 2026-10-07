@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
+import { writeFileAtomic } from './fs/atomic-write.js';
 import { resolvePiChamberDataDir } from './pichamber-data-dir.js';
 import { withCrossProcessLock } from './server/cross-process-lock.js';
 
@@ -58,10 +59,7 @@ export const createUpdateJobStore = ({
   };
 
   const writeFileValue = async (job) => {
-    await mkdir(dirname(file), { recursive: true, mode: 0o700 });
-    const temporary = `${file}.${process.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify(job), { mode: 0o600 });
-    await rename(temporary, file);
+    await writeFileAtomic(file, JSON.stringify(job));
     return job;
   };
 

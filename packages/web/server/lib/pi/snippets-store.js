@@ -3,12 +3,15 @@ import {
   chmod,
   mkdir,
   readFile,
+  readlink,
+  realpath,
   rename,
   rm,
   writeFile,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, normalize } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 
+import { writeFileAtomic } from "../fs/atomic-write.js";
 import { resolvePiChamberDataDir } from "../pichamber-data-dir.js";
 import { withCrossProcessLock } from "../server/cross-process-lock.js";
 
@@ -186,7 +189,7 @@ const assertUniqueInBucket = (snippets, candidate, ignoreId) => {
 
 export const createPiSnippetsStore = ({
   file = join(resolvePiChamberDataDir(), "pi", "snippets.json"),
-  fs = { chmod, mkdir, readFile, rename, rm, writeFile },
+  fs = { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile },
 } = {}) => {
   let mutation = Promise.resolve();
 
@@ -208,21 +211,9 @@ export const createPiSnippetsStore = ({
 
   const writeRaw = async (snapshot) => {
     const validated = validateSnapshot(snapshot);
-    const parent = dirname(file);
-    await fs.mkdir(parent, { recursive: true, mode: 0o700 });
-    const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
-    try {
-      await fs.writeFile(temporary, `${JSON.stringify(validated, null, 2)}\n`, {
-        encoding: "utf8",
-        mode: 0o600,
-      });
-      await fs.rename(temporary, file);
-    } catch (error) {
-      await fs.rm(temporary, { force: true }).catch(() => {});
-      throw error;
-    }
-    if (process.platform !== "win32")
-      await fs.chmod(file, 0o600).catch(() => {});
+    await writeFileAtomic(file, `${JSON.stringify(validated, null, 2)}\n`, {
+      fs,
+    });
     return validated;
   };
 

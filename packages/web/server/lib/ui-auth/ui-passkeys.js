@@ -8,6 +8,7 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 
+import { writeFileAtomicSync } from '../fs/atomic-write.js';
 import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '../pichamber-data-dir.js';
 
 const DEFAULT_STORE_VERSION = 1;
@@ -120,21 +121,9 @@ export const createUiPasskeys = ({
   const registrationChallenges = new Map();
   const authenticationChallenges = new Map();
 
-  const ensureStoreDirectory = () => {
-    fs.mkdirSync(path.dirname(storeFile), { recursive: true });
-  };
-
   const persistStore = (store) => {
-    ensureStoreDirectory();
     // Atomic replace so a concurrent server never reads a torn store.
-    const temporary = `${storeFile}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
-    try {
-      fs.writeFileSync(temporary, JSON.stringify(store, null, 2), { mode: 0o600 });
-      fs.renameSync(temporary, storeFile);
-    } catch (error) {
-      try { fs.rmSync(temporary, { force: true }); } catch {}
-      throw error;
-    }
+    writeFileAtomicSync(storeFile, JSON.stringify(store, null, 2));
   };
 
   const createEmptyStore = () => ({

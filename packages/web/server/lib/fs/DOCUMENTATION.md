@@ -6,6 +6,14 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 ## Entrypoints and structure
 - `packages/web/server/lib/fs/routes.js`: route registration and runtime-owned state for `/api/fs/*` endpoints.
 - `packages/web/server/lib/fs/search.js`: bounded-concurrency fuzzy filesystem search runtime used by `GET /api/fs/find`.
+- `packages/web/server/lib/fs/atomic-write.js`: shared symlink-preserving atomic write for server-owned config and state files.
+
+## Atomic config/state writes
+- `writeFileAtomic(file, data, { fs, encoding, mode = 0o600, dirMode = 0o700 })` and `writeFileAtomicSync(...)` write a temp file and rename it over the file's real target, then chmod that target (skipped on Windows). They return the written target path.
+- Symlinks are preserved so user-managed links (for example GNU Stow dotfiles for `settings.json`, `pi/snippets.json`, `stt/config.json`) keep receiving changes. Existing paths resolve through `realpath`. A missing path is written in place. A dangling link writes to its target path, resolved relative to the link's directory, and creates the target's parent directory.
+- The temp file lives in the real target's directory so the rename stays on one filesystem. It is removed when the write or rename fails, and the previous content is left untouched.
+- Cross-process locking stays with callers, keyed on the caller-facing path (`${file}.lock`), so locking semantics do not change when a file becomes a symlink.
+- Injected `fs` objects must provide `realpath`, `readlink`, `mkdir`, `writeFile`, `rename`, `rm`, and `chmod` (or the `*Sync` equivalents).
 
 ## Public exports
 - `registerFsRoutes(app, dependencies)` from `routes.js`

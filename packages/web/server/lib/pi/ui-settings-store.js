@@ -1,7 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
 
@@ -117,19 +117,14 @@ export const createDockerInitialLocalSettings = () => {
 const writeRecord = async (file, value, fs) => {
   const serialized = `${JSON.stringify(value, null, 2)}\n`;
   if (Buffer.byteLength(serialized) > MAX_SETTINGS_BYTES) throw new Error('UI_SETTINGS_INVALID');
-  const parent = dirname(file);
-  await fs.mkdir(parent, { recursive: true, mode: 0o700 });
-  const temporary = `${file}.tmp-${process.pid}-${randomUUID()}`;
-  await fs.writeFile(temporary, serialized, { encoding: 'utf8', mode: 0o600 });
-  await fs.rename(temporary, file);
-  if (process.platform !== 'win32') await fs.chmod(file, 0o600);
+  await writeFileAtomic(file, serialized, { fs });
 };
 
 export const createPiUiSettingsStore = ({
   file = join(resolvePiChamberDataDir(), 'settings.json'),
   runtimeFile = join(dirname(file), 'runtime-state.json'),
   initialLocalSettings = {},
-  fs = { chmod, mkdir, readFile, rename, writeFile },
+  fs = { chmod, mkdir, readFile, readlink, realpath, rename, rm, writeFile },
 } = {}) => {
   let mutation = Promise.resolve();
 

@@ -1,3 +1,4 @@
+import { writeFileAtomic } from '../fs/atomic-write.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
 
 const STORE_VERSION = 1;
@@ -109,18 +110,7 @@ export const createRemoteClientAuthRuntime = ({ fsPromises, path, crypto, storeP
   };
 
   const writeStore = async (store) => {
-    await fsPromises.mkdir(path.dirname(storePath), { recursive: true, mode: 0o700 });
-    const temporary = `${storePath}.tmp-${process.pid}-${crypto.randomBytes(8).toString('hex')}`;
-    try {
-      await fsPromises.writeFile(temporary, JSON.stringify(normalizeStore(store), null, 2), { mode: 0o600 });
-      await fsPromises.rename(temporary, storePath);
-    } catch (error) {
-      await fsPromises.rm?.(temporary, { force: true }).catch(() => {});
-      throw error;
-    }
-    if (typeof fsPromises.chmod === 'function') {
-      await fsPromises.chmod(storePath, 0o600).catch(() => {});
-    }
+    await writeFileAtomic(storePath, JSON.stringify(normalizeStore(store), null, 2), { fs: fsPromises });
   };
 
   const publicClient = (client) => ({
