@@ -65,4 +65,48 @@ describe('notification tag registry', () => {
     }
     assert.equal(registry.size(), MAX_NOTIFICATION_TAG_ENTRIES);
   });
+
+  it('closes the evicted notification instead of orphaning it', () => {
+    const registry = createNotificationTagRegistry(2);
+    let evictedClosed = 0;
+    registry.set('a', { close() { evictedClosed += 1; } });
+    registry.set('b', { id: 'b' });
+    registry.set('c', { id: 'c' });
+    assert.equal(evictedClosed, 1);
+    assert.equal(registry.get('a'), undefined);
+    assert.equal(registry.take('b')?.id, 'b');
+    // The surviving entry stays closeable by tag.
+    assert.equal(registry.get('c')?.id, 'c');
+  });
+
+  it('tolerates evicted handles without a close method', () => {
+    const registry = createNotificationTagRegistry(1);
+    registry.set('a', { id: 'a' });
+    registry.set('b', { id: 'b' });
+    assert.equal(registry.get('a'), undefined);
+    assert.equal(registry.get('b')?.id, 'b');
+  });
+
+  it('closes the previous notification when a tag is re-used', () => {
+    const registry = createNotificationTagRegistry();
+    let oldClosed = 0;
+    const oldHandle = { close() { oldClosed += 1; } };
+    const newHandle = { id: 'new' };
+    registry.set('tag', oldHandle);
+    registry.set('tag', newHandle);
+    assert.equal(oldClosed, 1);
+    assert.equal(registry.get('tag'), newHandle);
+  });
+
+  it('keeps the newer entry when a stale handle is released', () => {
+    const registry = createNotificationTagRegistry();
+    const oldHandle = { id: 'old' };
+    const newHandle = { id: 'new' };
+    registry.set('tag', oldHandle);
+    registry.set('tag', newHandle);
+    assert.equal(registry.release('tag', oldHandle), false);
+    assert.equal(registry.get('tag'), newHandle);
+    assert.equal(registry.release('tag', newHandle), true);
+    assert.equal(registry.get('tag'), undefined);
+  });
 });

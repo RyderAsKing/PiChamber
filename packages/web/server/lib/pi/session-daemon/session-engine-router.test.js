@@ -330,10 +330,60 @@ describe('session engine router pending input', () => {
 
   it('folds engine session.input into the index instead of publishing it directly', () => {
     const { pendingInput, applied } = makeIndex();
-    const { router, published } = makeRouter({ pendingInput, getSequence: () => 42 });
-    router.publish('session.input', { pending: { count: 2, kind: 'exotic', since: 77, extra: true } }, 's1', '/work');
+    const engine = makeEngine('fake', { ownsSession: (id) => id === 's1' });
+    const { router, published } = makeRouter({
+      getRegistry: () => makeRegistry([engine]),
+      pendingInput,
+      getSequence: () => 42,
+    });
+    router.publish('session.input', { pending: { count: 2, kind: 'exotic', since: 77, extra: true } }, 's1', '/work', 'fake');
     expect(applied).toEqual([{ sessionId: 's1', directory: '/work', summary: { count: 2, kind: 'input', since: 77 } }]);
     expect(published).toEqual([]);
+  });
+
+  it("applies the owner's summary and rejects a non-owner's summary", () => {
+    const { pendingInput, applied } = makeIndex();
+    const owner = makeEngine('owner', { ownsSession: (id) => id === 's1' });
+    const other = makeEngine('other', { ownsSession: () => false });
+    const { router, published } = makeRouter({
+      getRegistry: () => makeRegistry([owner, other]),
+      pendingInput,
+    });
+    router.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 's1', '/work', 'owner');
+    expect(applied).toHaveLength(1);
+    expect(() => router.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 's1', '/work', 'other'))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(applied).toHaveLength(1);
+    expect(published).toEqual([]);
+  });
+
+  it('rejects engine session.input for sessions no engine owns', () => {
+    const { pendingInput, applied } = makeIndex();
+    const engine = makeEngine('fake', { ownsSession: () => false });
+    const { router, published } = makeRouter({
+      getRegistry: () => makeRegistry([engine]),
+      pendingInput,
+    });
+    expect(() => router.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 'pi-session', '/work', 'fake'))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(() => router.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 'pi-session', '/work'))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(applied).toEqual([]);
+    expect(published).toEqual([]);
+  });
+
+  it('treats a throwing ownership check as not owned', () => {
+    const { pendingInput, applied } = makeIndex();
+    const engine = makeEngine('fake', {
+      ownsSession: () => { throw new Error('index exploded'); },
+    });
+    const { router } = makeRouter({
+      getRegistry: () => makeRegistry([engine]),
+      pendingInput,
+    });
+    expect(() => router.publish('session.input', { pending: { count: 1, kind: 'input', since: 50 } }, 's1', '/work', 'fake'))
+      .toThrow(expect.objectContaining({ code: 'INVALID_ARGUMENT' }));
+    expect(applied).toEqual([]);
   });
 
   it('rejects malformed engine session.input without publishing anything', () => {

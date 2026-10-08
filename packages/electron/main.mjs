@@ -1342,7 +1342,7 @@ const maybeShowNativeNotification = (rawInput) => {
   if (tag) notificationTags.set(tag, notification);
   const release = () => {
     activeNotifications.delete(notification);
-    if (tag) notificationTags.remove(tag);
+    if (tag) notificationTags.release(tag, notification);
   };
 
   notification.on('click', () => {

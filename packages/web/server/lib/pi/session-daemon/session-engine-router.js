@@ -89,7 +89,7 @@ export const createSessionEngineRouter = ({
 
   const ownerOfSession = (sessionId, directory) => getRegistry?.()?.ownerOfSession?.(sessionId, directory);
 
-  const publishEngineEvent = (event, payload, sessionId, directory) => {
+  const publishEngineEvent = (event, payload, sessionId, directory, publishingEngineId) => {
     if (typeof event !== 'string' || event.length === 0 || event === 'session.snapshot') {
       return fail('INVALID_ARGUMENT', 'The session engine event is invalid.');
     }
@@ -105,11 +105,23 @@ export const createSessionEngineRouter = ({
     // Engines MUST publish `session.input { pending }` on every pending-input
     // transition for live updates. The summary is normalized and folded into
     // the daemon pending-input index, which publishes the canonical event;
-    // the engine payload itself is never published directly.
+    // the engine payload itself is never published directly. Only the engine
+    // that owns the session may report its pending input: ownership is
+    // checked against the registry so an engine cannot mark a Pi-runtime
+    // session (or another engine's session) as needing input.
     if (event === 'session.input') {
       const pending = normalizePendingInputSummary(payload?.pending);
       if (pending === undefined) {
         return fail('INVALID_ARGUMENT', 'The session engine pending input is invalid.');
+      }
+      let owner;
+      try {
+        owner = ownerOfSession(sessionId, directory);
+      } catch {
+        owner = undefined;
+      }
+      if (!owner || owner.id !== publishingEngineId) {
+        return fail('INVALID_ARGUMENT', 'The session engine does not own this session.');
       }
       pendingInput?.applyEngineSummary(sessionId, directory, pending);
       return;

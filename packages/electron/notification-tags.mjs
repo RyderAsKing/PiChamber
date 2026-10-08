@@ -13,16 +13,30 @@ export const createNotificationTagRegistry = (maxEntries = MAX_NOTIFICATION_TAG_
   const limit = Number.isSafeInteger(maxEntries) && maxEntries > 0 ? maxEntries : MAX_NOTIFICATION_TAG_ENTRIES;
   const byTag = new Map();
 
+  const closeHandle = (handle) => {
+    try {
+      handle?.close?.();
+    } catch {}
+  };
+
   const set = (tag, handle) => {
     const key = normalizeTag(tag);
     if (!key || handle === undefined || handle === null) return;
+    const existing = byTag.get(key);
     // Refresh recency: a re-shown tag moves to the newest position.
     byTag.delete(key);
+    // A re-used tag replaces the previous notification (the OS replaces
+    // same-tag notifications), so close the orphaned handle best-effort.
+    if (existing !== undefined && existing !== handle) closeHandle(existing);
     byTag.set(key, handle);
     while (byTag.size > limit) {
       const oldest = byTag.keys().next().value;
       if (oldest === undefined) break;
+      const evicted = byTag.get(oldest);
       byTag.delete(oldest);
+      // An evicted entry could never be closed by tag again; close it
+      // best-effort instead of orphaning it.
+      closeHandle(evicted);
     }
   };
 
@@ -47,11 +61,21 @@ export const createNotificationTagRegistry = (maxEntries = MAX_NOTIFICATION_TAG_
     return byTag.delete(key);
   };
 
+  /** Delete `tag` only when it still maps to `handle` (stale close/click
+   *  handlers must not orphan the newer notification re-using the tag). */
+  const release = (tag, handle) => {
+    const key = normalizeTag(tag);
+    if (!key) return false;
+    if (byTag.get(key) !== handle) return false;
+    byTag.delete(key);
+    return true;
+  };
+
   const clear = () => {
     byTag.clear();
   };
 
   const size = () => byTag.size;
 
-  return { set, get, take, remove, clear, size };
+  return { set, get, take, remove, release, clear, size };
 };

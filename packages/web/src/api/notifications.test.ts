@@ -259,4 +259,76 @@ describe('web notifications close and attention count', () => {
     expect(() => api.setAttentionCount?.(2)).not.toThrow();
     expect(() => api.setAttentionCount?.(Number.NaN)).not.toThrow();
   });
+
+  it('closes the evicted page notification instead of orphaning it', async () => {
+    installWindowMock();
+    type Closable = Notification & { close: () => void };
+    const instances: Closable[] = [];
+    const MockNotification = function Notification(this: Closable) {
+      const close = vi.fn();
+      this.close = close;
+      instances.push(this);
+      return this;
+    } as unknown as MockNotificationConstructor;
+    MockNotification.permission = 'granted';
+    MockNotification.requestPermission = vi.fn(async () => 'granted' as NotificationPermission);
+    Object.defineProperty(globalThis, 'Notification', { configurable: true, value: MockNotification });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+    // Distinct tags avoid the 5s tag dedupe; advancing time is unnecessary.
+    const nowSpy = vi.spyOn(Date, 'now');
+    let now = 1_700_000_000_000;
+    nowSpy.mockImplementation(() => { now += 6000; return now; });
+    try {
+      for (let i = 0; i < 21; i += 1) {
+        await expect(api.notify({ title: `n${i}`, tag: `evict-tag-${i}` })).resolves.toBe(true);
+      }
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(instances).toHaveLength(21);
+    // The oldest entry is closed on eviction so it never orphans.
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1);
+    // The surviving newest entry still closes by tag.
+    await api.close?.('evict-tag-20');
+    expect(instances[20]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the newer page notification when a stale close fires', async () => {
+    installWindowMock();
+    type Closable = Notification & { close: () => void };
+    const instances: Closable[] = [];
+    const MockNotification = function Notification(this: Closable) {
+      const close = vi.fn();
+      this.close = close;
+      instances.push(this);
+      return this;
+    } as unknown as MockNotificationConstructor;
+    MockNotification.permission = 'granted';
+    MockNotification.requestPermission = vi.fn(async () => 'granted' as NotificationPermission);
+    Object.defineProperty(globalThis, 'Notification', { configurable: true, value: MockNotification });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+    const nowSpy = vi.spyOn(Date, 'now');
+    let now = 1_700_000_000_000;
+    nowSpy.mockImplementation(() => now);
+    try {
+      await expect(api.notify({ title: 'first', tag: 'stale-tag' })).resolves.toBe(true);
+      // Move past the 5s tag dedupe so the re-used tag creates a new handle.
+      now += 6000;
+      await expect(api.notify({ title: 'second', tag: 'stale-tag' })).resolves.toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+    expect(instances).toHaveLength(2);
+    // Re-using the tag closes the previous handle (OS replaces same-tag
+    // notifications) and the map now points at the newer one.
+    expect(instances[0]?.close).toHaveBeenCalledTimes(1);
+    // A stale close from the old notification must not drop the newer entry.
+    (instances[0]?.onclose as unknown as (() => void) | null | undefined)?.();
+    await api.close?.('stale-tag');
+    expect(instances[1]?.close).toHaveBeenCalledTimes(1);
+  });
 });

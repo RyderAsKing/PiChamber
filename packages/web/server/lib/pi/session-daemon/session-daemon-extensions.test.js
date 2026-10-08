@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { createExtensionBridge } from './extension-bridge.js';
 import { createSessionDaemon } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
@@ -1189,5 +1190,48 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     });
     expect(draftRes3.result).toEqual({ accepted: true });
     expect(ui.getEditorText()).toBe('Typing next turn');
+  });
+});
+
+describe('extension bridge pending-input failures', () => {
+  const makeBridge = (pendingInput) => {
+    const published = [];
+    const bridge = createExtensionBridge({
+      publish: (event, payload, sessionId, directory) => {
+        published.push({ event, payload, sessionId, directory });
+      },
+      resolveDirectory: async (dir) => dir,
+      redactAttachmentPaths: (value) => value,
+      redactAttachmentValues: (value) => value,
+      findRuntimeBySessionId: () => undefined,
+      getDefaultDirectory: () => '/work',
+      getSequence: () => 1,
+      protocolError: (code, message) => Object.assign(new Error(message), { code }),
+      renderExtensionMessage: undefined,
+      requestSessionShutdown: undefined,
+      pendingInput,
+      recentNotices: undefined,
+    });
+    return { bridge, published };
+  };
+
+  it('still delivers and settles a dialog when the pending-input index throws', async () => {
+    const throwing = {
+      open: () => { throw new Error('index exploded'); },
+      close: () => { throw new Error('index exploded'); },
+    };
+    const { bridge, published } = makeBridge(throwing);
+    const bindings = bridge.buildExtensionBindings({
+      sessionId: 's1',
+      sessionManager: {},
+      modelRuntime: undefined,
+    });
+    const pending = bindings.uiContext.confirm('Dangerous?', 'Allow?');
+    expect(published.some((entry) => entry.event === 'extension.dialog')).toBe(true);
+    const dialog = published.find((entry) => entry.event === 'extension.dialog');
+    const resolved = await bridge.resolveExtensionDialog({ requestId: dialog.payload.requestId, confirmed: true });
+    expect(resolved).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe(true);
+    expect(published.some((entry) => entry.event === 'extension.dialog.dismiss')).toBe(true);
   });
 });

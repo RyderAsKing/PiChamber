@@ -13,12 +13,32 @@ const pageNotificationsByTag = new Map<string, Notification>();
 
 const trackPageNotification = (tag: string | undefined, notification: Notification): void => {
   if (!tag) return;
+  const existing = pageNotificationsByTag.get(tag);
   pageNotificationsByTag.delete(tag);
+  // A re-used tag replaces the previous notification, so close the orphaned
+  // handle best-effort instead of leaving it uncloseable.
+  if (existing && existing !== notification) {
+    try {
+      existing.close();
+    } catch {
+      // ignore
+    }
+  }
   pageNotificationsByTag.set(tag, notification);
   while (pageNotificationsByTag.size > MAX_PAGE_NOTIFICATIONS) {
     const oldest = pageNotificationsByTag.keys().next().value;
     if (oldest === undefined) break;
+    const evicted = pageNotificationsByTag.get(oldest);
     pageNotificationsByTag.delete(oldest);
+    // An evicted entry could never be closed by tag again; close it
+    // best-effort instead of orphaning it.
+    if (evicted) {
+      try {
+        evicted.close();
+      } catch {
+        // ignore
+      }
+    }
   }
 };
 
@@ -190,7 +210,11 @@ const notifyWithWebAPI = async (payload?: NotificationPayload): Promise<boolean>
     });
     trackPageNotification(payload?.tag, created);
     created.onclose = () => {
-      if (payload?.tag) pageNotificationsByTag.delete(payload.tag);
+      // Delete only when the tag still maps to this notification: a stale
+      // close from a replaced notification must not orphan the newer one.
+      if (payload?.tag && pageNotificationsByTag.get(payload.tag) === created) {
+        pageNotificationsByTag.delete(payload.tag);
+      }
     };
     // Focus the app and route through the same `pichamber:open-session`
     // navigation the full app shell listens for.

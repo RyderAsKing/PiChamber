@@ -25,7 +25,10 @@
  * Engines MUST publish `session.input { pending }` on every pending-input
  * transition for live updates; the daemon normalizes the summary (unknown
  * kinds become `'input'`) and republishes it canonically, rejecting a
- * malformed summary as `INVALID_ARGUMENT`.
+ * malformed summary as `INVALID_ARGUMENT`. Only the engine that owns the
+ * session may publish its `session.input`: a summary for a session the
+ * publishing engine does not own is rejected as `INVALID_ARGUMENT` and
+ * never applied.
  *
  * Recent notices: an engine publishes `extension.notify
  * { message, level, id?, createdAt? }` through the host publish wrapper.
@@ -187,7 +190,9 @@ const extractProviderRows = (result) => {
  *   active project. Engine events share the daemon's global
  *   sequence, stream epoch, and replay log. The wrapper redacts attachment
  *   paths and strips `sessionId` / `directory` keys from the payload so an
- *   engine cannot spoof them.
+ *   engine cannot spoof them. `session.input` summaries are accepted only
+ *   from the engine that owns the session (the registry binds the
+ *   publishing engine id before routing).
  * @property {(attachments: Array<object> | undefined) => Promise<{ text: string, images: Array<object>, files: Array<object> }>} prepareAttachments
  *   Same attachment preparation Pi prompts use: validates the shape,
  *   reads image bytes as base64 `images`, and turns other files into
@@ -304,13 +309,26 @@ export const createSessionEngineRegistry = async ({
   };
 
   for (const factory of factories) {
+    // Each engine receives its own host whose publish carries that engine's
+    // id to the router, so `session.input` summaries are accepted only from
+    // the owning engine. The id cell is filled once the factory returns;
+    // publishes after registration carry the id, while a publish during
+    // factory execution (before the id is known) fails ownership as unknown.
+    let boundEngineId;
+    const perEngineHost = host && typeof host === 'object'
+      ? {
+        ...host,
+        publish: (event, payload, sessionId, directory) => host.publish(event, payload, sessionId, directory, boundEngineId),
+      }
+      : host;
     let engine;
     try {
-      engine = await factory(host);
+      engine = await factory(perEngineHost);
     } catch (error) {
       logSessionEngineError(log, 'unknown', 'factory-failed', error);
       continue;
     }
+    boundEngineId = engine?.id;
     if (isInvalidEngineShape(engine) || byId.has(engine.id)) {
       await disposeCreated();
       throw invalidEngineError('The session engine registration is invalid.');
