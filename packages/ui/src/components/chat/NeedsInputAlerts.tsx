@@ -181,6 +181,15 @@ export const NeedsInputBadge: React.FC = () => {
     }
   }, [count, dockBadgeEnabled]);
 
+  // Reset only on unmount so count changes do not flash the badge to 0.
+  React.useEffect(() => () => {
+    try {
+      getRegisteredRuntimeAPIs()?.notifications?.setAttentionCount?.(0);
+    } catch {
+      // Best-effort reset so the badge does not stick after unmount.
+    }
+  }, []);
+
   return null;
 };
 

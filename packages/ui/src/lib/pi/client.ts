@@ -24,7 +24,6 @@ import {
   type PiError,
   type PiEngineListResponse,
   type PiPendingInputListResponse,
-  type PiPendingInputSummary,
   type PiPromptInput,
   type PiPromptResult,
   type PiProviderListResponse,
@@ -72,6 +71,7 @@ import {
   type PiAbortInput,
   type PiExtensionListResponse,
   type PiExtensionDialogResponseInput,
+  isValidPendingInputSummary,
 } from './protocol';
 import type {
   PiAttachment,
@@ -234,20 +234,6 @@ export class PiSendUnconfirmedError extends Error {
     }
   }
 }
-
-const isValidPendingInputSummary = (value: unknown): value is PiPendingInputSummary => {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const candidate = value as { count?: unknown; kind?: unknown; since?: unknown };
-  return (
-    Number.isSafeInteger(candidate.count)
-    && (candidate.count as number) >= 1
-    && (candidate.count as number) <= 99
-    && (candidate.kind === 'input' || candidate.kind === 'approval')
-    && typeof candidate.since === 'number'
-    && Number.isFinite(candidate.since)
-    && (candidate.since as number) > 0
-  );
-};
 
 const isValidPendingInputList = (value: unknown): value is PiPendingInputListResponse => {
   if (!value || typeof value !== 'object') return false;

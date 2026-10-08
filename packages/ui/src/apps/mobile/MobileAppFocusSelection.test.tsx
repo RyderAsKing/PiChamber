@@ -93,6 +93,7 @@ mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }))
 mock.module('@/components/chat/NeedsInputAlerts', () => ({
   NeedsInputAlerts: () => null,
   NeedsInputBadge: () => null,
+  NotificationOpenSessionBridge: () => null,
 }));
 mock.module('@/hooks/useKeyboardShortcuts', () => ({ useKeyboardShortcuts: () => undefined }));
 mock.module('@/hooks/usePwaManifestSync', () => ({ usePwaManifestSync: () => undefined }));

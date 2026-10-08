@@ -204,6 +204,34 @@ describe('catalog list-row inputState (pure)', () => {
     // A newer accepted sequence with an equal value is still a structural no-op.
     expect(again.byId.get('a')).toBe(first.byId.get('a'));
   });
+
+  test('a malformed summary is unknown: it never clears and never adopts', () => {
+    const state = applyDirectoryListToCatalog(
+      initialCatalog(),
+      '/repo',
+      [listItem('a', '/repo', { pending: pending(50), sequence: 5 })],
+      10,
+      acceptAll,
+    );
+    const malformed = { count: 0, kind: 'input', since: 50 } as unknown as ReturnType<typeof pending>;
+    const next = applyDirectoryListToCatalog(
+      state,
+      '/repo',
+      [listItem('a', '/repo', { pending: malformed, sequence: 7 })],
+      10,
+      acceptAll,
+    );
+    expect(next.byId.get('a')?.pendingInput).toEqual(pending(50));
+    // A brand-new row with only a malformed observation stays unknown.
+    const fresh = applyDirectoryListToCatalog(
+      initialCatalog(),
+      '/repo',
+      [listItem('b', '/repo', { pending: malformed, sequence: 7 })],
+      10,
+      acceptAll,
+    );
+    expect(fresh.byId.get('b')?.pendingInput).toBeUndefined();
+  });
 });
 
 describe('applyPendingInputObservation (pure)', () => {
@@ -238,6 +266,14 @@ describe('applyPendingInputObservation (pure)', () => {
     const state = upsertRecord(initialCatalog(), recordWithPending('a', pending(50)));
     const next = applyPendingInputObservation(state, 'a', '/repo', pending(60), 5, () => false);
     expect(next).toBe(state);
+  });
+
+  test('a malformed summary is unknown: the record is unchanged, never null', () => {
+    const state = upsertRecord(initialCatalog(), recordWithPending('a', pending(50)));
+    const malformed = { count: 0, kind: 'input', since: 50 } as unknown as ReturnType<typeof pending>;
+    expect(applyPendingInputObservation(state, 'a', '/repo', malformed, 6)).toBe(state);
+    const empty = initialCatalog();
+    expect(applyPendingInputObservation(empty, 'ghost', '/elsewhere', malformed, 5)).toBe(empty);
   });
 });
 
@@ -311,6 +347,17 @@ describe('applyPendingInputListToCatalog (pure)', () => {
       { acceptPendingInputObservation: () => true, streamEpoch: EPOCH },
     );
     expect(next).toBe(state);
+  });
+
+  test('a malformed entry is unknown: it changes nothing and blocks absence-clear', () => {
+    const state = upsertRecord(initialCatalog(), recordWithPending('a', pending(50)));
+    const malformed = { count: 0, kind: 'input', since: 50 } as unknown as ReturnType<typeof pending>;
+    const next = applyPendingInputListToCatalog(
+      state,
+      response([{ sessionId: 'a', directory: '/repo', pending: malformed }], 10, EPOCH),
+      { acceptPendingInputObservation: () => true, streamEpoch: EPOCH },
+    );
+    expect(next.byId.get('a')?.pendingInput).toEqual(pending(50));
   });
 });
 
@@ -585,6 +632,28 @@ describe('PiSessionStore pending input', () => {
     internal.refreshPendingInputList();
     await flush();
     expect(calls).toBe(1);
+  });
+
+  test('a stream-epoch change clears the 404 latch (daemon may have been upgraded)', async () => {
+    let calls = 0;
+    piClient.listPendingInput = (async () => {
+      calls += 1;
+      throw new PiRequestError('DAEMON_REQUEST_FAILED', 'not found', 404);
+    }) as unknown as typeof piClient.listPendingInput;
+    internal.refreshPendingInputList();
+    await flush();
+    expect(internal.pendingInputUnsupported).toBe(true);
+    piClient.listPendingInput = (async () => ({
+      sessions: [{ sessionId: 'upgraded', directory: '/repo', pending: pending(70) }],
+      sequence: 30,
+      streamEpoch: 'epoch-2',
+    })) as unknown as typeof piClient.listPendingInput;
+    internal.applyVerifiedEpochChange('epoch-2');
+    expect(internal.pendingInputUnsupported).toBe(false);
+    await flush();
+    await flush();
+    expect(calls).toBeGreaterThanOrEqual(1);
+    expect(store.getState().catalog.byId.get('upgraded')?.pendingInput).toEqual(pending(70));
   });
 
   test('a trigger during an in-flight fetch runs one more fetch after it settles', async () => {

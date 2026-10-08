@@ -110,6 +110,7 @@ mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }))
 mock.module('@/components/chat/NeedsInputAlerts', () => ({
   NeedsInputAlerts: () => null,
   NeedsInputBadge: () => null,
+  NotificationOpenSessionBridge: () => null,
 }));
 mock.module('@/apps/pi-session-store', () => ({
   getPiSessionStore: () => ({

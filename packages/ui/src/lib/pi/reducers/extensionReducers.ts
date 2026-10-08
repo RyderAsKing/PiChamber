@@ -14,8 +14,9 @@ import type {
 } from './reducerTypes';
 import {
   appendBoundedFeed,
+  appendBoundedNoticeFeed,
   markMutation,
-  MAX_EXTENSION_FEED_ITEMS,
+  MAX_EXTENSION_NOTICE_ITEMS,
   nextExtensionFeedId,
 } from './reducerHelpers';
 import type { PiSessionId } from '../types';
@@ -133,7 +134,7 @@ export const reduceExtensionNotify = (
     && payload.createdAt > 0
     ? payload.createdAt
     : undefined;
-  session.extensionNotices = appendBoundedFeed(session.extensionNotices, {
+  session.extensionNotices = appendBoundedNoticeFeed(session.extensionNotices, {
     id,
     message: payload.message,
     level: payload.level,
@@ -185,8 +186,8 @@ export const replaceExtensionNoticesWithHistory = (
     seen.add(notice.id);
     next.push(liveById.get(notice.id) ?? notice);
   }
-  return next.length > MAX_EXTENSION_FEED_ITEMS
-    ? next.slice(next.length - MAX_EXTENSION_FEED_ITEMS)
+  return next.length > MAX_EXTENSION_NOTICE_ITEMS
+    ? next.slice(next.length - MAX_EXTENSION_NOTICE_ITEMS)
     : next;
 };
 

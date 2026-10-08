@@ -19,6 +19,7 @@ import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
 import type { PiSessionEvent, PiSessionListItem, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
+import { isValidPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
@@ -48,6 +49,7 @@ import {
   markDirectoryFailed,
   markDirectoryLoading,
   mapDirectoriesWithRefreshSlot,
+  pendingInputEqual,
   removeRecord,
   resetCatalogPendingInput,
   upsertRecord,
@@ -549,6 +551,9 @@ export class PiSessionStore {
     // re-establishes the state through directory lists and the global
     // pending-input fetch.
     this.pendingInputSequenceById.clear();
+    // A new epoch means the daemon restarted and may have been upgraded:
+    // retry the global list even after a 404 latched it as unsupported.
+    this.pendingInputUnsupported = false;
     this.pendingInputFetchInFlight = null;
     this.pendingInputRefetchRequested = false;
     this.hydratedSessionIds.clear();
@@ -3899,34 +3904,86 @@ export class PiSessionStore {
     // stale-epoch event, must not resurrect a catalog row here.
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
-    // Live-only pending-input transitions: compare the pre-commit catalog
-    // against the committed one for ids carried by `session.input` events.
-    // Snapshots, list rows, details, and epoch resets take no part — only
-    // the live event path emits. Count/`since` changes while staying
-    // non-null emit nothing.
+    // Live-only pending-input transitions: walk the accepted `session.input`
+    // events per session in order, starting from the pre-batch catalog value
+    // and normalizing each payload the same way the catalog does (malformed
+    // summaries are unknown and change nothing). `opened` fires on
+    // null/unknown -> non-null, `cleared` on non-null -> null; staying
+    // non-null (count/`since` changes, duplicate opens) emits nothing. When
+    // the walk's final state disagrees with the committed row (gating
+    // rejected some events), fall back to the endpoint comparison for that
+    // session so no spurious transitions emit. Snapshots, list rows,
+    // details, and epoch resets take no part — only the live event path
+    // emits (row deletion emits `cleared` through `commitDeletion`).
     const pendingInputTransitions: PendingInputTransition[] = [];
     if (catalogChanged) {
       const prevCatalog = this.state.catalog;
+      const inputEventsBySession = new Map<PiSessionId, PiSessionEvent[]>();
       for (const event of acceptedEvents) {
         if (event.name !== 'session.input') continue;
-        const prev = prevCatalog.byId.get(event.sessionId)?.pendingInput;
-        const next = nextCatalog.byId.get(event.sessionId)?.pendingInput;
-        const wasOpen = prev != null;
-        const isOpen = next != null;
-        if (!wasOpen && isOpen && next) {
-          pendingInputTransitions.push({
-            type: 'opened',
-            sessionId: event.sessionId,
-            directory: nextCatalog.byId.get(event.sessionId)?.directory ?? event.directory,
-            pending: next,
-          });
-        } else if (wasOpen && !isOpen) {
-          pendingInputTransitions.push({
-            type: 'cleared',
-            sessionId: event.sessionId,
-            directory: nextCatalog.byId.get(event.sessionId)?.directory ?? event.directory,
-            pending: null,
-          });
+        const list = inputEventsBySession.get(event.sessionId);
+        if (list) list.push(event);
+        else inputEventsBySession.set(event.sessionId, [event]);
+      }
+      for (const [sessionId, sessionEvents] of inputEventsBySession) {
+        const committed = nextCatalog.byId.get(sessionId);
+        // A removed row is owned by the deletion path (`commitDeletion`
+        // already emitted `cleared` when it was pending).
+        if (!committed) continue;
+        const prev = prevCatalog.byId.get(sessionId)?.pendingInput;
+        const next = committed.pendingInput;
+        let current = prev;
+        const walked: PendingInputTransition[] = [];
+        for (const event of sessionEvents) {
+          if (event.name !== 'session.input') continue;
+          const raw = (event.payload as { pending?: unknown }).pending;
+          const normalized = raw === null
+            ? null
+            : isValidPendingInputSummary(raw)
+              ? (raw as PiPendingInputSummary)
+              : undefined;
+          if (normalized === undefined) continue;
+          const wasOpen = current != null;
+          const isOpen = normalized != null;
+          if (!wasOpen && isOpen && normalized) {
+            walked.push({
+              type: 'opened',
+              sessionId,
+              directory: committed.directory ?? event.directory,
+              pending: normalized,
+            });
+          } else if (wasOpen && !isOpen) {
+            walked.push({
+              type: 'cleared',
+              sessionId,
+              directory: committed.directory ?? event.directory,
+              pending: null,
+            });
+          }
+          current = normalized;
+        }
+        if (!pendingInputEqual(current, next)) {
+          // Gating dropped an event (or the catalog normalized
+          // differently): fall back to the endpoint comparison.
+          const wasOpen = prev != null;
+          const isOpen = next != null;
+          if (!wasOpen && isOpen && next) {
+            pendingInputTransitions.push({
+              type: 'opened',
+              sessionId,
+              directory: committed.directory,
+              pending: next,
+            });
+          } else if (wasOpen && !isOpen) {
+            pendingInputTransitions.push({
+              type: 'cleared',
+              sessionId,
+              directory: committed.directory,
+              pending: null,
+            });
+          }
+        } else {
+          for (const transition of walked) pendingInputTransitions.push(transition);
         }
       }
       this.state = { ...this.state, catalog: nextCatalog };

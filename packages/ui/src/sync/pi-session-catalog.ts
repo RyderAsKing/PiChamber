@@ -32,6 +32,7 @@ import { getGlobalSessionDirectories } from './global-session-directory';
 
 
 import type { PiSessionListItem, PiPendingInputSummary } from '@/lib/pi/protocol';
+import { isValidPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
 
 // ---------------------------------------------------------------------------
@@ -154,7 +155,7 @@ const normalizedDirectory = (directory: string): string =>
   normalizePath(directory) ?? directory;
 
 /** Structural equality for pending-input summaries (`null` vs value vs unknown are all distinct). */
-const pendingInputEqual = (
+export const pendingInputEqual = (
   left: PiPendingInputSummary | null | undefined,
   right: PiPendingInputSummary | null | undefined,
 ): boolean => {
@@ -282,9 +283,14 @@ export const applyDirectoryListToCatalog = (
     // field is unknown (keep the event-driven value), and an observation
     // older than an accepted pending-input update must not overwrite it.
     // `null` is authoritative empty and is adopted like any newer value.
-    const observedInput = item.inputState
+    // A malformed summary is unknown too: keep the current value, never
+    // adopt it and never treat it as empty.
+    const rawInput = item.inputState
       && options?.acceptPendingInputObservation?.(session.id, item.inputState.sequence)
       ? item.inputState.pending
+      : undefined;
+    const observedInput = rawInput === undefined || rawInput === null || isValidPendingInputSummary(rawInput)
+      ? rawInput
       : undefined;
     const pendingInput = observedInput !== undefined ? observedInput : existing?.pendingInput;
     const nextRecord: LiveSessionRecord = {
@@ -513,6 +519,8 @@ export const applyPendingInputObservation = (
   accept?: (sessionId: PiSessionId, sequence: number) => boolean,
 ): PiSessionCatalogState => {
   if (accept && !accept(sessionId, sequence)) return state;
+  // Malformed summaries are unknown (never empty): keep the current value.
+  if (pending !== null && !isValidPendingInputSummary(pending)) return state;
   const existing = state.byId.get(sessionId);
   if (existing) {
     if (pendingInputEqual(existing.pendingInput, pending)) return state;
@@ -570,9 +578,11 @@ export const applyPendingInputListToCatalog = (
   for (const entry of response.sessions) {
     if (!entry || typeof entry.sessionId !== 'string' || entry.sessionId.length === 0) continue;
     if (typeof entry.directory !== 'string' || entry.directory.length === 0) continue;
-    if (!entry.pending || typeof entry.pending !== 'object') continue;
     if (seen.has(entry.sessionId)) continue;
     seen.add(entry.sessionId);
+    // A malformed summary is unknown, never empty: it blocks the
+    // absence-clear below but changes nothing on its own row.
+    if (!isValidPendingInputSummary(entry.pending)) continue;
     if (!accept(entry.sessionId, sequence)) continue;
     next = applyPendingInputObservation(next, entry.sessionId, entry.directory, entry.pending, sequence);
   }

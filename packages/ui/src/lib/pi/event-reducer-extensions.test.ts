@@ -175,13 +175,18 @@ describe("extension event reduction", () => {
         level: "info",
       })).state
     }
-    state = applyPiEvent(state, baseEvent("extension.error", 26, { source: "s", message: "boom" })).state
+    for (let index = 0; index < 15; index += 1) {
+      state = applyPiEvent(state, baseEvent("extension.error", 26 + index, { source: "s", message: `e${index}` })).state
+    }
     const session = state.bySession.get("sess-1")!
-    // Matches the daemon's per-session retention (max 20).
+    // Notices match the daemon's per-session retention (max 20); other
+    // extension feeds stay at 10.
     expect(session.extensionNotices).toHaveLength(20)
     expect(session.extensionNotices.at(0)?.message).toBe("n5")
     expect(session.extensionNotices.at(-1)?.message).toBe("n24")
-    expect(session.extensionErrors).toHaveLength(1)
+    expect(session.extensionErrors).toHaveLength(10)
+    expect(session.extensionErrors.at(0)?.message).toBe("e5")
+    expect(session.extensionErrors.at(-1)?.message).toBe("e14")
   })
 })
 

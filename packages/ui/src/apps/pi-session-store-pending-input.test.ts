@@ -147,4 +147,33 @@ describe('pending-input transitions', () => {
     internal.resetForEpochChange();
     expect(seen).toHaveLength(1);
   });
+
+  test('clear+open in one batch emits cleared then opened', () => {
+    const { internal, seen } = freshStore();
+    internal.commitEvents([inputEvent('s1', 1, { count: 1, kind: 'input', since: 1_000 })]);
+    expect(seen).toHaveLength(1);
+    seen.length = 0;
+    internal.commitEvents([
+      inputEvent('s1', 2, null),
+      inputEvent('s1', 3, { count: 1, kind: 'approval', since: 2_000 }),
+    ]);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toEqual({ type: 'cleared', sessionId: 's1', directory: '/repo', pending: null });
+    expect(seen[1]).toEqual({
+      type: 'opened',
+      sessionId: 's1',
+      directory: '/repo',
+      pending: { count: 1, kind: 'approval', since: 2_000 },
+    });
+  });
+
+  test('two opens in one batch emit a single opened', () => {
+    const { internal, seen } = freshStore();
+    internal.commitEvents([
+      inputEvent('s1', 1, { count: 1, kind: 'input', since: 1_000 }),
+      inputEvent('s1', 2, { count: 2, kind: 'input', since: 2_000 }),
+    ]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.type).toBe('opened');
+  });
 });

@@ -362,6 +362,22 @@ export interface PiPendingInputListResponse {
   streamEpoch?: string;
 }
 
+/** Validate a pending-input summary. Malformed values are unknown (never
+ *  empty): callers must keep the current value instead of adopting them. */
+export const isValidPendingInputSummary = (value: unknown): value is PiPendingInputSummary => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as { count?: unknown; kind?: unknown; since?: unknown };
+  return (
+    Number.isSafeInteger(candidate.count)
+    && (candidate.count as number) >= 1
+    && (candidate.count as number) <= 99
+    && (candidate.kind === 'input' || candidate.kind === 'approval')
+    && typeof candidate.since === 'number'
+    && Number.isFinite(candidate.since)
+    && (candidate.since as number) > 0
+  );
+};
+
 // ---------------------------------------------------------------------------
 // Session operations
 // ---------------------------------------------------------------------------
