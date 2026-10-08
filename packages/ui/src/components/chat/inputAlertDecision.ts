@@ -7,7 +7,7 @@
  * OS notification, with the toast kept so it is waiting on return.
  */
 
-export type InputAlertDecision = 'none' | 'toast' | 'toast-and-notify';
+type InputAlertDecision = 'none' | 'toast' | 'toast-and-notify';
 
 /** Replay bursts after reconnect must not alert for ancient requests. */
 export const PENDING_INPUT_MAX_ALERT_AGE_MS = 10 * 60 * 1000;

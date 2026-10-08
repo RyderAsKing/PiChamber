@@ -11,9 +11,9 @@ import type { PiPendingInputKind, PiPendingInputSummary } from '@/lib/pi/protoco
  * it in a sidebar/switcher is useful while the dock is collapsed or the
  * session is already open.
  */
-export type SessionAttention = 'needs-input' | 'working' | 'unread' | null;
+type SessionAttention = 'needs-input' | 'working' | 'unread' | null;
 
-export interface SessionAttentionInput {
+interface SessionAttentionInput {
   /** Daemon pending-input summary. `null`/unknown means nothing known pending. */
   pendingInput?: PiPendingInputSummary | null | undefined;
   /** True while the session turn is running (`busy`/`retry`). */
