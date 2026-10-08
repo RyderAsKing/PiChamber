@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   SETTINGS_OPTION_STACK_CLASS,
@@ -41,24 +42,25 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
   draftStartersVisible,
   onDraftStartersVisibleChange,
 }) => {
+  const { t } = useTranslation();
   if (!hasBehaviorSettings) return null;
 
   return (
     <>
       {showBehaviorMessageOptions && (
-        <SettingsSection title={'Message options'} divider={behaviorSectionDivider}>
+        <SettingsSection title={t('Message options')} divider={behaviorSectionDivider}>
           {/* Flat 2×2 grid so row headers share a baseline (not stacked columns). */}
           <SettingsTwoColumn className="lg:gap-y-6">
             {shouldShow('diffLayout') && (
-              <SettingsControlGroup title={'Diff Layout'}>
-                <SettingsRadioGroup aria-label={'Diff layout'}>
+              <SettingsControlGroup title={t('Diff Layout')}>
+                <SettingsRadioGroup aria-label={t('Diff layout')}>
                   {DIFF_LAYOUT_OPTIONS.map((option) => (
                     <SettingsRadioOption
                       key={option.id}
                       selected={diffLayoutPreference === option.id}
                       onSelect={() => setDiffLayoutPreference(option.id)}
-                      label={option.label}
-                      ariaLabel={`Diff layout: ${option.label}`}
+                      label={t(option.label)}
+                      ariaLabel={t('Diff layout: {{label}}', { label: option.label })}
                     />
                   ))}
                 </SettingsRadioGroup>
@@ -67,18 +69,18 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
 
             {shouldShow('followUpBehavior') && (
               <SettingsControlGroup
-                title={'Follow-up behavior'}
-                info={'Follow-up waits until the agent finishes, then sends. Steering is delivered at the next supported tool or turn boundary. Follow-ups stay on this device.'}
+                title={t('Follow-up behavior')}
+                info={t('Follow-up waits until the agent finishes, then sends. Steering is delivered at the next supported tool or turn boundary. Follow-ups stay on this device.')}
                 settingsItem="chat.follow-up-behavior"
               >
-                <SettingsRadioGroup aria-label={'Follow-up behavior'}>
+                <SettingsRadioGroup aria-label={t('Follow-up behavior')}>
                   {FOLLOW_UP_BEHAVIOR_OPTIONS.map((option) => (
                     <SettingsRadioOption
                       key={option.id}
                       selected={followUpBehavior === option.id}
                       onSelect={() => setFollowUpBehavior(option.id)}
-                      label={option.label}
-                      ariaLabel={`Follow-up behavior: ${option.label}`}
+                      label={t(option.label)}
+                      ariaLabel={t('Follow-up behavior: {{label}}', { label: option.label })}
                     />
                   ))}
                 </SettingsRadioGroup>
@@ -89,14 +91,14 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
       )}
 
       <SettingsSection
-        title={'Features'}
+        title={t('Features')}
         contentClassName={SETTINGS_OPTION_STACK_CLASS}
       >
         <SettingsCheckboxRow
           checked={draftStartersVisible}
           onChange={onDraftStartersVisibleChange}
-          label={'Show Starters on New Session Screen'}
-          ariaLabel={'Show starters on the new session screen'}
+          label={t('Show Starters on New Session Screen')}
+          ariaLabel={t('Show starters on the new session screen')}
           settingsItem="chat.draft-starters-visible"
         />
       </SettingsSection>

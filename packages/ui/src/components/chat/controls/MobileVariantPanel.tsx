@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { parsePiThinkingLevel } from '@/lib/pi/thinking';
 import type { PiThinkingLevel } from '@/lib/pi/types';
@@ -22,10 +23,11 @@ export const MobileVariantPanel: React.FC<MobileVariantPanelProps> = ({
   onVariantLiveChange,
   onVariantCommit,
 }) => {
+  const { t } = useTranslation();
   if (!open || targetVariants.length === 0) return null;
 
   return (
-    <MobileOverlayPanel open={true} onClose={onClose} title="Thinking">
+    <MobileOverlayPanel open={true} onClose={onClose} title={t('Thinking')}>
       <ThinkingLevelPicker
         levels={targetVariants}
         value={parsePiThinkingLevel(selectedVariant) ?? undefined}

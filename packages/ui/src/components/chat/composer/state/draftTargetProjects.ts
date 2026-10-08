@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { ProjectEntry } from '@/lib/api/types';
 import { formatDirectoryName } from '@/lib/utils';
 import { normalizePath } from '../attachments/filePaths';
@@ -68,7 +69,7 @@ export function buildDraftTargetProjects(
         kind: 'worktree',
         path: worktree.path,
         branch: worktree.branch,
-        label: worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name),
+        label: worktree.branch || (worktree.detached ? i18n.t('Detached HEAD') : worktree.name),
       })),
     ];
   });
@@ -78,7 +79,7 @@ export function buildDraftTargetProjects(
     ownerProjectId: GLOBAL_PROJECT_ID,
     kind: 'project',
     path: globalPath,
-    label: GLOBAL_PROJECT_LABEL,
+    label: i18n.t(GLOBAL_PROJECT_LABEL),
   };
   return [globalEntry, ...base];
 }

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
@@ -40,6 +41,8 @@ type Args = {
  * downstream useMemo chain to re-evaluate when no rows are selected.
  */
 export const useSidebarBulkActions = (args: Args) => {
+  const { t } = useTranslation();
+
   const {
     isInlineEditing,
     showDeletionDialog,
@@ -172,29 +175,29 @@ export const useSidebarBulkActions = (args: Args) => {
       const { deletedIds, failedIds } = await deleteSessions(ids);
       if (deletedIds.length > 0) {
         toast.success(deletedIds.length === 1
-          ? `Deleted ${deletedIds.length} session`
-          : `Deleted ${deletedIds.length} sessions`);
+          ? t('Deleted {{count}} session', { count: deletedIds.length })
+          : t('Deleted {{count}} sessions', { count: deletedIds.length }));
       }
       if (failedIds.length > 0) {
         toast.error(failedIds.length === 1
-          ? `Failed to delete ${failedIds.length} session`
-          : `Failed to delete ${failedIds.length} sessions`);
+          ? t('Failed to delete {{count}} session', { count: failedIds.length })
+          : t('Failed to delete {{count}} sessions', { count: failedIds.length }));
       }
     } else {
       const { archivedIds, failedIds } = await archiveSessions(ids);
       if (archivedIds.length > 0) {
         toast.success(archivedIds.length === 1
-          ? `Archived ${archivedIds.length} session`
-          : `Archived ${archivedIds.length} sessions`);
+          ? t('Archived {{count}} session', { count: archivedIds.length })
+          : t('Archived {{count}} sessions', { count: archivedIds.length }));
       }
       if (failedIds.length > 0) {
         toast.error(failedIds.length === 1
-          ? `Failed to archive ${failedIds.length} session`
-          : `Failed to archive ${failedIds.length} sessions`);
+          ? t('Failed to archive {{count}} session', { count: failedIds.length })
+          : t('Failed to archive {{count}} sessions', { count: failedIds.length }));
       }
     }
     useSessionMultiSelectStore.getState().clear();
-  }, [archiveSessions, bulkScopeIsArchived, deleteSessions, selectedIds]);
+  }, [archiveSessions, bulkScopeIsArchived, deleteSessions, selectedIds, t]);
 
   const handleBulkDelete = React.useCallback(() => {
     if (!hasSelection) return;
@@ -212,16 +215,16 @@ export const useSidebarBulkActions = (args: Args) => {
     const { restoredIds, failedIds } = await unarchiveSessions(ids);
     if (restoredIds.length > 0) {
       toast.success(restoredIds.length === 1
-        ? `Restored ${restoredIds.length} session`
-        : `Restored ${restoredIds.length} sessions`);
+        ? t('Restored {{count}} session', { count: restoredIds.length })
+        : t('Restored {{count}} sessions', { count: restoredIds.length }));
     }
     if (failedIds.length > 0) {
       toast.error(failedIds.length === 1
-        ? `Failed to restore ${failedIds.length} session`
-        : `Failed to restore ${failedIds.length} sessions`);
+        ? t('Failed to restore {{count}} session', { count: failedIds.length })
+        : t('Failed to restore {{count}} sessions', { count: failedIds.length }));
     }
     useSessionMultiSelectStore.getState().clear();
-  }, [bulkScopeIsArchived, hasSelection, selectedIds, unarchiveSessions]);
+  }, [bulkScopeIsArchived, hasSelection, selectedIds, unarchiveSessions, t]);
 
   const confirmBulkDelete = React.useCallback(async () => {
     setBulkDeleteConfirm(null);

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +40,7 @@ export const TerminalTabDropdown: React.FC<Props> = ({
   onCreate,
   disabled = false,
 }) => {
+  const { t } = useTranslation();
   const activeItem = items.find((item) => item.id === activeId) ?? items[0] ?? null;
 
   return (
@@ -49,12 +51,12 @@ export const TerminalTabDropdown: React.FC<Props> = ({
           variant="ghost"
           size="sm"
           disabled={disabled}
-          title={activeItem ? `Switch terminal, current: ${activeItem.label}` : 'Switch terminal'}
-          aria-label={activeItem ? `Switch terminal, current: ${activeItem.label}` : 'Switch terminal'}
+          title={activeItem ? t('Switch terminal, current: {{label}}', { label: activeItem.label }) : t('Switch terminal')}
+          aria-label={activeItem ? t('Switch terminal, current: {{label}}', { label: activeItem.label }) : t('Switch terminal')}
           className="h-8 min-w-0 max-w-full justify-start gap-1.5 px-2 py-1 normal-case"
         >
           {activeItem?.icon ?? <Icon name="terminal" className="size-4 shrink-0" />}
-          <span className="min-w-0 truncate font-medium text-left">{activeItem?.label ?? 'Terminal'}</span>
+          <span className="min-w-0 truncate font-medium text-left">{activeItem?.label ?? t('Terminal')}</span>
           <Icon name="arrow-down-s" className="size-4 shrink-0 opacity-60" />
         </Button>
       </DropdownMenuTrigger>
@@ -94,7 +96,7 @@ export const TerminalTabDropdown: React.FC<Props> = ({
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={onCreate}>
           <Icon name="add" className="size-3.5" />
-          {'New tab'}
+          {t('New tab')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

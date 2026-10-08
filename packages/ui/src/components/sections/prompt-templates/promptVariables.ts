@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 /**
  * Pi prompt argument variables for the prompt-template editor.
  *
@@ -46,8 +48,8 @@ export function promptVariableChips(content: string): PromptVariableChip[] {
   const next = nextPositionalVariable(content);
   const rest = restSliceVariable(content);
   return [
-    { value: next, label: next, hint: `Insert ${next}, the next argument` },
-    { value: "$@", label: "$@", hint: "Insert $@, all arguments" },
-    ...(rest ? [{ value: rest, label: rest, hint: `Insert ${rest}, all arguments after the positional ones` }] : []),
+    { value: next, label: next, hint: i18n.t('Insert {{variable}}, the next argument', { variable: next }) },
+    { value: "$@", label: "$@", hint: i18n.t('Insert $@, all arguments') },
+    ...(rest ? [{ value: rest, label: rest, hint: i18n.t('Insert {{variable}}, all arguments after the positional ones', { variable: rest }) }] : []),
   ];
 }

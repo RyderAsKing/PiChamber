@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { IconName } from '@/components/icon/icons';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
@@ -30,19 +31,20 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
   outputModalityIcons,
   currentMetadata,
 }) => {
+  const { t } = useTranslation();
   if (!open) return null;
 
   return (
     <MobileOverlayPanel open={true} onClose={onClose} title={title}>
       <div className="flex flex-col gap-1.5">
         <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-          <div className="typography-micro text-muted-foreground mb-0.5">Provider</div>
+          <div className="typography-micro text-muted-foreground mb-0.5">{t('Provider')}</div>
           <div className="typography-meta text-foreground font-medium">{providerDisplayName}</div>
         </div>
 
         {currentCapabilityIcons.length > 0 && (
           <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-            <div className="typography-micro text-muted-foreground mb-1">Capabilities</div>
+            <div className="typography-micro text-muted-foreground mb-1">{t('Capabilities')}</div>
             <div className="flex flex-wrap gap-1.5">
               {currentCapabilityIcons.map(({ key, icon, label }) => (
                 <div key={key} className="flex items-center gap-1.5">
@@ -56,24 +58,24 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
 
         {(inputModalityIcons.length > 0 || outputModalityIcons.length > 0) && (
           <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-            <div className="typography-micro text-muted-foreground mb-1">Modalities</div>
+            <div className="typography-micro text-muted-foreground mb-1">{t('Modalities')}</div>
             <div className="flex flex-col gap-1">
               {inputModalityIcons.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="typography-meta text-muted-foreground/80 w-12">Input</span>
+                  <span className="typography-meta text-muted-foreground/80 w-12">{t('Input')}</span>
                   <div className="flex gap-1">
                     {inputModalityIcons.map(({ key, icon, label }) => (
-                      <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />
+                      <IconBadge key={`input-${key}`} iconName={icon} label={t('{{label}} input', { label })} />
                     ))}
                   </div>
                 </div>
               )}
               {outputModalityIcons.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="typography-meta text-muted-foreground/80 w-12">Output</span>
+                  <span className="typography-meta text-muted-foreground/80 w-12">{t('Output')}</span>
                   <div className="flex gap-1">
                     {outputModalityIcons.map(({ key, icon, label }) => (
-                      <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />
+                      <IconBadge key={`output-${key}`} iconName={icon} label={t('{{label}} output', { label })} />
                     ))}
                   </div>
                 </div>
@@ -83,16 +85,16 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
         )}
 
         <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-          <div className="typography-micro text-muted-foreground mb-1">Limits</div>
+          <div className="typography-micro text-muted-foreground mb-1">{t('Limits')}</div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Context</span>
+              <span className="typography-meta text-muted-foreground/80">{t('Context')}</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatTokens(currentMetadata?.limit?.context)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Output</span>
+              <span className="typography-meta text-muted-foreground/80">{t('Output')}</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatTokens(currentMetadata?.limit?.output)}
               </span>
@@ -101,16 +103,16 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
         </div>
 
         <div className="rounded-xl border border-border/40 bg-sidebar/30 px-2 py-1.5">
-          <div className="typography-micro text-muted-foreground mb-1">Metadata</div>
+          <div className="typography-micro text-muted-foreground mb-1">{t('Metadata')}</div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Knowledge</span>
+              <span className="typography-meta text-muted-foreground/80">{t('Knowledge')}</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatKnowledge(currentMetadata?.knowledge)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Release</span>
+              <span className="typography-meta text-muted-foreground/80">{t('Release')}</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatDate(currentMetadata?.release_date)}
               </span>

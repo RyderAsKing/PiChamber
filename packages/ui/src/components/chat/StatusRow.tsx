@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { cn } from "@/lib/utils";
 import type { Todo } from "@/lib/chat/types";
@@ -60,6 +61,7 @@ interface TodoItemRowProps {
 }
 
 const TodoItemRow: React.FC<TodoItemRowProps> = ({ todo }) => {
+  const { t } = useTranslation();
   const status = String(todo.status || 'pending');
   const priority = String(todo.priority || 'medium');
   const config = statusConfig[status] || statusConfig.pending;
@@ -82,7 +84,7 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({ todo }) => {
           <span className="flex-shrink-0">{statusIcon}</span>
         </TooltipTrigger>
         <TooltipContent side="left" sideOffset={6}>
-          {statusKey}
+          {t(statusKey)}
         </TooltipContent>
       </Tooltip>
       <span
@@ -105,7 +107,7 @@ const TodoItemRow: React.FC<TodoItemRowProps> = ({ todo }) => {
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" sideOffset={6}>
-          {priorityKey}
+          {t(priorityKey)}
         </TooltipContent>
       </Tooltip>
     </div>
@@ -157,6 +159,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
   leftAccessory,
   turnStartedAt = null,
 }) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = React.useState(false);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   // Directory todo plumbing is retired; the row renders no tasks.
@@ -222,7 +225,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
   }, [isExpanded]);
 
   const toggleExpanded = () => setIsExpanded((prev) => !prev);
-  const todoSummaryLabel = `${statusSummary.active} active · ${statusSummary.left} left`;
+  const todoSummaryLabel = t('{{active}} active · {{left}} left', { active: statusSummary.active, left: statusSummary.left });
 
   // Abort button for mobile
   const abortButton = showAbort && onAbort ? (
@@ -230,7 +233,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
       type="button"
       onClick={onAbort}
       className="flex items-center justify-center h-[1.2rem] w-[1.2rem] text-[var(--status-error)] transition-opacity hover:opacity-80 focus-visible:outline-none flex-shrink-0"
-      aria-label={"Stop generating"}
+      aria-label={t("Stop generating")}
     >
       <Icon name="close-circle" aria-hidden="true"/>
     </button>
@@ -251,7 +254,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
           {activeTodo.content}
         </span>
       ) : (
-        <span className="typography-ui-label">{"Tasks"}</span>
+        <span className="typography-ui-label">{t("Tasks")}</span>
       )}
       <span className="typography-meta flex items-center gap-1 tabular-nums" aria-hidden="true">
         <span className="flex items-center gap-0.5">
@@ -292,7 +295,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
             <div className="flex h-full items-center text-[var(--status-error)] pl-0.5">
               <span className="flex items-center gap-1.5 typography-ui-label">
                 <Icon name="close-circle" aria-hidden="true"/>
-                {"Aborted"}
+                {t("Aborted")}
               </span>
             </div>
           ) : showAssistantStatus && shouldRenderPlaceholder ? (
@@ -340,7 +343,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
             >
               {/* Header */}
               <div className="flex items-center gap-1.5 px-2 py-1 typography-ui-label font-medium text-muted-foreground">
-                <span>{"Tasks"}</span>
+                <span>{t("Tasks")}</span>
                 <span className="typography-meta tabular-nums">
                   {progress.completed}/{progress.total}
                 </span>

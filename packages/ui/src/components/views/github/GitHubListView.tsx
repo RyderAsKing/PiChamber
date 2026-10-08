@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { formatGitHubRelativeTime } from './GitHubDetailScaffold';
 import {
@@ -146,19 +147,20 @@ export const GitHubListView = <TItem extends { number: number }>({
   onRetry,
   onOpen,
 }: GitHubListViewProps<TItem>): React.ReactElement => {
+  const { t } = useTranslation();
   const footerSummary = React.useMemo(() => {
     if (items.length === 0) return null;
     const count = items.length === 1 && countComplete
-      ? `1 ${kindSingular}`
-      : `${items.length}${countComplete ? '' : '+'} ${kindPlural}`;
+      ? t('1 {{kind}}', { kind: kindSingular })
+      : t('{{count}} {{kind}}', { count: `${items.length}${countComplete ? '' : '+'}`, kind: kindPlural });
     let latest = 0;
     for (const item of items) {
       const parsed = updatedAtOf(item) ? Date.parse(updatedAtOf(item) as string) : NaN;
       if (Number.isFinite(parsed) && parsed > latest) latest = parsed;
     }
     const updated = latest > 0 ? formatGitHubRelativeTime(new Date(latest).toISOString()) : '';
-    return `${count} · ${stateLabel.toLowerCase()}${updated ? ` · updated ${updated}` : ''}`;
-  }, [items, stateLabel, kindSingular, kindPlural, countComplete, updatedAtOf]);
+    return `${count} · ${stateLabel.toLowerCase()}${updated ? ` · ${t('updated {{time}}', { time: updated })}` : ''}`;
+  }, [items, stateLabel, kindSingular, kindPlural, countComplete, updatedAtOf, t]);
 
   const blockingError = Boolean(error) && items.length === 0;
   const firstLoad = !blockingError && isLoading && items.length === 0;
@@ -241,7 +243,7 @@ export const GitHubListView = <TItem extends { number: number }>({
           <GitHubLoadMore hasMore={hasMore} isLoading={isLoadingMore || isLoading} onLoadMore={onLoadMore} />
           {remote && (remote.isSearching || remote.error || remote.items.length > 0) ? (
             <GitHubRemoteSection
-              title="More results from GitHub"
+              title={t("More results from GitHub")}
               isSearching={remote.isSearching}
               error={remote.error}
               hasResults={remote.items.length > 0}

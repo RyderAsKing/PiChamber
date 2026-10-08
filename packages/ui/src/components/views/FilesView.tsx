@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 
 import { toast } from '@/components/ui';
@@ -84,6 +85,7 @@ interface FilesViewProps {
 }
 
 export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'desktop', onClose, isVisible = true }) => {
+  const { t } = useTranslation();
   const { files, runtime } = useRuntimeAPIs();
   const mobileChrome = chrome === 'mobile';
   const { currentTheme, availableThemes, lightThemeId, darkThemeId } = useThemeSystem();
@@ -360,9 +362,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   const handleRevealPath = React.useCallback((targetPath: string) => {
     if (!files.revealPath) return;
     void files.revealPath(targetPath).catch(() => {
-      toast.error("Failed to reveal path");
+      toast.error(t('Failed to reveal path'));
     });
-  }, [files]);
+  }, [files, t]);
 
   const handleOpenInApp = React.useCallback(async (app: { id: string; appName: string }) => {
     if (!selectedFile?.path) {
@@ -386,8 +388,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         return;
       }
     }
-    toast.error(`Failed to open in ${app.appName}`);
-  }, [root, selectedFile?.path]);
+    toast.error(t('Failed to open in {{app}}', { app: app.appName }));
+  }, [root, selectedFile?.path, t]);
 
   // File navigation/editor state
   const fileEditorKeymap = useUIStore((state) => state.fileEditorKeymap);
@@ -466,7 +468,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     });
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: response.statusText }));
-      throw new Error((error as { error?: string }).error || "Failed to read file");
+      throw new Error((error as { error?: string }).error || t('Failed to read file'));
     }
     const content = await response.text();
     const rawRevision = response.headers?.get?.('x-pichamber-file-revision');
@@ -477,7 +479,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       revision: typeof rawRevision === 'string' && rawRevision.length > 0 ? rawRevision : (exists ? undefined : null),
       exists,
     };
-  }, [files, root]);
+  }, [files, root, t]);
 
   const readFileStat = React.useCallback(async (path: string, options?: { allowOutsideWorkspace?: boolean; outsideFileGrant?: string; knownRevision?: string | null }): Promise<FileStatSnapshot | null> => {
     if (files.statFile) {
@@ -860,7 +862,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         }
         setFileContent('');
         setDraftContent('');
-        setFileError(error instanceof Error ? error.message : "Failed to read file");
+        setFileError(error instanceof Error ? error.message : t('Failed to read file'));
         setLoadedFileRevision(undefined);
         setLoadedRevisionScope(null);
         recordLoadedFileStat(null);
@@ -870,7 +872,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           setFileLoading(false);
         }
       });
-  }, [activeRuntimeKey, clearSaveConflict, expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFileEntry, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath]);
+  }, [activeRuntimeKey, clearSaveConflict, expandPaths, isDirectoryLoaded, isMobile, loadDirectory, mode, readFileEntry, readFileStat, recordDiagramContent, recordLoadedFileStat, removeOpenPathsByPrefix, root, runtime.isDesktop, searchQuery, setSelectedPath, t]);
 
   const ensurePathVisible = React.useCallback(async (targetPath: string, includeTarget: boolean) => {
     if (!root || !needsTree) {
@@ -1301,7 +1303,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     ? selectedFile.path
     : '';
 
-  const assetAuthErrorFallback = "Failed to read file";
+  const assetAuthErrorFallback = t('Failed to read file');
   const { readyKey: imageAssetAuthReadyKey, nonce: imagePreviewNonce } =
     useAssetAuthRefresh(imageAssetAuthKey, setFileError, assetAuthErrorFallback);
   const { readyKey: htmlAssetAuthReadyKey, nonce: htmlPreviewNonce } =
@@ -1376,7 +1378,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
             },
           });
           if (!response.ok) {
-            throw new Error("Failed to read file");
+            throw new Error(t('Failed to read file'));
           }
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
@@ -1402,7 +1404,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           }
           if (!cancelled) {
             setDesktopImageSrc('');
-            setFileError(error instanceof Error ? error.message : "Failed to read file");
+            setFileError(error instanceof Error ? error.message : t('Failed to read file'));
             setLoadedFilePath(null);
           }
         })
@@ -1418,7 +1420,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     return () => {
       cancelled = true;
     };
-  }, [files, isSelectedImage, isSelectedSvg, root, runtime.isDesktop, selectedFile?.path, selectedFileReadOptions]);
+  }, [files, isSelectedImage, isSelectedSvg, root, runtime.isDesktop, selectedFile?.path, selectedFileReadOptions, t]);
 
   React.useEffect(() => {
     return () => {
@@ -1435,9 +1437,9 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     if (!downloadFile || !path) return;
     void downloadFile(path).catch((error) => {
       console.error('Download failed:', error);
-      toast.error("Operation failed");
+      toast.error(t('Operation failed'));
     });
-  }, [files.downloadFile, selectedFile?.path]);
+  }, [files.downloadFile, selectedFile?.path, t]);
 
   const renderFloatingFileControls = ({
     exitFullscreenOnly = false,
@@ -1501,7 +1503,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           if (result.ok) {
             showCopiedContent(true);
           } else {
-            toast.error("Copy failed");
+            toast.error(t('Copy failed'));
           }
         }}
         canCopyPath={canCopyPath}
@@ -1511,7 +1513,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           if (result.ok) {
             showCopiedPath(true);
           } else {
-            toast.error("Copy failed");
+            toast.error(t('Copy failed'));
           }
         }}
         onDownloadFile={files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined}
@@ -1681,15 +1683,15 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                               ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)]'
                               : 'text-muted-foreground hover:text-foreground'
                           )}
-                          aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-                          title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
+                          aria-label={(getMdViewMode() === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode'))}
+                          title={(getMdViewMode() === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode'))}
                         >
                           <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
                         </Button>
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" sideOffset={6}>
-                      {(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
+                      {(getMdViewMode() === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode'))}
                     </TooltipContent>
                   </Tooltip>
                 ) : null}
@@ -1704,14 +1706,14 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                         size="sm"
                         onClick={() => setIsFloatingToolbarOpen(true)}
                         className="size-8 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-0 text-muted-foreground shadow-sm hover:text-foreground"
-                        aria-label={"Show editor controls"}
-                        title={"Editor controls"}
+                        aria-label={t('Show editor controls')}
+                        title={t('Editor controls')}
                       >
                         <Icon name="more-2-fill" className="size-4" />
                       </Button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={6}>{"Editor controls"}</TooltipContent>
+                  <TooltipContent side="bottom" sideOffset={6}>{t('Editor controls')}</TooltipContent>
                 </Tooltip>
               </div>
             )}

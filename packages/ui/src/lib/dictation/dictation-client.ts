@@ -2,6 +2,7 @@ import { clearRuntimeUrlAuthToken, refreshRuntimeUrlAuthToken } from '@/lib/runt
 import { openRuntimeWebSocket } from '@/lib/relay/runtime-socket';
 import type { RelayTunnelWebSocket } from '@/lib/relay/tunnel-client';
 import { getRuntimeUrlResolver } from '@/lib/runtime-url';
+import i18n from '@/i18n';
 
 const SOCKET_OPEN = 1;
 const MAX_AUDIO_BYTES = 5 * 60 * 16_000 * 2;
@@ -45,7 +46,7 @@ export class DictationClient {
   append(chunk: Uint8Array): void {
     if (this.cancelled || this.finishing || !chunk.byteLength) return;
     if (this.audioBytes + chunk.byteLength > MAX_AUDIO_BYTES) {
-      this.fail(new Error('Recording reached the five minute limit'));
+      this.fail(new Error(i18n.t('Recording reached the five minute limit')));
       return;
     }
     const retained = chunk.slice();
@@ -121,7 +122,7 @@ export class DictationClient {
           this.cancelled = true;
           this.closeSocket();
         } else if (message.type === 'error') {
-          this.fail(Object.assign(new Error(message.message || 'Transcription failed'), { code: message.code }));
+          this.fail(Object.assign(new Error(message.message || i18n.t('Transcription failed')), { code: message.code }));
         }
       };
       socket.onerror = () => {};
@@ -151,7 +152,7 @@ export class DictationClient {
     const hiddenOrOffline = typeof document !== 'undefined' && (document.visibilityState === 'hidden' || navigator.onLine === false);
     const delay = hiddenOrOffline ? 30_000 : Math.min(10_000, 300 * 2 ** Math.min(this.failures, 5));
     if (this.failures >= 8) {
-      this.fail(lastError ?? new Error('Could not reconnect to the transcription server'));
+      this.fail(lastError ?? new Error(i18n.t('Could not reconnect to the transcription server')));
       return;
     }
     this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; void this.connect(); }, delay);

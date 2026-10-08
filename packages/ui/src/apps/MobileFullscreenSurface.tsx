@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 import { Icon } from '@/components/icon/Icon';
@@ -66,7 +67,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
   dialogAlign = 'chat',
   children,
 }) => {
-  
+  const { t } = useTranslation();
   const rootRef = React.useRef<HTMLElement | null>(null);
   const [entered, setEntered] = React.useState(false);
   const [contentReady, setContentReady] = React.useState(false);
@@ -208,7 +209,7 @@ export const MobileFullscreenSurface: React.FC<MobileFullscreenSurfaceProps> = (
           <button
             type="button"
             className="-ml-1 flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={"Close"}
+            aria-label={t("Close")}
             onClick={onClose}
             style={{ touchAction: 'manipulation' }}
           >

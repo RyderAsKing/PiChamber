@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
@@ -16,6 +17,7 @@ import { SnippetMarkdownEditor } from '@/components/sections/snippets/SnippetMar
 /** Pi-native skill discovery — grid browse + detail with markdown and inline editing when Pi marks the skill editable. */
 export const SkillsPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const selectedSkillName = useSkillsStore((state) => state.selectedSkillName);
   const setSelectedSkill = useSkillsStore((state) => state.setSelectedSkill);
   const skills = useSkillsStore((state) => state.skills);
@@ -99,7 +101,7 @@ export const SkillsPage: React.FC = () => {
 
   // Detail view for selected skill
   if (skill) {
-    const locationLabel = skill.location === 'project' ? 'Project' : skill.location === 'global' ? 'Global' : skill.location;
+    const locationLabel = skill.location === 'project' ? t('Project') : skill.location === 'global' ? t('Global') : skill.location;
     const hasContent = typeof skill.content === 'string' && skill.content.trim().length > 0;
     const isEditable = skill.editable === true;
     const isDirty = skillDraft !== (skill.content ?? '');
@@ -110,10 +112,10 @@ export const SkillsPage: React.FC = () => {
       const ok = await updateSkillContent(skill.name, skillDraft);
       setIsSavingSkill(false);
       if (ok) {
-        toast.success("Skill saved");
+        toast.success(t('Skill saved'));
         setIsEditingSkill(false);
       } else {
-        toast.error("Failed to save skill");
+        toast.error(t('Failed to save skill'));
       }
     };
 
@@ -131,7 +133,7 @@ export const SkillsPage: React.FC = () => {
                 variant="ghost"
                 size="xs"
                 onClick={() => setSelectedSkill(null)}
-                aria-label="Back to skills"
+                aria-label={t('Back to skills')}
                 className="-ml-1 h-7 w-7 p-0"
               >
                 <Icon name="arrow-left-s" className="size-4" />
@@ -144,38 +146,38 @@ export const SkillsPage: React.FC = () => {
             isEditable && !isEditingSkill ? (
               <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)}>
                 <Icon name="edit" className="size-3.5" />
-                Edit
+                {t('Edit')}
               </Button>
             ) : undefined
           }
         >
-          <SettingsSection title="Details" divider={false} settingsItem="skills.discovery">
+          <SettingsSection title={t('Details')} divider={false} settingsItem="skills.discovery">
             <div className="flex flex-wrap gap-2 typography-micro">
               <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium capitalize text-muted-foreground">{locationLabel}</span>
               {isEditable ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-success)]/10 px-2.5 py-1 font-medium text-[var(--status-success)]">
                   <Icon name="check" className="size-3.5" aria-hidden />
-                  Editable
+                  {t('Editable')}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground">
                   <span className="size-1.5 rounded-full bg-muted-foreground/60" aria-hidden />
-                  Read-only
+                  {t('Read-only')}
                 </span>
               )}
             </div>
             {!isEditable ? (
-              <p className="typography-micro text-muted-foreground">This skill is provided by a package or template and cannot be edited. Create a new skill in your project to customize it.</p>
+              <p className="typography-micro text-muted-foreground">{t('This skill is provided by a package or template and cannot be edited. Create a new skill in your project to customize it.')}</p>
             ) : null}
           </SettingsSection>
 
           <SettingsSection
-            title="Skill Guide"
+            title={t('Skill Guide')}
             settingsItem="skills.content"
-            info={isEditingSkill ? "Markdown supported. Preview your changes before saving." : "Rendered from the SKILL.md markdown file discovered by Pi."}
+            info={isEditingSkill ? t('Markdown supported. Preview your changes before saving.') : t('Rendered from the SKILL.md markdown file discovered by Pi.')}
             headerAction={
               isEditable && isEditingSkill ? (
-                <span className="typography-micro text-muted-foreground">{isDirty ? "Unsaved changes" : "No changes"}</span>
+                <span className="typography-micro text-muted-foreground">{isDirty ? t('Unsaved changes') : t('No changes')}</span>
               ) : undefined
             }
           >
@@ -184,16 +186,16 @@ export const SkillsPage: React.FC = () => {
                 <SnippetMarkdownEditor
                   value={skillDraft}
                   onChange={setSkillDraft}
-                  placeholder="Write the skill guide in markdown..."
+                  placeholder={t('Write the skill guide in markdown...')}
                   hideExpandsNote
                   minHeight={360}
                 />
                 <div className="flex items-center justify-between gap-2 pt-3">
                   <Button variant="ghost" size="xs" onClick={handleCancelSkillEdit} disabled={isSavingSkill}>
-                    Cancel
+                    {t('Cancel')}
                   </Button>
                   <Button size="xs" onClick={() => void handleSaveSkill()} disabled={isSavingSkill || !isDirty}>
-                    {isSavingSkill ? "Saving..." : "Save Changes"}
+                    {isSavingSkill ? t('Saving...') : t('Save Changes')}
                   </Button>
                 </div>
               </>
@@ -204,12 +206,12 @@ export const SkillsPage: React.FC = () => {
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-10 text-center">
                 <Icon name="book-open" className="size-6 text-muted-foreground/60" aria-hidden />
-                <p className="typography-meta text-muted-foreground">No guide content available for this skill.</p>
-                <p className="typography-micro text-muted-foreground">The daemon did not return markdown for this resource.</p>
+                <p className="typography-meta text-muted-foreground">{t('No guide content available for this skill.')}</p>
+                <p className="typography-micro text-muted-foreground">{t('The daemon did not return markdown for this resource.')}</p>
                 {isEditable ? (
                   <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)} className="mt-2">
                     <Icon name="edit" className="size-3.5" />
-                    Add content
+                    {t('Add content')}
                   </Button>
                 ) : null}
               </div>
@@ -218,7 +220,7 @@ export const SkillsPage: React.FC = () => {
               <div className="flex justify-end pt-3">
                 <Button variant="outline" size="xs" onClick={() => setIsEditingSkill(true)}>
                   <Icon name="edit" className="size-3.5" />
-                  Edit
+                  {t('Edit')}
                 </Button>
               </div>
             ) : null}
@@ -235,8 +237,8 @@ export const SkillsPage: React.FC = () => {
     return (
       <>
         <SettingsPageLayout
-          title={isMobile ? undefined : 'Skills'}
-          description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
+          title={isMobile ? undefined : t('Skills')}
+          description={isMobile ? undefined : t('Browse skills discovered by Pi. Click a card to read its guide.')}
           headerEnd={
             <div className="flex flex-wrap items-center gap-2">
               <Button
@@ -244,15 +246,15 @@ export const SkillsPage: React.FC = () => {
                 size="icon"
                 onClick={() => void refreshSkills()}
                 disabled={refreshing}
-                aria-label="Refresh skills"
-                title="Refresh skills"
+                aria-label={t('Refresh skills')}
+                title={t('Refresh skills')}
               >
                 <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
               </Button>
             </div>
           }
         >
-          <SettingsSection title="Skills" divider={false} settingsItem="skills.discovery">
+          <SettingsSection title={t('Skills')} divider={false} settingsItem="skills.discovery">
             <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-3">
               <SkillCardSkeleton count={6} />
             </div>
@@ -267,8 +269,8 @@ export const SkillsPage: React.FC = () => {
     return (
       <>
         <SettingsPageLayout
-          title={isMobile ? undefined : 'Skills'}
-          description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
+          title={isMobile ? undefined : t('Skills')}
+          description={isMobile ? undefined : t('Browse skills discovered by Pi. Click a card to read its guide.')}
           headerEnd={
             <div className="flex flex-wrap items-center gap-2">
               <div className="relative min-w-0 max-w-full">
@@ -280,15 +282,15 @@ export const SkillsPage: React.FC = () => {
                 <Input
                   value={skillQuery}
                   onChange={(event) => setSkillQuery(event.target.value)}
-                  placeholder="Search skills"
-                  aria-label="Search skills"
+                  placeholder={t('Search skills')}
+                  aria-label={t('Search skills')}
                   className="h-9 w-[18rem] max-w-full pl-8"
                 />
                 {skillQuery ? (
                   <button
                     type="button"
                     onClick={() => setSkillQuery('')}
-                    aria-label="Clear search"
+                    aria-label={t('Clear search')}
                     className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
                   >
                     <Icon name="close" className="size-4" />
@@ -300,8 +302,8 @@ export const SkillsPage: React.FC = () => {
                 size="icon"
                 onClick={() => void refreshSkills()}
                 disabled={refreshing}
-                aria-label="Refresh skills"
-                title="Refresh skills"
+                aria-label={t('Refresh skills')}
+                title={t('Refresh skills')}
               >
                 <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
               </Button>
@@ -310,8 +312,8 @@ export const SkillsPage: React.FC = () => {
         >
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon name="book-open" className="size-8 text-muted-foreground/60" aria-hidden />
-            <p className="typography-meta text-muted-foreground">No skills configured</p>
-            <p className="typography-micro text-muted-foreground">Skills appear here when Pi discovers SKILL.md files.</p>
+            <p className="typography-meta text-muted-foreground">{t('No skills configured')}</p>
+            <p className="typography-micro text-muted-foreground">{t('Skills appear here when Pi discovers SKILL.md files.')}</p>
           </div>
         </SettingsPageLayout>
       </>
@@ -322,8 +324,8 @@ export const SkillsPage: React.FC = () => {
   return (
     <>
       <SettingsPageLayout
-        title={isMobile ? undefined : 'Skills'}
-        description={isMobile ? undefined : 'Browse skills discovered by Pi. Click a card to read its guide.'}
+        title={isMobile ? undefined : t('Skills')}
+        description={isMobile ? undefined : t('Browse skills discovered by Pi. Click a card to read its guide.')}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-0 max-w-full">
@@ -335,15 +337,15 @@ export const SkillsPage: React.FC = () => {
               <Input
                 value={skillQuery}
                 onChange={(event) => setSkillQuery(event.target.value)}
-                placeholder="Search skills"
-                aria-label="Search skills"
+                placeholder={t('Search skills')}
+                aria-label={t('Search skills')}
                 className="h-9 w-[18rem] max-w-full pl-8"
               />
               {skillQuery ? (
                 <button
                   type="button"
                   onClick={() => setSkillQuery('')}
-                  aria-label="Clear search"
+                  aria-label={t('Clear search')}
                   className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
                 >
                   <Icon name="close" className="size-4" />
@@ -355,15 +357,15 @@ export const SkillsPage: React.FC = () => {
               size="icon"
               onClick={() => void refreshSkills()}
               disabled={refreshing}
-              aria-label="Refresh skills"
-              title="Refresh skills"
+              aria-label={t('Refresh skills')}
+              title={t('Refresh skills')}
             >
               <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
             </Button>
           </div>
         }
       >
-        <SettingsSection title="Skills" divider={false} settingsItem="skills.discovery">
+        <SettingsSection title={t('Skills')} divider={false} settingsItem="skills.discovery">
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
             <Button
               variant="chip"
@@ -371,7 +373,7 @@ export const SkillsPage: React.FC = () => {
               aria-pressed={locationFilter === 'all'}
               onClick={() => setLocationFilter('all')}
             >
-              All {locationCounts.all}
+              {t('All')} {locationCounts.all}
             </Button>
             <Button
               variant="chip"
@@ -379,7 +381,7 @@ export const SkillsPage: React.FC = () => {
               aria-pressed={locationFilter === 'project'}
               onClick={() => setLocationFilter('project')}
             >
-              Project {locationCounts.project}
+              {t('Project')} {locationCounts.project}
             </Button>
             <Button
               variant="chip"
@@ -387,13 +389,13 @@ export const SkillsPage: React.FC = () => {
               aria-pressed={locationFilter === 'global'}
               onClick={() => setLocationFilter('global')}
             >
-              Global {locationCounts.global}
+              {t('Global')} {locationCounts.global}
             </Button>
           </div>
           {filteredSkills.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
               <p className="typography-meta text-muted-foreground">
-                {skillQuery.trim() ? `No skills match “${skillQuery}”.` : `No ${locationFilter} skills.`}
+                {skillQuery.trim() ? t('No skills match “{{query}}”.', { query: skillQuery }) : t('No {{filter}} skills.', { filter: locationFilter })}
               </p>
               <Button
                 variant="ghost"
@@ -403,7 +405,7 @@ export const SkillsPage: React.FC = () => {
                   setLocationFilter('all');
                 }}
               >
-                Clear filters
+                {t('Clear filters')}
               </Button>
             </div>
           ) : (

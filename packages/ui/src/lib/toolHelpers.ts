@@ -1,4 +1,5 @@
 import { getLanguageFromExtension } from './fileTypes';
+import i18n from '@/i18n';
 
 export * from './fileTypes';
 
@@ -301,13 +302,15 @@ export function formatToolInput(input: Record<string, unknown>, toolName: string
     const line = getString('line');
     const character = getString('character');
     const query = getString('query');
-    const position = line && character ? ` (Line: ${line}; Character: ${character})` : '';
+    const position = line && character ? i18n.t(' (Line: {{line}}; Character: {{character}})', { line, character }) : '';
 
     if (operation === 'workspaceSymbol') {
-      return query ? `Operation: ${operation} (Query: "${query}")` : `Operation: ${operation}`;
+      return query
+        ? i18n.t('Operation: {{operation}} (Query: "{{query}}")', { operation, query })
+        : i18n.t('Operation: {{operation}}', { operation });
     }
 
-    const summary = `Operation: ${operation}${position}`;
+    const summary = `${i18n.t('Operation: {{operation}}', { operation })}${position}`;
     if (filePath) {
       return `${summary}\n${filePath}`;
     }
@@ -332,7 +335,7 @@ export function formatToolInput(input: Record<string, unknown>, toolName: string
   if ((toolName === 'edit' || toolName === 'multiedit') && typeof input === 'object') {
     const filePath = getString('filePath') || getString('file_path') || getString('path');
     if (filePath) {
-      return `File path: ${filePath}`;
+      return i18n.t('File path: {{filePath}}', { filePath });
     }
   }
 
@@ -357,7 +360,7 @@ export function formatToolInput(input: Record<string, unknown>, toolName: string
         if (typeof value === 'object') {
           formattedValue = JSON.stringify(value, null, 2);
         } else if (typeof value === 'boolean') {
-          formattedValue = value ? 'Yes' : 'No';
+          formattedValue = value ? i18n.t('Yes') : i18n.t('No');
         }
 
         return `${formattedKey}: ${formattedValue}`;

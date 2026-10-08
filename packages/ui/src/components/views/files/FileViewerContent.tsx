@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Extension } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { File as PierreFile } from '@pierre/diffs/react';
@@ -115,6 +116,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
   shikiThemeType,
   wrapLines,
 }) => {
+  const { t } = useTranslation();
   const spacious = variant === 'fullscreen';
   const contentPadding = spacious ? 'p-4' : 'p-3';
   const isDrawio = Boolean(selectedFile?.path && isDrawioFile(selectedFile.path));
@@ -158,14 +160,14 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
   return (
     <ScrollableOverlay outerClassName="h-full min-w-0" className="h-full min-w-0">
       {!selectedFile ? (
-        <div className={`${contentPadding} typography-ui text-muted-foreground`}>{"Pick a file from the tree."}</div>
+        <div className={`${contentPadding} typography-ui text-muted-foreground`}>{t("Pick a file from the tree.")}</div>
       ) : loading ? (
         suppressLoadingIndicator
           ? <div className={contentPadding} />
           : (
             <div className={`${contentPadding} flex items-center gap-2 typography-ui text-muted-foreground`}>
               <Icon name="loader-4" className="size-4 animate-spin" />
-              {spacious ? 'Loading…' : "Loading..."}
+              {spacious ? t('Loading…') : t("Loading...")}
             </div>
           )
       ) : fileError ? (
@@ -175,7 +177,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
           <img
             key={imagePreviewNonce}
             src={imageSrc}
-            alt={selectedFile.name || "Image"}
+            alt={selectedFile.name || t("Image")}
             className={cn(
               'max-w-full object-contain rounded-md border border-border/30 bg-primary/10',
               spacious ? 'max-h-full' : 'max-h-[70vh]',
@@ -193,12 +195,12 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
         </div>
       ) : isUnsupportedBinary ? (
         <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-          <div className="typography-ui-header text-foreground">{"Cannot preview binary file"}</div>
-          <div className="max-w-md typography-ui text-muted-foreground">{"This file is binary and cannot be edited in PiChamber. Download it to open with another app."}</div>
+          <div className="typography-ui-header text-foreground">{t("Cannot preview binary file")}</div>
+          <div className="max-w-md typography-ui text-muted-foreground">{t("This file is binary and cannot be edited in PiChamber. Download it to open with another app.")}</div>
           {onDownload ? (
             <Button type="button" variant="outline" size="sm" onClick={onDownload}>
               <Icon name="download" className="mr-2 size-4" />
-              {"Save file"}
+              {t("Save file")}
             </Button>
           ) : null}
         </div>
@@ -215,8 +217,8 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
         <ErrorBoundary
           fallback={
             <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-              <div className="mb-1 font-medium text-destructive">{"JSON viewer unavailable"}</div>
-              <div className="text-sm text-muted-foreground">{"Switch to text mode to view raw content."}</div>
+              <div className="mb-1 font-medium text-destructive">{t("JSON viewer unavailable")}</div>
+              <div className="text-sm text-muted-foreground">{t("Switch to text mode to view raw content.")}</div>
             </div>
           }
         >
@@ -228,14 +230,14 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
         <div className={cn('h-full overflow-auto', contentPadding)}>
           {fileContent.length > 500 * 1024 ? (
             <div className="mb-3 rounded-md border border-status-warning/20 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-              {`This file is large (${Math.round(fileContent.length / 1024)}KB). Preview may be limited.`}
+              {t('This file is large ({{size}}KB). Preview may be limited.', { size: Math.round(fileContent.length / 1024) })}
             </div>
           ) : null}
           <ErrorBoundary
             fallback={
               <div className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2">
-                <div className="mb-1 font-medium text-destructive">{"Preview unavailable"}</div>
-                <div className="text-sm text-muted-foreground">{"Switch to edit mode to fix the issue."}</div>
+                <div className="mb-1 font-medium text-destructive">{t("Preview unavailable")}</div>
+                <div className="text-sm text-muted-foreground">{t("Switch to edit mode to fix the issue.")}</div>
               </div>
             }
           >
@@ -249,7 +251,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
         </div>
       ) : enableRichPreviews && isHtml && htmlViewMode === 'preview' ? (
         htmlLoading ? (
-          <div className="flex h-full items-center justify-center text-muted-foreground typography-ui-label">{"Loading..."}</div>
+          <div className="flex h-full items-center justify-center text-muted-foreground typography-ui-label">{t("Loading...")}</div>
         ) : (
           <div className="h-full overflow-hidden">
             <iframe
@@ -257,7 +259,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
               src={htmlPreviewSrc}
               className="w-full h-full border-none"
               sandbox="allow-scripts allow-same-origin allow-forms"
-              title={"HTML Preview"}
+              title={t("HTML Preview")}
             />
           </div>
         )
@@ -289,7 +291,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
               <div className="flex items-center gap-2 typography-ui text-muted-foreground">
                 <Icon name="loader-4" className="size-4 animate-spin" />
-                {"Opening file at change..."}
+                {t("Opening file at change...")}
               </div>
             </div>
           ) : null}

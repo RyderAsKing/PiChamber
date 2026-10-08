@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,7 @@ interface ProjectCardProps {
 
 /** Grid card for project browse. Mirrors Provider/Skill/Snippet cards. */
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) => {
+  const { t } = useTranslation();
   const label = project.label?.trim() || project.path.split('/').pop()?.trim() || project.path;
   const hasCustomLabel = Boolean(project.label?.trim());
 
@@ -18,7 +20,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) =
     <button
       type="button"
       onClick={() => onSelect(project.id)}
-      aria-label={`${label} project, ${project.path}`}
+      aria-label={t('{{label}} project, {{path}}', { label, path: project.path })}
       className={cn(
         'group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left',
         'border-border/60 hover:bg-interactive-hover hover:border-border',

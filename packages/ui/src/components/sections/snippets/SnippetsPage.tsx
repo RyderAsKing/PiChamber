@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ const parseAliasesInput = (value: string): string[] => {
 /** PiChamber-owned snippets — literal `#name` text expansion. */
 export const SnippetsPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const effectiveDirectory = useEffectiveDirectory();
   const selectedId = useSnippetsStore((state) => state.selectedSnippetId);
   const draft = useSnippetsStore((state) => state.snippetDraft);
@@ -114,34 +116,34 @@ export const SnippetsPage: React.FC = () => {
   const handleSave = React.useCallback(async () => {
     const normalizedName = name.trim().replace(/\s+/g, "-");
     if (!normalizedName) {
-      toast.error("Snippet name is required");
+      toast.error(t('Snippet name is required'));
       return;
     }
     if (!/^[a-z0-9_-]+$/i.test(normalizedName)) {
       toast.error(
-        "Snippet name may only contain letters, numbers, dashes and underscores",
+        t('Snippet name may only contain letters, numbers, dashes and underscores'),
       );
       return;
     }
     if (!content.trim()) {
-      toast.error("Snippet content is required");
+      toast.error(t('Snippet content is required'));
       return;
     }
     const aliases = parseAliasesInput(aliasesInput);
     if (aliases.length > 10) {
-      toast.error("Snippets support at most 10 aliases");
+      toast.error(t('Snippets support at most 10 aliases'));
       return;
     }
     for (const alias of aliases) {
       if (!/^[a-z0-9_-]+$/i.test(alias)) {
         toast.error(
-          "Aliases may only contain letters, numbers, dashes and underscores",
+          t('Aliases may only contain letters, numbers, dashes and underscores'),
         );
         return;
       }
     }
     if (scope === "project" && !effectiveDirectory?.trim()) {
-      toast.error("Project snippets need an active project directory");
+      toast.error(t('Project snippets need an active project directory'));
       return;
     }
     setSaving(true);
@@ -179,10 +181,10 @@ export const SnippetsPage: React.FC = () => {
       if (!isNew) {
         setSnippetDraft(null);
       }
-      toast.success(isNew ? "Snippet created" : "Snippet updated");
+      toast.success(isNew ? t('Snippet created') : t('Snippet updated'));
     } else {
       toast.error(
-        isNew ? "Failed to create snippet" : "Failed to update snippet",
+        isNew ? t('Failed to create snippet') : t('Failed to update snippet'),
       );
     }
   }, [
@@ -197,6 +199,7 @@ export const SnippetsPage: React.FC = () => {
     selected?.id,
     setSnippetDraft,
     updateSnippet,
+    t,
   ]);
 
   const handleDelete = React.useCallback(async () => {
@@ -205,12 +208,12 @@ export const SnippetsPage: React.FC = () => {
     const success = await deleteSnippet(selected.id, effectiveDirectory);
     setDeleting(false);
     if (success) {
-      toast.success("Snippet deleted");
+      toast.success(t('Snippet deleted'));
       setConfirmDeleteOpen(false);
     } else {
-      toast.error("Failed to delete snippet");
+      toast.error(t('Failed to delete snippet'));
     }
-  }, [deleteSnippet, effectiveDirectory, selected]);
+  }, [deleteSnippet, effectiveDirectory, selected, t]);
 
   const [snippetQuery, setSnippetQuery] = React.useState("");
   const [scopeFilter, setScopeFilter] = React.useState<
@@ -296,15 +299,15 @@ export const SnippetsPage: React.FC = () => {
                 variant="ghost"
                 size="xs"
                 onClick={handleBack}
-                aria-label="Back to snippets"
+                aria-label={t('Back to snippets')}
                 className="-ml-1 h-7 w-7 p-0"
               >
                 <Icon name="arrow-left-s" className="size-4" />
               </Button>
-              <span className="truncate">Not found</span>
+              <span className="truncate">{t('Not found')}</span>
             </span>
           }
-          description="This snippet no longer exists."
+          description={t('This snippet no longer exists.')}
         >
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon
@@ -313,10 +316,10 @@ export const SnippetsPage: React.FC = () => {
               aria-hidden
             />
             <p className="typography-meta text-muted-foreground">
-              The selected snippet was not found.
+              {t('The selected snippet was not found.')}
             </p>
             <Button variant="outline" size="sm" onClick={handleBack}>
-              Back to snippets
+              {t('Back to snippets')}
             </Button>
           </div>
         </SettingsPageLayout>
@@ -346,20 +349,20 @@ export const SnippetsPage: React.FC = () => {
                 variant="ghost"
                 size="xs"
                 onClick={handleBack}
-                aria-label="Back to snippets"
+                aria-label={t('Back to snippets')}
                 className="-ml-1 h-7 w-7 p-0"
               >
                 <Icon name="arrow-left-s" className="size-4" />
               </Button>
               <span className="truncate">
-                {isNew ? "New snippet" : `#${selected?.name ?? name}`}
+                {isNew ? t('New snippet') : `#${selected?.name ?? name}`}
               </span>
             </span>
           }
           description={
             isNew ? (
               <span className="typography-settings-description text-muted-foreground">
-                Create a reusable text snippet
+                {t('Create a reusable text snippet')}
               </span>
             ) : selected?.description ? (
               <span className="typography-settings-description text-muted-foreground">
@@ -376,13 +379,13 @@ export const SnippetsPage: React.FC = () => {
                 className="text-destructive hover:text-destructive"
               >
                 <Icon name="delete-bin" className="size-4" />
-                Delete
+                {t('Delete')}
               </Button>
             ) : null
           }
         >
           <SettingsSection
-            title="Identity"
+            title={t('Identity')}
             divider={false}
             settingsItem="snippets.create"
           >
@@ -390,7 +393,7 @@ export const SnippetsPage: React.FC = () => {
               <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
                 <div className="space-y-1.5">
                   <label className="typography-settings-field-label text-foreground">
-                    Name
+                    {t('Name')}
                   </label>
                   <div className="flex items-center gap-2">
                     <span className="typography-ui-label text-muted-foreground">
@@ -406,16 +409,16 @@ export const SnippetsPage: React.FC = () => {
                     />
                   </div>
                   <p className="typography-micro text-muted-foreground">
-                    Used as{" "}
+                    {t('Used as')}{" "}
                     <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                       #{name.trim() || "name"}
                     </code>{" "}
-                    in chat. Letters, numbers, dashes and underscores only.
+                    {t('in chat. Letters, numbers, dashes and underscores only.')}
                   </p>
                 </div>
                 <div className="space-y-1.5">
                   <label className="typography-settings-field-label text-foreground">
-                    Scope
+                    {t('Scope')}
                   </label>
                   <Select
                     value={scope}
@@ -428,59 +431,58 @@ export const SnippetsPage: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="project">Project</SelectItem>
+                      <SelectItem value="global">{t('Global')}</SelectItem>
+                      <SelectItem value="project">{t('Project')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="typography-micro text-muted-foreground">
                     {scope === "project"
-                      ? "Available only in this project. Project snippets override same-named global snippets."
-                      : "Available in every project."}
+                      ? t('Available only in this project. Project snippets override same-named global snippets.')
+                      : t('Available in every project.')}
                   </p>
                 </div>
               </div>
               <div className="space-y-1.5">
                 <label className="typography-settings-field-label text-foreground">
-                  Description
+                  {t('Description')}
                 </label>
                 <Input
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
-                  placeholder="What does this snippet do?"
+                  placeholder={t('What does this snippet do?')}
                   className="h-9 w-full"
                 />
                 <p className="typography-micro text-muted-foreground">
-                  Optional. Shown in the snippet card and autocomplete.
+                  {t('Optional. Shown in the snippet card and autocomplete.')}
                 </p>
               </div>
               <div className="space-y-1.5">
                 <label className="typography-settings-field-label text-foreground">
-                  Aliases
+                  {t('Aliases')}
                 </label>
                 <Input
                   value={aliasesInput}
                   onChange={(event) => setAliasesInput(event.target.value)}
-                  placeholder="shortcut, alt-name"
+                  placeholder={t('shortcut, alt-name')}
                   className="h-9 w-full font-mono"
                   spellCheck={false}
                   autoComplete="off"
                 />
                 <p className="typography-micro text-muted-foreground">
-                  Optional alternate # triggers, comma-separated. They expand
-                  to the same literal text.
+                  {t('Optional alternate # triggers, comma-separated. They expand to the same literal text.')}
                 </p>
               </div>
             </div>
           </SettingsSection>
 
           <SettingsSection
-            title="Content"
+            title={t('Content')}
             divider
             settingsItem="snippets.content"
-            info="Snippets perform literal text replacement. Type #name in chat to insert the content."
+            info={t('Snippets perform literal text replacement. Type #name in chat to insert the content.')}
             headerAction={
               <span className="typography-micro text-muted-foreground">
-                {isDirty ? "Unsaved changes" : "No changes"}
+                {isDirty ? t('Unsaved changes') : t('No changes')}
               </span>
             }
           >
@@ -497,27 +499,27 @@ export const SnippetsPage: React.FC = () => {
             />
             <div className="flex items-center justify-between gap-3 pt-2">
               <Button variant="ghost" size="sm" onClick={handleBack}>
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button
                 size="sm"
                 onClick={() => void handleSave()}
                 disabled={!canSave}
               >
-                {saving ? "Saving…" : isNew ? "Create snippet" : "Save changes"}
+                {saving ? t('Saving…') : isNew ? t('Create snippet') : t('Save changes')}
               </Button>
             </div>
           </SettingsSection>
 
           {!isNew && selected ? (
-            <SettingsSection title="Danger zone" divider>
+            <SettingsSection title={t('Danger zone')} divider>
               <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
                 <div className="min-w-0">
                   <div className="typography-ui-label font-medium text-foreground">
-                    Delete snippet
+                    {t('Delete snippet')}
                   </div>
                   <div className="typography-micro text-muted-foreground">
-                    Permanently remove #{selected.name}. This cannot be undone.
+                    {t('Permanently remove #{{name}}. This cannot be undone.', { name: selected.name })}
                   </div>
                 </div>
                 <Button
@@ -527,7 +529,7 @@ export const SnippetsPage: React.FC = () => {
                   disabled={deleting}
                 >
                   <Icon name="delete-bin" className="size-4" />
-                  Delete
+                  {t('Delete')}
                 </Button>
               </div>
             </SettingsSection>
@@ -540,10 +542,9 @@ export const SnippetsPage: React.FC = () => {
         >
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Delete snippet?</DialogTitle>
+              <DialogTitle>{t('Delete snippet?')}</DialogTitle>
               <DialogDescription>
-                This will permanently delete #{selected?.name ?? ""}. This
-                cannot be undone.
+                {t('This will permanently delete #{{name}}. This cannot be undone.', { name: selected?.name ?? "" })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -553,7 +554,7 @@ export const SnippetsPage: React.FC = () => {
                 onClick={() => setConfirmDeleteOpen(false)}
                 disabled={deleting}
               >
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button
                 variant="destructive"
@@ -561,7 +562,7 @@ export const SnippetsPage: React.FC = () => {
                 onClick={() => void handleDelete()}
                 disabled={deleting}
               >
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? t('Deleting…') : t('Delete')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -573,11 +574,11 @@ export const SnippetsPage: React.FC = () => {
   if (isLoading && snippets.length === 0) {
     return (
       <SettingsPageLayout
-        title={isMobile ? undefined : "Snippets"}
+        title={isMobile ? undefined : t('Snippets')}
         description={
           isMobile
             ? undefined
-            : "Text snippets that expand as #name in the composer."
+            : t('Text snippets that expand as #name in the composer.')
         }
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
@@ -586,8 +587,8 @@ export const SnippetsPage: React.FC = () => {
               size="icon"
               onClick={() => void refreshSnippets()}
               disabled={refreshing}
-              aria-label="Refresh snippets"
-              title="Refresh snippets"
+              aria-label={t('Refresh snippets')}
+              title={t('Refresh snippets')}
             >
               <Icon
                 name="refresh"
@@ -598,7 +599,7 @@ export const SnippetsPage: React.FC = () => {
         }
       >
         <SettingsSection
-          title="Snippets"
+          title={t('Snippets')}
           divider={false}
           settingsItem="snippets.create"
         >
@@ -614,11 +615,11 @@ export const SnippetsPage: React.FC = () => {
 
   return (
     <SettingsPageLayout
-      title={isMobile ? undefined : "Snippets"}
+      title={isMobile ? undefined : t('Snippets')}
       description={
         isMobile
           ? undefined
-          : "Text snippets that expand as #name in the composer."
+          : t('Text snippets that expand as #name in the composer.')
       }
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
@@ -631,15 +632,15 @@ export const SnippetsPage: React.FC = () => {
             <Input
               value={snippetQuery}
               onChange={(event) => setSnippetQuery(event.target.value)}
-              placeholder="Search snippets"
-              aria-label="Search snippets"
+              placeholder={t('Search snippets')}
+              aria-label={t('Search snippets')}
               className="h-9 w-[18rem] max-w-full pl-8"
             />
             {snippetQuery ? (
               <button
                 type="button"
                 onClick={() => setSnippetQuery("")}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
               >
                 <Icon name="close" className="size-4" />
@@ -651,8 +652,8 @@ export const SnippetsPage: React.FC = () => {
             size="icon"
             onClick={() => void refreshSnippets()}
             disabled={refreshing}
-            aria-label="Refresh snippets"
-            title="Refresh snippets"
+            aria-label={t('Refresh snippets')}
+            title={t('Refresh snippets')}
           >
             <Icon
               name="refresh"
@@ -665,14 +666,14 @@ export const SnippetsPage: React.FC = () => {
             onClick={() => void handleCreateNew()}
           >
             <Icon name="add" className="size-4" />
-            New snippet
+            {t('New snippet')}
           </Button>
         </div>
       }
     >
       {emptyState ? (
         <SettingsSection
-          title="Snippets"
+          title={t('Snippets')}
           divider={false}
           settingsItem="snippets.create"
         >
@@ -683,10 +684,10 @@ export const SnippetsPage: React.FC = () => {
               aria-hidden
             />
             <p className="typography-meta text-muted-foreground">
-              No snippets yet
+              {t('No snippets yet')}
             </p>
             <p className="typography-micro max-w-sm text-muted-foreground">
-              Snippets are reusable text. Create one and use it in chat as{" "}
+              {t('Snippets are reusable text. Create one and use it in chat as')}{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                 #my-snippet
               </code>
@@ -698,13 +699,13 @@ export const SnippetsPage: React.FC = () => {
               onClick={() => void handleCreateNew()}
             >
               <Icon name="add" className="size-4" />
-              New snippet
+              {t('New snippet')}
             </Button>
           </div>
         </SettingsSection>
       ) : (
         <SettingsSection
-          title="Snippets"
+          title={t('Snippets')}
           divider={false}
           settingsItem="snippets.create"
         >
@@ -715,7 +716,7 @@ export const SnippetsPage: React.FC = () => {
               aria-pressed={scopeFilter === "all"}
               onClick={() => setScopeFilter("all")}
             >
-              All {scopeCounts.all}
+              {t('All')} {scopeCounts.all}
             </Button>
             <Button
               variant="chip"
@@ -723,7 +724,7 @@ export const SnippetsPage: React.FC = () => {
               aria-pressed={scopeFilter === "project"}
               onClick={() => setScopeFilter("project")}
             >
-              Project {scopeCounts.project}
+              {t('Project')} {scopeCounts.project}
             </Button>
             <Button
               variant="chip"
@@ -731,7 +732,7 @@ export const SnippetsPage: React.FC = () => {
               aria-pressed={scopeFilter === "global"}
               onClick={() => setScopeFilter("global")}
             >
-              Global {scopeCounts.global}
+              {t('Global')} {scopeCounts.global}
             </Button>
           </div>
 
@@ -739,8 +740,8 @@ export const SnippetsPage: React.FC = () => {
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
               <p className="typography-meta text-muted-foreground">
                 {snippetQuery.trim()
-                  ? `No snippets match “${snippetQuery}”.`
-                  : `No ${scopeFilter} snippets.`}
+                  ? t('No snippets match “{{query}}”.', { query: snippetQuery })
+                  : t('No {{filter}} snippets.', { filter: scopeFilter })}
               </p>
               <Button
                 variant="ghost"
@@ -750,7 +751,7 @@ export const SnippetsPage: React.FC = () => {
                   setScopeFilter("all");
                 }}
               >
-                Clear filters
+                {t('Clear filters')}
               </Button>
             </div>
           ) : (
@@ -766,7 +767,7 @@ export const SnippetsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void handleCreateNew()}
-                aria-label="Create new snippet"
+                aria-label={t('Create new snippet')}
                 className={cn(
                   "group flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4",
                   "border-border/60 bg-transparent text-muted-foreground",
@@ -779,10 +780,10 @@ export const SnippetsPage: React.FC = () => {
                   <Icon name="add" className="size-5" />
                 </span>
                 <span className="typography-ui-label font-medium">
-                  New snippet
+                  {t('New snippet')}
                 </span>
                 <span className="typography-micro text-muted-foreground">
-                  Reusable text expansion
+                  {t('Reusable text expansion')}
                 </span>
               </button>
             </div>

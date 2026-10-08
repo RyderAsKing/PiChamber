@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
@@ -79,6 +80,7 @@ type Props = {
 
 function SidebarProjectsListComponent(props: Props): React.ReactNode {
   streamPerfCount('ui.sidebar_projects_list.render');
+  const { t } = useTranslation();
 
   const viewMode = props.viewMode ?? 'workspace';
   const isTimeline = viewMode === 'timeline';
@@ -223,8 +225,8 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             onClick={() => setAllFoldersLimit((prev) => prev + 30)}
           >
             {remainingAllFoldersCount === 1
-              ? "Show 1 more session"
-              : `Show ${remainingAllFoldersCount} more sessions`}
+              ? t("Show 1 more session")
+              : t('Show {{count}} more sessions', { count: remainingAllFoldersCount })}
           </SidebarSessionLikeButton>
         ) : null}
         {allFoldersLimit > 30 && allFolderSessions.length > 30 ? (
@@ -232,7 +234,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             icon="arrow-up-s"
             onClick={() => setAllFoldersLimit(30)}
           >
-            {"Show fewer sessions"}
+            {t("Show fewer sessions")}
           </SidebarSessionLikeButton>
         ) : null}
       </>
@@ -277,7 +279,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                     directoryOverride: activeSection.project.normalizedPath,
                   })}
                 >
-                  {"New session"}
+                  {t("New session")}
                 </SidebarSessionLikeButton>
               );
             }
@@ -339,7 +341,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           ) : (
             <>
               {timelineGroups.map((group, index) => {
-                const label = TIMELINE_BUCKET_LABELS[group.id];
+                const label = t(TIMELINE_BUCKET_LABELS[group.id]);
                 return (
                   <section
                     key={group.id}

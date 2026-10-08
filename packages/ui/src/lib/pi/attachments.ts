@@ -18,6 +18,7 @@
  * unit tested in isolation.
  */
 
+import i18n from '@/i18n';
 const TEXT_LIKE_MIME_PREFIXES = ['text/'];
 const TEXT_LIKE_APPLICATION_TYPES = new Set([
   'application/json',
@@ -159,17 +160,17 @@ export const validateAttachmentUpload = (params: {
   size: number;
 }): AttachmentUploadValidation => {
   if (params.size <= 0) {
-    return { ok: false, reason: 'empty', message: 'Attachment is empty' };
+    return { ok: false, reason: 'empty', message: i18n.t('Attachment is empty') };
   }
   if (params.size > MAX_ATTACHMENT_BYTES) {
-    return { ok: false, reason: 'too-large', message: 'Attachment exceeds the 100 MB limit' };
+    return { ok: false, reason: 'too-large', message: i18n.t('Attachment exceeds the 100 MB limit') };
   }
   const mime = (params.mime ?? '').toLowerCase();
   if (REJECTED_MIME_PREFIXES.some((prefix) => mime.startsWith(prefix))) {
-    return { ok: false, reason: 'invalid-mime', message: `Refusing to upload ${mime}` };
+    return { ok: false, reason: 'invalid-mime', message: i18n.t('Refusing to upload {{mime}}', { mime }) };
   }
   if (sanitizeFilename(params.filename) === 'attachment' && mime.length === 0) {
-    return { ok: false, reason: 'invalid-mime', message: 'Attachment is missing a filename or mime type' };
+    return { ok: false, reason: 'invalid-mime', message: i18n.t('Attachment is missing a filename or mime type') };
   }
   return { ok: true };
 };

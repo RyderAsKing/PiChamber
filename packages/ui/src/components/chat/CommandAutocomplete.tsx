@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useSessionUIStore } from "@/sync/session-ui-store";
 import { useSessionMessages } from "@/sync/sync-context";
@@ -95,6 +96,7 @@ export const CommandAutocomplete = React.forwardRef<
   CommandAutocompleteHandle,
   CommandAutocompleteProps
 >(({ searchQuery, onCommandSelect, onClose, style, onComboboxStateChange }, ref) => {
+  const { t } = useTranslation();
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const sessionMessages = useSessionMessages(currentSessionId ?? "");
   const hasMessagesInCurrentSession = sessionMessages.length > 0;
@@ -289,7 +291,7 @@ export const CommandAutocomplete = React.forwardRef<
         <ScrollableOverlay
           role="listbox"
           id={listboxId}
-          aria-label="Commands"
+          aria-label={t("Commands")}
           preventOverscroll
           outerClassName="flex-1 min-h-0"
           className="px-1 py-1.5"
@@ -386,7 +388,7 @@ export const CommandAutocomplete = React.forwardRef<
                       </span>
                       {context && (
                         <span className="shrink-0 rounded border border-[var(--interactive-border)]/60 bg-[var(--surface-muted)] px-1.5 py-1 text-[10px] font-bold uppercase leading-none tracking-tight text-muted-foreground">
-                          {context}
+                          {t(context)}
                         </span>
                       )}
                     </div>
@@ -395,7 +397,7 @@ export const CommandAutocomplete = React.forwardRef<
               })}
               {commands.length === 0 && (
                 <div className="px-3 py-2 typography-ui-label text-muted-foreground">
-                  No commands found
+                  {t("No commands found")}
                 </div>
               )}
             </div>
@@ -417,7 +419,7 @@ export const CommandAutocomplete = React.forwardRef<
     >
       <div
         role="group"
-        aria-label="Filter commands"
+        aria-label={t("Filter commands")}
         className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border/60 px-2 py-1.5"
       >
         {COMMAND_CATEGORY_OPTIONS.map((option) => (
@@ -429,14 +431,14 @@ export const CommandAutocomplete = React.forwardRef<
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => setCategory(option.value)}
           >
-            {option.label}
+            {t(option.label)}
           </Button>
         ))}
       </div>
       <ScrollableOverlay
         role="listbox"
         id={listboxId}
-        aria-label="Commands"
+        aria-label={t("Commands")}
         preventOverscroll
         outerClassName="flex-1 min-h-0"
         className="px-1 py-1.5"
@@ -541,7 +543,7 @@ export const CommandAutocomplete = React.forwardRef<
                               : "text-muted-foreground",
                           )}
                         >
-                          {context}
+                          {t(context)}
                         </span>
                       )}
                     </div>
@@ -575,7 +577,7 @@ export const CommandAutocomplete = React.forwardRef<
             })}
             {commands.length === 0 && (
               <div className="px-3 py-4 typography-ui-label text-muted-foreground">
-                No commands found
+                {t("No commands found")}
               </div>
             )}
           </div>
@@ -583,7 +585,7 @@ export const CommandAutocomplete = React.forwardRef<
       </ScrollableOverlay>
       {!isMobile && (
         <div className="border-t border-border/60 px-3 py-2 text-xs leading-4 text-muted-foreground">
-          ↑↓ Navigate · Enter Select · Esc Close
+          {t("↑↓ Navigate · Enter Select · Esc Close")}
         </div>
       )}
     </div>

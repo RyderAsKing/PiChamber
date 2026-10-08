@@ -11,6 +11,7 @@ import {
   type KeyedAsyncResource,
 } from './githubAsyncResource';
 import { mergeCommentsById, mergeItemsByNumber } from '@/components/views/github/githubListFiltering';
+import i18n from '@/i18n';
 
 /**
  * Shared machinery for the GitHub entity list stores (pull requests, issues).
@@ -512,7 +513,7 @@ export const createGitHubListCore = <
     getLocalIndex,
     withSingleFlight,
     resetCore,
-    toStoreError: (error: unknown) => toStoreError(error, config.errorFallback),
+    toStoreError: (error: unknown) => toStoreError(error, i18n.t(config.errorFallback)),
   };
 };
 

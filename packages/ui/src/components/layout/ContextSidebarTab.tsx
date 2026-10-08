@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Message, Part } from '@/lib/chat/types';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 
@@ -229,6 +230,7 @@ const resolveProviderAndModel = (
 };
 
 export const ContextPanelContent: React.FC = () => {
+  const { t } = useTranslation();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [expandedRawMessages, setExpandedRawMessages] = React.useState<Record<string, boolean>>({});
   const { value: copiedRawMessageId, show: showCopiedRawMessageId, clear: clearCopiedRawMessageId } = useTransientValue<string | null>(null, 2000);
@@ -356,16 +358,16 @@ export const ContextPanelContent: React.FC = () => {
   if (!currentSessionId) {
     return (
         <div className="flex h-full items-center justify-center p-6 text-center typography-ui-label text-muted-foreground">
-        {"Open a session to inspect context."}
+        {t('Open a session to inspect context.')}
       </div>
     );
   }
 
   const segments: Array<{ key: string; label: string; value: number; color: string }> = [
-    { key: 'user', label: "User", value: viewModel.breakdown.user, color: 'var(--status-success)' },
-    { key: 'assistant', label: "Assistant", value: viewModel.breakdown.assistant, color: 'var(--primary-base)' },
-    { key: 'tool', label: "Tool Calls", value: viewModel.breakdown.tool, color: 'var(--status-warning)' },
-    ...(viewModel.hasUsage ? [] : [{ key: 'other', label: "Other", value: viewModel.breakdown.other, color: 'var(--surface-muted-foreground)' }]),
+    { key: 'user', label: t('User'), value: viewModel.breakdown.user, color: 'var(--status-success)' },
+    { key: 'assistant', label: t('Assistant'), value: viewModel.breakdown.assistant, color: 'var(--primary-base)' },
+    { key: 'tool', label: t('Tool Calls'), value: viewModel.breakdown.tool, color: 'var(--status-warning)' },
+    ...(viewModel.hasUsage ? [] : [{ key: 'other', label: t('Other'), value: viewModel.breakdown.other, color: 'var(--surface-muted-foreground)' }]),
   ];
 
   return (
@@ -389,7 +391,7 @@ export const ContextPanelContent: React.FC = () => {
         {/* ── Context usage ── */}
         <div className="mb-5 rounded-lg bg-[var(--surface-elevated)]/70 px-4 py-3.5">
           <div className="flex items-baseline justify-between">
-            <span className="typography-micro text-muted-foreground">{"Context"}</span>
+            <span className="typography-micro text-muted-foreground">{t('Context')}</span>
             <span className="typography-micro tabular-nums text-muted-foreground/70">
               {formatNumber(viewModel.contextWindowTokens)}
               {viewModel.contextLimit ? ` / ${formatNumber(viewModel.contextLimit)}` : ''}
@@ -407,17 +409,17 @@ export const ContextPanelContent: React.FC = () => {
             )}
           </div>
           <div className="mt-1.5 typography-micro font-medium tabular-nums text-foreground/80">
-            {`${viewModel.usagePercent.toFixed(1)}% used`}
+            {t('{{percent}}% used', { percent: viewModel.usagePercent.toFixed(1) })}
           </div>
         </div>
 
         {/* ── Stat grid ── */}
         <div className="mb-5 grid grid-cols-2 gap-2">
           {([
-            { label: "Messages", value: formatNumber(viewModel.messagesCount) },
-            { label: "User", value: formatNumber(viewModel.userMessagesCount) },
-            { label: "Assistant", value: formatNumber(viewModel.assistantMessagesCount) },
-            { label: "Cost", value: formatMoney(viewModel.totalAssistantCost) },
+            { label: t('Messages'), value: formatNumber(viewModel.messagesCount) },
+            { label: t('User'), value: formatNumber(viewModel.userMessagesCount) },
+            { label: t('Assistant'), value: formatNumber(viewModel.assistantMessagesCount) },
+            { label: t('Cost'), value: formatMoney(viewModel.totalAssistantCost) },
           ] as const).map((item) => (
             <div key={item.label} className="rounded-lg bg-[var(--surface-elevated)]/70 px-3 py-2.5">
               <div className="typography-micro text-muted-foreground/70">{item.label}</div>
@@ -428,16 +430,16 @@ export const ContextPanelContent: React.FC = () => {
 
         {/* ── Last turn tokens ── */}
         <div className="mb-5 rounded-lg bg-[var(--surface-elevated)]/70 px-4 py-3.5">
-          <div className="typography-micro text-muted-foreground mb-2.5">{"Last Assistant Message"}</div>
+          <div className="typography-micro text-muted-foreground mb-2.5">{t('Last Assistant Message')}</div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
             {([
-              { label: "Input", value: viewModel.tokenBreakdown.input, format: 'count' },
-              { label: "Output", value: viewModel.tokenBreakdown.output, format: 'count' },
-              { label: "Reasoning", value: viewModel.tokenBreakdown.reasoning, format: 'count' },
-              { label: "Cache Read", value: viewModel.tokenBreakdown.cacheRead, format: 'count' },
-              { label: "Cache Write", value: viewModel.tokenBreakdown.cacheWrite, format: 'count' },
+              { label: t('Input'), value: viewModel.tokenBreakdown.input, format: 'count' },
+              { label: t('Output'), value: viewModel.tokenBreakdown.output, format: 'count' },
+              { label: t('Reasoning'), value: viewModel.tokenBreakdown.reasoning, format: 'count' },
+              { label: t('Cache Read'), value: viewModel.tokenBreakdown.cacheRead, format: 'count' },
+              { label: t('Cache Write'), value: viewModel.tokenBreakdown.cacheWrite, format: 'count' },
               {
-                label: "Cache Hit",
+                label: t('Cache Hit'),
                 value: viewModel.cacheHitRate.hasInput ? viewModel.cacheHitRate.percent : null,
                 format: 'percent',
               },
@@ -487,9 +489,8 @@ export const ContextPanelContent: React.FC = () => {
           </div>
         </div>
 
-        {/* ── Raw messages ── */}
         <div>
-          <div className="typography-micro text-muted-foreground">{"Raw Messages"}</div>
+          <div className="typography-micro text-muted-foreground">{t('Raw Messages')}</div>
           <div className="mt-2.5 space-y-1">
             {[...sessionMessages].reverse().map((message) => {
               const roleInfo = deriveMessageRole(message.info);
@@ -576,8 +577,8 @@ export const ContextPanelContent: React.FC = () => {
                               event.stopPropagation();
                               void handleCopyRawMessage(message.info.id, jsonValue);
                             }}
-                            aria-label={isCopied ? "Copied" : "Copy JSON"}
-                            title={isCopied ? "Copied" : "Copy"}
+                            aria-label={isCopied ? t('Copied') : t('Copy JSON')}
+                            title={isCopied ? t('Copied') : t('Copy')}
                           >
                             {isCopied ? <Icon name="check" className="size-3.5" /> : <Icon name="file-copy" className="size-3.5" />}
                           </button>

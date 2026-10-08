@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -111,6 +112,7 @@ const updatePinnedPromptReference = async ({
 /** Pi-owned prompt templates. Pi expands their native `/name` commands. */
 export const PromptTemplatesPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const effectiveDirectory = useEffectiveDirectory();
   const selectedId = usePromptTemplatesStore((s) => s.selectedPromptId);
   const draft = usePromptTemplatesStore((s) => s.promptDraft);
@@ -175,19 +177,19 @@ export const PromptTemplatesPage: React.FC = () => {
   const handleSaveNew = React.useCallback(async () => {
     const normalizedName = name.trim().replace(/\s+/g, "-");
     if (!normalizedName) {
-      toast.error("Prompt name is required");
+      toast.error(t('Prompt name is required'));
       return;
     }
     if (!/^[a-z0-9_-]+$/i.test(normalizedName)) {
-      toast.error("Prompt name may only contain letters, numbers, dashes and underscores");
+      toast.error(t('Prompt name may only contain letters, numbers, dashes and underscores'));
       return;
     }
     if (!content.trim()) {
-      toast.error("Prompt content is required");
+      toast.error(t('Prompt content is required'));
       return;
     }
     if (location === "project" && !effectiveDirectory?.trim()) {
-      toast.error("Project prompts need an active project directory");
+      toast.error(t('Project prompts need an active project directory'));
       return;
     }
     setSaving(true);
@@ -202,29 +204,29 @@ export const PromptTemplatesPage: React.FC = () => {
     } else if (success === 'deferred') {
       toast.info(deferredSettingsMessage(`Prompt /${normalizedName}`));
     } else if (success) {
-      toast.success(`Prompt /${normalizedName} created`);
+      toast.success(t('Prompt /{{name}} created', { name: normalizedName }));
     } else {
-      toast.error("Failed to create prompt template");
+      toast.error(t('Failed to create prompt template'));
     }
-  }, [content, createPrompt, description, effectiveDirectory, location, name]);
+  }, [content, createPrompt, description, effectiveDirectory, location, name, t]);
 
   const handleSaveEdit = React.useCallback(async () => {
     if (!selected) return;
     const normalizedName = name.trim().replace(/\s+/g, "-");
     if (!normalizedName) {
-      toast.error("Prompt name is required");
+      toast.error(t('Prompt name is required'));
       return;
     }
     if (!/^[a-z0-9_-]+$/i.test(normalizedName)) {
-      toast.error("Prompt name may only contain letters, numbers, dashes and underscores");
+      toast.error(t('Prompt name may only contain letters, numbers, dashes and underscores'));
       return;
     }
     if (!content.trim()) {
-      toast.error("Prompt content is required");
+      toast.error(t('Prompt content is required'));
       return;
     }
     if (location === "project" && !effectiveDirectory?.trim()) {
-      toast.error("Project prompts need an active project directory");
+      toast.error(t('Project prompts need an active project directory'));
       return;
     }
     setSaving(true);
@@ -263,15 +265,15 @@ export const PromptTemplatesPage: React.FC = () => {
       if (success === 'deferred') {
         toast.info(deferredSettingsMessage(`Prompt /${normalizedName}`));
       } else {
-        toast.success(`Prompt /${normalizedName} updated`);
+        toast.success(t('Prompt /{{name}} updated', { name: normalizedName }));
       }
       if (!startersUpdated) {
-        toast.warning("The prompt was updated, but one or more pinned starters could not be updated.");
+        toast.warning(t('The prompt was updated, but one or more pinned starters could not be updated.'));
       }
     } else {
-      toast.error("Failed to update prompt template");
+      toast.error(t('Failed to update prompt template'));
     }
-  }, [content, description, effectiveDirectory, location, name, selected, updatePrompt]);
+  }, [content, description, effectiveDirectory, location, name, selected, t, updatePrompt]);
 
   const handleDelete = React.useCallback(async () => {
     if (!selected) return;
@@ -284,12 +286,12 @@ export const PromptTemplatesPage: React.FC = () => {
       toast.info(deferredSettingsMessage('Prompt template'));
       setConfirmDeleteOpen(false);
     } else if (success) {
-      toast.success("Prompt template deleted");
+      toast.success(t('Prompt template deleted'));
       setConfirmDeleteOpen(false);
     } else {
-      toast.error("Failed to delete prompt template");
+      toast.error(t('Failed to delete prompt template'));
     }
-  }, [deletePrompt, effectiveDirectory, selected]);
+  }, [deletePrompt, effectiveDirectory, selected, t]);
 
   const [promptQuery, setPromptQuery] = React.useState("");
   const [locationFilter, setLocationFilter] = React.useState<"all" | "global" | "project">("all");
@@ -364,23 +366,23 @@ export const PromptTemplatesPage: React.FC = () => {
                 variant="ghost"
                 size="xs"
                 onClick={handleBack}
-                aria-label="Back to prompt templates"
+                aria-label={t('Back to prompt templates')}
                 className="-ml-1 h-7 w-7 p-0"
               >
                 <Icon name="arrow-left-s" className="size-4" />
               </Button>
-              <span className="truncate">Not found</span>
+              <span className="truncate">{t('Not found')}</span>
             </span>
           }
-          description="This prompt template no longer exists."
+          description={t('This prompt template no longer exists.')}
         >
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon name="terminal" className="size-8 text-muted-foreground/60" aria-hidden />
             <p className="typography-meta text-muted-foreground">
-              The selected prompt template was not found.
+              {t('The selected prompt template was not found.')}
             </p>
             <Button variant="outline" size="sm" onClick={handleBack}>
-              Back to prompt templates
+              {t('Back to prompt templates')}
             </Button>
           </div>
         </SettingsPageLayout>
@@ -389,10 +391,10 @@ export const PromptTemplatesPage: React.FC = () => {
 
     const locationLabel =
       selected?.location === "project"
-        ? "Project"
+        ? t('Project')
         : selected?.location === "global"
-          ? "Global"
-          : (selected?.location ?? "Global");
+          ? t('Global')
+          : (selected?.location ?? t('Global'));
     const normalizedDraftName = name.trim().replace(/\s+/g, "-");
     const isDirty =
       normalizedDraftName !== originalName.current ||
@@ -411,20 +413,20 @@ export const PromptTemplatesPage: React.FC = () => {
                 variant="ghost"
                 size="xs"
                 onClick={handleBack}
-                aria-label="Back to prompt templates"
+                aria-label={t('Back to prompt templates')}
                 className="-ml-1 h-7 w-7 p-0"
               >
                 <Icon name="arrow-left-s" className="size-4" />
               </Button>
               <span className="truncate">
-                {isNew ? "New prompt template" : `/${selected?.name ?? name}`}
+                {isNew ? t('New prompt template') : `/${selected?.name ?? name}`}
               </span>
             </span>
           }
           description={
             isNew ? (
               <span className="typography-settings-description text-muted-foreground">
-                Create a native Pi command
+                {t('Create a native Pi command')}
               </span>
             ) : selected?.description ? (
               <span className="typography-settings-description text-muted-foreground">
@@ -441,17 +443,17 @@ export const PromptTemplatesPage: React.FC = () => {
                 className="text-destructive hover:text-destructive"
               >
                 <Icon name="delete-bin" className="size-4" />
-                Delete
+                {t('Delete')}
               </Button>
             ) : null
           }
         >
           {isNew ? (
-            <SettingsSection title="Identity" divider={false} settingsItem="prompt-templates.create">
+            <SettingsSection title={t('Identity')} divider={false} settingsItem="prompt-templates.create">
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
                   <div className="space-y-1.5">
-                    <label className="typography-settings-field-label text-foreground">Name</label>
+                    <label className="typography-settings-field-label text-foreground">{t('Name')}</label>
                     <div className="flex items-center gap-2">
                       <span className="typography-ui-label text-muted-foreground">/</span>
                       <Input
@@ -464,44 +466,44 @@ export const PromptTemplatesPage: React.FC = () => {
                       />
                     </div>
                     <p className="typography-micro text-muted-foreground">
-                      Used as{" "}
+                      {t('Used as')}{" "}
                       <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                         /{name.trim() || "name"}
                       </code>{" "}
-                      in chat. Letters, numbers, dashes and underscores only.
+                      {t('in chat. Letters, numbers, dashes and underscores only.')}
                     </p>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="typography-settings-field-label text-foreground">Scope</label>
+                    <label className="typography-settings-field-label text-foreground">{t('Scope')}</label>
                     <Select value={location} onValueChange={(v) => setLocation(v as PromptTemplateScopeFilter)}>
                       <SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="global">Global</SelectItem>
-                        <SelectItem value="project">Project</SelectItem>
+                        <SelectItem value="global">{t('Global')}</SelectItem>
+                        <SelectItem value="project">{t('Project')}</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="typography-micro text-muted-foreground">
                       {location === "project"
-                        ? "Available only in this trusted project."
-                        : "Available in every project."}
+                        ? t('Available only in this trusted project.')
+                        : t('Available in every project.')}
                     </p>
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="typography-settings-field-label text-foreground">Description</label>
+                  <label className="typography-settings-field-label text-foreground">{t('Description')}</label>
                   <Input
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What does this command do?"
+                    placeholder={t('What does this command do?')}
                     className="h-9 w-full"
                   />
                 </div>
               </div>
             </SettingsSection>
           ) : (
-            <SettingsSection title="Details" divider={false} settingsItem="prompt-templates.create">
+            <SettingsSection title={t('Details')} divider={false} settingsItem="prompt-templates.create">
               <div className="flex flex-wrap gap-2 typography-micro">
                 <span
                   className={cn(
@@ -516,46 +518,46 @@ export const PromptTemplatesPage: React.FC = () => {
                 {selected?.editable === true ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-[var(--status-success)]/10 px-2.5 py-1 font-medium text-[var(--status-success)]">
                     <Icon name="check" className="size-3.5" aria-hidden />
-                    Editable
+                    {t('Editable')}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground">
-                    Read-only
+                    {t('Read-only')}
                   </span>
                 )}
               </div>
               {isReadOnly ? (
                 <p className="typography-micro pt-3 text-muted-foreground">
-                  This prompt was discovered from a package or path and cannot be edited.
+                  {t('This prompt was discovered from a package or path and cannot be edited.')}
                 </p>
               ) : null}
               {selected?.location === "project" ? (
                 <p className="typography-micro pt-2 text-muted-foreground">
-                  Project prompts require a trusted project. Untrusted projects cannot create or edit them.
+                  {t('Project prompts require a trusted project. Untrusted projects cannot create or edit them.')}
                 </p>
               ) : null}
               {isEditable ? (
                 <div className="space-y-1.5 pt-4">
-                  <label className="typography-settings-field-label text-foreground">Scope</label>
+                  <label className="typography-settings-field-label text-foreground">{t('Scope')}</label>
                   <Select value={location} onValueChange={(value) => setLocation(value as PromptTemplateScopeFilter)}>
-                    <SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full" aria-label="Prompt template scope">
+                    <SelectTrigger size={SETTINGS_SELECT_SIZE} className="w-full" aria-label={t('Prompt template scope')}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="global">Global</SelectItem>
-                      <SelectItem value="project">Project</SelectItem>
+                      <SelectItem value="global">{t('Global')}</SelectItem>
+                      <SelectItem value="project">{t('Project')}</SelectItem>
                     </SelectContent>
                   </Select>
                   <p className="typography-micro text-muted-foreground">
                     {location === "project"
-                      ? "Available only in this trusted project."
-                      : "Available in every project."}
+                      ? t('Available only in this trusted project.')
+                      : t('Available in every project.')}
                   </p>
                 </div>
               ) : null}
               {isEditable ? (
                 <div className="space-y-1.5 pt-4">
-                  <label className="typography-settings-field-label text-foreground">Name</label>
+                  <label className="typography-settings-field-label text-foreground">{t('Name')}</label>
                   <div className="flex items-center gap-2">
                     <span className="typography-ui-label text-muted-foreground">/</span>
                     <Input
@@ -567,17 +569,17 @@ export const PromptTemplatesPage: React.FC = () => {
                     />
                   </div>
                   <p className="typography-micro text-muted-foreground">
-                    Used as{" "}
+                    {t('Used as')}{" "}
                     <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
                       /{name.trim() || "name"}
                     </code>{" "}
-                    in chat. Letters, numbers, dashes and underscores only.
+                    {t('in chat. Letters, numbers, dashes and underscores only.')}
                   </p>
                 </div>
               ) : null}
               {isEditable ? (
                 <div className="space-y-1.5 pt-3">
-                  <label className="typography-settings-field-label text-foreground">Description</label>
+                  <label className="typography-settings-field-label text-foreground">{t('Description')}</label>
                   <Input
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
@@ -589,38 +591,38 @@ export const PromptTemplatesPage: React.FC = () => {
           )}
 
           <SettingsSection
-            title="Arguments"
-            info="Pi expands prompt arguments natively. PiChamber only inserts the /name command."
+            title={t('Arguments')}
+            info={t('Pi expands prompt arguments natively. PiChamber only inserts the /name command.')}
           >
             <ul className="typography-micro list-disc space-y-1 pl-5 text-muted-foreground">
               <li>
                 <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">$1</code>,{" "}
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">$2</code> — positional arguments
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">$2</code> — {t('positional arguments')}
               </li>
               <li>
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">$@</code> — all arguments
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">$@</code> — {t('all arguments')}
               </li>
               <li>
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{"${1:-default}"}</code> — defaults when an argument is missing
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{"${1:-default}"}</code> — {t('defaults when an argument is missing')}
               </li>
               <li>
-                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{"${@:2}"}</code> — slices such as arguments from position 2 onward
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">{"${@:2}"}</code> — {t('slices such as arguments from position 2 onward')}
               </li>
             </ul>
             <p className="typography-micro pt-2 text-muted-foreground">
-              Example: <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/review auth tests</code> supplies arguments that Pi substitutes into the template.
+              {t('Example:')} <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/review auth tests</code> {t('supplies arguments that Pi substitutes into the template.')}
             </p>
           </SettingsSection>
 
           <SettingsSection
-            title="Content"
+            title={t('Content')}
             divider
             settingsItem="prompt-templates.content"
-            info="Prompt content supports Pi argument syntax such as $1 and $@. Pi expands it when the / command runs."
+            info={t('Prompt content supports Pi argument syntax such as $1 and $@. Pi expands it when the / command runs.')}
             headerAction={
               isEditable ? (
                 <span className="typography-micro text-muted-foreground">
-                  {isDirty ? "Unsaved changes" : "No changes"}
+                  {isDirty ? t('Unsaved changes') : t('No changes')}
                 </span>
               ) : undefined
             }
@@ -632,10 +634,10 @@ export const PromptTemplatesPage: React.FC = () => {
                   value={content}
                   onChange={setContent}
                   initialMode={isNew ? "write" : "preview"}
-                  contentLabel="Prompt content"
-                  placeholder="Enter prompt content... Use markdown and Pi argument syntax such as $1 and $@."
+                  contentLabel={t('Prompt content')}
+                  placeholder={t('Enter prompt content... Use markdown and Pi argument syntax such as $1 and $@.')}
                   triggerPreview={`/${name.trim() || "name"}`}
-                  triggerActionLabel="Runs as"
+                  triggerActionLabel={t('Runs as')}
                   variableChips={variableChips}
                 />
                 <div className="flex items-center justify-between gap-3 pt-2">
@@ -652,14 +654,14 @@ export const PromptTemplatesPage: React.FC = () => {
                       }
                     }}
                   >
-                    Cancel
+                    {t('Cancel')}
                   </Button>
                   <Button
                     size="sm"
                     onClick={() => void (isNew ? handleSaveNew() : handleSaveEdit())}
                     disabled={!canSave}
                   >
-                    {saving ? "Saving…" : isNew ? "Create prompt" : "Save changes"}
+                    {saving ? t('Saving…') : isNew ? t('Create prompt') : t('Save changes')}
                   </Button>
                 </div>
               </>
@@ -670,24 +672,24 @@ export const PromptTemplatesPage: React.FC = () => {
                     <SimpleMarkdownRenderer content={selected?.content ?? ""} stripFrontmatter className="max-w-none" />
                   </div>
                 ) : (
-                  <p className="typography-micro text-muted-foreground">No content.</p>
+                  <p className="typography-micro text-muted-foreground">{t('No content.')}</p>
                 )}
               </>
             )}
           </SettingsSection>
 
           {!isNew && selected?.editable === true ? (
-            <SettingsSection title="Danger zone" divider>
+            <SettingsSection title={t('Danger zone')} divider>
               <div className="flex items-center justify-between gap-4 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3">
                 <div className="min-w-0">
-                  <div className="typography-ui-label font-medium text-foreground">Delete prompt</div>
+                  <div className="typography-ui-label font-medium text-foreground">{t('Delete prompt')}</div>
                   <div className="typography-micro text-muted-foreground">
-                    Permanently remove /{selected.name}. This cannot be undone.
+                    {t('Permanently remove /{{name}}. This cannot be undone.', { name: selected.name })}
                   </div>
                 </div>
                 <Button variant="destructive" size="sm" onClick={() => setConfirmDeleteOpen(true)} disabled={deleting}>
                   <Icon name="delete-bin" className="size-4" />
-                  Delete
+                  {t('Delete')}
                 </Button>
               </div>
             </SettingsSection>
@@ -697,17 +699,17 @@ export const PromptTemplatesPage: React.FC = () => {
         <Dialog open={confirmDeleteOpen} onOpenChange={(open) => !open && setConfirmDeleteOpen(false)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>Delete prompt?</DialogTitle>
+              <DialogTitle>{t('Delete prompt?')}</DialogTitle>
               <DialogDescription>
-                This will permanently delete /{selected?.name ?? ""}. This cannot be undone.
+                {t('This will permanently delete /{{name}}. This cannot be undone.', { name: selected?.name ?? "" })}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
               <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteOpen(false)} disabled={deleting}>
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button variant="destructive" size="sm" onClick={() => void handleDelete()} disabled={deleting}>
-                {deleting ? "Deleting…" : "Delete"}
+                {deleting ? t('Deleting…') : t('Delete')}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -719,8 +721,8 @@ export const PromptTemplatesPage: React.FC = () => {
   if (isLoading && prompts.length === 0) {
     return (
       <SettingsPageLayout
-        title={isMobile ? undefined : "Prompt templates"}
-        description={isMobile ? undefined : "Native Pi commands that run as /name."}
+        title={isMobile ? undefined : t('Prompt templates')}
+        description={isMobile ? undefined : t('Native Pi commands that run as /name.')}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -728,15 +730,15 @@ export const PromptTemplatesPage: React.FC = () => {
               size="icon"
               onClick={() => void refreshPrompts()}
               disabled={refreshing}
-              aria-label="Refresh prompt templates"
-              title="Refresh prompt templates"
+              aria-label={t('Refresh prompt templates')}
+              title={t('Refresh prompt templates')}
             >
               <Icon name="refresh" className={cn("size-4", refreshing && "animate-spin")} />
             </Button>
           </div>
         }
       >
-        <SettingsSection title="Prompt templates" divider={false} settingsItem="prompt-templates.create">
+        <SettingsSection title={t('Prompt templates')} divider={false} settingsItem="prompt-templates.create">
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-3">
             <SnippetCardSkeleton count={6} />
           </div>
@@ -749,8 +751,8 @@ export const PromptTemplatesPage: React.FC = () => {
 
   return (
     <SettingsPageLayout
-      title={isMobile ? undefined : "Prompt templates"}
-      description={isMobile ? undefined : "Native Pi commands that run as /name with Pi argument expansion."}
+      title={isMobile ? undefined : t('Prompt templates')}
+      description={isMobile ? undefined : t('Native Pi commands that run as /name with Pi argument expansion.')}
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 max-w-full">
@@ -762,15 +764,15 @@ export const PromptTemplatesPage: React.FC = () => {
             <Input
               value={promptQuery}
               onChange={(e) => setPromptQuery(e.target.value)}
-              placeholder="Search prompt templates"
-              aria-label="Search prompt templates"
+              placeholder={t('Search prompt templates')}
+              aria-label={t('Search prompt templates')}
               className="h-9 w-[18rem] max-w-full pl-8"
             />
             {promptQuery ? (
               <button
                 type="button"
                 onClick={() => setPromptQuery("")}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
               >
                 <Icon name="close" className="size-4" />
@@ -782,50 +784,50 @@ export const PromptTemplatesPage: React.FC = () => {
             size="icon"
             onClick={() => void refreshPrompts()}
             disabled={refreshing}
-            aria-label="Refresh prompt templates"
-            title="Refresh prompt templates"
+            aria-label={t('Refresh prompt templates')}
+            title={t('Refresh prompt templates')}
           >
             <Icon name="refresh" className={cn("size-4", refreshing && "animate-spin")} />
           </Button>
           <Button variant="outline" size="sm" onClick={() => void handleCreateNew()}>
             <Icon name="add" className="size-4" />
-            New prompt
+            {t('New prompt')}
           </Button>
         </div>
       }
     >
       {emptyState ? (
-        <SettingsSection title="Prompt templates" divider={false} settingsItem="prompt-templates.create">
+        <SettingsSection title={t('Prompt templates')} divider={false} settingsItem="prompt-templates.create">
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon name="terminal" className="size-8 text-muted-foreground/60" aria-hidden />
-            <p className="typography-meta text-muted-foreground">No prompt templates yet</p>
+            <p className="typography-meta text-muted-foreground">{t('No prompt templates yet')}</p>
             <p className="typography-micro max-w-sm text-muted-foreground">
-              Prompt templates are native Pi commands. Create one and run it in chat as{" "}
+              {t('Prompt templates are native Pi commands. Create one and run it in chat as')}{" "}
               <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">/my-prompt</code>.
             </p>
             <Button variant="outline" size="sm" onClick={() => void handleCreateNew()}>
               <Icon name="add" className="size-4" />
-              New prompt
+              {t('New prompt')}
             </Button>
           </div>
         </SettingsSection>
       ) : (
-        <SettingsSection title="Prompt templates" divider={false} settingsItem="prompt-templates.create">
+        <SettingsSection title={t('Prompt templates')} divider={false} settingsItem="prompt-templates.create">
           <div className="mb-3 flex flex-wrap items-center gap-1.5">
             <Button variant="chip" size="xs" aria-pressed={locationFilter === "all"} onClick={() => setLocationFilter("all")}>
-              All {locationCounts.all}
+              {t('All')} {locationCounts.all}
             </Button>
             <Button variant="chip" size="xs" aria-pressed={locationFilter === "project"} onClick={() => setLocationFilter("project")}>
-              Project {locationCounts.project}
+              {t('Project')} {locationCounts.project}
             </Button>
             <Button variant="chip" size="xs" aria-pressed={locationFilter === "global"} onClick={() => setLocationFilter("global")}>
-              Global {locationCounts.global}
+              {t('Global')} {locationCounts.global}
             </Button>
           </div>
           {filteredPrompts.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
               <p className="typography-meta text-muted-foreground">
-                {promptQuery.trim() ? `No prompt templates match “${promptQuery}”.` : `No ${locationFilter} prompt templates.`}
+                {promptQuery.trim() ? t('No prompt templates match “{{query}}”.', { query: promptQuery }) : t('No {{filter}} prompt templates.', { filter: locationFilter })}
               </p>
               <Button
                 variant="ghost"
@@ -835,7 +837,7 @@ export const PromptTemplatesPage: React.FC = () => {
                   setLocationFilter("all");
                 }}
               >
-                Clear filters
+                {t('Clear filters')}
               </Button>
             </div>
           ) : (
@@ -844,20 +846,22 @@ export const PromptTemplatesPage: React.FC = () => {
                 const isEditableCard = prompt.editable === true;
                 const locLabel =
                   prompt.location === "project"
-                    ? "Project"
+                    ? t('Project')
                     : prompt.location === "global"
-                      ? "Global"
+                      ? t('Global')
                       : prompt.location;
                 const preview =
                   prompt.description?.trim() ||
                   (prompt.content ?? "").replace(/\s+/g, " ").trim().slice(0, 140) ||
-                  "No description";
+                  t('No description');
                 return (
                   <button
                     key={prompt.id}
                     type="button"
                     onClick={() => setSelectedPrompt(prompt.id)}
-                    aria-label={`${prompt.name} prompt template, ${locLabel}${isEditableCard ? "" : ", read-only"}`}
+                    aria-label={isEditableCard
+                      ? t('{{name}} prompt template, {{location}}', { name: prompt.name, location: locLabel })
+                      : t('{{name}} prompt template, {{location}}, read-only', { name: prompt.name, location: locLabel })}
                     className={cn(
                       "group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left",
                       "border-border/60 hover:bg-interactive-hover hover:border-border",
@@ -878,7 +882,7 @@ export const PromptTemplatesPage: React.FC = () => {
                       </span>
                       {!isEditableCard ? (
                         <span className="inline-flex shrink-0 items-center rounded-full bg-muted px-2 py-0.5 typography-micro font-medium text-muted-foreground">
-                          Read-only
+                          {t('Read-only')}
                         </span>
                       ) : null}
                     </div>
@@ -892,7 +896,7 @@ export const PromptTemplatesPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void handleCreateNew()}
-                aria-label="Create new prompt template"
+                aria-label={t('Create new prompt template')}
                 className={cn(
                   "group flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4",
                   "border-border/60 bg-transparent text-muted-foreground",
@@ -904,8 +908,8 @@ export const PromptTemplatesPage: React.FC = () => {
                 <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
                   <Icon name="add" className="size-5" />
                 </span>
-                <span className="typography-ui-label font-medium">New prompt</span>
-                <span className="typography-micro text-muted-foreground">Native / command</span>
+                <span className="typography-ui-label font-medium">{t('New prompt')}</span>
+                <span className="typography-micro text-muted-foreground">{t('Native / command')}</span>
               </button>
             </div>
           )}

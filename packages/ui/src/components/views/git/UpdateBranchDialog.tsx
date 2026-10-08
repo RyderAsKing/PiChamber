@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   Dialog,
@@ -40,6 +41,7 @@ export const UpdateBranchDialog = React.memo<UpdateBranchDialogProps>(function U
   onOperationComplete,
   canShowBranchWorkflows,
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={open}
@@ -54,9 +56,9 @@ export const UpdateBranchDialog = React.memo<UpdateBranchDialogProps>(function U
     >
       <DialogContent className="max-w-2xl min-h-[26rem]">
         <DialogHeader>
-          <DialogTitle>{"Update branch"}</DialogTitle>
+          <DialogTitle>{t("Update branch")}</DialogTitle>
           <DialogDescription>
-            {"Bring the latest changes into"}{' '}
+            {t("Bring the latest changes into")}{' '}
             <span className="font-mono text-foreground">{currentBranch ?? ''}</span>.
           </DialogDescription>
         </DialogHeader>
@@ -76,7 +78,7 @@ export const UpdateBranchDialog = React.memo<UpdateBranchDialogProps>(function U
           />
         ) : (
           <p className="typography-meta text-muted-foreground">
-            {"Branch actions unavailable in this repository state"}
+            {t("Branch actions unavailable in this repository state")}
           </p>
         )}
       </DialogContent>

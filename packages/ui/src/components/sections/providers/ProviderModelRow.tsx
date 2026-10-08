@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -31,6 +32,7 @@ export interface ProviderModelRowProps {
 export const ProviderModelRow = React.memo<ProviderModelRowProps>(
   ({ providerId, model, storedLevel, isBusy, isHidden, isConnected, onThinkingChange, onToggleHidden }) => {
     const levels = React.useMemo(() => catalogThinkingLevels(model), [model]);
+    const { t } = useTranslation();
     const hasConfigurable = React.useMemo(() => modelHasConfigurableThinking(levels), [levels]);
     const showThinking = hasConfigurable || storedLevel !== undefined;
     const options = React.useMemo(() => thinkingSelectOptions(levels, storedLevel), [levels, storedLevel]);
@@ -50,18 +52,18 @@ export const ProviderModelRow = React.memo<ProviderModelRowProps>(
             <SelectTrigger
               size="sm"
               className="w-auto min-w-[4.5rem] max-w-[8rem] shrink-0 border-0 bg-transparent px-1.5 shadow-none gap-1 text-muted-foreground hover:bg-muted hover:text-foreground data-[placeholder]:text-muted-foreground"
-              aria-label={`Thinking for ${model.label || model.id}`}
+              aria-label={t('Thinking for {{model}}', { model: model.label || model.id })}
             >
               <SelectValue>
                 {(value) => {
-                  if (value === FALLBACK_THINKING) return 'Default';
+                  if (value === FALLBACK_THINKING) return t('Default');
                   if (value && isPiThinkingLevel(value)) return PI_THINKING_LEVEL_LABELS[value];
                   return (value as string) ?? '';
                 }}
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={FALLBACK_THINKING}>Default</SelectItem>
+              <SelectItem value={FALLBACK_THINKING}>{t('Default')}</SelectItem>
               {options.map((level) => (
                 <SelectItem key={level} value={level}>
                   {PI_THINKING_LEVEL_LABELS[level]}
@@ -71,7 +73,7 @@ export const ProviderModelRow = React.memo<ProviderModelRowProps>(
           </Select>
         ) : null}
         {model.supportsThinking ? (
-          <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label="Reasoning" />
+          <Icon name="brain-ai-3" className="size-4 shrink-0 text-muted-foreground" aria-label={t('Reasoning')} />
         ) : null}
         {typeof model.contextWindow === 'number' ? (
           <span className="shrink-0 typography-micro text-muted-foreground">{model.contextWindow}</span>
@@ -81,8 +83,8 @@ export const ProviderModelRow = React.memo<ProviderModelRowProps>(
             variant="ghost"
             size="xs"
             onClick={() => onToggleHidden(providerId, model.id)}
-            aria-label={isHidden ? 'Show model in pickers' : 'Hide model from pickers'}
-            title={isHidden ? 'Show model in pickers' : 'Hide model from pickers'}
+            aria-label={isHidden ? t('Show model in pickers') : t('Hide model from pickers')}
+            title={isHidden ? t('Show model in pickers') : t('Hide model from pickers')}
           >
             <Icon name={isHidden ? 'eye' : 'eye-off'} className="size-4" />
           </Button>

@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useInputStore } from '@/sync/input-store';
 import { toast } from '@/components/ui';
@@ -40,7 +41,7 @@ export const useSendGitHubContextToComposer = () => {
     }): Promise<boolean> => {
       const github = apis.github;
       if (!github) {
-        toast.error('GitHub is not available in this runtime');
+        toast.error(i18n.t('GitHub is not available in this runtime'));
         return false;
       }
       setSendingKey(input.key);
@@ -62,10 +63,10 @@ export const useSendGitHubContextToComposer = () => {
         store.setPendingInputText(visibleText, 'append');
         const existing = store.pendingSyntheticParts ?? [];
         store.setPendingSyntheticParts([...existing, { text: payloadText, synthetic: true }]);
-        toast.success('Added to composer');
+        toast.success(i18n.t('Added to composer'));
         return true;
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to fetch GitHub context');
+        toast.error(error instanceof Error ? error.message : i18n.t('Failed to fetch GitHub context'));
         return false;
       } finally {
         setSendingKey(null);

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import type { ToolPopupContent } from './types';
@@ -10,6 +11,7 @@ export const ImagePreviewDialog: React.FC<{
   onOpenChange: (open: boolean) => void;
   isMobile: boolean;
 }> = ({ popup, onOpenChange, isMobile }) => {
+  const { t } = useTranslation();
   const gallery = React.useMemo(() => {
     const baseImage = popup.image;
     if (!baseImage)
@@ -72,7 +74,7 @@ export const ImagePreviewDialog: React.FC<{
   }, [gallery, popup.image?.index, popup.image?.url, popup.open]);
 
   const currentImage = gallery[currentIndex] ?? gallery[0] ?? popup.image;
-  const imageTitle = currentImage?.filename || popup.title || 'Image preview';
+  const imageTitle = currentImage?.filename || popup.title || t('Image preview');
   const hasMultipleImages = gallery.length > 1;
 
   const showPrevious = React.useCallback(() => {
@@ -181,7 +183,7 @@ export const ImagePreviewDialog: React.FC<{
                   type="button"
                   className="p-1 rounded hover:bg-[var(--interactive-hover)]"
                   onClick={showPrevious}
-                  aria-label="Previous image"
+                  aria-label={t('Previous image')}
                 >
                   <Icon name="arrow-left-s" className="h-3.5 w-3.5" />
                 </button>
@@ -192,7 +194,7 @@ export const ImagePreviewDialog: React.FC<{
                   type="button"
                   className="p-1 rounded hover:bg-[var(--interactive-hover)]"
                   onClick={showNext}
-                  aria-label="Next image"
+                  aria-label={t('Next image')}
                 >
                   <Icon name="arrow-right-s" className="h-3.5 w-3.5" />
                 </button>
@@ -202,7 +204,7 @@ export const ImagePreviewDialog: React.FC<{
               type="button"
               className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
               onClick={() => onOpenChange(false)}
-              aria-label={'Close image preview'}
+              aria-label={t('Close image preview')}
             >
               <Icon name="close" className="h-4 w-4" />
             </button>

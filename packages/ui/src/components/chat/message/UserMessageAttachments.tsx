@@ -1,4 +1,5 @@
 import React, { memo, useState, useRef, useMemo, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from '@base-ui/react/popover';
 import { AttachmentPreviewTooltipContent, attachmentPreviewTooltipContentClassName } from '../AttachmentPreviewTooltip';
 import { Icon } from '@/components/icon/Icon';
@@ -9,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { openExternalUrl } from '@/lib/url';
 import { isDrawioFile } from '@/lib/toolHelpers';
 import { useUIStore } from '@/stores/useUIStore';
+import i18n from '@/i18n';
 import type { ToolPopupContent } from './types';
 
 export interface MessageFilePart {
@@ -44,7 +46,7 @@ const getFileExtension = (filename: string): string => {
 };
 
 const extractFilename = (path?: string): string => {
-  if (!path) return 'Unnamed file';
+  if (!path) return i18n.t('Unnamed file');
   const normalized = path.replace(/\\/g, '/');
   const parts = normalized.split('/');
   return parts[parts.length - 1] || path;
@@ -69,6 +71,7 @@ export const UserMessageAttachments = memo(({
   onShowPopup,
   className,
 }: UserMessageAttachmentsProps) => {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -99,7 +102,7 @@ export const UserMessageAttachments = memo(({
   const firstFileSize = formatFileSize(firstFile.size);
   const triggerLabel = count === 1
     ? `${firstFileName}${firstFileSize ? ` (${firstFileSize})` : ''}`
-    : `${count} attachments`;
+    : t('{{count}} attachments', { count });
 
   return (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
@@ -115,7 +118,7 @@ export const UserMessageAttachments = memo(({
                   'text-muted-foreground/80 hover:text-foreground transition-colors cursor-pointer select-none',
                   className,
                 )}
-                aria-label={`View ${count} attachment${count !== 1 ? 's' : ''}`}
+                aria-label={count !== 1 ? t('View {{count}} attachments', { count }) : t('View 1 attachment')}
                 onPointerDownCapture={syncPortalContainer}
                 onFocusCapture={syncPortalContainer}
               >
@@ -130,7 +133,7 @@ export const UserMessageAttachments = memo(({
           />
         </TooltipTrigger>
         <TooltipContent side="top">
-          {count === 1 ? `Attachment: ${firstFileName}` : `View ${count} attachments`}
+          {count === 1 ? t('Attachment: {{name}}', { name: firstFileName }) : t('View {{count}} attachments', { count })}
         </TooltipContent>
       </Tooltip>
 
@@ -147,7 +150,7 @@ export const UserMessageAttachments = memo(({
             <div className="flex items-center justify-between border-b border-border/30 pb-2">
               <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Icon name="attachment-2" className="h-3.5 w-3.5 text-muted-foreground" />
-                Attachments ({count})
+                {t('Attachments ({{count}})', { count })}
               </span>
             </div>
 
@@ -180,6 +183,7 @@ const AttachmentRow = memo(function AttachmentRow({
   onShowPopup?: UserMessageAttachmentsProps['onShowPopup'];
   onNavigateToDiagram: (path: string) => void;
 }) {
+  const { t } = useTranslation();
   // The preview image mounts only while the shared tooltip is open, so
   // opening the list never decodes attachment bytes. The tooltip is
   // uncontrolled: previewing one file re-renders nothing in React.
@@ -232,7 +236,7 @@ const AttachmentRow = memo(function AttachmentRow({
           {fileName}
         </p>
         <p className="text-[11px] text-muted-foreground truncate">
-          {[ext.toUpperCase() || 'FILE', file.mime, sizeText].filter(Boolean).join(' · ')}
+          {[ext.toUpperCase() || t('FILE'), file.mime, sizeText].filter(Boolean).join(' · ')}
         </p>
       </div>
 
@@ -244,8 +248,8 @@ const AttachmentRow = memo(function AttachmentRow({
             void openExternalUrl(file.url || '');
           }}
           className="shrink-0 p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted/40 transition-colors"
-          title="Open on GitHub"
-          aria-label="Open on GitHub"
+          title={t('Open on GitHub')}
+          aria-label={t('Open on GitHub')}
         >
           <Icon name="github" className="h-4 w-4" />
         </button>
@@ -257,8 +261,8 @@ const AttachmentRow = memo(function AttachmentRow({
             onNavigateToDiagram(filePath);
           }}
           className="shrink-0 p-1 text-muted-foreground hover:text-foreground rounded hover:bg-muted/40 transition-colors"
-          title="Open in diagram view"
-          aria-label="Open in diagram view"
+          title={t('Open in diagram view')}
+          aria-label={t('Open in diagram view')}
         >
           <Icon name="external-link" className="h-4 w-4" />
         </button>
@@ -281,7 +285,7 @@ const AttachmentRow = memo(function AttachmentRow({
         <div
           role="button"
           tabIndex={0}
-          aria-label={`Preview ${fileName}`}
+          aria-label={t('Preview {{fileName}}', { fileName })}
           onClick={openPreviewDialog}
           onKeyDown={handleKeyDown}
           className="pt-3 first:pt-0 space-y-2 cursor-pointer rounded-lg"

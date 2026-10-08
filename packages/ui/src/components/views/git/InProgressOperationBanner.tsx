@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import type { GitMergeInProgress, GitRebaseInProgress } from '@/lib/api/types';
@@ -22,7 +23,8 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
   conflictCount = 0,
   isLoading = false,
 }) => {
-  
+  const { t } = useTranslation();
+
   const [processingAction, setProcessingAction] = React.useState<'continue' | 'abort' | null>(null);
 
   // Only show banner if we have actual in-progress operation data
@@ -55,29 +57,29 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
   const isProcessing = processingAction !== null;
   const hasUnresolvedConflicts = conflictCount > 0;
 
-  const operationLabel = operation === 'merge' ? "Merge" : "Rebase";
+  const operationLabel = operation === 'merge' ? t("Merge") : t("Rebase");
 
   // Build description
   let description = '';
   if (mergeInProgress) {
     description = mergeInProgress.message
-      ? `Merging: ${mergeInProgress.message}`
-      : `Merging ${mergeInProgress.head}`;
+      ? t('Merging: {{message}}', { message: mergeInProgress.message })
+      : t('Merging {{head}}', { head: mergeInProgress.head });
   } else if (rebaseInProgress) {
     description = rebaseInProgress.headName
-      ? `Rebasing ${rebaseInProgress.headName} onto ${rebaseInProgress.onto || ''}`
-      : "Rebase in progress";
+      ? t('Rebasing {{head}} onto {{onto}}', { head: rebaseInProgress.headName, onto: rebaseInProgress.onto || '' })
+      : t("Rebase in progress");
   }
 
   const title = !hasUnresolvedConflicts
-    ? `${operationLabel} in progress`
+    ? t('{{operation}} in progress', { operation: operationLabel })
     : conflictCount === 1
-      ? `${operationLabel} in progress: ${conflictCount} conflict`
-      : `${operationLabel} in progress: ${conflictCount} conflicts`;
+      ? t('{{operation}} in progress: {{count}} conflict', { operation: operationLabel, count: conflictCount })
+      : t('{{operation}} in progress: {{count}} conflicts', { operation: operationLabel, count: conflictCount });
 
   const hint = hasUnresolvedConflicts
-    ? "Resolve conflicts, then continue the operation."
-    : "All conflicts resolved. Continue to finish the operation.";
+    ? t("Resolve conflicts, then continue the operation.")
+    : t("All conflicts resolved. Continue to finish the operation.");
 
   return (
     <div className="mx-4 mt-3 overflow-hidden rounded-lg border border-[var(--status-warning-border)]">
@@ -111,7 +113,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
               ) : (
                 <Icon name="close" className="size-4" />
               )}
-              {"Abort"}
+              {t("Abort")}
             </Button>
 
             {hasUnresolvedConflicts
@@ -122,7 +124,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
                   onClick={onResolveWithAI}
                   disabled={isProcessing || isLoading}
                 >
-                  {"Resolve with AI"}
+                  {t("Resolve with AI")}
                 </Button>
               )
               : (
@@ -138,7 +140,7 @@ export const InProgressOperationBanner: React.FC<InProgressOperationBannerProps>
                   ) : (
                     <Icon name="check" className="size-4" />
                   )}
-                  {"Continue"}
+                  {t("Continue")}
                 </Button>
               )}
           </div>

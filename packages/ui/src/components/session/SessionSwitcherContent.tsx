@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Menu as BaseMenu } from '@base-ui/react/menu';
 import type { Session } from '@/lib/chat/types';
 
@@ -27,6 +28,7 @@ type SwitcherContentProps = {
 };
 
 export default function SwitcherContent({ onSelect, variant, scopeProjectId }: SwitcherContentProps): React.ReactElement {
+  const { t } = useTranslation();
   const items = useSwitcherItems(true, { scopeProjectId });
   const openNewSessionDraft = useSessionUIStore((state) => state.openNewSessionDraft);
   const setActiveMainTab = useUIStore((state) => state.setActiveMainTab);
@@ -62,11 +64,11 @@ export default function SwitcherContent({ onSelect, variant, scopeProjectId }: S
         >
           <Icon name="chat-new" className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <span className="truncate typography-ui-label font-normal leading-tight text-foreground">
-            New session
+            {t('New session')}
           </span>
         </BaseMenu.Item>
         {items.length === 0 ? (
-          <div className="px-3 py-4 text-center typography-meta text-muted-foreground">No recent sessions</div>
+          <div className="px-3 py-4 text-center typography-meta text-muted-foreground">{t('No recent sessions')}</div>
         ) : (
           items.map((item) => (
             <SwitcherNode
@@ -141,6 +143,7 @@ type SwitcherRowProps = {
 };
 
 function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isExpanded, onToggleExpand, closeDropdown }: SwitcherRowProps): React.ReactElement {
+  const { t } = useTranslation();
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
 
@@ -198,7 +201,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                 onToggleExpand?.();
               }}
               className="inline-flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:text-foreground"
-              aria-label={isExpanded ? 'Collapse subsessions' : 'Expand subsessions'}
+              aria-label={isExpanded ? t('Collapse subsessions') : t('Expand subsessions')}
             >
               {isExpanded ? <Icon name="arrow-down-s" className="h-3.5 w-3.5" /> : <Icon name="arrow-right-s" className="h-3.5 w-3.5" />}
             </span>
@@ -218,13 +221,13 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
                   onToggleExpand?.();
                 }}
                 className="inline-flex h-3 w-3 flex-shrink-0 items-center justify-center rounded text-muted-foreground/70 hover:text-foreground"
-                aria-label={isExpanded ? 'Collapse subsessions' : 'Expand subsessions'}
+                aria-label={isExpanded ? t('Collapse subsessions') : t('Expand subsessions')}
               >
                 {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
               </span>
             ) : null}
             <span className="flex-shrink-0">
-              {isStreaming ? <SessionActivityDuration sessionId={session.id} running={true} /> : showUnreadCompleteDot ? <SessionUnreadDot label="Session complete" /> : timeLabel}
+              {isStreaming ? <SessionActivityDuration sessionId={session.id} running={true} /> : showUnreadCompleteDot ? <SessionUnreadDot label={t("Session complete")} /> : timeLabel}
             </span>
             {projectLabel ? <span className="truncate">{projectLabel}</span> : null}
             {branchLabel ? (
@@ -239,7 +242,7 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
 
       {isStreaming ? (
         <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
-          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse" aria-label="Session active" title="Session active" />
+          <span className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse" aria-label={t("Session active")} title={t("Session active")} />
         </span>
       ) : null}
     </BaseMenu.Item>

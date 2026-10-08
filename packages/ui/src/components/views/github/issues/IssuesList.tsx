@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import type { GitHubIssueSummary } from '@/lib/api/types';
@@ -25,8 +27,8 @@ const commentCountSignal = (count?: number): React.ReactNode => {
   return (
     <span
       className="inline-flex shrink-0 items-center gap-0.5 typography-micro tabular-nums text-muted-foreground"
-      title={`${count} comments`}
-      aria-label={`${count} comments`}
+      title={i18n.t('{{count}} comments', { count })}
+      aria-label={i18n.t('{{count}} comments', { count })}
     >
       <Icon name="chat-1" className="size-3.5" />
       {count}
@@ -90,6 +92,7 @@ export const IssuesList: React.FC<{
   headerActionsSlot = null,
   headerActionsPresentation = 'drawer',
 }) => {
+  const { t } = useTranslation();
   const isDefaultFilters =
     filters.state === 'open' && filters.involvement === 'all' && !filters.search.trim() && !filters.labels.trim();
   const { isMobile, isTablet } = useDeviceInfo();
@@ -109,11 +112,11 @@ export const IssuesList: React.FC<{
           variant="ghost"
           size="sm"
           onClick={onNewIssue}
-          aria-label="New issue"
-          title="New issue"
+          aria-label={t("New issue")}
+          title={t("New issue")}
         >
           <Icon name="add" className="size-4" />
-          New issue
+          {t('New issue')}
         </Button>
       )
       : (
@@ -122,11 +125,11 @@ export const IssuesList: React.FC<{
           variant="ghost"
           size="default"
           onClick={onNewIssue}
-          aria-label="New issue"
-          title="New issue"
+          aria-label={t("New issue")}
+          title={t("New issue")}
         >
           <Icon name="add" className="size-4" />
-          New issue
+          {t('New issue')}
         </Button>
       )
     : (
@@ -135,11 +138,11 @@ export const IssuesList: React.FC<{
         variant="ghost"
         size={isTouchIssues ? "sm" : "xs"}
         onClick={onNewIssue}
-        aria-label="New issue"
-        title="New issue"
+        aria-label={t("New issue")}
+        title={t("New issue")}
       >
         <Icon name="add" className="size-3.5" />
-        New issue
+        {t('New issue')}
       </Button>
     );
 
@@ -158,10 +161,10 @@ export const IssuesList: React.FC<{
         }
         updatedAt={issue.updatedAt}
         onOpen={() => onOpen(issue.number)}
-        ariaLabel={`Open issue #${issue.number} ${issue.title}`}
+        ariaLabel={t('Open issue #{{number}} {{title}}', { number: issue.number, title: issue.title })}
       />
     </li>
-  ), [onOpen]);
+  ), [onOpen, t]);
 
   return (
     <GitHubListView
@@ -175,48 +178,48 @@ export const IssuesList: React.FC<{
       error={error}
       searchValue={filters.search}
       onSearchChange={(value) => onFiltersChange({ search: value })}
-      searchPlaceholder="Search issues, or label:bug"
-      searchAriaLabel="Search issues"
+      searchPlaceholder={t("Search issues, or label:bug")}
+      searchAriaLabel={t("Search issues")}
       toolbarControls={
         <GitHubListMenus
           stateValue={filters.state}
-          stateOptions={ISSUE_STATE_TABS.map((tab) => ({ id: tab.id, label: tab.label }))}
+          stateOptions={ISSUE_STATE_TABS.map((tab) => ({ id: tab.id, label: t(tab.label) }))}
           onStateChange={(id) => onFiltersChange({ state: id as IssuesFilters['state'] })}
           involvementValue={filters.involvement}
-          involvementOptions={ISSUE_INVOLVEMENT_TABS.map((tab) => ({ id: tab.id, label: tab.label }))}
+          involvementOptions={ISSUE_INVOLVEMENT_TABS.map((tab) => ({ id: tab.id, label: t(tab.label) }))}
           onInvolvementChange={(id) => onFiltersChange({ involvement: id as IssuesFilters['involvement'] })}
           labelsValue={filters.labels}
           onLabelsChange={(value) => onFiltersChange({ labels: value })}
           sortValue={filters.sort}
-          sortOptions={ISSUE_SORT_OPTIONS.map((option) => ({ id: option.id, label: option.label }))}
+          sortOptions={ISSUE_SORT_OPTIONS.map((option) => ({ id: option.id, label: t(option.label) }))}
           onSortChange={(id) => onFiltersChange({ sort: id as IssuesFilters['sort'] })}
-          sortAriaLabel="Sort issues"
+          sortAriaLabel={t("Sort issues")}
         />
       }
       primaryAction={primaryAction}
       headerActionsSlot={headerActionsSlot}
       headerActionsPresentation={headerPresentation}
       isDefaultFilters={isDefaultFilters}
-      stateLabel={ISSUE_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state}
-      kindSingular="issue"
-      kindPlural="issues"
-      noItemsTitle={filters.state === 'open' ? 'No open issues' : 'No issues yet'}
-      noItemsBody="Issues for this repository appear here."
+      stateLabel={t(ISSUE_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state)}
+      kindSingular={t("issue")}
+      kindPlural={t("issues")}
+      noItemsTitle={filters.state === 'open' ? t('No open issues') : t('No issues yet')}
+      noItemsBody={t("Issues for this repository appear here.")}
       noItemsIcon="inbox-archive"
       noItemsAction={
         <Button type="button" variant="outline" size="sm" onClick={onNewIssue}>
           <Icon name="add" className="size-3.5" />
-          New issue
+          {t('New issue')}
         </Button>
       }
-      listAriaLabel="Issues"
-      skeletonLabel="Loading issues"
+      listAriaLabel={t("Issues")}
+      skeletonLabel={t("Loading issues")}
       updatedAtOf={(issue) => issue.updatedAt}
       countComplete={countComplete}
       incompleteNotice={incompleteNotice}
       remote={remote}
       numberJump={numberJump}
-      numberJumpKind="issue"
+      numberJumpKind={t("issue")}
       onClearFilters={onClearFilters}
       onLoadMore={onLoadMore}
       onRetry={onRetry}

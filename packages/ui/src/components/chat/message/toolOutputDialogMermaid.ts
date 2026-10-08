@@ -1,3 +1,5 @@
+import i18n from '@/i18n';
+
 export class MermaidLoadFailure extends Error {
     constructor(message: string) {
         super(message);
@@ -16,7 +18,7 @@ export const isCurrentMermaidLoadRequest = (current: number, requestId: number):
 const decodeMermaidDataUrl = (value: string): string => {
     const commaIndex = value.indexOf(',');
     if (commaIndex < 0) {
-        throw mermaidLoadFailure('The Mermaid data URL is malformed.');
+        throw mermaidLoadFailure(i18n.t('The Mermaid data URL is malformed.'));
     }
 
     const metadata = value.slice(0, commaIndex).toLowerCase();

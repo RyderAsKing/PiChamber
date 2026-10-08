@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
 import { Icon } from '@/components/icon/Icon';
@@ -117,6 +118,7 @@ const ToolScrollableTextOutput: React.FC<{
     input: Record<string, unknown> | undefined;
     isStreaming?: boolean;
 }> = ({ output, part, metadata, input, isStreaming = false }) => {
+    const { t } = useTranslation();
     const renderedOutput = getToolOutputText(output, part, metadata);
     const outputLanguage = getToolOutputLanguage(output, part, metadata, input);
     const jsonResult = React.useMemo(() => tryParseJsonOutput(renderedOutput), [renderedOutput]);
@@ -137,14 +139,14 @@ const ToolScrollableTextOutput: React.FC<{
         event.stopPropagation();
         const result = await copyTextToClipboard(renderedOutput);
         if (!result.ok) {
-            toast.error("Failed to copy output");
+            toast.error(t("Failed to copy output"));
             return;
         }
         setCopiedJson(true);
         if (typeof window !== 'undefined') {
             window.setTimeout(() => setCopiedJson(false), 1200);
         }
-    }, [renderedOutput]);
+    }, [renderedOutput, t]);
 
     if (part.tool === 'bash' && isStreaming) {
         return (
@@ -164,8 +166,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'summary' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('summary', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={"Show navigable JSON"}
-                        title={"Show navigable JSON"}
+                        aria-label={t("Show navigable JSON")}
+                        title={t("Show navigable JSON")}
                     >
                         <Icon name="list-unordered" className="h-3.5 w-3.5" />
                     </Button>
@@ -175,8 +177,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'formatted' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('formatted', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={"Show formatted JSON"}
-                        title={"Show formatted JSON"}
+                        aria-label={t("Show formatted JSON")}
+                        title={t("Show formatted JSON")}
                     >
                         <Icon name="node-tree" className="h-3.5 w-3.5" />
                     </Button>
@@ -186,8 +188,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className={cn('h-6 w-6 rounded-md text-muted-foreground hover:text-foreground', jsonViewMode === 'raw' && 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)]')}
                         onClick={(event) => handleJsonViewChange('raw', event)}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={"Show raw JSON"}
-                        title={"Show raw JSON"}
+                        aria-label={t("Show raw JSON")}
+                        title={t("Show raw JSON")}
                     >
                         <Icon name="code-box" className="h-3.5 w-3.5" />
                     </Button>
@@ -197,8 +199,8 @@ const ToolScrollableTextOutput: React.FC<{
                         className="h-6 w-6 rounded-md bg-[var(--surface-elevated)]/80 text-muted-foreground hover:text-foreground"
                         onClick={handleCopyOutput}
                         onPointerDown={(event) => event.stopPropagation()}
-                        aria-label={copiedJson ? "Copied output" : "Copy output"}
-                        title={copiedJson ? "Copied output" : "Copy output"}
+                        aria-label={copiedJson ? t("Copied output") : t("Copy output")}
+                        title={copiedJson ? t("Copied output") : t("Copy output")}
                     >
                         <Icon name={copiedJson ? 'check' : 'file-copy'} className="h-3.5 w-3.5" />
                     </Button>
@@ -270,6 +272,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
     isExpanded,
     onShowPopup,
 }) => {
+    const { t } = useTranslation();
     const mobileActions = useMobileAppActions();
     const [diffViewMode, setDiffViewMode] = React.useState<DiffViewMode>('unified');
     const stateWithData = state as ToolStateWithMetadata;
@@ -400,7 +403,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                     }}
                 >
                     <div className="typography-meta font-medium" style={{ color: 'var(--status-error)' }}>
-                        {"LSP errors"}
+                        {t("LSP errors")}
                     </div>
                     <div className="space-y-1">
                         <div className="flex items-center gap-1 min-w-0">
@@ -422,7 +425,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                         </div>
                         {diagnosticSection.remaining > 0 ? (
                             <div className="typography-micro text-muted-foreground">
-                                {`+${diagnosticSection.remaining} more errors`}
+                                {t('+{{count}} more errors', { count: diagnosticSection.remaining })}
                             </div>
                         ) : null}
                     </div>
@@ -452,7 +455,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
             if (state.status === 'error' && 'error' in state) {
                 return (
                     <div>
-                        <div className="typography-meta font-medium text-muted-foreground mb-1">{"Error:"}</div>
+                        <div className="typography-meta font-medium text-muted-foreground mb-1">{t("Error:")}</div>
                         <div className="typography-meta p-2 rounded-xl border" style={{
                             backgroundColor: 'var(--status-error-background)',
                             color: 'var(--status-error)',
@@ -493,7 +496,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                 );
             }
 
-            return <div className="typography-meta text-muted-foreground">{"Awaiting response..."}</div>;
+            return <div className="typography-meta text-muted-foreground">{t("Awaiting response...")}</div>;
         }
 
         if (part.tool === 'task' && hasStringOutput) {
@@ -518,8 +521,8 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                                     size="icon"
                                     className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                                     onClick={(event) => openEntryFile(entry, event)}
-                                    aria-label={"Open file at first change"}
-                                    title={"Open file at first change"}
+                                    aria-label={t("Open file at first change")}
+                                    title={t("Open file at first change")}
                                 >
                                     <Icon name="file-edit" className="h-3.5 w-3.5" />
                                 </Button>
@@ -528,8 +531,8 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                                     size="icon"
                                     className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                                     onClick={(event) => openEntryDiff(entry, event)}
-                                    aria-label={"Open file diff"}
-                                    title={"Open file diff"}
+                                    aria-label={t("Open file diff")}
+                                    title={t("Open file diff")}
                                 >
                                     <Icon name="git-pull-request" className="h-3.5 w-3.5" />
                                 </Button>
@@ -585,7 +588,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         }
 
         return renderScrollableBlock(
-            <div className="typography-meta text-muted-foreground/70">{"No output produced"}</div>,
+            <div className="typography-meta text-muted-foreground/70">{t("No output produced")}</div>,
             { maxHeightClass: 'max-h-60' }
         );
     };
@@ -598,7 +601,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         if (state.status === 'error' && 'error' in state) {
             return (
                 <div className="oc-tool-expanded-body relative pr-2 pb-2 pt-2 space-y-2 pl-4">
-                    <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
+                    <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t("Error:")}</div>
                     <div className="typography-meta p-2 rounded-xl border" style={{
                         backgroundColor: 'var(--status-error-background)',
                         color: 'var(--status-error)',
@@ -611,11 +614,11 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         }
 
         const todoOutput = renderTodoOutput(todoContent, {
-            total: "Total",
-            inProgress: "In Progress",
-            pending: "Pending",
-            completed: "Completed",
-            cancelled: "Cancelled",
+            total: t("Total"),
+            inProgress: t("In Progress"),
+            pending: t("Pending"),
+            completed: t("Completed"),
+            cancelled: t("Cancelled"),
         }, { unstyled: true });
 
         return (
@@ -687,7 +690,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
 
                     {state.status === 'error' && 'error' in state && (
                         <div>
-                            <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
+                            <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{t("Error:")}</div>
                             <div className="typography-meta p-2 rounded-xl border" style={{
                                 backgroundColor: 'var(--status-error-background)',
                                 color: 'var(--status-error)',

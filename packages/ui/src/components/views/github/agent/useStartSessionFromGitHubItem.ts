@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { toast } from '@/components/ui';
@@ -72,7 +73,7 @@ export const startSessionFromGitHubItem = async (
   deps: StartSessionDeps,
 ): Promise<{ ok: true; directory: string } | { ok: false; error: string }> => {
   const { github, git, openDraft, refreshWorktrees } = deps;
-  if (!openDraft) return { ok: false, error: 'Sessions are not available in this runtime' };
+  if (!openDraft) return { ok: false, error: i18n.t('Sessions are not available in this runtime') };
 
   let contextText: string;
   try {
@@ -84,7 +85,7 @@ export const startSessionFromGitHubItem = async (
     );
     contextText = context.text;
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Failed to load issue context' };
+    return { ok: false, error: error instanceof Error ? error.message : i18n.t('Failed to load issue context') };
   }
 
   const kindLabel = input.kind === 'pr' ? 'PR' : 'Issue';
@@ -118,7 +119,7 @@ export const startSessionFromGitHubItem = async (
 
   // New worktree through the existing worktree service — no duplicated flow.
   if (!git?.getGitBranches || !git?.createGitWorktree) {
-    return { ok: false, error: 'Worktree creation is not available in this runtime' };
+    return { ok: false, error: i18n.t('Worktree creation is not available in this runtime') };
   }
   let startRef: string;
   let hasLocalBranch = false;
@@ -128,7 +129,7 @@ export const startSessionFromGitHubItem = async (
     if (!startRef) throw new Error('no current branch');
     hasLocalBranch = Array.isArray(branches.all) && branches.all.includes(branchNameForGitHubItem(input));
   } catch {
-    return { ok: false, error: 'Could not determine the current branch to start the worktree from' };
+    return { ok: false, error: i18n.t('Could not determine the current branch to start the worktree from') };
   }
   const branchName = branchNameForGitHubItem(input);
   let path: string;
@@ -158,7 +159,7 @@ export const startSessionFromGitHubItem = async (
       if (!path) throw new Error('worktree path missing');
     }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : 'Worktree creation failed' };
+    return { ok: false, error: error instanceof Error ? error.message : i18n.t('Worktree creation failed') };
   }
   // Register the new worktree in the sidebar before the draft opens there.
   await refreshWorktrees?.(input.directory);
@@ -175,7 +176,7 @@ export const useStartSessionFromGitHubItem = () => {
     async (input: Omit<StartSessionItemInput, 'target'> & { target: StartSessionTarget }): Promise<boolean> => {
       const github = apis.github;
       if (!github) {
-        toast.error('GitHub is not available in this runtime');
+        toast.error(i18n.t('GitHub is not available in this runtime'));
         return false;
       }
       const key = `${input.repo}#${input.number}:${input.target}`;
@@ -191,7 +192,7 @@ export const useStartSessionFromGitHubItem = () => {
           toast.error(result.error);
           return false;
         }
-        toast.success(input.target === 'worktree' ? 'Worktree ready — session draft opened' : 'Session draft opened');
+        toast.success(input.target === 'worktree' ? i18n.t('Worktree ready — session draft opened') : i18n.t('Session draft opened'));
         return true;
       } finally {
         setStartingKey(null);

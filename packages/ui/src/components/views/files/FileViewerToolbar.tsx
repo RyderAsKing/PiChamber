@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { EditorView } from '@codemirror/view';
 
 import { Icon } from '@/components/icon/Icon';
@@ -129,6 +130,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
   onToggleFullscreen,
   onExitFullscreen,
 }) => {
+  const { t } = useTranslation();
   if (!selectedFile) {
     return null;
   }
@@ -156,18 +158,18 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           {isSaving ? (
             <span className="flex items-center gap-1 px-1 text-muted-foreground typography-meta">
               <Icon name="loader-4" className="size-3.5 animate-spin" />
-              Saving...
+              {t("Saving...")}
             </span>
           ) : autoSaveEnabled && autoSaveStatus === 'saved' && !isDirty ? (
             <span className="flex items-center gap-1 px-1 text-[color:var(--status-success)] typography-meta">
               <Icon name="check" className="size-3.5" />
-              Saved
+              {t("Saved")}
             </span>
           ) : isDirty ? (
             withTooltip(
               autoSaveEnabled
-                ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s`
-                : `Save now (${getModifierLabel()}+S)`,
+                ? t('Save now ({{modifier}}+S) - auto-saves after 1.5s', { modifier: getModifierLabel() })
+                : t('Save now ({{modifier}}+S)', { modifier: getModifierLabel() }),
               <Button
                 variant="ghost"
                 size="sm"
@@ -175,17 +177,17 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                 className="h-6 gap-1 px-1 text-muted-foreground opacity-80 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
                 title={
                   autoSaveEnabled
-                    ? `Save now (${getModifierLabel()}+S) - auto-saves after 1.5s`
-                    : `Save now (${getModifierLabel()}+S)`
+                    ? t('Save now ({{modifier}}+S) - auto-saves after 1.5s', { modifier: getModifierLabel() })
+                    : t('Save now ({{modifier}}+S)', { modifier: getModifierLabel() })
                 }
-                aria-label={`Save (${getModifierLabel()}+S)`}
+                aria-label={t('Save ({{modifier}}+S)', { modifier: getModifierLabel() })}
               >
                 <Icon name="save-3" className="size-4" />
               </Button>,
             )
           ) : null}
           {withTooltip(
-            autoSaveEnabled ? 'Auto-save on' : 'Manual save',
+            autoSaveEnabled ? t('Auto-save on') : t('Manual save'),
             <Button
               variant="ghost"
               size="sm"
@@ -196,8 +198,8 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                   ? 'text-foreground opacity-100'
                   : 'text-muted-foreground opacity-65 hover:opacity-100',
               )}
-              title={autoSaveEnabled ? 'Auto-save on' : 'Manual save'}
-              aria-label={autoSaveEnabled ? 'Auto-save on' : 'Manual save'}
+              title={autoSaveEnabled ? t('Auto-save on') : t('Manual save')}
+              aria-label={autoSaveEnabled ? t('Auto-save on') : t('Manual save')}
             >
               {autoSaveEnabled ? (
                 <Icon name="file-check-fill" className="size-4" />
@@ -219,8 +221,8 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                   variant="ghost"
                   size="sm"
                   className="size-6 p-0 text-foreground opacity-100 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                  title="Open in desktop app"
-                  aria-label="Open in desktop app"
+                  title={t("Open in desktop app")}
+                  aria-label={t("Open in desktop app")}
                 >
                   <Icon name="file-transfer" className="size-4" />
                 </Button>
@@ -228,7 +230,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={6}>
-            Open in desktop app
+            {t("Open in desktop app")}
           </TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="end" className="w-56 max-h-[70vh] overflow-y-auto">
@@ -245,7 +247,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           {openInCacheStale ? (
             <DropdownMenuItem className="flex items-center gap-2" onClick={() => void onRefreshOpenInApps()}>
               <Icon name="refresh" className="size-4" />
-              <span className="typography-ui-label text-foreground">Refresh Apps</span>
+              <span className="typography-ui-label text-foreground">{t("Refresh Apps")}</span>
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
@@ -255,7 +257,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
       {!isSelectedImage && !isSelectedPdf && !isUnsupportedBinary && (
         <>
           {withTooltip(
-            wrapLines ? 'Disable line wrap' : 'Enable line wrap',
+            wrapLines ? t('Disable line wrap') : t('Enable line wrap'),
             <Button
               variant="ghost"
               size="sm"
@@ -266,7 +268,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                   ? 'text-foreground opacity-100'
                   : 'text-muted-foreground opacity-65 hover:opacity-100',
               )}
-              title={wrapLines ? 'Disable line wrap' : 'Enable line wrap'}
+              title={wrapLines ? t('Disable line wrap') : t('Enable line wrap')}
             >
               <Icon name="text-wrap" className="size-4" />
             </Button>,
@@ -274,7 +276,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           {textViewMode === 'edit' && (
             <>
               {withTooltip(
-                'Find in file',
+                t('Find in file'),
                 <Button
                   variant="ghost"
                   size="sm"
@@ -283,13 +285,13 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                     event.currentTarget.blur();
                   }}
                   className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                  title="Find in file"
+                  title={t("Find in file")}
                 >
                   <Icon name="search" className="size-4" />
                 </Button>,
               )}
               {withTooltip(
-                'Go to line',
+                t('Go to line'),
                 <Button
                   variant="ghost"
                   size="sm"
@@ -298,7 +300,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                     event.currentTarget.blur();
                   }}
                   className="size-6 p-0 text-foreground opacity-100 transition-opacity hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-                  title="Go to line"
+                  title={t("Go to line")}
                 >
                   <Icon name="menu-fold-2" className="size-4" />
                 </Button>,
@@ -323,7 +325,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {isMarkdown &&
         withTooltip(
-          mdViewMode === 'preview' ? 'Switch to edit mode' : 'Switch to preview mode',
+          mdViewMode === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode'),
           <Button
             variant="ghost"
             size="sm"
@@ -334,8 +336,8 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
                 ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)] focus-visible:bg-[var(--interactive-selection)] active:bg-[var(--interactive-selection)]'
                 : 'text-muted-foreground opacity-65 hover:opacity-100',
             )}
-            title={mdViewMode === 'preview' ? 'Switch to edit mode' : 'Switch to preview mode'}
-            aria-label={mdViewMode === 'preview' ? 'Switch to edit mode' : 'Switch to preview mode'}
+            title={mdViewMode === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode')}
+            aria-label={mdViewMode === 'preview' ? t('Switch to edit mode') : t('Switch to preview mode')}
           >
             <Icon name={mdViewMode === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
           </Button>,
@@ -360,7 +362,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
               size="sm"
               onClick={() => void onSaveDiagram()}
               className="size-6 p-0 text-foreground hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-              title="Save diagram"
+              title={t("Save diagram")}
             >
               {diagramSaved ? (
                 <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -374,13 +376,13 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {isJson &&
         withTooltip(
-          jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View',
+          jsonViewMode === 'tree' ? t('Switch to Text View') : t('Switch to Tree View'),
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleJsonViewMode}
             className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-            title={jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View'}
+            title={jsonViewMode === 'tree' ? t('Switch to Text View') : t('Switch to Tree View')}
           >
             {jsonViewMode === 'tree' ? (
               <Icon name="code-sslash" className="size-4" />
@@ -392,14 +394,14 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {canCopy &&
         withTooltip(
-          'Copy file contents',
+          t('Copy file contents'),
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void onCopyContent()}
             className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-            title="Copy file contents"
-            aria-label="Copy file contents"
+            title={t("Copy file contents")}
+            aria-label={t("Copy file contents")}
           >
             {copiedContent ? (
               <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -411,14 +413,14 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {canCopyPath &&
         withTooltip(
-          `Copy file path (${displaySelectedPath})`,
+          t('Copy file path ({{path}})', { path: displaySelectedPath }),
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void onCopyPath()}
             className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-            title={`Copy file path (${displaySelectedPath})`}
-            aria-label={`Copy file path (${displaySelectedPath})`}
+            title={t('Copy file path ({{path}})', { path: displaySelectedPath })}
+            aria-label={t('Copy file path ({{path}})', { path: displaySelectedPath })}
           >
             {copiedPath ? (
               <Icon name="check" className="size-4 text-[color:var(--status-success)]" />
@@ -430,14 +432,14 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {onDownloadFile &&
         withTooltip(
-          'Save file',
+          t('Save file'),
           <Button
             variant="ghost"
             size="sm"
             onClick={onDownloadFile}
             className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-            title="Save file"
-            aria-label="Save file"
+            title={t("Save file")}
+            aria-label={t("Save file")}
           >
             <Icon name="download" className="size-4" />
           </Button>,
@@ -445,14 +447,14 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {exitFullscreenOnly ? (
         withTooltip(
-          'Exit fullscreen',
+          t('Exit fullscreen'),
           <Button
             variant="ghost"
             size="sm"
             onClick={onExitFullscreen}
             className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-            title="Exit fullscreen"
-            aria-label="Exit fullscreen"
+            title={t("Exit fullscreen")}
+            aria-label={t("Exit fullscreen")}
           >
             <Icon name="fullscreen-exit" className="size-4" />
           </Button>,
@@ -461,14 +463,14 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
         !isMobile &&
         mode === 'full' &&
         withTooltip(
-          isFullscreen ? 'Exit fullscreen' : 'Fullscreen',
+          isFullscreen ? t('Exit fullscreen') : t('Fullscreen'),
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleFullscreen}
             className="size-6 p-0 hover:bg-transparent focus-visible:bg-transparent active:bg-transparent"
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            title={isFullscreen ? t('Exit fullscreen') : t('Fullscreen')}
+            aria-label={isFullscreen ? t('Exit fullscreen') : t('Fullscreen')}
           >
             {isFullscreen ? (
               <Icon name="fullscreen-exit" className="size-4" />

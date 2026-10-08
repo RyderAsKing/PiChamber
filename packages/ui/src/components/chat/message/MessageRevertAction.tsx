@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ type MessageRevertActionProps = {
  */
 export const MessageRevertAction: React.FC<MessageRevertActionProps> = React.memo(
   ({ sessionId, messageId, size = 'user', isLatestMessage = false }) => {
+    const t = i18n.t.bind(i18n);
     const revertToMessage = useSessionUIStore((s) => s.revertToMessage);
     const [busy, setBusy] = React.useState(false);
     const [isStreaming, setIsStreaming] = React.useState(() => {
@@ -70,9 +72,9 @@ export const MessageRevertAction: React.FC<MessageRevertActionProps> = React.mem
         setBusy(true);
         try {
           await revertToMessage(sessionId, entryId);
-          toast.success('Reverted — conversation rewound. Files on disk were not changed.');
+          toast.success(t('Reverted — conversation rewound. Files on disk were not changed.'));
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Failed to revert conversation';
+          const message = error instanceof Error ? error.message : t('Failed to revert conversation');
           // Surface the Pi code (e.g. INVALID_REQUEST) in dev so the 400 is actionable.
           if (import.meta.env.DEV) console.error('[revert] failed', { sessionId, messageId, entryId, error });
           toast.error(message);
@@ -80,7 +82,7 @@ export const MessageRevertAction: React.FC<MessageRevertActionProps> = React.mem
           setBusy(false);
         }
       },
-      [busy, isStreaming, messageId, revertToMessage, sessionId],
+      [busy, isStreaming, messageId, revertToMessage, sessionId, t],
     );
 
     const disabled = busy || isStreaming || !sessionId || !messageId;
@@ -97,7 +99,7 @@ export const MessageRevertAction: React.FC<MessageRevertActionProps> = React.mem
             variant="ghost"
             size="icon"
             disabled={disabled}
-            aria-label="Revert conversation to here"
+            aria-label={t('Revert conversation to here')}
             className={cn(
               dimH,
               'text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
@@ -113,7 +115,7 @@ export const MessageRevertAction: React.FC<MessageRevertActionProps> = React.mem
             )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6}>Revert to here</TooltipContent>
+        <TooltipContent sideOffset={6}>{t('Revert to here')}</TooltipContent>
       </Tooltip>
     );
   },

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MobileAppUpdateToast } from '@/components/update/MobileAppUpdateToast';
 import { Button } from '@/components/ui/button';
@@ -54,7 +55,7 @@ type MobileAppProps = {
 const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
 
 export function MobileApp({ apis }: MobileAppProps) {
-  
+  const { t } = useTranslation();
   const initializeApp = useConfigStore((state) => state.initializeApp);
   const isInitialized = useConfigStore((state) => state.isInitialized);
   const isConnected = useConfigStore((state) => state.isConnected);
@@ -745,10 +746,10 @@ export function MobileApp({ apis }: MobileAppProps) {
             {showConnectionRecovery ? (
               <>
                 <div className="space-y-2">
-                  <h1 className="typography-h3 text-foreground">{"Unable to reach server"}</h1>
+                  <h1 className="typography-h3 text-foreground">{t("Unable to reach server")}</h1>
                   {/* Native copy — the browser-oriented sessionAuth description
                       (Desktop Network Access etc.) reads as noise here. */}
-                  <p className="typography-body text-muted-foreground">{"Could not connect to the saved server. Check that it is running, or pick another instance."}</p>
+                  <p className="typography-body text-muted-foreground">{t("Could not connect to the saved server. Check that it is running, or pick another instance.")}</p>
                 </div>
                 <Button
                   type="button"
@@ -757,7 +758,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                     disconnectToConnectScreen(null);
                   }}
                 >
-                  {"Use another server"}
+                  {t("Use another server")}
                 </Button>
               </>
             ) : null}
@@ -776,7 +777,7 @@ export function MobileApp({ apis }: MobileAppProps) {
               the text never pushes it up. 50% + half the 120px logo + a gap. */}
           {autoConnectLabel ? (
             <div className="absolute inset-x-0 top-[calc(50%+84px)] flex flex-col items-center gap-0.5 px-6 text-center">
-              <p className="typography-small text-muted-foreground">{"Connecting to device:"}</p>
+              <p className="typography-small text-muted-foreground">{t("Connecting to device:")}</p>
               <div className="flex justify-center">
                 <AgentThinkingLoader text={autoConnectLabel} showElapsed={false} />
               </div>
@@ -809,8 +810,8 @@ export function MobileApp({ apis }: MobileAppProps) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-background px-6 text-center text-foreground">
         <div className="max-w-sm space-y-3">
-          <h1 className="typography-h3 text-foreground">{"Unable to reach server"}</h1>
-          <p className="typography-body text-muted-foreground">{"We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings."}</p>
+          <h1 className="typography-h3 text-foreground">{t("Unable to reach server")}</h1>
+          <p className="typography-body text-muted-foreground">{t("We could not verify the UI session. If you're opening PiChamber from another device on your local network, make sure Desktop Network Access is enabled on the desktop app and use the LAN address shown in Settings.")}</p>
         </div>
       </main>
     );
@@ -849,7 +850,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                       <PiChamberLogo width={24} height={24} isAnimated />
                     </span>
                     <span className="sr-only">
-                      {recoveryPhase === 'exhausted' ? 'Server unreachable' : 'Reconnecting…'}
+                      {recoveryPhase === 'exhausted' ? t('Server unreachable') : t('Reconnecting…')}
                     </span>
                   </div>
                 ) : null}

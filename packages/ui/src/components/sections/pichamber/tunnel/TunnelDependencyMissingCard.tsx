@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SETTINGS_CALLOUT_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
@@ -11,6 +12,7 @@ export interface TunnelDependencyMissingCardProps {
 export const TunnelDependencyMissingCard: React.FC<TunnelDependencyMissingCardProps> = ({
   installInfo,
 }) => {
+  const { t } = useTranslation();
   return (
     <section className="space-y-2 px-2 pb-2 pt-0">
       <div className="flex items-start gap-2 rounded-lg border border-[var(--status-warning)]/30 bg-[var(--status-warning)]/5 p-3">
@@ -20,10 +22,10 @@ export const TunnelDependencyMissingCard: React.FC<TunnelDependencyMissingCardPr
         />
         <div className="space-y-1">
           <p className={SETTINGS_CALLOUT_TITLE_CLASS}>
-            {`${installInfo.dependency} was not found.`}
+            {t('{{dependency}} was not found.', { dependency: installInfo.dependency })}
           </p>
           <p className="typography-meta text-muted-foreground/70">
-            {'Install it to enable remote tunnel access:'}
+            {t('Install it to enable remote tunnel access:')}
           </p>
           <code className="typography-code block rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
             {installInfo.installCommand}

@@ -10,6 +10,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { normalizePath } from '@/lib/pathNormalization';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 
 const RECENT_ABORT_WINDOW_MS = 2000;
 
@@ -226,6 +227,7 @@ export const resolveQueuedAutoSendReadiness = (
 };
 
 export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?: boolean }) {
+  const { t } = useTranslation();
   const enabled = typeof enabledOrOptions === 'boolean' ? enabledOrOptions : (enabledOrOptions?.enabled ?? true);
   const queuedMessages = useMessageQueueStore((state) => state.queuedMessages);
   const currentDirectory = useDirectoryStore((state) => state.currentDirectory);
@@ -458,7 +460,7 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
           // queue (FIFO). No cross-kind Steer resend — the receipt key
           // includes kind. Recovery is Check status from the chips.
           useMessageQueueStore.getState().markSendUnconfirmed(target, payload.queuedMessageId, 'followUp');
-          toast.error('Follow-up status uncertain. Check status before retrying.', {
+          toast.error(t('Follow-up status uncertain. Check status before retrying.'), {
             id: `follow-up-unconfirmed:${targetKey}:${payload.queuedMessageId}`,
           });
         } else {
@@ -466,7 +468,7 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
           // label. No retry-loop; an explicit Steer may still claim it, and
           // later unrelated entries remain auto-sendable.
           useMessageQueueStore.getState().markSendFailed(target, payload.queuedMessageId);
-          toast.error('Follow-up message failed to send. Use Send now to retry.', {
+          toast.error(t('Follow-up message failed to send. Use Send now to retry.'), {
             id: `follow-up-failed:${targetKey}:${payload.queuedMessageId}`,
           });
         }
@@ -486,5 +488,5 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
       if (queue.length === 0) return;
       void dispatchSessionQueue(target, queue);
     });
-  }, [enabled, queuedMessages, currentDirectory, catalog, connection, retryTick, retryScheduler, store]);
+  }, [enabled, queuedMessages, currentDirectory, catalog, connection, retryTick, retryScheduler, store, t]);
 }

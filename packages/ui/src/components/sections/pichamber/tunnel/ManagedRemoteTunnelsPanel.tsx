@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SettingsInfoHint } from '@/components/sections/shared/SettingsInfoHint';
@@ -63,6 +64,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
   onPresetTokenChange,
   onPersistToken,
 }) => {
+  const { t } = useTranslation();
   return (
     <div
       data-settings-item="tunnel.managed-remote"
@@ -71,14 +73,14 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
       {typeof suggestedConnectorPort === 'number' && (
         <div className="rounded-md border border-[var(--status-info-border)] bg-[var(--status-info-background)]/35 px-2 py-1.5">
           <p className="typography-meta text-[var(--status-info)]">
-            {'Cloudflare connector target:'}{' '}
+            {t('Cloudflare connector target:')}{' '}
             <code>http://localhost:{suggestedConnectorPort}</code>
           </p>
         </div>
       )}
 
       <div className="mb-1 flex items-center justify-between gap-3">
-        <SettingsGroupTitle>{'Saved managed remote tunnels'}</SettingsGroupTitle>
+        <SettingsGroupTitle>{t('Saved managed remote tunnels')}</SettingsGroupTitle>
         <Button
           variant="ghost"
           size="xs"
@@ -87,7 +89,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
           disabled={disabled}
         >
           <Icon name="add" className="h-3.5 w-3.5" />
-          {'Create'}
+          {t('Create')}
         </Button>
       </div>
 
@@ -131,7 +133,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
                       variant="ghost"
                       size="xs"
                       className="h-7 w-7 p-0 text-muted-foreground hover:text-[var(--status-error)]"
-                      aria-label={`Remove ${preset.name}`}
+                      aria-label={t('Remove {{name}}', { name: preset.name })}
                       onClick={() => onRemovePreset(preset.id)}
                       disabled={disabled}
                     >
@@ -142,7 +144,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
                   <CollapsibleContent className="pt-1.5">
                     <div className="space-y-1 px-3 pb-2">
                       <p className="typography-meta text-muted-foreground/70">
-                        {'Hostname:'} <code>{preset.hostname}</code>
+                        {t('Hostname:')} <code>{preset.hostname}</code>
                       </p>
                       <Input
                         type="password"
@@ -160,8 +162,8 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
                         }}
                         placeholder={
                           hasSavedToken
-                            ? 'Saved token available (optional to replace)'
-                            : 'Paste token for this tunnel'
+                            ? t('Saved token available (optional to replace)')
+                            : t('Paste token for this tunnel')
                         }
                         className="h-7"
                         disabled={disabled}
@@ -181,7 +183,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
                             });
                           }}
                         >
-                          {'Save token'}
+                          {t('Save token')}
                         </Button>
                       </div>
                     </div>
@@ -193,7 +195,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
         </div>
       ) : (
         <p className="typography-meta text-muted-foreground/70">
-          {'No managed remote tunnels saved yet.'}
+          {t('No managed remote tunnels saved yet.')}
         </p>
       )}
 
@@ -202,14 +204,14 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
           <Input
             value={newPresetName}
             onChange={(event) => onNewPresetNameChange(event.target.value)}
-            placeholder={'Tunnel name (e.g. Production)'}
+            placeholder={t('Tunnel name (e.g. Production)')}
             className="h-7"
             disabled={disabled}
           />
           <Input
             value={newPresetHostname}
             onChange={(event) => onNewPresetHostnameChange(event.target.value)}
-            placeholder={'Hostname (e.g. oc.example.com)'}
+            placeholder={t('Hostname (e.g. oc.example.com)')}
             className="h-7"
             disabled={disabled}
           />
@@ -217,13 +219,13 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
             type="password"
             value={newPresetToken}
             onChange={(event) => onNewPresetTokenChange(event.target.value)}
-            placeholder={'Token'}
+            placeholder={t('Token')}
             className="h-7"
             disabled={disabled}
           />
           {typeof suggestedConnectorPort === 'number' && (
             <p className="typography-meta text-muted-foreground/70">
-              {'For Cloudflare connector target, use'}{' '}
+              {t('For Cloudflare connector target, use')}{' '}
               <code>http://localhost:{suggestedConnectorPort}</code>.
             </p>
           )}
@@ -235,7 +237,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
               onClick={onSaveNewPreset}
               disabled={disabled}
             >
-              {'Save Changes'}
+              {t('Save Changes')}
             </Button>
             <Button
               variant="ghost"
@@ -244,7 +246,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
               onClick={onCancelAddPreset}
               disabled={disabled}
             >
-              {'Cancel'}
+              {t('Cancel')}
             </Button>
           </div>
         </div>
@@ -252,10 +254,10 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
 
       <div className="flex items-center gap-1.5">
         <p className="typography-meta text-muted-foreground/80">
-          {'Tokens are saved per tunnel and reused from disk.'}
+          {t('Tokens are saved per tunnel and reused from disk.')}
         </p>
         <SettingsInfoHint>
-          {'Tokens are saved in ~/.config/pichamber/cloudflare-managed-remote-tunnels.json.'}
+          {t('Tokens are saved in ~/.config/pichamber/cloudflare-managed-remote-tunnels.json.')}
         </SettingsInfoHint>
       </div>
 

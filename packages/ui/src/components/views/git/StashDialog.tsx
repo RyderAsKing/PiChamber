@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -27,11 +28,12 @@ export const StashDialog: React.FC<StashDialogProps> = ({
   targetBranch,
   onConfirm,
 }) => {
-  
+  const { t } = useTranslation();
+
   const [restoreAfter, setRestoreAfter] = React.useState(true);
   const [isProcessing, setIsProcessing] = React.useState(false);
 
-  const operationLabel = operation === 'merge' ? "Merge" : "Rebase";
+  const operationLabel = operation === 'merge' ? t("Merge") : t("Rebase");
 
   const handleConfirm = async () => {
     setIsProcessing(true);
@@ -40,7 +42,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
       onOpenChange(false);
     } catch (err) {
       // Show error to user - parent may also handle it but user should see feedback
-      const message = err instanceof Error ? err.message : `Failed to ${operation}`;
+      const message = err instanceof Error ? err.message : t('Failed to {{operation}}', { operation });
       toast.error(message);
     } finally {
       setIsProcessing(false);
@@ -59,25 +61,25 @@ export const StashDialog: React.FC<StashDialogProps> = ({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Icon name="alert" className="size-5 text-[var(--status-warning)]" />
-            <DialogTitle>{"Uncommitted Changes"}</DialogTitle>
+            <DialogTitle>{t("Uncommitted Changes")}</DialogTitle>
           </div>
           <DialogDescription>
-            {`Stash your local changes before starting the ${operation}.`}
+            {t('Stash your local changes before starting the {{operation}}.', { operation })}
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-2">
           <p className="typography-meta text-muted-foreground mb-3">
-            {"This will:"}
+            {t("This will:")}
           </p>
           <ol className="list-decimal list-inside space-y-1 typography-meta text-foreground">
-            <li>{"Stash your uncommitted changes"}</li>
+            <li>{t("Stash your uncommitted changes")}</li>
             <li>
-              {operation === 'merge' ? "Merge" : "Rebase"}{' '}
-              {operation === 'merge' ? "with" : "onto"}{' '}
+              {operation === 'merge' ? t("Merge") : t("Rebase")}{' '}
+              {operation === 'merge' ? t("with") : t("onto")}{' '}
               <span className="font-mono text-primary">{targetBranch}</span>
             </li>
-            {restoreAfter && <li>{"Restore your stashed changes"}</li>}
+            {restoreAfter && <li>{t("Restore your stashed changes")}</li>}
           </ol>
         </div>
 
@@ -86,13 +88,13 @@ export const StashDialog: React.FC<StashDialogProps> = ({
             checked={restoreAfter}
             onChange={setRestoreAfter}
             disabled={isProcessing}
-            ariaLabel={"Restore stashed changes after operation"}
+            ariaLabel={t("Restore stashed changes after operation")}
           />
           <span
             className="typography-ui-label text-foreground cursor-pointer select-none"
             onClick={() => !isProcessing && setRestoreAfter(!restoreAfter)}
           >
-            {`Restore stashed changes after ${operation}`}
+            {t('Restore stashed changes after {{operation}}', { operation })}
           </span>
         </div>
 
@@ -103,7 +105,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
             onClick={handleCancel}
             disabled={isProcessing}
           >
-            {"Cancel"}
+            {t("Cancel")}
           </Button>
           <Button
             variant="default"
@@ -115,7 +117,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
             {isProcessing ? (
               <>
                 <Icon name="loader-4" className="size-4 animate-spin" />
-                {"Processing..."}
+                {t("Processing...")}
               </>
             ) : (
               `${operationLabel}`

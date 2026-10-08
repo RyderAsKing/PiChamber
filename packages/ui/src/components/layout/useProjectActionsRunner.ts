@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useDeviceInfo } from '@/lib/device';
@@ -44,6 +45,7 @@ export function useProjectActionsRunner({
   directory,
   allowMobile = false,
 }: UseProjectActionsRunnerProps) {
+  const { t } = useTranslation();
   const { currentTheme } = useThemeSystem();
   const { terminal } = useRuntimeAPIs();
   const { isMobile } = useDeviceInfo();
@@ -139,11 +141,11 @@ export function useProjectActionsRunner({
 
   const autoDiscoverAction = React.useMemo<PiChamberProjectAction>(() => ({
     id: AUTO_DISCOVER_ACTION_ID,
-    name: "Auto-discover",
+    name: t('Auto-discover'),
     command: '',
     icon: 'scan-2',
     autoOpenUrl: true,
-  }), []);
+  }), [t]);
 
   const canUseAutoDiscover = !isMobile;
   const displayActions = React.useMemo(
@@ -232,7 +234,7 @@ export function useProjectActionsRunner({
             }
           } else {
             void openExternal(maybeUrl);
-            toast.success("Opened URL from action output");
+            toast.success(t('Opened URL from action output'));
           }
         }
         urlWatchByRunKeyRef.current[runKey] = watch;
@@ -251,11 +253,11 @@ export function useProjectActionsRunner({
     return useTerminalStore.subscribe((state, previousState) => {
       if (state.sessions !== previousState.sessions || state.buffers !== previousState.buffers) monitorRuns();
     });
-  }, [displayActions, openContextPreview, openExternal, projectActionRuns, removeProjectActionRun, setTabPreviewUrl, updateProjectActionRunStatus]);
+  }, [displayActions, openContextPreview, openExternal, projectActionRuns, removeProjectActionRun, setTabPreviewUrl, t, updateProjectActionRunStatus]);
 
   const getOrCreateActionTab = React.useCallback(async (action: PiChamberProjectAction, options: { revealTerminal?: boolean } = {}) => {
     if (!normalizedDirectory) {
-      throw new Error("No active directory");
+      throw new Error(t('No active directory'));
     }
 
     const key = toProjectActionRunKey(normalizedDirectory, action.id);
@@ -274,7 +276,7 @@ export function useProjectActionsRunner({
       tabByKeyRef.current[key] = tabId;
     }
 
-    setTabLabel(normalizedDirectory, tabId, `Action: ${action.name}`);
+    setTabLabel(normalizedDirectory, tabId, t('Action: {{name}}', { name: action.name }));
     setTabIconKey(normalizedDirectory, tabId, action.icon || 'play');
     setActiveTab(normalizedDirectory, tabId);
     if (options.revealTerminal !== false) {
@@ -294,6 +296,7 @@ export function useProjectActionsRunner({
     setActiveTab,
     setTabIconKey,
     setTabLabel,
+    t,
   ]);
 
   const runAction = React.useCallback(async (action: PiChamberProjectAction) => {
@@ -302,7 +305,7 @@ export function useProjectActionsRunner({
     }
 
     if (!normalizedDirectory) {
-      toast.error("No active directory for action");
+      toast.error(t('No active directory for action'));
       return;
     }
 
@@ -323,11 +326,11 @@ export function useProjectActionsRunner({
           ]);
           const devServer = await detectDevServerCommand(normalizedDirectory, actionsState.actions, scripts);
           if (!devServer) {
-            throw new Error("No dev server command found. Configure a project action or add a \"dev\" script to package.json.");
+            throw new Error(t('No dev server command found. Configure a project action or add a "dev" script to package.json.'));
           }
           return {
             id: AUTO_DISCOVER_ACTION_ID,
-            name: "Auto-discover",
+            name: t('Auto-discover'),
             command: devServer.command,
             icon: 'scan-2',
             autoOpenUrl: true,
@@ -361,7 +364,7 @@ export function useProjectActionsRunner({
       }
 
       if (!activeSessionId) {
-        throw new Error("Failed to create terminal session");
+        throw new Error(t('Failed to create terminal session'));
       }
 
       streamCleanupByRunKeyRef.current[key]?.();
@@ -435,10 +438,10 @@ export function useProjectActionsRunner({
       if (manualOpenUrl) {
         setTabPreviewUrl(normalizedDirectory, tabId, manualOpenUrl, { locked: true, autoOpened: true });
         openContextPreview(normalizedDirectory, manualOpenUrl);
-        toast.success("Opened action URL");
+        toast.success(t('Opened action URL'));
       } else if (hasCustomOpenUrl) {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: true });
-        toast.error("Invalid custom URL format");
+        toast.error(t('Invalid custom URL format'));
       } else {
         setTabPreviewUrl(normalizedDirectory, tabId, null, { locked: false, autoOpened: false });
       }
@@ -450,11 +453,12 @@ export function useProjectActionsRunner({
       delete streamCleanupByRunKeyRef.current[runKey];
       window.clearTimeout(previewWaitTimeoutByRunKeyRef.current[runKey]);
       delete previewWaitTimeoutByRunKeyRef.current[runKey];
-      toast.error(error instanceof Error ? error.message : "Failed to run action");
+      toast.error(error instanceof Error ? error.message : t('Failed to run action'));
     } finally {
       startingRunKeysRef.current.delete(runKey);
     }
   }, [
+    t,
     currentTheme.colors.surface.background,
     currentTheme.colors.syntax.base.foreground,
     currentTheme.metadata.variant,

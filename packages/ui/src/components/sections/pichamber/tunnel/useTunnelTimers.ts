@@ -1,5 +1,6 @@
 import React from 'react';
 import QRCode from 'qrcode';
+import { useTranslation } from 'react-i18next';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import type {
   TunnelInfo,
@@ -23,6 +24,7 @@ export function useTunnelTimers({
   setLocalPort: React.Dispatch<React.SetStateAction<number | null>>;
 }) {
   const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null);
+  const { t } = useTranslation();
   const [remainingText, setRemainingText] = React.useState<string>('');
   const [nowTs, setNowTs] = React.useState<number>(() => Date.now());
 
@@ -56,7 +58,7 @@ export function useTunnelTimers({
 
   React.useEffect(() => {
     if (!tunnelInfo?.bootstrapExpiresAt) {
-      setRemainingText('No expiry');
+      setRemainingText(t('No expiry'));
       return;
     }
 
@@ -66,7 +68,7 @@ export function useTunnelTimers({
     const updateRemaining = () => {
       const remaining = tunnelInfo.bootstrapExpiresAt ? tunnelInfo.bootstrapExpiresAt - Date.now() : 0;
       if (remaining <= 0) {
-        setRemainingText('Expired');
+        setRemainingText(t('Expired'));
       } else {
         setRemainingText(formatRemaining(remaining));
       }
@@ -104,7 +106,7 @@ export function useTunnelTimers({
         cancelAnimationFrame(rafId);
       }
     };
-  }, [tunnelInfo?.bootstrapExpiresAt]);
+  }, [tunnelInfo?.bootstrapExpiresAt, t]);
 
   React.useEffect(() => {
     let rafId: number | null = null;

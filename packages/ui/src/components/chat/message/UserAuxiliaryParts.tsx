@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useMobileAppActions } from '@/apps/mobileAppContext';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
@@ -19,6 +20,7 @@ const normalizeSubtaskModel = (model: SubtaskPartLike['model']): string | null =
 };
 
 export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) => {
+    const { t } = useTranslation();
     const [expanded, setExpanded] = React.useState(false);
     const effectiveDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
@@ -44,7 +46,7 @@ export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) =
     return (
         <div className="mt-2">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="typography-meta font-semibold text-foreground">{"Delegated task"}</span>
+                <span className="typography-meta font-semibold text-foreground">{t("Delegated task")}</span>
                 {command ? (
                     <span className="inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none bg-foreground/5 text-muted-foreground">
                         /{command}
@@ -75,7 +77,7 @@ export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) =
                         className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                         onClick={() => setExpanded((value) => !value)}
                     >
-                        {expanded ? "Hide prompt" : "Show prompt"}
+                        {expanded ? t("Hide prompt") : t("Show prompt")}
                     </button>
                     {expanded ? (
                         <pre className="typography-meta mt-1.5 overflow-x-auto whitespace-pre-wrap break-words text-foreground/85" data-no-drawer-swipe="true">
@@ -92,7 +94,7 @@ export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) =
                         className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                         onClick={openSubtaskSession}
                     >
-                        {"Open subtask session"}
+                        {t("Open subtask session")}
                     </button>
                 </div>
             ) : null}
@@ -103,6 +105,7 @@ export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) =
 const SHELL_CODE_TAG_STYLE: React.CSSProperties = { background: 'transparent', backgroundColor: 'transparent' };
 
 export const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ part }) => {
+    const { t } = useTranslation();
     const output = typeof part.shellAction?.output === 'string' ? part.shellAction.output : '';
     const [expanded, setExpanded] = React.useState(true);
     const { value: copiedOutput, show: showCopiedOutput } = useTransientValue(false, 2000);
@@ -122,7 +125,7 @@ export const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ p
     return (
         <div className="mt-2">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="typography-meta font-semibold text-foreground">{"Shell command"}</span>
+                <span className="typography-meta font-semibold text-foreground">{t("Shell command")}</span>
                 {status ? (
                     <span className={cn(
                         'inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none',
@@ -154,7 +157,7 @@ export const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ p
                             className="typography-meta text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
                             onClick={() => setExpanded((value) => !value)}
                         >
-                            {expanded ? "Hide output" : "Show output"}
+                            {expanded ? t("Hide output") : t("Show output")}
                         </button>
                         <button
                             type="button"
@@ -162,8 +165,8 @@ export const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ p
                             onClick={() => {
                                 void copyOutputToClipboard();
                             }}
-                            aria-label={copiedOutput ? "Copied" : "Copy output"}
-                            title={copiedOutput ? "Copied" : "Copy output"}
+                            aria-label={copiedOutput ? t("Copied") : t("Copy output")}
+                            title={copiedOutput ? t("Copied") : t("Copy output")}
                         >
                             {copiedOutput ? <Icon name="check" className="h-3.5 w-3.5" /> : <Icon name="file-copy" className="h-3.5 w-3.5" />}
                         </button>

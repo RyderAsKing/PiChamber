@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React from "react";
+import { useTranslation } from "react-i18next";
 // sessionStore removed — currentSessionId comes from useSessionUIStore
 import { useConfigStore } from "@/stores/useConfigStore";
 import { useUIStore } from "@/stores/useUIStore";
@@ -233,6 +234,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   onOpenSettings,
   scrollToBottom,
 }) => {
+  const { t } = useTranslation();
   // Track if we restored a draft on mount (for text selection)
   const initialDraftRef = React.useRef<string | null>(null);
   const initialDraftIdentityRef = React.useRef<ChatDraftIdentity | null>(null);
@@ -646,7 +648,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         : filenames.join(", ");
 
     toast.warning(
-      `${currentModelMetadata.name ?? currentModelId ?? ""} does not support ${unsupportedModalities.map((modality) => modalityLabels[modality]).join(", ")} input required by ${fileSummary}. You can still send the message, but these attachments may be ignored.`,
+      t("{{model}} does not support {{modalities}} input required by {{files}}. You can still send the message, but these attachments may be ignored.", {
+        model: currentModelMetadata.name ?? currentModelId ?? "",
+        modalities: unsupportedModalities.map((modality) => t(modalityLabels[modality])).join(", "),
+        files: fileSummary,
+      }),
       { id: `attachment-modalities:${modelKey}` },
     );
   }, [attachedFiles, currentModelId, currentModelMetadata, currentProviderId]);
@@ -983,15 +989,15 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // drafts remain local. Desktop/web never set this flag.
   const isConnectionUncertain = useMobileConnectionUncertain();
   const connectionUncertainMessage = isConnectionUncertain
-    ? "Connection lost. Waiting to reconnect — your draft is kept."
+    ? t("Connection lost. Waiting to reconnect — your draft is kept.")
     : null;
   const attachmentGateMessage =
     connectionUncertainMessage ??
     (hasPendingAttachmentUploads(attachedFiles)
-      ? "Uploading attachments…"
+      ? t("Uploading attachments…")
       : hasFailedAttachmentUploads(attachedFiles) ||
           (attachedFiles.length > 0 && !attachmentsReady)
-        ? "Retry or remove failed attachments"
+        ? t("Retry or remove failed attachments")
         : null);
   // Normal/steering submits carry only the composer; pending follow-ups are
   // distinct entries dispatched via their own claim, so the send gate ignores
@@ -1037,7 +1043,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // into an unverified endpoint — the draft stays local and queued auto-send
     // stays paused until a verified healthy probe (see MobileApp).
     if (isMobileConnectionUncertain()) {
-      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      toast.error(t("Connection lost. Waiting to reconnect — your draft is kept."));
       return;
     }
     const inputSnapshot = getCurrentInputSnapshot();
@@ -1057,7 +1063,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         sanitizeAttachmentsForSend(attachedFiles),
       );
     } catch {
-      toast.error("Attachment data could not be saved for the follow-up.");
+      toast.error(t("Attachment data could not be saved for the follow-up."));
       queueInFlightRef.current = false;
       return;
     }
@@ -1088,7 +1094,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
     if (!added) {
       queueInFlightRef.current = false;
-      toast.error('Follow-up limit reached. Remove a pending message before adding another.');
+      toast.error(t('Follow-up limit reached. Remove a pending message before adding another.'));
       return;
     }
 
@@ -1145,7 +1151,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const getSubmitErrorMessage = (error: unknown, fallback: string) => {
     const message = error instanceof Error ? error.message : "";
     return message.toLowerCase().includes("runtime changed")
-      ? "Message failed to send. Attachments restored."
+      ? t("Message failed to send. Attachments restored.")
       : message || fallback;
   };
 
@@ -1156,7 +1162,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     // Queued prompts stay queued (auto-send is disabled while uncertain) and
     // drain only after a verified healthy probe.
     if (isMobileConnectionUncertain()) {
-      toast.error("Connection lost. Waiting to reconnect — your draft is kept.");
+      toast.error(t("Connection lost. Waiting to reconnect — your draft is kept."));
       return;
     }
     const queuedOnly = options?.queuedOnly ?? false;
@@ -1186,8 +1192,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       // preserves the draft: no composer attachment gate here.
       if (!queuedOnly && !areAttachmentsReadyToSend(attachedFiles)) {
         if (hasPendingAttachmentUploads(attachedFiles))
-          toast.info("Uploading attachments…");
-        else toast.error("Retry or remove failed attachments");
+          toast.info(t("Uploading attachments…"));
+        else toast.error(t("Retry or remove failed attachments"));
         return;
       }
       const inputSnapshot =
@@ -1227,7 +1233,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       if (!providerIdToSend || !modelIdToSend) {
         console.warn("Cannot send message: provider or model not selected");
-        toast.error("Select a provider and model before sending a message.");
+        toast.error(t("Select a provider and model before sending a message."));
         return;
       }
 
@@ -1281,7 +1287,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           if (useSessionUIStore.getState().sendingNewSessionDraftId === draftAtSend.id) {
             useSessionUIStore.getState().setSendingNewSessionDraftId(null);
           }
-          toast.error("Attachment data could not be saved for the worktree send.");
+          toast.error(t("Attachment data could not be saved for the worktree send."));
           return;
         }
         // Transfer the prompt to the background task synchronously. Navigation
@@ -1343,7 +1349,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // captured draft, prompt, and send configuration travel with the
         // background task and materialize on setup-ready without stealing
         // the current view.
-        toast.info('Worktree queued', draftAtSend.id ? { id: `worktree-queued:${draftAtSend.id}` } : undefined);
+        toast.info(t('Worktree queued'), draftAtSend.id ? { id: `worktree-queued:${draftAtSend.id}` } : undefined);
         useSessionUIStore.getState().openNewSessionDraft();
         useUIStore.getState().setActiveMainTab('chat');
         worktreeCreationReceipt = await worktreeRequest;
@@ -1355,8 +1361,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? useWorktreeCreationStore.getState().getEntryByKey(draftAtSend.id)
             : useWorktreeCreationStore.getState().getEntry(worktreeIntent);
           if (failedEntry?.failedSend) {
-            toast.error('Worktree creation failed', {
-              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            toast.error(t('Worktree creation failed'), {
+              description: t('Your prompt was kept in Background tasks. Use Restore draft to retry.'),
             });
             return;
           }
@@ -1386,8 +1392,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               }
             }
           } else {
-            toast.error('Worktree creation failed', {
-              description: 'Your prompt was not sent.',
+            toast.error(t('Worktree creation failed'), {
+              description: t('Your prompt was not sent.'),
             });
           }
           return;
@@ -1509,10 +1515,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         // entry to failed recovery with the snapshot intact for an explicit
         // Restore draft. Guarded to the exact generation.
         if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt && worktreeCreationReceipt) {
-          const emptyError = 'Prompt was empty and was not sent.';
+          const emptyError = t('Prompt was empty and was not sent.');
           if (settleWorktreePromptForEmptyDispatch(worktreeTaskKey, worktreeFailedSendAtReceipt, emptyError)) {
-            toast.error('Prompt was empty and was not sent.', {
-              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            toast.error(t('Prompt was empty and was not sent.'), {
+              description: t('Your prompt was kept in Background tasks. Use Restore draft to retry.'),
             });
           }
         }
@@ -1556,7 +1562,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               await sessionActions.compactSession(id, argument);
             } catch (error) {
               toast.error(
-                getSubmitErrorMessage(error, "Failed to compact session"),
+                getSubmitErrorMessage(error, t("Failed to compact session")),
               );
             }
           },
@@ -1654,7 +1660,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         const attempt = useMessageQueueStore.getState().markDeliveryAttempt(capturedTarget, claimedFollowUp.id, "steer");
         if (!attempt?.streamEpoch) {
           useMessageQueueStore.getState().markSendUnconfirmed(capturedTarget, claimedFollowUp.id, "steer");
-          toast.error("Follow-up status uncertain. Check status before retrying.");
+          toast.error(t("Follow-up status uncertain. Check status before retrying."));
           return;
         }
         effectiveSendMessageOptions = {
@@ -1747,7 +1753,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               // No cross-kind resend — recovery is Check status.
               useMessageQueueStore.getState().markSendUnconfirmed(capturedTarget, claimedFollowUp.id, "steer");
               console.warn("Follow-up send unconfirmed:", error);
-              toast.error("Follow-up status uncertain. Check status before retrying.");
+              toast.error(t("Follow-up status uncertain. Check status before retrying."));
               return;
             }
             // Confirmed rejection: clear the attempt, persist a fixed failure
@@ -1770,10 +1776,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           // relying on the submitted draft still being current. Guarded to
           // the exact generation; a late failure never overwrites a newer one.
           if (!queuedOnly && worktreeTaskKey && worktreeFailedSendAtReceipt && worktreeCreationReceipt) {
-            const failureMessage = rawMessage || 'Prompt failed to send.';
+            const failureMessage = rawMessage || t('Prompt failed to send.');
             useWorktreeCreationStore.getState().markWorktreePromptFailed(worktreeTaskKey, worktreeFailedSendAtReceipt, failureMessage);
-            toast.error('Prompt failed to send', {
-              description: 'Your prompt was kept in Background tasks. Use Restore draft to retry.',
+            toast.error(t('Prompt failed to send'), {
+              description: t('Your prompt was kept in Background tasks. Use Restore draft to retry.'),
             });
             return;
           }
@@ -1831,7 +1837,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             normalized.includes("entity too large")
           ) {
             toast.error(
-              "Attachments are too large to send. Please try reducing the number or size of images.",
+              t("Attachments are too large to send. Please try reducing the number or size of images."),
             );
             return;
           }
@@ -1839,21 +1845,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
           if (isSoftNetworkError) {
             if (allAttachments.length > 0)
               toast.error(
-                "Failed to send attachments. Try fewer files or smaller images.",
+                t("Failed to send attachments. Try fewer files or smaller images."),
               );
             return;
           }
 
           if (normalized.includes("runtime changed")) {
             toast.error(
-              "Message failed to send. Attachments remain available.",
+              t("Message failed to send. Attachments remain available."),
             );
             return;
           }
 
           toast.error(
             rawMessage ||
-              "Message failed to send. Attachments remain available.",
+              t("Message failed to send. Attachments remain available."),
           );
         });
     } finally {
@@ -2327,7 +2333,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         }),
       );
       if (list.length > 0 && !results.some(Boolean)) {
-        toast.error("Failed to attach file");
+        toast.error(t("Failed to attach file"));
       }
     },
     [addAttachedFile],
@@ -2776,16 +2782,16 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                           onBlur={mobileShell.onEditorBlur}
                           placeholder={
                             isSessionInUse
-                              ? "Session is open elsewhere"
+                              ? t("Session is open elsewhere")
                               : currentSessionId || newSessionDraftOpen
                               ? inputMode === "shell"
-                                ? "Enter shell command..."
+                                ? t("Enter shell command...")
                                 : isNewSessionStackedComposer
-                                  ? "Plan, build, / for skills, @ for context"
+                                  ? t("Plan, build, / for skills, @ for context")
                                   : useCompactChatPlaceholder
-                                    ? "Use @ / ! # for helpers"
-                                    : "@ for files; / for commands, skills, and prompts; ! for shell; # for snippets"
-                              : "Select or create a session to start chatting"
+                                    ? t("Use @ / ! # for helpers")
+                                    : t("@ for files; / for commands, skills, and prompts; ! for shell; # for snippets")
+                              : t("Select or create a session to start chatting")
                           }
                           editable={
                             Boolean(currentSessionId || newSessionDraftOpen) &&

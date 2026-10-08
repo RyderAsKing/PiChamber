@@ -1,5 +1,6 @@
 import { toast } from '@/components/ui';
 import { saveOrShareFile } from '@/lib/nativeFileSave';
+import i18n from '@/i18n';
 
 export async function shareMessageAsImage(
   messageId: string,
@@ -44,11 +45,14 @@ export async function shareMessageAsImage(
       group.style.display = 'none';
     });
 
-    const timestampElements = clone.querySelectorAll<HTMLElement>('[aria-label^="Message time:"]');
+    // The timestamp aria-label is localized, so derive the active prefix at
+    // call time instead of hardcoding the English string.
+    const timestampPrefix = i18n.t('Message time: {{timestamp}}', { timestamp: '' }).trimEnd();
+    const timestampElements = clone.querySelectorAll<HTMLElement>(`[aria-label^="${timestampPrefix}"]`);
     const footerRowsAdjusted = new Set<HTMLElement>();
     timestampElements.forEach((element) => {
       const label = element.getAttribute('aria-label');
-      const timestamp = label?.replace('Message time:', '').trim();
+      const timestamp = label?.slice(timestampPrefix.length).trim();
       if (!timestamp || element.textContent?.includes(timestamp)) {
         return;
       }
@@ -86,13 +90,13 @@ export async function shareMessageAsImage(
     });
 
     if (result === 'downloaded') {
-      toast.success('Image saved');
+      toast.success(i18n.t('Image saved'));
     } else if (result === 'shared') {
-      toast.success('Image shared');
+      toast.success(i18n.t('Image shared'));
     }
   } catch (error) {
     console.error('Failed to generate image:', error);
-    toast.error('Failed to generate image');
+    toast.error(i18n.t('Failed to generate image'));
   } finally {
     if (wrapper && wrapper.parentNode) {
       wrapper.parentNode.removeChild(wrapper);

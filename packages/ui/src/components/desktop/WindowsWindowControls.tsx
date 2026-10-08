@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,7 @@ type WindowsWindowControlsProps = {
 export const WindowsWindowControls = React.memo(function WindowsWindowControls({
   visible,
 }: WindowsWindowControlsProps) {
+  const { t } = useTranslation();
   const [isMaximized, setIsMaximized] = React.useState(false);
 
   useEffect(() => {
@@ -55,13 +57,13 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
     'app-region-no-drag inline-flex h-12 w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary';
 
   return (
-    <div className="app-region-no-drag ml-1 flex h-12 shrink-0 items-center" aria-label={"Window controls"}>
+    <div className="app-region-no-drag ml-1 flex h-12 shrink-0 items-center" aria-label={t('Window controls')}>
       <button
         type="button"
         className={buttonClassName}
         onClick={() => { void invokeDesktop('desktop_minimize_current_window'); }}
-        title={"Minimize window"}
-        aria-label={"Minimize window"}
+        title={t('Minimize window')}
+        aria-label={t('Minimize window')}
       >
         <Icon name="subtract" className="h-4 w-4" />
       </button>
@@ -73,8 +75,8 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
             .then((state) => setIsMaximized(Boolean(state?.maximized)))
             .catch(() => {});
         }}
-        title={isMaximized ? "Restore window" : "Maximize window"}
-        aria-label={isMaximized ? "Restore window" : "Maximize window"}
+        title={isMaximized ? t('Restore window') : t('Maximize window')}
+        aria-label={isMaximized ? t('Restore window') : t('Maximize window')}
       >
         <Icon name={isMaximized ? 'fullscreen-exit' : 'checkbox-blank'} className="h-3.5 w-3.5" />
       </button>
@@ -82,8 +84,8 @@ export const WindowsWindowControls = React.memo(function WindowsWindowControls({
         type="button"
         className={cn(buttonClassName, 'hover:bg-status-error hover:text-status-error-foreground')}
         onClick={() => { void invokeDesktop('desktop_close_current_window'); }}
-        title={"Close window"}
-        aria-label={"Close window"}
+        title={t('Close window')}
+        aria-label={t('Close window')}
       >
         <Icon name="close" className="h-4 w-4" />
       </button>

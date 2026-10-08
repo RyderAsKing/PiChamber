@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { DesktopHostSwitcherDialog } from '@/components/desktop/DesktopHostSwitcher';
 import { Icon } from '@/components/icon/Icon';
@@ -48,6 +49,7 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
   remoteUpdateError,
   onOpenRemoteUpdate,
 }: DesktopServicesMenuProps) {
+  const { t } = useTranslation();
   return (
     <DropdownMenu
       open={isDesktopServicesOpen}
@@ -65,8 +67,8 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
               type="button"
               aria-label={
                 isDesktopApp
-                  ? `Open instance, usage and MCP (current: ${currentInstanceLabel})`
-                  : 'Open services, usage and MCP'
+                  ? t('Open instance, usage and MCP (current: {{label}})', { label: currentInstanceLabel })
+                  : t('Open services, usage and MCP')
               }
               className={cn(
                 DESKTOP_HEADER_ICON_BUTTON_CLASS,
@@ -88,7 +90,7 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
         </TooltipTrigger>
         <TooltipContent>
           <p>
-            {`Current instance: ${currentInstanceLabel} (${shortcutLabel('toggle_services_menu')})`}
+            {t('Current instance: {{label}} ({{shortcut}})', { label: currentInstanceLabel, shortcut: shortcutLabel('toggle_services_menu') })}
           </p>
         </TooltipContent>
       </Tooltip>
@@ -103,14 +105,14 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="typography-ui-label font-medium text-foreground">
-                      {'Remote instance update'}
+                      {t('Remote instance update')}
                     </div>
                     <div className="typography-micro text-muted-foreground">
                       {remoteUpdateInfo?.available
-                        ? `Version ${remoteUpdateInfo.version || ''} is available for this instance.`
+                        ? t('Version {{version}} is available for this instance.', { version: remoteUpdateInfo.version || '' })
                         : remoteUpdateChecking
-                          ? 'Looking for updates...'
-                          : remoteUpdateError || 'This instance is up to date.'}
+                          ? t('Looking for updates...')
+                          : remoteUpdateError || t('This instance is up to date.')}
                     </div>
                   </div>
                   {remoteUpdateInfo?.available ? (
@@ -119,7 +121,7 @@ export const DesktopServicesMenu = React.memo(function DesktopServicesMenu({
                       className="shrink-0 rounded-md bg-[var(--primary-base)] px-3 py-1.5 typography-ui-label font-medium text-[var(--primary-foreground)] hover:opacity-90"
                       onClick={onOpenRemoteUpdate}
                     >
-                      {'Update'}
+                      {t('Update')}
                     </button>
                   ) : null}
                 </div>

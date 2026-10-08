@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 import { useUIStore } from '@/stores/useUIStore';
@@ -18,7 +19,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, className, topBar }) => {
-    
+    const { t } = useTranslation();
     const sidebarWidth = useUIStore((state) => state.sidebarWidth);
     const setSidebarWidth = useUIStore((state) => state.setSidebarWidth);
     const [isResizing, setIsResizing] = React.useState(false);
@@ -162,7 +163,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, isMobile, children, cl
                     onPointerCancel={handlePointerEnd}
                     role="separator"
                     aria-orientation="vertical"
-                    aria-label={"Resize left panel"}
+                    aria-label={t('Resize left panel')}
                 />
             )}
             <div

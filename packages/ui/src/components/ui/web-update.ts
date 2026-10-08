@@ -1,5 +1,6 @@
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeEndpointGeneration } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 export type WebUpdateState = 'idle' | 'updating' | 'restarting' | 'reconnecting' | 'error';
 
@@ -34,7 +35,7 @@ export async function installWebUpdate(): Promise<InstallWebUpdateResult> {
       const data = await response.json().catch(() => ({}));
       return {
         success: false,
-        error: data.error || `Server error: ${response.status}`,
+        error: data.error || i18n.t('Server error: {{status}}', { status: response.status }),
         commands: Array.isArray(data.commands)
           ? data.commands.filter((command: unknown): command is string => typeof command === 'string')
           : undefined,
@@ -86,7 +87,7 @@ export async function waitForUpdateApplied(
       } else if (response.status === 401 || response.status === 403) {
         return {
           applied: false,
-          error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+          error: i18n.t('Authentication was lost while following the update. Reauthenticate to check its status.'),
         };
       }
     } catch {
@@ -117,16 +118,16 @@ export async function waitForUpdateJob(
         const job = await response.json().catch(() => null) as WebUpdateJob | null;
         if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };
         if (job?.state === 'complete') return { applied: true };
-        if (job?.state === 'failed') return { applied: false, error: job.error || 'Update failed' };
+        if (job?.state === 'failed') return { applied: false, error: job.error || i18n.t('Update failed') };
         if (job?.state === 'restarting') onState('restarting');
         else if (job?.state === 'queued' || job?.state === 'installing' || job?.state === 'verifying') onState('updating');
       } else if (response.status === 401 || response.status === 403) {
         return {
           applied: false,
-          error: 'Authentication was lost while following the update. Reauthenticate to check its status.',
+          error: i18n.t('Authentication was lost while following the update. Reauthenticate to check its status.'),
         };
       } else if (response.status === 404) {
-        return { applied: false, error: 'The server lost the update status. Check the installed version or run: pichamber update' };
+        return { applied: false, error: i18n.t('The server lost the update status. Check the installed version or run: pichamber update') };
       } else if (response.status === 503) {
         const data = await response.json().catch(() => null) as { error?: string } | null;
         if (getRuntimeEndpointGeneration() !== runtimeGeneration) return { applied: false, stale: true };

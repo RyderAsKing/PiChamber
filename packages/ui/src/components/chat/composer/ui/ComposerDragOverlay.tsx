@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,7 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
   isAttachmentDisabled,
   onPickLocalFiles,
 }) => {
+  const { t } = useTranslation();
   return (
     <div
       className="absolute -inset-px z-50 flex items-center justify-center border border-border/80 bg-[var(--surface-subtle)]/90"
@@ -38,14 +40,14 @@ export const ComposerDragOverlay: React.FC<ComposerDragOverlayProps> = ({
             className={iconButtonBaseClass}
             onClick={onPickLocalFiles}
             disabled={isAttachmentDisabled}
-            title="Attach files"
-            aria-label="Attach files"
+            title={t("Attach files")}
+            aria-label={t("Attach files")}
           >
             <Icon name="attachment-2" className={cn(iconSizeClass, 'text-current')} />
           </button>
         </div>
         <p className="mt-2 typography-ui-label text-muted-foreground">
-          {isInternalDrag ? 'Drop to insert as mention' : 'Drop files here to attach'}
+          {isInternalDrag ? t('Drop to insert as mention') : t('Drop files here to attach')}
         </p>
       </div>
     </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 
 import { SessionSidebar } from '@/components/session/SessionSidebar';
@@ -26,6 +27,7 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
   scrimRefExternal,
   rootRefExternal,
 }: MobileSessionsSheetProps) {
+  const { t } = useTranslation();
   const rootRefElement = React.useRef<HTMLDivElement>(null);
   const close = React.useCallback(() => {
     const activeElement = typeof document !== 'undefined' ? document.activeElement : null;
@@ -129,7 +131,7 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
         ref={scrimRef as React.RefObject<HTMLButtonElement>}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
-        aria-label="Close sessions"
+        aria-label={t("Close sessions")}
         onClick={close}
         tabIndex={open ? 0 : -1}
         style={{

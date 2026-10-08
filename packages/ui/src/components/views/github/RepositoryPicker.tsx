@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- picker entry mapping colocated with the picker by design */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Icon } from '@/components/icon/Icon';
 import {
   Select,
@@ -47,18 +48,19 @@ export const RepositoryPicker: React.FC<{
   onChange: (ref: string) => void;
   ariaLabel?: string;
 }> = ({ entries, value, onChange, ariaLabel }) => {
+  const { t } = useTranslation();
   const selected = entries.find((entry) => entry.ref === value) ?? null;
   return (
     <Select value={value ?? ''} onValueChange={onChange}>
       <SelectTrigger
         size="sm"
         className="min-w-0 max-w-56"
-        aria-label={ariaLabel ?? 'Select repository'}
+        aria-label={ariaLabel ?? t('Select repository')}
       >
-        <SelectValue placeholder="Select repository">
+        <SelectValue placeholder={t("Select repository")}>
           {(current) => {
             const currentEntry = entries.find((entry) => entry.ref === current) ?? selected;
-            if (!currentEntry || !currentEntry.ref) return 'Select repository';
+            if (!currentEntry || !currentEntry.ref) return t('Select repository');
             return (
               <span className="block truncate">
                 {currentEntry.relativePath} · {currentEntry.owner}/{currentEntry.repo}
@@ -76,11 +78,11 @@ export const RepositoryPicker: React.FC<{
               <span className={cn('flex min-w-0 items-center gap-1.5', disabled && 'opacity-60')}>
                 <Icon name="git-repository" className="size-3.5 shrink-0" />
                 <span className="min-w-0 truncate">
-                  {entry.relativePath} · {entry.owner && entry.repo ? `${entry.owner}/${entry.repo}` : 'not on GitHub'}
+                  {entry.relativePath} · {entry.owner && entry.repo ? `${entry.owner}/${entry.repo}` : t('not on GitHub')}
                 </span>
                 {tag ? (
                   <span className="shrink-0 rounded bg-[var(--surface-muted)] px-1 typography-micro text-muted-foreground">
-                    {tag}
+                    {t(tag)}
                   </span>
                 ) : null}
                 {entry.disabledReason ? (

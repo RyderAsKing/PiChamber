@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Part } from '@/lib/chat/types';
 import UserTextPart from './parts/UserTextPart';
 import { UserMessageAttachments, type MessageFilePart } from './UserMessageAttachments';
@@ -50,6 +51,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
   agentMention,
   userActionsMode = 'inline',
 }: UserMessageBodyProps) {
+  const { t } = useTranslation();
   const timeFormatPreference = useUIStore((state) => state.timeFormatPreference);
   const [copyHintVisible, setCopyHintVisible] = React.useState(false);
   const copyHintTimeoutRef = React.useRef<number | null>(null);
@@ -176,7 +178,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
             <TooltipTrigger asChild>
               <span
                 className="mr-1 flex items-center gap-1 text-sm tabular-nums text-muted-foreground/60"
-                aria-label={`Message time: ${timestamp}`}
+                aria-label={t('Message time: {{timestamp}}', { timestamp })}
               >
                 <Icon name="time" className="h-3.5 w-3.5" />
                 <span className="message-footer__label">{timestamp}</span>
@@ -206,7 +208,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
                 size="icon"
                 data-visible={copyHintVisible || isMessageCopied ? 'true' : undefined}
                 className="h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                aria-label={'Copy message text'}
+                aria-label={t('Copy message text')}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={handleCopyButtonClick}
                 onFocus={() => setCopyHintVisible(true)}
@@ -226,7 +228,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{'Copy message'}</TooltipContent>
+            <TooltipContent sideOffset={6}>{t('Copy message')}</TooltipContent>
           </Tooltip>
         )}
         </div>

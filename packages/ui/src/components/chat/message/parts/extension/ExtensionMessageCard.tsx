@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { buildCommandPromptText } from '@/lib/pi/command-triggers';
@@ -40,6 +41,7 @@ const isKnownIcon = (name: string | undefined): name is IconName => (
 );
 
 const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, sessionId }) => {
+    const { t } = useTranslation();
     const [pending, setPending] = React.useState(false);
     const [confirming, setConfirming] = React.useState(false);
     const [prompting, setPrompting] = React.useState(false);
@@ -91,9 +93,9 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
                         void runAction();
                     }}
                 >
-                    Continue
+                    {t('Continue')}
                 </Button>
-                <Button type="button" size="xs" variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setConfirming(false)}>{t('Cancel')}</Button>
             </div>
         );
     }
@@ -122,8 +124,8 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
                         }
                     }}
                 />
-                <Button type="submit" size="xs" variant="default" disabled={pending}>Run</Button>
-                <Button type="button" size="xs" variant="ghost" onClick={() => setPrompting(false)}>Cancel</Button>
+                <Button type="submit" size="xs" variant="default" disabled={pending}>{t('Run')}</Button>
+                <Button type="button" size="xs" variant="ghost" onClick={() => setPrompting(false)}>{t('Cancel')}</Button>
             </form>
         );
     }
@@ -148,6 +150,7 @@ const ExtensionActionButton: React.FC<ActionButtonProps> = ({ action, variant, s
 };
 
 const ExtensionProgress: React.FC<{ label?: string; value: number; max: number }> = ({ label, value, max }) => {
+    const { t } = useTranslation();
     const clamped = Math.min(Math.max(value, 0), max);
     const percent = Math.round((clamped / max) * 100);
     return (
@@ -162,7 +165,7 @@ const ExtensionProgress: React.FC<{ label?: string; value: number; max: number }
                 aria-valuenow={percent}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={label ?? 'Progress'}
+                aria-label={label ?? t('Progress')}
             >
                 <div
                     className="h-full rounded-full bg-primary transition-[width] duration-300"
@@ -174,6 +177,7 @@ const ExtensionProgress: React.FC<{ label?: string; value: number; max: number }
 };
 
 const FallbackBody: React.FC<{ body: string; messageId: string; text?: string }> = ({ body, messageId, text }) => {
+    const { t } = useTranslation();
     const [isOpen, setIsOpen] = React.useState(false);
     const hasText = typeof text === 'string' && text.trim().length > 0;
 
@@ -197,7 +201,7 @@ const FallbackBody: React.FC<{ body: string; messageId: string; text?: string }>
                         className="h-5 gap-1 px-1.5 typography-micro font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
                     >
                         <Icon name={isOpen ? 'arrow-down-s' : 'arrow-right-s'} className="size-3" />
-                        <span>Details</span>
+                        <span>{t('Details')}</span>
                     </Button>
                     {isOpen && (
                         <pre className="mt-1.5 max-h-64 overflow-auto rounded-md border border-border/40 bg-muted/40 p-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">

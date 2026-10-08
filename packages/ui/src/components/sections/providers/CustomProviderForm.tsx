@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   SettingsSection,
   SettingsStackedField,
@@ -54,6 +55,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
   onCancel,
   onDisconnect,
 }) => {
+  const { t } = useTranslation();
     const isEdit = mode === 'edit';
   const [form, setForm] = React.useState<CustomProviderFormState>(
     () => initialValues ?? createEmptyCustomProviderForm(),
@@ -145,7 +147,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         className="@3xl:col-span-2"
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
-        <p className={SETTINGS_HELPER_CLASS}>{"Add a provider with a base URL, API format, credentials, and model list. Saved to Pi so it is available in chat like any other provider."}</p>
+        <p className={SETTINGS_HELPER_CLASS}>{t('Add a provider with a base URL, API format, credentials, and model list. Saved to Pi so it is available in chat like any other provider.')}</p>
 
         {authFailureHint ? (
           <p className="typography-meta text-[var(--status-warning)]" role="status">
@@ -155,8 +157,8 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
 
         <SettingsTwoColumn>
         <SettingsStackedField
-          label={"Provider ID"}
-          info={"Lowercase letters, numbers, hyphens, and underscores. Used as the Pi provider id."}
+          label={t('Provider ID')}
+          info={t('Lowercase letters, numbers, hyphens, and underscores. Used as the Pi provider id.')}
         >
           <Input
             value={form.providerID}
@@ -166,14 +168,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             autoFocus={!isEdit}
             disabled={isEdit || busy}
             aria-invalid={Boolean(err.providerID)}
-            aria-label={"Provider ID"}
+            aria-label={t('Provider ID')}
           />
           {err.providerID ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.providerID}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={"Display name"}
-          info={"Shown in the provider and model pickers."}
+          label={t('Display name')}
+          info={t('Shown in the provider and model pickers.')}
         >
           <Input
             value={form.name}
@@ -181,14 +183,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             placeholder={"My Provider"}
             className="h-8 rounded-md px-3"
             aria-invalid={Boolean(err.name)}
-            aria-label={"Display name"}
+            aria-label={t('Display name')}
           />
           {err.name ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.name}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={"Base URL"}
-          info={"Provider API base URL. Must start with http:// or https://."}
+          label={t('Base URL')}
+          info={t('Provider API base URL. Must start with http:// or https://.')}
         >
           <Input
             value={form.baseURL}
@@ -196,14 +198,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             placeholder={"https://api.example.com/v1"}
             className="h-8 rounded-md px-3 font-mono text-xs"
             aria-invalid={Boolean(err.baseURL)}
-            aria-label={"Base URL"}
+            aria-label={t('Base URL')}
           />
           {err.baseURL ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.baseURL}</p> : null}
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={"API format"}
-          info={"Select the request and response format implemented by this provider."}
+          label={t('API format')}
+          info={t('Select the request and response format implemented by this provider.')}
         >
           <Select
             value={form.api}
@@ -217,7 +219,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             <SelectTrigger
               size={SETTINGS_SELECT_SIZE}
               className={SETTINGS_SELECT_TRIGGER_CLASS}
-              aria-label={"API format"}
+              aria-label={t('API format')}
             >
               <SelectValue />
             </SelectTrigger>
@@ -231,11 +233,11 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={"API key"}
+          label={t('API key')}
           info={
             isEdit && allowExistingAuth
-              ? "Leave blank to keep the existing credential, or enter a new key / {env:VAR_NAME}."
-              : "Stored in Pi authentication, not by PiChamber. Use {env:VAR_NAME} to read a key from the environment instead."
+              ? t('Leave blank to keep the existing credential, or enter a new key / {env:VAR_NAME}.')
+              : t('Stored in Pi authentication, not by PiChamber. Use {env:VAR_NAME} to read a key from the environment instead.')
           }
         >
           <Input
@@ -244,12 +246,12 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             onChange={(event) => setField('apiKey', event.target.value)}
             placeholder={
               isEdit && allowExistingAuth
-                ? "Leave blank to keep existing key"
-                : "sk-... or {env:VAR_NAME}"
+                ? t('Leave blank to keep existing key')
+                : 'sk-... or {env:VAR_NAME}'
             }
             className="h-8 rounded-md px-3 font-mono text-xs"
             aria-invalid={Boolean(err.apiKey)}
-            aria-label={"API key"}
+            aria-label={t('API key')}
           />
           {err.apiKey ? <p className="mt-1 typography-meta text-[var(--status-error)]">{err.apiKey}</p> : null}
         </SettingsStackedField>
@@ -257,7 +259,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
       </SettingsSection>
 
       <SettingsSection
-        title={"Models"}
+        title={t('Models')}
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
         {form.models.map((model, index) => (
@@ -288,29 +290,29 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             setModelErrors((prev) => [...prev, {}]);
           }}
         >
-          {"Add model"}
+          {t('Add model')}
         </Button>
       </SettingsSection>
 
       <SettingsSection
-        title={"Headers"}
+        title={t('Headers')}
         contentClassName={SETTINGS_FIELDS_STACK_CLASS}
       >
-        <p className={SETTINGS_HELPER_CLASS}>{"Optional request headers sent with every call."}</p>
+        <p className={SETTINGS_HELPER_CLASS}>{t('Optional request headers sent with every call.')}</p>
         {form.headers.map((header, index) => (
           <div key={header.row} className={`${SETTINGS_CONTROL_CLUSTER_CLASS} space-y-2`}>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1 space-y-2">
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {"Header name"}
+                    {t('Header name')}
                   </label>
                   <Input
                     value={header.key}
                     onChange={(event) => setHeader(index, 'key', event.target.value)}
                     placeholder={"X-Custom-Header"}
                     className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={"Header name"}
+                    aria-label={t('Header name')}
                   />
                   {headerErrors[index]?.key ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.key}</p>
@@ -318,14 +320,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                 </div>
                 <div>
                   <label className={SETTINGS_FIELD_LABEL_CLASS}>
-                    {"Header value"}
+                    {t('Header value')}
                   </label>
                   <Input
                     value={header.value}
                     onChange={(event) => setHeader(index, 'value', event.target.value)}
-                    placeholder={"value"}
+                    placeholder={t('value')}
                     className="mt-1 h-8 rounded-md px-3 font-mono text-xs"
-                    aria-label={"Header value"}
+                    aria-label={t('Header value')}
                   />
                   {headerErrors[index]?.value ? (
                     <p className="mt-1 typography-meta text-[var(--status-error)]">{headerErrors[index]?.value}</p>
@@ -346,7 +348,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
                   }));
                   setHeaderErrors((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
                 }}
-                aria-label={"Remove header"}
+                aria-label={t('Remove header')}
               >
                 <Icon name="delete-bin" className="size-4" />
               </Button>
@@ -363,14 +365,14 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             setHeaderErrors((prev) => [...prev, {}]);
           }}
         >
-          {"Add header"}
+          {t('Add header')}
         </Button>
       </SettingsSection>
 
       <div className="flex flex-wrap items-center gap-2 py-4 @3xl:col-span-2">
         {onCancel ? (
           <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={onCancel} disabled={busy}>
-            {"Back"}
+            {t('Back')}
           </Button>
         ) : null}
         {onDisconnect ? (
@@ -382,15 +384,15 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
             onClick={() => void onDisconnect()}
             disabled={busy}
           >
-            {"Disconnect"}
+            {t('Disconnect')}
           </Button>
         ) : null}
         <Button type="submit" size="xs" className="!font-normal" disabled={busy}>
           {busy
-            ? "Saving..."
+            ? t('Saving...')
             : isEdit
-              ? "Update provider"
-              : "Save provider"}
+              ? t('Update provider')
+              : t('Save provider')}
         </Button>
       </div>
     </form>

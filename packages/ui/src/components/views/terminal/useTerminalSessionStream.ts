@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '@/stores/useTerminalStore';
 import type { TerminalStreamEvent, TerminalAPI, TerminalError, TerminalShell } from '@/lib/api/types';
 import { getTerminalTransportGeneration, subscribeTerminalTransportGeneration } from '@/lib/terminalApi';
@@ -41,6 +42,7 @@ export function useTerminalSessionStream({
   focusTerminalWhenWindowActive: () => void;
   tabs: TabIdentity[];
 }) {
+  const { t } = useTranslation();
   const ensureDirectory = useTerminalStore((s) => s.ensureDirectory);
   const setTabSessionId = useTerminalStore((s) => s.setTabSessionId);
   const setTabLifecycle = useTerminalStore((s) => s.setTabLifecycle);
@@ -189,14 +191,14 @@ export function useTerminalSessionStream({
               appendToBuffer(
                 directory,
                 tabId,
-                `\\r\\n[Process exited${exitCode !== null ? ` with code ${exitCode}` : ''}${
-                  signal !== null ? ` (signal ${signal})` : ''
+                `\\r\\n[${t('Process exited')}${exitCode !== null ? ` ${t('with code {{code}}', { code: exitCode })}` : ''}${
+                  signal !== null ? ` ${t('(signal {{signal}})', { signal })}` : ''
                 }]\\r\\n`,
               );
               setTabLifecycle(directory, tabId, 'exited');
               if (activeTabIdRef.current === tabId) {
                 setConnecting(directory, tabId, false);
-                setConnectionError(isActionTab ? null : 'Terminal session ended');
+                setConnectionError(isActionTab ? null : t('Terminal session ended'));
                 setIsFatalError(false);
                 setIsReconnectPending(false);
               }
@@ -235,7 +237,7 @@ export function useTerminalSessionStream({
           }
           if (!isActive) return;
           setIsReconnectPending(false);
-          setConnectionError(`Connection failed: ${error.message}`);
+          setConnectionError(t('Connection failed: {{message}}', { message: error.message }));
           setIsFatalError(true);
           setConnecting(directory, tabId, false);
           setTabLifecycle(directory, tabId, 'exited');
@@ -255,6 +257,7 @@ export function useTerminalSessionStream({
       setTabLifecycle,
       setTabSessionId,
       terminal,
+      t,
     ],
   );
 
@@ -334,7 +337,7 @@ export function useTerminalSessionStream({
 
     if (!effectiveDirectory) {
       setConnectionError(
-        hasActiveContext ? 'No working directory available for terminal.' : 'Select a session to open the terminal.',
+        hasActiveContext ? t('No working directory available for terminal.') : t('Select a session to open the terminal.'),
       );
       return;
     }
@@ -435,7 +438,7 @@ export function useTerminalSessionStream({
           setConnecting(directory, tabId, false);
           if (directoryRef.current !== directory || activeTabIdRef.current !== tabId) return;
           setConnectionError(
-            error instanceof Error ? error.message : 'Failed to start terminal session',
+            error instanceof Error ? error.message : t('Failed to start terminal session'),
           );
           setIsFatalError(true);
           setIsReconnectPending(false);
@@ -471,6 +474,7 @@ export function useTerminalSessionStream({
     terminalLoginShell,
     terminalShell,
     terminalAppearanceRef,
+    t,
   ]);
 
   return {

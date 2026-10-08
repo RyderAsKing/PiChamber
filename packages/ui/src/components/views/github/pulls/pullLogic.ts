@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { IconName } from '@/components/icon/icons';
 import type {
   GitHubCheckRun,
@@ -120,8 +121,8 @@ export const describeBranchStatus = (
     return {
       tone: 'warning',
       icon: 'error-warning',
-      title: 'This branch is out of date with',
-      detail: 'Merge the latest changes from the base branch into this branch.',
+      title: i18n.t('This branch is out of date with'),
+      detail: i18n.t('Merge the latest changes from the base branch into this branch.'),
       canUpdate: true,
     };
   }
@@ -129,8 +130,8 @@ export const describeBranchStatus = (
     return {
       tone: 'error',
       icon: 'alert',
-      title: 'This branch has conflicts with',
-      detail: 'Resolve conflicts locally or on GitHub before merging.',
+      title: i18n.t('This branch has conflicts with'),
+      detail: i18n.t('Resolve conflicts locally or on GitHub before merging.'),
       canUpdate: false,
     };
   }
@@ -143,67 +144,67 @@ export const pullActionConfirmCopy = (
   base: string,
   head: string,
 ): { title: string; detail: string; confirm: string; progress: string } => {
-  const source = head ? `“${head}”` : 'this branch';
-  const destination = base ? `“${base}”` : 'the base branch';
+  const source = head ? `“${head}”` : i18n.t('this branch');
+  const destination = base ? `“${base}”` : i18n.t('the base branch');
   switch (action) {
     case 'merge':
       return {
-        title: 'Merge this pull request?',
-        detail: `Every commit from ${source} will be added to ${destination} with a merge commit.`,
-        confirm: 'Merge pull request',
-        progress: 'Merging…',
+        title: i18n.t('Merge this pull request?'),
+        detail: i18n.t('Every commit from {{source}} will be added to {{destination}} with a merge commit.', { source, destination }),
+        confirm: i18n.t('Merge pull request'),
+        progress: i18n.t('Merging…'),
       };
     case 'squash':
       return {
-        title: 'Squash and merge?',
-        detail: `The commits from ${source} will be combined into one commit on ${destination}.`,
-        confirm: 'Squash and merge',
-        progress: 'Merging…',
+        title: i18n.t('Squash and merge?'),
+        detail: i18n.t('The commits from {{source}} will be combined into one commit on {{destination}}.', { source, destination }),
+        confirm: i18n.t('Squash and merge'),
+        progress: i18n.t('Merging…'),
       };
     case 'rebase':
       return {
-        title: 'Rebase and merge?',
-        detail: `The commits from ${source} will be replayed onto ${destination} without a merge commit.`,
-        confirm: 'Rebase and merge',
-        progress: 'Merging…',
+        title: i18n.t('Rebase and merge?'),
+        detail: i18n.t('The commits from {{source}} will be replayed onto {{destination}} without a merge commit.', { source, destination }),
+        confirm: i18n.t('Rebase and merge'),
+        progress: i18n.t('Merging…'),
       };
     case 'draft':
       return {
-        title: 'Convert to draft?',
-        detail: 'Reviewers will see that this pull request is not ready to merge.',
-        confirm: 'Convert to draft',
-        progress: 'Converting…',
+        title: i18n.t('Convert to draft?'),
+        detail: i18n.t('Reviewers will see that this pull request is not ready to merge.'),
+        confirm: i18n.t('Convert to draft'),
+        progress: i18n.t('Converting…'),
       };
     case 'ready':
       return {
-        title: 'Mark as ready for review?',
-        detail: 'Reviewers will be asked to review this pull request.',
-        confirm: 'Ready for review',
-        progress: 'Updating…',
+        title: i18n.t('Mark as ready for review?'),
+        detail: i18n.t('Reviewers will be asked to review this pull request.'),
+        confirm: i18n.t('Ready for review'),
+        progress: i18n.t('Updating…'),
       };
     case 'close':
       return {
-        title: 'Close this pull request?',
-        detail: 'The pull request will close without merging. You can reopen it later.',
-        confirm: 'Close pull request',
-        progress: 'Closing…',
+        title: i18n.t('Close this pull request?'),
+        detail: i18n.t('The pull request will close without merging. You can reopen it later.'),
+        confirm: i18n.t('Close pull request'),
+        progress: i18n.t('Closing…'),
       };
     case 'reopen':
       return {
-        title: 'Reopen this pull request?',
-        detail: 'The pull request will return to its previous open state.',
-        confirm: 'Reopen pull request',
-        progress: 'Reopening…',
+        title: i18n.t('Reopen this pull request?'),
+        detail: i18n.t('The pull request will return to its previous open state.'),
+        confirm: i18n.t('Reopen pull request'),
+        progress: i18n.t('Reopening…'),
       };
     case 'update-branch':
       return {
-        title: 'Update this branch?',
-        detail: `This brings ${source} up to date with ${destination}. History may be rewritten.`,
-        confirm: 'Update branch',
-        progress: 'Updating…',
+        title: i18n.t('Update this branch?'),
+        detail: i18n.t('This brings {{source}} up to date with {{destination}}. History may be rewritten.', { source, destination }),
+        confirm: i18n.t('Update branch'),
+        progress: i18n.t('Updating…'),
       };
     default:
-      return { title: 'Continue?', detail: 'This action cannot be undone from here.', confirm: 'Confirm', progress: 'Working…' };
+      return { title: i18n.t('Continue?'), detail: i18n.t('This action cannot be undone from here.'), confirm: i18n.t('Confirm'), progress: i18n.t('Working…') };
   }
 };
 
@@ -218,7 +219,7 @@ export const describeChecksRollup = (
   const passed = groups.passed.runs + groups.passed.statuses;
   const total = checks.runs.length + checks.statuses.length;
   return {
-    text: `${failed} failing · ${pending} pending · ${passed} passed`,
+    text: i18n.t('{{failed}} failing · {{pending}} pending · {{passed}} passed', { failed, pending, passed }),
     failed,
     pending,
     passed,
@@ -241,43 +242,43 @@ export const gatePullAction = (
   pr: Pick<GitHubPullRequestDetail, 'state' | 'draft' | 'mergeable' | 'mergeableState'> | null,
   access?: ViewerAccess,
 ): ActionGate => {
-  if (!pr) return { allowed: false, reason: 'Pull request is still loading' };
+  if (!pr) return { allowed: false, reason: i18n.t('Pull request is still loading') };
   const merged = pr.state === 'merged';
   const open = pr.state === 'open';
   switch (action) {
     case 'merge':
     case 'squash':
     case 'rebase':
-      if (!open) return { allowed: false, reason: merged ? 'Already merged' : 'Pull request is closed' };
-      if (pr.draft) return { allowed: false, reason: 'Marked as draft' };
+      if (!open) return { allowed: false, reason: merged ? i18n.t('Already merged') : i18n.t('Pull request is closed') };
+      if (pr.draft) return { allowed: false, reason: i18n.t('Marked as draft') };
       if (pr.mergeable === false || pr.mergeableState === 'dirty') {
-        return { allowed: false, reason: 'Has merge conflicts' };
+        return { allowed: false, reason: i18n.t('Has merge conflicts') };
       }
-      if (pr.mergeableState === 'blocked') return { allowed: false, reason: 'Blocked by required checks' };
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to merge' };
+      if (pr.mergeableState === 'blocked') return { allowed: false, reason: i18n.t('Blocked by required checks') };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to merge') };
       return { allowed: true, reason: null };
     case 'ready':
-      if (!open) return { allowed: false, reason: 'Pull request is not open' };
-      if (!pr.draft) return { allowed: false, reason: 'Already ready for review' };
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to mark ready' };
+      if (!open) return { allowed: false, reason: i18n.t('Pull request is not open') };
+      if (!pr.draft) return { allowed: false, reason: i18n.t('Already ready for review') };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to mark ready') };
       return { allowed: true, reason: null };
     case 'draft':
-      if (!open) return { allowed: false, reason: 'Pull request is not open' };
-      if (pr.draft) return { allowed: false, reason: 'Already a draft' };
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to convert to draft' };
+      if (!open) return { allowed: false, reason: i18n.t('Pull request is not open') };
+      if (pr.draft) return { allowed: false, reason: i18n.t('Already a draft') };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to convert to draft') };
       return { allowed: true, reason: null };
     case 'close':
-      if (!open) return { allowed: false, reason: merged ? 'Already merged' : 'Already closed' };
-      if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to close' };
+      if (!open) return { allowed: false, reason: merged ? i18n.t('Already merged') : i18n.t('Already closed') };
+      if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to close') };
       return { allowed: true, reason: null };
     case 'reopen':
-      if (open) return { allowed: false, reason: 'Already open' };
-      if (merged) return { allowed: false, reason: 'Already merged' };
-      if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to reopen' };
+      if (open) return { allowed: false, reason: i18n.t('Already open') };
+      if (merged) return { allowed: false, reason: i18n.t('Already merged') };
+      if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to reopen') };
       return { allowed: true, reason: null };
     case 'update-branch':
-      if (!open) return { allowed: false, reason: 'Pull request is not open' };
-      if (requiresPush(access)) return { allowed: false, reason: 'You need write access to update the branch' };
+      if (!open) return { allowed: false, reason: i18n.t('Pull request is not open') };
+      if (requiresPush(access)) return { allowed: false, reason: i18n.t('You need write access to update the branch') };
       return { allowed: true, reason: null };
     default:
       return { allowed: true, reason: null };
@@ -318,7 +319,7 @@ export const gatePullThreadReply = (access?: ViewerAccess): ActionGate => gatePu
 /** Resolving a thread needs push access (author exception does not apply). */
 export const gatePullThreadResolve = (access?: ViewerAccess): ActionGate => {
   if (!access || access.permissionFallback) return { allowed: true, reason: null };
-  if (access.capabilities?.canPush !== true) return { allowed: false, reason: 'You need write access to resolve threads' };
+  if (access.capabilities?.canPush !== true) return { allowed: false, reason: i18n.t('You need write access to resolve threads') };
   return { allowed: true, reason: null };
 };
 
@@ -486,8 +487,8 @@ export const gatePullEdit = (
   pr: Pick<GitHubPullRequestDetail, 'state'> | null,
   access?: ViewerAccess,
 ): ActionGate => {
-  if (!pr) return { allowed: false, reason: 'Pull request is still loading' };
-  if (requiresPushOrAuthor(access)) return { allowed: false, reason: 'You need write access or be the author to edit' };
+  if (!pr) return { allowed: false, reason: i18n.t('Pull request is still loading') };
+  if (requiresPushOrAuthor(access)) return { allowed: false, reason: i18n.t('You need write access or be the author to edit') };
   return { allowed: true, reason: null };
 };
 
@@ -499,9 +500,9 @@ export const shouldRenderSectionError = (sectionError: GitHubErrorBody | null | 
 
 export const describeSectionError = (sectionError: GitHubErrorBody | null | undefined): string => {
   if (!sectionError) return '';
-  if (sectionError.kind === 'rate-limited') return 'Rate limited';
-  if (sectionError.kind === 'failed') return sectionError.message || 'Request failed';
-  return 'Unavailable';
+  if (sectionError.kind === 'rate-limited') return i18n.t('Rate limited');
+  if (sectionError.kind === 'failed') return sectionError.message || i18n.t('Request failed');
+  return i18n.t('Unavailable');
 };
 
 export type CreatePrValidation = { ok: boolean; errors: Partial<Record<'title' | 'head' | 'base', string>> };
@@ -514,10 +515,10 @@ export const validateCreatePullRequest = (input: {
   const errors: CreatePrValidation['errors'] = {};
   const titleError = titleValidationError(input.title, 256);
   if (titleError) errors.title = titleError;
-  if (!input.head.trim()) errors.head = 'Select a head branch';
-  if (!input.base.trim()) errors.base = 'Select a base branch';
+  if (!input.head.trim()) errors.head = i18n.t('Select a head branch');
+  if (!input.base.trim()) errors.base = i18n.t('Select a base branch');
   else if (input.head.trim() && input.base.trim() && input.head.trim() === input.base.trim()) {
-    errors.base = 'Base and head must differ';
+    errors.base = i18n.t('Base and head must differ');
   }
   return { ok: Object.keys(errors).length === 0, errors };
 };

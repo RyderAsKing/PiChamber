@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -50,29 +51,30 @@ export const FileSaveConflictDialog: React.FC<FileSaveConflictDialogProps> = ({
   onOverwrite,
   onClose,
 }) => {
+  const { t } = useTranslation();
   if (!conflict) return null;
   const deleted = !conflict.exists;
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <DialogContent showCloseButton={false} className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{deleted ? 'File deleted on disk' : 'File changed on disk'}</DialogTitle>
+          <DialogTitle>{deleted ? t('File deleted on disk') : t('File changed on disk')}</DialogTitle>
           <DialogDescription>
             {deleted
-              ? `“${conflict.displayPath}” was deleted since you opened it. Your edits are preserved. Reload to discard them, or overwrite to recreate the file.`
-              : `“${conflict.displayPath}” changed since you opened it. Your edits are preserved. Reload to discard them and load the current version, or overwrite to keep your edits.`}
+              ? t('“{{displayPath}}” was deleted since you opened it. Your edits are preserved. Reload to discard them, or overwrite to recreate the file.', { displayPath: conflict.displayPath })
+              : t('“{{displayPath}}” changed since you opened it. Your edits are preserved. Reload to discard them and load the current version, or overwrite to keep your edits.', { displayPath: conflict.displayPath })}
           </DialogDescription>
         </DialogHeader>
         {showCompare && !deleted ? (
           <div className="grid max-h-64 grid-cols-1 gap-2 overflow-auto py-2">
             <div>
-              <div className="typography-meta text-muted-foreground">Current version on disk</div>
+              <div className="typography-meta text-muted-foreground">{t('Current version on disk')}</div>
               <pre className="mt-1 max-h-28 overflow-auto rounded-md bg-[var(--surface-subtle)] p-2 text-xs whitespace-pre-wrap break-words">
                 {truncatePreview(conflict.currentContent ?? '')}
               </pre>
             </div>
             <div>
-              <div className="typography-meta text-muted-foreground">Your edits</div>
+              <div className="typography-meta text-muted-foreground">{t('Your edits')}</div>
               <pre className="mt-1 max-h-28 overflow-auto rounded-md bg-[var(--surface-subtle)] p-2 text-xs whitespace-pre-wrap break-words">
                 {truncatePreview(conflict.dirtyContent)}
               </pre>
@@ -85,29 +87,29 @@ export const FileSaveConflictDialog: React.FC<FileSaveConflictDialogProps> = ({
               variant="outline"
               onClick={onToggleCompare}
               disabled={isResolving}
-              aria-label={showCompare ? 'Hide version comparison' : 'Compare versions'}
-              title={showCompare ? 'Hide version comparison' : 'Compare versions'}
+              aria-label={showCompare ? t('Hide version comparison') : t('Compare versions')}
+              title={showCompare ? t('Hide version comparison') : t('Compare versions')}
             >
-              {showCompare ? 'Hide compare' : 'Compare'}
+              {showCompare ? t('Hide compare') : t('Compare')}
             </Button>
           ) : null}
           <Button
             variant="outline"
             onClick={onReload}
             disabled={isResolving}
-            aria-label={deleted ? 'Discard edits and close' : 'Reload current version'}
-            title={deleted ? 'Discard edits and close' : 'Reload current version'}
+            aria-label={deleted ? t('Discard edits and close') : t('Reload current version')}
+            title={deleted ? t('Discard edits and close') : t('Reload current version')}
           >
-            {deleted ? 'Discard edits' : 'Reload'}
+            {deleted ? t('Discard edits') : t('Reload')}
           </Button>
           <Button
             variant="destructive"
             onClick={onOverwrite}
             disabled={isResolving}
-            aria-label={deleted ? 'Recreate file with my edits' : 'Overwrite with my edits'}
-            title={deleted ? 'Recreate file with my edits' : 'Overwrite with my edits'}
+            aria-label={deleted ? t('Recreate file with my edits') : t('Overwrite with my edits')}
+            title={deleted ? t('Recreate file with my edits') : t('Overwrite with my edits')}
           >
-            {isResolving ? 'Working…' : 'Overwrite'}
+            {isResolving ? t('Working…') : t('Overwrite')}
           </Button>
         </DialogFooter>
       </DialogContent>

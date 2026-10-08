@@ -15,6 +15,7 @@ import type {
 } from '@/lib/api/types';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
+import i18n from '@/i18n';
 import {
   buildGitHubResourceKey,
   createKeyedAsyncResource,
@@ -411,7 +412,7 @@ export const useGitHubPullRequestsStore = create<PullsStoreState>()(
       performAction: async (directory, repo, number, action, github) => {
         const scope = detailScopeKey(repo, number);
         const detailKey = pullDetailKeyFor(repo, number);
-        if (get().actingActions[scope]) return { ok: false, error: { kind: 'failed', message: 'Action already in progress' } };
+        if (get().actingActions[scope]) return { ok: false, error: { kind: 'failed', message: i18n.t('Action already in progress') } };
         set((state) => ({
           actingActions: { ...state.actingActions, [scope]: true },
           actionErrorByDetail: { ...state.actionErrorByDetail, [scope]: null },

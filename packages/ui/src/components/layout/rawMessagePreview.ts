@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import type { Part } from '@/lib/chat/types';
 import type { TimeFormatPreference } from '@/stores/useUIStore';
 
@@ -93,7 +94,9 @@ export const deriveUserSnippet = (parts: Part[]): string => {
   }
   const nonTextCount = parts.filter((part) => partTypeOf(part) !== 'text').length;
   if (nonTextCount === 0) return '';
-  return `${nonTextCount} attachment${nonTextCount === 1 ? '' : 's'}`;
+  return nonTextCount === 1
+    ? i18n.t('{{count}} attachment', { count: nonTextCount })
+    : i18n.t('{{count}} attachments', { count: nonTextCount });
 };
 
 /**

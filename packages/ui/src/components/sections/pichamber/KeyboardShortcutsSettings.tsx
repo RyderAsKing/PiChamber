@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import {
   SettingsSection,
@@ -102,6 +103,7 @@ const SHORTCUT_ACTION_LABELS: Record<string, string> = {
 };
 export const KeyboardShortcutsSettings: React.FC = () => {
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
+  const { t } = useTranslation();
   const setShortcutOverride = useUIStore((state) => state.setShortcutOverride);
   const clearShortcutOverride = useUIStore((state) => state.clearShortcutOverride);
   const resetAllShortcutOverrides = useUIStore((state) => state.resetAllShortcutOverrides);
@@ -155,13 +157,13 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(normalized) ? "This shortcut can conflict with browser defaults. It is still saved." : '');
+    setWarningText(isRiskyBrowserShortcut(normalized) ? t('This shortcut can conflict with browser defaults. It is still saved.') : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[actionId];
       return rest;
     });
-  }, [findConflict, persistShortcutOverrides, setShortcutOverride, shortcutOverrides]);
+  }, [findConflict, persistShortcutOverrides, setShortcutOverride, shortcutOverrides, t]);
 
   const confirmOverwrite = React.useCallback(() => {
     if (!pendingOverwrite) {
@@ -178,13 +180,13 @@ export const KeyboardShortcutsSettings: React.FC = () => {
     persistShortcutOverrides(nextOverrides);
     setPendingOverwrite(null);
     setErrorText('');
-    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? "This shortcut can conflict with browser defaults. It is still saved." : '');
+    setWarningText(isRiskyBrowserShortcut(pendingOverwrite.combo) ? t('This shortcut can conflict with browser defaults. It is still saved.') : '');
     setDraftByAction((current) => {
       const rest = { ...current };
       delete rest[pendingOverwrite.actionId];
       return rest;
     });
-  }, [pendingOverwrite, persistShortcutOverrides, setShortcutOverride, shortcutOverrides]);
+  }, [pendingOverwrite, persistShortcutOverrides, setShortcutOverride, shortcutOverrides, t]);
 
   const resetOne = React.useCallback((actionId: string) => {
     const nextOverrides = { ...shortcutOverrides };
@@ -204,9 +206,9 @@ export const KeyboardShortcutsSettings: React.FC = () => {
   return (
     <SettingsSection
       settingsItem="shortcuts.keyboard-shortcuts"
-      title={"Keyboard Shortcuts"}
+      title={t('Keyboard Shortcuts')}
       divider={false}
-      info={"Capture a new key combo, save it, and bindings will update immediately."}
+      info={t('Capture a new key combo, save it, and bindings will update immediately.')}
       headerAction={(
         <Button
           type="button"
@@ -222,7 +224,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
             setWarningText('');
           }}
         >
-          {"Reset All"}
+          {t('Reset All')}
         </Button>
       )}
     >
@@ -231,11 +233,11 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           {pendingOverwrite && (
             <div className="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] p-3 flex flex-col @xl:flex-row @xl:items-center justify-between gap-3">
               <span className="typography-meta text-foreground">
-                {"This combo is already used by another shortcut. Overwrite and clear that other mapping?"}
+                {t('This combo is already used by another shortcut. Overwrite and clear that other mapping?')}
               </span>
               <div className="flex gap-2 shrink-0">
-                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{"Overwrite"}</Button>
-                <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => setPendingOverwrite(null)}>{"Cancel"}</Button>
+                <Button type="button" size="xs" className="!font-normal" onClick={confirmOverwrite}>{t('Overwrite')}</Button>
+                <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => setPendingOverwrite(null)}>{t('Cancel')}</Button>
               </div>
             </div>
           )}
@@ -263,7 +265,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           const hasDraft = typeof draft === 'string' && normalizeCombo(draft) !== normalizeCombo(effective);
           const isUnassignedDisplay = displayCombo === '' || normalizeCombo(displayCombo) === UNASSIGNED_SHORTCUT;
           const displayValue = capturingActionId === action.id
-            ? "Press keys..."
+            ? t('Press keys...')
             : isSurfaceSwitch && !isUnassignedDisplay
               ? `${formatShortcutForDisplay(displayCombo)}${" + 1…0"}`
               : formatShortcutForDisplay(displayCombo);
@@ -271,7 +273,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
           return (
             <div key={action.id} className={cn("py-1.5", index > 0 && "border-t border-border/40")}>
               <SettingsFieldRow
-                label={actionLabel(action.id, action.label)}
+                label={t(actionLabel(action.id, action.label))}
                 alignEnd={false}
               >
                 <Input
@@ -318,17 +320,17 @@ export const KeyboardShortcutsSettings: React.FC = () => {
                   onClick={() => {
                     const next = draftByAction[action.id];
                     if (!next) {
-                      setErrorText("Capture a shortcut first.");
+                      setErrorText(t('Capture a shortcut first.'));
                       return;
                     }
                     saveCombo(action.id, next);
                   }}
                   disabled={!hasDraft}
                 >
-                  {"Save Changes"}
+                  {t('Save Changes')}
                 </Button>
                 <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => resetOne(action.id)}>
-                  {"Reset"}
+                  {t('Reset')}
                 </Button>
               </SettingsFieldRow>
             </div>

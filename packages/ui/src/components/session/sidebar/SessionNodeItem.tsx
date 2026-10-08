@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { ContextMenu } from '@base-ui/react/context-menu';
 import { cn } from '@/lib/utils';
@@ -34,13 +35,14 @@ const PrBadgeButton: React.FC<{
   prStatusLabel: string | null;
   prIconColor: string | undefined;
 }> = ({ prDirectory, prNumber, prStatusLabel, prIconColor }) => {
+  const { t } = useTranslation();
   const repo = useGitHubSelectedRepo(prDirectory);
   if (!prDirectory || !repo) {
     return (
       <span
         className="inline-flex shrink-0 items-center gap-1"
         style={prIconColor ? { color: prIconColor } : undefined}
-        title={prStatusLabel ? `PR #${prNumber} — ${prStatusLabel}` : `PR #${prNumber}`}
+        title={prStatusLabel ? t('PR #{{number}} — {{status}}', { number: prNumber, status: prStatusLabel }) : t('PR #{{number}}', { number: prNumber })}
       >
         <Icon name="git-pull-request" className="size-3.5 shrink-0" />
         <span>#{prNumber}</span>
@@ -76,8 +78,8 @@ const PrBadgeButton: React.FC<{
       }}
       className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       style={prIconColor ? { color: prIconColor } : undefined}
-      title={prStatusLabel ? `PR #${prNumber} — ${prStatusLabel}. Open in Pull requests` : `Open PR #${prNumber} in Pull requests`}
-      aria-label={prStatusLabel ? `Open pull request #${prNumber}, ${prStatusLabel}, in Pull requests` : `Open pull request #${prNumber} in Pull requests`}
+      title={prStatusLabel ? t('PR #{{number}} — {{status}}. Open in Pull requests', { number: prNumber, status: prStatusLabel }) : t('Open PR #{{number}} in Pull requests', { number: prNumber })}
+      aria-label={prStatusLabel ? t('Open pull request #{{number}}, {{status}}, in Pull requests', { number: prNumber, status: prStatusLabel }) : t('Open pull request #{{number}} in Pull requests', { number: prNumber })}
     >
       <Icon name="git-pull-request" className="size-3.5 shrink-0" />
       <span>#{prNumber}</span>
@@ -89,6 +91,7 @@ export type { Folder, SecondaryMeta, SessionNodeItemProps } from './sessionNodeT
 
 function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode {
   streamPerfCount('ui.sidebar_session_node.render');
+  const { t } = useTranslation();
   const {
     node,
     depth = 0,
@@ -278,7 +281,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ) : null;
   const showPinnedMarker = isPinnedSession;
   const pinnedMarkerContent = (
-    <Icon name="pushpin" className="h-3 w-3 flex-shrink-0 text-primary" aria-label={'Pinned session'} />
+    <Icon name="pushpin" className="h-3 w-3 flex-shrink-0 text-primary" aria-label={t('Pinned session')} />
   );
   const leadingIndicators = showPinnedMarker ? (
     <span className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center">{pinnedMarkerContent}</span>
@@ -298,7 +301,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
         }
       }}
       className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-      aria-label={isExpanded ? 'Collapse subsessions' : 'Expand subsessions'}
+      aria-label={isExpanded ? t('Collapse subsessions') : t('Expand subsessions')}
     >
       {isExpanded ? <Icon name="arrow-down-s" className="h-3 w-3" /> : <Icon name="arrow-right-s" className="h-3 w-3" />}
     </button>
@@ -486,7 +489,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     onChange={(event) => setRenameDraft(event.target.value)}
                     className="min-w-0 flex-1 bg-transparent typography-ui-label text-foreground outline-none placeholder:text-muted-foreground"
                     autoFocus
-                    placeholder={'Rename'}
+                    placeholder={t('Rename')}
                     onKeyDown={(event) => {
                       event.stopPropagation();
                       if (event.key === 'Escape') {
@@ -496,8 +499,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   />
                   <button
                     type="submit"
-                    aria-label={'Save session name'}
-                    title={'Save session name'}
+                    aria-label={t('Save session name')}
+                    title={t('Save session name')}
                     className="shrink-0 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   >
                     <Icon name="check" className="size-4" />
@@ -505,8 +508,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   <button
                     type="button"
                     onClick={handleCancelEdit}
-                    aria-label={'Cancel renaming session'}
-                    title={'Cancel renaming session'}
+                    aria-label={t('Cancel renaming session')}
+                    title={t('Cancel renaming session')}
                     className="shrink-0 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   >
                     <Icon name="close" className="size-4" />
@@ -620,7 +623,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 )}
               >
                 {showUnreadCompleteDot ? (
-                  <SessionUnreadDot label={'Session complete'} />
+                  <SessionUnreadDot label={t('Session complete')} />
                 ) : (
                   <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap">
                     {sessionCompactUpdatedLabel}
@@ -637,8 +640,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   )}
                 >
                   <QuickSessionAction
-                    archiveLabel={'Archive'}
-                    deleteLabel={'Delete'}
+                    archiveLabel={t('Archive')}
+                    deleteLabel={t('Delete')}
                     buttonSizeClass="h-6 w-6"
                     iconSizeClass="h-3.5 w-3.5"
                     onPointerDown={handleQuickArchivePointerDown}

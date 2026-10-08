@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { ShimmerGlint } from './ShimmerGlint';
 
@@ -104,7 +105,7 @@ export interface AgentThinkingLoaderProps {
 }
 
 export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
-  text = 'Thinking',
+  text,
   className,
   variant = 'inline',
   showText = true,
@@ -112,21 +113,23 @@ export const AgentThinkingLoader: React.FC<AgentThinkingLoaderProps> = ({
   animateText = false,
   startedAt,
 }) => {
-  const hasText = showText && text != null && text !== '';
+  const { t } = useTranslation();
+  const resolvedText = text === undefined ? t('Thinking') : text;
+  const hasText = showText && resolvedText != null && resolvedText !== '';
   const elapsed = useElapsed(hasText && showElapsed, startedAt);
   // Grid-only usages (sidebar rows) render compact so the 3x3 fits dense row
   // chrome; labeled usages (main chat) keep the full-size grid.
 
   const labelEl = hasText ? (
     <span
-      key={animateText ? text : undefined}
+      key={animateText ? resolvedText : undefined}
       className={cn(
         'pixel-loader-label min-w-0 truncate whitespace-nowrap typography-markdown font-medium',
         animateText && 'agent-thinking-label-enter',
       )}
     >
-      {text}
-      <ShimmerGlint text={text} />
+      {resolvedText}
+      <ShimmerGlint text={resolvedText} />
     </span>
   ) : null;
   const elapsedEl =

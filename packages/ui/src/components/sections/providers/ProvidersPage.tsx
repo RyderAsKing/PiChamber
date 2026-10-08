@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { useTranslation } from 'react-i18next';
 import { CustomProviderForm } from '@/components/sections/providers/CustomProviderForm';
 import { AddProviderModelDialog } from '@/components/sections/providers/AddProviderModelDialog';
 import { ProviderCard, ProviderCardSkeleton } from '@/components/sections/providers/ProviderCard';
@@ -24,6 +25,7 @@ import { useProvidersPageState } from './useProvidersPageState';
 /** Pi-native provider authentication and model catalog settings. */
 export const ProvidersPage: React.FC = () => {
   const { isMobile } = useDeviceInfo();
+  const { t } = useTranslation();
   const {
     selectedProviderId,
     setSelectedProviderId,
@@ -67,12 +69,12 @@ export const ProvidersPage: React.FC = () => {
 
   if (failed && !providers) {
     return (
-      <SettingsPageLayout title={isMobile ? undefined : 'Providers'} description={isMobile ? undefined : 'Manage model providers and authentication.'}>
+      <SettingsPageLayout title={isMobile ? undefined : t('Providers')} description={isMobile ? undefined : t('Manage model providers and authentication.')}>
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-          <p className="typography-meta text-[var(--status-error)]">Providers are unavailable.</p>
+          <p className="typography-meta text-[var(--status-error)]">{t('Providers are unavailable.')}</p>
           <Button variant="outline" size="sm" onClick={() => void refreshProviders()} disabled={refreshing}>
             <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
-            {refreshing ? 'Retrying…' : 'Retry'}
+            {refreshing ? t('Retrying…') : t('Retry')}
           </Button>
         </div>
       </SettingsPageLayout>
@@ -92,7 +94,7 @@ export const ProvidersPage: React.FC = () => {
         })
       : undefined;
     return (
-      <SettingsPageLayout title={editableConfig ? 'Edit custom provider' : 'Custom provider'}>
+      <SettingsPageLayout title={editableConfig ? t('Edit custom provider') : t('Custom provider')}>
         <CustomProviderForm
           existingProviderIDs={new Set(providers?.map((item) => item.id) ?? [])}
           mode={editableConfig ? 'edit' : 'create'}
@@ -121,7 +123,7 @@ export const ProvidersPage: React.FC = () => {
               variant="ghost"
               size="xs"
               onClick={() => setSelectedProviderId(null)}
-              aria-label="Back to providers"
+              aria-label={t('Back to providers')}
               className="-ml-1 h-7 w-7 p-0"
             >
               <Icon name="arrow-left-s" className="size-4" />
@@ -132,15 +134,15 @@ export const ProvidersPage: React.FC = () => {
         }
         description={<span className="font-mono typography-settings-description text-muted-foreground">{provider.id}</span>}
       >
-        {failed ? <p className="typography-meta text-[var(--status-error)]">Unavailable</p> : null}
+        {failed ? <p className="typography-meta text-[var(--status-error)]">{t('Unavailable')}</p> : null}
         <SettingsSection
-          title="Authentication"
+          title={t('Authentication')}
           divider={false}
           settingsItem="providers.auth"
           headerAction={
             isConnected ? (
               <Button variant="ghost" size="xs" onClick={() => void logout()} disabled={busy}>
-                {busy ? 'Disconnecting...' : 'Disconnect'}
+                {busy ? t('Disconnecting...') : t('Disconnect')}
               </Button>
             ) : null
           }
@@ -148,11 +150,11 @@ export const ProvidersPage: React.FC = () => {
           {isConnected ? (
             <div className="flex items-center gap-1.5 py-1.5 typography-ui-label">
               <Icon name="check" className="size-4 text-[var(--status-success)]" />
-              Connected
+              {t('Connected')}
             </div>
           ) : (
             <div className="space-y-4 py-1.5">
-              <SettingsFieldRow label="API Key">
+              <SettingsFieldRow label={t('API Key')}>
                 <div className="flex w-full max-w-[24rem] gap-2">
                   <Input
                     type="password"
@@ -162,12 +164,12 @@ export const ProvidersPage: React.FC = () => {
                     autoComplete="off"
                   />
                   <Button size="sm" onClick={() => void startLogin('api_key')} disabled={busy || apiKey.trim().length === 0}>
-                    {busy ? 'Saving...' : 'Save Key'}
+                    {busy ? t('Saving...') : t('Save Key')}
                   </Button>
                 </div>
               </SettingsFieldRow>
               <Button variant="outline" size="sm" onClick={() => void startLogin('oauth')} disabled={busy}>
-                Reconnect
+                {t('Reconnect')}
               </Button>
             </div>
           )}
@@ -182,7 +184,7 @@ export const ProvidersPage: React.FC = () => {
           ) : null}
           {activeLogin?.state === 'failed' ? (
             <div className="space-y-1">
-              <p className="typography-meta text-[var(--status-error)]">Authorization was declined or did not complete.</p>
+              <p className="typography-meta text-[var(--status-error)]">{t('Authorization was declined or did not complete.')}</p>
               {activeLogin.error?.message ? (
                 <p className="typography-meta break-words text-muted-foreground">{activeLogin.error.message}</p>
               ) : null}
@@ -191,15 +193,15 @@ export const ProvidersPage: React.FC = () => {
         </SettingsSection>
 
         <SettingsSection
-          title="Available Models"
+          title={t('Available Models')}
           settingsItem="providers.models"
           titleAccessory={
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setAddModelOpen(true)}
-              aria-label={`Add model to ${provider.label}`}
-              title={`Add model to ${provider.label}`}
+              aria-label={t('Add model to {{provider}}', { provider: provider.label })}
+              title={t('Add model to {{provider}}', { provider: provider.label })}
             >
               <Icon name="add" className="size-4" />
             </Button>
@@ -211,24 +213,24 @@ export const ProvidersPage: React.FC = () => {
                 size={isMobile ? 'sm' : 'icon'}
                 onClick={() => void refreshCatalog()}
                 disabled={refreshingCatalog || busy}
-                aria-label="Refresh model catalog"
-                title="Refresh model catalog"
+                aria-label={t('Refresh model catalog')}
+                title={t('Refresh model catalog')}
               >
                 <Icon name="refresh" className={cn('size-4', refreshingCatalog && 'animate-spin')} />
               </Button>
               {isConnected ? (
                 <>
                   <Button variant="ghost" size="xs" onClick={() => showAllModels(provider.id)}>
-                    Show all
+                    {t('Show all')}
                   </Button>
                   <Button variant="ghost" size="xs" onClick={() => hideAllModels(provider.id, provider.models.map((model) => model.id))}>
-                    Hide all
+                    {t('Hide all')}
                   </Button>
                 </>
               ) : null}
               {providerConfig ? (
                 <Button variant="ghost" size="xs" onClick={() => setCustomEditing(true)}>
-                  Update provider
+                  {t('Update provider')}
                 </Button>
               ) : null}
             </div>
@@ -236,16 +238,16 @@ export const ProvidersPage: React.FC = () => {
         >
           <div aria-live="polite" className="sr-only">
             {refreshingCatalog
-              ? 'Refreshing model catalog'
+              ? t('Refreshing model catalog')
               : catalogRefreshFeedback === 'success'
-                ? 'Model catalog refreshed'
+                ? t('Model catalog refreshed')
                 : catalogRefreshFeedback === 'error'
-                  ? 'Could not refresh model catalog'
+                  ? t('Could not refresh model catalog')
                   : ''}
           </div>
           <div className="divide-y divide-[var(--surface-subtle)]">
             {provider.models.length === 0 ? (
-              <p className="py-3 typography-meta text-muted-foreground">No models available.</p>
+              <p className="py-3 typography-meta text-muted-foreground">{t('No models available.')}</p>
             ) : (
               displayModels.map((model) => {
                 const hidden = isHiddenModelRef(hiddenModels, provider.id, model.id);
@@ -271,8 +273,7 @@ export const ProvidersPage: React.FC = () => {
             {hasMore ? (
               <div className="flex justify-center py-2">
                 <Button variant="ghost" size="xs" onClick={() => setVisibleCap((c) => c + 80)}>
-                  Show {Math.min(80, provider.models.length - displayModels.length)} more ({displayModels.length} of{' '}
-                  {provider.models.length})
+                  {t('Show {{count}} more ({{shown}} of {{total}})', { count: Math.min(80, provider.models.length - displayModels.length), shown: displayModels.length, total: provider.models.length })}
                 </Button>
               </div>
             ) : null}
@@ -293,8 +294,8 @@ export const ProvidersPage: React.FC = () => {
   if (providers === null) {
     return (
       <SettingsPageLayout
-        title={isMobile ? undefined : 'Providers'}
-        description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
+        title={isMobile ? undefined : t('Providers')}
+        description={isMobile ? undefined : t('Manage model providers and authentication. Authenticated providers appear first.')}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -302,15 +303,15 @@ export const ProvidersPage: React.FC = () => {
               size={isMobile ? 'sm' : 'icon'}
               onClick={() => void refreshProviders()}
               disabled={refreshing}
-              aria-label="Refresh providers"
-              title="Refresh providers"
+              aria-label={t('Refresh providers')}
+              title={t('Refresh providers')}
             >
               <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
             </Button>
           </div>
         }
       >
-        <SettingsSection title="Providers" divider={false} settingsItem="providers.browse">
+        <SettingsSection title={t('Providers')} divider={false} settingsItem="providers.browse">
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-3">
             <ProviderCardSkeleton count={6} />
           </div>
@@ -322,8 +323,8 @@ export const ProvidersPage: React.FC = () => {
   if (filteredProviders.length === 0 && providerQuery.trim() === '' && providers.length === 0) {
     return (
       <SettingsPageLayout
-        title={isMobile ? undefined : 'Providers'}
-        description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
+        title={isMobile ? undefined : t('Providers')}
+        description={isMobile ? undefined : t('Manage model providers and authentication. Authenticated providers appear first.')}
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-0 max-w-full">
@@ -335,8 +336,8 @@ export const ProvidersPage: React.FC = () => {
               <Input
                 value={providerQuery}
                 onChange={(event) => setProviderQuery(event.target.value)}
-                placeholder="Search providers"
-                aria-label="Search providers"
+                placeholder={t('Search providers')}
+                aria-label={t('Search providers')}
                 className="h-9 w-[18rem] max-w-full pl-8"
               />
             </div>
@@ -345,23 +346,23 @@ export const ProvidersPage: React.FC = () => {
               size={isMobile ? 'sm' : 'icon'}
               onClick={() => void refreshProviders()}
               disabled={refreshing}
-              aria-label="Refresh providers"
-              title="Refresh providers"
+              aria-label={t('Refresh providers')}
+              title={t('Refresh providers')}
             >
               <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
             </Button>
             <Button variant="outline" size="sm" onClick={() => setSelectedProviderId(PI_CUSTOM_PROVIDER_SELECTION)}>
               <Icon name="add" className="size-4" />
-              Add custom provider
+              {t('Add custom provider')}
             </Button>
           </div>
         }
       >
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
           <Icon name="cloud-off" className="size-8 text-muted-foreground/60" aria-hidden />
-          <p className="typography-meta text-muted-foreground">No providers</p>
+          <p className="typography-meta text-muted-foreground">{t('No providers')}</p>
           <Button variant="outline" size="sm" onClick={() => setSelectedProviderId(PI_CUSTOM_PROVIDER_SELECTION)}>
-            Add custom provider
+            {t('Add custom provider')}
           </Button>
         </div>
       </SettingsPageLayout>
@@ -370,8 +371,8 @@ export const ProvidersPage: React.FC = () => {
 
   return (
     <SettingsPageLayout
-      title={isMobile ? undefined : 'Providers'}
-      description={isMobile ? undefined : 'Manage model providers and authentication. Authenticated providers appear first.'}
+      title={isMobile ? undefined : t('Providers')}
+      description={isMobile ? undefined : t('Manage model providers and authentication. Authenticated providers appear first.')}
       headerEnd={
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 max-w-full">
@@ -383,15 +384,15 @@ export const ProvidersPage: React.FC = () => {
             <Input
               value={providerQuery}
               onChange={(event) => setProviderQuery(event.target.value)}
-              placeholder="Search providers"
-              aria-label="Search providers"
+              placeholder={t('Search providers')}
+              aria-label={t('Search providers')}
               className="h-9 w-[18rem] max-w-full pl-8"
             />
             {providerQuery ? (
               <button
                 type="button"
                 onClick={() => setProviderQuery('')}
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
                 className="absolute right-1 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
               >
                 <Icon name="close" className="size-4" />
@@ -403,25 +404,25 @@ export const ProvidersPage: React.FC = () => {
             size={isMobile ? 'sm' : 'icon'}
             onClick={() => void refreshProviders()}
             disabled={refreshing}
-            aria-label="Refresh providers"
-            title="Refresh providers"
+            aria-label={t('Refresh providers')}
+            title={t('Refresh providers')}
           >
             <Icon name="refresh" className={cn('size-4', refreshing && 'animate-spin')} />
           </Button>
           <Button variant="outline" size="sm" onClick={() => setSelectedProviderId(PI_CUSTOM_PROVIDER_SELECTION)}>
             <Icon name="add" className="size-4" />
-            Add custom provider
+            {t('Add custom provider')}
           </Button>
         </div>
       }
     >
-      {failed ? <p className="typography-meta text-[var(--status-error)]">Refresh failed — showing cached providers.</p> : null}
-      <SettingsSection title="Providers" divider={false} settingsItem="providers.browse">
+      {failed ? <p className="typography-meta text-[var(--status-error)]">{t('Refresh failed — showing cached providers.')}</p> : null}
+      <SettingsSection title={t('Providers')} divider={false} settingsItem="providers.browse">
         {filteredProviders.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <p className="typography-meta text-muted-foreground">No providers match “{providerQuery}”.</p>
+            <p className="typography-meta text-muted-foreground">{t('No providers match “{{query}}”.', { query: providerQuery })}</p>
             <Button variant="ghost" size="xs" onClick={() => setProviderQuery('')}>
-              Clear search
+              {t('Clear search')}
             </Button>
           </div>
         ) : (
@@ -432,7 +433,7 @@ export const ProvidersPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setSelectedProviderId(PI_CUSTOM_PROVIDER_SELECTION)}
-              aria-label="Add custom provider"
+              aria-label={t('Add custom provider')}
               className={cn(
                 'group flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4',
                 'border-border/60 bg-transparent text-muted-foreground',
@@ -444,7 +445,7 @@ export const ProvidersPage: React.FC = () => {
               <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
                 <Icon name="add" className="size-5" />
               </span>
-              <span className="typography-ui-label font-medium">Add custom provider</span>
+              <span className="typography-ui-label font-medium">{t('Add custom provider')}</span>
               <span className="typography-micro text-muted-foreground">OpenAI-compatible</span>
             </button>
           </div>

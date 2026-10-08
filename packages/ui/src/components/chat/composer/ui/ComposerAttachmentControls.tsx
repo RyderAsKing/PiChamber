@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -45,7 +46,8 @@ type ComposerAttachmentControlsProps = {
  * does not tear down the dropdown while it is open.
  */
 export const ComposerAttachmentControls = React.memo(function ComposerAttachmentControls(props: ComposerAttachmentControlsProps) {
-    
+    const { t } = useTranslation();
+
     const {
         footerIconButtonClass,
         iconSizeClass,
@@ -74,8 +76,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 event.preventDefault();
                             }
                         }}
-                        title={"Add attachment"}
-                        aria-label={"Add attachment"}
+                        title={t("Add attachment")}
+                        aria-label={t("Add attachment")}
                     >
                         <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
                     </button>
@@ -85,8 +87,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                             <button
                                 type="button"
                                 className={footerIconButtonClass}
-                                title={"Add attachment"}
-                                aria-label={"Add attachment"}
+                                title={t("Add attachment")}
+                                aria-label={t("Add attachment")}
                                 disabled={isAttachmentDisabled}
                             >
                                 <Icon name="add-circle" className={cn(iconSizeClass, 'text-current')} />
@@ -99,7 +101,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                 }}
                             >
                                 <Icon name="attachment-2"/>
-                                {"Attach files"}
+                                {t("Attach files")}
                             </DropdownMenuItem>
                             {onLinkGitHub ? (
                                 <DropdownMenuItem
@@ -108,7 +110,7 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                                     }}
                                 >
                                     <Icon name="github"/>
-                                    {"Link issue / pull request"}
+                                    {t("Link issue / pull request")}
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuContent>
@@ -121,8 +123,8 @@ export const ComposerAttachmentControls = React.memo(function ComposerAttachment
                     type="button"
                     onClick={onOpenSettings}
                     className={footerIconButtonClass}
-                    title={"Model and agent settings"}
-                    aria-label={"Model and agent settings"}
+                    title={t("Model and agent settings")}
+                    aria-label={t("Model and agent settings")}
                     disabled={disabled}
                 >
                     <Icon name="ai-agent" className={cn(iconSizeClass, 'text-current')} />

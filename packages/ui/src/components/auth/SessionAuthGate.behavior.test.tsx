@@ -197,6 +197,16 @@ mock.module('react', () => ({
   ...ReactMock,
 }));
 
+// The mocked react module above only implements the hooks this harness
+// drives, so react-i18next (pulled in transitively via i18n modules) is
+// stubbed with identity translations.
+mock.module('react-i18next', () => ({
+  __esModule: true,
+  useTranslation: () => ({ t: (key: string) => key }),
+  Trans: ({ children }: { children?: unknown }) => children,
+  initReactI18next: { type: '3rdParty', init: () => undefined },
+}));
+
 mock.module('@simplewebauthn/browser', () => ({
   browserSupportsWebAuthn: mock(() => false),
 }));

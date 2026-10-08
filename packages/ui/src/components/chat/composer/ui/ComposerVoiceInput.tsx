@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ interface ComposerVoiceActionsProps {
 const elapsed = (seconds: number): string => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 
 export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, iconClassName, isMobile, onCancel, onDone }: ComposerVoiceActionsProps) {
+  const { t } = useTranslation();
   const recording = state === 'recording' || state === 'reconnecting';
 
   return (
@@ -40,8 +42,8 @@ export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, i
         size="icon"
         className={buttonClassName}
         onClick={onCancel}
-        title="Cancel dictation"
-        aria-label="Cancel dictation"
+        title={t("Cancel dictation")}
+        aria-label={t("Cancel dictation")}
       >
         <Icon name="close" className={cn('size-4', iconClassName)} />
       </Button>
@@ -52,8 +54,8 @@ export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, i
         className={cn(buttonClassName, 'text-primary hover:text-primary')}
         onClick={onDone}
         disabled={!recording}
-        title="Finish dictation"
-        aria-label="Finish dictation"
+        title={t("Finish dictation")}
+        aria-label={t("Finish dictation")}
       >
         <Icon name="check" className={cn('size-4', iconClassName)} />
       </Button>
@@ -62,17 +64,18 @@ export function ComposerVoiceActions({ state, elapsedSeconds, buttonClassName, i
 }
 
 export function ComposerVoiceInput({ state, subscribeLevel }: ComposerVoiceInputProps) {
+  const { t } = useTranslation();
   const recording = state === 'recording' || state === 'reconnecting';
   const status = state === 'requesting-permission'
-    ? 'Requesting microphone access...'
+    ? t('Requesting microphone access...')
     : state === 'reconnecting'
-      ? 'Recording. Reconnecting to the server...'
+      ? t('Recording. Reconnecting to the server...')
       : state === 'transcribing'
-        ? 'Transcribing...'
-        : 'Recording';
+        ? t('Transcribing...')
+        : t('Recording');
 
   return (
-    <div className="flex h-[7rem] w-full items-center px-3 py-3" role="group" aria-label="Dictation recorder">
+    <div className="flex h-[7rem] w-full items-center px-3 py-3" role="group" aria-label={t("Dictation recorder")}>
       <div className="min-w-0 flex-1">
         {recording ? <ComposerVoiceVisualizer subscribeLevel={subscribeLevel} /> : (
           <div className="flex h-12 items-center justify-center typography-ui-label text-muted-foreground">{status}</div>

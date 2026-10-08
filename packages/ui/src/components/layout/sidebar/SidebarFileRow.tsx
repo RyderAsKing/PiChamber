@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import {
   DropdownMenu,
@@ -78,6 +79,7 @@ export const FileRow: React.FC<FileRowProps> = ({
   onRevealPath,
   onOpenDialog,
 }) => {
+  const { t } = useTranslation();
   const isDir = node.type === 'directory';
   const { canRename, canCreateFile, canCreateFolder, canDelete, canReveal } = permissions;
   const canDownload = !isDir && Boolean(downloadFile);
@@ -117,30 +119,30 @@ export const FileRow: React.FC<FileRowProps> = ({
     <>
       {canRename && (
         <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('rename', node); }}>
-          <Icon name="edit" className="mr-2 h-4 w-4" /> {"Rename"}
+          <Icon name="edit" className="mr-2 h-4 w-4" /> {t('Rename')}
         </Item>
       )}
       <Item onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
         void copyTextToClipboard(node.path).then((result) => {
           if (result.ok) {
-            toast.success("Path copied");
+            toast.success(t('Path copied'));
             return;
           }
-          toast.error("Copy failed");
+          toast.error(t('Copy failed'));
         });
       }}>
-        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {"Copy Path"}
+        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {t('Copy Path')}
       </Item>
       {!isDir && downloadFile && (
         <Item onClick={(e: React.MouseEvent) => {
           e.stopPropagation();
           void downloadFile(node.path).catch((error) => {
             console.error('Download failed:', error);
-            toast.error("Operation failed");
+            toast.error(t('Operation failed'));
           });
         }}>
-          <Icon name="download" className="mr-2 h-4 w-4" /> {(isBrowserClient ? "Download" : "Save")}
+          <Icon name="download" className="mr-2 h-4 w-4" /> {(isBrowserClient ? t('Download') : t('Save'))}
         </Item>
       )}
       {canRevealPath && (
@@ -153,12 +155,12 @@ export const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           {canCreateFile && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 h-4 w-4" /> {"New File"}
+              <Icon name="file-add" className="mr-2 h-4 w-4" /> {t('New File')}
             </Item>
           )}
           {canCreateFolder && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {"New Folder"}
+              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {t('New Folder')}
             </Item>
           )}
         </>
@@ -170,7 +172,7 @@ export const FileRow: React.FC<FileRowProps> = ({
             onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('delete', node); }}
             className="text-destructive focus:text-destructive"
           >
-            <Icon name="delete-bin" className="mr-2 h-4 w-4" /> {"Delete"}
+            <Icon name="delete-bin" className="mr-2 h-4 w-4" /> {t('Delete')}
           </Item>
         </>
       )}
@@ -234,15 +236,15 @@ export const FileRow: React.FC<FileRowProps> = ({
                       size="icon"
                       className="h-6 w-6"
                       onClick={handleMenuButtonClick}
-                      title={"File menu"}
-                      aria-label={"File menu"}
+                      title={t('File menu')}
+                      aria-label={t('File menu')}
                     >
                       <Icon name="more-2-fill" className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={6}>{"File menu"}</TooltipContent>
+              <TooltipContent side="bottom" sideOffset={6}>{t('File menu')}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" side="bottom" onCloseAutoFocus={() => setContextMenuOpen(false)}>
               {renderMenuItems({ Item: DropdownMenuItem, Separator: DropdownMenuSeparator })}

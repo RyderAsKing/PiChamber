@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -93,6 +94,7 @@ export const GitHubFiltersMenu: React.FC<{
   labelsValue,
   onLabelsChange,
 }) => {
+  const { t } = useTranslation();
   const stateLabel = stateOptions.find((option) => option.id === stateValue)?.label ?? stateValue;
   const involvementLabel =
     involvementOptions.find((option) => option.id === involvementValue)?.label ?? involvementValue;
@@ -109,12 +111,12 @@ export const GitHubFiltersMenu: React.FC<{
           type="button"
           variant="ghost"
           size="sm"
-          aria-label="Filters"
-          title="Filters"
+          aria-label={t("Filters")}
+          title={t("Filters")}
           className="h-8 shrink-0 gap-1.5 px-2 normal-case"
         >
           <Icon name="equalizer" className="size-4" aria-hidden="true" />
-          <span>Filters</span>
+          <span>{t('Filters')}</span>
           {activeCount > 0 ? (
             <span className="rounded-full bg-[var(--surface-muted)] px-1.5 typography-micro tabular-nums text-muted-foreground">
               {activeCount}
@@ -124,14 +126,14 @@ export const GitHubFiltersMenu: React.FC<{
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <SubmenuRadioGroup
-          label="State"
+          label={t("State")}
           value={stateValue}
           options={stateOptions}
           currentLabel={stateLabel}
           onChange={onStateChange}
         />
         <SubmenuRadioGroup
-          label="Involvement"
+          label={t("Involvement")}
           value={involvementValue}
           options={involvementOptions}
           currentLabel={involvementLabel}
@@ -140,17 +142,17 @@ export const GitHubFiltersMenu: React.FC<{
         {onLabelsChange ? (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>Labels</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('Labels')}</DropdownMenuLabel>
             <div className="px-2 pb-2">
               <Input
                 value={labelsValue ?? ''}
                 onChange={(event) => onLabelsChange(event.target.value)}
                 placeholder="bug, enhancement"
-                aria-label="Filter by labels"
+                aria-label={t("Filter by labels")}
                 className="h-7"
               />
               <p className="mt-1 typography-micro text-muted-foreground">
-                Comma-separated. Or type label:bug in search.
+                {t('Comma-separated. Or type label:bug in search.')}
               </p>
             </div>
           </>
@@ -166,6 +168,7 @@ export const GitHubSortMenu: React.FC<{
   onChange: (id: string) => void;
   ariaLabel: string;
 }> = ({ value, options, onChange, ariaLabel }) => {
+  const { t } = useTranslation();
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -187,7 +190,7 @@ export const GitHubSortMenu: React.FC<{
             if (typeof next === 'string' && next !== value) onChange(next);
           }}
         >
-          <DropdownMenuLabel>Sort</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('Sort')}</DropdownMenuLabel>
           {options.map((option) => (
             <DropdownMenuRadioItem key={option.id} value={option.id}>
               {option.label}
@@ -211,6 +214,7 @@ export const GitHubRefreshButton: React.FC<{
    */
   presentation?: 'toolbar' | GitHubHeaderActionsPresentation;
 }> = ({ isRefreshing, onRefresh, label, presentation = 'toolbar' }) => {
+  const { t } = useTranslation();
   if (presentation === 'desktop') {
     return (
       <Button
@@ -219,8 +223,8 @@ export const GitHubRefreshButton: React.FC<{
         size="sm"
         onClick={onRefresh}
         disabled={isRefreshing}
-        title={label ?? 'Refresh'}
-        aria-label={label ?? 'Refresh GitHub data'}
+        title={label ?? t('Refresh')}
+        aria-label={label ?? t('Refresh GitHub data')}
         className="h-8 w-8 shrink-0 p-0"
       >
         <Icon name="refresh" className={cn('size-4', isRefreshing && 'animate-spin')} aria-hidden="true" />
@@ -235,8 +239,8 @@ export const GitHubRefreshButton: React.FC<{
         size="icon"
         onClick={onRefresh}
         disabled={isRefreshing}
-        title={label ?? 'Refresh'}
-        aria-label={label ?? 'Refresh GitHub data'}
+        title={label ?? t('Refresh')}
+        aria-label={label ?? t('Refresh GitHub data')}
         className="shrink-0"
       >
         <Icon name="refresh" className={cn('size-4', isRefreshing && 'animate-spin')} aria-hidden="true" />
@@ -250,8 +254,8 @@ export const GitHubRefreshButton: React.FC<{
       size="sm"
       onClick={onRefresh}
       disabled={isRefreshing}
-      title={label ?? 'Refresh'}
-      aria-label={label ?? 'Refresh GitHub data'}
+      title={label ?? t('Refresh')}
+      aria-label={label ?? t('Refresh GitHub data')}
       className="h-8 w-8 shrink-0 p-0"
     >
       <Icon name="refresh" className={cn('size-4', isRefreshing && 'animate-spin')} aria-hidden="true" />

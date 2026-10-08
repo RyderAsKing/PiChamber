@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -46,6 +47,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   iconOnly = false,
   upstreamTarget = null,
 }) => {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useDeviceInfo();
   const isTouchSync = isMobile || isTablet;
   const trackingRemote = remotes.find((remote) => remote.name === trackingRemoteName) ?? remotes[0];
@@ -54,20 +56,20 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
   const isDropdownDisabled = disabled || syncAction !== null || remotes.length === 0;
   const hasKnownSyncWork = aheadCount > 0 || behindCount > 0;
   const primaryLabel = [
-    "sync",
+    t("sync"),
     behindCount > 0 ? `↓${behindCount}` : null,
     aheadCount > 0 ? `↑${aheadCount}` : null,
   ].filter(Boolean).join(' ');
   const tooltipLabel = blocksRebaseSync
-    ? "Commit or stash your changes before syncing"
+    ? t("Commit or stash your changes before syncing")
     : trackingRemote
     ? [
         hasKnownSyncWork
-          ? `Sync Changes (${behindCount} down, ${aheadCount} up)`
-          : "Sync Changes",
-        upstreamTarget ? `Compared with ${upstreamTarget}` : null,
+          ? t('Sync Changes ({{behind}} down, {{ahead}} up)', { behind: behindCount, ahead: aheadCount })
+          : t("Sync Changes"),
+        upstreamTarget ? t('Compared with {{target}}', { target: upstreamTarget }) : null,
       ].filter(Boolean).join('. ')
-    : "No remotes configured";
+    : t("No remotes configured");
 
   const handleSync = () => {
     if (!trackingRemote) {
@@ -96,7 +98,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
                 'flex-shrink-0 gap-1.5 tabular-nums',
                 syncText ? 'px-2' : (isTouchSync ? 'w-9 p-0' : 'w-8 p-0'),
               )}
-              aria-label={"Sync Changes"}
+              aria-label={t("Sync Changes")}
             >
               {syncAction === 'sync' ? (
                 <Icon name="loader-4" className="size-4 animate-spin" />
@@ -119,7 +121,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
             size="sm"
             className={cn(iconButtonSize, isTouchSync ? 'w-9' : 'w-8', 'flex-shrink-0 p-0')}
             disabled={isDropdownDisabled}
-            aria-label={"More sync actions"}
+            aria-label={t("More sync actions")}
           >
             <Icon name="more" className="size-4" />
           </Button>
@@ -140,13 +142,15 @@ export const FetchRemoteMenuItem: React.FC<{
   remote: GitRemote;
   onFetch: (remote: GitRemote) => void;
   disabled?: boolean;
-}> = ({ remote, onFetch, disabled = false }) => (
+}> = ({ remote, onFetch, disabled = false }) => {
+  const { t } = useTranslation();
+  return (
   <DropdownMenuItem disabled={disabled} onSelect={() => onFetch(remote)}>
     <div className="flex w-full min-w-0 items-center gap-2">
       <Icon name="refresh" className="size-4 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="typography-ui-label text-foreground">
-          {`Fetch from ${remote.name}`}
+          {t('Fetch from {{remote}}', { remote: remote.name })}
         </span>
         <span className="typography-meta text-muted-foreground truncate">
           {remote.fetchUrl}
@@ -154,4 +158,5 @@ export const FetchRemoteMenuItem: React.FC<{
       </div>
     </div>
   </DropdownMenuItem>
-);
+  );
+};

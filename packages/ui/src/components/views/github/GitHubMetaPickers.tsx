@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- pickers colocated with their repo-meta hook by design */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import type { GitHubAPI, GitHubIssueLabel, GitHubUserSummary } from '@/lib/api/types';
 
@@ -55,9 +56,10 @@ export const GitHubLabelPicker: React.FC<{
   selected: string[];
   onChange: (next: string[]) => void;
 }> = ({ candidates, loading, selected, onChange }) => {
-  if (loading) return <p className="typography-micro text-muted-foreground">Loading labels…</p>;
+  const { t } = useTranslation();
+  if (loading) return <p className="typography-micro text-muted-foreground">{t('Loading labels…')}</p>;
   if (candidates.length === 0) {
-    return <p className="typography-micro text-muted-foreground">No labels in this repository.</p>;
+    return <p className="typography-micro text-muted-foreground">{t('No labels in this repository.')}</p>;
   }
   return (
     <div className="flex flex-wrap gap-1">
@@ -86,9 +88,10 @@ export const GitHubAssigneePicker: React.FC<{
   selected: string[];
   onChange: (next: string[]) => void;
 }> = ({ candidates, loading, selected, onChange }) => {
-  if (loading) return <p className="typography-micro text-muted-foreground">Loading assignees…</p>;
+  const { t } = useTranslation();
+  if (loading) return <p className="typography-micro text-muted-foreground">{t('Loading assignees…')}</p>;
   if (candidates.length === 0) {
-    return <p className="typography-micro text-muted-foreground">No assignable users found.</p>;
+    return <p className="typography-micro text-muted-foreground">{t('No assignable users found.')}</p>;
   }
   return (
     <div className="flex flex-wrap gap-1">

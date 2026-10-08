@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
@@ -48,6 +49,7 @@ const isElectronBrowserRuntime = (): boolean => {
 };
 
 const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
+  const { t } = useTranslation();
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
   const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
   const normalized = normalizeBrowserUrl(initialUrl);
@@ -259,7 +261,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
   const attachBrowserAnnotation = React.useCallback(async (target: PreviewElementMetadata) => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
     if (!sessionKey) {
-      toast.error("Open a chat session before attaching preview annotations");
+      toast.error(t('Open a chat session before attaching preview annotations'));
       return;
     }
 
@@ -285,8 +287,8 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       screenshotAttached,
       intro: (screenshotAttached ? "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached." : "This is a selected DOM element from the in-app preview."),
     }));
-    toast.success("Preview annotation attached to chat");
-  }, [addAttachedFile, currentSessionId, currentUrl, newSessionDraftOpen]);
+    toast.success(t('Preview annotation attached to chat'));
+  }, [addAttachedFile, currentSessionId, currentUrl, newSessionDraftOpen, t]);
 
   const cancelInspect = React.useCallback(() => {
     const iframe = iframeRef.current;
@@ -382,10 +384,10 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         await attachBrowserAnnotation(target);
       } catch {
         setIsInspecting(false);
-        toast.error("This page cannot be inspected from the browser panel.");
+        toast.error(t('This page cannot be inspected from the browser panel.'));
       }
     })();
-  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting, postInspectMode, proxySrc]);
+  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting, postInspectMode, proxySrc, t]);
 
   const handleIframeLoad = React.useCallback(() => {
     try {
@@ -422,7 +424,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
             className="h-7 w-full rounded-md border border-border/50 bg-[var(--surface-elevated)] px-2 typography-micro text-foreground outline-none focus:border-[var(--interactive-focus-ring)]"
-            aria-label={"Browser address"}
+            aria-label={t('Browser address')}
           />
         </form>
         <Button
@@ -432,8 +434,8 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
           className="h-7 w-7 p-0"
           disabled={!currentUrl}
           onClick={handleInspect}
-          title={"Inspect preview element"}
-          aria-label={"Inspect preview element"}
+          title={t('Inspect preview element')}
+          aria-label={t('Inspect preview element')}
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
@@ -448,7 +450,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
               key={`${tabID}:${reloadNonce}`}
               ref={iframeRef}
               src={iframeSrc}
-              title={"Web browser"}
+              title={t('Web browser')}
               className="absolute inset-0 h-full w-full border-0 bg-background"
               allow="clipboard-read; clipboard-write; fullscreen"
               allowFullScreen
@@ -473,14 +475,14 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
-            <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
-            <span className="max-w-sm typography-micro text-muted-foreground">{"Enter an address above to start browsing the web"}</span>
-            <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{"Pages opened here run with full access to PiChamber — needed for inspect and screenshots. Only open sites you trust: a malicious page could read your data or act on your behalf."}</span>
+            <span className="typography-ui-header text-muted-foreground">{t('Web browser')}</span>
+            <span className="max-w-sm typography-micro text-muted-foreground">{t('Enter an address above to start browsing the web')}</span>
+            <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{t('Pages opened here run with full access to PiChamber — needed for inspect and screenshots. Only open sites you trust: a malicious page could read your data or act on your behalf.')}</span>
           </div>
         )}
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
-            {"Loading..."}
+            {t('Loading...')}
           </div>
         ) : null}
       </div>
@@ -489,6 +491,7 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
 };
 
 const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
+  const { t } = useTranslation();
   const webviewRef = React.useRef<WebviewElement | null>(null);
   const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
   const normalized = normalizeBrowserUrl(initialUrl);
@@ -648,7 +651,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
 
         const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
         if (!sessionKey) {
-          toast.error("Open a chat session before attaching preview annotations");
+          toast.error(t('Open a chat session before attaching preview annotations'));
           return;
         }
 
@@ -680,10 +683,10 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
           screenshotAttached,
           intro: "This is a selected DOM element from the in-app preview. A screenshot of the visible preview area with the selected element highlighted is attached.",
         }));
-        toast.success("Preview annotation attached to chat");
+        toast.success(t('Preview annotation attached to chat'));
       })
       .catch(() => setIsInspecting(false));
-  }, [addAttachedFile, currentSessionId, currentUrl, isInspecting, newSessionDraftOpen]);
+  }, [addAttachedFile, currentSessionId, currentUrl, isInspecting, newSessionDraftOpen, t]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -702,7 +705,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
             className="h-7 w-full rounded-md border border-border/50 bg-[var(--surface-elevated)] px-2 typography-micro text-foreground outline-none focus:border-[var(--interactive-focus-ring)]"
-            aria-label={"Browser address"}
+            aria-label={t('Browser address')}
           />
         </form>
         <Button
@@ -711,8 +714,8 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
           size="sm"
           className="h-7 w-7 p-0"
           onClick={handleInspect}
-          title={"Inspect preview element"}
-          aria-label={"Inspect preview element"}
+          title={t('Inspect preview element')}
+          aria-label={t('Inspect preview element')}
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
@@ -731,12 +734,12 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
         {(!currentUrl || currentUrl === 'about:blank') && !isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
-            <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
+            <span className="typography-ui-header text-muted-foreground">{t('Web browser')}</span>
           </div>
         ) : null}
         {showLoading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
-            {"Loading..."}
+            {t('Loading...')}
           </div>
         ) : null}
       </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -90,18 +91,21 @@ import {
  */
 
 /** `author · opened 3h ago · updated 5m ago` line (updated omitted when it matches opened). */
-const IssueHeaderMeta: React.FC<{ issue: GitHubIssueSummary }> = ({ issue }) => (
+const IssueHeaderMeta: React.FC<{ issue: GitHubIssueSummary }> = ({ issue }) => {
+  const { t } = useTranslation();
+  return (
   <>
     <span className="inline-flex items-center gap-1">
       <GitHubAvatar login={issue.author?.login} avatarUrl={issue.author?.avatarUrl} size="xs" />
       {issue.author?.login ?? 'ghost'}
     </span>
-    {issue.createdAt ? ` · opened ${formatGitHubRelativeTime(issue.createdAt)}` : ''}
+    {issue.createdAt ? ` · ${t('opened {{time}}', { time: formatGitHubRelativeTime(issue.createdAt) })}` : ''}
     {issue.updatedAt && issue.updatedAt !== issue.createdAt
-      ? ` · updated ${formatGitHubRelativeTime(issue.updatedAt)}`
+      ? ` · ${t('updated {{time}}', { time: formatGitHubRelativeTime(issue.updatedAt) })}`
       : ''}
   </>
-);
+  );
+};
 
 /**
  * Visible action row below the header (wraps on narrow widths): split Close
@@ -147,23 +151,24 @@ const IssueActionBar: React.FC<{
   onCopyLink,
   url,
 }) => {
+  const { t } = useTranslation();
   return (
-    <div className="flex flex-wrap items-center gap-1.5 px-3 pt-1 pb-2" aria-label="Issue actions">
+    <div className="flex flex-wrap items-center gap-1.5 px-3 pt-1 pb-2" aria-label={t("Issue actions")}>
       {closed ? (
         <GitHubConfirmActionButton
           copy={issueStateConfirmCopy('reopen', number)}
           busy={acting}
           variant="outline"
           disabled={!reopenAllowed}
-          disabledReason={reopenReasonText ?? 'Reopen issue'}
-          label="Reopen issue"
+          disabledReason={reopenReasonText ?? t('Reopen issue')}
+          label={t("Reopen issue")}
           icon={<Icon name="history" className="size-3.5" aria-hidden="true" />}
           onConfirm={() => {
             void onStateAction('reopen');
           }}
         />
       ) : (
-        <span role="group" aria-label="Close issue" className="inline-flex shrink-0 items-center gap-1">
+        <span role="group" aria-label={t("Close issue")} className="inline-flex shrink-0 items-center gap-1">
           <GitHubConfirmActionButton
             copy={issueStateConfirmCopy(
               closeReason === 'not_planned' ? 'close-not-planned' : 'close-completed',
@@ -173,8 +178,8 @@ const IssueActionBar: React.FC<{
             destructive
             variant="outline"
             disabled={!closeAllowed}
-            disabledReason={closeReasonText ?? 'Close issue'}
-            label="Close issue"
+            disabledReason={closeReasonText ?? t('Close issue')}
+            label={t("Close issue")}
             icon={<Icon name="close" className="size-3.5" aria-hidden="true" />}
             onConfirm={() => {
               void onStateAction(closeReason === 'not_planned' ? 'close-not-planned' : 'close-completed');
@@ -187,8 +192,8 @@ const IssueActionBar: React.FC<{
                 variant="outline"
                 size="xs"
                 className="shrink-0 px-1.5"
-                title="Close options"
-                aria-label="Close options"
+                title={t("Close options")}
+                aria-label={t("Close options")}
                 disabled={!closeAllowed || acting}
               >
                 <Icon name="arrow-down-s" className="size-3.5" />
@@ -201,7 +206,7 @@ const IssueActionBar: React.FC<{
               >
                 {CLOSE_REASON_OPTIONS.map((option) => (
                   <DropdownMenuRadioItem key={option.id} value={option.id}>
-                    {option.id === 'completed' ? 'Close as completed' : 'Close as not planned'}
+                    {option.id === 'completed' ? t('Close as completed') : t('Close as not planned')}
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
@@ -216,11 +221,11 @@ const IssueActionBar: React.FC<{
         className="shrink-0"
         onClick={onAskAgent}
         disabled={askSending}
-        title="Send issue context to the agent composer"
-        aria-label="Ask agent about this issue"
+        title={t("Send issue context to the agent composer")}
+        aria-label={t("Ask agent about this issue")}
       >
         <Icon name="send-plane-2" className="size-3.5" aria-hidden="true" />
-        {askSending ? 'Asking…' : 'Ask agent'}
+        {askSending ? t('Asking…') : t('Ask agent')}
       </Button>
       <Button
         type="button"
@@ -228,31 +233,31 @@ const IssueActionBar: React.FC<{
         size="xs"
         className="shrink-0"
         onClick={() => void openExternalUrl(url)}
-        title="Open on GitHub"
-        aria-label="Open on GitHub"
+        title={t("Open on GitHub")}
+        aria-label={t("Open on GitHub")}
       >
         <Icon name="external-link" className="size-3.5" aria-hidden="true" />
-        Open on GitHub
+        {t('Open on GitHub')}
       </Button>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button type="button" variant="ghost" size="xs" className="shrink-0 px-1.5" aria-label="More issue actions" title="More issue actions">
+          <Button type="button" variant="ghost" size="xs" className="shrink-0 px-1.5" aria-label={t("More issue actions")} title={t("More issue actions")}>
             <Icon name="more-2" className="size-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuItem onClick={onEditTitle} disabled={!editAllowed} title={editReasonText ?? 'Edit title'}>
+          <DropdownMenuItem onClick={onEditTitle} disabled={!editAllowed} title={editReasonText ?? t('Edit title')}>
             <Icon name="pencil" className="size-3.5" />
-            Edit title
+            {t('Edit title')}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => void openExternalUrl(url)}>
             <Icon name="external-link" className="size-3.5" />
-            Open on GitHub
+            {t('Open on GitHub')}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={onCopyLink}>
             <Icon name="file-copy" className="size-3.5" />
-            Copy link
+            {t('Copy link')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -285,6 +290,7 @@ export const IssueDetail: React.FC<{
   viewerPermission?: GitHubViewerPermission | null;
 }> = (props) => {
   const { directory, repo, number, github, issue } = props;
+  const { t } = useTranslation();
   const updateIssue = useGitHubIssuesStore((state) => state.updateIssue);
   const addComment = useGitHubIssuesStore((state) => state.addComment);
   const actionError = useGitHubIssuesStore((state) => state.actionErrorByDetail[`${repo}#${number}`] ?? null);
@@ -308,8 +314,8 @@ export const IssueDetail: React.FC<{
     runFollowUp: (followUp) => updateIssue(directory, repo, number, buildIssueStatePatch(
       followUp === 'reopen' ? 'reopen' : closeReason === 'not_planned' ? 'close-not-planned' : 'close-completed',
     ), github),
-    verbs: { close: 'close', reopen: 'reopen' },
-    doneLabels: { close: 'Closed with comment', reopen: 'Reopened with comment' },
+    verbs: { close: t('close'), reopen: t('reopen') },
+    doneLabels: { close: t('Closed with comment'), reopen: t('Reopened with comment') },
     afterPost: () => {
       onCommentDraftChange('');
       useGitHubPendingReviewStore.getState().clearCommentDraft(repo, number);
@@ -382,7 +388,7 @@ export const IssueDetail: React.FC<{
     async (patch: { title?: string; body?: string; labels?: string[]; assignees?: string[] }) => {
       const result = await updateIssue(directory, repo, number, patch, github);
       if (!result.ok) {
-        toast.error(result.error?.kind === 'failed' ? result.error.message : 'Update failed');
+        toast.error(result.error?.kind === 'failed' ? result.error.message : t('Update failed'));
         return false;
       }
       setEditingTitle(false);
@@ -390,7 +396,7 @@ export const IssueDetail: React.FC<{
       setEditingMeta(false);
       return true;
     },
-    [updateIssue, directory, repo, number, github],
+    [updateIssue, directory, repo, number, github, t],
   );
 
   const runStateAction = React.useCallback(
@@ -398,12 +404,12 @@ export const IssueDetail: React.FC<{
       const patch = buildIssueStatePatch(action);
       const result = await updateIssue(directory, repo, number, patch, github);
       if (!result.ok) {
-        toast.error(result.error?.kind === 'failed' ? result.error.message : 'State change failed');
+        toast.error(result.error?.kind === 'failed' ? result.error.message : t('State change failed'));
         return false;
       }
       return true;
     },
-    [updateIssue, directory, repo, number, github],
+    [updateIssue, directory, repo, number, github, t],
   );
 
   const handleCopyLink = useCopyGitHubLink(issue?.url);
@@ -417,13 +423,13 @@ export const IssueDetail: React.FC<{
         { kind: 'issue', number, title: issue.title, url: issue.url, contextText: context.text },
         createInputStoreGitHubComposerActions(),
       );
-      toast.success('Added to composer');
+      toast.success(t('Added to composer'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to fetch GitHub context');
+      toast.error(error instanceof Error ? error.message : t('Failed to fetch GitHub context'));
     } finally {
       setSending(false);
     }
-  }, [issue, sending, github, directory, repo, number]);
+  }, [issue, sending, github, directory, repo, number, t]);
 
   const orderedComments = React.useMemo(() => {
     const copy = [...props.comments];
@@ -454,7 +460,7 @@ export const IssueDetail: React.FC<{
     <>
       <GitHubDetailHeader
         onBack={props.onBack}
-        backLabel="Back to issues"
+        backLabel={t("Back to issues")}
         repoName={headerRepoName}
         number={number}
         url={headerIssue?.url}
@@ -464,10 +470,10 @@ export const IssueDetail: React.FC<{
             <GitHubStatePill kind="issue" state={headerIssue.state} stateReason={issue?.stateReason} />
           ) : undefined
         }
-        openLabel={`Open issue #${number} on GitHub`}
+        openLabel={t('Open issue #{{number}} on GitHub', { number })}
         title={headerIssue?.title ?? null}
         onEditTitle={issue ? () => openEditor('title') : undefined}
-        editTitleLabel="Edit issue title"
+        editTitleLabel={t("Edit issue title")}
         editTitleDisabledReason={editGate.allowed ? null : editGate.reason}
         meta={headerIssue ? <IssueHeaderMeta issue={headerIssue} /> : undefined}
         primary={
@@ -478,10 +484,10 @@ export const IssueDetail: React.FC<{
               size="xs"
               onClick={() => setStartOpen(true)}
               disabled={starting}
-              aria-label="Start session from issue"
+              aria-label={t("Start session from issue")}
             >
               <Icon name="add-circle" className="size-3.5" />
-              Start session
+              {t('Start session')}
             </Button>
           ) : undefined
         }
@@ -493,9 +499,9 @@ export const IssueDetail: React.FC<{
           closeReason={closeReason}
           onCloseReasonChange={setCloseReason}
           closeAllowed={issue.state !== 'closed' ? stateGate.allowed : false}
-          closeReasonText={issue.state !== 'closed' ? stateGate.reason : 'Already closed'}
+          closeReasonText={issue.state !== 'closed' ? stateGate.reason : t('Already closed')}
           reopenAllowed={issue.state === 'closed' ? stateGate.allowed : false}
-          reopenReasonText={issue.state === 'closed' ? stateGate.reason : 'Already open'}
+          reopenReasonText={issue.state === 'closed' ? stateGate.reason : t('Already open')}
           acting={acting}
           onStateAction={(action) => runStateAction(action)}
           askSending={sending}
@@ -515,10 +521,10 @@ export const IssueDetail: React.FC<{
       <GitHubDetailScaffold header={header} tabs={[]} activeTab="" onTabChange={() => {}}>
         <GitHubCenteredState
           icon="error-warning"
-          title="Could not load this issue"
+          title={t("Could not load this issue")}
           action={
             <Button type="button" variant="outline" size="sm" onClick={props.onRetryDetail} disabled={props.detailLoading}>
-              Retry
+              {t('Retry')}
             </Button>
           }
         />
@@ -530,7 +536,7 @@ export const IssueDetail: React.FC<{
     return (
       <GitHubDetailScaffold header={header} tabs={[]} activeTab="" onTabChange={() => {}}>
         {/* No error and no issue yet means the read is still pending. */}
-        <GitHubDetailSkeleton label="Loading issue" />
+        <GitHubDetailSkeleton label={t("Loading issue")} />
       </GitHubDetailScaffold>
     );
   }
@@ -542,8 +548,8 @@ export const IssueDetail: React.FC<{
       <div className="flex flex-col gap-1 px-3 py-2">
         {props.detailStale ? (
           <p className="typography-micro text-muted-foreground" role="note">
-            Showing saved issue — last refresh failed.{' '}
-            <button type="button" className="underline" onClick={props.onRetryDetail}>Retry</button>
+            {t('Showing saved issue — last refresh failed.')}{' '}
+            <button type="button" className="underline" onClick={props.onRetryDetail}>{t('Retry')}</button>
           </p>
         ) : null}
         {actionError ? (
@@ -553,13 +559,13 @@ export const IssueDetail: React.FC<{
           >
             <Icon name="error-warning" className="size-4 shrink-0 text-[var(--status-error)]" aria-hidden="true" />
             <span className="min-w-0">
-              {actionError.kind === 'failed' ? actionError.message : 'Action failed'}
+              {actionError.kind === 'failed' ? actionError.message : t('Action failed')}
             </span>
           </p>
         ) : null}
         {access.permissionFallback ? (
           <p className="typography-micro text-muted-foreground" role="note">
-            Permissions could not be loaded — actions stay enabled and any failure will be shown after you act.
+            {t('Permissions could not be loaded — actions stay enabled and any failure will be shown after you act.')}
           </p>
         ) : null}
 
@@ -568,23 +574,23 @@ export const IssueDetail: React.FC<{
             <Input
               value={titleDraft}
               onChange={(event) => setTitleDraft(event.target.value)}
-              aria-label="Issue title"
+              aria-label={t("Issue title")}
               className="h-7"
             />
             <Button type="button" variant="default" size="xs" onClick={() => void runUpdate({ title: titleDraft })} disabled={acting || !titleDraft.trim()}>
-              Save
+              {t('Save')}
             </Button>
             <Button type="button" variant="ghost" size="xs" onClick={() => setEditingTitle(false)} disabled={acting}>
-              Cancel
+              {t('Cancel')}
             </Button>
           </div>
         ) : null}
 
         <div className="flex flex-col gap-1.5 py-1">
-          <GitHubMetaRow icon="user" label="Assignees">
+          <GitHubMetaRow icon="user" label={t("Assignees")}>
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
               {(issue.assignees ?? []).length === 0 ? (
-                <span className="typography-micro text-muted-foreground">Unassigned</span>
+                <span className="typography-micro text-muted-foreground">{t('Unassigned')}</span>
               ) : (
                 (issue.assignees ?? []).map((user) => (
                   <span key={user.login} className="inline-flex min-w-0 items-center gap-1 typography-micro text-muted-foreground">
@@ -595,10 +601,10 @@ export const IssueDetail: React.FC<{
               )}
             </span>
           </GitHubMetaRow>
-          <GitHubMetaRow icon="list-unordered" label="Labels">
+          <GitHubMetaRow icon="list-unordered" label={t("Labels")}>
             <span className="flex min-w-0 flex-wrap items-center gap-1">
               {(issue.labels ?? []).length === 0 ? (
-                <span className="typography-micro text-muted-foreground">None</span>
+                <span className="typography-micro text-muted-foreground">{t('None')}</span>
               ) : (
                 (issue.labels ?? []).map((label) => (
                   <GitHubLabelChip key={label.name} name={label.name} color={label.color} />
@@ -609,30 +615,30 @@ export const IssueDetail: React.FC<{
                 variant="ghost"
                 size="xs"
                 onClick={() => openEditor('meta')}
-                aria-label="Edit labels and assignees"
-                title={labelsGate.reason ?? 'Edit labels and assignees'}
+                aria-label={t("Edit labels and assignees")}
+                title={labelsGate.reason ?? t('Edit labels and assignees')}
                 disabled={!labelsGate.allowed}
               >
-                Edit
+                {t('Edit')}
               </Button>
             </span>
           </GitHubMetaRow>
           {issue.milestone ? (
-            <GitHubMetaRow icon="time" label="Milestone">
+            <GitHubMetaRow icon="time" label={t("Milestone")}>
               <span className="truncate typography-micro text-muted-foreground">{issue.milestone.title}</span>
             </GitHubMetaRow>
           ) : null}
-          <GitHubMetaRow icon="git-pull-request" label="Linked PRs">
+          <GitHubMetaRow icon="git-pull-request" label={t("Linked PRs")}>
             <span className="min-w-0 flex-1">
               {props.linkedPullRequestsError ? (
                 <span className="flex items-center gap-2 typography-micro text-[var(--status-error)]" role="alert">
-                  <span className="min-w-0 flex-1 truncate">Linked pull requests failed to load</span>
+                  <span className="min-w-0 flex-1 truncate">{t('Linked pull requests failed to load')}</span>
                   <Button type="button" variant="outline" size="xs" onClick={props.onRetryDetail}>
-                    Retry
+                    {t('Retry')}
                   </Button>
                 </span>
               ) : (props.linkedPullRequests ?? []).length === 0 ? (
-                <span className="typography-micro text-muted-foreground">None</span>
+                <span className="typography-micro text-muted-foreground">{t('None')}</span>
               ) : (
                 <ul className="flex min-w-0 flex-col">
                   {(props.linkedPullRequests ?? []).map((linked) => {
@@ -642,7 +648,7 @@ export const IssueDetail: React.FC<{
                         <GitHubRow
                           glyph={<GitHubStateGlyph kind="pr" state={linked.state} draft={linked.draft} />}
                           number={`#${linked.number}`}
-                          title={linked.title || '(no title)'}
+                          title={linked.title || t('(no title)')}
                           meta={
                             <span className="truncate">
                               {shortRepoRef(linked.repoRef)}
@@ -650,7 +656,7 @@ export const IssueDetail: React.FC<{
                             </span>
                           }
                           onOpen={() => openLinkedPullRequest(linked)}
-                          ariaLabel={`Open linked pull request #${linked.number}: ${linked.title}`}
+                          ariaLabel={t('Open linked pull request #{{number}}: {{title}}', { number: linked.number, title: linked.title })}
                         />
                       </li>
                     );
@@ -661,9 +667,9 @@ export const IssueDetail: React.FC<{
           </GitHubMetaRow>
           {editingMeta ? (
             <div className="flex flex-col gap-2 py-1">
-              <p className="typography-micro font-medium text-muted-foreground">Labels</p>
+              <p className="typography-micro font-medium text-muted-foreground">{t('Labels')}</p>
               <GitHubLabelPicker candidates={metaLabels} loading={metaLoading} selected={labelDraft} onChange={setLabelDraft} />
-              <p className="typography-micro font-medium text-muted-foreground">Assignees</p>
+              <p className="typography-micro font-medium text-muted-foreground">{t('Assignees')}</p>
               <GitHubAssigneePicker candidates={metaAssignees} loading={metaLoading} selected={assigneeDraft} onChange={setAssigneeDraft} />
               <div className="flex gap-2">
                 <Button
@@ -672,10 +678,10 @@ export const IssueDetail: React.FC<{
                   onClick={() => void runUpdate({ labels: labelDraft, assignees: assigneeDraft })}
                   disabled={acting}
                 >
-                  Save
+                  {t('Save')}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => setEditingMeta(false)} disabled={acting}>
-                  Cancel
+                  {t('Cancel')}
                 </Button>
               </div>
             </div>
@@ -684,7 +690,7 @@ export const IssueDetail: React.FC<{
 
         <GitHubSection
           id={`issue-${number}-description`}
-          title="Description"
+          title={t("Description")}
           action={
             !editingBody ? (
               <Button
@@ -692,45 +698,45 @@ export const IssueDetail: React.FC<{
                 variant="ghost"
                 size="xs"
                 onClick={() => openEditor('body')}
-                aria-label="Edit issue body"
-                title={editGate.reason ?? 'Edit issue body'}
+                aria-label={t("Edit issue body")}
+                title={editGate.reason ?? t('Edit issue body')}
                 disabled={!editGate.allowed}
               >
-                Edit
+                {t('Edit')}
               </Button>
             ) : undefined
           }
         >
           {editingBody ? (
             <div className="flex flex-col gap-2">
-              <Textarea value={bodyDraft} onChange={(event) => setBodyDraft(event.target.value)} aria-label="Issue body" rows={6} />
+              <Textarea value={bodyDraft} onChange={(event) => setBodyDraft(event.target.value)} aria-label={t("Issue body")} rows={6} />
               <div className="flex gap-2">
                 <Button type="button" size="sm" onClick={() => void runUpdate({ body: bodyDraft })} disabled={acting}>
-                  Save
+                  {t('Save')}
                 </Button>
                 <Button type="button" variant="outline" size="sm" onClick={() => setEditingBody(false)} disabled={acting}>
-                  Cancel
+                  {t('Cancel')}
                 </Button>
               </div>
             </div>
           ) : (
             <>
               <GitHubMarkdownBody markdown={issue.body ?? ''} html={issue.bodyHtml ?? null} fallbackUrl={issue.url} />
-              {!issue.body?.trim() ? <p className="typography-micro text-muted-foreground">No description.</p> : null}
+              {!issue.body?.trim() ? <p className="typography-micro text-muted-foreground">{t('No description.')}</p> : null}
             </>
           )}
         </GitHubSection>
 
         <GitHubSection
           id={`issue-${number}-comments`}
-          title={`Comments${orderedComments.length ? ` (${orderedComments.length})` : ''}`}
+          title={`${t('Comments')}${orderedComments.length ? ` (${orderedComments.length})` : ''}`}
           action={
             <GitHubCommentOrderToggle order={commentOrder} onToggle={() => setCommentOrder((order) => (order === 'newest' ? 'oldest' : 'newest'))} />
           }
         >
           <div className="flex flex-col gap-2">
             {orderedComments.length === 0 && !props.commentsLoading ? (
-              <p className="typography-micro text-muted-foreground">No comments yet.</p>
+              <p className="typography-micro text-muted-foreground">{t('No comments yet.')}</p>
             ) : (
               humanComments.map((comment) => (
                 <GitHubThreadComment key={comment.id} comment={comment} />
@@ -738,22 +744,22 @@ export const IssueDetail: React.FC<{
             )}
             <GitHubBotCommentGroup comments={botComments} />
             {props.commentsLoading && orderedComments.length === 0 ? (
-              <p className="typography-micro text-muted-foreground">Loading comments…</p>
+              <p className="typography-micro text-muted-foreground">{t('Loading comments…')}</p>
             ) : null}
-            <GitHubLoadMore hasMore={props.commentsHasMore} isLoading={props.commentsLoading} onLoadMore={props.onLoadMoreComments} label="Load older comments" />
+            <GitHubLoadMore hasMore={props.commentsHasMore} isLoading={props.commentsLoading} onLoadMore={props.onLoadMoreComments} label={t("Load older comments")} />
             {commentGate.allowed ? (
               <GitHubCommentForm
                 draft={commentDraft}
                 onDraftChange={onCommentDraftChange}
                 onDraftBlur={flushCommentDraft}
-                ariaLabel={`Leave a comment on issue #${number}`}
+                ariaLabel={t('Leave a comment on issue #{{number}}', { number })}
                 busy={commentBusy}
                 error={commentError}
                 disabledReason={commentGate.reason}
                 followUp={{
                   id: followUpAction,
-                  label: followUpAction === 'close' ? 'Close with comment' : 'Reopen with comment',
-                  busyLabel: followUpAction === 'close' ? 'Closing…' : 'Reopening…',
+                  label: followUpAction === 'close' ? t('Close with comment') : t('Reopen with comment'),
+                  busyLabel: followUpAction === 'close' ? t('Closing…') : t('Reopening…'),
                   onRun: () => void submitIssueComment(followUpAction, commentDraft),
                   allowed: stateGate.allowed,
                   reason: stateGate.reason,

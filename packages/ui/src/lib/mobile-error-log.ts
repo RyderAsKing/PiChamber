@@ -1,4 +1,5 @@
 import { isCapacitorApp } from '@/lib/platform';
+import i18n from '@/i18n';
 
 const STORAGE_KEY = 'pichamber.mobile.diagnostics.v1';
 const MAX_ENTRIES = 300;
@@ -164,7 +165,7 @@ export const exportMobileErrorLog = async (): Promise<MobileErrorLogExportResult
   if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     try {
       await navigator.share({
-        title: 'PiChamber mobile diagnostics',
+        title: i18n.t('PiChamber mobile diagnostics'),
         text,
       });
       return 'shared';
@@ -208,7 +209,7 @@ export const exportMobileErrorLog = async (): Promise<MobileErrorLogExportResult
     return 'downloaded';
   }
 
-  throw new Error('No mobile export method is available');
+  throw new Error(i18n.t('No mobile export method is available'));
 };
 
 export const startMobileErrorLogCapture = (): (() => void) => {

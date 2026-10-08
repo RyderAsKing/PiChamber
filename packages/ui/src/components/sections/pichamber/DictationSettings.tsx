@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
@@ -25,6 +26,7 @@ const megabytes = (bytes: number): string => `${Math.round(bytes / 1024 / 1024)}
 
 export function DictationSettings() {
   const [status, setStatus] = React.useState<SttStatus | null>(null);
+  const { t } = useTranslation();
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [remoteUrl, setRemoteUrl] = React.useState('');
   const [remoteModel, setRemoteModel] = React.useState('');
@@ -58,7 +60,7 @@ export function DictationSettings() {
     reportSettingsSaveState('saving');
     try {
       const response = await runtimeFetch('/api/stt/config', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes) });
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Could not save dictation settings');
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || t('Could not save dictation settings'));
       const payload = await response.json() as { config: SttConfig };
       setStatus((current) => current ? { ...current, config: payload.config } : current);
       reportSettingsSaveState('saved');
@@ -66,14 +68,14 @@ export function DictationSettings() {
       reportSettingsSaveState('error');
       throw error;
     }
-  }, []);
+  }, [t]);
 
   const manageModel = async (modelId: string, method: 'POST' | 'DELETE') => {
     setBusyModel(modelId);
     try {
       const suffix = method === 'POST' ? '/download' : '';
       const response = await runtimeFetch(`/api/stt/models/${encodeURIComponent(modelId)}${suffix}`, { method });
-      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Model action failed');
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || t('Model action failed'));
       await refresh({ fresh: true });
     } catch (error) { setLoadError(error instanceof Error ? error.message : String(error)); }
     finally { setBusyModel(null); }
@@ -92,50 +94,50 @@ export function DictationSettings() {
   };
 
   if (!status) {
-    return <SettingsPageLayout title="Dictation"><div className="py-8 typography-ui text-muted-foreground">{loadError || 'Loading dictation settings...'}</div></SettingsPageLayout>;
+    return <SettingsPageLayout title={t('Dictation')}><div className="py-8 typography-ui text-muted-foreground">{loadError || t('Loading dictation settings...')}</div></SettingsPageLayout>;
   }
   const remote = status.config.providers.find((entry) => entry.id === REMOTE_ID);
 
   return (
-    <SettingsPageLayout title="Dictation" description="Record speech and insert the final transcript into the composer.">
-      <SettingsSection title="Recording" divider={false} settingsItem="dictation.enabled" contentClassName="space-y-4">
+    <SettingsPageLayout title={t('Dictation')} description={t('Record speech and insert the final transcript into the composer.')}>
+      <SettingsSection title={t('Recording')} divider={false} settingsItem="dictation.enabled" contentClassName="space-y-4">
         <SettingsCheckboxRow
           checked={status.config.enabled}
           onChange={(enabled) => void update({ enabled }).catch((error) => setLoadError(error.message))}
-          label="Enable dictation"
-          ariaLabel="Enable dictation"
-          info="Audio streams to the active PiChamber server. PiChamber inserts text only after you choose Done and never sends it automatically."
+          label={t('Enable dictation')}
+          ariaLabel={t('Enable dictation')}
+          info={t('Audio streams to the active PiChamber server. PiChamber inserts text only after you choose Done and never sends it automatically.')}
         />
-        <SettingsFieldRow label="Transcription provider" settingsItem="dictation.provider">
+        <SettingsFieldRow label={t('Transcription provider')} settingsItem="dictation.provider">
           <Select value={status.config.providerConfigId} onValueChange={(providerConfigId) => void update({ providerConfigId }).catch((error) => setLoadError(error.message))}>
-            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label="Transcription provider">
+            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label={t('Transcription provider')}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="local">Local model</SelectItem>
+              <SelectItem value="local">{t('Local model')}</SelectItem>
               <SelectItem value={REMOTE_ID} disabled={!remote}>OpenAI-compatible</SelectItem>
             </SelectContent>
           </Select>
         </SettingsFieldRow>
-        <SettingsFieldRow label="Language" info="Optional language code such as en or fr. Leave blank for automatic detection." settingsItem="dictation.language">
+        <SettingsFieldRow label={t('Language')} info={t('Optional language code such as en or fr. Leave blank for automatic detection.')} settingsItem="dictation.language">
           <Input
             value={status.config.language}
             onChange={(event) => setStatus((current) => current ? { ...current, config: { ...current.config, language: event.target.value } } : current)}
             onBlur={() => void update({ language: status.config.language }).catch((error) => setLoadError(error.message))}
-            placeholder="Auto-detect"
+            placeholder={t('Auto-detect')}
             className="h-8 w-full max-w-48"
-            aria-label="Dictation language"
+            aria-label={t('Dictation language')}
           />
         </SettingsFieldRow>
       </SettingsSection>
 
-      <SettingsSection title="Local models" info="Models run only on the active PiChamber server. Downloads use pinned checksums and install atomically." settingsItem="dictation.models" contentClassName="space-y-1">
+      <SettingsSection title={t('Local models')} info={t('Models run only on the active PiChamber server. Downloads use pinned checksums and install atomically.')} settingsItem="dictation.models" contentClassName="space-y-1">
         {status.models.map((model) => (
           <div key={model.id} className="flex min-h-10 items-center gap-3 py-1.5">
             <Radio
               checked={status.config.localModelId === model.id}
               onChange={() => void update({ localModelId: model.id, providerConfigId: 'local' }).catch((error) => setLoadError(error.message))}
-              ariaLabel={`Use ${model.description}`}
+              ariaLabel={t('Use {{model}}', { model: model.description })}
             />
             <button
               type="button"
@@ -146,35 +148,35 @@ export function DictationSettings() {
               <span className="typography-meta text-muted-foreground">{megabytes(model.sizeBytes)}</span>
             </button>
             {model.downloading ? (
-              <span className="typography-meta tabular-nums text-muted-foreground">{model.downloadProgress === null ? 'Downloading...' : `Downloading ${model.downloadProgress}%`}</span>
+              <span className="typography-meta tabular-nums text-muted-foreground">{model.downloadProgress === null ? t('Downloading...') : t('Downloading {{progress}}%', { progress: model.downloadProgress })}</span>
             ) : model.installed ? (
               <>
-                <Icon name="check" className="size-4 text-[var(--status-success)]" aria-label="Installed" />
-                <Button className={SETTINGS_ICON_BUTTON_CLASS} variant="ghost" size="icon" disabled={busyModel === model.id} onClick={() => void manageModel(model.id, 'DELETE')} title="Delete model" aria-label={`Delete ${model.description}`}>
+                <Icon name="check" className="size-4 text-[var(--status-success)]" aria-label={t('Installed')} />
+                <Button className={SETTINGS_ICON_BUTTON_CLASS} variant="ghost" size="icon" disabled={busyModel === model.id} onClick={() => void manageModel(model.id, 'DELETE')} title={t('Delete model')} aria-label={t('Delete {{model}}', { model: model.description })}>
                   <Icon name="delete-bin" className="size-4" />
                 </Button>
               </>
             ) : (
               <Button variant="outline" size="sm" disabled={busyModel === model.id} onClick={() => void manageModel(model.id, 'POST')}>
-                {model.corrupt || model.downloadError ? 'Retry' : 'Download'}
+                {model.corrupt || model.downloadError ? t('Retry') : t('Download')}
               </Button>
             )}
           </div>
         ))}
       </SettingsSection>
 
-      <SettingsSection title="OpenAI-compatible provider" info="The server stores this configuration. Dictation sockets receive only its ID, never the URL or API key." settingsItem="dictation.remote" contentClassName="space-y-4">
-        <SettingsStackedField label="Server URL">
+      <SettingsSection title={t('OpenAI-compatible provider')} info={t('The server stores this configuration. Dictation sockets receive only its ID, never the URL or API key.')} settingsItem="dictation.remote" contentClassName="space-y-4">
+        <SettingsStackedField label={t('Server URL')}>
           <Input value={remoteUrl} onChange={(event) => setRemoteUrl(event.target.value)} placeholder="https://api.openai.com/v1" className="h-8" />
         </SettingsStackedField>
-        <SettingsStackedField label="Model">
+        <SettingsStackedField label={t('Model')}>
           <Input value={remoteModel} onChange={(event) => setRemoteModel(event.target.value)} placeholder="whisper-1" className="h-8" />
         </SettingsStackedField>
-        <SettingsStackedField label="API key" info={remote?.apiKeyConfigured ? 'A key is already stored. Leave this blank to keep it.' : 'Optional for servers that do not require authentication.'}>
-          <Input type="password" value={remoteApiKey} onChange={(event) => setRemoteApiKey(event.target.value)} placeholder={remote?.apiKeyConfigured ? 'Stored key' : 'Optional'} className="h-8" autoComplete="off" />
+        <SettingsStackedField label={t('API key')} info={remote?.apiKeyConfigured ? t('A key is already stored. Leave this blank to keep it.') : t('Optional for servers that do not require authentication.')}>
+          <Input type="password" value={remoteApiKey} onChange={(event) => setRemoteApiKey(event.target.value)} placeholder={remote?.apiKeyConfigured ? t('Stored key') : t('Optional')} className="h-8" autoComplete="off" />
         </SettingsStackedField>
         <div className={SETTINGS_CONTROL_CLUSTER_CLASS}>
-          <Button onClick={() => void saveRemote()} disabled={savingRemote || !remoteUrl.trim() || !remoteModel.trim()}>{savingRemote ? 'Saving...' : 'Save Provider'}</Button>
+          <Button onClick={() => void saveRemote()} disabled={savingRemote || !remoteUrl.trim() || !remoteModel.trim()}>{savingRemote ? t('Saving...') : t('Save Provider')}</Button>
         </div>
       </SettingsSection>
       {loadError ? <p role="alert" className="pb-6 typography-meta text-[var(--status-error)]">{loadError}</p> : null}

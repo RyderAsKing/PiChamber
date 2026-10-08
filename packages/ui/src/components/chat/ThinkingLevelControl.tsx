@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from '@base-ui/react/popover';
 import { Icon } from '@/components/icon/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -78,6 +79,7 @@ function ThinkingLevelSlider({
   onCommit?: (next: PiThinkingLevel | undefined) => void;
   allowUnset?: boolean;
 }) {
+  const { t } = useTranslation();
   const trackRef = React.useRef<HTMLDivElement>(null);
   const options = thinkingOptions(levels, allowUnset);
   const [dragValue, setDragValue] = React.useState<PiThinkingLevel | undefined | null>(null);
@@ -190,7 +192,7 @@ function ThinkingLevelSlider({
     <div
       role="slider"
       tabIndex={0}
-      aria-label="Thinking"
+      aria-label={t('Thinking')}
       aria-orientation="horizontal"
       aria-valuemin={0}
       aria-valuemax={maxIndex}
@@ -305,6 +307,7 @@ export function ThinkingLevelControl({
   isMobile?: boolean;
   isDesktop?: boolean;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const displayLabel = thinkingLevelLabel(value);
   const isDefault = !value;
@@ -322,7 +325,7 @@ export function ThinkingLevelControl({
         'cursor-pointer hover:bg-transparent hover:opacity-70',
         compact ? 'transition-opacity focus:outline-none' : 'transition-opacity',
       )}
-      aria-label={`Thinking: ${displayLabel}`}
+      aria-label={t('Thinking: {{level}}', { level: displayLabel })}
     >
       <Icon name="brain-ai-3" className={cn(iconSize, 'flex-shrink-0', colorClass)} />
       <WidthReservedText
@@ -354,7 +357,7 @@ export function ThinkingLevelControl({
           <WidthReservedText
             options={labelOptions}
             value={displayLabel}
-            prefix="Thinking: "
+            prefix={t('Thinking: ')}
             className="typography-meta"
           />
         </TooltipContent>

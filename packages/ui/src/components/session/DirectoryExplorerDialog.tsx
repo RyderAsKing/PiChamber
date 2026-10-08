@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   open,
   onOpenChange,
 }) => {
+  const { t } = useTranslation();
   const projects = useProjectsStore((s) => s.projects);
   const { isMobile, isTablet } = useDeviceInfo();
   const shouldSuppressAutoFocus = isMobile || isTablet;
@@ -168,7 +170,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       ) : (
         <Icon name="checkbox-blank" className="h-4 w-4" />
       )}
-      {'Show hidden'}
+      {t('Show hidden')}
     </button>
   );
 
@@ -185,7 +187,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
             value={query}
             onChange={(event) => setQuery(normalizeSeparators(event.target.value))}
             onKeyDown={handleKeyDown}
-            placeholder={'Enter a folder path...'}
+            placeholder={t('Enter a folder path...')}
             className="border-transparent bg-transparent pl-9 font-mono typography-ui-label shadow-none focus-visible:ring-0"
             spellCheck={false}
             autoComplete="off"
@@ -200,11 +202,11 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
           disabled={isConfirming || isPickingLocation}
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => void handleBrowseLocation()}
-          title={'Browse location'}
-          aria-label={'Browse location'}
+          title={t('Browse location')}
+          aria-label={t('Browse location')}
         >
           <Icon name="folder-open" className="h-3.5 w-3.5" />
-          {isPickingLocation ? 'Opening...' : 'Browse'}
+          {isPickingLocation ? t('Opening...') : t('Browse')}
         </Button>
       </div>
     </div>
@@ -217,7 +219,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <div className="max-h-[min(28rem,58vh)] overflow-y-auto p-2">
         <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-0.5">
           <div className="typography-meta font-medium uppercase tracking-wide text-muted-foreground/80">
-            {'Directories'}
+            {t('Directories')}
           </div>
           <Button
             variant="ghost"
@@ -228,17 +230,17 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
             onClick={() => setIsCloneMode((value) => !value)}
           >
             <Icon name="git-repository" className="h-3.5 w-3.5" />
-            {'Clone'}
+            {t('Clone')}
           </Button>
         </div>
         {isCloneMode ? (
           <div className="mb-2 space-y-1.5 px-2 pb-1">
-            <p className="typography-meta text-muted-foreground">{'Clone into the folder path above.'}</p>
+            <p className="typography-meta text-muted-foreground">{t('Clone into the folder path above.')}</p>
             <div className="flex items-center gap-1.5">
               <Input
                 value={cloneRemoteUrl}
                 onChange={(event) => setCloneRemoteUrl(event.target.value)}
-                placeholder={'Repository URL (HTTPS or SSH)'}
+                placeholder={t('Repository URL (HTTPS or SSH)')}
                 className="min-w-0 flex-1 font-mono typography-ui-label"
                 spellCheck={false}
                 autoComplete="off"
@@ -250,7 +252,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         ) : null}
         {isAlreadyAdded ? (
           <p className="px-2 pb-2 typography-meta text-muted-foreground">
-            {'This folder is already added. Open a subfolder to add that instead.'}
+            {t('This folder is already added. Open a subfolder to add that instead.')}
           </p>
         ) : null}
         <div
@@ -263,29 +265,29 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         >
           {isLoading ? (
             <div className="py-10 text-center typography-ui-label text-muted-foreground">
-              {'Loading directories...'}
+              {t('Loading directories...')}
             </div>
           ) : browseErrorReason && browseErrorReason !== 'not-found' ? (
             <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
               <div className="typography-ui-label text-status-error">
                 {browseErrorReason === 'os-permission'
-                  ? 'PiChamber needs access to this folder.'
-                  : 'Could not load this folder.'}
+                  ? t('PiChamber needs access to this folder.')
+                  : t('Could not load this folder.')}
               </div>
               <div className="flex items-center gap-2">
                 {browseErrorReason === 'os-permission' && canRequestAccess ? (
                   <Button size="xs" onClick={() => void handleBrowseLocation()} disabled={isPickingLocation}>
-                    {'Grant access'}
+                    {t('Grant access')}
                   </Button>
                 ) : null}
                 <Button variant="outline" size="xs" onClick={() => setBrowseReloadKey((key) => key + 1)}>
-                  {'Try again'}
+                  {t('Try again')}
                 </Button>
               </div>
             </div>
           ) : rows.length === 0 ? (
             <div className="py-10 text-center typography-ui-label text-muted-foreground">
-              {'No matching directories.'}
+              {t('No matching directories.')}
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -306,11 +308,11 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                     aria-label={
                       row.type === 'parent'
                         ? row.alreadyAdded
-                          ? `Go back from ${row.name}, already added`
-                          : `Go back from ${row.name}`
+                          ? t('Go back from {{name}}, already added', { name: row.name })
+                          : t('Go back from {{name}}', { name: row.name })
                         : row.alreadyAdded
-                          ? `Open ${row.name}, already added`
-                          : `Open ${row.name}`
+                          ? t('Open {{name}}, already added', { name: row.name })
+                          : t('Open {{name}}', { name: row.name })
                     }
                     onMouseEnter={() => setHighlightedIndex(index)}
                     onMouseDown={(event) => event.preventDefault()}
@@ -341,7 +343,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                             : 'bg-[var(--surface-muted)] text-foreground',
                         )}
                       >
-                        {'Added'}
+                        {t('Added')}
                       </span>
                     ) : null}
                     {row.type === 'parent' ? (
@@ -379,16 +381,16 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <span className="inline-flex items-center gap-1">
         <Icon name="arrow-up-s" className="h-3.5 w-3.5" />
         <Icon name="arrow-down-s" className="-ml-1 h-3.5 w-3.5" />
-        {'Navigate'}
+        {t('Navigate')}
       </span>
       <span className="inline-flex items-center gap-1">
         <Icon name="corner-down-left" className="h-3.5 w-3.5" />
-        {'Open folder'}
+        {t('Open folder')}
       </span>
       <span className="inline-flex items-center gap-1">
         <span>{submitModifierLabel}</span>
         <Icon name="corner-down-left" className="h-3.5 w-3.5" />
-        {'Add folder'}
+        {t('Add folder')}
       </span>
     </div>
   );
@@ -418,7 +420,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       <MobileOverlayPanel
         open={open}
         onClose={handleClose}
-        title={'Add folder'}
+        title={t('Add folder')}
         className="h-[88dvh] max-h-[720px]"
         contentMaxHeightClassName="flex-1"
         footer={<div className="flex flex-col gap-2">{renderFooter()}</div>}
@@ -440,9 +442,9 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         <DialogHeader className="px-5 pb-2 pt-5">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <DialogTitle>{'Add folder'}</DialogTitle>
+              <DialogTitle>{t('Add folder')}</DialogTitle>
               <DialogDescription className="mt-2">
-                {'Choose a folder from the path above, then add it.'}
+                {t('Choose a folder from the path above, then add it.')}
               </DialogDescription>
             </div>
             {showHiddenToggle}

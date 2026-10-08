@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import type { SessionNode } from './types';
 import { toast } from '@/components/ui';
@@ -40,6 +41,8 @@ export function useSessionExport(
   node: SessionNode,
   sessionDirectory: string | null
 ) {
+  const { t } = useTranslation();
+
   const [exportDialogOpen, setExportDialogOpen] = React.useState(false);
   const [exportIncludeSubtasks, setExportIncludeSubtasks] = React.useState(true);
 
@@ -63,7 +66,7 @@ export function useSessionExport(
           // child-store manager was retired, so preserve the always-empty
           // outcome without the dead dependency.
           const childRecords: ChildSessionExport['records'] = [];
-          const childTitle = child.session.title || "Untitled Sub-agent";
+          const childTitle = child.session.title || t("Untitled Sub-agent");
           const childAgent = typeof child.session.agent === 'string' ? child.session.agent : undefined;
           const grandChildren = await collectChildExports(child.children);
           skipped += grandChildren.skipped;
@@ -79,22 +82,22 @@ export function useSessionExport(
       }
       return { children: results, skipped };
     },
-    [sessionDirectory]
+    [sessionDirectory, t]
   );
 
   const showSkippedSubtasksWarning = React.useCallback((count: number) => {
     if (count <= 0) return;
     toast.warning(
       count === 1
-        ? `Exported session, but skipped ${count} sub-agent task that could not be loaded.`
-        : `Exported session, but skipped ${count} sub-agent tasks that could not be loaded.`
+        ? t('Exported session, but skipped {{count}} sub-agent task that could not be loaded.', { count })
+        : t('Exported session, but skipped {{count}} sub-agent tasks that could not be loaded.', { count })
     );
-  }, []);
+  }, [t]);
 
   const doExportSession = React.useCallback(
     async (includeSubtasks: boolean) => {
       if (!sessionDirectory) {
-        toast.error("Nothing to export");
+        toast.error(t("Nothing to export"));
         return;
       }
 
@@ -103,7 +106,7 @@ export function useSessionExport(
       // without the dead dependency.
       const records: ChildSessionExport['records'] = [];
       if (records.length === 0) {
-        toast.error("Nothing to export");
+        toast.error(t("Nothing to export"));
         return;
       }
 
@@ -124,13 +127,13 @@ export function useSessionExport(
       const savedPath = await saveAsMarkdownDesktop(markdown, filename);
 
       if (savedPath) {
-        toast.success("Session exported", {
+        toast.success(t("Session exported"), {
           action: {
             label: getExportRevealLabel(),
             onClick: () => {
               void revealExportedMarkdown(savedPath).then((revealed) => {
                 if (!revealed) {
-                  toast.error("Failed to reveal path");
+                  toast.error(t("Failed to reveal path"));
                 }
               });
             },
@@ -141,7 +144,7 @@ export function useSessionExport(
       }
 
       downloadAsMarkdown(markdown, filename);
-      toast.success("Session exported");
+      toast.success(t("Session exported"));
       showSkippedSubtasksWarning(skippedSubtaskCount);
     },
     [
@@ -150,6 +153,7 @@ export function useSessionExport(
       session.title,
       sessionDirectory,
       showSkippedSubtasksWarning,
+      t,
     ]
   );
 

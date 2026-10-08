@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Icon } from '@/components/icon/Icon';
@@ -36,6 +37,7 @@ export const GitHubLinkPicker: React.FC<{
   open: boolean;
   onClose: () => void;
 }> = ({ directory, open, onClose }) => {
+  const { t } = useTranslation();
   const apis = useRuntimeAPIs();
   const github = apis.github ?? null;
   const scopeEntry = useGitHubScopeStore((state) => state.entriesByDirectory[directory] ?? null);
@@ -122,12 +124,12 @@ export const GitHubLinkPicker: React.FC<{
       } catch (error) {
         if (searchSeqRef.current !== seq) return;
         setResults([]);
-        setSearchError(error instanceof Error ? error.message : 'Search failed');
+        setSearchError(error instanceof Error ? error.message : t('Search failed'));
       } finally {
         if (searchSeqRef.current === seq) setSearching(false);
       }
     },
-    [github, directory, scopeRepos],
+    [github, directory, scopeRepos, t],
   );
 
   // Debounced (250 ms) so keystrokes never fetch per character.
@@ -186,25 +188,25 @@ export const GitHubLinkPicker: React.FC<{
           { kind: target.kind, number: target.number, title: target.title, url: target.url, contextText: context.text },
           createInputStoreGitHubComposerActions(),
         );
-        toast.success(target.kind === 'pr' ? 'Pull request linked' : 'Issue linked');
+        toast.success(target.kind === 'pr' ? t('Pull request linked') : t('Issue linked'));
         onClose();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to link');
+        toast.error(error instanceof Error ? error.message : t('Failed to link'));
       } finally {
         setAttachingKey(null);
       }
     },
-    [github, directory, onClose],
+    [github, directory, onClose, t],
   );
 
   const attachDirect = React.useCallback(async () => {
     const target = await resolveDirect();
     if (!target) {
-      toast.error('Not found in this repository');
+      toast.error(t('Not found in this repository'));
       return;
     }
     await attach(target);
-  }, [resolveDirect, attach]);
+  }, [resolveDirect, attach, t]);
 
   if (!open) return null;
 
@@ -212,24 +214,24 @@ export const GitHubLinkPicker: React.FC<{
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent className="max-w-md w-[calc(100vw-2rem)]">
         <DialogHeader>
-          <DialogTitle>Link issue or pull request</DialogTitle>
-          <DialogDescription>Search, type #123, or paste a GitHub URL for a repository in scope.</DialogDescription>
+          <DialogTitle>{t('Link issue or pull request')}</DialogTitle>
+          <DialogDescription>{t('Search, type #123, or paste a GitHub URL for a repository in scope.')}</DialogDescription>
         </DialogHeader>
         {!github ? (
-          <p className="typography-ui text-muted-foreground">GitHub is not available in this runtime.</p>
+          <p className="typography-ui text-muted-foreground">{t('GitHub is not available in this runtime.')}</p>
         ) : (
           <div className="flex flex-col gap-2">
             <GitHubFilterTabBar
-              ariaLabel="Link kind"
+              ariaLabel={t("Link kind")}
               value={kind}
               onChange={(id) => setKind(id as 'issue' | 'pr')}
-              options={[{ id: 'issue', label: 'Issues' }, { id: 'pr', label: 'Pull requests' }]}
+              options={[{ id: 'issue', label: t('Issues') }, { id: 'pr', label: t('Pull requests') }]}
             />
             {scopeRepos.length > 1 ? (
               <label className="flex items-center gap-2">
-                <span className="sr-only">Repository</span>
+                <span className="sr-only">{t('Repository')}</span>
                 <select
-                  aria-label="Repository"
+                  aria-label={t("Repository")}
                   value={repo ?? ''}
                   onChange={(event) => setRepo(event.target.value || null)}
                   className="h-8 min-w-0 flex-1 rounded-md border border-border bg-[var(--surface-elevated)] px-2 typography-micro text-foreground"
@@ -245,12 +247,12 @@ export const GitHubLinkPicker: React.FC<{
             <GitHubSearchInput
               value={query}
               onChange={setQuery}
-              placeholder={kind === 'issue' ? 'Search issues, #123, or paste a URL' : 'Search pull requests, #123, or paste a URL'}
-              ariaLabel={kind === 'issue' ? 'Search issues' : 'Search pull requests'}
+              placeholder={kind === 'issue' ? t('Search issues, #123, or paste a URL') : t('Search pull requests, #123, or paste a URL')}
+              ariaLabel={kind === 'issue' ? t('Search issues') : t('Search pull requests')}
             />
             {direct.outOfScope ? (
               <p className="typography-micro text-muted-foreground" role="note">
-                That repository is outside this session&apos;s scope. Pick a repository listed above.
+                {t("That repository is outside this session's scope. Pick a repository listed above.")}
               </p>
             ) : null}
             {direct.link ? (
@@ -260,21 +262,21 @@ export const GitHubLinkPicker: React.FC<{
                 size="sm"
                 onClick={attachDirect}
                 disabled={resolving || attachingKey !== null || (!repo && !(direct.link.owner && direct.link.repo))}
-                aria-label={`Link ${kind === 'pr' ? 'pull request' : 'issue'} number ${direct.link.number}`}
+                aria-label={t('Link {{kind}} number {{number}}', { kind: kind === 'pr' ? t('pull request') : t('issue'), number: direct.link.number })}
               >
-                {resolving || attachingKey ? 'Working…' : `Link #${direct.link.number}`}
+                {resolving || attachingKey ? t('Working…') : t('Link #{{number}}', { number: direct.link.number })}
               </Button>
             ) : null}
             {searchError ? (
               <p className="typography-micro text-[var(--status-error)]" role="alert">{searchError}</p>
             ) : null}
-            <div className="max-h-64 min-h-0 overflow-y-auto" role="list" aria-label="Matches">
+            <div className="max-h-64 min-h-0 overflow-y-auto" role="list" aria-label={t("Matches")}>
               {searching ? (
                 <p className="flex items-center gap-2 p-2 typography-ui text-muted-foreground">
-                  <Icon name="loader-4" className="size-4 animate-spin" /> Searching…
+                  <Icon name="loader-4" className="size-4 animate-spin" /> {t('Searching…')}
                 </p>
               ) : results.length === 0 && query.trim() && !direct.link ? (
-                <p className="p-2 typography-ui text-muted-foreground">No matches. Try #123 or a GitHub URL.</p>
+                <p className="p-2 typography-ui text-muted-foreground">{t('No matches. Try #123 or a GitHub URL.')}</p>
               ) : (
                 <ul className="flex flex-col gap-0.5">
                   {results.map((item) => {
@@ -285,7 +287,7 @@ export const GitHubLinkPicker: React.FC<{
                           type="button"
                           onClick={() => void attach(item)}
                           disabled={attachingKey !== null}
-                          aria-label={`Link ${item.kind === 'pr' ? 'pull request' : 'issue'} #${item.number} ${item.title}`}
+                          aria-label={t('Link {{kind}} #{{number}} {{title}}', { kind: item.kind === 'pr' ? t('pull request') : t('issue'), number: item.number, title: item.title })}
                           className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left hover:bg-interactive-hover disabled:opacity-60"
                         >
                           <span className="mt-0.5 shrink-0">
@@ -295,7 +297,7 @@ export const GitHubLinkPicker: React.FC<{
                             <span className="flex min-w-0 items-center gap-1.5">
                               <span className="shrink-0 font-mono typography-micro text-muted-foreground">#{item.number}</span>
                               <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground" title={item.title}>
-                                {attachingKey === key ? 'Linking…' : item.title}
+                                {attachingKey === key ? t('Linking…') : item.title}
                               </span>
                             </span>
                           </span>

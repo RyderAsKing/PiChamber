@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { ModelMetadata } from '@/types';
 import {
@@ -21,6 +22,7 @@ export const ModelPickerRowTooltip: React.FC<{
   labels: ModelPickerRowTooltipLabels;
   children: React.ReactElement;
 }> = ({ metadata, active, labels, children }) => {
+  const { t } = useTranslation();
   const [delayedActive, setDelayedActive] = React.useState(false);
 
   React.useEffect(() => {
@@ -53,7 +55,7 @@ export const ModelPickerRowTooltip: React.FC<{
         >
           {capabilities.length > 0 ? (
             <div>
-              <span className="text-muted-foreground">{labels.capabilities || 'Capabilities'}: </span>
+              <span className="text-muted-foreground">{labels.capabilities || t('Capabilities')}: </span>
               <span className="font-medium">{capabilities.join(', ')}</span>
             </div>
           ) : null}
@@ -61,13 +63,13 @@ export const ModelPickerRowTooltip: React.FC<{
             <div className="space-y-0.5">
               {inputModalities.length > 0 ? (
                 <div>
-                  <span className="text-muted-foreground">{labels.input || 'Input'}: </span>
+                  <span className="text-muted-foreground">{labels.input || t('Input')}: </span>
                   <span className="font-medium">{inputModalities.join(', ')}</span>
                 </div>
               ) : null}
               {outputModalities.length > 0 ? (
                 <div>
-                  <span className="text-muted-foreground">{labels.output || 'Output'}: </span>
+                  <span className="text-muted-foreground">{labels.output || t('Output')}: </span>
                   <span className="font-medium">{outputModalities.join(', ')}</span>
                 </div>
               ) : null}
@@ -75,7 +77,7 @@ export const ModelPickerRowTooltip: React.FC<{
           ) : null}
           {metadata?.cost?.input !== undefined || metadata?.cost?.output !== undefined ? (
             <div>
-              <span className="text-muted-foreground">{labels.costPerMillion || 'Cost / 1M tokens'}: </span>
+              <span className="text-muted-foreground">{labels.costPerMillion || t('Cost / 1M tokens')}: </span>
               <span className="font-medium">
                 {formatCost(metadata?.cost?.input)} / {formatCost(metadata?.cost?.output)}
               </span>

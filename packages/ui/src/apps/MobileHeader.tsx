@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -18,7 +19,7 @@ export const MobileHeader: React.FC<{
       a wide header doesn't turn the switcher into a full-width tap target. */
   compactTitle?: boolean;
 }> = ({ onOpenSessions, onOpenWorkspace, compactTitle = false }) => {
-  
+  const { t } = useTranslation();
   const [metadataOpen, setMetadataOpen] = React.useState(false);
   const [switcherOpen, setSwitcherOpen] = React.useState(false);
   const titleRef = React.useRef<HTMLButtonElement>(null);
@@ -36,8 +37,8 @@ export const MobileHeader: React.FC<{
   // placeholder on the draft screen. No project/branch metadata line.
   const primaryLabel = sessionTitle
     || (currentSessionId
-      ? getSessionDisplayTitle(currentSession, "Untitled session")
-      : "New session");
+      ? getSessionDisplayTitle(currentSession, t("Untitled session"))
+      : t("New session"));
 
   React.useEffect(() => {
     setMetadataOpen(false);
@@ -77,7 +78,7 @@ export const MobileHeader: React.FC<{
           <button
             type="button"
             className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={"Open sessions and projects"}
+            aria-label={t("Open sessions and projects")}
             onClick={handleOpenSessions}
             style={{ touchAction: 'manipulation' }}
           >
@@ -92,7 +93,7 @@ export const MobileHeader: React.FC<{
               'flex h-10 min-w-0 items-center rounded-lg px-2 py-1.5 text-left transition-colors active:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
               compactTitle ? 'shrink' : 'flex-1',
             )}
-            aria-label={"Open session switcher"}
+            aria-label={t("Open session switcher")}
             aria-haspopup="dialog"
             aria-expanded={switcherOpen}
             onClick={toggleSwitcher}
@@ -127,7 +128,7 @@ export const MobileHeader: React.FC<{
           <button
             type="button"
             className="flex size-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            aria-label={"Open workspace panel"}
+            aria-label={t("Open workspace panel")}
             onClick={() => {
               setMetadataOpen(false);
               setSwitcherOpen(false);

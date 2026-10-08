@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Popover } from '@base-ui/react/popover';
 import { Button } from '@/components/ui/button';
 
@@ -23,6 +24,7 @@ export const GitHubConfirmActionButton: React.FC<{
   icon?: React.ReactNode;
   onConfirm: () => void | Promise<void>;
 }> = ({ copy, busy, destructive, disabled, disabledReason, label, variant = 'default', icon, onConfirm }) => {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   return (
     <Popover.Root open={open} onOpenChange={(value) => { if (!busy) setOpen(value); }}>
@@ -52,7 +54,7 @@ export const GitHubConfirmActionButton: React.FC<{
             <p className="mt-1 typography-micro text-muted-foreground">{copy.detail}</p>
             <div className="mt-3 flex justify-end gap-1.5">
               <Button type="button" variant="outline" size="xs" disabled={busy} onClick={() => setOpen(false)}>
-                Cancel
+                {t('Cancel')}
               </Button>
               <Button
                 type="button"

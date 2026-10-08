@@ -1,5 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- shared view primitives colocated with their components by design */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
@@ -47,8 +49,8 @@ export const useCopyGitHubLink = (url: string | null | undefined): (() => void) 
   return React.useCallback(() => {
     if (!url) return;
     void copyTextToClipboard(url).then((result) => {
-      toast[result.ok ? 'success' : 'error'](result.ok ? 'Link copied' : 'Failed to copy link');
-    }).catch(() => toast.error('Failed to copy link'));
+      toast[result.ok ? 'success' : 'error'](result.ok ? i18n.t('Link copied') : i18n.t('Failed to copy link'));
+    }).catch(() => toast.error(i18n.t('Failed to copy link')));
   }, [url]);
 };
 
@@ -58,19 +60,19 @@ export const formatGitHubRelativeTime = (iso: string | null | undefined): string
   const then = Date.parse(iso);
   if (!Number.isFinite(then)) return '';
   const diffMs = Date.now() - then;
-  if (diffMs < 0) return 'just now';
+  if (diffMs < 0) return i18n.t('just now');
   const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return i18n.t('just now');
+  if (minutes < 60) return i18n.t('{{count}}m ago', { count: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return i18n.t('{{count}}h ago', { count: hours });
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
+  if (days < 7) return i18n.t('{{count}}d ago', { count: days });
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
+  if (weeks < 5) return i18n.t('{{count}}w ago', { count: weeks });
   const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
+  if (months < 12) return i18n.t('{{count}}mo ago', { count: months });
+  return i18n.t('{{count}}y ago', { count: Math.floor(months / 12) });
 };
 
 export const GitHubAvatar: React.FC<{ login?: string | null; avatarUrl?: string | null; size?: 'xs' | 'sm' | 'md' }> = ({
@@ -78,6 +80,7 @@ export const GitHubAvatar: React.FC<{ login?: string | null; avatarUrl?: string 
   avatarUrl,
   size = 'sm',
 }) => {
+  const { t } = useTranslation();
   const cls = size === 'md' ? 'size-6' : size === 'xs' ? 'size-3.5' : 'size-5';
   if (!avatarUrl) {
     return (
@@ -90,7 +93,7 @@ export const GitHubAvatar: React.FC<{ login?: string | null; avatarUrl?: string 
   return (
     <img
       src={avatarUrl}
-      alt={login ? `${login} avatar` : 'Avatar'}
+      alt={login ? t('{{login}} avatar', { login }) : t('Avatar')}
       loading="lazy"
       referrerPolicy="no-referrer"
       className={cn('shrink-0 rounded-full border border-border/60 bg-muted object-cover', cls)}
@@ -119,9 +122,10 @@ export const GitHubStateGlyph: React.FC<{
   draft?: boolean;
   stateReason?: string | null;
 }> = ({ kind, state, draft, stateReason }) => {
+  const { t } = useTranslation();
   const glyph = kind === 'pr' ? stateGlyphForPr(state, draft) : stateGlyphForIssue(state, stateReason);
   return (
-    <span className={cn('inline-flex items-center gap-1', glyph.className)} title={glyph.label} aria-label={glyph.label}>
+    <span className={cn('inline-flex items-center gap-1', glyph.className)} title={t(glyph.label)} aria-label={t(glyph.label)}>
       <Icon name={glyph.icon} className="size-4 shrink-0" />
     </span>
   );
@@ -139,30 +143,31 @@ export const gitHubStateTintClass = (
 };
 
 export const GitHubChecksGlyph: React.FC<{ state?: string | null }> = ({ state }) => {
+  const { t } = useTranslation();
   if (!state || state === 'unknown') return null;
   if (state === 'success') {
     return (
-      <span className="inline-flex items-center gap-1 text-[var(--status-success)]" title="Checks passing" aria-label="Checks passing">
+      <span className="inline-flex items-center gap-1 text-[var(--status-success)]" title={t("Checks passing")} aria-label={t("Checks passing")}>
         <Icon name="check" className="size-3.5" />
       </span>
     );
   }
   if (state === 'failure') {
     return (
-      <span className="inline-flex items-center gap-1 text-[var(--status-error)]" title="Checks failing" aria-label="Checks failing">
+      <span className="inline-flex items-center gap-1 text-[var(--status-error)]" title={t("Checks failing")} aria-label={t("Checks failing")}>
         <Icon name="close" className="size-3.5" />
       </span>
     );
   }
   if (state === 'pending') {
     return (
-      <span className="inline-flex items-center gap-1 text-[var(--status-warning)]" title="Checks pending" aria-label="Checks pending">
+      <span className="inline-flex items-center gap-1 text-[var(--status-warning)]" title={t("Checks pending")} aria-label={t("Checks pending")}>
         <Icon name="loader-4" className="size-3.5 animate-spin" />
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 text-muted-foreground" title="Checks" aria-label="Checks">
+    <span className="inline-flex items-center gap-1 text-muted-foreground" title={t("Checks")} aria-label={t("Checks")}>
       <Icon name="subtract" className="size-3.5" />
     </span>
   );
@@ -200,6 +205,7 @@ export const GitHubStatePill: React.FC<{
   draft?: boolean;
   stateReason?: string | null;
 }> = ({ kind, state, draft, stateReason }) => {
+  const { t } = useTranslation();
   const glyph = kind === 'pr' ? stateGlyphForPr(state, draft) : stateGlyphForIssue(state, stateReason);
   return (
     <span
@@ -209,7 +215,7 @@ export const GitHubStatePill: React.FC<{
       )}
     >
       <Icon name={glyph.icon} className="size-3 shrink-0" aria-hidden="true" />
-      {glyph.label}
+      {t(glyph.label)}
     </span>
   );
 };
@@ -268,6 +274,7 @@ export const GitHubDetailHeader: React.FC<{
   primary,
   menu,
 }) => {
+  const { t } = useTranslation();
   const { isMobile, isTablet } = useDeviceInfo();
   const isTouchDetail = isMobile || isTablet;
   return (
@@ -321,10 +328,8 @@ export const GitHubDetailHeader: React.FC<{
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            onClick={onEditTitle}
-            aria-label={editTitleLabel ?? 'Edit title'}
-            title={editTitleDisabledReason ?? editTitleLabel ?? 'Edit title'}
+            aria-label={editTitleLabel ?? t('Edit title')}
+            title={editTitleDisabledReason ?? editTitleLabel ?? t('Edit title')}
             disabled={editTitleDisabledReason != null}
             className="size-6 shrink-0 opacity-0 group-hover/title:opacity-100 focus-visible:opacity-100"
           >
@@ -353,13 +358,14 @@ export const GitHubDiffStat: React.FC<{
   deletions?: number | null;
   className?: string;
 }> = ({ additions, deletions, className }) => {
+  const { t } = useTranslation();
   const add = typeof additions === 'number' ? additions : 0;
   const del = typeof deletions === 'number' ? deletions : 0;
   if (add === 0 && del === 0) return null;
   return (
     <span
       className={cn('inline-flex shrink-0 items-baseline gap-1 font-mono tabular-nums', className)}
-      aria-label={`${add} ${add === 1 ? 'addition' : 'additions'}, ${del} ${del === 1 ? 'deletion' : 'deletions'}`}
+      aria-label={`${add === 1 ? t('{{count}} addition', { count: add }) : t('{{count}} additions', { count: add })}, ${del === 1 ? t('{{count}} deletion', { count: del }) : t('{{count}} deletions', { count: del })}`}
     >
       <span aria-hidden="true" className="text-[var(--status-success)]">+{add}</span>
       <span aria-hidden="true" className="text-[var(--status-error)]">−{del}</span>
@@ -389,12 +395,13 @@ export const GitHubDetailScaffold: React.FC<{
   tabSummary?: React.ReactNode;
   children: React.ReactNode;
 }> = ({ header, tabs, activeTab, onTabChange, tabSummary, children }) => {
+  const { t } = useTranslation();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-border/60">{header}</div>
       {tabs.length > 0 ? (
-        <nav aria-label="Detail sections" className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border/60 px-4">
-          <div role="tablist" aria-label="Detail sections" className="flex min-w-0 items-stretch gap-4">
+        <nav aria-label={t("Detail sections")} className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border/60 px-4">
+          <div role="tablist" aria-label={t("Detail sections")} className="flex min-w-0 items-stretch gap-4">
             {tabs.map((tab) => {
               const selected = tab.id === activeTab;
               return (
@@ -502,6 +509,7 @@ export const GitHubCommentCard: React.FC<{
   label: string;
   children: React.ReactNode;
 }> = ({ author, time, timeHref, timeTitle, badge, action, label, children }) => {
+  const { t } = useTranslation();
   return (
     <article aria-label={label} className="min-w-0 overflow-hidden rounded-md border border-border/60">
       <header className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 bg-muted/25 px-3 py-2">
@@ -516,7 +524,7 @@ export const GitHubCommentCard: React.FC<{
                   href={timeHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={timeTitle ?? 'Open on GitHub'}
+                  title={timeTitle ?? t('Open on GitHub')}
                   className="shrink-0 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                 >
                   {time}
@@ -574,6 +582,7 @@ export const GitHubCollapsibleBody: React.FC<{
   fallbackUrl?: string | null;
   label: string;
 }> = ({ markdown, html, fallbackUrl, label }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = React.useState(false);
   const long = isLongCommentBody(markdown) || (html != null && html.length > LONG_HTML_CHARS);
   if (!long) {
@@ -597,9 +606,9 @@ export const GitHubCollapsibleBody: React.FC<{
           size="xs"
           onClick={() => setExpanded((value) => !value)}
           aria-expanded={expanded}
-          aria-label={expanded ? `Show less of ${label}` : `Show more of ${label}`}
+          aria-label={expanded ? t('Show less of {{label}}', { label }) : t('Show more of {{label}}', { label })}
         >
-          {expanded ? 'Show less' : 'Show more'}
+          {expanded ? t('Show less') : t('Show more')}
         </Button>
       </div>
     </div>
@@ -611,10 +620,11 @@ export const GitHubCollapsibleBody: React.FC<{
  * linking to GitHub, an automation badge for bots, and the collapsible body.
  */
 export const GitHubThreadComment: React.FC<{ comment: GitHubIssueComment; bot?: boolean }> = ({ comment, bot }) => {
+  const { t } = useTranslation();
   const login = comment.author?.login ?? (bot ? 'bot' : 'ghost');
   return (
     <GitHubCommentCard
-      label={`${bot ? 'Bot comment' : 'Comment'} by ${login}`}
+      label={t('{{kind}} by {{login}}', { kind: bot ? t('Bot comment') : t('Comment'), login })}
       author={
         <>
           <GitHubAvatar login={comment.author?.login} avatarUrl={comment.author?.avatarUrl} size="sm" />
@@ -623,7 +633,7 @@ export const GitHubThreadComment: React.FC<{ comment: GitHubIssueComment; bot?: 
       }
       time={comment.createdAt ? formatGitHubRelativeTime(comment.createdAt) : undefined}
       timeHref={comment.url ?? null}
-      timeTitle="Open comment on GitHub"
+      timeTitle={t("Open comment on GitHub")}
       badge={
         bot ? (
           <span className="shrink-0 rounded bg-[var(--surface-muted)] px-1 typography-micro text-muted-foreground">
@@ -632,7 +642,7 @@ export const GitHubThreadComment: React.FC<{ comment: GitHubIssueComment; bot?: 
         ) : undefined
       }
     >
-      <GitHubCollapsibleBody markdown={comment.body} html={comment.bodyHtml ?? null} fallbackUrl={comment.url} label={`${bot ? 'bot comment' : 'comment'} by ${login}`} />
+      <GitHubCollapsibleBody markdown={comment.body} html={comment.bodyHtml ?? null} fallbackUrl={comment.url} label={t('{{kind}} by {{login}}', { kind: bot ? t('bot comment') : t('comment'), login })} />
     </GitHubCommentCard>
   );
 };
@@ -641,18 +651,21 @@ export const GitHubThreadComment: React.FC<{ comment: GitHubIssueComment; bot?: 
 export const GitHubCommentOrderToggle: React.FC<{
   order: 'newest' | 'oldest';
   onToggle: () => void;
-}> = ({ order, onToggle }) => (
+}> = ({ order, onToggle }) => {
+  const { t } = useTranslation();
+  return (
   <Button
     type="button"
     variant="ghost"
     size="xs"
     onClick={onToggle}
-    aria-label={order === 'newest' ? 'Show oldest first' : 'Show newest first'}
-    title="Toggle comment order"
+    aria-label={order === 'newest' ? t('Show oldest first') : t('Show newest first')}
+    title={t("Toggle comment order")}
   >
-    {order === 'newest' ? 'Newest first' : 'Oldest first'}
+    {order === 'newest' ? t('Newest first') : t('Oldest first')}
   </Button>
-);
+  );
+};
 
 /**
  * Bot comments behind one group toggle (human comments render fully above).
@@ -660,6 +673,7 @@ export const GitHubCommentOrderToggle: React.FC<{
  * detail sections.
  */
 export const GitHubBotCommentGroup: React.FC<{ comments: GitHubIssueComment[] }> = ({ comments }) => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = React.useState(false);
   if (comments.length === 0) return null;
   return (
@@ -670,9 +684,9 @@ export const GitHubBotCommentGroup: React.FC<{ comments: GitHubIssueComment[] }>
         size="xs"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
-        aria-label={expanded ? 'Hide bot comments' : `Show ${comments.length} ${comments.length === 1 ? 'bot comment' : 'bot comments'}`}
+        aria-label={expanded ? t('Hide bot comments') : comments.length === 1 ? t('Show {{count}} bot comment', { count: comments.length }) : t('Show {{count}} bot comments', { count: comments.length })}
       >
-        {expanded ? 'Hide bot comments' : `Show ${comments.length} ${comments.length === 1 ? 'bot comment' : 'bot comments'}`}
+        {expanded ? t('Hide bot comments') : comments.length === 1 ? t('Show {{count}} bot comment', { count: comments.length }) : t('Show {{count}} bot comments', { count: comments.length })}
       </Button>
       {expanded ? comments.map((comment) => <GitHubThreadComment key={comment.id} comment={comment} bot />) : null}
     </div>

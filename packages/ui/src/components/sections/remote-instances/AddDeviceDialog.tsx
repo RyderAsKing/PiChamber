@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
@@ -52,15 +53,16 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
   pairingCopied,
   onCopyPairing,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={phase === 'result' ? 'sm:max-w-lg' : 'sm:max-w-md'}>
         <DialogHeader>
-          <DialogTitle>{phase === 'result' ? "Scan to connect" : "Add a device"}</DialogTitle>
+          <DialogTitle>{phase === 'result' ? t('Scan to connect') : t('Add a device')}</DialogTitle>
           <DialogDescription>
             {phase === 'result'
-              ? "Scan this with the PiChamber app on your other device. It is single-use and expires."
-              : "Create a one-time QR code that connects another device to this server."}
+              ? t('Scan this with the PiChamber app on your other device. It is single-use and expires.')
+              : t('Create a one-time QR code that connects another device to this server.')}
           </DialogDescription>
         </DialogHeader>
         {phase === 'configure' ? (
@@ -75,29 +77,29 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               className="h-8"
               value={remoteClientLabel}
               onChange={(event) => onRemoteClientLabelChange(event.target.value)}
-              placeholder={"Device name — e.g. My iPhone"}
+              placeholder={t('Device name — e.g. My iPhone')}
               autoFocus
             />
             <div className="space-y-1.5">
-              <p className="typography-ui-label text-foreground">{"Where will you use this device?"}</p>
-              <div role="radiogroup" aria-label={"Where will you use this device?"} className="space-y-1.5">
+              <p className="typography-ui-label text-foreground">{t('Where will you use this device?')}</p>
+              <div role="radiogroup" aria-label={t('Where will you use this device?')} className="space-y-1.5">
                 {[
                   {
                     key: 'relay' as const,
-                    label: "Anywhere",
-                    hint: "Works at home and away. Away traffic goes through PiChamber Private Relay — an end-to-end encrypted tunnel. No setup needed.",
+                    label: t('Anywhere'),
+                    hint: t('Works at home and away. Away traffic goes through PiChamber Private Relay — an end-to-end encrypted tunnel. No setup needed.'),
                     available: Boolean(transportOptions?.relayAvailable),
                   },
                   {
                     key: 'lan' as const,
-                    label: "Home network only",
-                    hint: "Connects directly over your Wi-Fi. Does not work away from this network.",
+                    label: t('Home network only'),
+                    hint: t('Connects directly over your Wi-Fi. Does not work away from this network.'),
                     available: Boolean(transportOptions?.lanUrl),
                   },
                   {
                     key: 'local' as const,
-                    label: "This computer only",
-                    hint: "For apps running on this same machine.",
+                    label: t('This computer only'),
+                    hint: t('For apps running on this same machine.'),
                     available: Boolean(transportOptions?.localUrl),
                   },
                 ].map((option) => {
@@ -133,10 +135,10 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                   <Checkbox
                     checked={addDeviceFallback}
                     onChange={onAddDeviceFallbackChange}
-                    ariaLabel={"Also allow the encrypted relay when away from home"}
+                    ariaLabel={t('Also allow the encrypted relay when away from home')}
                   />
                   <span className="typography-meta text-muted-foreground">
-                    {"Also allow the encrypted relay when away from home"}
+                    {t('Also allow the encrypted relay when away from home')}
                   </span>
                 </label>
               ) : null}
@@ -145,10 +147,10 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                   <Checkbox
                     checked={addDeviceFallback}
                     onChange={onAddDeviceFallbackChange}
-                    ariaLabel={"Prefer the direct home connection when available"}
+                    ariaLabel={t('Prefer the direct home connection when available')}
                   />
                   <span className="typography-meta text-muted-foreground">
-                    {"Prefer the direct home connection when available"}
+                    {t('Prefer the direct home connection when available')}
                   </span>
                 </label>
               ) : null}
@@ -165,7 +167,7 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 onClick={() => onOpenChange(false)}
                 disabled={addDeviceCreating}
               >
-                {"Cancel"}
+                {t('Cancel')}
               </Button>
               <Button
                 type="submit"
@@ -173,7 +175,7 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 className="!font-normal"
                 disabled={addDeviceCreating || !transportOptions}
               >
-                {"Create QR code"}
+                {t('Create QR code')}
               </Button>
             </div>
           </form>
@@ -183,7 +185,7 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               <div className="flex justify-center">
                 <img
                   src={pairingQrDataUrl}
-                  alt={"PiChamber connection QR code"}
+                  alt={t('PiChamber connection QR code')}
                   className="w-full max-w-[420px] rounded-md bg-white p-4"
                 />
               </div>
@@ -202,7 +204,7 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                     name={pairingCopied ? 'check' : 'file-copy'}
                     className={cn('h-3.5 w-3.5', pairingCopied && 'text-[var(--status-success)]')}
                   />
-                  {pairingCopied ? "Copied" : "Copy all"}
+                  {pairingCopied ? t('Copied') : t('Copy all')}
                 </Button>
               </div>
             ) : null}
@@ -213,7 +215,7 @@ export const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 className="!font-normal"
                 onClick={() => onOpenChange(false)}
               >
-                {"Done"}
+                {t('Done')}
               </Button>
             </div>
           </div>

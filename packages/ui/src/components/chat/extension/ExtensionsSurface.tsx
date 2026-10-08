@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { AnsiText } from '@/components/chat/AnsiText';
@@ -17,6 +18,7 @@ export interface ExtensionsSurfaceProps {
 }
 
 export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId, className }) => {
+  const { t } = useTranslation();
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
   const activeSessionId = sessionId ?? selectedSessionId;
 
@@ -44,9 +46,9 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
         data-testid="extensions-surface-empty"
       >
         <Icon name="plug-2" aria-hidden="true" className="size-6 text-muted-foreground/60" />
-        <p className="typography-ui-label font-medium text-foreground">No extension widgets yet</p>
+        <p className="typography-ui-label font-medium text-foreground">{t('No extension widgets yet')}</p>
         <p className="max-w-60 typography-micro text-muted-foreground">
-          Widgets that extensions set with ctx.ui.setWidget show up here.
+          {t('Widgets that extensions set with ctx.ui.setWidget show up here.')}
         </p>
       </div>
     );
@@ -57,12 +59,12 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
       className={cn('flex h-full min-h-0 flex-col overflow-y-auto', className)}
       data-testid="extensions-surface"
     >
-      <SurfaceSection title="Widgets" count={widgets.length}>
+      <SurfaceSection title={t('Widgets')} count={widgets.length}>
         {widgets.map(([key, widget]) => (
           <CollapsibleRow
             key={key}
             title={humanizeKey(key)}
-            meta={widget.placement === 'belowEditor' ? 'below editor' : 'above editor'}
+            meta={widget.placement === 'belowEditor' ? t('below editor') : t('above editor')}
             collapsed={Boolean(collapsedWidgets[key])}
             onToggle={() => toggleWidget(key)}
             testId={`extension-widget-${key}`}

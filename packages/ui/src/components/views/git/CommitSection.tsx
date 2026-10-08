@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { CommitInput } from './CommitInput';
 import { useDeviceInfo } from '@/lib/device';
@@ -25,7 +26,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
   commitAction,
   hasPendingIndexMutation = false,
 }) => {
-  
+  const { t } = useTranslation();
   const hasStagedFiles = stagedCount > 0;
   const canCommit = commitMessage.trim() && hasStagedFiles && commitAction === null && !hasPendingIndexMutation;
   const { isMobile, hasTouchInput } = useDeviceInfo();
@@ -37,10 +38,10 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
   return (
     <section className={containerClassName}>
       <div className={headerClassName}>
-        <h3 className="typography-ui-header font-semibold text-foreground">{"Commit"}</h3>
+        <h3 className="typography-ui-header font-semibold text-foreground">{t("Commit")}</h3>
         {!hasStagedFiles ? (
           <span className="min-w-0 truncate typography-meta text-muted-foreground">
-            {"Stage files to enable commit."}
+            {t("Stage files to enable commit.")}
           </span>
         ) : null}
       </div>
@@ -49,7 +50,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
         <CommitInput
           value={commitMessage}
           onChange={onCommitMessageChange}
-          placeholder={"Commit message"}
+          placeholder={t("Commit message")}
           disabled={commitAction !== null}
           hasTouchInput={hasTouchInput}
           isMobile={isMobile}
@@ -64,17 +65,17 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
             onClick={onCommit}
             disabled={!canCommit}
             className="commit-actions__btn whitespace-nowrap"
-            aria-label={"Commit  aria label"}
+            aria-label={t("Commit  aria label")}
           >
             {commitAction === 'commit' ? (
               <>
                 <Icon name="loader-4" className="size-4 animate-spin" />
-                <span className="commit-actions__label">{"Committing..."}</span>
+                <span className="commit-actions__label">{t("Committing...")}</span>
               </>
             ) : (
               <>
                 <Icon name="git-commit" className="size-4" />
-                <span className="commit-actions__label">{"Commit"}</span>
+                <span className="commit-actions__label">{t("Commit")}</span>
               </>
             )}
           </Button>
@@ -88,7 +89,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
                   onClick={() => onCommitAndPush()}
                   disabled={!canCommit}
                   className="h-7 w-7 p-0"
-                  aria-label={"Commit and sync"}
+                  aria-label={t("Commit and sync")}
                 >
                   {commitAction === 'commitAndPush' ? (
                     <Icon name="loader-4" className="size-4 animate-spin" />
@@ -98,7 +99,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="top">
-                <p>{"Commit & sync"}</p>
+                <p>{t("Commit & sync")}</p>
               </TooltipContent>
             </Tooltip>
           ) : (
@@ -108,17 +109,17 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
               onClick={() => onCommitAndPush()}
               disabled={!canCommit}
               className="commit-actions__btn"
-              aria-label={"Commit and sync"}
+              aria-label={t("Commit and sync")}
             >
               {commitAction === 'commitAndPush' ? (
                 <>
                   <Icon name="loader-4" className="size-4 animate-spin" />
-                  <span className="commit-actions__label commit-actions__label--push">{"Syncing..."}</span>
+                  <span className="commit-actions__label commit-actions__label--push">{t("Syncing...")}</span>
                 </>
               ) : (
                 <>
                   <Icon name="arrow-up" className="size-3.5" />
-                  <span className="commit-actions__label commit-actions__label--push">{"Commit & sync"}</span>
+                  <span className="commit-actions__label commit-actions__label--push">{t("Commit & sync")}</span>
                 </>
               )}
             </Button>

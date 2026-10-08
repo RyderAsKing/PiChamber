@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '@/components/icon/Icon';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -21,7 +22,7 @@ export const SettingsInfoHint: React.FC<SettingsInfoHintProps> = ({
   className,
   contentClassName,
 }) => {
-  
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -46,7 +47,7 @@ export const SettingsInfoHint: React.FC<SettingsInfoHintProps> = ({
         <button
           ref={triggerRef}
           type="button"
-          aria-label={"More information"}
+          aria-label={t('More information')}
           aria-expanded={open}
           onClick={(event) => {
             event.preventDefault();

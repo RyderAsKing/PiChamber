@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -58,6 +59,7 @@ interface ProjectActionsSectionProps {
 
 export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ projectRef }) => {
   const [actions, setActions] = React.useState<EditableProjectAction[]>([]);
+  const { t } = useTranslation();
   const [isLoading, setIsLoading] = React.useState(false);
   const [initialSnapshot, setInitialSnapshot] = React.useState<string | null>(null);
   const [savedActionIds, setSavedActionIds] = React.useState<Set<string>>(new Set());
@@ -115,7 +117,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       primaryActionId: null,
     });
     if (!ok) {
-      toast.error("Failed to save actions");
+      toast.error(t('Failed to save actions'));
       return false;
     }
     setInitialSnapshot(JSON.stringify({ actions: nextActions }));
@@ -126,7 +128,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
       }));
     }
     return true;
-  }, [projectRef]);
+  }, [projectRef, t]);
 
   React.useEffect(() => {
     if (!hasPersistableChanges || isLoading || isSavingRef.current) {
@@ -167,27 +169,27 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
 
   return (
     <ProjectSettingsSubsection
-      title={"Actions"}
-      info={"Per-project commands shown in the header next to the project name."}
+      title={t('Actions')}
+      info={t('Per-project commands shown in the header next to the project name.')}
       settingsItem="projects.actions"
       headerAction={(
         <Button type="button" variant="outline" size="xs" className="!font-normal" onClick={handleAddAction}>
           <Icon name="add" className="h-3.5 w-3.5" />
-          {"Add action"}
+          {t('Add action')}
         </Button>
       )}
       contentClassName="space-y-4"
     >
       {isLoading ? (
-        <p className="typography-meta text-muted-foreground">{"Loading..."}</p>
+        <p className="typography-meta text-muted-foreground">{t('Loading...')}</p>
       ) : actions.length === 0 ? (
-        <p className="typography-meta text-muted-foreground">{"No actions configured yet."}</p>
+        <p className="typography-meta text-muted-foreground">{t('No actions configured yet.')}</p>
       ) : (
         <div className={cn('space-y-6', SETTINGS_CONTROL_CLUSTER_CLASS)}>
           {actions.map((action, index) => {
             const selectedIconKey = (action.icon as keyof typeof PROJECT_ACTION_ICON_MAP) || 'play';
             const selectedIconName = PROJECT_ACTION_ICON_MAP[selectedIconKey] || 'play';
-            const title = action.name.trim() || `Action ${index + 1}`;
+            const title = action.name.trim() || t('Action {{index}}', { index: index + 1 });
             const isPartial = isProjectActionPartial(action);
 
             return (
@@ -200,14 +202,14 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                     size="xs"
                     className="h-8 w-8 px-0 text-muted-foreground hover:text-[var(--status-error)]"
                     onClick={() => handleRemoveAction(action.id)}
-                    aria-label={`Delete ${title}`}
+                    aria-label={t('Delete {{name}}', { name: title })}
                   >
                     <Icon name="delete-bin" className="h-3.5 w-3.5" />
                   </Button>
                 </div>
 
                 <SettingsStackedField
-                  label={"Name"}
+                  label={t('Name')}
                   controlClassName="w-full max-w-none"
                 >
                   <DropdownMenu>
@@ -215,7 +217,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                       <button
                         type="button"
                         className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--interactive-border)] text-foreground hover:bg-[var(--interactive-hover)]"
-                        aria-label={"Select icon"}
+                        aria-label={t('Select icon')}
                       >
                         <Icon name={selectedIconName} className="h-4 w-4" />
                       </button>
@@ -234,7 +236,7 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                                 'inline-flex h-8 w-8 items-center justify-center rounded-md border border-transparent text-foreground hover:bg-[var(--interactive-hover)]',
                                 selected && 'border-[var(--primary-base)] bg-[var(--primary-base)]/10 text-[var(--primary-base)]'
                               )}
-                              aria-label={`Icon ${entry.label}`}
+                              aria-label={t('Icon {{label}}', { label: entry.label })}
                             >
                               <Icon name={iconName} className="h-4 w-4" />
                             </button>
@@ -246,26 +248,26 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                   <Input
                     value={action.name}
                     onChange={(event) => updateAction(action.id, (current) => ({ ...current, name: event.target.value }))}
-                    placeholder={"Action name"}
+                    placeholder={t('Action name')}
                     className="h-8 min-w-0 flex-1 rounded-md px-3"
                   />
                 </SettingsStackedField>
 
                 <SettingsStackedField
-                  label={"Command"}
+                  label={t('Command')}
                   controlClassName="w-full max-w-none"
                 >
                   <Textarea
                     value={action.command}
                     onChange={(event) => updateAction(action.id, (current) => ({ ...current, command: event.target.value }))}
-                    placeholder={"e.g. bun run lint"}
+                    placeholder={t('e.g. bun run lint')}
                     className="min-h-[88px] w-full font-mono text-xs"
                   />
                 </SettingsStackedField>
 
                 {isPartial ? (
                   <p className="typography-meta text-muted-foreground">
-                    {"Enter a name and command to save this action."}
+                    {t('Enter a name and command to save this action.')}
                   </p>
                 ) : null}
 
@@ -275,16 +277,16 @@ export const ProjectActionsSection: React.FC<ProjectActionsSectionProps> = ({ pr
                     ...current,
                     ...(checked ? { autoOpenUrl: true } : { autoOpenUrl: undefined, openUrl: undefined }),
                   }))}
-                  label={"Auto-open URL"}
-                  info={"Opens a URL from command output, or a custom URL if you set one."}
-                  ariaLabel={`Auto-open URL for ${title}`}
+                  label={t('Auto-open URL')}
+                  info={t('Opens a URL from command output, or a custom URL if you set one.')}
+                  ariaLabel={t('Auto-open URL for {{name}}', { name: title })}
                 />
 
                 {action.autoOpenUrl === true ? (
                   <>
                     <SettingsStackedField
-                      label={"Custom URL"}
-                      info={"Leave empty to use the best URL from command output."}
+                      label={t('Custom URL')}
+                      info={t('Leave empty to use the best URL from command output.')}
                       controlClassName="w-full max-w-none"
                     >
                       <Input

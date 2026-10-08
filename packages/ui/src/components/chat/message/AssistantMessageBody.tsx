@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import AssistantTextPart from './parts/AssistantTextPart';
 import { MessageFilesDisplay } from '../FileAttachment';
 import { cn } from '@/lib/utils';
@@ -56,6 +57,7 @@ export const AssistantMessageBody = React.memo(
     footerVariant,
     isDarkTheme = false,
   }: AssistantMessageBodyProps) => {
+    const { t } = useTranslation();
     const chatSurfaceMode = useChatSurfaceMode();
     const messageContentRef = React.useRef<HTMLDivElement>(null);
     const messageTextContentRef = React.useRef<HTMLDivElement>(null);
@@ -201,7 +203,7 @@ export const AssistantMessageBody = React.memo(
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50"
-                aria-label={'Open preview'}
+                aria-label={t('Open preview')}
                 onPointerDown={(event) => event.stopPropagation()}
                 onClick={() => {
                   const directory =
@@ -216,7 +218,7 @@ export const AssistantMessageBody = React.memo(
                 <Icon name="global" className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{'Open preview'}</TooltipContent>
+            <TooltipContent sideOffset={6}>{t('Open preview')}</TooltipContent>
           </Tooltip>
         ) : null}
       </>
@@ -330,7 +332,7 @@ export const AssistantMessageBody = React.memo(
                     <TooltipTrigger asChild>
                       <span
                         className={footerTimestampClassName}
-                        aria-label={`Message time: ${footerTimestamp}`}
+                        aria-label={t('Message time: {{timestamp}}', { timestamp: footerTimestamp })}
                       >
                         <Icon name="time" className="h-3.5 w-3.5" />
                         <span className="message-footer__label">{footerTimestamp}</span>

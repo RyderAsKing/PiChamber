@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
 import { cn } from '@/lib/utils';
@@ -25,17 +26,18 @@ export const BulkActionBar: React.FC<Props> = ({
   onDelete,
   onDone,
 }) => {
-  
+  const { t } = useTranslation();
+
   const destructiveLabel = archivedBucket
-    ? "Delete"
-    : "Archive";
+    ? t("Delete")
+    : t("Archive");
   const iconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
   const destructiveIconButtonClass = 'inline-flex h-7 w-7 items-center justify-center rounded-md text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/50';
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-t border-border pl-5 pr-3.5 py-1.5">
       <span className="typography-ui-label text-muted-foreground whitespace-nowrap">
-        {`${selectedCount} selected`}
+        {t('{{count}} selected', { count: selectedCount })}
       </span>
 
       <div className="ml-auto flex items-center gap-0.5">
@@ -46,12 +48,12 @@ export const BulkActionBar: React.FC<Props> = ({
                 type="button"
                 onClick={onRestore}
                 className={iconButtonClass}
-                aria-label={"Restore"}
+                aria-label={t("Restore")}
               >
                 <Icon name="inbox-unarchive" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}><p>{"Restore"}</p></TooltipContent>
+            <TooltipContent side="top" sideOffset={4}><p>{t("Restore")}</p></TooltipContent>
           </Tooltip>
         ) : null}
 
@@ -75,12 +77,12 @@ export const BulkActionBar: React.FC<Props> = ({
               type="button"
               onClick={onDone}
               className={iconButtonClass}
-              aria-label={"Exit selection"}
+              aria-label={t("Exit selection")}
             >
               <Icon name="close" className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={4}><p>{"Exit selection"}</p></TooltipContent>
+          <TooltipContent side="top" sideOffset={4}><p>{t("Exit selection")}</p></TooltipContent>
         </Tooltip>
       </div>
     </div>

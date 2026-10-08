@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import type { SettingsPageMeta, SettingsPageSlug } from '@/lib/settings/metadata';
@@ -41,6 +42,7 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
   onClose,
   shortcutKey,
 }) => {
+  const { t } = useTranslation();
   return (
     <>
       <div
@@ -64,17 +66,17 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
 
         <div className="min-w-0 flex-1 px-2 typography-ui-label font-medium text-foreground truncate">
           {mobileStage === 'nav'
-            ? 'Settings'
+            ? t('Settings')
             : activePageMeta
               ? getPageTitle(activePageMeta.slug)
-              : 'Settings'}
+              : t('Settings')}
         </div>
 
         {showOpenPageSidebarButton && (
           <button
             type="button"
             onClick={onOpenPageSidebar}
-            aria-label={'Open section list'}
+            aria-label={t('Open section list')}
             className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Icon name="list-unordered" className="h-5 w-5" />
@@ -90,7 +92,7 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
               if (!next) setSettingsSearchQuery('');
               else window.setTimeout(() => mobileSettingsSearchInputRef.current?.focus(), 0);
             }}
-            aria-label={isMobileSettingsSearchOpen ? 'Close search' : 'Search settings'}
+            aria-label={isMobileSettingsSearchOpen ? t('Close search') : t('Search settings')}
             aria-expanded={isMobileSettingsSearchOpen}
             className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
@@ -102,8 +104,8 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
           <button
             type="button"
             onClick={onClose}
-            aria-label={'Close settings'}
-            title={`Close Settings (${shortcutKey}+,)`}
+            aria-label={t('Close settings')}
+            title={t('Close Settings ({{shortcut}}+,)', { shortcut: shortcutKey })}
             className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg p-2 text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Icon name="close" className="h-5 w-5" />
@@ -123,15 +125,15 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
               value={settingsSearchQuery}
               onChange={(event) => setSettingsSearchQuery(event.target.value)}
               onKeyDown={handleSettingsSearchKeyDown}
-              placeholder={'Search settings'}
-              aria-label={'Search settings'}
+              placeholder={t('Search settings')}
+              aria-label={t('Search settings')}
               className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
             />
             {settingsSearchQuery.trim().length > 0 ? (
               <button
                 type="button"
                 onClick={() => setSettingsSearchQuery('')}
-                aria-label={'Clear settings search'}
+                aria-label={t('Clear settings search')}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
               >
                 <Icon name="close" className="h-3.5 w-3.5" />

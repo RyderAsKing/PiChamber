@@ -11,6 +11,7 @@ import {
 } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
+import i18n from '@/i18n';
 
 declare const __APP_VERSION__: string | undefined;
 
@@ -111,7 +112,7 @@ async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: strin
     });
 
     if (!response.ok) {
-      throw new Error(`Server responded with ${response.status}`);
+      throw new Error(i18n.t('Server responded with {{status}}', { status: response.status }));
     }
 
     const data = await response.json();
@@ -232,7 +233,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     } catch (error) {
       set({
         checking: false,
-        error: error instanceof Error ? error.message : 'Failed to check for updates',
+        error: error instanceof Error ? error.message : i18n.t('Failed to check for updates'),
       });
       return null;
     }
@@ -251,7 +252,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     try {
       const desktopInfo = await checkForDesktopUpdates();
       if (!desktopInfo?.available) {
-        throw new Error('Update detected, but desktop package is not ready yet. Retry in a moment.');
+        throw new Error(i18n.t('Update detected, but desktop package is not ready yet. Retry in a moment.'));
       }
 
       set((state) => ({
@@ -272,13 +273,13 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         set({ progress });
       });
       if (!ok) {
-        throw new Error('Desktop update only works on Local instance');
+        throw new Error(i18n.t('Desktop update only works on Local instance'));
       }
       set({ downloading: false, downloaded: true });
     } catch (error) {
       set({
         downloading: false,
-        error: error instanceof Error ? error.message : 'Failed to download update',
+        error: error instanceof Error ? error.message : i18n.t('Failed to download update'),
       });
     }
   },
@@ -293,11 +294,11 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     try {
       const ok = await restartToApplyUpdate();
       if (!ok) {
-        throw new Error('Desktop restart only works on Local instance');
+        throw new Error(i18n.t('Desktop restart only works on Local instance'));
       }
     } catch (error) {
       set({
-        error: error instanceof Error ? error.message : 'Failed to restart',
+        error: error instanceof Error ? error.message : i18n.t('Failed to restart'),
       });
     }
   },

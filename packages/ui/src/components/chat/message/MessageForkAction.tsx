@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,7 @@ type MessageForkActionProps = {
 
 export const MessageForkAction: React.FC<MessageForkActionProps> = React.memo(
   ({ sessionId, messageId, size = 'user' }) => {
+    const t = i18n.t.bind(i18n);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const [busy, setBusy] = React.useState(false);
     const [isStreaming, setIsStreaming] = React.useState(() => {
@@ -51,16 +53,16 @@ export const MessageForkAction: React.FC<MessageForkActionProps> = React.memo(
         setBusy(true);
         try {
           await forkFromMessage(sessionId, entryId);
-          toast.success('Forked — new session created from this message.');
+          toast.success(t('Forked — new session created from this message.'));
         } catch (error) {
-          const msg = error instanceof Error ? error.message : 'Failed to fork session';
+          const msg = error instanceof Error ? error.message : t('Failed to fork session');
           if (import.meta.env.DEV) console.error('[fork] failed', { sessionId, messageId, entryId, error });
           toast.error(msg);
         } finally {
           setBusy(false);
         }
       },
-      [busy, forkFromMessage, isStreaming, messageId, sessionId],
+      [busy, forkFromMessage, isStreaming, messageId, sessionId, t],
     );
 
     const disabled = busy || isStreaming || !sessionId || !messageId;
@@ -75,7 +77,7 @@ export const MessageForkAction: React.FC<MessageForkActionProps> = React.memo(
             variant="ghost"
             size="icon"
             disabled={disabled}
-            aria-label="Fork conversation from here"
+            aria-label={t('Fork conversation from here')}
             className={cn(
               dimH,
               'text-muted-foreground bg-transparent hover:text-foreground hover:!bg-transparent active:!bg-transparent focus-visible:!bg-transparent focus-visible:ring-2 focus-visible:ring-primary/50',
@@ -91,7 +93,7 @@ export const MessageForkAction: React.FC<MessageForkActionProps> = React.memo(
             )}
           </Button>
         </TooltipTrigger>
-        <TooltipContent sideOffset={6}>Fork to new session</TooltipContent>
+        <TooltipContent sideOffset={6}>{t('Fork to new session')}</TooltipContent>
       </Tooltip>
     );
   },

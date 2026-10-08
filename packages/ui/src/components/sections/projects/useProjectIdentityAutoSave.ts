@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import type { ProjectIdentitySaveData } from './useProjectIdentityForm';
 import type { useProjectIdentityForm } from './useProjectIdentityForm';
 
@@ -11,6 +12,7 @@ export const useProjectIdentityAutoSave = (
   form: ProjectIdentityFormState,
   onSave: (data: ProjectIdentitySaveData) => void | Promise<void>,
 ) => {
+  const { t } = useTranslation();
   const {
     hasChanges,
     name,
@@ -37,7 +39,7 @@ export const useProjectIdentityAutoSave = (
             try {
               await onSave(data);
             } catch {
-              toast.error("Failed to save project settings");
+              toast.error(t('Failed to save project settings'));
             }
           }
         } finally {
@@ -55,5 +57,6 @@ export const useProjectIdentityAutoSave = (
     name,
     onSave,
     prepareSaveData,
+    t,
   ]);
 };

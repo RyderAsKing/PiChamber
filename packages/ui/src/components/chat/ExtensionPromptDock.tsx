@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
@@ -170,6 +171,7 @@ interface ConfirmBodyProps {
 }
 
 const ConfirmBody: React.FC<ConfirmBodyProps> = ({ request, onRespond, messageId }) => {
+  const { t } = useTranslation();
   return (
     <div>
       {request.message && (
@@ -182,7 +184,7 @@ const ConfirmBody: React.FC<ConfirmBodyProps> = ({ request, onRespond, messageId
           size="sm"
           onClick={() => onRespond({ confirmed: false, cancelled: true })}
         >
-          No (N)
+          {t('No (N)')}
         </Button>
         <Button
           type="button"
@@ -190,7 +192,7 @@ const ConfirmBody: React.FC<ConfirmBodyProps> = ({ request, onRespond, messageId
           size="sm"
           onClick={() => onRespond({ confirmed: true })}
         >
-          Yes (Y)
+          {t('Yes (Y)')}
         </Button>
       </div>
     </div>
@@ -204,6 +206,7 @@ interface InputEditorBodyProps {
 }
 
 const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, messageId }) => {
+  const { t } = useTranslation();
   const isEditor = request.method === 'editor';
   const [value, setValue] = React.useState(isEditor ? (request.prefill ?? '') : '');
 
@@ -256,7 +259,7 @@ const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, m
           size="sm"
           onClick={() => onRespond({ cancelled: true })}
         >
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button
           type="button"
@@ -265,7 +268,7 @@ const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, m
           onClick={submitValue}
           disabled={!isEditor && value.trim().length === 0}
         >
-          Submit
+          {t('Submit')}
         </Button>
       </div>
     </div>
@@ -279,6 +282,7 @@ interface FormBodyProps {
 }
 
 const FormBody: React.FC<FormBodyProps> = ({ request, onRespond, messageId }) => {
+  const { t } = useTranslation();
   const initial: Record<string, string> = {};
   for (const field of request.fields ?? []) {
     if (field.type === 'checkbox') initial[field.id] = field.initial === 'true' ? 'true' : 'false';
@@ -399,10 +403,10 @@ const FormBody: React.FC<FormBodyProps> = ({ request, onRespond, messageId }) =>
       {blocked && (
         <p role="alert" className="mt-2 text-xs text-status-error">
           {missingRequired.length > 0 && invalidNumbers.length > 0
-            ? 'Fill in all required fields and enter valid numbers within the allowed range before submitting.'
+            ? t('Fill in all required fields and enter valid numbers within the allowed range before submitting.')
             : invalidNumbers.length > 0
-              ? 'Enter valid numbers within the allowed range before submitting.'
-              : 'Fill in all required fields before submitting.'}
+              ? t('Enter valid numbers within the allowed range before submitting.')
+              : t('Fill in all required fields before submitting.')}
         </p>
       )}
       <div className="mt-2.5 flex justify-end gap-2">
@@ -412,10 +416,10 @@ const FormBody: React.FC<FormBodyProps> = ({ request, onRespond, messageId }) =>
           size="sm"
           onClick={() => onRespond({ cancelled: true })}
         >
-          Cancel
+          {t('Cancel')}
         </Button>
         <Button type="submit" variant="default" size="sm">
-          Submit
+          {t('Submit')}
         </Button>
       </div>
     </form>
@@ -433,6 +437,7 @@ interface ExtensionPromptTarget {
 }
 
 export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessionId }) => {
+  const { t } = useTranslation();
   const target = usePiSessionSnapshot<ExtensionPromptTarget | null>(
     (state) => {
       const preferredSessionId = sessionId ?? state.selectedSessionId;
@@ -598,15 +603,15 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
           <div className="flex shrink-0 items-center gap-2">
             {target.queueLength > 1 && (
               <span className="rounded-full bg-muted px-2 py-0.5 typography-micro font-medium text-muted-foreground">
-                1 of {target.queueLength}
+                {t('1 of {{total}}', { total: target.queueLength })}
               </span>
             )}
             {remainingSeconds !== null && (
               <span
                 className="font-mono text-xs tabular-nums text-muted-foreground"
-                title={`${remainingSeconds}s remaining`}
+                title={t('{{count}}s remaining', { count: remainingSeconds })}
               >
-                {remainingSeconds}s
+                {t('{{count}}s', { count: remainingSeconds })}
               </span>
             )}
             <Button
@@ -615,9 +620,9 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
               size="xs"
               onClick={() => submit({ cancelled: true })}
               className="h-6 px-1.5 typography-micro text-muted-foreground hover:text-foreground"
-              aria-label="Dismiss extension dialog"
+              aria-label={t('Dismiss extension dialog')}
             >
-              Dismiss (Esc)
+              {t('Dismiss (Esc)')}
             </Button>
           </div>
         </div>
@@ -649,7 +654,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
 
         {responseError && (
           <p role="alert" className="mt-2 text-xs text-status-error">
-            Could not send the response. Check your connection and try again.
+            {t('Could not send the response. Check your connection and try again.')}
           </p>
         )}
       </div>

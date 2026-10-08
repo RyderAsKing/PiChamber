@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   SettingsFieldRow,
@@ -25,7 +26,7 @@ import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { notifyServerUpdateChannelChanged } from '@/lib/server-update-events';
 import { useUpdateStore } from '@/stores/useUpdateStore';
-
+import i18n from '@/i18n';
 type UpdateChannel = 'stable' | 'rc';
 type ServerUpdateSettings = { serverUpdateChannel?: unknown };
 
@@ -38,7 +39,7 @@ const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
 
 const getServerUrlFallback = (): string => {
   const runtimeUrl = getRuntimeApiBaseUrl().trim();
-  return runtimeUrl ? redactSensitiveUrl(runtimeUrl) : 'Server';
+  return runtimeUrl ? redactSensitiveUrl(runtimeUrl) : i18n.t('Server');
 };
 
 const UpdateChannelSelect: React.FC<{
@@ -46,28 +47,32 @@ const UpdateChannelSelect: React.FC<{
   disabled: boolean;
   label: string;
   onChange: (channel: string) => void;
-}> = ({ channel, disabled, label, onChange }) => (
+}> = ({ channel, disabled, label, onChange }) => {
+  const { t } = useTranslation();
+  return (
   <Select value={channel} onValueChange={onChange} disabled={disabled}>
     <SelectTrigger
       size={SETTINGS_SELECT_SIZE}
       className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
       aria-label={label}
     >
-      <SelectValue>{(value) => UPDATE_CHANNEL_LABELS[parseUpdateChannel(value)]}</SelectValue>
+      <SelectValue>{(value) => t(UPDATE_CHANNEL_LABELS[parseUpdateChannel(value)])}</SelectValue>
     </SelectTrigger>
     <SelectContent>
-      <SelectItem value="stable">{UPDATE_CHANNEL_LABELS.stable}</SelectItem>
-      <SelectItem value="rc">{UPDATE_CHANNEL_LABELS.rc}</SelectItem>
+      <SelectItem value="stable">{t(UPDATE_CHANNEL_LABELS.stable)}</SelectItem>
+      <SelectItem value="rc">{t(UPDATE_CHANNEL_LABELS.rc)}</SelectItem>
     </SelectContent>
   </Select>
-);
+  );
+};
 
 export const DesktopUpdateChannelSettings: React.FC = () => {
+  const { t } = useTranslation();
   const isDesktop = isDesktopShell();
   const [runtimeEpoch, setRuntimeEpoch] = React.useState(0);
   const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
   const [serverIdentity, setServerIdentity] = React.useState(getServerUrlFallback);
-  const serverChannelLabel = `Server update channel (${serverIdentity})`;
+  const serverChannelLabel = t('Server update channel ({{identity}})', { identity: serverIdentity });
   const [desktopChannel, setDesktopChannel] = React.useState<UpdateChannel>('stable');
   const [serverChannel, setServerChannel] = React.useState<UpdateChannel>('stable');
   const [desktopLoading, setDesktopLoading] = React.useState(isDesktop);
@@ -123,7 +128,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
         }
       })
       .catch((error) => {
-        if (!cancelled) setDesktopError(error instanceof Error ? error.message : 'Unable to load the desktop update channel.');
+        if (!cancelled) setDesktopError(error instanceof Error ? error.message : t('Unable to load the desktop update channel.'));
       })
       .finally(() => {
         if (!cancelled) setDesktopLoading(false);
@@ -131,7 +136,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isDesktop]);
+  }, [isDesktop, t]);
 
   React.useEffect(() => {
     const operation = ++serverOperationRef.current;
@@ -149,22 +154,22 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
-        if (!response.ok) throw new Error('Unable to load the server update channel.');
+        if (!response.ok) throw new Error(t('Unable to load the server update channel.'));
         const settings = await response.json().catch(() => null) as ServerUpdateSettings | null;
-        if (!settings) throw new Error('Unable to load the server update channel.');
+        if (!settings) throw new Error(t('Unable to load the server update channel.'));
         if (serverOperationRef.current === operation) {
           setServerChannel(parseUpdateChannel(settings.serverUpdateChannel));
           setServerError(null);
         }
       } catch (error) {
         if (serverOperationRef.current === operation) {
-          setServerError(error instanceof Error ? error.message : 'Unable to load the server update channel.');
+          setServerError(error instanceof Error ? error.message : t('Unable to load the server update channel.'));
         }
       } finally {
         if (serverOperationRef.current === operation) setServerLoading(false);
       }
     })();
-  }, [isDesktop, isLocalDesktop, runtimeEpoch]);
+  }, [isDesktop, isLocalDesktop, runtimeEpoch, t]);
 
   if (!isDesktop) return null;
 
@@ -183,7 +188,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
       })
       .catch((error) => {
         setDesktopChannel(previous);
-        setDesktopError(error instanceof Error ? error.message : 'Unable to save the desktop update channel.');
+        setDesktopError(error instanceof Error ? error.message : t('Unable to save the desktop update channel.'));
       })
       .finally(() => setDesktopSaving(false));
   };
@@ -203,16 +208,16 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
           method: 'GET',
           headers: { Accept: 'application/json' },
         });
-        if (!response.ok) throw new Error('Unable to save the server update channel.');
+        if (!response.ok) throw new Error(t('Unable to save the server update channel.'));
         const settings = await response.json().catch(() => null) as ServerUpdateSettings | null;
-        if (settings?.serverUpdateChannel !== parsed) throw new Error('Unable to save the server update channel.');
+        if (settings?.serverUpdateChannel !== parsed) throw new Error(t('Unable to save the server update channel.'));
         if (serverOperationRef.current === operation) {
           notifyServerUpdateChannelChanged();
         }
       } catch (error) {
         if (serverOperationRef.current === operation) {
           setServerChannel(previous);
-          setServerError(error instanceof Error ? error.message : 'Unable to save the server update channel.');
+          setServerError(error instanceof Error ? error.message : t('Unable to save the server update channel.'));
         }
       } finally {
         if (serverOperationRef.current === operation) setServerSaving(false);
@@ -221,10 +226,10 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
   };
 
   return (
-    <SettingsSection title="Updates">
+    <SettingsSection title={t('Updates')}>
       <SettingsFieldRow
-        label="Desktop app update channel"
-        info="Stable receives production desktop releases only. Release candidate offers the highest available version across stable and desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
+        label={t('Desktop app update channel')}
+        info={t('Stable receives production desktop releases only. Release candidate offers the highest available version across stable and desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC.')}
         description={desktopError ? <span className="text-[var(--status-error)]">{desktopError}</span> : undefined}
         settingsItem="about.desktop-update-channel"
         labelClassName="@xl:w-auto"
@@ -233,7 +238,7 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
         <UpdateChannelSelect
           channel={desktopChannel}
           disabled={desktopLoading || desktopSaving}
-          label="Desktop app update channel"
+          label={t('Desktop app update channel')}
           onChange={changeDesktopChannel}
         />
       </SettingsFieldRow>
@@ -242,10 +247,10 @@ export const DesktopUpdateChannelSettings: React.FC = () => {
         <SettingsFieldRow
           label={(
             <span className="@xl:whitespace-nowrap">
-              Server update channel <span className="font-normal text-muted-foreground">· {serverIdentity}</span>
+              {t('Server update channel')} <span className="font-normal text-muted-foreground">· {serverIdentity}</span>
             </span>
           )}
-          info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
+          info={t('Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC.')}
           description={serverError ? <span className="text-[var(--status-error)]">{serverError}</span> : undefined}
           settingsItem="about.server-update-channel"
           labelClassName="@xl:w-auto"

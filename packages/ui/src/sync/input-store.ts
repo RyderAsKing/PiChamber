@@ -11,6 +11,7 @@ import type { AttachedFile, AttachmentUploadState } from "@/stores/types/session
 import type { WorktreeFailedSend } from "@/stores/useWorktreeCreationStore"
 import { cloneAttachmentSnapshot } from "./attachment-snapshots"
 import { prepareAttachmentFiles } from "./attachment-files"
+import i18n from "@/i18n"
 
 const MAX_ATTACHMENT_PREPARATION_ATTEMPTS = 3
 const MAX_CONCURRENT_UPLOADS = 3
@@ -74,8 +75,8 @@ const readFileAsDataUrl = (file: Blob, mime: string): Promise<string> => new Pro
     const commaIndex = value.indexOf(",")
     resolve(commaIndex === -1 ? value : `data:${mime};base64,${value.slice(commaIndex + 1)}`)
   }
-  reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"))
-  reader.onabort = () => reject(new Error("File read aborted"))
+  reader.onerror = () => reject(reader.error ?? new Error(i18n.t("Failed to read file")))
+  reader.onabort = () => reject(new Error(i18n.t("File read aborted")))
   reader.readAsDataURL(file)
 })
 
@@ -88,7 +89,7 @@ export const serializeAttachmentsForQueue = async (files: readonly AttachedFile[
       return { ...file, previewUrl: undefined }
     }
     const blob = file.file instanceof Blob ? file.file : null
-    if (!blob) throw new Error("Attachment data is unavailable")
+    if (!blob) throw new Error(i18n.t("Attachment data is unavailable"))
     return { ...file, dataUrl: await readFileAsDataUrl(blob, file.mimeType), previewUrl: undefined }
   }))
 
@@ -122,11 +123,11 @@ const dataUrlToBlob = (dataUrl: string, fallbackMime: string): Blob | null => {
 
 const safeUploadError = (error: unknown): string => {
   const code = typeof error === "object" && error && "code" in error ? String(error.code) : ""
-  if (code === "ATTACHMENT_TOO_LARGE") return "File exceeds the 100 MB upload limit."
-  if (code === "ATTACHMENT_LIMIT_REACHED") return "Too many unused uploads. Remove a file and retry."
-  if (code === "DAEMON_UNAVAILABLE") return "The runtime changed or is unavailable. Retry the upload."
-  if (error instanceof DOMException && error.name === "AbortError") return "Upload canceled."
-  return "Upload failed. Retry or remove this file."
+  if (code === "ATTACHMENT_TOO_LARGE") return i18n.t("File exceeds the 100 MB upload limit.")
+  if (code === "ATTACHMENT_LIMIT_REACHED") return i18n.t("Too many unused uploads. Remove a file and retry.")
+  if (code === "DAEMON_UNAVAILABLE") return i18n.t("The runtime changed or is unavailable. Retry the upload.")
+  if (error instanceof DOMException && error.name === "AbortError") return i18n.t("Upload canceled.")
+  return i18n.t("Upload failed. Retry or remove this file.")
 }
 
 const updateAttachment = (id: string, update: (file: AttachedFile) => AttachedFile): boolean => {
@@ -166,7 +167,7 @@ const uploadAttachment = async (id: string): Promise<void> => {
   if (!initial || initial.source !== "local") return
   const blob = initial.file instanceof Blob ? initial.file : dataUrlToBlob(initial.dataUrl, initial.mimeType)
   if (!blob || blob.size === 0) {
-    updateAttachment(id, (file) => ({ ...file, uploadState: { status: "failed", error: "The file data is no longer available." } }))
+    updateAttachment(id, (file) => ({ ...file, uploadState: { status: "failed", error: i18n.t("The file data is no longer available.") } }))
     return
   }
 
@@ -204,7 +205,7 @@ const uploadAttachment = async (id: string): Promise<void> => {
     const expiryTimer = setTimeout(() => {
       expiryTimers.delete(id)
       updateAttachment(id, (file) => file.uploadState?.status === "ready" && file.uploadState.attachmentId === attachment.id
-        ? { ...file, uploadState: { status: "failed", error: "Upload expired. Retry the upload." } }
+        ? { ...file, uploadState: { status: "failed", error: i18n.t("Upload expired. Retry the upload.") } }
         : file)
     }, Math.max(0, attachment.expiresAt - Date.now() + 1))
     expiryTimers.set(id, expiryTimer)
@@ -462,7 +463,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     }
     set((state) => ({ attachedFiles: [...state.attachedFiles, placeholder] }))
     if (get().attachedFiles.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-      updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to one message.` } }))
+      updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: i18n.t("You can attach up to {{count}} files to one message.", { count: MAX_ATTACHMENTS_PER_MESSAGE }) } }))
       return false
     }
 
@@ -477,15 +478,15 @@ export const useInputStore = create<InputState>()((set, get) => ({
       }
       if (generation !== attachmentReadGeneration || !get().attachedFiles.some((item) => item.id === placeholderId)) return false
       if (!preparedFiles || preparedFiles.length === 0) {
-        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "This file could not be prepared." } }))
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: i18n.t("This file could not be prepared.") } }))
         return false
       }
       if (get().attachedFiles.length - 1 + preparedFiles.length > MAX_ATTACHMENTS_PER_MESSAGE) {
-        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: `You can attach up to ${MAX_ATTACHMENTS_PER_MESSAGE} files to one message.` } }))
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: i18n.t("You can attach up to {{count}} files to one message.", { count: MAX_ATTACHMENTS_PER_MESSAGE }) } }))
         return false
       }
       if (preparedFiles.some((prepared) => prepared.file.size > MAX_ATTACHMENT_BYTES)) {
-        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "File exceeds the 100 MB upload limit." } }))
+        updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: i18n.t("File exceeds the 100 MB upload limit.") } }))
         return false
       }
 
@@ -521,7 +522,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
       return true
     }
 
-    updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: "Generated filenames conflict with existing attachments." } }))
+    updateAttachment(placeholderId, (item) => ({ ...item, uploadState: { status: "failed", error: i18n.t("Generated filenames conflict with existing attachments.") } }))
     return false
   },
 
@@ -694,7 +695,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
     cancelFiles(get().attachedFiles.filter((file) => !nextIds.has(file.id)), false)
     set({
       attachedFiles: files.map((file): AttachedFile => file.source === "local" && file.uploadState === undefined
-        ? { ...file, uploadState: { status: "failed", error: "Upload needs to be refreshed. Retry the upload." } }
+        ? { ...file, uploadState: { status: "failed", error: i18n.t("Upload needs to be refreshed. Retry the upload.") } }
         : file),
     })
   },
@@ -725,7 +726,7 @@ export const useInputStore = create<InputState>()((set, get) => ({
 subscribeRuntimeEndpointWillChange(() => {
   attachmentReadGeneration += 1
   const markRuntimeChanged = (files: AttachedFile[]): AttachedFile[] => files.map((file): AttachedFile => file.source === "local"
-    ? { ...file, uploadState: { status: "failed", error: "The runtime changed. Retry the upload." } satisfies AttachmentUploadState }
+    ? { ...file, uploadState: { status: "failed", error: i18n.t("The runtime changed. Retry the upload.") } satisfies AttachmentUploadState }
     : file)
   const files = useInputStore.getState().attachedFiles
   // Abort transport only: the files stay visible/stashed as retryable

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 import type { TerminalModifier as Modifier, TerminalQuickKey as MobileKey } from '@/lib/terminalInput';
@@ -18,6 +19,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
   onKeyPress,
   onModifierToggle,
 }) => {
+  const { t } = useTranslation();
   const quickKeySize: 'lg' | 'xs' = isTouchTerminal ? 'lg' : 'xs';
   const quickKeyIconClass = isTouchTerminal ? 'w-10 p-0' : 'w-9 p-0';
 
@@ -35,7 +37,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         onClick={() => onKeyPress('esc')}
         disabled={disabled}
       >
-        {"Esc"}
+        {t("Esc")}
       </Button>
       <Button
         type="button"
@@ -47,7 +49,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-right" className="h-4 w-4" />
-        <span className="sr-only">{"Tab"}</span>
+        <span className="sr-only">{t("Tab")}</span>
       </Button>
       <Button
         type="button"
@@ -59,8 +61,8 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         onClick={() => onModifierToggle('ctrl')}
         disabled={disabled}
       >
-        <span className="text-xs font-medium">{"Ctrl"}</span>
-        <span className="sr-only">{"Control modifier"}</span>
+        <span className="text-xs font-medium">{t("Ctrl")}</span>
+        <span className="sr-only">{t("Control modifier")}</span>
       </Button>
       <Button
         type="button"
@@ -72,8 +74,8 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         onClick={() => onModifierToggle('alt')}
         disabled={disabled}
       >
-        <span className="text-xs font-medium">{"Alt"}</span>
-        <span className="sr-only">{"Alt modifier"}</span>
+        <span className="text-xs font-medium">{t("Alt")}</span>
+        <span className="sr-only">{t("Alt modifier")}</span>
       </Button>
       <Button
         type="button"
@@ -85,7 +87,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-up" />
-        <span className="sr-only">{"Arrow up"}</span>
+        <span className="sr-only">{t("Arrow up")}</span>
       </Button>
       <Button
         type="button"
@@ -97,7 +99,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-left" />
-        <span className="sr-only">{"Arrow left"}</span>
+        <span className="sr-only">{t("Arrow left")}</span>
       </Button>
       <Button
         type="button"
@@ -109,7 +111,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-down" />
-        <span className="sr-only">{"Arrow down"}</span>
+        <span className="sr-only">{t("Arrow down")}</span>
       </Button>
       <Button
         type="button"
@@ -121,7 +123,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-right" />
-        <span className="sr-only">{"Arrow right"}</span>
+        <span className="sr-only">{t("Arrow right")}</span>
       </Button>
       <Button
         type="button"
@@ -133,7 +135,7 @@ export const TerminalQuickKeys: React.FC<TerminalQuickKeysProps> = ({
         disabled={disabled}
       >
         <Icon name="arrow-go-back" />
-        <span className="sr-only">{"Enter"}</span>
+        <span className="sr-only">{t("Enter")}</span>
       </Button>
     </>
   );

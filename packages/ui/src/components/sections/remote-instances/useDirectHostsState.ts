@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   desktopHostProbe,
   desktopHostsGet,
@@ -29,6 +30,7 @@ import {
 
 export function useDirectHostsState(showInstanceManagement: boolean) {
   const [directHosts, setDirectHosts] = React.useState<DesktopHost[]>([]);
+  const { t } = useTranslation();
   const [directHostStatus, setDirectHostStatus] = React.useState<Record<string, HostProbeResult>>({});
   const [directDefaultHostId, setDirectDefaultHostId] = React.useState<string | null>('local');
   const [directLoading, setDirectLoading] = React.useState(false);
@@ -85,7 +87,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
   const handleAddDirectHost = React.useCallback(async () => {
     const resolved = resolveDesktopHostUrl(directUrl);
     if (!resolved) {
-      setDirectError('Invalid URL (must be http/https)');
+      setDirectError(t('Invalid URL (must be http/https)'));
       return;
     }
     const url = resolved.persistedUrl;
@@ -110,12 +112,12 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
     if (resolved.redeemUrl) {
       navigateToUrl(resolved.redeemUrl);
     }
-  }, [directDefaultHostId, directHeaders, directHosts, directLabel, directToken, directUrl, persistDirectHosts]);
+  }, [directDefaultHostId, directHeaders, directHosts, directLabel, directToken, directUrl, persistDirectHosts, t]);
 
   const importDirectConnectLink = React.useCallback(async () => {
     const payload = parsePairingConnectionPayload(directConnectLink);
     if (!payload) {
-      setDirectError('Invalid PiChamber connection link.');
+      setDirectError(t('Invalid PiChamber connection link.'));
       return;
     }
     const installId = await desktopInstallIdGet().catch(() => '');
@@ -194,7 +196,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
     }
 
     if (!redeemed) {
-      setDirectError('Invalid URL (must be http/https)');
+      setDirectError(t('Invalid URL (must be http/https)'));
       return;
     }
 
@@ -229,7 +231,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
 
     const url = directUrlResolved || (relay ? relayHostDisplayUrl(relay.serverId) : null);
     if (!url) {
-      setDirectError('Invalid URL (must be http/https)');
+      setDirectError(t('Invalid URL (must be http/https)'));
       return;
     }
     const transportFields = {
@@ -259,7 +261,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
     setDirectConnectLink('');
     setDirectError(null);
     setDirectImportDialogOpen(false);
-  }, [directConnectLink, directDefaultHostId, directHosts, persistDirectHosts]);
+  }, [directConnectLink, directDefaultHostId, directHosts, persistDirectHosts, t]);
 
   const handleRemoveDirectHost = React.useCallback(
     async (id: string) => {
@@ -286,7 +288,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
     if (!directEditingId) return;
     const resolved = resolveDesktopHostUrl(directEditUrl);
     if (!resolved) {
-      setDirectError('Invalid URL (must be http/https)');
+      setDirectError(t('Invalid URL (must be http/https)'));
       return;
     }
     const url = resolved.persistedUrl;
@@ -316,6 +318,7 @@ export function useDirectHostsState(showInstanceManagement: boolean) {
     directEditingId,
     directHosts,
     persistDirectHosts,
+    t,
   ]);
 
   const setDefaultDirectHost = React.useCallback(

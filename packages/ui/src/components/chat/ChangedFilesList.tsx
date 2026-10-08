@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { type ChangedFileEntry, getDisplayPath, getFileStats } from './changedFiles';
 
@@ -9,11 +10,12 @@ interface ChangedFilesListProps {
 }
 
 export const ChangedFilesList: React.FC<ChangedFilesListProps> = ({ files, currentDirectory, onOpenFile }) => {
-    
+    const { t } = useTranslation();
+
     return (
         <>
             <div className="flex items-center gap-1.5 px-2 py-1 typography-ui-label font-medium text-muted-foreground">
-                <span>{"Changed files"}</span>
+                <span>{t("Changed files")}</span>
                 <span className="typography-meta tabular-nums">{files.length}</span>
             </div>
 
@@ -27,7 +29,7 @@ export const ChangedFilesList: React.FC<ChangedFilesListProps> = ({ files, curre
                             key={`${file.path}:${index}`}
                             type="button"
                             className="relative flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 typography-ui-label outline-hidden select-none text-left hover:bg-interactive-hover"
-                            title={`Open ${file.path}`}
+                            title={t('Open {{path}}', { path: file.path })}
                             onClick={() => onOpenFile(file)}
                         >
                             <FileTypeIcon filePath={file.path} className="h-3.5 w-3.5 flex-shrink-0" />

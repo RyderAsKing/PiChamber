@@ -1,5 +1,6 @@
 import type { ToolPart as ToolPartType, ToolState as ToolStateUnion, FilePart } from '@/lib/chat/types';
 import { getPatchText, getPrimaryToolPath } from './toolDiffUtils';
+import i18n from '@/i18n';
 
 export type ToolStateWithMetadata = ToolStateUnion & {
     metadata?: Record<string, unknown>;
@@ -349,7 +350,7 @@ export const getToolDescription = (part: ToolPartType, state: ToolStateUnion, cu
     if (part.tool === 'apply_patch') {
         const files = Array.isArray(metadata?.files) ? metadata?.files : [];
         if (files.length > 1) {
-            return `${files.length} files`;
+            return i18n.t('{{count}} files', { count: files.length });
         }
         return '';
     }
@@ -357,7 +358,9 @@ export const getToolDescription = (part: ToolPartType, state: ToolStateUnion, cu
     // Question tool: show "Asked N question(s)"
     if (part.tool === 'question' && input?.questions && Array.isArray(input.questions)) {
         const count = input.questions.length;
-        return `Asked ${count} question${count !== 1 ? 's' : ''}`;
+        return count !== 1
+            ? i18n.t('Asked {{count}} questions', { count })
+            : i18n.t('Asked 1 question');
     }
 
     if (part.tool === 'bash' && input?.command && typeof input.command === 'string') {

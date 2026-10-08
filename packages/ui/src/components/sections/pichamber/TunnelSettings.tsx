@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SettingsSection, SETTINGS_FIELD_LABEL_CLASS } from '@/components/sections/shared/SettingsSection';
 import { ProviderOptionLabel } from './tunnel/ProviderOptionLabel';
@@ -13,6 +14,7 @@ import { TunnelActiveCard } from './tunnel/TunnelActiveCard';
 import { useTunnelSettingsState } from './tunnel/useTunnelSettingsState';
 
 export const TunnelSettings: React.FC = () => {
+  const { t } = useTranslation();
   const {
     timeFormatPreference,
     state,
@@ -80,19 +82,19 @@ export const TunnelSettings: React.FC = () => {
   if (state === 'checking') {
     return (
       <div className="flex items-center justify-center py-12">
-        <span className="h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={"Loading"} />
+        <span className="h-1.5 w-1.5 rounded-full bg-current animate-busy-pulse" aria-label={t('Loading')} />
       </div>
     );
   }
 
   return (
     <SettingsSection
-      title={"External Tunnel"}
+      title={t('External Tunnel')}
       info={(
         <div className="space-y-1">
-          <p>{"Configure secure remote access with quick links or your own managed remote Cloudflare tunnel."}</p>
-          <p>{"Secure tunnel access is enforced server-side."}</p>
-          <p>{"Connect links are one-time and are revoked when tunnel stops or connect-link TTL expires."}</p>
+          <p>{t('Configure secure remote access with quick links or your own managed remote Cloudflare tunnel.')}</p>
+          <p>{t('Secure tunnel access is enforced server-side.')}</p>
+          <p>{t('Connect links are one-time and are revoked when tunnel stops or connect-link TTL expires.')}</p>
         </div>
       )}
       divider={false}
@@ -110,14 +112,14 @@ export const TunnelSettings: React.FC = () => {
         <section className="space-y-4 px-2 pb-2 pt-0">
           <div className="space-y-3">
             <div data-settings-item="tunnel.provider" className="space-y-1.5">
-              <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Provider"}</p>
+              <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('Provider')}</p>
               <div className="flex items-center gap-2 text-sm text-foreground">
                 <ProviderOptionLabel provider="cloudflare" />
               </div>
             </div>
 
             <div data-settings-item="tunnel.type" className="space-y-1.5">
-              <p className={SETTINGS_FIELD_LABEL_CLASS}>{"Tunnel type"}</p>
+              <p className={SETTINGS_FIELD_LABEL_CLASS}>{t('Tunnel type')}</p>
               <div className="flex flex-wrap items-center gap-1">
                 {tunnelModeOptions.map((option) => (
                   <Tooltip key={option.value}>
@@ -132,11 +134,11 @@ export const TunnelSettings: React.FC = () => {
                         }}
                         disabled={isSavingMode || state === 'starting' || state === 'stopping'}
                       >
-                        {option.label}
+                        {t(option.label)}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent sideOffset={8} className="max-w-xs">
-                      {option.tooltip}
+                      {t(option.tooltip)}
                     </TooltipContent>
                   </Tooltip>
                 ))}
@@ -270,7 +272,7 @@ export const TunnelSettings: React.FC = () => {
         {state === 'error' && errorMessage && (
           <section className="space-y-3 px-2 pb-2 pt-0">
             <p className="typography-meta text-[var(--status-error)]">{errorMessage}</p>
-            <Button size="sm" variant="ghost" onClick={handleStart}>{"Retry"}</Button>
+            <Button size="sm" variant="ghost" onClick={handleStart}>{t('Retry')}</Button>
           </section>
         )}
       </div>

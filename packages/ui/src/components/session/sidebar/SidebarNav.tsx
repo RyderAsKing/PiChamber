@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ type Props = {
 };
 
 export function SidebarNav(props: Props): React.ReactNode {
+  const { t } = useTranslation();
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
   const shortcutOverrides = useUIStore((state) => state.shortcutOverrides);
   const toggleShortcut = formatShortcutForDisplay(getEffectiveShortcutCombo('toggle_sidebar', shortcutOverrides));
@@ -60,7 +62,7 @@ export function SidebarNav(props: Props): React.ReactNode {
           }}
         >
           <Icon name="chat-new" className={cn(sidebarRowIconClassName, 'text-current')} />
-          <span className={sidebarRowLabelClassName}>{"New session"}</span>
+          <span className={sidebarRowLabelClassName}>{t("New session")}</span>
         </button>
         {props.showSidebarToggle ? (
           <Tooltip>
@@ -69,13 +71,13 @@ export function SidebarNav(props: Props): React.ReactNode {
                 type="button"
                 onClick={toggleSidebar}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                aria-label={"Hide sessions"}
+                aria-label={t("Hide sessions")}
               >
                 <Icon name="layout-left" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{`Hide sessions (${toggleShortcut})`}</p>
+              <p>{t('Hide sessions ({{shortcut}})', { shortcut: toggleShortcut })}</p>
             </TooltipContent>
           </Tooltip>
         ) : null}

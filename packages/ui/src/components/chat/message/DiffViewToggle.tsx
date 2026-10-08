@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -13,6 +14,7 @@ interface DiffViewToggleProps {
 }
 
 export const DiffViewToggle: React.FC<DiffViewToggleProps> = ({ mode, onModeChange, className }) => {
+    const { t } = useTranslation();
     const handleClick = React.useCallback(
         (event: React.MouseEvent<HTMLButtonElement>) => {
             event.stopPropagation();
@@ -27,7 +29,7 @@ export const DiffViewToggle: React.FC<DiffViewToggleProps> = ({ mode, onModeChan
             variant="ghost"
             className={cn('h-5 w-5 p-0 opacity-60 hover:opacity-100', className)}
             onClick={handleClick}
-            title={mode === 'side-by-side' ? 'Switch to unified view' : 'Switch to side-by-side view'}
+            title={mode === 'side-by-side' ? t('Switch to unified view') : t('Switch to side-by-side view')}
         >
             {mode === 'side-by-side' ? (
                 <Icon name="align-justify" className="h-3 w-3" />

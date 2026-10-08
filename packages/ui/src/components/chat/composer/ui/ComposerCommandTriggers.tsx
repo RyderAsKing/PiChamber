@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { buildCommandPromptText } from '@/lib/pi/command-triggers';
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button';
  * fires a slash command through the normal authenticated prompt path.
  */
 export const ComposerCommandTriggers: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
+    const { t } = useTranslation();
     const triggers = useUIStore((state) => state.commandTriggers);
 
     const runTrigger = React.useCallback((command: string, args?: string) => {
@@ -24,7 +26,7 @@ export const ComposerCommandTriggers: React.FC<{ sessionId?: string | null }> = 
         <div
             className="mb-1 flex flex-wrap items-center gap-1.5 px-1"
             role="toolbar"
-            aria-label="Command triggers"
+            aria-label={t("Command triggers")}
         >
             {triggers.map((trigger) => (
                 <Button

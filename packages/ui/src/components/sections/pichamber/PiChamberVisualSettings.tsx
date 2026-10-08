@@ -1,5 +1,6 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { useTranslation } from 'react-i18next';
 
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { useUIStore } from '@/stores/useUIStore';
@@ -47,6 +48,7 @@ interface PiChamberVisualSettingsProps {
 
 export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = ({ visibleSettings }) => {
           const { isMobile } = useDeviceInfo();
+    const { t } = useTranslation();
     const { terminal } = useRuntimeAPIs();
     const { browserTab } = usePwaDetection();
     const expandedEditorToolbar = useUIStore(state => state.expandedEditorToolbar);
@@ -205,13 +207,13 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
             setProcessRecordingEnabled(status?.enabled === true);
             setProcessRecordingActive(status?.active === true);
             setProcessRecordingError(status?.enabled === true && status.active !== true
-                ? 'Recording could not start. Disable it and try again.'
+                ? t('Recording could not start. Disable it and try again.')
                 : null);
         });
         return () => {
             cancelled = true;
         };
-    }, [desktopDiagnostics, showDiagnostics]);
+    }, [desktopDiagnostics, showDiagnostics, t]);
 
     React.useEffect(() => {
         if (!showDiagnostics || !desktopDiagnostics || !processRecordingEnabled) return;
@@ -222,7 +224,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                 if (cancelled || !status?.supported) return;
                 setProcessRecordingActive(status.active);
                 if (!status.active) {
-                    setProcessRecordingError('Recording stopped after a file write failure. Disable it and try again.');
+                    setProcessRecordingError(t('Recording stopped after a file write failure. Disable it and try again.'));
                 }
             });
         }, 10_000);
@@ -230,7 +232,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, [desktopDiagnostics, processRecordingEnabled, showDiagnostics]);
+    }, [desktopDiagnostics, processRecordingEnabled, showDiagnostics, t]);
 
     const handleProcessRecordingEnabledChange = React.useCallback(async (enabled: boolean) => {
         if (!processRecordingSupported || processRecordingSaving) return;
@@ -243,18 +245,18 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         try {
             const status = await setDesktopProcessPerformanceRecording(enabled);
             if (!status?.supported || status.enabled !== enabled || (enabled && !status.active)) {
-                throw new Error('Failed to update process performance recording');
+                throw new Error(t('Failed to update process performance recording'));
             }
             setProcessRecordingEnabled(status.enabled);
             setProcessRecordingActive(status.active);
         } catch {
             setProcessRecordingEnabled(previousEnabled);
             setProcessRecordingActive(previousActive);
-            setProcessRecordingError('Failed to update process performance recording.');
+            setProcessRecordingError(t('Failed to update process performance recording.'));
         } finally {
             setProcessRecordingSaving(false);
         }
-    }, [processRecordingActive, processRecordingEnabled, processRecordingSaving, processRecordingSupported]);
+    }, [processRecordingActive, processRecordingEnabled, processRecordingSaving, processRecordingSupported, t]);
 
     const hasThemeSettings = shouldShow('theme');
     const hasLocalizationSettings = shouldShow('theme') || shouldShow('timeFormat') || shouldShow('weekStart');
@@ -313,20 +315,20 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const [pwaOrientation, setPwaOrientation] = React.useState<'system' | 'portrait' | 'landscape'>('system');
     const selectedTimeFormatLabel = React.useMemo(() => {
         const option = TIME_FORMAT_OPTIONS.find((item) => item.id === timeFormatPreference);
-        return option?.label ?? 'Auto';
-    }, [timeFormatPreference]);
+        return t(option?.label ?? 'Auto');
+    }, [timeFormatPreference, t]);
     const selectedWeekStartLabel = React.useMemo(() => {
         const option = WEEK_START_OPTIONS.find((item) => item.id === weekStartPreference);
-        return option?.label ?? 'Auto';
-    }, [weekStartPreference]);
+        return t(option?.label ?? 'Auto');
+    }, [weekStartPreference, t]);
     const selectedPwaOrientationLabel = React.useMemo(() => {
         const option = PWA_ORIENTATION_OPTIONS.find((item) => item.id === pwaOrientation);
-        return option ? option.label : undefined;
-    }, [pwaOrientation]);
+        return option ? t(option.label) : undefined;
+    }, [pwaOrientation, t]);
     const selectedMobileKeyboardModeLabel = React.useMemo(() => {
         const option = MOBILE_KEYBOARD_MODE_OPTIONS.find((item) => item.id === mobileKeyboardMode);
-        return option ? option.label : undefined;
-    }, [mobileKeyboardMode]);
+        return option ? t(option.label) : undefined;
+    }, [mobileKeyboardMode, t]);
 
     const handleMobileLayoutPreferenceChange = React.useCallback((value: MobileLayoutPreference) => {
         if (value === mobileLayoutPreference) {
@@ -557,7 +559,7 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
 
             {/* --- Legacy options --- */}
             {hasAppearanceSettings && (showPwaInstallNameSetting || showPwaOrientationSetting || showMobileKeyboardModeSetting) && (
-                <SettingsDisclosure label={'Show legacy options'}>
+                <SettingsDisclosure label={t('Show legacy options')}>
                     <AppInstallSection
                         showPwaInstallNameSetting={showPwaInstallNameSetting}
                         pwaInstallName={pwaInstallName}

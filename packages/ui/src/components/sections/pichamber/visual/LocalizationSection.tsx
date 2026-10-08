@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   SETTINGS_SELECT_SIZE,
@@ -14,6 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  SUPPORTED_LANGUAGES,
+  getLanguagePreference,
+  setLanguagePreference,
+  type LanguagePreference,
+} from '@/i18n';
 import { TIME_FORMAT_OPTIONS, WEEK_START_OPTIONS } from './visualSettingsConstants';
 
 export interface LocalizationSectionProps {
@@ -37,12 +44,50 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
   selectedWeekStartLabel,
   onWeekStartPreferenceChange,
 }) => {
+  const { t } = useTranslation();
+  const [languagePreference, setLanguagePreferenceState] = React.useState<LanguagePreference>(
+    () => getLanguagePreference(),
+  );
+
+  const handleLanguageChange = React.useCallback((value: LanguagePreference) => {
+    setLanguagePreferenceState(value);
+    setLanguagePreference(value);
+  }, []);
+
   return (
-    <SettingsSection title={'Localization'}>
+    <SettingsSection title={t('Localization')}>
       <SettingsTwoColumn className="gap-4 @md:grid-cols-2 @md:gap-8 @3xl:gap-10">
+        <SettingsStackedField
+          label={t('Language')}
+          settingsItem="appearance.language"
+        >
+          <Select
+            value={languagePreference}
+            onValueChange={(value: LanguagePreference) => handleLanguageChange(value)}
+          >
+            <SelectTrigger
+              aria-label={t('Select language')}
+              size={SETTINGS_SELECT_SIZE}
+              className={SETTINGS_SELECT_TRIGGER_CLASS}
+            >
+              <SelectValue>
+                {SUPPORTED_LANGUAGES.find((option) => option.value === languagePreference)?.label ??
+                  languagePreference}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {SUPPORTED_LANGUAGES.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {t(option.label)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsStackedField>
+
         {shouldShowTimeFormat && (
           <SettingsStackedField
-            label={'Time Format'}
+            label={t('Time Format')}
             settingsItem="appearance.time-format"
           >
             <Select
@@ -52,7 +97,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
               }
             >
               <SelectTrigger
-                aria-label={'Select time format'}
+                aria-label={t('Select time format')}
                 size={SETTINGS_SELECT_SIZE}
                 className={SETTINGS_SELECT_TRIGGER_CLASS}
               >
@@ -61,7 +106,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
               <SelectContent>
                 {TIME_FORMAT_OPTIONS.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
-                    {option.label}
+                    {t(option.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -71,7 +116,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
 
         {shouldShowWeekStart && (
           <SettingsStackedField
-            label={'Week Starts On'}
+            label={t('Week Starts On')}
             settingsItem="appearance.week-start"
           >
             <Select
@@ -81,7 +126,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
               }
             >
               <SelectTrigger
-                aria-label={'Select week start'}
+                aria-label={t('Select week start')}
                 size={SETTINGS_SELECT_SIZE}
                 className={SETTINGS_SELECT_TRIGGER_CLASS}
               >
@@ -90,7 +135,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
               <SelectContent>
                 {WEEK_START_OPTIONS.map((option) => (
                   <SelectItem key={option.id} value={option.id}>
-                    {option.label}
+                    {t(option.label)}
                   </SelectItem>
                 ))}
               </SelectContent>

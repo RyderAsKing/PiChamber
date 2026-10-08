@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 import type { Snippet } from "@/types/snippet";
@@ -16,16 +17,17 @@ export const SnippetCard: React.FC<SnippetCardProps> = ({
   onSelect,
   showSourcePill = true,
 }) => {
+  const { t } = useTranslation();
   const sourceLabel =
     snippet.source === "project"
-      ? "Project"
+      ? t("Project")
       : snippet.source === "global"
-        ? "Global"
+        ? t("Global")
         : snippet.source;
   const description =
     snippet.description?.trim() ||
     snippet.content.replace(/\s+/g, " ").trim().slice(0, 140) ||
-    "No description";
+    t("No description");
   const isPreviewTruncated =
     description.length >= 140 ||
     ((snippet.description?.trim()?.length ?? 0) === 0 &&
@@ -35,7 +37,7 @@ export const SnippetCard: React.FC<SnippetCardProps> = ({
     <button
       type="button"
       onClick={() => onSelect(snippet.id)}
-      aria-label={`${snippet.name} snippet, ${sourceLabel}`}
+      aria-label={t('{{name}} snippet, {{source}}', { name: snippet.name, source: sourceLabel })}
       className={cn(
         "group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left",
         "border-border/60 hover:bg-interactive-hover hover:border-border",

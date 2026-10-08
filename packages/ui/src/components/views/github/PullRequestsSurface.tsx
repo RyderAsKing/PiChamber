@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { GitHubPullRequestSummary } from '@/lib/api/types';
 import { GitHubSurfaceShell } from './GitHubSurfaceShell';
 import { GitHubUnavailableState } from './GitHubUnavailableState';
@@ -50,11 +51,12 @@ export type PullRequestsSurfaceProps = {
 };
 
 export const PullRequestsSurface: React.FC<PullRequestsSurfaceProps> = ({ hideFilesTab = false, headerActionsSlot = null, headerActionsPresentation = 'drawer' }) => {
+  const { t } = useTranslation();
   const directory = useEffectiveDirectory() ?? '';
   if (!directory) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center">
-        <p className="typography-ui text-muted-foreground">Open a project to browse pull requests.</p>
+        <p className="typography-ui text-muted-foreground">{t('Open a project to browse pull requests.')}</p>
       </div>
     );
   }
@@ -112,6 +114,7 @@ const PullsContent: React.FC<{
   headerActionsSlot?: HTMLElement | null;
   headerActionsPresentation?: GitHubHeaderActionsPresentation;
 }> = ({ directory, repo, github, refreshing, setRefreshing, loadingMore, setLoadingMore, refreshRef, hideFilesTab, headerActionsSlot = null, headerActionsPresentation = 'drawer' }) => {
+  const { t } = useTranslation();
   const ensureCollectionsFresh = useGitHubPullRequestsStore((state) => state.ensureCollectionsFresh);
   const searchRemote = useGitHubPullRequestsStore((state) => state.searchRemote);
   const loadMoreRemote = useGitHubPullRequestsStore((state) => state.loadMoreRemote);
@@ -234,10 +237,10 @@ const PullsContent: React.FC<{
   });
   const incompleteSummary = React.useMemo(() => {
     if (complete || !hasRelevantData || !filterActive) return null;
-    const match = items.length === 1 ? '1 match' : `${items.length} matches`;
-    const loaded = loadedCount === 1 ? '1 most recent loaded pull request' : `${loadedCount} most recent loaded pull requests`;
-    return `Showing ${match} from the ${loaded}`;
-  }, [complete, hasRelevantData, filterActive, items.length, loadedCount]);
+    const match = items.length === 1 ? t('1 match') : t('{{count}} matches', { count: items.length });
+    const loaded = loadedCount === 1 ? t('1 most recent loaded pull request') : t('{{count}} most recent loaded pull requests', { count: loadedCount });
+    return t('Showing {{match}} from the {{loaded}}', { match, loaded });
+  }, [complete, hasRelevantData, filterActive, items.length, loadedCount, t]);
 
   const handleRefresh = React.useCallback(() => {
     if (!github) return;

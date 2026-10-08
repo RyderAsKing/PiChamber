@@ -2,6 +2,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { isPiThinkingLevel } from '@/lib/pi/thinking';
 import { sanitizeFilename } from '@/lib/pi/attachments';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 import type { AttachedFile } from './session-ui-types';
 
 export function committedSessionSelection(sessionId: string) {
@@ -56,7 +57,7 @@ export async function routeMessage(params: {
       : 'prompt';
   const runtimeKey = params.runtimeKey ?? getRuntimeKey();
   const assertRuntime = () => {
-    if (runtimeKey !== getRuntimeKey()) throw new Error('Runtime changed before sending message.');
+    if (runtimeKey !== getRuntimeKey()) throw new Error(i18n.t('Runtime changed before sending message.'));
   };
   assertRuntime();
   const sessionStore = getPiSessionStore();
@@ -103,10 +104,10 @@ export async function routeMessage(params: {
       outgoingFiles.map(async (file) => {
         const state = file.uploadState;
         if (state?.status === 'preparing' || state?.status === 'uploading') {
-          throw new Error('Attachments are still uploading.');
+          throw new Error(i18n.t('Attachments are still uploading.'));
         }
         if (state?.status === 'failed') {
-          throw new Error('Retry or remove failed attachments.');
+          throw new Error(i18n.t('Retry or remove failed attachments.'));
         }
         if (state?.status === 'ready' && state.expiresAt > Date.now()) {
           return { id: state.attachmentId };
@@ -123,7 +124,7 @@ export async function routeMessage(params: {
           return { id: attachment.id };
         }
         throw new Error(
-          'Attachment data is unavailable. Remove the attachment and add it again.'
+          i18n.t('Attachment data is unavailable. Remove the attachment and add it again.')
         );
       })
     );

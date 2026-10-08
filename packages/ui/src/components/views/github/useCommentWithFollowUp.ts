@@ -1,4 +1,5 @@
 import React from 'react';
+import i18n from '@/i18n';
 import { toast } from '@/components/ui';
 
 export type CommentPostResult = {
@@ -31,13 +32,13 @@ const postCommentThenFollowUp = async <TFollowUp extends string>(options: {
   if (!posted.ok) {
     const message = posted.error?.kind === 'failed' && posted.error.message
       ? posted.error.message
-      : 'Failed to post comment';
+      : i18n.t('Failed to post comment');
     notify('error', message);
     throw new Error(message);
   }
   options.afterPost();
   if (options.action === 'comment') {
-    notify('success', 'Comment posted');
+    notify('success', i18n.t('Comment posted'));
     return;
   }
   const acted = await options.runFollowUp(options.action);
@@ -45,7 +46,7 @@ const postCommentThenFollowUp = async <TFollowUp extends string>(options: {
     const verb = options.verbs[options.action];
     const message = acted.error?.kind === 'failed' && acted.error.message
       ? acted.error.message
-      : `Failed to ${verb}`;
+      : i18n.t('Failed to {{verb}}', { verb });
     notify('error', message);
     throw new Error(message);
   }
@@ -85,7 +86,7 @@ export const useCommentWithFollowUp = <TFollowUp extends string>(options: {
         afterPost: current.afterPost,
       });
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Failed to post comment');
+      setError(submitError instanceof Error ? submitError.message : i18n.t('Failed to post comment'));
     } finally {
       setBusy(null);
     }

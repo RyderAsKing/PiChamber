@@ -10,6 +10,7 @@ import type {
 } from '@/sync/session-ui-store';
 import type { AttachedFile } from '@/stores/types/sessionTypes';
 import { deriveWorktreeName } from '@/components/chat/composer/state/worktreeName';
+import i18n from '@/i18n';
 
 const BOOTSTRAP_POLL_MS = 500;
 
@@ -263,17 +264,17 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       void refreshProject(intent.projectRoot, git, { force: true }).catch(() => undefined);
     };
 
-    setEntryState(key, intent, { phase: 'naming', label: 'Naming worktree...' });
+    setEntryState(key, intent, { phase: 'naming', label: i18n.t('Naming worktree...') });
 
     if (!git?.createGitWorktree || !git.getGitWorktreeBootstrapStatus) {
-      const error = 'Git worktrees are unavailable for this runtime.';
-      setEntryFailed(key, intent, { phase: 'failed', label: 'Worktree creation failed', error }, failedSendSnapshot);
+      const error = i18n.t('Git worktrees are unavailable for this runtime.');
+      setEntryFailed(key, intent, { phase: 'failed', label: i18n.t('Worktree creation failed'), error }, failedSendSnapshot);
       throw new Error(error);
     }
 
     if (intent.runtimeKey !== getRuntimeKey()) {
-      const error = 'The runtime changed. Select New worktree again.';
-      setEntryFailed(key, intent, { phase: 'failed', label: 'Worktree creation stopped', error }, failedSendSnapshot);
+      const error = i18n.t('The runtime changed. Select New worktree again.');
+      setEntryFailed(key, intent, { phase: 'failed', label: i18n.t('Worktree creation stopped'), error }, failedSendSnapshot);
       throw new Error(error);
     }
 
@@ -292,13 +293,13 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
         const validation = await git.validateGitWorktree(intent.sourceDirectory, createInput);
         if (!validation.ok) {
           throw new Error(
-            validation.errors.map((error) => error.message).filter(Boolean).join('\n') || 'The worktree request is invalid.',
+            validation.errors.map((error) => error.message).filter(Boolean).join('\n') || i18n.t('The worktree request is invalid.'),
           );
         }
       }
       if (isStale()) throw new Error(WORKTREE_CREATION_SUPERSEDED);
 
-      setEntryState(key, intent, { phase: 'creating', label: 'Creating worktree...' });
+      setEntryState(key, intent, { phase: 'creating', label: i18n.t('Creating worktree...') });
       const created = await git.createGitWorktree(intent.sourceDirectory, createInput);
       const receipt = toReceipt(intent, created);
       if (isStale()) return receipt;
@@ -312,15 +313,15 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
           key,
           intent,
           bootstrap.phase === 'directory-created'
-            ? { phase: 'checking-out', label: 'Checking out files...' }
-            : { phase: 'setting-up', label: 'Setting up project...' },
+            ? { phase: 'checking-out', label: i18n.t('Checking out files...') }
+            : { phase: 'setting-up', label: i18n.t('Setting up project...') },
         );
         await delay(pollIntervalMs);
         if (isStale()) return receipt;
         bootstrap = await git.getGitWorktreeBootstrapStatus(created.path);
       }
       if (bootstrap.status === 'failed' || bootstrap.phase !== 'setup-ready') {
-        throw new Error(bootstrap.error || 'Worktree setup failed.');
+        throw new Error(bootstrap.error || i18n.t('Worktree setup failed.'));
       }
 
       try {
@@ -335,12 +336,12 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
       return receipt;
     } catch (error) {
       if (isStale()) throw error;
-      const message = error instanceof Error ? error.message : 'Failed to create the worktree.';
+      const message = error instanceof Error ? error.message : i18n.t('Failed to create the worktree.');
       if (message === WORKTREE_CREATION_SUPERSEDED) throw error;
       refreshIfCurrentRuntime();
       setEntryFailed(key, intent, {
         phase: 'failed',
-        label: 'Worktree creation failed',
+        label: i18n.t('Worktree creation failed'),
         error: message,
       }, failedSendSnapshot);
       throw error;
@@ -413,7 +414,7 @@ export const useWorktreeCreationStore = create<WorktreeCreationStore>()((set, ge
         const entries = new Map(state.entries);
         entries.set(key, {
           ...live,
-          state: { phase: 'failed', label: 'Prompt failed to send', error },
+          state: { phase: 'failed', label: i18n.t('Prompt failed to send'), error },
           updatedAt: Date.now(),
         });
         transitioned = true;

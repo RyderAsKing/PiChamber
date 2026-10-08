@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { useProviderLogo } from '@/hooks/useProviderLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
@@ -67,6 +68,7 @@ export function WorkingPlaceholder({
   providerId,
   startedAt = null,
 }: WorkingPlaceholderProps) {
+  const { t } = useTranslation();
   const { src: providerLogoSrc, onError: handleProviderLogoError, hasLogo: hasProviderLogo } = useProviderLogo(providerId ?? null);
   const { currentTheme } = useThemeSystem();
   const isDarkTheme = currentTheme?.metadata.variant === 'dark';
@@ -102,11 +104,11 @@ export function WorkingPlaceholder({
   // Retry state: show countdown and attempt info
   if (retryInfo) {
     displayedStatusRef.current = null;
-    const attemptLabel = retryInfo.attempt && retryInfo.attempt > 1 ? ` (attempt ${retryInfo.attempt})` : '';
+    const attemptLabel = retryInfo.attempt && retryInfo.attempt > 1 ? ` (${t('attempt {{n}}', { n: retryInfo.attempt })})` : '';
     const countdownLabel = retryCountdown !== null && retryCountdown > 0
-      ? ` in ${formatRetryCountdown(retryCountdown)}`
+      ? ` ${t('in {{duration}}', { duration: formatRetryCountdown(retryCountdown) })}`
       : '';
-    const retryText = `Retrying${countdownLabel}${attemptLabel}`;
+    const retryText = `${t('Retrying')}${countdownLabel}${attemptLabel}`;
 
     return (
       <div
@@ -121,7 +123,7 @@ export function WorkingPlaceholder({
     );
   }
 
-  const incomingText = isWaitingForPermission ? 'waiting for permission' : statusText;
+  const incomingText = isWaitingForPermission ? t('waiting for permission') : statusText;
   const incomingPermission = Boolean(isWaitingForPermission);
   const incomingGeneric = Boolean(isGenericStatus) && !incomingPermission;
 
@@ -149,9 +151,10 @@ export function WorkingPlaceholder({
   }
 
   const trimmedModelName = typeof modelName === 'string' ? modelName.trim() : '';
+  const statusDisplay = displayedStatus.text === DEFAULT_WORKING_STATUS ? t('thinking') : displayedStatus.text;
   const label = trimmedModelName.length > 0
-    ? `${trimmedModelName} is ${displayedStatus.text}`
-    : displayedStatus.text.charAt(0).toUpperCase() + displayedStatus.text.slice(1);
+    ? t('{{model}} is {{status}}', { model: trimmedModelName, status: statusDisplay })
+    : statusDisplay.charAt(0).toUpperCase() + statusDisplay.slice(1);
 
   return (
     <div

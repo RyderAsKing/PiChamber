@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { useThemeSystem } from '@/contexts/useThemeSystem';
 
@@ -7,6 +8,7 @@ interface ChatEmptyStateProps {
 }
 
 const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({ isNewSession = false }) => {
+    const { t } = useTranslation();
     const { currentTheme } = useThemeSystem();
 
     const textColor = currentTheme?.colors?.surface?.mutedForeground || 'var(--muted-foreground)';
@@ -20,7 +22,7 @@ const ChatEmptyState: React.FC<ChatEmptyStateProps> = ({ isNewSession = false })
                 className={isNewSession ? "opacity-20" : undefined}
             />
             {isNewSession ? (
-                <span className="text-body-md" style={{ color: textColor }}>{"Start a new chat"}</span>
+                <span className="text-body-md" style={{ color: textColor }}>{t("Start a new chat")}</span>
             ) : null}
         </div>
     );

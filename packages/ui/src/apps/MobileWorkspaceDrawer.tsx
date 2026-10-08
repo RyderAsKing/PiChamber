@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { motion } from 'motion/react';
 
@@ -70,6 +71,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
    */
   githubTabsAvailable?: boolean;
 }) {
+  const { t } = useTranslation();
   const rootRef = React.useRef<HTMLElement | null>(null);
   const drawerRefInternal = React.useRef<HTMLElement>(null);
   const scrimRefInternal = React.useRef<HTMLButtonElement>(null);
@@ -185,7 +187,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
     : { type: 'spring' as const, stiffness: 520, damping: 40, mass: 0.8 };
 
   const tabs = (
-    <div className="flex min-w-0 flex-1 items-center gap-0.5 py-1 overflow-x-auto overflow-y-hidden scrollbar-none" role="tablist" aria-label="Workspace" data-no-drawer-swipe="true">
+    <div className="flex min-w-0 flex-1 items-center gap-0.5 py-1 overflow-x-auto overflow-y-hidden scrollbar-none" role="tablist" aria-label={t("Workspace")} data-no-drawer-swipe="true">
       {visibleTabs.map((item) => {
         const isActive = tab === item.id;
         return (
@@ -196,7 +198,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
             type="button"
             role="tab"
             aria-selected={isActive}
-            aria-label={item.label}
+            aria-label={t(item.label)}
             onClick={() => onTabChange(item.id)}
             className={cn(
               'relative flex min-h-[44px] items-center justify-center gap-1 rounded-lg py-2 typography-ui-label transition-colors',
@@ -228,7 +230,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
                 transition={tabTransition}
                 className="relative truncate"
               >
-                {item.label}
+                {t(item.label)}
               </motion.span>
             ) : null}
           </motion.button>
@@ -248,7 +250,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
         <button
           type="button"
           onClick={handleClose}
-          aria-label="Close workspace panel"
+          aria-label={t("Close workspace panel")}
           className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
         >
           <Icon name="close" className="size-5" />
@@ -300,7 +302,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
             <div className="flex h-full min-h-0 flex-col bg-background">
               <MobileSurfaceHeader
                 icon={CONTEXT_SURFACES.find((surface) => surface.id === 'pull-requests')?.icon}
-                title={CONTEXT_SURFACES.find((surface) => surface.id === 'pull-requests')?.label ?? 'Pull requests'}
+                title={t(CONTEXT_SURFACES.find((surface) => surface.id === 'pull-requests')?.label ?? 'Pull requests')}
                 actions={
                   <div
                     ref={(node) => {
@@ -325,7 +327,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
             <div className="flex h-full min-h-0 flex-col bg-background">
               <MobileSurfaceHeader
                 icon={CONTEXT_SURFACES.find((surface) => surface.id === 'issues')?.icon}
-                title={CONTEXT_SURFACES.find((surface) => surface.id === 'issues')?.label ?? 'Issues'}
+                title={t(CONTEXT_SURFACES.find((surface) => surface.id === 'issues')?.label ?? 'Issues')}
                 actions={
                   <div
                     ref={(node) => {
@@ -368,7 +370,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
         ref={scrimRef as React.RefObject<HTMLButtonElement>}
         type="button"
         className="absolute inset-0 cursor-default bg-black/70"
-        aria-label="Close workspace panel"
+        aria-label={t("Close workspace panel")}
         onClick={handleClose}
         tabIndex={open ? 0 : -1}
         style={{
@@ -381,7 +383,7 @@ export const MobileWorkspaceDrawer = React.memo(function MobileWorkspaceDrawer({
         ref={drawerRef as unknown as React.RefObject<HTMLElement>}
         role="dialog"
         aria-modal="true"
-        aria-label={"Open workspace panel"}
+        aria-label={t("Open workspace panel")}
         className="oc-keyboard-inset-surface absolute inset-y-0 right-0 z-10 flex h-full w-full flex-col bg-sidebar"
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',

@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { NumberInput } from '@/components/ui/number-input';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
@@ -24,6 +25,7 @@ const RETENTION_ACTION_OPTIONS: Array<{ value: 'archive' | 'delete'; label: stri
 
 export const SessionRetentionSettings: React.FC = () => {
     const autoDeleteEnabled = useUIStore((state) => state.autoDeleteEnabled);
+    const { t } = useTranslation();
   const autoDeleteAfterDays = useUIStore((state) => state.autoDeleteAfterDays);
   const sessionRetentionAction = useUIStore((state) => state.sessionRetentionAction);
   const setAutoDeleteEnabled = useUIStore((state) => state.setAutoDeleteEnabled);
@@ -39,44 +41,44 @@ export const SessionRetentionSettings: React.FC = () => {
     if (result.completedIds.length === 0 && result.failedIds.length === 0) {
       toast.message(
         result.action === 'archive'
-          ? "No sessions eligible for archiving"
-          : "No sessions eligible for deletion"
+          ? t('No sessions eligible for archiving')
+          : t('No sessions eligible for deletion')
       );
       return;
     }
     if (result.completedIds.length > 0) {
       toast.success(
         result.action === 'archive'
-          ? `Archived ${result.completedIds.length} session(s)`
-          : `Deleted ${result.completedIds.length} session(s)`
+          ? t('Archived {{count}} session(s)', { count: result.completedIds.length })
+          : t('Deleted {{count}} session(s)', { count: result.completedIds.length })
       );
     }
     if (result.failedIds.length > 0) {
       toast.error(
         result.action === 'archive'
-          ? `Failed to archive ${result.failedIds.length} session(s)`
-          : `Failed to delete ${result.failedIds.length} session(s)`
+          ? t('Failed to archive {{count}} session(s)', { count: result.failedIds.length })
+          : t('Failed to delete {{count}} session(s)', { count: result.failedIds.length })
       );
     }
-  }, [runCleanup]);
+  }, [runCleanup, t]);
 
   return (
     <SettingsSection
-      title={"Session Retention"}
-      info={"Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions."}
+      title={t('Session Retention')}
+      info={t('Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions.')}
     >
       <SettingsCheckboxRow
         settingsItem="sessions.auto-cleanup"
         checked={autoDeleteEnabled}
         onChange={setAutoDeleteEnabled}
-        label={"Enable Auto-Cleanup"}
-        ariaLabel={"Enable auto-cleanup"}
+        label={t('Enable Auto-Cleanup')}
+        ariaLabel={t('Enable auto-cleanup')}
       />
 
       <SettingsInset className="space-y-0">
         <SettingsFieldRow
           settingsItem="sessions.retention-period"
-          label={"Retention Period"}
+          label={t('Retention Period')}
         >
           <NumberInput
             value={autoDeleteAfterDays}
@@ -84,10 +86,10 @@ export const SessionRetentionSettings: React.FC = () => {
             min={MIN_DAYS}
             max={MAX_DAYS}
             step={1}
-            aria-label={"Retention period in days"}
+            aria-label={t('Retention period in days')}
             className="w-20 tabular-nums"
           />
-          <span className="typography-ui-label text-muted-foreground">{"days"}</span>
+          <span className="typography-ui-label text-muted-foreground">{t('days')}</span>
           <Button
             size="sm"
             type="button"
@@ -95,8 +97,8 @@ export const SessionRetentionSettings: React.FC = () => {
             onClick={() => setAutoDeleteAfterDays(DEFAULT_RETENTION_DAYS)}
             disabled={autoDeleteAfterDays === DEFAULT_RETENTION_DAYS}
             className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={"Reset retention period"}
-            title={"Reset"}
+            aria-label={t('Reset retention period')}
+            title={t('Reset')}
           >
             <Icon name="restart" className="h-3.5 w-3.5" />
           </Button>
@@ -104,14 +106,14 @@ export const SessionRetentionSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.retention-action"
-          label={"When sessions expire"}
+          label={t('When sessions expire')}
         >
           <SettingsChipGroup
             value={sessionRetentionAction}
             onChange={setSessionRetentionAction}
             options={RETENTION_ACTION_OPTIONS.map((option) => ({
               value: option.value,
-              label: option.label,
+              label: t(option.label),
             }))}
           />
         </SettingsFieldRow>
@@ -119,7 +121,7 @@ export const SessionRetentionSettings: React.FC = () => {
 
       <div className="mt-1 py-1.5 space-y-1">
         <SettingsFieldRow
-          label={"Manual Cleanup"}
+          label={t('Manual Cleanup')}
         >
           <Button
             type="button"
@@ -129,13 +131,13 @@ export const SessionRetentionSettings: React.FC = () => {
             disabled={isRunning}
             className="!font-normal"
           >
-            {isRunning ? "Cleaning up..." : "Run cleanup now"}
+            {isRunning ? t('Cleaning up...') : t('Run cleanup now')}
           </Button>
         </SettingsFieldRow>
         <p className="typography-meta text-muted-foreground">
           {action === 'archive'
-            ? `Eligible for archiving right now: ${pendingCount}`
-            : `Eligible for deletion right now: ${pendingCount}`}
+            ? t('Eligible for archiving right now: {{count}}', { count: pendingCount })
+            : t('Eligible for deletion right now: {{count}}', { count: pendingCount })}
         </p>
       </div>
     </SettingsSection>

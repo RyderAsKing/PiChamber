@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
 
@@ -26,7 +27,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
   onRename,
   showEditButton = true,
 }) => {
-  
+  const { t } = useTranslation();
   const [isEditing, setIsEditing] = React.useState(false);
   const [editBranchName, setEditBranchName] = React.useState(currentBranch || '');
   const [isRenaming, setIsRenaming] = React.useState(false);
@@ -91,15 +92,15 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
             value={editBranchName}
             onChange={(e) => setEditBranchName(e.target.value)}
             className="flex-1 min-w-0 bg-transparent typography-ui-label outline-none placeholder:text-muted-foreground"
-            placeholder={"Branch name"}
+            placeholder={t("Branch name")}
             onKeyDown={handleKeyDown}
             autoFocus
           />
           <button
             type="submit"
             disabled={isRenaming}
-            aria-label={isRenaming ? "Saving branch name" : "Save branch name"}
-            title={isRenaming ? "Saving branch name" : "Save branch name"}
+            aria-label={isRenaming ? t("Saving branch name") : t("Save branch name")}
+            title={isRenaming ? t("Saving branch name") : t("Save branch name")}
             className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             {isRenaming ? (
@@ -112,8 +113,8 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
             type="button"
             onClick={handleCancelEdit}
             disabled={isRenaming}
-            aria-label={"Cancel branch rename"}
-            title={"Cancel branch rename"}
+            aria-label={t("Cancel branch rename")}
+            title={t("Cancel branch rename")}
             className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             <Icon name="close" className="size-4" />
@@ -128,7 +129,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
       <Icon name="git-branch" className="size-4 text-primary shrink-0" />
       <div className="inline-flex min-w-0 max-w-full items-center gap-1">
         <span className="truncate typography-ui-label font-normal text-foreground">
-          {currentBranch || "Detached HEAD"}
+          {currentBranch || t("Detached HEAD")}
         </span>
         {showEditButton && onRename && currentBranch && (
           <Button
@@ -136,7 +137,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
             size="sm"
             className="h-7 w-7 p-0 shrink-0"
             onClick={handleStartEdit}
-            title={"Rename branch"}
+            title={t("Rename branch")}
           >
             <Icon name="edit" className="size-4" />
           </Button>

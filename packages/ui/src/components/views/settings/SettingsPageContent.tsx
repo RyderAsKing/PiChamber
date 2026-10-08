@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
@@ -21,12 +22,13 @@ import {
 import { isPageAvailable } from './settingsViewHelpers';
 
 export function SettingsUnavailableView(): React.ReactNode {
+  const { t } = useTranslation();
   return (
     <div className="flex h-full items-center justify-center px-6">
       <div className="max-w-md text-center">
-        <div className={SETTINGS_SECTION_TITLE_CLASS}>{"Not available"}</div>
+        <div className={SETTINGS_SECTION_TITLE_CLASS}>{t("Not available")}</div>
         <p className="typography-ui text-muted-foreground mt-1">
-          {"This settings page is not available in this runtime."}
+          {t("This settings page is not available in this runtime.")}
         </p>
       </div>
     </div>
@@ -46,6 +48,7 @@ export function SettingsPageContent({
   runtimeCtx,
   openChamberSectionBySlug,
 }: SettingsPageContentProps): React.ReactNode {
+  const { t } = useTranslation();
   const meta = getSettingsPageMeta(slug);
   if (meta && !isPageAvailable(meta, runtimeCtx)) {
     return <SettingsUnavailableView />;
@@ -64,7 +67,7 @@ export function SettingsPageContent({
       return <ProvidersPage />;
     case 'about':
       return (
-        <SettingsPageLayout title={isMobile ? undefined : "About"}>
+        <SettingsPageLayout title={isMobile ? undefined : t("About")}>
           <AboutSettings />
         </SettingsPageLayout>
       );
@@ -76,7 +79,7 @@ export function SettingsPageContent({
       return <DictationSettings />;
     case 'git':
       return (
-        <SettingsPageLayout title={isMobile ? undefined : "Git"}>
+        <SettingsPageLayout title={isMobile ? undefined : t("Git")}>
           <GitSettings />
         </SettingsPageLayout>
       );

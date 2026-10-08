@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useUIStore } from '@/stores/useUIStore';
@@ -26,6 +27,7 @@ interface ExtensionContentCounts {
 }
 
 export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
+  const { t } = useTranslation();
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
   const activeSessionId = sessionId ?? selectedSessionId;
   const { isMobile } = useDeviceInfo();
@@ -63,7 +65,7 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
   // The rail chip counts Pi-native `ctx.ui.setWidget` content only.
   const contentSummary = widgetsCount === 0
     ? ''
-    : widgetsCount === 1 ? '1 widget' : `${widgetsCount} widgets`;
+    : widgetsCount === 1 ? t('1 widget') : t('{{count}} widgets', { count: widgetsCount });
 
   const handleOpenExtensions = React.useCallback(() => {
     if (isMobile) {
@@ -105,7 +107,7 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
             variant="ghost"
             size="xs"
             onClick={handleOpenExtensions}
-            aria-label="Open extensions panel"
+            aria-label={t('Open extensions panel')}
             aria-expanded={isMobile ? mobileExpanded : undefined}
             className="shrink-0 gap-1 rounded-full border border-border/50 bg-muted/40 px-2 py-0.5 typography-micro font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground active:bg-interactive-active"
           >
@@ -150,6 +152,7 @@ const markExtensionNoticeShown = (id: string): void => {
 
 /** Fire-and-forget ctx.ui.notify calls surface as transient toasts. */
 export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
+  const { t } = useTranslation();
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
   const activeSessionId = sessionId ?? selectedSessionId;
 
@@ -166,12 +169,12 @@ export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({
     for (const notice of notices) {
       if (shownExtensionNoticeIds.has(notice.id)) continue;
       markExtensionNoticeShown(notice.id);
-      const message = stripAnsi(notice.message || 'Extension notification');
+      const message = stripAnsi(notice.message || t('Extension notification'));
       if (notice.level === 'error') toast.error(message);
       else if (notice.level === 'warning') toast.warning(message);
       else toast.info(message);
     }
-  }, [notices]);
+  }, [notices, t]);
 
   return null;
 };

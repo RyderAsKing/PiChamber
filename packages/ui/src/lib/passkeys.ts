@@ -5,6 +5,7 @@ import {
   WebAuthnError,
 } from '@simplewebauthn/browser';
 import { runtimeFetch } from './runtime-fetch';
+import i18n from '@/i18n';
 
 const PASSKEY_AUTH_OPTIONS_ENDPOINT = '/auth/passkey/authenticate/options';
 const PASSKEY_AUTH_VERIFY_ENDPOINT = '/auth/passkey/authenticate/verify';
@@ -77,11 +78,11 @@ export const cancelPasskeyCeremony = () => {
 
 export const getPasskeySupportState = () => {
   if (typeof window === 'undefined') {
-    return { supported: false, reason: 'Passkeys are unavailable outside the browser.' };
+    return { supported: false, reason: i18n.t('Passkeys are unavailable outside the browser.') };
   }
 
   if (!window.isSecureContext) {
-    return { supported: false, reason: 'Passkeys require HTTPS or localhost.' };
+    return { supported: false, reason: i18n.t('Passkeys require HTTPS or localhost.') };
   }
 
   return { supported: true, reason: '' };
@@ -99,7 +100,7 @@ export const registerCurrentDevicePasskey = async () => {
 
   const optionsResponse = await postJson(PASSKEY_REGISTER_OPTIONS_ENDPOINT, { label });
   if (!optionsResponse.ok) {
-    throw new Error(await getPasskeyErrorMessage(optionsResponse, 'Could not start passkey setup.'));
+    throw new Error(await getPasskeyErrorMessage(optionsResponse, i18n.t('Could not start passkey setup.')));
   }
 
   const { requestId, optionsJSON } = await optionsResponse.json();
@@ -110,7 +111,7 @@ export const registerCurrentDevicePasskey = async () => {
   });
 
   if (!verifyResponse.ok) {
-    throw new Error(await getPasskeyErrorMessage(verifyResponse, 'Could not finish passkey setup.'));
+    throw new Error(await getPasskeyErrorMessage(verifyResponse, i18n.t('Could not finish passkey setup.')));
   }
 
   return verifyResponse.json().catch(() => null);
@@ -124,7 +125,7 @@ export const authenticateWithPasskey = async (trustDevice: boolean, options: Pas
 
   const optionsResponse = await postJson(PASSKEY_AUTH_OPTIONS_ENDPOINT);
   if (!optionsResponse.ok) {
-    throw new Error(await getPasskeyErrorMessage(optionsResponse, 'Passkey sign-in is not available right now.'));
+    throw new Error(await getPasskeyErrorMessage(optionsResponse, i18n.t('Passkey sign-in is not available right now.')));
   }
 
   const { requestId, optionsJSON } = await optionsResponse.json();
@@ -140,7 +141,7 @@ export const authenticateWithPasskey = async (trustDevice: boolean, options: Pas
   });
 
   if (!verifyResponse.ok) {
-    throw new Error(await getPasskeyErrorMessage(verifyResponse, 'Passkey sign-in failed.'));
+    throw new Error(await getPasskeyErrorMessage(verifyResponse, i18n.t('Passkey sign-in failed.')));
   }
 
   return verifyResponse.json().catch(() => null);
@@ -178,7 +179,7 @@ export const fetchStoredPasskeys = async (): Promise<StoredPasskey[]> => {
   });
 
   if (!response.ok) {
-    throw new Error(await getPasskeyErrorMessage(response, 'Could not load passkeys.'));
+    throw new Error(await getPasskeyErrorMessage(response, i18n.t('Could not load passkeys.')));
   }
 
   const payload = await response.json().catch(() => null);
@@ -195,7 +196,7 @@ export const revokeStoredPasskey = async (id: string) => {
   });
 
   if (!response.ok) {
-    throw new Error(await getPasskeyErrorMessage(response, 'Could not remove passkey.'));
+    throw new Error(await getPasskeyErrorMessage(response, i18n.t('Could not remove passkey.')));
   }
 
   return response.json().catch(() => null);
@@ -205,7 +206,7 @@ export const resetAllAuth = async () => {
   const response = await postJson(AUTH_RESET_ENDPOINT);
 
   if (!response.ok) {
-    throw new Error(await getPasskeyErrorMessage(response, 'Could not clear saved authentication.'));
+    throw new Error(await getPasskeyErrorMessage(response, i18n.t('Could not clear saved authentication.')));
   }
 
   return response.json().catch(() => null);

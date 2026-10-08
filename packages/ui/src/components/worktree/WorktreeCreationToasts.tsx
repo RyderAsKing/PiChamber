@@ -1,10 +1,12 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui/toast';
 import { shouldNotifyWorktreeReady } from '@/components/chat/composer/submit/worktreeFailedSend';
 import { useWorktreeCreationStore } from '@/stores/useWorktreeCreationStore';
 
 export const WorktreeCreationToasts: React.FC = () => {
+  const { t } = useTranslation();
   const entries = useWorktreeCreationStore((state) => state.entries);
 
   React.useEffect(() => {
@@ -15,12 +17,12 @@ export const WorktreeCreationToasts: React.FC = () => {
       // the prompt-failure toast with Restore draft available.
       if (!shouldNotifyWorktreeReady(entry) || !entry.receipt) continue;
       useWorktreeCreationStore.getState().markNotificationSent(entry.key);
-      toast.success('Worktree ready', {
+      toast.success(t('Worktree ready'), {
         id: `worktree-ready:${entry.key}`,
         description: entry.receipt.branch || entry.receipt.path,
       });
     }
-  }, [entries]);
+  }, [entries, t]);
 
   return null;
 };

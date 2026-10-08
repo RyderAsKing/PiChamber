@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { SETTINGS_CALLOUT_TITLE_CLASS } from '@/components/sections/shared/SettingsSection';
@@ -16,6 +17,7 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
   records,
   timeFormatPreference,
 }) => {
+  const { t } = useTranslation();
   if (records.length === 0) {
     return null;
   }
@@ -25,7 +27,7 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
       <div className="rounded-lg border border-[var(--status-info-border)] bg-[var(--status-info-background)]/30 p-3">
         <div className="mb-2 flex items-center gap-2">
           <Icon name="information" className="size-4 text-[var(--status-info)]" />
-          <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{'Redeemed access links'}</p>
+          <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{t('Redeemed access links')}</p>
         </div>
         <div className="space-y-1">
           {records.map((record) => {
@@ -44,10 +46,10 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
                   : 'text-[var(--status-success)]'
               : 'text-muted-foreground/50';
             const modeLabel = isQuick
-              ? 'QUICK'
+              ? t('QUICK')
               : isManagedRemote
-                ? 'REMOTE'
-                : 'LOCAL';
+                ? t('REMOTE')
+                : t('LOCAL');
 
             return (
               <div
@@ -67,14 +69,14 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
                   {modeLabel}
                 </span>
                 <span className="typography-meta text-muted-foreground/80">
-                  {`Redeemed ${formatAbsoluteTime(record.createdAt, timeFormatPreference)}`}
+                  {t('Redeemed {{time}}', { time: formatAbsoluteTime(record.createdAt, timeFormatPreference) })}
                 </span>
                 <span className="typography-meta text-foreground">
                   {record.isActive
-                    ? `Expires in ${record.remainingTextForSession}`
+                    ? t('Expires in {{remaining}}', { remaining: record.remainingTextForSession })
                     : record.inactiveLabel === 'Inactive'
-                      ? 'Inactive'
-                      : `Inactive (${record.inactiveLabel})`}
+                      ? t('Inactive')
+                      : t('Inactive ({{reason}})', { reason: t(record.inactiveLabel) })}
                 </span>
               </div>
             );

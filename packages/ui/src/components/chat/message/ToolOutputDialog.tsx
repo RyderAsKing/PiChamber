@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { File as PierreFile } from '@pierre/diffs/react';
 import { WorkerHighlightedCode } from '@/components/code/WorkerHighlightedCode';
@@ -33,6 +34,7 @@ interface ToolOutputDialogProps {
 const DIALOG_CODE_TAG_PROPS = { style: { background: 'transparent', backgroundColor: 'transparent', fontSize: 'inherit' } };
 
 const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange, isMobile }) => {
+    const { t } = useTranslation();
     const [diffViewMode, setDiffViewMode] = React.useState<DiffViewMode>('unified');
     const pierreThemeConfig = usePierreThemeConfig();
 
@@ -93,10 +95,10 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                 <div className="border-b border-border/20 p-4 -mx-3">
                                     <div className="typography-markdown font-medium text-muted-foreground mb-2 px-3">
                                         {meta.tool === 'bash'
-                                            ? 'Command:'
+                                            ? t('Command:')
                                             : meta.tool === 'task'
-                                                ? 'Task Details:'
-                                                : 'Input:'}
+                                                ? t('Task Details:')
+                                                : t('Input:')}
                                     </div>
                                     {meta.tool === 'bash' && getInputValue('command') ? (
                                         <div className="tool-input-surface bg-transparent rounded-xl border border-border/20 mx-3">
@@ -113,9 +115,9 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                             className="tool-input-surface bg-transparent rounded-xl border border-border/20 font-mono whitespace-pre-wrap text-foreground/90 mx-3"
                                             style={toolDisplayStyles.getPopupStyles()}
                                         >
-                                            {getInputValue('description') ? `Task: ${getInputValue('description')}\n` : ''}
-                                            {getInputValue('subagent_type') ? `Agent Type: ${getInputValue('subagent_type')}\n` : ''}
-                                            {`Instructions:\n${getInputValue('prompt')}`}
+                                            {getInputValue('description') ? `${t('Task: {{description}}', { description: getInputValue('description') })}\n` : ''}
+                                            {getInputValue('subagent_type') ? `${t('Agent Type: {{agentType}}', { agentType: getInputValue('subagent_type') })}\n` : ''}
+                                            {t('Instructions:\n{{prompt}}', { prompt: getInputValue('prompt') })}
                                         </div>
                                     ) : meta.tool === 'write' && getInputValue('content') ? (
                                         <div className="tool-input-surface bg-transparent rounded-xl border border-border/20 mx-3">
@@ -160,11 +162,11 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                 if (tool === 'todowrite' || tool === 'todoread') {
                                     return (
                                         renderTodoOutput(popup.content, {
-                                            total: "Total",
-                                            inProgress: "In Progress",
-                                            pending: "Pending",
-                                            completed: "Completed",
-                                            cancelled: "Cancelled",
+                                            total: t("Total"),
+                                            inProgress: t("In Progress"),
+                                            pending: t("Pending"),
+                                            completed: t("Completed"),
+                                            cancelled: t("Cancelled"),
                                         }) || (
                                             <WorkerHighlightedCode
                                                 language="json"
@@ -258,8 +260,8 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                         </div>
                     ) : (
                         <div className="p-8 text-muted-foreground typography-ui-header">
-                            <div className="mb-2">{"Command completed successfully"}</div>
-                            <div className="typography-meta">{"No output was produced"}</div>
+                            <div className="mb-2">{t("Command completed successfully")}</div>
+                            <div className="typography-meta">{t("No output was produced")}</div>
                         </div>
                     )}
                     </div>

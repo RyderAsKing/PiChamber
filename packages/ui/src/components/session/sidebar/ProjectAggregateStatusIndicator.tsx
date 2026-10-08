@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
@@ -14,6 +15,7 @@ export interface ProjectAggregateStatusIndicatorProps {
 export const ProjectAggregateStatusIndicator: React.FC<ProjectAggregateStatusIndicatorProps> = ({
   directories,
 }) => {
+  const { t } = useTranslation();
   const directorySet = React.useMemo(() => {
     const set = new Set<string>();
     directories.forEach((directory) => {
@@ -36,8 +38,8 @@ export const ProjectAggregateStatusIndicator: React.FC<ProjectAggregateStatusInd
     return (
       <span
         className="inline-flex items-center"
-        aria-label={'Session active'}
-        title={'Session active'}
+        aria-label={t('Session active')}
+        title={t('Session active')}
       >
         <AgentThinkingLoader
           variant="inline"

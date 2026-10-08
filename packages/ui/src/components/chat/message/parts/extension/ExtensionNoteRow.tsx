@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { AnsiText } from '@/components/chat/AnsiText';
 import { Icon } from '@/components/icon/Icon';
@@ -45,6 +46,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
     render,
     className,
 }) => {
+    const { t } = useTranslation();
     const [isDetailsOpen, setIsDetailsOpen] = React.useState(false);
     const [isRenderExpanded, setIsRenderExpanded] = React.useState(false);
     const [isRawOpen, setIsRawOpen] = React.useState(false);
@@ -68,7 +70,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
                 <Icon name="plug-2" className="size-3.5" aria-hidden="true" />
             </span>
             <span className={cn(TOOL_ROW_TITLE_CLASS, 'shrink-0')} style={TOOL_NORMAL_TITLE_STYLE}>
-                Extension
+                {t('Extension')}
             </span>
             <span
                 className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'min-w-0 truncate')}
@@ -87,7 +89,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
                     type="button"
                     onClick={() => setIsDetailsOpen((open) => !open)}
                     aria-expanded={isDetailsOpen}
-                    aria-label={isDetailsOpen ? `Hide ${typeLabel} details` : `Show ${typeLabel} details`}
+                    aria-label={isDetailsOpen ? t('Hide {{label}} details', { label: typeLabel }) : t('Show {{label}} details', { label: typeLabel })}
                     className="group/extension-note flex w-full min-w-0 items-center gap-x-1.5 py-1 pl-px pr-2 text-left"
                 >
                     {header}

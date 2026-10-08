@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { toast } from '@/components/ui';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useFileSystemAccess } from '@/hooks/useFileSystemAccess';
@@ -36,6 +37,8 @@ export function useDirectoryBrowser({
   addedProjectPaths: Set<string>;
   shouldSuppressAutoFocus: boolean;
 }) {
+  const { t } = useTranslation();
+
   const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const { canRequestAccess, startAccessing } = useFileSystemAccess();
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -234,8 +237,8 @@ export function useDirectoryBrowser({
     async (pickedPath: string) => {
       const accessResult = await startAccessing(pickedPath);
       if (!accessResult.success) {
-        toast.error('Failed to open directory', {
-          description: accessResult.error || 'Desktop could not grant file access.',
+        toast.error(t('Failed to open directory'), {
+          description: accessResult.error || t('Desktop could not grant file access.'),
         });
         return false;
       }
@@ -245,7 +248,7 @@ export function useDirectoryBrowser({
       browseToDisplayPath(displayPath);
       return true;
     },
-    [browseToDisplayPath, explorerRootDirectory, startAccessing],
+    [browseToDisplayPath, explorerRootDirectory, startAccessing, t],
   );
 
   const handleBrowseLocation = React.useCallback(async () => {
@@ -256,7 +259,7 @@ export function useDirectoryBrowser({
         const result = await requestDirectoryAccess(targetPath);
         if (!result.success || !result.path) {
           if (result.error && result.error !== 'Directory selection cancelled') {
-            toast.error('Failed to select directory', {
+            toast.error(t('Failed to select directory'), {
               description: result.error,
             });
           }
@@ -269,20 +272,20 @@ export function useDirectoryBrowser({
       const picked = await pickLocalDirectory(targetPath);
       if (picked.status === 'cancelled') return;
       if (picked.status !== 'picked') {
-        toast.error("Couldn't open a folder picker", {
+        toast.error(t("Couldn't open a folder picker"), {
           description: picked.error,
         });
         return;
       }
       await applyPickedLocation(picked.path);
     } catch (error) {
-      toast.error('Failed to select directory', {
-        description: error instanceof Error ? error.message : 'Unknown error occurred.',
+      toast.error(t('Failed to select directory'), {
+        description: error instanceof Error ? error.message : t('Unknown error occurred.'),
       });
     } finally {
       setIsPickingLocation(false);
     }
-  }, [applyPickedLocation, isPickingLocation, targetPath]);
+  }, [applyPickedLocation, isPickingLocation, targetPath, t]);
 
   return {
     inputRef,

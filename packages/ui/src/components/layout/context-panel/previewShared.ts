@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { useInputStore } from '@/sync/input-store';
 
 export type PreviewConsoleEvent = {
@@ -70,7 +71,7 @@ export const parsePreviewProxyTargetResponse = async (
   const proxyBasePath = typeof body.proxyBasePath === 'string' ? body.proxyBasePath : '';
   const previewToken = typeof body.previewToken === 'string' ? body.previewToken : '';
   if (!proxyBasePath || !previewToken) {
-    return { ok: false, message: "Could not start preview proxy." };
+    return { ok: false, message: i18n.t('Could not start preview proxy.') };
   }
 
   return {

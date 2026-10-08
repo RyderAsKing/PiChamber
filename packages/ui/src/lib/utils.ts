@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import i18n from "@/i18n";
 import { isDesktopShell } from "@/lib/desktop";
 import { matchesFuzzyQuery } from "@/lib/search/fuzzySearch";
 
@@ -22,9 +23,9 @@ const isWindows = (): boolean => {
 };
 
 export const getRevealLabel = (): string => {
-  if (isMacOS()) return 'Reveal in Finder';
-  if (isWindows()) return 'Open in File Explorer';
-  return 'Open in File Manager';
+  if (isMacOS()) return i18n.t('Reveal in Finder');
+  if (isWindows()) return i18n.t('Open in File Explorer');
+  return i18n.t('Open in File Manager');
 };
 
 /**

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 import { Icon } from "@/components/icon/Icon";
@@ -92,7 +93,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
   hideActions = false,
   archivedBucket = false,
 }: SessionFolderItemProps<TSessionNode>) => {
-  
+  const { t } = useTranslation();
+
   const [localRenaming, setLocalRenaming] = React.useState(false);
   const [localDraft, setLocalDraft] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement | null>(null);
@@ -183,8 +185,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               }
         }
         aria-label={isCollapsed
-          ? `Expand folder ${folder.name}`
-          : `Collapse folder ${folder.name}`}
+          ? t('Expand folder {{name}}', { name: folder.name })
+          : t('Collapse folder {{name}}', { name: folder.name })}
       >
         <div className={cn(
           'min-w-0 flex items-center gap-1.5 flex-1 transition-[padding]',
@@ -214,7 +216,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                 onChange={(event) => handleDraftChange(event.target.value)}
                 className="flex-1 min-w-0 bg-transparent typography-ui-label outline-none placeholder:text-muted-foreground"
                 autoFocus
-                placeholder={"Folder name"}
+                placeholder={t("Folder name")}
                 onClick={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
@@ -269,8 +271,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               {collapsedActivityState ? (
                 <CollapsedActivityIndicator
                   state={collapsedActivityState}
-                  activeLabel={"Session active"}
-                  unreadLabel={"Unread updates"}
+                  activeLabel={t("Session active")}
+                  unreadLabel={t("Unread updates")}
                 />
               ) : null}
               {isCollapsed ? (
@@ -302,8 +304,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                     onNewSession();
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={`New session in ${folder.name}`}
-                  title={"New session"}
+                  aria-label={t('New session in {{name}}', { name: folder.name })}
+                  title={t("New session")}
                 >
                   <Icon name="add" className="size-4" />
                 </button>
@@ -316,7 +318,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                     handleStartRename();
                   }}
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={`Rename folder ${folder.name}`}
+                  aria-label={t('Rename folder {{name}}', { name: folder.name })}
                 >
                   <Icon name="pencil-ai" className="size-4" />
                 </button>
@@ -329,8 +331,8 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                 }}
                 className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-interactive-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 aria-label={archivedBucket
-                  ? `Delete archived sessions in folder ${folder.name}`
-                  : `Delete folder ${folder.name}`}
+                  ? t('Delete archived sessions in folder {{name}}', { name: folder.name })
+                  : t('Delete folder {{name}}', { name: folder.name })}
               >
                 <Icon name="delete-bin" className="size-4" />
               </button>
@@ -353,7 +355,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
             ))
           ) : !subFolderItems ? (
             <div className="py-1 px-3 text-left typography-micro text-muted-foreground/70">
-              {"Empty folder"}
+              {t("Empty folder")}
             </div>
           ) : null}
         </div>

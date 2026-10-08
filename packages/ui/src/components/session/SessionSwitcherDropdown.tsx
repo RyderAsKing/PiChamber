@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ export function SessionSwitcherDropdown({
   scopeProjectId = null,
   align = 'start',
 }: SessionSwitcherDropdownProps): React.ReactElement {
+  const { t } = useTranslation();
   const isOpen = useUIStore((state) => state.isSessionDropdownOpen);
   const setOpen = useUIStore((state) => state.setSessionDropdownOpen);
 
@@ -40,7 +42,7 @@ export function SessionSwitcherDropdown({
         )}
       >
         {isOpen ? (
-          <Suspense fallback={<div className="px-3 py-4 text-center typography-meta text-muted-foreground">Loading…</div>}>
+          <Suspense fallback={<div className="px-3 py-4 text-center typography-meta text-muted-foreground">{t('Loading…')}</div>}>
             <LazySwitcherContent onSelect={() => setOpen(false)} variant={variant} scopeProjectId={scopeProjectId} />
           </Suspense>
         ) : null}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ContentChangeReason } from '@/hooks/useChatAutoFollow';
 import type { StreamPhase } from '../message/types';
@@ -62,6 +63,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
     activeStreamingPhase = null,
     onActivityContentChange,
 }) => {
+    const { t } = useTranslation();
     const hasActivity = React.useMemo(
         () => turn.activityParts.length > 0,
         [turn.activityParts],
@@ -142,7 +144,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                     startedAt={turn.startedAt}
                     completedAt={turn.completedAt}
                     durationMs={turn.durationMs}
-                    liveStatusText={turn.isSteering ? 'Steering agent' : undefined}
+                    liveStatusText={turn.isSteering ? t('Steering agent') : undefined}
                     wasSteered={turn.stream.settledReason === 'steered'}
                 />
             ) : null}

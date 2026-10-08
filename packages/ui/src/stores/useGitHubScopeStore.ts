@@ -7,6 +7,7 @@ import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-sw
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useUIStore } from '@/stores/useUIStore';
 import { normalizeGitHubRepoRef } from '@/stores/ui/githubSelection';
+import i18n from '@/i18n';
 
 export const GITHUB_SCOPE_STALE_MS = 30_000;
 
@@ -43,7 +44,7 @@ const scopeKeyFor = (runtimeKey: string, directory: string): string => `${runtim
 const toScopeError = (error: unknown): GitHubErrorBody => {
   const body = (error as GitHubAPIError | null)?.body;
   if (body && typeof body.kind === 'string') return body as GitHubErrorBody;
-  return { kind: 'failed', message: error instanceof Error ? error.message : 'GitHub scope check failed' };
+  return { kind: 'failed', message: error instanceof Error ? error.message : i18n.t('GitHub scope check failed') };
 };
 
 const repoRefOf = (entry: { host: string | null; owner: string | null; repo: string | null }): string | null => {

@@ -20,6 +20,7 @@
  * the result to drive UI states (loading spinner, retry button, etc.).
  */
 
+import i18n from '@/i18n';
 import { fetchPiRuntimeHealth } from './transport';
 import { piClient, PiRequestError } from './client';
 import { PI_STREAM_EPOCH_CAPABILITY, type PiSessionEvent } from './protocol';
@@ -158,7 +159,7 @@ export const reconnectPiSession = async (
     result.phase = 'failed';
     result.error = {
       code: 'DAEMON_PROTOCOL_MISMATCH',
-      message: 'The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.',
+      message: i18n.t('The Pi runtime does not advertise a restart-safe event stream (events.streamEpoch). Update the server.'),
     };
     return result;
   }

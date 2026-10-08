@@ -1,4 +1,5 @@
 import React from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
@@ -33,6 +34,7 @@ type AboutSettingsProps = {
 };
 
 export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialogOpen = false }) => {
+  const { t } = useTranslation();
   const [updateDialogTarget, setUpdateDialogTarget] = React.useState<UpdateTarget | null>(
     initialUpdateDialogOpen ? 'client' : null,
   );
@@ -118,14 +120,14 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           const { info, serverInfo } = useUpdateStore.getState();
           const checkComplete = info !== null && (!hasSeparateServer || serverInfo !== null);
           if (!anyUpdateAvailable && !updateStore.error && checkComplete) {
-            toast.success("You are on the latest version");
+            toast.success(t('You are on the latest version'));
           }
           didInitiateCheck.current = false;
         }
       }, MIN_CHECKING_DURATION);
       return () => clearTimeout(timer);
     }
-  }, [updateStore.checking, showChecking, anyUpdateAvailable, updateStore.error, hasSeparateServer]);
+  }, [updateStore.checking, showChecking, anyUpdateAvailable, updateStore.error, hasSeparateServer, t]);
 
   const isChecking = updateStore.checking || showChecking;
 
@@ -143,7 +145,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             {isNativeMobile ? (
               <>
                 <MobileVersionRow
-                  label="Client"
+                  label={t('Client')}
                   version={clientVersion}
                   updateInfo={updateStore.info}
                   checked={updateStore.lastChecked !== null}
@@ -151,7 +153,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                   onOpen={() => setUpdateDialogTarget('client')}
                 />
                 <MobileVersionRow
-                  label="Server"
+                  label={t('Server')}
                   version={serverVersion}
                   updateInfo={updateStore.serverInfo}
                   checked={updateStore.lastChecked !== null}
@@ -164,10 +166,10 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                 {/* Hosted mobile runs the UI bundle its server serves, so the
                     client has no update of its own: it updates with the server. */}
                 <MobileVersionRow
-                  label="Client"
+                  label={t('Client')}
                   version={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'}
                   updateInfo={null}
-                  note="Updates with server"
+                  note={t('Updates with server')}
                   checked={false}
                   checking={false}
                   onOpen={() => undefined}
@@ -175,7 +177,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                 {/* The web check reports the server, and stores it as the
                     store's primary `info`, so it opens the 'client' target. */}
                 <MobileVersionRow
-                  label="Server"
+                  label={t('Server')}
                   version={updateStore.info?.currentVersion || piChamberVersion || 'unknown'}
                   updateInfo={updateStore.info}
                   checked={updateStore.lastChecked !== null}
@@ -195,7 +197,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
             >
               {isChecking ? <Icon name="loader" className="size-4 animate-spin" /> : <Icon name="refresh" className="size-4" />}
-              {isChecking ? "Checking..." : "Check for updates"}
+              {isChecking ? t('Checking...') : t('Check for updates')}
             </Button>
           </div>
         </div>
@@ -233,7 +235,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         <AboutDetails />
 
         <p className="text-center typography-ui text-muted-foreground/60">
-          {"Made with care for the community"}
+          {t('Made with care for the community')}
         </p>
 
         <UpdateDialog
@@ -259,18 +261,18 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden flex flex-col">
         <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
           <div className="flex min-w-0 flex-col">
-            <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
+            <span className={SETTINGS_FIELD_LABEL_CLASS}>{t('Version')}</span>
             {isRemoteDesktop ? (
               <div className="flex flex-wrap items-center gap-2 typography-meta text-muted-foreground">
                 <AboutVersionTarget
-                  label="Client"
+                  label={t('Client')}
                   version={clientVersion}
                   updateInfo={updateStore.info}
                   onOpen={() => setUpdateDialogTarget('client')}
                 />
                 <span className="text-muted-foreground/60" aria-hidden="true">·</span>
                 <AboutVersionTarget
-                  label="Server"
+                  label={t('Server')}
                   version={serverVersion}
                   updateInfo={updateStore.serverInfo}
                   onOpen={() => setUpdateDialogTarget('server')}
@@ -285,7 +287,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             {updateStore.checking && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
-                <span className="typography-meta">{"Checking..."}</span>
+                <span className="typography-meta">{t('Checking...')}</span>
               </div>
             )}
 
@@ -295,16 +297,16 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                 onClick={() => setUpdateDialogTarget('client')}
               >
                 <Icon name="download" className="h-4 w-4 mr-1" />
-                {`Update to ${updateStore.info?.version || ''}`}
+                {t('Update to {{version}}', { version: updateStore.info?.version || '' })}
               </Button>
             )}
 
             {!updateStore.checking && isRemoteDesktop && anyUpdateAvailable && (
-              <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
+              <span className="typography-meta text-[var(--primary-base)]">{t('Updates available')}</span>
             )}
 
             {!updateStore.checking && !anyUpdateAvailable && !updateStore.error && (
-              <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
+              <span className="typography-meta text-muted-foreground">{t('Up to date')}</span>
             )}
 
             <Button size="sm"
@@ -312,7 +314,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               onClick={() => updateStore.checkForUpdates()}
               disabled={updateStore.checking}
             >
-              {"Check for updates"}
+              {t('Check for updates')}
             </Button>
           </div>
         </div>
@@ -324,7 +326,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         )}
 
         <div className="flex flex-col gap-2 border-b border-border/40 px-4 py-3 @xl:flex-row @xl:items-center @xl:justify-between">
-          <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Instance URLs"}</span>
+          <span className={SETTINGS_FIELD_LABEL_CLASS}>{t('Instance URLs')}</span>
           <InstanceServiceUrls />
         </div>
 
@@ -371,7 +373,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
 };
 
 type AboutVersionTargetProps = {
-  label: 'Client' | 'Server';
+  label: string;
   version: string;
   updateInfo: UpdateInfo | null;
   onOpen: () => void;
@@ -383,11 +385,14 @@ const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
   updateInfo,
   onOpen,
 }) => {
+  const { t } = useTranslation();
   if (!updateInfo?.available) {
     return <span className="font-mono">{`${label} ${version}`}</span>;
   }
 
-  const updaterLabel = `Open ${label.toLowerCase()} updater${updateInfo.version ? ` for ${updateInfo.version}` : ''}`;
+  const updaterLabel = updateInfo.version
+    ? t('Open {{target}} updater for {{version}}', { target: label.toLowerCase(), version: updateInfo.version })
+    : t('Open {{target}} updater', { target: label.toLowerCase() });
   return (
     <Button
       variant="ghost"
@@ -404,7 +409,7 @@ const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
 };
 
 type MobileVersionRowProps = {
-  label: 'Client' | 'Server';
+  label: string;
   version: string;
   updateInfo: UpdateInfo | null;
   /** Fixed status for a target that has no update check of its own. */
@@ -424,6 +429,7 @@ const MobileVersionRow: React.FC<MobileVersionRowProps> = ({
   checking,
   onOpen,
 }) => {
+  const { t } = useTranslation();
   let status: React.ReactNode = null;
   if (note) {
     status = <span className="typography-meta text-muted-foreground">{note}</span>;
@@ -434,16 +440,16 @@ const MobileVersionRow: React.FC<MobileVersionRowProps> = ({
         variant="default"
         size="sm"
         onClick={onOpen}
-        aria-label={`Open ${label.toLowerCase()} updater${updateInfo.version ? ` for ${updateInfo.version}` : ''}`}
+        aria-label={updateInfo.version ? t('Open {{target}} updater for {{version}}', { target: label.toLowerCase(), version: updateInfo.version }) : t('Open {{target}} updater', { target: label.toLowerCase() })}
       >
         <Icon name="download" className="size-4" />
-        {updateInfo.version ? `Update to ${updateInfo.version}` : 'Update'}
+        {updateInfo.version ? t('Update to {{version}}', { version: updateInfo.version }) : t('Update')}
       </Button>
     );
   } else if (!checking && updateInfo) {
-    status = <span className="typography-meta text-muted-foreground">{"Up to date"}</span>;
+    status = <span className="typography-meta text-muted-foreground">{t('Up to date')}</span>;
   } else if (!checking && checked) {
-    status = <span className="typography-meta text-muted-foreground">{"Couldn't check"}</span>;
+    status = <span className="typography-meta text-muted-foreground">{t("Couldn't check")}</span>;
   }
 
   return (
@@ -457,74 +463,70 @@ const MobileVersionRow: React.FC<MobileVersionRowProps> = ({
   );
 };
 
-const AboutDetails: React.FC = () => (
-  <>
-    <SettingsSection title="What is PiChamber" divider={false}>
+const AboutDetails: React.FC = () => {
+  const { t } = useTranslation();
+  return <>
+    <SettingsSection title={t('What is PiChamber')} divider={false}>
       <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
         <p>
-          PiChamber is an open-source workspace for running and supervising Pi Coding Agent
-          sessions from a desktop app or browser.
+          {t('PiChamber is an open-source workspace for running and supervising Pi Coding Agent sessions from a desktop app or browser.')}
         </p>
         <p>
-          It keeps the Pi session daemon on your host while giving trusted devices a focused,
-          authenticated interface for creating sessions, following live work, and steering the
-          agent when needed.
+          {t('It keeps the Pi session daemon on your host while giving trusted devices a focused, authenticated interface for creating sessions, following live work, and steering the agent when needed.')}
         </p>
       </div>
     </SettingsSection>
 
-    <SettingsSection title="Our goals">
+    <SettingsSection title={t('Our goals')}>
       <ul className="max-w-2xl list-disc space-y-2 pl-5 typography-ui text-muted-foreground">
-        <li>Make agent-assisted development practical from anywhere you work.</li>
-        <li>Keep users in control of sessions, tools, project context, and credentials.</li>
-        <li>Offer a calm, responsive interface for both focused coding and supervision.</li>
-        <li>Stay open, self-hostable, and respectful of the systems where Pi runs.</li>
+        <li>{t('Make agent-assisted development practical from anywhere you work.')}</li>
+        <li>{t('Keep users in control of sessions, tools, project context, and credentials.')}</li>
+        <li>{t('Offer a calm, responsive interface for both focused coding and supervision.')}</li>
+        <li>{t('Stay open, self-hostable, and respectful of the systems where Pi runs.')}</li>
       </ul>
     </SettingsSection>
 
-    <SettingsSection title="Built around Pi">
+    <SettingsSection title={t('Built around Pi')}>
       <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
         <p>
-          Pi is the coding agent and session engine underneath PiChamber. It is designed for
-          working with your tools and code directly, and PiChamber adds the multi-device workspace
-          around that experience.
+          {t('Pi is the coding agent and session engine underneath PiChamber. It is designed for working with your tools and code directly, and PiChamber adds the multi-device workspace around that experience.')}
         </p>
         <p>
-          Learn more about Pi Coding Agent at{' '}
-          <a href={PI_URL} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary">
-            pi.dev
-          </a>
-          .
+          <Trans
+            i18nKey="Learn more about Pi Coding Agent at <link>pi.dev</link>."
+            components={{
+              link: <a href={PI_URL} target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary" />,
+            }}
+          />
         </p>
       </div>
     </SettingsSection>
 
-    <SettingsSection title="Special thanks">
+    <SettingsSection title={t('Special thanks')}>
       <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
         <p>
-          PiChamber is a community fork of{' '}
-          <a href="https://github.com/openchamber/openchamber" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary">
-            OpenChamber
-          </a>
-          {' '}by Bohdan Triapitsyn. We are grateful for the foundation and the required MIT
-          attribution carried forward from that project.
+          <Trans
+            i18nKey="PiChamber is a community fork of <link>OpenChamber</link> by Bohdan Triapitsyn. We are grateful for the foundation and the required MIT attribution carried forward from that project."
+            components={{
+              link: <a href="https://github.com/openchamber/openchamber" target="_blank" rel="noopener noreferrer" className="text-foreground underline underline-offset-4 hover:text-primary" />,
+            }}
+          />
         </p>
         <p>
-          Thank you to Pierre, the Pi community, xterm.js, and every contributor whose work,
-          feedback, and ideas help make this project possible.
+          {t('Thank you to Pierre, the Pi community, xterm.js, and every contributor whose work, feedback, and ideas help make this project possible.')}
         </p>
       </div>
     </SettingsSection>
 
-    <SettingsSection title="Links and license">
+    <SettingsSection title={t('Links and license')}>
       <div className="flex flex-wrap gap-x-5 gap-y-2 typography-ui-label">
         <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-          PiChamber on GitHub
+          {t('PiChamber on GitHub')}
         </a>
         <a href="https://github.com/RyderAsKing/PiChamber/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="text-muted-foreground transition-colors hover:text-foreground">
-          MIT license
+          {t('MIT license')}
         </a>
       </div>
     </SettingsSection>
-  </>
-);
+  </>;
+};

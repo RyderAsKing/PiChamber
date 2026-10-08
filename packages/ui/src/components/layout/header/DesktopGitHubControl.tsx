@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { useGitHubLogin, useGitHubStatusStore } from '@/stores/useGitHubStatusStore';
@@ -14,6 +15,7 @@ import { DESKTOP_HEADER_ICON_BUTTON_CLASS } from './HeaderIconActionButton';
  * unauthenticated — Settings covers those states.
  */
 export const DesktopGitHubControl: React.FC<{ isMobile?: boolean }> = ({ isMobile }) => {
+  const { t } = useTranslation();
   const apis = useRuntimeAPIs();
   const github = apis.github ?? null;
   const refresh = useGitHubStatusStore((state) => state.refresh);
@@ -34,8 +36,8 @@ export const DesktopGitHubControl: React.FC<{ isMobile?: boolean }> = ({ isMobil
   return (
     <span
       className={cn(DESKTOP_HEADER_ICON_BUTTON_CLASS, 'app-region-no-drag inline-flex w-auto cursor-default gap-1.5 px-2')}
-      title={`${login} via GitHub CLI`}
-      aria-label={`Signed in to GitHub as ${login} via GitHub CLI`}
+      title={t('{{login}} via GitHub CLI', { login })}
+      aria-label={t('Signed in to GitHub as {{login}} via GitHub CLI', { login })}
     >
       <Icon name="github-fill" className="h-3.5 w-3.5 shrink-0 text-foreground" />
       <span className="max-w-28 truncate typography-micro text-muted-foreground">@{login}</span>

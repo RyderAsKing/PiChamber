@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -28,6 +29,7 @@ export const AssistantMessageActionButtons = React.memo(({
     messageId,
     isLatestMessage = false,
 }: AssistantMessageActionButtonsProps) => {
+    const { t } = useTranslation();
     const chatSurfaceMode = useChatSurfaceMode();
     const [copyHintVisible, setCopyHintVisible] = React.useState(false);
     const { value: isMessageCopied, show: showMessageCopied, clear: clearMessageCopied } = useTransientValue(false, 2000);
@@ -132,7 +134,7 @@ export const AssistantMessageActionButtons = React.memo(({
                                 !hasCopyableText && 'opacity-50'
                             )}
                             disabled={!hasCopyableText}
-                            aria-label={"Copy message text"}
+                            aria-label={t("Copy message text")}
                             aria-hidden={!hasCopyableText}
                             onPointerDown={(event) => event.stopPropagation()}
                             onClick={(event) => {
@@ -156,7 +158,7 @@ export const AssistantMessageActionButtons = React.memo(({
                             )}
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent sideOffset={6}>{"Copy answer"}</TooltipContent>
+                    <TooltipContent sideOffset={6}>{t("Copy answer")}</TooltipContent>
                 </Tooltip>
             )}
             {chatSurfaceMode !== 'mini-chat' ? <Tooltip key="message-share">
@@ -182,7 +184,7 @@ export const AssistantMessageActionButtons = React.memo(({
                         )}
                     </Button>
                 </TooltipTrigger>
-                <TooltipContent sideOffset={6}>{isSharing ? "Saving image..." : "Save as image"}</TooltipContent>
+                <TooltipContent sideOffset={6}>{isSharing ? t("Saving image...") : t("Save as image")}</TooltipContent>
             </Tooltip> : null}
         </>
     );

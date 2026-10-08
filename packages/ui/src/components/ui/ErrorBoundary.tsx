@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { copyTextToClipboard } from '@/lib/clipboard';
@@ -119,17 +120,18 @@ class InnerErrorBoundary extends React.Component<InnerErrorBoundaryProps, ErrorB
 }
 
 export const ErrorBoundary: React.FC<ErrorBoundaryProps> = ({ children, fallback }) => {
+  const { t } = useTranslation();
 
   const strings: ErrorBoundaryStrings = React.useMemo(() => ({
-    unknownError: "Unknown error",
-    title: "Something went wrong",
-    description: "The application encountered an unexpected error. This has been logged for debugging.",
-    detailsSummary: "Error details",
-    componentStackLabel: "Component stack:",
-    tryAgain: "Try again",
-    copied: "Copied",
-    copy: "Copy",
-  }), []);
+    unknownError: t("Unknown error"),
+    title: t("Something went wrong"),
+    description: t("The application encountered an unexpected error. This has been logged for debugging."),
+    detailsSummary: t("Error details"),
+    componentStackLabel: t("Component stack:"),
+    tryAgain: t("Try again"),
+    copied: t("Copied"),
+    copy: t("Copy"),
+  }), [t]);
 
   return (
     <InnerErrorBoundary fallback={fallback} strings={strings}>

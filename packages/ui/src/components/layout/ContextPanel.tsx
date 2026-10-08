@@ -1,4 +1,6 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { ContextPanelBrowserPane } from './context-panel/BrowserPane';
 import { EditorTreeColumn } from './context-panel/EditorTreeColumn';
 import { PreviewPane } from './context-panel/PreviewPane';
@@ -69,16 +71,16 @@ const getRelativePathLabel = (filePath: string | null, directory: string): strin
 };
 
 const getModeLabel = (mode: ContextPanelMode, isGitRepo: boolean | null = null): string => {
-  if (mode === 'file') return "Files";
-  if (mode === 'diff') return "Changes";
-  if (mode === 'preview') return "Preview";
-  if (mode === 'browser') return "Browser";
+  if (mode === 'file') return i18n.t("Files");
+  if (mode === 'diff') return i18n.t("Changes");
+  if (mode === 'preview') return i18n.t("Preview");
+  if (mode === 'browser') return i18n.t("Browser");
   if (mode === 'git') return getGitRailPresentation(isGitRepo).label;
-  if (mode === 'terminal') return "Terminal";
-  if (mode === 'pull-requests') return "Pull requests";
-  if (mode === 'issues') return "Issues";
-  if (mode === 'extensions') return "Extensions";
-  return "Context";
+  if (mode === 'terminal') return i18n.t("Terminal");
+  if (mode === 'pull-requests') return i18n.t("Pull requests");
+  if (mode === 'issues') return i18n.t("Issues");
+  if (mode === 'extensions') return i18n.t("Extensions");
+  return i18n.t("Context");
 };
 
 const getFileNameFromPath = (path: string | null): string | null => {
@@ -109,7 +111,7 @@ const getTabLabel = (
   }
 
   if (tab.mode === 'file') {
-    return getFileNameFromPath(tab.targetPath) || "Files";
+    return getFileNameFromPath(tab.targetPath) || i18n.t("Files");
   }
 
   if (tab.mode === 'preview') {
@@ -117,16 +119,16 @@ const getTabLabel = (
     if (url) {
       try {
         const parsed = new URL(url);
-        return parsed.host || parsed.hostname || "Preview";
+        return parsed.host || parsed.hostname || i18n.t("Preview");
       } catch {
         // ignore invalid URL
       }
     }
-    return "Preview";
+    return i18n.t("Preview");
   }
 
   if (tab.mode === 'diff') {
-    return "Changes";
+    return i18n.t("Changes");
   }
 
   return getModeLabel(tab.mode, isGitRepo);
@@ -188,6 +190,7 @@ const truncateTabLabel = (value: string, maxChars: number): string => {
 };
 
 export const ContextPanel: React.FC = () => {
+  const { t } = useTranslation();
   const effectiveDirectory = useEffectiveDirectory() ?? '';
   const directoryKey = React.useMemo(() => normalizeDirectoryPathKey(effectiveDirectory), [effectiveDirectory]);
 
@@ -467,9 +470,9 @@ export const ContextPanel: React.FC = () => {
       label,
       icon: getTabIcon(tab, isGitRepo),
       title: tabPathLabel ? `${rawLabel}: ${tabPathLabel}` : rawLabel,
-      closeLabel: `Close ${label} tab`,
+      closeLabel: t('Close {{label}} tab', { label }),
     };
-  }), [activeModeTabs, effectiveDirectory, isGitRepo]);
+  }), [activeModeTabs, effectiveDirectory, isGitRepo, t]);
 
   const isPullRequestsPanelActive = activeTab?.mode === 'pull-requests';
   const isIssuesPanelActive = activeTab?.mode === 'issues';
@@ -489,8 +492,8 @@ export const ContextPanel: React.FC = () => {
                 : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                     <Icon name="global" className="h-12 w-12 text-muted-foreground/50" />
-                    <div className="typography-ui-header text-foreground">{"Preview"}</div>
-                    <div className="max-w-sm typography-micro text-muted-foreground">{"Use Project Actions or a terminal Preview button to open a preview."}</div>
+                    <div className="typography-ui-header text-foreground">{t('Preview')}</div>
+                    <div className="max-w-sm typography-micro text-muted-foreground">{t('Use Project Actions or a terminal Preview button to open a preview.')}</div>
                   </div>
                 );
 
@@ -598,8 +601,8 @@ export const ContextPanel: React.FC = () => {
             size="sm"
             onClick={toggleContextEditorTree}
             className="h-8 w-8 p-0"
-            title={"Toggle file tree"}
-            aria-label={"Toggle file tree"}
+            title={t('Toggle file tree')}
+            aria-label={t('Toggle file tree')}
             aria-pressed={contextEditorTreeVisible}
           >
             <Icon name="layout-right" className="size-4" />
@@ -611,8 +614,8 @@ export const ContextPanel: React.FC = () => {
           size="sm"
           onClick={handleToggleExpanded}
           className="h-8 w-8 p-0"
-          title={isExpanded ? "Collapse panel" : "Expand panel"}
-          aria-label={isExpanded ? "Collapse panel" : "Expand panel"}
+          title={isExpanded ? t('Collapse panel') : t('Expand panel')}
+          aria-label={isExpanded ? t('Collapse panel') : t('Expand panel')}
         >
           {isExpanded ? <Icon name="fullscreen-exit" className="size-4" /> : <Icon name="fullscreen" className="size-4" />}
         </Button>
@@ -622,8 +625,8 @@ export const ContextPanel: React.FC = () => {
           size="sm"
           onClick={handleClose}
           className="h-8 w-8 p-0"
-          title={"Close panel"}
-          aria-label={"Close panel"}
+          title={t('Close panel')}
+          aria-label={t('Close panel')}
         >
           <Icon name="close" className="size-4" />
         </Button>
@@ -695,7 +698,7 @@ export const ContextPanel: React.FC = () => {
           onPointerDown={handleResizeStart}
           role="separator"
           aria-orientation="vertical"
-          aria-label={"Resize context panel"}
+          aria-label={t('Resize context panel')}
         />
       )}
       <div
@@ -726,8 +729,8 @@ export const ContextPanel: React.FC = () => {
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
                   <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
-                  <div className="typography-ui-header text-foreground">{"No file open"}</div>
-                  <div className="max-w-sm typography-micro text-muted-foreground">{"Pick a file from the tree to start editing."}</div>
+                  <div className="typography-ui-header text-foreground">{t('No file open')}</div>
+                  <div className="max-w-sm typography-micro text-muted-foreground">{t('Pick a file from the tree to start editing.')}</div>
                 </div>
               )}
             </div>

@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Tooltip,
   TooltipContent,
@@ -124,6 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTabletWorkspaceTab,
   tabletGitHubTabsAvailable = false,
 }) => {
+  const { t } = useTranslation();
   streamPerfCount('ui.header.render');
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
@@ -238,7 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const isSessionSwitcherOpen = useUIStore((state) => state.isSessionSwitcherOpen);
   const [isDesktopServicesOpen, setIsDesktopServicesOpen] = React.useState(false);
-  const [currentInstanceLabel, setCurrentInstanceLabel] = React.useState('Local');
+  const [currentInstanceLabel, setCurrentInstanceLabel] = React.useState(() => t('Local'));
   const [currentInstanceIsLocal, setCurrentInstanceIsLocal] = React.useState(true);
   const [currentInstanceIcon, setCurrentInstanceIcon] = React.useState(() => serverPlatformIcon(null));
   const [remoteUpdateDialogOpen, setRemoteUpdateDialogOpen] = React.useState(false);
@@ -265,7 +267,7 @@ export const Header: React.FC<HeaderProps> = ({
       setCurrentInstanceIcon(serverPlatformIcon(metadata));
 
       if (isDesktopLocalOriginActive()) {
-        setCurrentInstanceLabel('Local');
+        setCurrentInstanceLabel(t('Local'));
         setCurrentInstanceIsLocal(true);
         return;
       }
@@ -279,20 +281,20 @@ export const Header: React.FC<HeaderProps> = ({
       const resolved = resolveCurrentDesktopHost([buildLocalDesktopHost(localOrigin), ...cfg.hosts]);
 
       if (resolved.id === LOCAL_HOST_ID) {
-        setCurrentInstanceLabel('Local');
+        setCurrentInstanceLabel(t('Local'));
         setCurrentInstanceIsLocal(true);
         return;
       }
 
-      setCurrentInstanceLabel(redactSensitiveUrl(resolved.label.trim() || 'Instance'));
+      setCurrentInstanceLabel(redactSensitiveUrl(resolved.label.trim() || t('Instance')));
     } catch {
       if (isCurrentEndpoint()) {
-        setCurrentInstanceLabel('Local');
+        setCurrentInstanceLabel(t('Local'));
         setCurrentInstanceIsLocal(true);
         setCurrentInstanceIcon(serverPlatformIcon(null));
       }
     }
-  }, [isDesktopApp]);
+  }, [isDesktopApp, t]);
 
   useEffect(() => {
     void refreshCurrentInstanceLabel();
@@ -332,7 +334,7 @@ export const Header: React.FC<HeaderProps> = ({
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) {
-        throw new Error(`Server responded with ${response.status}`);
+        throw new Error(t('Server responded with {{status}}', { status: response.status }));
       }
       const data = await response.json();
       if (!isCurrentRequest()) return;
@@ -349,11 +351,11 @@ export const Header: React.FC<HeaderProps> = ({
     } catch (error) {
       if (!isCurrentRequest()) return;
       setRemoteUpdateInfo(null);
-      setRemoteUpdateError(error instanceof Error ? error.message : "Failed to check remote instance updates");
+      setRemoteUpdateError(error instanceof Error ? error.message : t('Failed to check remote instance updates'));
     } finally {
       if (isCurrentRequest()) setRemoteUpdateChecking(false);
     }
-  }, [currentInstanceIsLocal]);
+  }, [currentInstanceIsLocal, t]);
 
   React.useEffect(() => subscribeServerUpdateChannelChanged(() => {
     if (!currentInstanceIsLocal) void checkRemoteInstanceUpdate();
@@ -565,18 +567,18 @@ export const Header: React.FC<HeaderProps> = ({
   const copyCurrentSessionId = React.useCallback(() => {
     if (!currentSessionId) return;
     void copyTextToClipboard(currentSessionId).then((result) => {
-      toast[result.ok ? 'success' : 'error']((result.ok ? "Session ID copied" : "Failed to copy session ID"));
-    }).catch(() => toast.error("Failed to copy session ID"));
-  }, [currentSessionId]);
+      toast[result.ok ? 'success' : 'error']((result.ok ? t('Session ID copied') : t('Failed to copy session ID')));
+    }).catch(() => toast.error(t('Failed to copy session ID')));
+  }, [currentSessionId, t]);
   const exportCurrentSession = React.useCallback(async () => {
     if (!currentSessionId || !openDirectory) {
-      toast.error("Nothing to export");
+      toast.error(t('Nothing to export'));
       return;
     }
     try {
       await sync.syncSession(currentSessionId);
     } catch {
-      toast.error("Failed to load the complete session history");
+      toast.error(t('Failed to load the complete session history'));
       return;
     }
     // Original snapshot always returned an empty list; the directory
@@ -584,15 +586,15 @@ export const Header: React.FC<HeaderProps> = ({
     // without the dead dependency.
     const records: Parameters<typeof formatSessionAsMarkdown>[0] = [];
     if (records.length === 0) {
-      toast.error("Nothing to export");
+      toast.error(t('Nothing to export'));
       return;
     }
     const markdown = formatSessionAsMarkdown(records, currentSession?.title ?? null);
     const filename = buildExportFilename(currentSession?.title ?? null);
     const savedPath = await saveAsMarkdownDesktop(markdown, filename);
     if (!savedPath) downloadAsMarkdown(markdown, filename);
-    toast.success("Session exported");
-  }, [currentSession?.title, currentSessionId, openDirectory, sync]);
+    toast.success(t('Session exported'));
+  }, [currentSession?.title, currentSessionId, openDirectory, sync, t]);
 
   const isCurrentSessionActive = currentSessionStatus?.type === 'busy' || currentSessionStatus?.type === 'retry';
 
@@ -613,11 +615,11 @@ export const Header: React.FC<HeaderProps> = ({
     const result = action === 'archive' ? await archiveSessions(ids) : await deleteSessions(ids);
     const failedIds = result.failedIds;
     if (failedIds.length > 0) {
-      toast.error((action === 'archive' ? "Failed to archive session" : "Failed to delete session"));
+      toast.error((action === 'archive' ? t('Failed to archive session') : t('Failed to delete session')));
       return;
     }
-    toast.success((action === 'archive' ? "Session archived" : "Session deleted"));
-  }, [archiveSessions, currentSessionId, deleteSessions, pendingHeaderRetentionAction]);
+    toast.success((action === 'archive' ? t('Session archived') : t('Session deleted')));
+  }, [archiveSessions, currentSessionId, deleteSessions, pendingHeaderRetentionAction, t]);
 
   // Full-page surfaces (Archive) replace the chat area;
   // while one is open the header shows the surface identity instead of the
@@ -625,10 +627,10 @@ export const Header: React.FC<HeaderProps> = ({
   const isArchiveSurfaceOpen = useUIStore((state) => state.isArchivePageOpen);
   const activeSurfaceHeader = React.useMemo<{ title: string; subtitle: string | null } | null>(() => {
     if (isArchiveSurfaceOpen) {
-      return { title: "Archive", subtitle: null };
+      return { title: t('Archive'), subtitle: null };
     }
     return null;
-  }, [isArchiveSurfaceOpen]);
+  }, [isArchiveSurfaceOpen, t]);
 
 
   const actionDirectory = React.useMemo(() => {
@@ -638,9 +640,9 @@ export const Header: React.FC<HeaderProps> = ({
   const copyCurrentWorkingDirectory = React.useCallback(() => {
     if (!actionDirectory) return;
     void copyTextToClipboard(actionDirectory).then((result) => {
-      toast[result.ok ? 'success' : 'error']((result.ok ? "Working directory copied" : "Failed to copy working directory"));
-    }).catch(() => toast.error("Failed to copy working directory"));
-  }, [actionDirectory]);
+      toast[result.ok ? 'success' : 'error']((result.ok ? t('Working directory copied') : t('Failed to copy working directory')));
+    }).catch(() => toast.error(t('Failed to copy working directory')));
+  }, [actionDirectory, t]);
 
   const activeProjectRef = React.useMemo(() => {
     if (!activeProject) {
@@ -943,12 +945,12 @@ export const Header: React.FC<HeaderProps> = ({
   const tabs: TabConfig[] = React.useMemo(() => {
     if (isMobile) {
       const base: TabConfig[] = [
-        { id: 'chat', label: "Chat", icon: "chat-4" },
-        { id: 'diff', label: "Diff", icon: 'diff' },
-        { id: 'files', label: "Files", icon: "file-text" },
-        { id: 'terminal', label: "Terminal", icon: "terminal-box" },
-        { id: 'context', label: "Context", icon: "file-list-2" },
-        { id: 'diagram', label: "Diagram", icon: 'file' },
+        { id: 'chat', label: t('Chat'), icon: "chat-4" },
+        { id: 'diff', label: t('Diff'), icon: 'diff' },
+        { id: 'files', label: t('Files'), icon: "file-text" },
+        { id: 'terminal', label: t('Terminal'), icon: "terminal-box" },
+        { id: 'context', label: t('Context'), icon: "file-list-2" },
+        { id: 'diagram', label: t('Diagram'), icon: 'file' },
       ];
 
       return base;
@@ -956,7 +958,7 @@ export const Header: React.FC<HeaderProps> = ({
 
     // Desktop: no tabs in header
     return [];
-  }, [isMobile]);
+  }, [isMobile, t]);
 
   const shortcutLabel = React.useCallback((actionId: string) => {
     return formatShortcutForDisplay(getEffectiveShortcutCombo(actionId, shortcutOverrides));
@@ -1104,7 +1106,7 @@ export const Header: React.FC<HeaderProps> = ({
       )}
       style={webWindowControlsOverlayStyle}
       role="tablist"
-      aria-label={"Main navigation"}
+      aria-label={t('Main navigation')}
     >
       {/* Drag region for the window-controls inset (traffic lights) to the left
           of the overlay buttons — stays a window drag area. */}
@@ -1144,7 +1146,7 @@ export const Header: React.FC<HeaderProps> = ({
             {!isSidebarOpen ? (
               <React.Suspense
                 fallback={
-                  <button type="button" className={desktopHeaderIconButtonClass} aria-label="Open session switcher">
+                  <button type="button" className={desktopHeaderIconButtonClass} aria-label={t('Open session switcher')}>
                     <Icon name="history" className="h-[18px] w-[18px]" />
                   </button>
                 }
@@ -1153,7 +1155,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     type="button"
                     className={desktopHeaderIconButtonClass}
-                    aria-label={"Open session switcher"}
+                    aria-label={t('Open session switcher')}
                   >
                     <Icon name="history" className="h-[18px] w-[18px]" />
                   </button>
@@ -1180,13 +1182,13 @@ export const Header: React.FC<HeaderProps> = ({
                         setIsRenamingHeaderSession(false);
                       }
                     }}
-                    placeholder={"Rename"}
+                    placeholder={t('Rename')}
                     className="min-w-0 flex-1 bg-transparent typography-ui-label font-normal leading-tight outline-none placeholder:text-muted-foreground"
                   />
                   <button
                     type="submit"
-                    aria-label={"Save session name"}
-                    title={"Save session name"}
+                    aria-label={t('Save session name')}
+                    title={t('Save session name')}
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     <Icon name="check" className="size-4" />
@@ -1194,8 +1196,8 @@ export const Header: React.FC<HeaderProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsRenamingHeaderSession(false)}
-                    aria-label={"Cancel renaming session"}
-                    title={"Cancel renaming session"}
+                    aria-label={t('Cancel renaming session')}
+                    title={t('Cancel renaming session')}
                     className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     <Icon name="close" className="size-4" />
@@ -1203,7 +1205,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </form>
               ) : (
                 <span className="min-w-0 truncate typography-ui-label font-normal leading-tight text-foreground">
-                  {isNewSessionDraftOpen ? "New session" : currentSessionTitle}
+                  {isNewSessionDraftOpen ? t('New session') : currentSessionTitle}
                 </span>
               )}
               {showHeaderMetaRow ? (
@@ -1234,19 +1236,19 @@ export const Header: React.FC<HeaderProps> = ({
                   }}
                 >
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="xs" className="h-[18px] w-6 px-0 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label={"Open session actions"}>
+                    <Button variant="ghost" size="xs" className="h-[18px] w-6 px-0 text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label={t('Open session actions')}>
                       <Icon name="more" className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-[190px]">
-                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{"Rename"}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{"Copy session ID"}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={copyCurrentWorkingDirectory} disabled={!actionDirectory}><Icon name="folder" className="mr-2 size-4" />{"Copy working directory"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{t('Rename')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{t('Copy session ID')}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={copyCurrentWorkingDirectory} disabled={!actionDirectory}><Icon name="folder" className="mr-2 size-4" />{t('Copy working directory')}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{"Export Markdown"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{t('Export Markdown')}</DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setPendingHeaderRetentionAction('archive')}><Icon name="inbox-archive" className="mr-2 size-4" />{"Archive"}</DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction('delete')}><Icon name="delete-bin" className="mr-2 size-4" />{"Delete"}</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPendingHeaderRetentionAction('archive')}><Icon name="inbox-archive" className="mr-2 size-4" />{t('Archive')}</DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setPendingHeaderRetentionAction('delete')}><Icon name="delete-bin" className="mr-2 size-4" />{t('Delete')}</DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : null}
@@ -1274,8 +1276,8 @@ export const Header: React.FC<HeaderProps> = ({
 
           <HeaderIconActionButton
             visible={showMiniChatHeaderAction}
-            title={isNewSessionDraftOpen ? "New Mini Chat Window" : "Open Session in Mini Chat"}
-            ariaLabel={isNewSessionDraftOpen ? "Open a new Mini Chat window" : "Open current session in Mini Chat"}
+            title={isNewSessionDraftOpen ? t('New Mini Chat Window') : t('Open Session in Mini Chat')}
+            ariaLabel={isNewSessionDraftOpen ? t('Open a new Mini Chat window') : t('Open current session in Mini Chat')}
             onClick={handleOpenCurrentMiniChat}
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}
             Icon={'picture-in-picture-2'}
@@ -1316,7 +1318,7 @@ export const Header: React.FC<HeaderProps> = ({
                 mobileHeaderIconButtonClass,
                 mobileActiveHeaderItem === 'sessions' && 'bg-interactive-selection text-interactive-selection-foreground'
               )}
-              aria-label={leftDrawerOpen ? "Close sessions" : "Open sessions"}
+              aria-label={leftDrawerOpen ? t('Close sessions') : t('Open sessions')}
             >
               <Icon name="layout-left" className="h-5 w-5" />
             </button>
@@ -1325,7 +1327,7 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={() => setSessionSwitcherOpen(false)}
               className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-              aria-label={"Back"}
+              aria-label={t('Back')}
             >
               <Icon name="arrow-left-s" className="h-5 w-5" />
             </button>
@@ -1334,14 +1336,13 @@ export const Header: React.FC<HeaderProps> = ({
               type="button"
               onClick={handleOpenSessionSwitcher}
               className="app-region-no-drag h-9 w-9 p-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md active:bg-interactive-active"
-              aria-label={"Open sessions"}
+              aria-label={t('Open sessions')}
             >
               <Icon name="play-list-add" className="h-5 w-5" />
             </button>
           )}
-
           {!onToggleLeftDrawer && isSessionSwitcherOpen && (
-            <span className="typography-ui-label font-semibold text-foreground">{"Sessions"}</span>
+            <span className="typography-ui-label font-semibold text-foreground">{t('Sessions')}</span>
           )}
         </div>
       )}
@@ -1355,7 +1356,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <div
                     className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
                     role="tablist"
-                    aria-label="Main navigation"
+                    aria-label={t('Main navigation')}
                   >
                     {tabs.map((tab) => {
                     const isActive = activeMainTab === tab.id;
@@ -1395,7 +1396,7 @@ export const Header: React.FC<HeaderProps> = ({
                             {tab.showDot && (
                               <span
                                 className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-primary"
-                                aria-label={"Changes available"}
+                                aria-label={t('Changes available')}
                               />
                             )}
                           </button>
@@ -1418,7 +1419,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div
                   className="flex items-center gap-0.5 rounded-lg bg-[var(--surface-muted)]/50 p-0.5"
                   role="tablist"
-                  aria-label="Workspace"
+                  aria-label={t('Workspace')}
                 >
                   {tabletWorkspaceTabs.map((tab) => {
                     const isActive = rightDrawerOpen && tabletWorkspaceTab === tab.id;
@@ -1486,13 +1487,13 @@ export const Header: React.FC<HeaderProps> = ({
                       'relative',
                       mobileActiveHeaderItem === 'git' && 'bg-interactive-selection text-interactive-selection-foreground'
                     )}
-                    aria-label={rightDrawerOpen ? 'Close git sidebar' : 'Open git sidebar'}
+                    aria-label={rightDrawerOpen ? t('Close git sidebar') : t('Open git sidebar')}
                   >
                     <Icon name="layout-right" className="h-5 w-5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{rightDrawerOpen ? 'Close git sidebar' : 'Open git sidebar'}</p>
+                  <p>{rightDrawerOpen ? t('Close git sidebar') : t('Open git sidebar')}</p>
                 </TooltipContent>
               </Tooltip>
             ) : null}

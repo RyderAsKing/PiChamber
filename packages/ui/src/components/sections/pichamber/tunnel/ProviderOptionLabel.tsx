@@ -1,10 +1,12 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 import { getProviderLabel } from './tunnelHelpers';
 
 export const ProviderOptionLabel: React.FC<{ provider: string }> = ({ provider }) => {
+  const { t } = useTranslation();
   const label = getProviderLabel(provider);
   const isCloudflare = provider === 'cloudflare';
 
@@ -17,7 +19,7 @@ export const ProviderOptionLabel: React.FC<{ provider: string }> = ({ provider }
           isCloudflare ? 'text-[var(--status-warning)]' : 'text-muted-foreground'
         )}
       />
-      <span>{label}</span>
+      <span>{t(label)}</span>
     </span>
   );
 };

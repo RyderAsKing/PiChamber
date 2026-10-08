@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +26,7 @@ export const HeaderRetentionDialog: React.FC<HeaderRetentionDialogProps> = ({
   sessionTitle,
   onConfirm,
 }) => {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={action !== null}
@@ -35,20 +37,20 @@ export const HeaderRetentionDialog: React.FC<HeaderRetentionDialogProps> = ({
       <DialogContent showCloseButton={false} className="max-w-sm gap-5">
         <DialogHeader>
           <DialogTitle>
-            {action === 'delete' ? 'Delete session?' : 'Archive session?'}
+            {action === 'delete' ? t('Delete session?') : t('Archive session?')}
           </DialogTitle>
           <DialogDescription>
             {action === 'delete'
-              ? `"${sessionTitle}" will be permanently deleted.`
-              : `"${sessionTitle}" will be archived.`}
+              ? t('"{{title}}" will be permanently deleted.', { title: sessionTitle })
+              : t('"{{title}}" will be archived.', { title: sessionTitle })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>
-            {'Cancel'}
+            {t('Cancel')}
           </Button>
           <Button variant="destructive" size="sm" onClick={onConfirm}>
-            {action === 'delete' ? 'Delete' : 'Archive'}
+            {action === 'delete' ? t('Delete') : t('Archive')}
           </Button>
         </DialogFooter>
       </DialogContent>

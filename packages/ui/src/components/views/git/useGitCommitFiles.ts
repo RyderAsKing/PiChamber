@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { toast } from '@/components/ui';
+import i18n from '@/i18n';
 import type { CommitFileEntry, RuntimeAPIs } from '@/lib/api/types';
 import { copyTextToClipboard } from '@/lib/clipboard';
 
@@ -17,10 +18,10 @@ export function useGitCommitFiles(
   const handleCopyCommitHash = React.useCallback((hash: string) => {
     void copyTextToClipboard(hash).then((result) => {
       if (result.ok) {
-        toast.success('Commit hash copied');
+        toast.success(i18n.t('Commit hash copied'));
         return;
       }
-      toast.error('Failed to copy');
+      toast.error(i18n.t('Failed to copy'));
     });
   }, []);
 

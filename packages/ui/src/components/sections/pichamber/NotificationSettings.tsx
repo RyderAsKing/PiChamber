@@ -1,5 +1,6 @@
 import React from 'react';
 import { useUIStore } from '@/stores/useUIStore';
+import { useTranslation } from 'react-i18next';
 import { isDesktopShell } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
@@ -13,6 +14,7 @@ import {
 
 export const NotificationSettings: React.FC = () => {
   const isDesktop = React.useMemo(() => isDesktopShell(), []);
+  const { t } = useTranslation();
   // The native Capacitor app runs in a WKWebView with no Web Notification API; it has its
   // own native (Local Notifications) permission. Treat it as a native runtime, not a
   // browser, so the toggle isn't gated on Notification.permission (which is stuck there).
@@ -92,13 +94,13 @@ export const NotificationSettings: React.FC = () => {
         if (permission === 'granted') {
           setNativeNotificationsEnabled(true);
         } else {
-          toast.error("Notification permission denied", {
-            description: "Please enable notifications in your browser settings.",
+          toast.error(t('Notification permission denied'), {
+            description: t('Please enable notifications in your browser settings.'),
           });
         }
       } catch (error) {
         console.error('Failed to request notification permission:', error);
-        toast.error("Failed to request notification permission");
+        toast.error(t('Failed to request notification permission'));
       }
     } else if (checked && notificationPermission === 'granted') {
       setNativeNotificationsEnabled(true);
@@ -253,37 +255,37 @@ export const NotificationSettings: React.FC = () => {
   const handleTestNotification = async () => {
     const apis = getRegisteredRuntimeAPIs();
     if (!apis?.notifications) {
-      toast.error("Notifications API not available");
+      toast.error(t('Notifications API not available'));
       return;
     }
 
     try {
       const success = await apis.notifications.notify({
-        title: "Test notification",
-        body: "Notifications are working.",
+        title: t('Test notification'),
+        body: t('Notifications are working.'),
         tag: 'pichamber-test',
       });
 
       if (success) {
-        toast.success("Test notification sent successfully");
+        toast.success(t('Test notification sent successfully'));
       } else {
-        toast.error("Failed to send test notification");
+        toast.error(t('Failed to send test notification'));
       }
     } catch (error) {
       console.error('Test notification failed:', error);
-      toast.error("Failed to send test notification");
+      toast.error(t('Failed to send test notification'));
     }
   };
 
   const handleEnableBackgroundNotifications = async () => {
     if (!pushSupported) {
-      toast.error("Push notifications not supported");
+      toast.error(t('Push notifications not supported'));
       return;
     }
 
     const apis = getRegisteredRuntimeAPIs();
     if (!apis?.push) {
-      toast.error("Push API not available");
+      toast.error(t('Push API not available'));
       return;
     }
 
@@ -293,23 +295,23 @@ export const NotificationSettings: React.FC = () => {
         const permission = await Notification.requestPermission();
         setNotificationPermission(permission);
         if (permission !== 'granted') {
-          toast.error("Notification permission denied", {
-            description: "Enable notifications in your browser settings.",
+          toast.error(t('Notification permission denied'), {
+            description: t('Enable notifications in your browser settings.'),
           });
           return;
         }
       }
 
       if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
-        toast.error("Notification permission denied", {
-          description: "Enable notifications in your browser settings.",
+        toast.error(t('Notification permission denied'), {
+          description: t('Enable notifications in your browser settings.'),
         });
         return;
       }
 
       const key = await apis.push.getVapidPublicKey();
       if (!key?.publicKey) {
-        toast.error("Failed to load push key");
+        toast.error(t('Failed to load push key'));
         return;
       }
 
@@ -352,16 +354,16 @@ export const NotificationSettings: React.FC = () => {
       );
 
       if (!ok?.ok) {
-        toast.error("Failed to enable background notifications");
+        toast.error(t('Failed to enable background notifications'));
         return;
       }
 
       setPushSubscribed(true);
-      toast.success("Background notifications enabled");
+      toast.success(t('Background notifications enabled'));
     } catch (error) {
       console.error('[Push] Enable failed:', error);
       const formatted = formatUnknownError(error);
-      toast.error("Failed to enable background notifications", {
+      toast.error(t('Failed to enable background notifications'), {
         description: formatted.summary,
       });
     } finally {
@@ -377,7 +379,7 @@ export const NotificationSettings: React.FC = () => {
 
     const apis = getRegisteredRuntimeAPIs();
     if (!apis?.push) {
-      toast.error("Push API not available");
+      toast.error(t('Push API not available'));
       return;
     }
 
@@ -394,7 +396,7 @@ export const NotificationSettings: React.FC = () => {
       await subscription.unsubscribe();
       await apis.push.unsubscribe({ endpoint });
       setPushSubscribed(false);
-      toast.success("Background notifications disabled");
+      toast.success(t('Background notifications disabled'));
     } finally {
       setPushBusy(false);
     }
@@ -404,7 +406,7 @@ export const NotificationSettings: React.FC = () => {
     <>
         <SettingsSection
           settingsItem="notifications.delivery"
-          title={"Notification delivery"}
+          title={t('Notification delivery')}
           divider={false}
         >
           <div className={SETTINGS_OPTION_STACK_CLASS}>
@@ -413,13 +415,13 @@ export const NotificationSettings: React.FC = () => {
               onChange={(checked) => {
                 void handleToggleChange(checked);
               }}
-              label={"Enable notifications"}
+              label={t('Enable notifications')}
               info={
                 isBrowser
-                  ? "Your browser may ask for permission the first time."
+                  ? t('Your browser may ask for permission the first time.')
                   : undefined
               }
-              ariaLabel={"Enable notifications"}
+              ariaLabel={t('Enable notifications')}
             />
 
             {/* The native Capacitor app never notifies while focused (hard rule) and uses
@@ -430,8 +432,8 @@ export const NotificationSettings: React.FC = () => {
                 <SettingsCheckboxRow
                   checked={notificationMode === 'always'}
                   onChange={(checked) => setNotificationMode(checked ? 'always' : 'hidden-only')}
-                  label={"Notify while app is focused"}
-                  ariaLabel={"Notify while app is focused"}
+                  label={t('Notify while app is focused')}
+                  ariaLabel={t('Notify while app is focused')}
                 />
 
                 <div className="py-2">
@@ -441,7 +443,7 @@ export const NotificationSettings: React.FC = () => {
                     size="sm"
                     onClick={() => void handleTestNotification()}
                   >
-                    {"Send test notification"}
+                    {t('Send test notification')}
                   </Button>
                 </div>
               </>
@@ -452,12 +454,12 @@ export const NotificationSettings: React.FC = () => {
             <div className="mt-1">
               {notificationPermission === 'denied' && (
                 <p className="typography-meta text-[var(--status-error)] mt-1">
-                  {"Notification permission denied. Enable it in your browser settings."}
+                  {t('Notification permission denied. Enable it in your browser settings.')}
                 </p>
               )}
               {notificationPermission === 'granted' && !nativeNotificationsEnabled && (
                 <p className="typography-meta text-muted-foreground/70 mt-1">
-                  {"Permission granted, but notifications are disabled."}
+                  {t('Permission granted, but notifications are disabled.')}
                 </p>
               )}
             </div>
@@ -468,21 +470,21 @@ export const NotificationSettings: React.FC = () => {
           <>
             <SettingsSection
               settingsItem="notifications.events"
-              title={"Notification events"}
+              title={t('Notification events')}
             >
               <div className={SETTINGS_OPTION_STACK_CLASS}>
                 <SettingsCheckboxRow
                   checked={notifyOnCompletion}
                   onChange={setNotifyOnCompletion}
-                  label={"Work completed"}
-                  ariaLabel={"Notify when work is completed"}
+                  label={t('Work completed')}
+                  ariaLabel={t('Notify when work is completed')}
                 />
 
                 <SettingsCheckboxRow
                   checked={notifyOnError}
                   onChange={setNotifyOnError}
-                  label={"Errors"}
-                  ariaLabel={"Notify when work fails"}
+                  label={t('Errors')}
+                  ariaLabel={t('Notify when work fails')}
                 />
               </div>
             </SettingsSection>
@@ -493,7 +495,7 @@ export const NotificationSettings: React.FC = () => {
         {isBrowser && (
           <SettingsSection
             settingsItem="notifications.push"
-            title={"Background push notifications"}
+            title={t('Background push notifications')}
           >
             <SettingsCheckboxRow
               checked={pushSupported ? pushSubscribed : false}
@@ -505,13 +507,13 @@ export const NotificationSettings: React.FC = () => {
                   void handleDisableBackgroundNotifications();
                 }
               }}
-              label={"Enable push notifications"}
-              description={!pushSupported ? "Push not supported. Desktop Chrome/Edge and Android support push. iOS requires an installed PWA." : undefined}
-              info={pushSupported ? "Receive alerts via your operating system background service" : undefined}
-              ariaLabel={"Enable push notifications"}
+              label={t('Enable push notifications')}
+              description={!pushSupported ? t('Push not supported. Desktop Chrome/Edge and Android support push. iOS requires an installed PWA.') : undefined}
+              info={pushSupported ? t('Receive alerts via your operating system background service') : undefined}
+              ariaLabel={t('Enable push notifications')}
               labelAccessory={
                 pushBusy ? (
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-current text-muted-foreground animate-busy-pulse" aria-label={"Loading"} />
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-current text-muted-foreground animate-busy-pulse" aria-label={t('Loading')} />
                 ) : null
               }
             />

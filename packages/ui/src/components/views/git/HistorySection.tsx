@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Collapsible,
   CollapsibleContent,
@@ -66,6 +67,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
   onConflict,
   onActionSuccess,
 }) => {
+    const { t } = useTranslation();
     const [isOpen, setIsOpen] = React.useState(true);
   const isGraphMode = mode === 'graph';
 
@@ -142,10 +144,10 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
         {isLogLoading ? (
           <span className="flex items-center gap-1">
             <Icon name="loader-4" className="size-3 animate-spin" />
-            {"Loading..."}
+            {t("Loading...")}
           </span>
         ) : (
-          "Load more"
+          t("Load more")
         )}
       </Button>
     </div>
@@ -156,7 +158,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
       {log.all.length === 0 ? (
         <div className="flex h-full items-center justify-center p-4">
           <p className="typography-ui-label text-muted-foreground">
-            {"No commits found"}
+            {t("No commits found")}
           </p>
         </div>
       ) : hasSplitHistory && branchDivider ? (
@@ -212,7 +214,7 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
       className="rounded-xl border border-border/60 bg-background/70 overflow-hidden"
     >
       <CollapsibleTrigger className="flex w-full items-center justify-between px-3 h-10 hover:bg-transparent">
-        <h3 className="typography-ui-header font-semibold text-foreground">{"History"}</h3>
+        <h3 className="typography-ui-header font-semibold text-foreground">{t("History")}</h3>
         <div className="flex items-center gap-2">
           {isOpen && (
             <div
@@ -229,12 +231,12 @@ export const HistorySection: React.FC<HistorySectionProps> = ({
                   className="w-auto"
                   disabled={isLogLoading}
                 >
-                  <SelectValue placeholder={"Commits"} />
+                  <SelectValue placeholder={t("Commits")} />
                 </SelectTrigger>
                 <SelectContent>
                   {LOG_SIZE_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={String(option.value)}>
-                      {option.label}
+                      {t(option.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>

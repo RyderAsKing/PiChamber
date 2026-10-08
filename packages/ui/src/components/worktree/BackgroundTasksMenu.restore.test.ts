@@ -9,12 +9,12 @@ test('each Restore draft button has a task-identifying accessible name with unch
   // failed rows render identical buttons — including concurrent normal
   // draft-ID-keyed rows that share source directory and start ref.
   expect(source).toContain(
-    'aria-label={`Restore draft for ${entry.intent.sourceDirectory} from ${entry.intent.startRef} (task ${shortWorktreeTaskId(entry.key)})`}',
+    "aria-label={t('Restore draft for {{directory}} from {{startRef}} (task {{taskId}})', { directory: entry.intent.sourceDirectory, startRef: entry.intent.startRef, taskId: shortWorktreeTaskId(entry.key) })}",
   );
   // No conditional omission: the old intent-key branch dropped the identifier.
   expect(source).not.toContain("startsWith('[')");
   // The button children (visible copy) must remain exactly "Restore draft".
-  expect(/>\s*Restore draft\s*<\/Button>/.test(source)).toBe(true);
+  expect(/>\s*\{t\('Restore draft'\)\}\s*<\/Button>/.test(source)).toBe(true);
 });
 
 test('prompt-dispatch-pending rows count as active so the header never reports zero while Sending prompt spins', () => {

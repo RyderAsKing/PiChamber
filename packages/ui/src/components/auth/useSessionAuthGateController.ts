@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { toast } from '@/components/ui';
 import { getRuntimeExtraHeadersSync, subscribeRuntimeAuthExpired } from '@/lib/runtime-auth';
@@ -35,6 +36,7 @@ import {
 } from './sessionAuthHelpers';
 
 export function useSessionAuthGateController() {
+  const { t } = useTranslation();
   const skipAuth = false;
   const showHostSwitcher = React.useMemo(() => isDesktopShell(), []);
   const [state, setState] = React.useState<GateState>(() => (skipAuth ? 'authenticated' : 'pending'));
@@ -335,7 +337,7 @@ export function useSessionAuthGateController() {
             return;
           }
           if (shellLogin?.status === 401) {
-            setErrorMessage('Incorrect password. Try again.');
+            setErrorMessage(t('Incorrect password. Try again.'));
             setIsTunnelLocked(false);
             setState('locked');
             return;
@@ -381,14 +383,14 @@ export function useSessionAuthGateController() {
             try {
               await registerPasskeyForCurrentSession();
               if (!isRuntimeIdentityActive(runtime)) return;
-              toast.success('Passkey added');
+              toast.success(t('Passkey added'));
               setState('authenticated');
               return;
             } catch (error) {
               if (isPasskeyCeremonyAbort(error)) {
-                toast.message('Passkey setup canceled');
+                toast.message(t('Passkey setup canceled'));
               } else {
-                const message = error instanceof Error ? error.message : 'Passkey setup failed.';
+                const message = error instanceof Error ? error.message : t('Passkey setup failed.');
                 toast.error(message);
               }
               setState('authenticated');
@@ -400,7 +402,7 @@ export function useSessionAuthGateController() {
         }
 
         if (response.status === 401) {
-          setErrorMessage('Incorrect password. Try again.');
+          setErrorMessage(t('Incorrect password. Try again.'));
           setIsTunnelLocked(false);
           setState('locked');
           return;
@@ -414,7 +416,7 @@ export function useSessionAuthGateController() {
           return;
         }
 
-        setErrorMessage('Unexpected response from server.');
+        setErrorMessage(t('Unexpected response from server.'));
         setIsTunnelLocked(false);
         setState('error');
       } catch (error) {
@@ -432,7 +434,7 @@ export function useSessionAuthGateController() {
           return;
         }
         if (shellLogin?.status === 401) {
-          setErrorMessage('Incorrect password. Try again.');
+          setErrorMessage(t('Incorrect password. Try again.'));
           setIsTunnelLocked(false);
           setState('locked');
           return;
@@ -443,7 +445,7 @@ export function useSessionAuthGateController() {
           setState('rate-limited');
           return;
         }
-        setErrorMessage('Network error. Check connection and retry.');
+        setErrorMessage(t('Network error. Check connection and retry.'));
         setIsTunnelLocked(false);
         setState('error');
       } finally {
@@ -460,6 +462,7 @@ export function useSessionAuthGateController() {
       password,
       registerPasskeyForCurrentSession,
       supportsPasskeys,
+      t,
       trustDevice,
     ]
   );
@@ -498,7 +501,7 @@ export function useSessionAuthGateController() {
       if (isPasskeyCeremonyAbort(error)) {
         return;
       }
-      const message = error instanceof Error ? error.message : 'Passkey sign-in failed.';
+      const message = error instanceof Error ? error.message : t('Passkey sign-in failed.');
       setErrorMessage(message);
     } finally {
       if (isRuntimeIdentityActive(runtime)) {
@@ -511,6 +514,7 @@ export function useSessionAuthGateController() {
     isPasskeyBusy,
     isSubmitting,
     supportsPasskeys,
+    t,
     trustDevice,
   ]);
 
@@ -530,14 +534,14 @@ export function useSessionAuthGateController() {
     try {
       await registerCurrentDevicePasskey();
       if (!isRuntimeIdentityActive(runtime)) return;
-      toast.success('Passkey added');
+      toast.success(t('Passkey added'));
       await refreshPasskeyStatus(runtime);
     } catch (error) {
       if (!isRuntimeIdentityActive(runtime)) return;
       if (isPasskeyCeremonyAbort(error)) {
-        toast.message('Passkey setup canceled');
+        toast.message(t('Passkey setup canceled'));
       } else {
-        const message = error instanceof Error ? error.message : 'Passkey setup failed.';
+        const message = error instanceof Error ? error.message : t('Passkey setup failed.');
         toast.error(message);
       }
     } finally {
@@ -546,7 +550,7 @@ export function useSessionAuthGateController() {
         setIsPasskeyBusy(false);
       }
     }
-  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, refreshPasskeyStatus, supportsPasskeys]);
+  }, [cancelActivePasskey, isPasskeyBusy, isSubmitting, refreshPasskeyStatus, supportsPasskeys, t]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

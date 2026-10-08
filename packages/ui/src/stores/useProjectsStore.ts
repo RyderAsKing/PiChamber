@@ -9,6 +9,7 @@ import { useDirectoryStore } from './useDirectoryStore';
 import { streamDebugEnabled } from '@/stores/utils/streamDebug';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 interface ProjectPathValidationResult {
   ok: boolean;
@@ -186,12 +187,12 @@ const readFileAsDataUrl = async (file: File): Promise<string> => {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => {
-      reject(new Error('Failed to read icon file'));
+      reject(new Error(i18n.t('Failed to read icon file')));
     };
     reader.onload = () => {
       const result = typeof reader.result === 'string' ? reader.result : '';
       if (!result) {
-        reject(new Error('Failed to read icon file'));
+        reject(new Error(i18n.t('Failed to read icon file')));
         return;
       }
       resolve(result);
@@ -369,12 +370,12 @@ export const useProjectsStore = create<ProjectsStore>()(
 
     validateProjectPath: (path: string): ProjectPathValidationResult => {
       if (typeof path !== 'string' || path.trim().length === 0) {
-        return { ok: false, reason: 'Provide a directory path.' };
+        return { ok: false, reason: i18n.t('Provide a directory path.') };
       }
 
       const normalized = normalizeProjectPath(path);
       if (!normalized) {
-        return { ok: false, reason: 'Directory path cannot be empty.' };
+        return { ok: false, reason: i18n.t('Directory path cannot be empty.') };
       }
 
       return { ok: true, normalizedPath: normalized };
@@ -525,13 +526,13 @@ export const useProjectsStore = create<ProjectsStore>()(
 
       const mime = resolveUploadMime(file);
       if (!mime) {
-        return { ok: false, error: 'Only PNG, JPEG, and SVG are supported' };
+        return { ok: false, error: i18n.t('Only PNG, JPEG, and SVG are supported') };
       }
       if (!Number.isFinite(file.size) || file.size <= 0) {
-        return { ok: false, error: 'Icon file is empty' };
+        return { ok: false, error: i18n.t('Icon file is empty') };
       }
       if (file.size > 5 * 1024 * 1024) {
-        return { ok: false, error: 'Icon exceeds size limit (5 MB)' };
+        return { ok: false, error: i18n.t('Icon exceeds size limit (5 MB)') };
       }
 
       try {
@@ -549,7 +550,7 @@ export const useProjectsStore = create<ProjectsStore>()(
 
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          return { ok: false, error: payload?.error || 'Failed to upload project icon' };
+          return { ok: false, error: payload?.error || i18n.t('Failed to upload project icon') };
         }
 
         const payload = (await response.json().catch(() => null)) as { settings?: DesktopSettings } | null;
@@ -559,7 +560,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         return { ok: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { ok: false, error: message || 'Failed to upload project icon' };
+        return { ok: false, error: message || i18n.t('Failed to upload project icon') };
       }
     },
 
@@ -575,7 +576,7 @@ export const useProjectsStore = create<ProjectsStore>()(
 
         if (!response.ok) {
           const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-          return { ok: false, error: payload?.error || 'Failed to remove project icon' };
+          return { ok: false, error: payload?.error || i18n.t('Failed to remove project icon') };
         }
 
         const payload = (await response.json().catch(() => null)) as { settings?: DesktopSettings } | null;
@@ -585,7 +586,7 @@ export const useProjectsStore = create<ProjectsStore>()(
         return { ok: true };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        return { ok: false, error: message || 'Failed to remove project icon' };
+        return { ok: false, error: message || i18n.t('Failed to remove project icon') };
       }
     },
 

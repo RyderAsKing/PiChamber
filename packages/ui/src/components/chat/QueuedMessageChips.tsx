@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     DndContext,
     MouseSensor,
@@ -36,6 +37,7 @@ interface QueuedMessageChipProps {
 
 const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, onSend, onCheck }: QueuedMessageChipProps) => {
 
+    const { t } = useTranslation();
     const removeFromQueue = useMessageQueueStore((state) => state.removeFromQueue);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: message.id });
 
@@ -68,14 +70,14 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                     {...attributes}
                     {...listeners}
                     className="flex flex-shrink-0 cursor-grab touch-none select-none items-center justify-center text-muted-foreground hover:text-foreground active:cursor-grabbing"
-                    aria-label={"Drag to reorder"}
+                    aria-label={t("Drag to reorder")}
                 >
                     <Icon name="draggable" className="h-4 w-4" aria-hidden="true" />
                 </button>
                 <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground">
-                    {firstLine || "(empty)"}
+                    {firstLine || t("(empty)")}
                     {attachmentCount > 0 && (
-                        <span className="ml-1 text-muted-foreground">{attachmentCount === 1 ? "+1 file" : `+${attachmentCount} files`}</span>
+                        <span className="ml-1 text-muted-foreground">{attachmentCount === 1 ? t("+1 file") : t("+{{count}} files", { count: attachmentCount })}</span>
                     )}
                 </span>
                 <Button
@@ -86,7 +88,7 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                     disabled={busy}
                 >
                     <Icon name="edit" className="h-3 w-3" aria-hidden="true" />
-                    {"Edit"}
+                    {t("Edit")}
                 </Button>
                 {attempted ? (
                     <Button
@@ -95,11 +97,11 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                         size="xs"
                         onClick={() => onCheck(message)}
                         disabled={busy}
-                        aria-label={"Check delivery status"}
-                        title={"Check delivery status"}
+                        aria-label={t("Check delivery status")}
+                        title={t("Check delivery status")}
                     >
                         <Icon name="refresh" className="h-3 w-3" aria-hidden="true" />
-                        {"Check status"}
+                        {t("Check status")}
                     </Button>
                 ) : (
                     <Button
@@ -108,11 +110,11 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                         size="xs"
                         onClick={() => onSend(message)}
                         disabled={busy}
-                        aria-label={"Send now with Steering"}
-                        title={"Send now with Steering"}
+                        aria-label={t("Send now with Steering")}
+                        title={t("Send now with Steering")}
                     >
                         <Icon name="send-plane" className="h-3 w-3" aria-hidden="true" />
-                        {"Steer"}
+                        {t("Steer")}
                     </Button>
                 )}
                 <button
@@ -120,7 +122,7 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                     onClick={() => removeFromQueue(target, message.id)}
                     disabled={busy}
                     className="flex items-center justify-center h-6 w-6 flex-shrink-0 hover:bg-[var(--interactive-hover)] rounded-full transition-colors disabled:pointer-events-none disabled:opacity-50"
-                    aria-label={"Remove follow-up"}
+                    aria-label={t("Remove follow-up")}
                 >
                     <Icon name="close" className="h-4 w-4 text-muted-foreground" />
                 </button>
@@ -133,7 +135,7 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                     )}
                     role={failed || attempted ? 'status' : undefined}
                 >
-                    {sending ? "Sending…" : checking ? "Checking status…" : failed ? "Send failed. Retry with Steer or remove." : "Delivery uncertain. Check status before retrying."}
+                    {sending ? t("Sending…") : checking ? t("Checking status…") : failed ? t("Send failed. Retry with Steer or remove.") : t("Delivery uncertain. Check status before retrying.")}
                 </p>
             )}
         </div>
@@ -152,6 +154,7 @@ const EMPTY_SENDING: string[] = [];
 
 export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: QueuedMessageChipsProps) => {
 
+    const { t } = useTranslation();
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
     // Must use the same resolution the composer used to build the queue key —
     // reading currentSessionDirectory raw can key the chips to a different
@@ -216,11 +219,11 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
     const hasSdkWaiting = sdkSteeringWaiting > 0 || sdkFollowUpWaiting > 0;
     const hasLocalQueue = Boolean(target) && queuedMessages.length > 0;
     const steeringWaitingText = sdkSteeringWaiting === 1
-        ? '1 steering message waiting'
-        : `${sdkSteeringWaiting} steering messages waiting`;
+        ? t('1 steering message waiting')
+        : t('{{count}} steering messages waiting', { count: sdkSteeringWaiting });
     const followUpWaitingText = sdkFollowUpWaiting === 1
-        ? '1 follow-up message waiting'
-        : `${sdkFollowUpWaiting} follow-up messages waiting`;
+        ? t('1 follow-up message waiting')
+        : t('{{count}} follow-up messages waiting', { count: sdkFollowUpWaiting });
 
     const sensors = useSensors(
         // Desktop: drag after a small move so other clicks still register.
@@ -269,14 +272,14 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
             if (status === 'accepted') {
                 useMessageQueueStore.getState().completeQueuedSend(target, message.id);
             } else if (status === 'pending') {
-                toast.info('Delivery still pending. Follow-ups are on hold. Check again later.');
+                toast.info(t('Delivery still pending. Follow-ups are on hold. Check again later.'));
             } else {
-                toast.warning('Delivery status unknown. The message stays on hold. No resend attempted.');
+                toast.warning(t('Delivery status unknown. The message stays on hold. No resend attempted.'));
             }
         } finally {
             setCheckingIds((previous) => previous.filter((id) => id !== message.id));
         }
-    }, [target, queueKey, checkingIds, sendingIds]);
+    }, [target, queueKey, checkingIds, sendingIds, t]);
 
     if (!hasLocalQueue && !hasSdkWaiting) {
         return null;
@@ -289,7 +292,7 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
                     <>
                         <div className="flex w-full items-center gap-2 px-3 py-2 text-left">
                             <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
-                                {"Follow-up messages"} {queuedMessages.length}
+                                {t("Follow-up messages")} {queuedMessages.length}
                             </span>
                             <Icon name="time" className="ml-auto h-4 w-4 text-muted-foreground" aria-hidden="true" />
                         </div>

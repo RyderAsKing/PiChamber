@@ -1,5 +1,5 @@
 import type { PiProviderAddModelDetails } from "@/lib/pi/protocol";
-
+import i18n from "@/i18n";
 export const PI_DEFAULT_CONTEXT_WINDOW = 128_000;
 export const PI_DEFAULT_MAX_TOKENS = 16_384;
 
@@ -106,16 +106,17 @@ export function validateThinkingMapText(value: string | undefined): {
         );
     if (!key)
       return {
-        error:
-          "Use off, minimal, low, medium, high, xhigh, or max, optionally as key=value",
+        error: i18n.t(
+          "Use off, minimal, low, medium, high, xhigh, or max, optionally as key=value"
+        ),
       };
     if (Object.prototype.hasOwnProperty.call(result, key))
-      return { error: `Only one ${key} value is allowed` };
+      return { error: i18n.t("Only one {{key}} value is allowed", { key }) };
 
     let mapped: string | null = entry;
     if (separator >= 0) {
       const encoded = entry.slice(separator + 1).trim();
-      if (!encoded) return { error: "Thinking values cannot be empty" };
+      if (!encoded) return { error: i18n.t("Thinking values cannot be empty") };
       if (encoded === "null") {
         mapped = null;
       } else if (encoded.startsWith('"')) {
@@ -124,14 +125,14 @@ export function validateThinkingMapText(value: string | undefined): {
           if (typeof parsed !== "string") throw new Error("not a string");
           mapped = parsed;
         } catch {
-          return { error: "Quoted thinking values must be valid strings" };
+          return { error: i18n.t("Quoted thinking values must be valid strings") };
         }
       } else {
         mapped = encoded;
       }
     }
     if (mapped !== null && mapped.length > 512)
-      return { error: "Thinking values must be 512 characters or fewer" };
+      return { error: i18n.t("Thinking values must be 512 characters or fewer") };
     result[key] = mapped;
   }
   return { value: result };
@@ -149,22 +150,22 @@ export function validateAddProviderModel(input: AddProviderModelFormInput): {
 
   const errors: AddProviderModelFieldErrors = {
     ...(!id
-      ? { modelId: "Required" }
+      ? { modelId: i18n.t("Required") }
       : id.length > 512
-        ? { modelId: "Use 512 characters or fewer" }
+        ? { modelId: i18n.t("Use 512 characters or fewer") }
         : {}),
     ...(name.length > 512
-      ? { displayName: "Use 512 characters or fewer" }
+      ? { displayName: i18n.t("Use 512 characters or fewer") }
       : {}),
     ...((input.contextWindowText ?? "").trim() && contextWindow === undefined
-      ? { contextWindow: "Enter a positive whole number" }
+      ? { contextWindow: i18n.t("Enter a positive whole number") }
       : {}),
     ...((input.maxTokensText ?? "").trim() && maxTokens === undefined
-      ? { maxTokens: "Enter a positive whole number" }
+      ? { maxTokens: i18n.t("Enter a positive whole number") }
       : {}),
     ...(thinking.error ? { thinkingLevelMap: thinking.error } : {}),
     ...(thinking.value && !input.supportsThinking
-      ? { thinkingLevelMap: "Enable Supports thinking to add thinking levels" }
+      ? { thinkingLevelMap: i18n.t("Enable Supports thinking to add thinking levels") }
       : {}),
   };
 

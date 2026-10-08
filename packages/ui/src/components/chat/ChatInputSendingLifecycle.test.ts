@@ -24,7 +24,7 @@ test('worktree send captures attachments before the creation await', () => {
 
 test('queueing a worktree send removes its captured attachment cards immediately', () => {
   const requestAt = source.indexOf('const worktreeRequest = draftWorktreeCreation.request({');
-  const queuedAt = source.indexOf("toast.info('Worktree queued'", requestAt);
+  const queuedAt = source.indexOf("toast.info(t('Worktree queued'", requestAt);
   const awaitAt = source.indexOf('await worktreeRequest', requestAt);
   const detachAt = source.indexOf(
     'detachAttachedFiles(worktreeAttachmentsAtSend.map((file) => file.id))',

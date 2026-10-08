@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
   branchCount,
   onScopeChange,
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = React.useState(false);
   const currentCount = scope === 'all'
     ? allCount
@@ -45,14 +47,14 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           ? branchCount
           : workingCount;
   const currentLabel = scope === 'staged'
-    ? "Staged"
+    ? t("Staged")
     : scope === 'turn'
-      ? "Last turn"
+      ? t("Last turn")
       : scope === 'branch'
-        ? "Branch"
+        ? t("Branch")
         : scope === 'all'
-          ? "All"
-          : "Changed";
+          ? t("All")
+          : t("Changed");
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -62,7 +64,7 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           variant="ghost"
           size="sm"
           className="h-8 flex-shrink-0 gap-1.5 px-2 py-1 normal-case"
-          aria-label={"Select change mode"}
+          aria-label={t("Select change mode")}
         >
           <span className="whitespace-nowrap font-medium">
             {currentLabel}<span className="diff-toolbar__scope-count">: {currentCount}</span>
@@ -83,7 +85,7 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           {isGitRepo !== false ? (
             <DropdownMenuRadioItem value="all">
               <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <span>{"All"}</span>
+                <span>{t("All")}</span>
                 <span className="typography-meta text-muted-foreground">{allCount}</span>
               </span>
             </DropdownMenuRadioItem>
@@ -91,7 +93,7 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           {isGitRepo !== false ? (
             <DropdownMenuRadioItem value="working">
               <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <span>{"Changed"}</span>
+                <span>{t("Changed")}</span>
                 <span className="typography-meta text-muted-foreground">{workingCount}</span>
               </span>
             </DropdownMenuRadioItem>
@@ -99,21 +101,21 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           {isGitRepo !== false ? (
             <DropdownMenuRadioItem value="staged">
               <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <span>{"Staged"}</span>
+                <span>{t("Staged")}</span>
                 <span className="typography-meta text-muted-foreground">{stagedCount}</span>
               </span>
             </DropdownMenuRadioItem>
           ) : null}
           <DropdownMenuRadioItem value="turn">
             <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-              <span>{"Last turn"}</span>
+              <span>{t("Last turn")}</span>
               <span className="typography-meta text-muted-foreground">{turnCount}</span>
             </span>
           </DropdownMenuRadioItem>
           {branchAvailable ? (
             <DropdownMenuRadioItem value="branch">
               <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                <span>{"Branch"}</span>
+                <span>{t("Branch")}</span>
                 <span className="typography-meta text-muted-foreground">{branchCount}</span>
               </span>
             </DropdownMenuRadioItem>

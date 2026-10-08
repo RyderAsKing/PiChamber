@@ -20,6 +20,7 @@
  * authoritative empty success. Runtime switches clear every scope.
  */
 
+import i18n from "@/i18n";
 import type { PiCommand } from "./protocol";
 
 export type CatalogCommandSource = "system" | "prompt" | "skill" | "extension";
@@ -48,7 +49,7 @@ export const buildSystemCatalogCommands = (): CatalogCommand[] =>
     name: command.name,
     invocationName: command.name,
     source: "system",
-    description: command.description,
+    description: i18n.t(command.description),
   }));
 
 /** Map `/api/pi/commands` rows (already executable) to catalog identity. */

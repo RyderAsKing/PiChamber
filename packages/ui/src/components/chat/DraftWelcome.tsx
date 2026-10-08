@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { DraftPresetChips } from './DraftPresetChips';
 import { useInputStore } from '@/sync/input-store';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -23,6 +24,7 @@ const renderDraftTitle = (
 };
 
 export const DraftWelcome: React.FC = () => {
+  const { t } = useTranslation();
   const selectedProjectId = useSessionUIStore(
     (state) => state.newSessionDraft.selectedProjectId ?? null
   );
@@ -43,8 +45,8 @@ export const DraftWelcome: React.FC = () => {
       <h1 className="text-balance text-3xl font-normal tracking-tight text-foreground">
         {renderDraftTitle(
           projectLabel
-            ? `What are we working on in ${projectLabel}?`
-            : "What are we working on?",
+            ? t('What are we working on in {{project}}?', { project: projectLabel })
+            : t('What are we working on?'),
           projectLabel
         )}
       </h1>

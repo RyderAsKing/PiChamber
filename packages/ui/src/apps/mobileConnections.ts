@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { PairingConnectionPayload } from '@/lib/connectionPayload';
 import { isCapacitorApp } from '@/lib/platform';
@@ -90,6 +91,7 @@ export type {
 };
 
 export const useMobileConnection = (onConnected: () => void): UseMobileConnection => {
+  const { t } = useTranslation();
   const [connections, setConnections] = React.useState<MobileSavedConnection[]>(() =>
     readConnections()
   );
@@ -153,7 +155,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       try {
         const candidates = buildCandidatesFromInput(input);
         if (candidates.length === 0) {
-          setError('Enter a server URL.');
+          setError(t('Enter a server URL.'));
           return;
         }
         const saved = input.id
@@ -179,7 +181,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
               if (readResult.status === 'present') {
                 token = readResult.token;
               } else if (readResult.status === 'failure') {
-                setError('Could not read saved credentials. Please try again.');
+                setError(t('Could not read saved credentials. Please try again.'));
                 return;
               }
             }
@@ -196,7 +198,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         logConnect('connect:probe', { status: result.status });
 
         if (result.status === 'unreachable') {
-          setError('Could not reach that PiChamber server.');
+          setError(t('Could not reach that PiChamber server.'));
           return;
         }
         if (result.status === 'needs-login') {
@@ -224,12 +226,12 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         onConnected();
       } catch (error) {
         console.warn('[mobile-connect] connect threw', error);
-        setError('That server URL is not valid.');
+        setError(t('That server URL is not valid.'));
       } finally {
         endBusy('connect');
       }
     },
-    [beginBusy, endBusy, onConnected, persistMetadata]
+    [beginBusy, endBusy, onConnected, persistMetadata, t]
   );
 
   const redeemPairingConnection = React.useCallback(
@@ -243,7 +245,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       try {
         chosen = await establishLiveTransport(deviceCandidates);
         if (!chosen) {
-          setError('Could not reach that PiChamber server.');
+          setError(t('Could not reach that PiChamber server.'));
           return;
         }
 
@@ -274,7 +276,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
                 redeemInit
               );
         if (!response?.ok) {
-          setError('This server needs a password or client token.');
+          setError(t('This server needs a password or client token.'));
           return;
         }
         const result = (await response.json().catch(() => null)) as
@@ -285,7 +287,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
             ? result.clientToken.trim()
             : '';
         if (!issuedToken) {
-          setError('This server needs a password or client token.');
+          setError(t('This server needs a password or client token.'));
           return;
         }
         const serverLabel =
@@ -303,7 +305,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
             issuedToken
           );
           if (!stored) {
-            setError('This server needs a password or client token.');
+            setError(t('This server needs a password or client token.'));
             return;
           }
         }
@@ -323,13 +325,13 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         onConnected();
       } catch (error) {
         console.warn('[mobile-connect] pairing threw', error);
-        setError('This server needs a password or client token.');
+        setError(t('This server needs a password or client token.'));
       } finally {
         if (!adopted && chosen?.kind === 'relay') chosen.tunnel.close();
         endBusy('pairing');
       }
     },
-    [beginBusy, endBusy, onConnected, persistMetadata]
+    [beginBusy, endBusy, onConnected, persistMetadata, t]
   );
 
   const submitPassword = React.useCallback(
@@ -348,7 +350,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         chosen = await establishLiveTransport(candidates);
         if (!isCurrentOperation()) return;
         if (!chosen) {
-          setError('Could not reach that PiChamber server.');
+          setError(t('Could not reach that PiChamber server.'));
           return;
         }
         const loginInit = {
@@ -379,7 +381,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
           status: response?.status ?? null,
         });
         if (!response?.ok) {
-          setError('Could not unlock that server. Check the password.');
+          setError(t('Could not unlock that server. Check the password.'));
           return;
         }
         const body = (await response.json().catch(() => null)) as {
@@ -402,7 +404,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
             onConnected();
             return;
           }
-          setError('This server needs a password or client token.');
+          setError(t('This server needs a password or client token.'));
           return;
         }
 
@@ -430,13 +432,13 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       } catch (error) {
         if (!isCurrentOperation()) return;
         console.warn('[mobile-connect] password threw', error);
-        setError('Could not unlock that server. Check the password.');
+        setError(t('Could not unlock that server. Check the password.'));
       } finally {
         if (!adopted && chosen?.kind === 'relay') chosen.tunnel.close();
         if (isCurrentOperation()) endBusy('password');
       }
     },
-    [beginBusy, endBusy, onConnected, pendingConnection, persistMetadata]
+    [beginBusy, endBusy, onConnected, pendingConnection, persistMetadata, t]
   );
 
   const cancelPassword = React.useCallback(() => {
@@ -473,7 +475,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         ];
       }
       if (candidates.length === 0) {
-        setError('Enter a server URL.');
+        setError(t('Enter a server URL.'));
         return null;
       }
       const clientToken = input.clientToken?.trim() || undefined;
@@ -506,7 +508,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         ) ?? null
       );
     },
-    [persistMetadata]
+    [persistMetadata, t]
   );
 
   const removeConnection = React.useCallback(

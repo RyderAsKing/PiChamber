@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Icon } from "@/components/icon/Icon";
@@ -101,17 +102,17 @@ class ChatErrorBoundaryView extends React.Component<ChatErrorBoundaryViewProps, 
 }
 
 export function ChatErrorBoundary(props: ChatErrorBoundaryProps) {
-  
+  const { t } = useTranslation();
   return (
     <ChatErrorBoundaryView
       {...props}
       texts={{
-        title: "Chat Error",
-        description: "The chat interface encountered an error. This might be due to a temporary network issue or corrupted message data.",
-        sessionLabel: "Session",
-        detailsSummary: "Error details",
-        resetAction: "Reset Chat",
-        persistentHint: "If the problem persists, try refreshing the page.",
+        title: t("Chat Error"),
+        description: t("The chat interface encountered an error. This might be due to a temporary network issue or corrupted message data."),
+        sessionLabel: t("Session"),
+        detailsSummary: t("Error details"),
+        resetAction: t("Reset Chat"),
+        persistentHint: t("If the problem persists, try refreshing the page."),
       }}
     />
   );

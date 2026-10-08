@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { Icon } from "@/components/icon/Icon";
@@ -27,6 +28,7 @@ type Props = {
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
+  const { t } = useTranslation();
   const {
     hideDirectoryControls,
     handleOpenDirectoryDialog,
@@ -78,12 +80,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={onOpenSettings}
                     className={actionClassName}
-                    aria-label={"Settings"}
+                    aria-label={t("Settings")}
                   >
                     <Icon name="settings-3" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{t("Settings")}</p></TooltipContent>
               </Tooltip>
             ) : null}
 
@@ -94,13 +96,13 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={onOpenInstances}
                     className={actionClassName}
-                    aria-label={instanceLabel ? `Instances: ${instanceLabel}` : "Instances"}
+                    aria-label={instanceLabel ? t('Instances: {{label}}', { label: instanceLabel }) : t("Instances")}
                   >
                     <Icon name="server" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={4}>
-                  <p>{instanceLabel || "Instances"}</p>
+                  <p>{instanceLabel || t("Instances")}</p>
                 </TooltipContent>
               </Tooltip>
             ) : null}
@@ -112,12 +114,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={onOpenUpdate}
                     className={actionClassName}
-                    aria-label={"Update"}
+                    aria-label={t("Update")}
                   >
                     <Icon name="download" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Update"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{t("Update")}</p></TooltipContent>
               </Tooltip>
             ) : null}
 
@@ -128,12 +130,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={handleOpenDirectoryDialog}
                     className={actionClassName}
-                    aria-label={"Add project"}
+                    aria-label={t("Add project")}
                   >
                     <Icon name="folder-add" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{t("Add project")}</p></TooltipContent>
               </Tooltip>
             ) : null}
 
@@ -144,12 +146,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={onOpenArchive}
                     className={actionClassName}
-                    aria-label={"Archive"}
+                    aria-label={t("Archive")}
                   >
                     <Icon name="archive" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Archive"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{t("Archive")}</p></TooltipContent>
               </Tooltip>
             ) : null}
           </div>
@@ -161,13 +163,13 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={() => setIsSessionSearchOpen((prev) => !prev)}
                   className={actionClassName}
-                  aria-label={"Search sessions"}
+                  aria-label={t("Search sessions")}
                   aria-expanded={isSessionSearchOpen}
                 >
                   <Icon name="search" className={headerActionIconClass} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}><p>{"Search sessions"}</p></TooltipContent>
+              <TooltipContent side="bottom" sideOffset={4}><p>{t("Search sessions")}</p></TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -177,8 +179,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   onClick={onToggleSelectionMode}
                   className={cn(actionClassName, selectionModeEnabled && 'bg-interactive-hover text-primary')}
                   aria-label={selectionModeEnabled
-                    ? "Exit selection"
-                    : "Select sessions"}
+                    ? t("Exit selection")
+                    : t("Select sessions")}
                   aria-pressed={selectionModeEnabled}
                 >
                   <Icon name="checkbox-multiple" className={headerActionIconClass} />
@@ -186,8 +188,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
                 <p>{selectionModeEnabled
-                  ? "Exit selection"
-                  : "Select sessions"}</p>
+                  ? t("Exit selection")
+                  : t("Select sessions")}</p>
               </TooltipContent>
             </Tooltip>
 
@@ -199,8 +201,8 @@ export function SidebarHeader(props: Props): React.ReactNode {
             <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-muted-foreground/80">
               {hasSessionSearchQuery ? (
                 <span>{searchMatchCount === 1
-                  ? `${searchMatchCount} match`
-                  : `${searchMatchCount} matches`}</span>
+                  ? t('{{count}} match', { count: searchMatchCount })
+                  : t('{{count}} matches', { count: searchMatchCount })}</span>
               ) : <span />}
             </div>
             <div className="relative">
@@ -209,7 +211,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                 ref={sessionSearchInputRef}
                 value={sessionSearchQuery}
                 onChange={(event) => setSessionSearchQuery(event.target.value)}
-                placeholder={"Search sessions..."}
+                placeholder={t("Search sessions...")}
                 className="h-8 w-full rounded-md border border-border bg-transparent pl-8 pr-8 typography-ui-label text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                 onKeyDown={(event) => {
                   if (event.key === 'Escape') {
@@ -227,7 +229,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
                   type="button"
                   onClick={() => setSessionSearchQuery('')}
                   className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-interactive-hover/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  aria-label={"Clear search"}
+                  aria-label={t("Clear search")}
                 >
                   <Icon name="close" className="h-3.5 w-3.5" />
                 </button>

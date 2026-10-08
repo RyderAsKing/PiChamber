@@ -1,4 +1,5 @@
 import React, { useMemo, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useOptionalThemeSystem } from '@/contexts/useThemeSystem';
 
 interface PiChamberLogoProps {
@@ -14,6 +15,7 @@ export const PiChamberLogo: React.FC<PiChamberLogoProps> = ({
   height = 70,
   isAnimated = false,
 }) => {
+  const { t } = useTranslation();
   const themeContext = useOptionalThemeSystem();
   const rawId = useId();
   const cleanId = rawId.replace(/[^a-zA-Z0-9_-]/g, '');
@@ -43,7 +45,7 @@ export const PiChamberLogo: React.FC<PiChamberLogoProps> = ({
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       role="img"
-      aria-label={"PiChamber logo"}
+      aria-label={t("PiChamber logo")}
     >
       {isAnimated ? (
         <>

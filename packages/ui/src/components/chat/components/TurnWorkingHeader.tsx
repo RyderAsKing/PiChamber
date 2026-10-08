@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useAssistantStatus } from '@/hooks/useAssistantStatus';
 import { getProviderModelDisplayName } from '@/lib/modelDisplay';
@@ -98,19 +99,22 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
     liveStatusText,
     wasSteered,
 }) => {
+    const { t } = useTranslation();
     const resolvedDurationMs = resolveTurnDurationMs({ startedAt, completedAt, durationMs });
     // Reconnecting keeps the last-observed state visible without claiming it
     // is current (no live timer) or finished (no manufactured duration). A
     // settled turn without timing still labels its disclosure.
     const isReconnecting = !isLiveTurn && isAwaitingRecovery;
     const statusLabel = isLiveTurn
-        ? 'Agent working'
+        ? t('Agent working')
         : isReconnecting
-          ? 'Reconnecting · last seen working'
+          ? t('Reconnecting · last seen working')
           : resolvedDurationMs !== null
-            ? `Worked for ${formatTurnDuration(resolvedDurationMs)}${wasSteered ? ' · Steered' : ''}`
+            ? wasSteered
+              ? t('Worked for {{duration}} · Steered', { duration: formatTurnDuration(resolvedDurationMs) })
+              : t('Worked for {{duration}}', { duration: formatTurnDuration(resolvedDurationMs) })
             : hasActivity
-              ? 'Agent activity'
+              ? t('Agent activity')
               : null;
     const activityId = `turn-${turnId}-activity`;
 
@@ -148,7 +152,7 @@ const TurnWorkingHeader: React.FC<TurnWorkingHeaderProps> = ({
                         )}
                         aria-expanded={isActivityExpanded}
                         aria-controls={activityId}
-                        aria-label={isActivityExpanded ? 'Collapse activity' : 'Expand activity'}
+                        aria-label={isActivityExpanded ? t('Collapse activity') : t('Expand activity')}
                         data-turn-activity-toggle="true"
                         onClick={onToggleActivity}
                     >

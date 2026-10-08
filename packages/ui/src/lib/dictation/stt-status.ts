@@ -1,5 +1,6 @@
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getRuntimeKey } from '@/lib/runtime-switch';
+import i18n from '@/i18n';
 
 export interface SttModelStatus {
   id: string;
@@ -70,7 +71,7 @@ export const fetchSttStatus = async (options?: { fresh?: boolean }): Promise<Stt
   }
   const promise = (async (): Promise<SttStatus> => {
     const response = await runtimeFetch('/api/stt/status');
-    if (!response.ok) throw new Error('Could not load dictation settings');
+    if (!response.ok) throw new Error(i18n.t('Could not load dictation settings'));
     const status = (await response.json()) as SttStatus;
     // Explicit refreshes observe the server without replacing the shared
     // snapshot, so a post-action read cannot skew background consumers.

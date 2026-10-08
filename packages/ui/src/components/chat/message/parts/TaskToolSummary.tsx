@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Text } from '@/components/ui/text';
 import { Icon } from '@/components/icon/Icon';
@@ -150,6 +151,7 @@ const TaskSummaryEntriesList = React.memo(({
     isMobile: boolean;
     animateTailText: boolean;
 }) => {
+    const { t } = useTranslation();
     const visibleEntries = isExpanded ? entries : entries.slice(-6);
     const hiddenCount = Math.max(0, entries.length - visibleEntries.length);
     const visibleStartIndex = entries.length - visibleEntries.length;
@@ -158,7 +160,7 @@ const TaskSummaryEntriesList = React.memo(({
         <ToolScrollableSection maxHeightClass={isExpanded ? 'max-h-[40vh]' : 'max-h-[min(17.5rem,45vh)]'} disableHorizontal>
             <div className="w-full min-w-0 space-y-1" data-chat-task-entries-list="true">
                 {hiddenCount > 0 ? (
-                    <div className="typography-micro text-muted-foreground/70">+{hiddenCount} more…</div>
+                    <div className="typography-micro text-muted-foreground/70">{t('+{{count}} more…', { count: hiddenCount })}</div>
                 ) : null}
 
                 {visibleEntries.map((entry, idx) => {
@@ -196,6 +198,7 @@ export const TaskToolSummary: React.FC<{
     animateTailText?: boolean;
     isActive?: boolean;
 }> = ({ entries, isExpanded, isMobile, output, sessionId, onShowPopup, input, animateTailText = true, isActive = false }) => {
+    const { t } = useTranslation();
     const currentDirectory = useEffectiveDirectory();
     const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
     const trimmedOutput = typeof output === 'string'
@@ -219,7 +222,7 @@ export const TaskToolSummary: React.FC<{
         return (
             <div className="oc-task-tool-summary relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]">
                 <div className="typography-meta text-muted-foreground/70">
-                    {isActive ? 'Waiting for subagent activity...' : 'No subagent session id on task metadata.'}
+                    {isActive ? t('Waiting for subagent activity...') : t('No subagent session id on task metadata.')}
                 </div>
             </div>
         );
@@ -250,7 +253,7 @@ export const TaskToolSummary: React.FC<{
                     onClick={handleOpenSession}
                 >
                     <Icon name="external-link" className="h-3.5 w-3.5 flex-shrink-0" />
-                    <span className="typography-meta text-primary font-medium">{`Open ${agentType.charAt(0).toUpperCase() + agentType.slice(1)} subtask`}</span>
+                    <span className="typography-meta text-primary font-medium">{t('Open {{agent}} subtask', { agent: agentType.charAt(0).toUpperCase() + agentType.slice(1) })}</span>
                 </button>
             )}
 
@@ -271,7 +274,7 @@ export const TaskToolSummary: React.FC<{
                         ) : (
                             <Icon name="arrow-right-s" className="h-3.5 w-3.5 flex-shrink-0" />
                         )}
-                        <span className="typography-meta text-foreground/80 font-medium">{"Output"}</span>
+                        <span className="typography-meta text-foreground/80 font-medium">{t("Output")}</span>
                     </button>
                     {isOutputExpanded ? (
                         <ToolScrollableSection maxHeightClass="max-h-[50vh]">

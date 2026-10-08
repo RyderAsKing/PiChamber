@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
@@ -70,6 +71,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
   onToggleFavoriteModel,
   onApplyModel,
 }) => {
+  const { t } = useTranslation();
   if (!open) return null;
 
   const normalizedQuery = mobileModelQuery.trim();
@@ -111,7 +113,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
       new Map([...capabilityIcons, ...modalityIcons].map((icon) => [icon.key, icon])).values(),
     );
     const contextText = metadata?.limit?.context
-      ? `${formatTokens(metadata.limit.context)} ctx`
+      ? t('{{count}} ctx', { count: formatTokens(metadata.limit.context) })
       : null;
 
     return (
@@ -157,8 +159,8 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
                         <span
                           key={`meta-${providerId}-${modelId}-${key}`}
                           className="flex size-4 flex-shrink-0 items-center justify-center text-muted-foreground"
-                          title={label}
-                          aria-label={label}
+                          title={t(label)}
+                          aria-label={t(label)}
                         >
                           <Icon name={iconName} className="size-3" />
                         </span>
@@ -177,7 +179,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
               }
               className="flex items-center gap-0.5 typography-micro font-medium text-muted-foreground hover:text-foreground flex-shrink-0"
               aria-expanded={isExpanded}
-              aria-label={isExpanded ? 'Hide thinking modes' : 'Show thinking modes'}
+              aria-label={isExpanded ? t('Hide thinking modes') : t('Show thinking modes')}
             >
               <span className="whitespace-nowrap">{variantLabel}</span>
               {isExpanded ? (
@@ -199,11 +201,11 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
                 'model-favorite-button flex size-5 items-center justify-center hover:text-primary/80 flex-shrink-0',
                 isFavoriteModel(providerId, modelId) ? 'text-primary' : 'text-muted-foreground',
               )}
-              aria-label={isFavoriteModel(providerId, modelId) ? 'Unfavorite' : 'Favorite'}
+              aria-label={isFavoriteModel(providerId, modelId) ? t('Unfavorite') : t('Favorite')}
               title={
                 isFavoriteModel(providerId, modelId)
-                  ? 'Remove from favorites'
-                  : 'Add to favorites'
+                  ? t('Remove from favorites')
+                  : t('Add to favorites')
               }
             >
               {isFavoriteModel(providerId, modelId) ? (
@@ -229,7 +231,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
   };
 
   return (
-    <MobileOverlayPanel open={true} onClose={onClose} title="Select model">
+    <MobileOverlayPanel open={true} onClose={onClose} title={t('Select model')}>
       <div className="flex flex-col gap-2">
         <div>
           <div className="relative">
@@ -243,7 +245,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
                 onMobileModelQueryChange(event.target.value);
                 onToggleExpandedMobileModelKey(null);
               }}
-              placeholder="Search providers or models"
+              placeholder={t('Search providers or models')}
               className="pl-7 h-9 rounded-xl border-border/40 bg-[var(--surface-elevated)] typography-meta"
             />
             {mobileModelQuery && (
@@ -254,7 +256,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
                   onToggleExpandedMobileModelKey(null);
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label="Clear search"
+                aria-label={t('Clear search')}
               >
                 <Icon name="close-circle" className="size-4" />
               </button>
@@ -264,7 +266,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
 
         {!hasResults && (
           <div className="px-3 py-8 text-center typography-meta text-muted-foreground">
-            No providers or models match your search.
+            {t('No providers or models match your search.')}
           </div>
         )}
 
@@ -273,7 +275,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
           <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <Icon name="star-fill" className="size-3 inline-block mr-1.5 text-primary" />
-              Favorites
+              {t('Favorites')}
             </div>
             <div className="flex flex-col border-t border-border/30">
               {filteredFavorites.map(({ model, providerID, modelID }) =>
@@ -293,7 +295,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
           <div className="rounded-xl border border-border/40 bg-[var(--surface-elevated)] overflow-hidden">
             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               <Icon name="time" className="size-3 inline-block mr-1.5" />
-              Recent
+              {t('Recent')}
             </div>
             <div className="flex flex-col border-t border-border/30">
               {filteredRecents.map(({ model, providerID, modelID }) =>
@@ -341,7 +343,7 @@ export const MobileModelPickerPanel: React.FC<MobileModelPickerPanelProps> = ({
                     {providerName}
                   </span>
                   {isActiveProvider && (
-                    <span className="typography-micro text-primary/80">Current</span>
+                    <span className="typography-micro text-primary/80">{t('Current')}</span>
                   )}
                 </div>
                 {isExpanded ? (

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   MouseSensor,
@@ -73,9 +74,10 @@ const WorktreeRow: React.FC<{
   onClose?: (projectId: string, worktree: GitWorktree) => void;
   mobileVariant?: boolean;
 }> = ({ projectId, worktree, isSelected, hasActive, onSelect, onClose, mobileVariant = false }) => {
+  const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = React.useState(false);
   const longPressTimerRef = React.useRef<number | null>(null);
-  const label = worktree.branch || (worktree.detached ? 'Detached HEAD' : worktree.name);
+  const label = worktree.branch || (worktree.detached ? t('Detached HEAD') : worktree.name);
 
   const clearLongPress = React.useCallback(() => {
     if (longPressTimerRef.current !== null) {
@@ -135,12 +137,12 @@ const WorktreeRow: React.FC<{
       <ContextMenuContent className="min-w-[160px]">
         <ContextMenuItem
           disabled={!onClose}
-          title={hasActive ? 'Stop the active session before closing this worktree.' : undefined}
+          title={hasActive ? t('Stop the active session before closing this worktree.') : undefined}
           onClick={() => onClose?.(projectId, worktree)}
           className="text-destructive focus:text-destructive"
         >
           <Icon name="close" className="mr-2 h-3.5 w-3.5" />
-          <span>{"Close worktree"}</span>
+          <span>{t("Close worktree")}</span>
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -182,6 +184,7 @@ const SortableFolderRow: React.FC<{
   onRemoveProject,
   mobileVariant = false,
 }) => {
+  const { t } = useTranslation();
   const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: project.id,
     disabled: !canDrag,
@@ -239,7 +242,7 @@ const SortableFolderRow: React.FC<{
                 'inline-flex size-4 shrink-0 items-center justify-center',
                 canDrag && 'touch-none select-none cursor-grab active:cursor-grabbing',
               )}
-              aria-label={canDrag ? `Reorder ${label}` : undefined}
+              aria-label={canDrag ? t('Reorder {{label}}', { label }) : undefined}
               {...(canDrag ? listeners : {})}
             >
               <Icon name="folder" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
@@ -258,7 +261,7 @@ const SortableFolderRow: React.FC<{
               />
             ) : null}
             {worktreeError ? (
-              <span title={worktreeError} aria-label="Worktree discovery failed">
+              <span title={worktreeError} aria-label={t("Worktree discovery failed")}>
                 <Icon name="error-warning" className="size-4 text-[var(--status-warning)]" />
               </span>
             ) : null}
@@ -269,7 +272,7 @@ const SortableFolderRow: React.FC<{
         <ContextMenuContent className="min-w-[160px]">
           <ContextMenuItem onClick={() => onOpenProjectEditDialog(project.id)}>
             <Icon name="edit" className="mr-2 h-3.5 w-3.5" />
-            <span>{"Edit folder"}</span>
+            <span>{t("Edit folder")}</span>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
@@ -277,7 +280,7 @@ const SortableFolderRow: React.FC<{
             className="text-destructive focus:text-destructive"
           >
             <Icon name="close" className="mr-2 h-3.5 w-3.5" />
-            <span>{"Close folder"}</span>
+            <span>{t("Close folder")}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -303,6 +306,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
   className,
   mobileVariant = false,
 }) => {
+  const { t } = useTranslation();
   const isAllSelected = selectedProjectId === null;
   const reorderProjects = useProjectsStore((state) => state.reorderProjects);
   const canDrag = projects.length > 1;
@@ -332,7 +336,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
       >
         <div className="flex min-w-0 items-center gap-1.5">
           <Icon name="chat-history" className={sidebarRowIconClass(mobileVariant)} />
-          <span className={sidebarRowLabelClass(mobileVariant)}>{"All sessions"}</span>
+          <span className={sidebarRowLabelClass(mobileVariant)}>{t("All sessions")}</span>
         </div>
       </button>
 
@@ -405,7 +409,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
         className={folderBarRowClass(mobileVariant, false)}
       >
         <Icon name="add" className={sidebarRowIconClass(mobileVariant)} />
-        <span className={sidebarRowLabelClass(mobileVariant)}>{"Add folder"}</span>
+        <span className={sidebarRowLabelClass(mobileVariant)}>{t("Add folder")}</span>
       </button>
     </div>
   );

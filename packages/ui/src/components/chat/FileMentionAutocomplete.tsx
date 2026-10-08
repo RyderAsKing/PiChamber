@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn, truncatePathMiddle } from '@/lib/utils';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
@@ -31,7 +32,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
   onClose,
   style,
 }, ref) => {
-  
+  const { t } = useTranslation();
   const currentDirectory = useChatSearchDirectory() ?? '';
   const activeProjectId = useProjectsStore((state) => state.activeProjectId);
   const activeProjectPath = useProjectsStore(
@@ -496,7 +497,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
             )}
             {visibleFiles.length === 0 && visibleDirectories.length === 0 && visibleRecentFiles.length === 0 && (
               <div className="px-3 py-2 typography-ui-label text-muted-foreground">
-                {"No matches found"}
+                {t("No matches found")}
               </div>
             )}
           </div>
@@ -504,7 +505,7 @@ export const FileMentionAutocomplete = React.forwardRef<FileMentionHandle, FileM
         </ScrollableOverlay>
         {!isMobile && (
           <div className="px-3 pt-1 pb-1.5 border-t typography-meta text-muted-foreground">
-            {"↑↓ navigate • Enter select • Esc close"}
+            {t("↑↓ navigate • Enter select • Esc close")}
           </div>
         )}
     </div>

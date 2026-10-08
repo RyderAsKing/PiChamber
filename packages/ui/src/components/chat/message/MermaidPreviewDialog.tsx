@@ -1,5 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import { runtimeFetch } from '@/lib/runtime-fetch';
@@ -28,6 +29,7 @@ export const MermaidPreviewDialog: React.FC<{
   onOpenChange: (open: boolean) => void;
   isMobile: boolean;
 }> = ({ popup, onOpenChange, isMobile }) => {
+  const { t } = useTranslation();
   const [source, setSource] = React.useState<string>(popup.mermaid?.source || '');
   const [status, setStatus] = React.useState<'idle' | 'loading' | 'ready' | 'error'>(
     popup.mermaid?.source ? 'ready' : 'idle',
@@ -92,7 +94,7 @@ export const MermaidPreviewDialog: React.FC<{
 
     if (!target?.url) {
       setStatus('error');
-      setErrorMessage('Missing Mermaid source URL.');
+      setErrorMessage(t('Missing Mermaid source URL.'));
       return;
     }
 
@@ -112,14 +114,14 @@ export const MermaidPreviewDialog: React.FC<{
     } else if (target.url.toLowerCase().startsWith('file://')) {
       const normalizedPath = normalizeFilePath(target.url);
       if (!normalizedPath) {
-        sourcePromise = Promise.reject(mermaidLoadFailure('The local Mermaid file path is invalid.'));
+        sourcePromise = Promise.reject(mermaidLoadFailure(t('The local Mermaid file path is invalid.')));
       } else {
         sourcePromise = runtimeFetch('/api/fs/raw', {
           query: { path: normalizedPath },
         }).then((response) => {
           if (!response.ok) {
             return Promise.reject(
-              mermaidLoadFailure(`Unable to read Mermaid file. Status: ${response.status}.`),
+              mermaidLoadFailure(t('Unable to read Mermaid file. Status: {{status}}.', { status: response.status })),
             );
           }
           return response.text();
@@ -131,12 +133,12 @@ export const MermaidPreviewDialog: React.FC<{
       const resolvedUrl = canParse ? new URL(target.url, window.location.origin) : null;
 
       if (!resolvedUrl || (resolvedUrl.protocol !== 'http:' && resolvedUrl.protocol !== 'https:')) {
-        sourcePromise = Promise.reject(mermaidLoadFailure('The Mermaid URL protocol is unsupported.'));
+        sourcePromise = Promise.reject(mermaidLoadFailure(t('The Mermaid URL protocol is unsupported.')));
       } else {
         sourcePromise = fetch(resolvedUrl.toString()).then((response) => {
           if (!response.ok) {
             return Promise.reject(
-              mermaidLoadFailure(`Unable to load Mermaid diagram. Status: ${response.status}.`),
+              mermaidLoadFailure(t('Unable to load Mermaid diagram. Status: {{status}}.', { status: response.status })),
             );
           }
           return response.text();
@@ -159,10 +161,10 @@ export const MermaidPreviewDialog: React.FC<{
         }
         setStatus('error');
         setErrorMessage(
-          isMermaidLoadFailure(error) ? error.message : 'Unable to load Mermaid diagram.',
+          isMermaidLoadFailure(error) ? error.message : t('Unable to load Mermaid diagram.'),
         );
       });
-  }, [normalizeFilePath, popup.mermaid]);
+  }, [normalizeFilePath, popup.mermaid, t]);
 
   React.useEffect(() => {
     if (!popup.open || !popup.mermaid) {
@@ -320,7 +322,7 @@ export const MermaidPreviewDialog: React.FC<{
               type="button"
               className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
               onClick={() => onOpenChange(false)}
-              aria-label={'Close diagram preview'}
+              aria-label={t('Close diagram preview')}
             >
               <Icon name="close" className="h-4 w-4" />
             </button>
@@ -330,7 +332,7 @@ export const MermaidPreviewDialog: React.FC<{
               {status === 'loading' && (
                 <div className="h-full min-h-28 flex items-center justify-center gap-2 text-muted-foreground typography-meta">
                   <Icon name="loader-4" className="h-4 w-4 animate-spin" />
-                  <span>{'Loading diagram...'}</span>
+                  <span>{t('Loading diagram...')}</span>
                 </div>
               )}
 
@@ -343,7 +345,7 @@ export const MermaidPreviewDialog: React.FC<{
                   }}
                 >
                   <p className="typography-markdown" style={{ color: 'var(--status-error)' }}>
-                    {errorMessage || 'Unable to render Mermaid diagram.'}
+                    {errorMessage || t('Unable to render Mermaid diagram.')}
                   </p>
                   <button
                     type="button"
@@ -356,7 +358,7 @@ export const MermaidPreviewDialog: React.FC<{
                       color: 'var(--surface-foreground)',
                     }}
                   >
-                    {'Retry'}
+                    {t('Retry')}
                   </button>
                 </div>
               )}

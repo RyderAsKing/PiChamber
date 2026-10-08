@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -27,15 +28,16 @@ export const SessionNodeExportDialog = React.memo(
     setExportIncludeSubtasks,
     onExport,
   }: SessionNodeExportDialogProps) {
+    const { t } = useTranslation();
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent showCloseButton={false} className="max-w-sm gap-5">
           <DialogHeader>
-            <DialogTitle>{'Export Markdown'}</DialogTitle>
+            <DialogTitle>{t('Export Markdown')}</DialogTitle>
             <DialogDescription>
               {descendantCount === 1
-                ? `This session has ${descendantCount} sub-agent task. Include it in the export?`
-                : `This session has ${descendantCount} sub-agent tasks. Include them in the export?`}
+                ? t('This session has {{count}} sub-agent task. Include it in the export?', { count: descendantCount })
+                : t('This session has {{count}} sub-agent tasks. Include them in the export?', { count: descendantCount })}
             </DialogDescription>
           </DialogHeader>
           <label className="flex items-center gap-2 typography-ui-label cursor-pointer">
@@ -45,7 +47,7 @@ export const SessionNodeExportDialog = React.memo(
               onChange={(e) => setExportIncludeSubtasks(e.target.checked)}
               className="h-4 w-4 rounded border-border accent-primary"
             />
-            {'Include sub-agent tasks'}
+            {t('Include sub-agent tasks')}
           </label>
           <DialogFooter>
             <Button
@@ -54,7 +56,7 @@ export const SessionNodeExportDialog = React.memo(
               variant="outline"
               size="sm"
             >
-              {'Cancel'}
+              {t('Cancel')}
             </Button>
             <Button
               type="button"
@@ -64,7 +66,7 @@ export const SessionNodeExportDialog = React.memo(
               }}
               size="sm"
             >
-              {'Export'}
+              {t('Export')}
             </Button>
           </DialogFooter>
         </DialogContent>

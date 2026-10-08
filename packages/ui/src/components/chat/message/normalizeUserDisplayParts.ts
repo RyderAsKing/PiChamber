@@ -1,4 +1,5 @@
 import type { Part } from '@/lib/chat/types';
+import i18n from '@/i18n';
 
 const GITHUB_ISSUE_CONTEXT_PREFIX = 'GitHub issue context (JSON)';
 const GITHUB_PR_CONTEXT_PREFIX = 'GitHub pull request context (JSON)';
@@ -55,7 +56,7 @@ const buildGitHubAttachmentPart = (text: string): Part | null => {
         return {
             type: 'file',
             mime: 'application/vnd.github.issue-link',
-            filename: `Issue #${number}: ${title}`,
+            filename: i18n.t('Issue #{{number}}: {{title}}', { number, title }),
             url,
         } as Part;
     }
@@ -73,7 +74,7 @@ const buildGitHubAttachmentPart = (text: string): Part | null => {
         return {
             type: 'file',
             mime: 'application/vnd.github.pull-request-link',
-            filename: `PR #${number}: ${title}`,
+            filename: i18n.t('PR #{{number}}: {{title}}', { number, title }),
             url,
         } as Part;
     }

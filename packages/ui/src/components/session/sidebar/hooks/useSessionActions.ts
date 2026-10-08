@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Session } from '@/lib/chat/types';
 import { toast } from '@/components/ui';
 import { copyTextToClipboard } from '@/lib/clipboard';
@@ -57,6 +58,8 @@ type Args = {
 };
 
 export const useSessionActions = (args: Args) => {
+  const { t } = useTranslation();
+
   const [copiedSessionId, setCopiedSessionId] = React.useState<string | null>(null);
   const copyTimeout = React.useRef<number | null>(null);
 
@@ -144,18 +147,18 @@ export const useSessionActions = (args: Args) => {
   const handleShareSession = React.useCallback(async (session: Session) => {
     const result = await args.shareSession(session.id);
     if (!(result as any)?.share?.url) {
-      toast.error("Unable to share session");
+      toast.error(t("Unable to share session"));
       return;
     }
     const copied = await copyShareUrl((result as any).share.url, session.id);
-    toast[copied ? 'success' : 'warning']("Session shared", {
-      description: (copied ? "Share link copied to clipboard." : "Failed to copy URL"),
+    toast[copied ? 'success' : 'warning'](t("Session shared"), {
+      description: (copied ? t("Share link copied to clipboard.") : t("Failed to copy URL")),
     });
   }, [args, copyShareUrl]);
 
   const handleCopyShareUrl = React.useCallback((url: string, sessionId: string) => {
     void copyShareUrl(url, sessionId).then((copied) => {
-      if (!copied) toast.error("Failed to copy URL");
+      if (!copied) toast.error(t("Failed to copy URL"));
     });
   }, [copyShareUrl]);
 
@@ -163,20 +166,20 @@ export const useSessionActions = (args: Args) => {
     void copyTextToClipboard(sessionId)
       .then((result) => {
         if (result.ok) {
-          toast.success("Session ID copied");
+          toast.success(t("Session ID copied"));
           return;
         }
-        toast.error("Failed to copy session ID");
+        toast.error(t("Failed to copy session ID"));
       })
-      .catch(() => toast.error("Failed to copy session ID"));
+      .catch(() => toast.error(t("Failed to copy session ID")));
   }, []);
 
   const handleUnshareSession = React.useCallback(async (sessionId: string) => {
     const result = await args.unshareSession(sessionId);
     if (result) {
-      toast.success("Session unshared");
+      toast.success(t("Session unshared"));
     } else {
-      toast.error("Unable to unshare session");
+      toast.error(t("Unable to unshare session"));
     }
   }, [args]);
 
@@ -222,12 +225,12 @@ export const useSessionActions = (args: Args) => {
           : await args.archiveSession(session.id);
         if (success) {
           toast.success(shouldHardDelete
-            ? "Session deleted"
-            : "Session archived");
+            ? t("Session deleted")
+            : t("Session archived"));
         } else {
           toast.error(shouldHardDelete
-            ? "Failed to delete session"
-            : "Failed to archive session");
+            ? t("Failed to delete session")
+            : t("Failed to archive session"));
         }
         return;
       }
@@ -241,10 +244,10 @@ export const useSessionActions = (args: Args) => {
         if (failedIds.length === 0) {
           const totalDeleted = deletedIds.length;
           toast.success(totalDeleted === 1
-            ? `Deleted ${totalDeleted} session`
-            : `Deleted ${totalDeleted} sessions`);
+            ? t('Deleted {{count}} session', { count: totalDeleted })
+            : t('Deleted {{count}} sessions', { count: totalDeleted }));
         } else {
-          toast.error("Failed to delete session");
+          toast.error(t("Failed to delete session"));
         }
         return;
       }
@@ -252,13 +255,13 @@ export const useSessionActions = (args: Args) => {
       const { archivedIds, failedIds } = await args.archiveSessions(ids);
       if (archivedIds.length > 0) {
         toast.success(archivedIds.length === 1
-          ? `Archived ${archivedIds.length} session`
-          : `Archived ${archivedIds.length} sessions`);
+          ? t('Archived {{count}} session', { count: archivedIds.length })
+          : t('Archived {{count}} sessions', { count: archivedIds.length }));
       }
       if (failedIds.length > 0) {
         toast.error(failedIds.length === 1
-          ? `Failed to archive ${failedIds.length} session`
-          : `Failed to archive ${failedIds.length} sessions`);
+          ? t('Failed to archive {{count}} session', { count: failedIds.length })
+          : t('Failed to archive {{count}} sessions', { count: failedIds.length }));
       }
     },
     [args, collectDescendants, filterDescendantsForAction],
@@ -296,9 +299,9 @@ export const useSessionActions = (args: Args) => {
     async (session: Session) => {
       const success = await args.unarchiveSession(session.id);
       if (success) {
-        toast.success("Session restored");
+        toast.success(t("Session restored"));
       } else {
-        toast.error("Failed to restore session");
+        toast.error(t("Failed to restore session"));
       }
     },
     [args],

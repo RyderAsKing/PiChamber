@@ -1,5 +1,6 @@
 import React from 'react';
 import { toast } from '@/components/ui';
+import { useTranslation } from 'react-i18next';
 import { piClient } from '@/lib/pi/client';
 import { usePiProviderSelectionStore } from '@/lib/pi/provider-selection';
 import type { PiProviderLoginState } from '@/lib/pi/protocol';
@@ -19,6 +20,7 @@ import type { CustomProviderPersistPlan } from './custom-provider-form';
 
 export function useProvidersPageState() {
   const selectedProviderId = usePiProviderSelectionStore((state) => state.selectedProviderId);
+  const { t } = useTranslation();
   const setSelectedProviderId = usePiProviderSelectionStore((state) => state.setSelectedProviderId);
   const hiddenModels = useUIStore((state) => state.hiddenModels);
   const toggleHiddenModel = useUIStore((state) => state.toggleHiddenModel);
@@ -86,15 +88,15 @@ export function useProvidersPageState() {
       configStore.invalidateProviderCache();
       void configStore.loadProviders({ source: 'providersPage:refreshCatalog' });
       window.dispatchEvent(new CustomEvent('pichamber:providers-refreshed', { detail: result }));
-      toast.success('Model catalog refreshed');
+      toast.success(t('Model catalog refreshed'));
     } catch {
       setFailed(true);
       setCatalogRefreshFeedback('error');
-      toast.error('Could not refresh model catalog');
+      toast.error(t('Could not refresh model catalog'));
     } finally {
       setRefreshingCatalog(false);
     }
-  }, [refreshingCatalog]);
+  }, [refreshingCatalog, t]);
 
   const refreshAfterModelAdd = React.useCallback(async (
     deferred: boolean,
@@ -121,9 +123,9 @@ export function useProvidersPageState() {
       if (scope.runtimeKey !== getRuntimeKey()) return;
       // Preserve the prior authoritative list; a post-save refresh failure is
       // toast-only and never becomes a page-level provider failure.
-      toast.error('Model added, but providers could not be refreshed');
+      toast.error(t('Model added, but providers could not be refreshed'));
     }
-  }, []);
+  }, [t]);
 
   React.useEffect(() => {
     if (!deferredModelTarget) return;
@@ -336,7 +338,7 @@ export function useProvidersPageState() {
         // Do not submit an API key to a runtime that cannot see the newly
         // saved provider yet. The form stays open so the user can connect it
         // once the active sessions are idle.
-        toast.info('Provider configuration saved. Connect it after active sessions are idle.');
+        toast.info(t('Provider configuration saved. Connect it after active sessions are idle.'));
         return;
       }
       if (plan.apiKey)

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { toast } from '@/components/ui';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -24,6 +25,7 @@ export function useFileOperations({
   removeOpenPathsByPrefix,
   clearSelectedPath,
 }: FileOperationsOptions) {
+  const { t } = useTranslation();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [operation, setOperation] = React.useState<FileOperation | null>(null);
   const [target, setTarget] = React.useState<FileOperationTarget | null>(null);
@@ -45,27 +47,27 @@ export function useFileOperations({
 
     const name = inputValue.trim();
     if (operation === 'createFile' && !name) {
-      toast.error('Filename is required');
+      toast.error(t('Filename is required'));
       return;
     }
     if (operation === 'createFolder' && !name) {
-      toast.error('Folder name is required');
+      toast.error(t('Folder name is required'));
       return;
     }
     if (operation === 'rename' && !name) {
-      toast.error('Name is required');
+      toast.error(t('Name is required'));
       return;
     }
     if (operation === 'createFile' && !files.writeFile) {
-      toast.error('Write not supported');
+      toast.error(t('Write not supported'));
       return;
     }
     if (operation === 'rename' && !files.rename) {
-      toast.error('Rename not supported');
+      toast.error(t('Rename not supported'));
       return;
     }
     if (operation === 'delete' && !files.delete) {
-      toast.error('Delete not supported');
+      toast.error(t('Delete not supported'));
       return;
     }
 
@@ -80,13 +82,13 @@ export function useFileOperations({
         try {
           const result = await files.writeFile!(path, '', { expectedRevision: null });
           if (result.success) {
-            toast.success('File created');
+            toast.success(t('File created'));
             await refreshDirectory(parent);
           }
         } catch (error) {
           const reason = (error as { reason?: unknown })?.reason;
           if (reason === 'file-revision-conflict' || (error as Error)?.name === 'FileRevisionConflictError') {
-            toast.error('File already exists');
+            toast.error(t('File already exists'));
           } else {
             throw error;
           }
@@ -96,7 +98,7 @@ export function useFileOperations({
         const path = normalizePath(`${parent ? `${parent}/` : ''}${name}`);
         const result = await files.createDirectory(path);
         if (result.success) {
-          toast.success('Folder created');
+          toast.success(t('Folder created'));
           await refreshDirectory(parent);
         }
       } else {
@@ -107,7 +109,7 @@ export function useFileOperations({
           ? await files.rename!(oldPath, normalizePath(`${parent ? `${parent}/` : ''}${name}`))
           : await files.delete!(oldPath);
         if (result.success) {
-          toast.success(operation === 'rename' ? 'Renamed successfully' : 'Deleted successfully');
+          toast.success(operation === 'rename' ? t('Renamed successfully') : t('Deleted successfully'));
           await refreshDirectory(parent);
           if (root) removeOpenPathsByPrefix(root, oldPath);
           if (affectedSelectedPath) clearSelectedPath();
@@ -115,11 +117,11 @@ export function useFileOperations({
       }
       setOperation(null);
     } catch {
-      toast.error('Operation failed');
+      toast.error(t('Operation failed'));
     } finally {
       setSubmitting(false);
     }
-  }, [clearSelectedPath, files, inputValue, operation, refreshDirectory, removeOpenPathsByPrefix, root, selectedPath, target]);
+  }, [clearSelectedPath, files, inputValue, operation, refreshDirectory, removeOpenPathsByPrefix, root, selectedPath, t, target]);
 
   return {
     operation,

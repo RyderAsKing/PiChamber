@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import type {
@@ -32,6 +33,7 @@ export const PullChecksTab: React.FC<{
   onRetryChecks: () => void;
   onOpenFilesAtLine?: (path: string, line: number) => void;
 }> = ({ directory, repo, number, github, checks, checksError, checksLoading, onRetryChecks, onOpenFilesAtLine }) => {
+  const { t } = useTranslation();
   const [expandedJobs, setExpandedJobs] = React.useState<Record<string, boolean>>({});
   const [jobSteps, setJobSteps] = React.useState<
     Record<string, { steps: { name: string; conclusion?: string | null; status?: string | null }[]; loading: boolean }>
@@ -43,7 +45,7 @@ export const PullChecksTab: React.FC<{
     <div className="flex flex-col gap-1 px-3 py-2">
       <div className="flex flex-wrap items-center gap-1.5 px-1 py-1">
         <p className="min-w-0 flex-1 typography-micro text-muted-foreground" aria-live="polite">
-          {rollup ? rollup.text : checksLoading ? 'Loading checks…' : 'No checks reported for this pull request.'}
+          {rollup ? rollup.text : checksLoading ? t('Loading checks…') : t('No checks reported for this pull request.')}
         </p>
         {rollup && rollup.failed > 0 ? (
           <Button
@@ -61,19 +63,19 @@ export const PullChecksTab: React.FC<{
               })
             }
             disabled={sendingKey === `pr-${number}-failed-checks`}
-            aria-label="Send failed checks to agent"
-            title="Send failed checks to agent"
+            aria-label={t("Send failed checks to agent")}
+            title={t("Send failed checks to agent")}
           >
             <Icon name="send-plane-2" className="size-3.5" />
-            Send failures to agent
+            {t('Send failures to agent')}
           </Button>
         ) : null}
-        <Button type="button" variant="ghost" size="xs" onClick={onRetryChecks} aria-label="Refresh checks" title="Refresh checks">
+        <Button type="button" variant="ghost" size="xs" onClick={onRetryChecks} aria-label={t("Refresh checks")} title={t("Refresh checks")}>
           <Icon name="refresh" className={cn('size-3.5', checksLoading && 'animate-spin')} />
-          Refresh
+          {t('Refresh')}
         </Button>
       </div>
-      <SectionError error={checksError} onRetry={onRetryChecks} label="Checks" />
+      <SectionError error={checksError} onRetry={onRetryChecks} label={t("Checks")} />
       {checks ? (
         <ChecksList
           checks={checks}
@@ -108,6 +110,7 @@ const ChecksList: React.FC<{
   send: ReturnType<typeof useSendGitHubContextToComposer>['send'];
   onOpenFilesAtLine?: (path: string, line: number) => void;
 }> = ({ checks, directory, repo, number, github, expandedJobs, onToggleJob, jobSteps, setJobSteps, sendingKey, send, onOpenFilesAtLine }) => {
+  const { t } = useTranslation();
   const rerunFailedChecks = useGitHubPullRequestsStore((state) => state.rerunFailedChecks);
   const [annotations, setAnnotations] = React.useState<Record<number, { loading: boolean; items: { path?: string | null; startLine?: number | null; message: string; title?: string | null }[] }>>({});
 
@@ -132,8 +135,8 @@ const ChecksList: React.FC<{
 
   const rerunFailed = async (runId: number) => {
     const result = await rerunFailedChecks(directory, repo, runId, github);
-    if (!result.ok) toast.error('Re-run failed');
-    else toast.success('Re-run requested');
+    if (!result.ok) toast.error(t('Re-run failed'));
+    else toast.success(t('Re-run requested'));
   };
 
   const renderRun = (run: GitHubCheckRun) => {
@@ -149,12 +152,12 @@ const ChecksList: React.FC<{
             {run.name}
           </span>
           {run.conclusion ? <span className="typography-micro text-muted-foreground">{run.conclusion}</span> : null}
-          <Button type="button" variant="ghost" size="xs" onClick={() => void loadSteps(run)} aria-expanded={expanded} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${run.name}`}>
-            Details
+          <Button type="button" variant="ghost" size="xs" onClick={() => void loadSteps(run)} aria-expanded={expanded} aria-label={expanded ? t('Collapse {{name}}', { name: run.name }) : t('Expand {{name}}', { name: run.name })}>
+            {t('Details')}
           </Button>
           {failed && run.runId != null ? (
             <Button type="button" variant="outline" size="xs" onClick={() => void rerunFailed(run.runId as number)}>
-              Re-run
+              {t('Re-run')}
             </Button>
           ) : null}
           {failed ? (
@@ -164,15 +167,15 @@ const ChecksList: React.FC<{
               size="xs"
               onClick={() => void send({ key: `${key}-agent`, kind: 'check', directory, repo, number, contextType: 'checks', detail: run.name })}
               disabled={sendingKey === `${key}-agent`}
-              aria-label={`Send ${run.name} to agent`}
+              aria-label={t('Send {{name}} to agent', { name: run.name })}
             >
-              Send to agent
+              {t('Send to agent')}
             </Button>
           ) : null}
         </div>
         {expanded ? (
           <div className="mt-1.5 flex flex-col gap-1 border-t border-border/60 pt-1.5">
-            {steps?.loading ? <span className="typography-micro text-muted-foreground">Loading steps…</span> : null}
+            {steps?.loading ? <span className="typography-micro text-muted-foreground">{t('Loading steps…')}</span> : null}
             {(steps?.steps ?? []).map((step, index) => (
               <div key={`${step.name}-${index}`} className="flex items-center gap-1.5 typography-micro text-muted-foreground">
                 <GitHubChecksGlyph state={step.conclusion ?? step.status} />
@@ -224,21 +227,21 @@ const ChecksList: React.FC<{
     <div className="flex flex-col gap-1">
       {checks.sectionErrors?.runs || checks.sectionErrors?.statuses ? (
         <div className="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-2 py-1 typography-micro text-foreground" role="alert">
-          Some check sources failed to load; counts below are partial, not empty.
+          {t('Some check sources failed to load; counts below are partial, not empty.')}
         </div>
       ) : null}
       {checks.runs.length > 0 ? (
-        <div className="flex flex-col" aria-label="Check runs">
+        <div className="flex flex-col" aria-label={t("Check runs")}>
           {checks.runs.map(renderRun)}
         </div>
       ) : null}
       {checks.statuses.length > 0 ? (
-        <div className="flex flex-col" aria-label="Commit statuses">
+        <div className="flex flex-col" aria-label={t("Commit statuses")}>
           {checks.statuses.map(renderStatus)}
         </div>
       ) : null}
       {checks.runs.length === 0 && checks.statuses.length === 0 ? (
-        <p className="typography-ui text-muted-foreground">No checks reported for this pull request.</p>
+        <p className="typography-ui text-muted-foreground">{t('No checks reported for this pull request.')}</p>
       ) : null}
     </div>
   );

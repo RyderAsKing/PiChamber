@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { Input } from '@/components/ui/input';
@@ -64,6 +65,7 @@ export const CreatePullRequestForm: React.FC<{
   onCollapse: () => void;
   onCreated?: (number: number) => void;
 }> = ({ directory, headBranch, defaultBranch, isFork, upstreamDefaultBranch, hasUpstream, onCollapse, onCreated }) => {
+  const { t } = useTranslation();
   const apis = useRuntimeAPIs();
   const repo = useGitHubSelectedRepo(directory);
   const resolvedDefault = resolveCreatePrDefaultBase({ isFork, upstreamDefaultBranch, defaultBranch });
@@ -131,7 +133,7 @@ export const CreatePullRequestForm: React.FC<{
   const handleCreate = React.useCallback(async () => {
     if (busy || pushing) return;
     if (!repo) {
-      setSubmitError('Select a repository first');
+      setSubmitError(t('Select a repository first'));
       return;
     }
     const validation = validateCreatePullRequest({ title, head: headBranch, base });
@@ -139,7 +141,7 @@ export const CreatePullRequestForm: React.FC<{
     if (!validation.ok) return;
     const github = apis.github;
     if (!github) {
-      setSubmitError('GitHub is not available in this runtime');
+      setSubmitError(t('GitHub is not available in this runtime'));
       return;
     }
     setSubmitError(null);
@@ -152,7 +154,7 @@ export const CreatePullRequestForm: React.FC<{
         try {
           await apis.git.gitPush(directory);
         } catch (error) {
-          setSubmitError(error instanceof Error ? error.message : 'Push failed. Create the pull request after pushing.');
+          setSubmitError(error instanceof Error ? error.message : t('Push failed. Create the pull request after pushing.'));
           return;
         } finally {
           setPushing(false);
@@ -163,10 +165,10 @@ export const CreatePullRequestForm: React.FC<{
         github,
       );
       if (!result.ok || result.number == null) {
-        setSubmitError(result.error?.kind === 'failed' ? result.error.message : 'Failed to create pull request');
+        setSubmitError(result.error?.kind === 'failed' ? result.error.message : t('Failed to create pull request'));
         return;
       }
-      toast.success(`Pull request #${result.number} created`);
+      toast.success(t('Pull request #{{number}} created', { number: result.number }));
       clearCreatePrDraft(draftKey);
       // Refresh pr-status so the existing-PR row appears, then open the PR.
       await useGitHubPrStatusStore.getState().refresh(directory, headBranch, github, { force: true }).catch(() => {});
@@ -175,7 +177,7 @@ export const CreatePullRequestForm: React.FC<{
     } finally {
       setBusy(false);
     }
-  }, [busy, pushing, repo, title, body, headBranch, base, mode, hasUpstream, apis, directory, draftKey, onCreated]);
+  }, [busy, pushing, repo, title, body, headBranch, base, mode, hasUpstream, apis, directory, draftKey, onCreated, t]);
 
   const handleModEnter = React.useCallback(
     (event: React.KeyboardEvent) => {
@@ -190,49 +192,49 @@ export const CreatePullRequestForm: React.FC<{
   );
 
   return (
-    <section aria-label="Create pull request" className="flex min-w-0 flex-col gap-2 py-0.5">
+    <section aria-label={t("Create pull request")} className="flex min-w-0 flex-col gap-2 py-0.5">
       <div className="flex items-center gap-1.5">
         <Icon name="git-pull-request" className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <h3 className="typography-ui-label text-foreground">New pull request</h3>
+        <h3 className="typography-ui-label text-foreground">{t('New pull request')}</h3>
         <span className="flex-1" />
         <Button
           type="button"
           variant="ghost"
           size="icon"
           onClick={onCollapse}
-          aria-label="Cancel"
-          title="Cancel"
+          aria-label={t('Cancel')}
+          title={t('Cancel')}
           className="size-6 shrink-0"
         >
           <Icon name="close" className="size-4" />
         </Button>
       </div>
       <p className="flex min-w-0 items-center gap-1.5 typography-micro text-muted-foreground">
-        <span className="shrink-0">into</span>
+        <span className="shrink-0">{t('into')}</span>
         {baseOptions.length > 0 ? (
           <DropdownMenu open={baseMenuOpen} onOpenChange={(open) => { setBaseMenuOpen(open); if (!open) setBaseSearch(''); }} modal={false}>
             <DropdownMenuTrigger asChild>
-              <button type="button" aria-label="Base branch" className={cn(dropdownTriggerVariants({ size: 'default' }), 'min-w-28 max-w-56')}>
-                <span className="min-w-0 truncate font-mono">{base || 'Select base'}</span>
+              <button type="button" aria-label={t('Base branch')} className={cn(dropdownTriggerVariants({ size: 'default' }), 'min-w-28 max-w-56')}>
+                <span className="min-w-0 truncate font-mono">{base || t('Select base')}</span>
                 <Icon name="arrow-down-s" className="size-3.5 shrink-0 opacity-60" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" sideOffset={6} className="max-h-[min(var(--available-height),24rem)] w-72 max-w-[min(18rem,var(--available-width))] overflow-hidden p-0">
               <Command className="h-full min-h-0">
                 <CommandInput
-                  placeholder="Search branches..."
+                  placeholder={t("Search branches...")}
                   value={baseSearch}
                   onValueChange={setBaseSearch}
                   onKeyDown={(event) => event.stopPropagation()}
                 />
                 <CommandList disableHorizontal>
-                  <CommandEmpty>No branches found.</CommandEmpty>
-                  <CommandGroup heading="Branches">
+                  <CommandEmpty>{t('No branches found.')}</CommandEmpty>
+                  <CommandGroup heading={t('Branches')}>
                     {baseOptions.map((name) => (
                       <CommandItem key={name} value={name} onSelect={() => handleSelectBase(name)}>
                         <span className="min-w-0 flex-1 truncate font-mono typography-ui-label text-foreground">{name}</span>
                         {name === resolvedDefault ? (
-                          <span className="shrink-0 typography-micro text-muted-foreground">default</span>
+                          <span className="shrink-0 typography-micro text-muted-foreground">{t('default')}</span>
                         ) : null}
                       </CommandItem>
                     ))}
@@ -248,11 +250,11 @@ export const CreatePullRequestForm: React.FC<{
               baseCustomized.current = true;
               setBase(event.target.value);
             }}
-            aria-label="Base branch"
+            aria-label={t('Base branch')}
             className="h-8 w-40"
           />
         )}
-        <span className="shrink-0" aria-label="receives changes from" title="receives changes from">
+        <span className="shrink-0" aria-label={t('receives changes from')} title={t('receives changes from')}>
           ←
         </span>
         <code className="min-w-0 flex-1 truncate font-mono" title={headBranch}>
@@ -267,14 +269,14 @@ export const CreatePullRequestForm: React.FC<{
       {!hasUpstream ? (
         <p className="flex items-start gap-1.5 typography-micro text-muted-foreground">
           <Icon name="information" className="size-3.5 shrink-0 text-[var(--status-info)]" aria-hidden="true" />
-          <span>This branch isn&apos;t on the remote yet. It will be pushed first.</span>
+          <span>{t("This branch isn't on the remote yet. It will be pushed first.")}</span>
         </p>
       ) : null}
       <Input
         value={title}
         onChange={(event) => setTitle(event.target.value)}
-        placeholder="Title"
-        aria-label="Pull request title"
+          placeholder={t('Title')}
+          aria-label={t('Pull request title')}
         onKeyDown={handleModEnter}
         className="h-8"
       />
@@ -283,7 +285,7 @@ export const CreatePullRequestForm: React.FC<{
           {fieldErrors.title}
         </p>
       ) : null}
-      <div role="tablist" aria-label="Description format" className="flex items-center gap-4">
+      <div role="tablist" aria-label={t('Description format')} className="flex items-center gap-4">
         {(['write', 'preview'] as const).map((id) => {
           const selected = tab === id;
           return (
@@ -298,7 +300,7 @@ export const CreatePullRequestForm: React.FC<{
                 selected ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {id === 'write' ? 'Write' : 'Preview'}
+              {id === 'write' ? t('Write') : t('Preview')}
               {selected ? <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 bg-interactive-selection" /> : null}
             </button>
           );
@@ -310,8 +312,8 @@ export const CreatePullRequestForm: React.FC<{
           value={body}
           onChange={(event) => setBody(event.target.value)}
           rows={4}
-          placeholder="Add a description (markdown supported)"
-          aria-label="Pull request description"
+          placeholder={t('Add a description (markdown supported)')}
+          aria-label={t('Pull request description')}
           onKeyDown={handleModEnter}
           className="min-h-20 w-full resize-none overflow-y-auto rounded-md border border-border bg-[var(--surface-elevated)] p-2 typography-ui text-foreground placeholder:text-muted-foreground"
         />
@@ -320,7 +322,7 @@ export const CreatePullRequestForm: React.FC<{
           {body.trim() ? (
             <GitHubMarkdownBody markdown={body} />
           ) : (
-            <p className="typography-micro text-muted-foreground">Nothing to preview</p>
+            <p className="typography-micro text-muted-foreground">{t('Nothing to preview')}</p>
           )}
         </div>
       )}
@@ -335,9 +337,9 @@ export const CreatePullRequestForm: React.FC<{
       ) : null}
       <div className="flex items-center gap-1.5">
         <span className="flex-1" />
-        <span role="group" aria-label="Create pull request options" className="inline-flex shrink-0 items-center gap-1">
+        <span role="group" aria-label={t('Create pull request options')} className="inline-flex shrink-0 items-center gap-1">
           <Button type="button" variant="default" size="sm" onClick={() => void handleCreate()} disabled={busy}>
-            {pushing ? 'Pushing…' : busy ? 'Creating…' : createPrSubmitLabel(mode)}
+            {pushing ? t('Pushing…') : busy ? t('Creating…') : t(createPrSubmitLabel(mode))}
           </Button>
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -346,8 +348,8 @@ export const CreatePullRequestForm: React.FC<{
                 variant="default"
                 size="sm"
                 className="shrink-0 px-1.5"
-                title="Create options"
-                aria-label="Create options"
+                title={t('Create options')}
+                aria-label={t('Create options')}
                 disabled={busy}
               >
                 <Icon name="arrow-down-s" className="size-3.5" />
@@ -361,8 +363,8 @@ export const CreatePullRequestForm: React.FC<{
                 {CREATE_PR_MODES.map((option) => (
                   <DropdownMenuRadioItem key={option.id} value={option.id}>
                     <span className="flex min-w-0 flex-col">
-                      <span className="truncate">{option.label}</span>
-                      <span className="truncate typography-micro text-muted-foreground">{option.description}</span>
+                      <span className="truncate">{t(option.label)}</span>
+                      <span className="truncate typography-micro text-muted-foreground">{t(option.description)}</span>
                     </span>
                   </DropdownMenuRadioItem>
                 ))}

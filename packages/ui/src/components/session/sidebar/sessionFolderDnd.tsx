@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   DndContext,
   DragOverlay,
@@ -65,11 +66,12 @@ export const SessionFolderDndScope: React.FC<{
   onSessionDroppedOnFolder: (sessionId: string, folderId: string) => void;
   children: React.ReactNode;
 }> = ({ scopeKey, hasFolders, onSessionDroppedOnFolder, children }) => {
+  const { t } = useTranslation();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
   const [activeDragId, setActiveDragId] = React.useState<string | null>(null);
-  const [activeDragTitle, setActiveDragTitle] = React.useState<string>('Session');
+  const [activeDragTitle, setActiveDragTitle] = React.useState<string>(t('Session'));
   const [activeDragWidth, setActiveDragWidth] = React.useState<number | null>(null);
   const [activeDragHeight, setActiveDragHeight] = React.useState<number | null>(null);
 
@@ -98,7 +100,7 @@ export const SessionFolderDndScope: React.FC<{
         const data = event.active.data.current as { type?: string; sessionId?: string; sessionTitle?: string } | undefined;
         if (data?.type === 'session' && data.sessionId) {
           setActiveDragId(data.sessionId);
-          setActiveDragTitle(data.sessionTitle ?? 'Session');
+          setActiveDragTitle(data.sessionTitle ?? t('Session'));
           const width = event.active.rect.current.initial?.width;
           const height = event.active.rect.current.initial?.height;
           setActiveDragWidth(typeof width === 'number' ? width : null);

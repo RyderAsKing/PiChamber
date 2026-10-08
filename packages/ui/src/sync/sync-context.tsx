@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useCallback, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, Session, SessionStatus } from '@/lib/chat/types';
@@ -203,6 +204,7 @@ export function useSyncDirectory(): string {
   return usePiSessionSnapshot((state) => state.directory ?? '', undefined, TOPIC_CHROME);
 }
 export function useSessionMessageLoadState(sessionID: string, _directory?: string) {
+  const { t } = useTranslation();
   // Load state is a chrome signal — it depends on `hydratedSessionIds`,
   // `selectedSessionId`, `connection`, and `error`. Token deltas on
   // background sessions must not wake the loader math.
@@ -223,7 +225,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
         complete: false,
         status: 'error' as const,
         cursor: undefined,
-        error: sessionError.message ?? 'Session load failed',
+        error: sessionError.message ?? t('Session load failed'),
         errorCode: sessionError.code as PiErrorCode,
       };
     }
@@ -236,7 +238,7 @@ export function useSessionMessageLoadState(sessionID: string, _directory?: strin
       error: null,
       errorCode: null,
     };
-  }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById]);
+  }, [connection, error, hydratedSessionIds, selectedSessionId, sessionID, sessionLoadErrorById, t]);
 }
 
 export function useSessionRenderable(sessionID: string, _directory?: string): boolean {

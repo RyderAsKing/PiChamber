@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/ui/button';
 import { toast } from '@/components/ui';
@@ -19,7 +20,7 @@ import {
 
 /** Pi global and applicable project instruction files. Pi, rather than PiChamber, remains their source of truth. */
 export const BehaviorPage: React.FC = () => {
-  
+  const { t } = useTranslation();
   const { isMobile } = useDeviceInfo();
   const [agents, setAgents] = React.useState<PiResource[] | null>(null);
   const [drafts, setDrafts] = React.useState<Record<string, string>>({});
@@ -44,13 +45,13 @@ export const BehaviorPage: React.FC = () => {
       if (isDeferredPiMutation(resources)) {
         toast.info(deferredSettingsMessage('Behavior'));
       } else {
-        toast.success("Behavior saved successfully");
+        toast.success(t('Behavior saved successfully'));
       }
     } catch (error) {
       if (isSessionBusyError(error)) {
         toast.info(busySettingsMessage('Behavior'));
       } else {
-        toast.error("Failed to save behavior");
+        toast.error(t('Failed to save behavior'));
       }
     } finally {
       setSaving(null);
@@ -59,27 +60,27 @@ export const BehaviorPage: React.FC = () => {
 
   return <>
     <ProjectTrustDialog onResolved={() => { void refresh().catch(() => setFailed(true)); }} />
-    <SettingsPageLayout title={isMobile ? undefined : "Behavior"} description={isMobile ? undefined : "Guide how the agent responds."}>
-      {failed ? <p className="typography-meta text-[var(--status-error)]">{"Unavailable"}</p> : null}
+    <SettingsPageLayout title={isMobile ? undefined : t('Behavior')} description={isMobile ? undefined : t('Guide how the agent responds.')}>
+      {failed ? <p className="typography-meta text-[var(--status-error)]">{t('Unavailable')}</p> : null}
       {(agents ?? []).map((agent, index) => {
         const content = drafts[agent.id] ?? '';
-        const title = agent.location === 'global' ? "Global AGENTS.md" : `${"Project"} ${agent.name}`;
+        const title = agent.location === 'global' ? t('Global AGENTS.md') : `${t('Project')} ${agent.name}`;
         const isEditable = agent.editable === true;
         const isDirty = content !== (agent.content ?? '');
-        return <SettingsSection key={agent.id} title={title} divider={index > 0} settingsItem={agent.location === 'global' ? 'behavior.global-agents' : 'behavior.project-agents'} contentClassName="space-y-3" info={isEditable ? "Markdown supported. Changes are saved immediately and applied when active sessions are idle." : "Read-only — this file is managed by a package or template."}>
+        return <SettingsSection key={agent.id} title={title} divider={index > 0} settingsItem={agent.location === 'global' ? 'behavior.global-agents' : 'behavior.project-agents'} contentClassName="space-y-3" info={isEditable ? t('Markdown supported. Changes are saved immediately and applied when active sessions are idle.') : t('Read-only — this file is managed by a package or template.')}>
           <SnippetMarkdownEditor
             value={content}
             onChange={(value) => setDrafts((current) => ({ ...current, [agent.id]: value }))}
             readOnly={!isEditable}
-            placeholder={isEditable ? "Describe how the agent should behave. Use markdown for structure." : undefined}
+            placeholder={isEditable ? t('Describe how the agent should behave. Use markdown for structure.') : undefined}
             settingsItem={agent.location === 'global' ? 'behavior.global-agents' : 'behavior.project-agents'}
             hideExpandsNote
             minHeight={260}
           />
           {isEditable ? (
             <div className="flex items-center justify-between gap-2">
-              <span className="typography-micro text-muted-foreground">{isDirty ? "Unsaved changes" : "No changes"}</span>
-              <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || !isDirty}>{saving === agent.id ? "Saving..." : "Save Changes"}</Button>
+              <span className="typography-micro text-muted-foreground">{isDirty ? t('Unsaved changes') : t('No changes')}</span>
+              <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || !isDirty}>{saving === agent.id ? t('Saving...') : t('Save Changes')}</Button>
             </div>
           ) : null}
         </SettingsSection>;

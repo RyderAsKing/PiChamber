@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Icon } from '@/components/icon/Icon';
 import {
@@ -40,6 +41,7 @@ export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
   onBootstrapTtlChange,
   onSessionTtlChange,
 }) => {
+  const { t } = useTranslation();
   return (
     <>
       <div
@@ -48,7 +50,7 @@ export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
       >
         <div className="flex min-w-0 items-center gap-2">
           <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>
-            {'Connect link TTL'}
+            {t('Connect link TTL')}
           </span>
           <Select
             value={ttlOptionValue(BOOTSTRAP_TTL_OPTIONS, bootstrapTtlMs, '1800000')}
@@ -72,7 +74,7 @@ export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
 
         <div className="flex min-w-0 items-center gap-2">
           <span className={cn(SETTINGS_FIELD_LABEL_CLASS, 'shrink-0')}>
-            {'Tunnel session TTL'}
+            {t('Tunnel session TTL')}
           </span>
           <Select
             value={ttlOptionValue(SESSION_TTL_OPTIONS, sessionTtlMs, '28800000')}
@@ -104,13 +106,13 @@ export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
             />
             <div>
               <p className="typography-meta text-[var(--status-warning)]">
-                {'Quick Tunnel is best effort and uptime is not guaranteed.'}
+                {t('Quick Tunnel is best effort and uptime is not guaranteed.')}
               </p>
               {providerSupportsManagedModes && (
                 <p className="typography-meta mt-1 text-[var(--status-warning)]">
-                  {
+                  {t(
                     'For more reliable long-lived access, switch to Managed Remote or Managed Local tunnel mode.'
-                  }
+                  )}
                 </p>
               )}
             </div>

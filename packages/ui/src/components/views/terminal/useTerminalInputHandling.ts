@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import type { TerminalAPI } from '@/lib/api/types';
 import {
   applyTerminalModifier,
@@ -33,6 +34,7 @@ export function useTerminalInputHandling({
   terminalSessionId: string | null;
   useTouchTerminalInput: boolean;
 }) {
+  const { t } = useTranslation();
   const [activeModifier, setActiveModifier] = React.useState<Modifier | null>(null);
   const terminalControllerRef = React.useRef<TerminalController | null>(null);
 
@@ -84,7 +86,7 @@ export function useTerminalInputHandling({
 
       void terminal.sendInput(terminalId, payload).catch((error: unknown) => {
         if (!isReconnectPending) {
-          setConnectionError(error instanceof Error ? error.message : 'Failed to send input');
+          setConnectionError(error instanceof Error ? error.message : t('Failed to send input'));
         }
       });
 
@@ -93,7 +95,7 @@ export function useTerminalInputHandling({
         focusTerminalController();
       }
     },
-    [activeModifier, focusTerminalController, isReconnectPending, setConnectionError, terminal, terminalIdRef],
+    [activeModifier, focusTerminalController, isReconnectPending, setConnectionError, t, terminal, terminalIdRef],
   );
 
   const handleViewportResize = React.useCallback(

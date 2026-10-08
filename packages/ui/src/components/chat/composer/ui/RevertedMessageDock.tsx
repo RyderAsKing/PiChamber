@@ -8,6 +8,7 @@
  */
 
 import React from 'react';
+import i18n from '@/i18n';
 
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
@@ -22,7 +23,8 @@ type RevertedMessageDockProps = {
 };
 
 export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.memo(({ sessionId }) => {
-    
+    const t = i18n.t.bind(i18n);
+
     const restoreToMessage = useSessionUIStore((s) => s.restoreToMessage);
     const forkFromMessage = useSessionUIStore((s) => s.forkFromMessage);
     const handleSlashRedo = useSessionUIStore((s) => s.handleSlashRedo);
@@ -35,7 +37,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         if (!navigation) return [];
         return navigation.abandoned.filter((entry) => entry.role === 'user');
     }, [navigation]);
-    const noTextContent = "No text content";
+    const noTextContent = t("No text content");
     const items = React.useMemo(() => {
         if (!navigation || abandonedUser.length === 0) return [];
         return abandonedUser.map((entry) => ({
@@ -58,16 +60,16 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
             const next = index >= 0 ? abandonedUser[index + 1] : undefined;
             if (next) {
                 await restoreToMessage(sessionId, next.id);
-                toast.success('Restored messages through this point');
+                toast.success(t('Restored messages through this point'));
             } else {
                 await handleSlashRedo(sessionId);
             }
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to restore messages');
+            toast.error(error instanceof Error ? error.message : t('Failed to restore messages'));
         } finally {
             setRestoringId(null);
         }
-    }, [abandonedUser, handleSlashRedo, restoreToMessage, restoringId, sessionId]);
+    }, [abandonedUser, handleSlashRedo, restoreToMessage, restoringId, sessionId, t]);
 
     const handleFork = React.useCallback(async (messageId: string) => {
         if (!sessionId || forkingId) return;
@@ -75,11 +77,11 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
         try {
             await forkFromMessage(sessionId, messageId);
         } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Failed to fork session');
+            toast.error(error instanceof Error ? error.message : t('Failed to fork session'));
         } finally {
             setForkingId(null);
         }
-    }, [forkFromMessage, forkingId, sessionId]);
+    }, [forkFromMessage, forkingId, sessionId, t]);
 
     if (!sessionId || items.length === 0) return null;
 
@@ -93,7 +95,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                     aria-expanded={!collapsed}
                 >
                     <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
-                        {"Reverted"} messages {items.length}
+                        {t('Reverted messages {{count}}', { count: items.length })}
                     </span>
                     <Icon
                         name="arrow-down-s"
@@ -120,7 +122,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                                     ) : (
                                         <Icon name="git-branch" className="h-3 w-3" aria-hidden="true" />
                                     )}
-                                    {"Fork"}
+                                    {t("Fork")}
                                 </Button>
                                 <Button
                                     type="button"
@@ -134,7 +136,7 @@ export const RevertedMessageDock: React.FC<RevertedMessageDockProps> = React.mem
                                     ) : (
                                         <Icon name="arrow-go-forward" className="h-3 w-3" aria-hidden="true" />
                                     )}
-                                    {"Restore"}
+                                    {t("Restore")}
                                 </Button>
                             </div>
                         ))}
