@@ -59,8 +59,18 @@ address is the unspoofable peer of the TCP connection: Tailscale
 Serve/Funnel forwards from loopback while passing attacker-supplied XFF
 through, so XFF alone would let a public attacker rotate headers for a
 fresh bucket per guess. The socket bucket bounds total guesses per socket
-while `trust proxy` stays enabled for real deployments. Successful logins
-clear both buckets.
+while `trust proxy` stays enabled for real deployments. A successful
+login clears only the requester's per-client bucket, never the shared
+socket bucket (which decays via window/lockout expiry only); otherwise
+any legitimate login would wipe an attacker's accumulated guesses and
+defeat the socket bound.
+
+Accepted trade-off: because Serve/Funnel share the loopback socket, an
+attacker exhausting the socket bucket over Funnel locks out every
+Tailscale/loopback login for the lockout window (15 min) — bounded
+guessing is preferred over unlimited guessing. The per-client bucket keeps
+separate tailnet devices' normal budgets while the socket bucket is not
+exhausted.
 
 ## Public exports (ui-passkeys.js)
 - `createUiPasskeys({ passwordBinding, readSettingsFromDiskMigrated, storeFile, rpName, challengeTtlMs })`: creates passkey runtime with methods:

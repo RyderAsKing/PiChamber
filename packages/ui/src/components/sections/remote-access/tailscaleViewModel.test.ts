@@ -203,7 +203,7 @@ describe('tailscale status mapping', () => {
   });
 
   test('generic error surfaces the message for Try again', () => {
-    for (const errorCode of ['apply_failed', 'probe_failed', 'invalid_config', 'timeout', 'unknown'] as const) {
+    for (const errorCode of ['apply_failed', 'remove_failed', 'probe_failed', 'invalid_config', 'timeout', 'unknown'] as const) {
       const view = presentTailscaleStatus(baseStatus({
         state: 'error',
         errorCode,

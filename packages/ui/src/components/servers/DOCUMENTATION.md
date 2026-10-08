@@ -73,7 +73,9 @@ probes collapse per host through `lib/servers/probeDedupe.ts`.
   hosts), results settled all at once into a process-wide cache.
 - CRUD + import: manual add, pairing-link import via `importDesktopHostPairing`
   (direct-then-relay race and redeem, same error strings as before), edit
-  (address hosts only), delete (default falls back to local), default star.
+  (address hosts only; changing the address drops the pinned `serverId` via
+  `withEditedDesktopHostUrl`, so the new server is not rejected as
+  wrong-service), delete (default falls back to local), default star.
 - Switching (semantics preserved from the old switcher): Electron switches
   in place via `switchRuntimeEndpoint` acting on the cached probe (no
   re-probe), adopting the probe's live tunnel for relay switches and

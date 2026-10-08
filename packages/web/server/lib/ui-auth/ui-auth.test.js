@@ -602,4 +602,86 @@ describe('login rate limit socket bucket (F1)', () => {
       auth.dispose();
     }
   });
+
+  it('successful login preserves the shared socket bucket', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'correct-horse-battery' });
+    try {
+      const socketIp = '198.51.100.99';
+      // 45 bad guesses with rotating XFF (fresh per-client bucket each)
+      // from one socket: only the socket bucket accumulates.
+      for (let i = 0; i < 45; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq(`203.0.113.${i + 1}`, socketIp), res);
+        expect(res.statusCode).toBe(401);
+      }
+      // Owner logs in once from the same socket with a different XFF.
+      const okRes = createResponse();
+      await auth.handleSessionCreate({
+        method: 'POST',
+        headers: { 'x-forwarded-for': '198.51.100.200' },
+        socket: { remoteAddress: socketIp },
+        body: { password: 'correct-horse-battery' },
+      }, okRes);
+      expect(okRes.statusCode).toBe(200);
+      expect(okRes.body?.authenticated).toBe(true);
+
+      // The socket bucket was NOT wiped: a fresh XFF sees the socket
+      // remainder (50 - 45 = 5), not a full per-client bucket of 10.
+      const probeRes = createResponse();
+      await auth.handleSessionCreate(loginReq('203.0.113.210', socketIp), probeRes);
+      expect(probeRes.statusCode).toBe(401);
+      expect(probeRes.getHeader('x-ratelimit-remaining')).toBe(socketMax - 45);
+
+      // Lockout still arrives at the same total (50 failures) as without
+      // the success: probe was #46, so 4 more go through, then 429.
+      for (let i = 0; i < 4; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq(`203.0.113.${220 + i}`, socketIp), res);
+        expect(res.statusCode).toBe(401);
+      }
+      const lockedRes = createResponse();
+      await auth.handleSessionCreate(loginReq('203.0.113.230', socketIp), lockedRes);
+      expect(lockedRes.statusCode).toBe(429);
+    } finally {
+      auth.dispose();
+    }
+  });
+
+  it('successful login resets only the succeeding per-client bucket', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'correct-horse-battery' });
+    try {
+      const socketIp = '198.51.100.98';
+      // 3 failures charged to the succeeding client's own bucket.
+      for (let i = 0; i < 3; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq('198.51.100.201', socketIp), res);
+        expect(res.statusCode).toBe(401);
+      }
+      const okRes = createResponse();
+      await auth.handleSessionCreate({
+        method: 'POST',
+        headers: { 'x-forwarded-for': '198.51.100.201' },
+        socket: { remoteAddress: socketIp },
+        body: { password: 'correct-horse-battery' },
+      }, okRes);
+      expect(okRes.body?.authenticated).toBe(true);
+
+      // Fresh budget for that XFF: 10 more failures are all tolerated
+      // (socket total stays far below the socket threshold, so a 429 here
+      // could only come from the per-client bucket; without the reset the
+      // 3 stale failures would lock it after 7 more).
+      for (let i = 0; i < perClientMax; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq('198.51.100.201', socketIp), res);
+        expect(res.statusCode).toBe(401);
+      }
+      const lockedRes = createResponse();
+      await auth.handleSessionCreate(loginReq('198.51.100.201', socketIp), lockedRes);
+      expect(lockedRes.statusCode).toBe(429);
+    } finally {
+      auth.dispose();
+    }
+  });
 });

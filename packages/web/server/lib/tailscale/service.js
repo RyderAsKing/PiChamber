@@ -20,7 +20,6 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 
 import {
   TAILSCALE_APPLY_TIMEOUT_MS,
@@ -47,12 +46,25 @@ import {
 
 const TAILSCALE_CONFIG_FILE = 'tailscale-config.json';
 const TAILSCALE_MAPPING_FILE = 'tailscale-mapping.json';
-const TAILSCALE_SERVER_IDENTITY_FILE = 'server-identity.json';
 
 // Funnel public DNS can take minutes on first use: keep re-probing with
 // backoff while `starting`, up to this budget, without blocking anything else.
 const PROBE_RETRY_BUDGET_MS = 10 * 60 * 1000;
 const PROBE_RETRY_DELAYS_MS = [5_000, 10_000, 30_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000, 60_000];
+
+// Config/retry HTTP responses wait for reconcile only up to this grace, then
+// return the current (possibly transitional) status while reconcile
+// continues in the background. The apply can block for minutes waiting for
+// tailnet approval, and callers (CLI `pair --tailscale`, the UI hook) poll
+// `GET /status` until a terminal state.
+const CONFIG_RESPONSE_GRACE_MS = 3_000;
+// Shutdown runs its status query and removal under tighter bounds than
+// reconcile: together they must finish inside Electron's quit timeout
+// (`QUIT_SERVER_STOP_TIMEOUT_MS`, 8s, packages/electron/quit-server-stop.mjs),
+// or the app exits mid-removal and orphans the mapping. A timeout keeps the
+// record, so the next start's cleanup retries.
+const SHUTDOWN_STATUS_TIMEOUT_MS = 3_000;
+const SHUTDOWN_REMOVE_TIMEOUT_MS = 4_000;
 
 /**
  * Default command runner. Never rejects: spawn errors and timeouts are
@@ -157,16 +169,21 @@ export const createTailscaleService = ({
   runner = null,
   fetchImpl = globalThis.fetch,
   fsPromises = fs.promises,
-  nodeCrypto = crypto,
+  existsSync = fs.existsSync,
+  // Stable server identity (hash of the public relay signing key — not a
+  // secret). Injected so the probe compares against the same id `/health`,
+  // `/api/version`, and relay pairing candidates report. A null/throwing id
+  // fails the probe (the URL stays `starting`, never `active`).
+  getServerId = async () => null,
   platform = process.platform,
   env = process.env,
   logWarn = (message) => console.warn(message),
+  configResponseGraceMs = CONFIG_RESPONSE_GRACE_MS,
 } = {}) => {
   const effectiveRunner = runner || createDefaultTailscaleRunner({ platform });
-  const executable = resolveTailscaleExecutable({ platform, env });
+  const executable = resolveTailscaleExecutable({ platform, env, existsSync });
   const configPath = path.join(dataDir, TAILSCALE_CONFIG_FILE);
   const mappingPath = path.join(dataDir, TAILSCALE_MAPPING_FILE);
-  const identityPath = path.join(dataDir, TAILSCALE_SERVER_IDENTITY_FILE);
 
   let config = { enabled: false, mode: TAILSCALE_DEFAULT_MODE, httpsPort: TAILSCALE_DEFAULT_HTTPS_PORT };
   let status = {
@@ -183,7 +200,12 @@ export const createTailscaleService = ({
   };
   let generation = 0;
   let probeTimer = null;
-  let cachedServerId = null;
+  // Serializes reconciles: each reconcile starts only after the previous
+  // one settles, so a superseded Off can never remove a mapping after the
+  // newer Private reconcile verified it. The tail swallows rejection so one
+  // failure never wedges the chain; the returned promise still rejects
+  // for the caller (`reconcileWithGrace` logs it).
+  let reconcileTail = Promise.resolve();
   // Abort for the in-flight apply (F6): a generation bump aborts it so a
   // stale apply cannot create a mapping nobody owns.
   let applyAbort = null;
@@ -210,6 +232,26 @@ export const createTailscaleService = ({
 
   const setRuntime = (patch) => {
     status = { ...status, ...patch };
+  };
+
+  /**
+   * Records host prerequisites from `tailscale status --json` (queried via
+   * `queryStatus`). Shared by the enabled/disabled/blocked reconcile paths
+   * so all of them report installed/running/loggedIn accurately. Never sets
+   * a state or error code: callers own those.
+   */
+  const applyHostInfo = (hostInfo) => {
+    if (!hostInfo || hostInfo.installed !== true) {
+      setRuntime({ installed: false, running: false, loggedIn: false, magicDnsName: null, httpsCertsAvailable: null });
+      return;
+    }
+    setRuntime({
+      installed: true,
+      running: hostInfo.running === true,
+      loggedIn: hostInfo.loggedIn === true,
+      magicDnsName: hostInfo.magicDnsName ?? null,
+      httpsCertsAvailable: hostInfo.httpsCertsAvailable ?? null,
+    });
   };
 
   const loadConfig = async () => {
@@ -250,28 +292,9 @@ export const createTailscaleService = ({
     mappingRecordPresent = false;
   };
 
-  const getServerId = async () => {
-    if (cachedServerId) return cachedServerId;
-    const raw = await readJsonFile(fsPromises, identityPath);
-    const existing = typeof raw?.serverId === 'string' && raw.serverId.trim() ? raw.serverId.trim() : null;
-    if (existing) {
-      cachedServerId = existing;
-      return cachedServerId;
-    }
-    cachedServerId = nodeCrypto.randomBytes(32).toString('base64url');
-    try {
-      await writeJsonFileAtomic(fsPromises, identityPath, { serverId: cachedServerId });
-    } catch {
-    }
-    return cachedServerId;
-  };
-
-  const withExecutable = (args) => {
-    // Prefer the resolved absolute location when known; otherwise the PATH
-    // command (spawn reports ENOENT, which we classify as not-installed).
-    const command = executable.source === 'path' ? executable.command : executable.command;
-    return [command, ...args];
-  };
+  // The resolved install location when it exists, otherwise the PATH
+  // command (spawn reports ENOENT, which we classify as not-installed).
+  const withExecutable = (args) => [executable.command, ...args];
 
   const queryStatus = async () => {
     const result = await effectiveRunner.runTailscale(
@@ -291,7 +314,7 @@ export const createTailscaleService = ({
     return { installed: true, ...parseTailscaleStatus(result.stdout) };
   };
 
-  const queryServeMapping = async (mode) => {
+  const queryServeMapping = async (mode, timeoutMs = TAILSCALE_STATUS_TIMEOUT_MS) => {
     // Funnel mappings are listed by `tailscale funnel status`; serve mappings
     // by `tailscale serve status`. A query failure is UNKNOWN (ok: false),
     // never "absent": callers must refuse to apply/remove/clear without
@@ -299,7 +322,7 @@ export const createTailscaleService = ({
     const subcommand = mode === 'public' ? 'funnel' : 'serve';
     const result = await effectiveRunner.runTailscale(
       withExecutable([subcommand, 'status', '--json']),
-      { timeoutMs: TAILSCALE_STATUS_TIMEOUT_MS },
+      { timeoutMs },
     );
     if (!result.ok || result.spawnError) return { ok: false, status: null };
     try {
@@ -312,22 +335,52 @@ export const createTailscaleService = ({
   const STATUS_QUERY_FAILED_MESSAGE =
     'Could not read the current Tailscale serve status, so nothing was changed. Try again.';
 
+  // Message for a verified own mapping whose `off` removal failed: the
+  // mapping may still be live, so never suggest `tailscale serve reset`
+  // (that would wipe mappings PiChamber does not own).
+  const removeFailedMessageFor = (record) => {
+    const surface = record.mode === 'public' ? 'Funnel' : 'serve';
+    return `Could not remove PiChamber's Tailscale ${surface} mapping on HTTPS port ${record.httpsPort}, so it may still be reachable. Try again.`;
+  };
+
+  // Maps a `removeVerifiedOwnMapping` result to the status error to report,
+  // or null when the stale mapping is verifiably gone (or there was none).
+  const removalFailure = (removal, record) => {
+    if (!removal) return null;
+    if (!removal.verified) return { errorCode: 'status_query_failed', errorMessage: STATUS_QUERY_FAILED_MESSAGE };
+    if (removal.removed === false) return { errorCode: 'remove_failed', errorMessage: removeFailedMessageFor(record) };
+    return null;
+  };
+
   /**
    * Verified own-mapping removal shared by the disabled/blocked/stale paths:
    * classify the live mapping against our record and remove ONLY when it is
    * ours, then clear the record. On a query failure nothing is removed and
-   * the record is kept so a later reconcile can retry with verification.
+   * the record is kept so a later reconcile can retry with verification. A
+   * failed removal (`removed: false`) also keeps the record — the mapping
+   * may still be live — so callers must report `remove_failed` instead of
+   * success. Absent/foreign mappings clear the record as before.
    */
-  const removeVerifiedOwnMapping = async (record) => {
+  const removeVerifiedOwnMapping = async (record, myGeneration) => {
     const queried = await queryServeMapping(record.mode);
+    if (myGeneration !== generation) {
+      // Superseded while the serve-status query was in flight: the newer
+      // generation may have just verified this same mapping as its own.
+      // Remove and clear nothing; the caller returns on its own
+      // generation check before interpreting this result.
+      return { verified: false, superseded: true };
+    }
     if (!queried.ok) return { verified: false };
     const mapping = queried.status ? findServeMappingForPort(queried.status, record.httpsPort) : null;
     const classification = classifyServeMapping({ mapping, httpsPort: record.httpsPort, boundPort: record.localPort });
     if (classification.kind === 'ours') {
-      await removeMapping({ mode: record.mode, httpsPort: record.httpsPort });
+      const { removed } = await removeMapping({ mode: record.mode, httpsPort: record.httpsPort });
+      if (!removed) {
+        return { verified: true, removed: false, classification };
+      }
     }
     await clearMappingRecord();
-    return { verified: true, classification };
+    return { verified: true, removed: true, classification };
   };
 
   /**
@@ -358,10 +411,10 @@ export const createTailscaleService = ({
     }
   };
 
-  const removeMapping = async ({ mode, httpsPort }) => {
+  const removeMapping = async ({ mode, httpsPort, timeoutMs = TAILSCALE_REMOVE_TIMEOUT_MS }) => {
     const result = await effectiveRunner.runTailscale(
       withExecutable(buildTailscaleRemoveArgs({ mode, httpsPort })),
-      { timeoutMs: TAILSCALE_REMOVE_TIMEOUT_MS },
+      { timeoutMs },
     );
     if (!result.ok && !result.spawnError) {
       // Removing a port with no mapping exits non-zero ("no handler"); that
@@ -380,7 +433,15 @@ export const createTailscaleService = ({
   };
 
   const probeUrl = async (url) => {
-    const expectedServerId = await getServerId();
+    // A null/throwing identity fails the probe: the URL stays `starting`
+    // and is never advertised as `active`.
+    let expectedServerId = null;
+    try {
+      expectedServerId = await getServerId();
+    } catch {
+      return false;
+    }
+    if (typeof expectedServerId !== 'string' || !expectedServerId) return false;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), TAILSCALE_PROBE_TIMEOUT_MS);
@@ -498,9 +559,10 @@ export const createTailscaleService = ({
   /**
    * Reconcile desired (config) vs actual (serve status) state. Never throws:
    * every failure is captured in the status model with a stable error code.
+   * Runs serialized via `reconcile()`: `myGeneration` is the generation this
+   * run was scheduled under.
    */
-  const reconcile = async () => {
-    const myGeneration = generation;
+  const runReconcile = async (myGeneration) => {
     clearProbeTimer();
     setRuntime({ approvalUrl: null, errorCode: null, errorMessage: null });
     const boundPort = getPort();
@@ -515,12 +577,19 @@ export const createTailscaleService = ({
       // query there is no positive ownership, so the record is kept for the
       // next reconcile to retry with verification.
       const record = await readMappingRecord();
-      if (record) {
-        const { verified } = await removeVerifiedOwnMapping(record);
-        if (!verified) {
-          setRuntime({ state: 'error', url: null, errorCode: 'status_query_failed', errorMessage: STATUS_QUERY_FAILED_MESSAGE });
-          return getStatus();
-        }
+      if (myGeneration !== generation) return getStatus();
+      const removal = record ? await removeVerifiedOwnMapping(record, myGeneration) : null;
+      if (myGeneration !== generation) return getStatus();
+      // Still report host prerequisites (`status --json` only, no
+      // serve/funnel commands) so the UI shows Not installed / Not signed
+      // in accurately instead of a blanket Off; retry re-checks them.
+      const hostInfo = await queryStatus();
+      if (myGeneration !== generation) return getStatus();
+      applyHostInfo(hostInfo);
+      const failure = removalFailure(removal, record);
+      if (failure) {
+        setRuntime({ state: 'error', url: null, ...failure });
+        return getStatus();
       }
       setRuntime({ state: 'off', url: null });
       return getStatus();
@@ -537,10 +606,21 @@ export const createTailscaleService = ({
       // restarted): tailscaled persists serve config, so an existing mapping
       // PiChamber created would stay reachable without auth. Remove it with
       // the same verified ownership check as the disabled path, then report
-      // blocked. On a query failure the record is kept for retry.
+      // blocked. A query failure or a failed removal keeps the record and
+      // reports `error` instead: a surviving mapping here is reachable
+      // without auth, so it must never be reported as `blocked`.
       const record = await readMappingRecord();
-      if (record) {
-        await removeVerifiedOwnMapping(record);
+      if (myGeneration !== generation) return getStatus();
+      const removal = record ? await removeVerifiedOwnMapping(record, myGeneration) : null;
+      if (myGeneration !== generation) return getStatus();
+      // Same host-prerequisite refresh as the disabled path.
+      const hostInfo = await queryStatus();
+      if (myGeneration !== generation) return getStatus();
+      applyHostInfo(hostInfo);
+      const failure = removalFailure(removal, record);
+      if (failure) {
+        setRuntime({ state: 'error', url: null, ...failure });
+        return getStatus();
       }
       setRuntime({ state: 'blocked', url: null, errorCode: gate.code, errorMessage: gate.message });
       return getStatus();
@@ -549,11 +629,11 @@ export const createTailscaleService = ({
     setRuntime({ state: 'starting', url: null });
     const hostInfo = await queryStatus();
     if (myGeneration !== generation) return getStatus();
+    applyHostInfo(hostInfo);
     if (!hostInfo.installed) {
-      setRuntime({ installed: false, state: 'unavailable', errorCode: 'not_installed', errorMessage: 'The tailscale executable was not found. Install Tailscale to use remote access.' });
+      setRuntime({ state: 'unavailable', errorCode: 'not_installed', errorMessage: 'The tailscale executable was not found. Install Tailscale to use remote access.' });
       return getStatus();
     }
-    setRuntime({ installed: true, running: hostInfo.running === true, loggedIn: hostInfo.loggedIn === true, magicDnsName: hostInfo.magicDnsName ?? null, httpsCertsAvailable: hostInfo.httpsCertsAvailable ?? null });
     if (!hostInfo.running) {
       setRuntime({ state: 'unavailable', errorCode: 'not_running', errorMessage: 'The Tailscale daemon is not running. Start it, then retry.' });
       return getStatus();
@@ -570,12 +650,17 @@ export const createTailscaleService = ({
     // while claiming success.
     const stale = await readMappingRecord();
     if (stale && (stale.httpsPort !== config.httpsPort || stale.mode !== config.mode)) {
-      const { verified } = await removeVerifiedOwnMapping(stale);
-      if (!verified) {
-        setRuntime({ state: 'error', url: null, errorCode: 'status_query_failed', errorMessage: STATUS_QUERY_FAILED_MESSAGE });
+      // A failed removal keeps the old record: never apply the new mapping
+      // while the old one may still be live, so retry can remove it first.
+      // The generation is checked before interpreting the result, so a
+      // superseded removal (which removed nothing) never reports an error.
+      const removal = await removeVerifiedOwnMapping(stale, myGeneration);
+      if (myGeneration !== generation) return getStatus();
+      const failure = removalFailure(removal, stale);
+      if (failure) {
+        setRuntime({ state: 'error', url: null, ...failure });
         return getStatus();
       }
-      if (myGeneration !== generation) return getStatus();
     }
 
     const queried = await queryServeMapping(config.mode);
@@ -590,8 +675,27 @@ export const createTailscaleService = ({
     const mapping = queried.status ? findServeMappingForPort(queried.status, config.httpsPort) : null;
     const classification = classifyServeMapping({ mapping, httpsPort: config.httpsPort, boundPort });
     if (classification.kind === 'foreign') {
-      setRuntime({ state: 'conflict', url: null, errorCode: 'conflict', errorMessage: conflictMessageForPort(config.httpsPort) });
-      return getStatus();
+      // Crash-restart on a new local port: the live mapping points at the
+      // recorded port instead of this bound port. The record (same
+      // port+mode) proves PiChamber created it, so re-verify the live
+      // targets against the recorded port and repoint instead of conflict.
+      // (When the stale cleanup above cleared the record it no longer
+      // applies, so fall back to a fresh read.) Ownership still needs BOTH
+      // the record and the live targets — never repoint on the record alone.
+      const record = stale && stale.httpsPort === config.httpsPort && stale.mode === config.mode
+        ? stale
+        : await readMappingRecord();
+      const recordedOurs = record
+        && record.httpsPort === config.httpsPort
+        && record.mode === config.mode
+        && record.localPort !== boundPort
+        && classifyServeMapping({ mapping, httpsPort: config.httpsPort, boundPort: record.localPort }).kind === 'ours';
+      if (!recordedOurs) {
+        setRuntime({ state: 'conflict', url: null, errorCode: 'conflict', errorMessage: conflictMessageForPort(config.httpsPort) });
+        return getStatus();
+      }
+      // Ours by record, still pointing at the previous local port: fall
+      // through and repoint it at this bound port.
     }
     if (classification.kind === 'ours') {
       const record = await readMappingRecord();
@@ -609,8 +713,9 @@ export const createTailscaleService = ({
         }
         return getStatus();
       }
-      // Ours but pointing at a different local port (e.g. restart on a new
-      // port): fall through and repoint it.
+      // Ours and already pointing at this bound port, but the record is
+      // missing or names a different port: fall through and re-apply it so
+      // the record is rewritten.
     }
 
     const applied = await applyMapping(myGeneration, { mode: config.mode, httpsPort: config.httpsPort, localPort: boundPort });
@@ -660,6 +765,59 @@ export const createTailscaleService = ({
     };
   };
 
+  // Serialized entry point: reconciles run one at a time in call order. A
+  // run superseded while queued is skipped; a superseded in-flight run
+  // finishes quickly (`bumpGeneration()` aborts its apply) and never
+  // removes a mapping after the newer run starts (generation re-checked
+  // after the serve-status query and before every state write).
+  const reconcile = () => {
+    const myGeneration = generation;
+    const pending = reconcileTail.catch(() => {}).then(() => {
+      if (myGeneration !== generation) return getStatus();
+      return runReconcile(myGeneration);
+    });
+    reconcileTail = pending.catch(() => {});
+    return pending;
+  };
+
+  // Config/retry responses wait for reconcile only up to a short grace,
+  // then return the current (possibly transitional) status while
+  // reconcile continues in the background. Callers poll `GET /status`
+  // until a terminal state. Validation/auth-gate errors still throw
+  // synchronously before kickoff via `setConfig` above.
+  const reconcileWithGrace = () => {
+    const myGeneration = generation;
+    const pending = reconcile();
+    // Background safety net (same precedent as the startup reconcile in
+    // `server/index.js`): never an unhandled rejection. Only records when
+    // still current so a superseded generation cannot clobber live state.
+    pending.catch((error) => {
+      logWarn(`[tailscale] Background reconcile failed: ${error?.message || error}`);
+      if (myGeneration === generation) {
+        setRuntime({ state: 'error', errorCode: 'unknown', errorMessage: 'Tailscale reconcile failed unexpectedly.' });
+      }
+    });
+    const graceMs = Number.isFinite(configResponseGraceMs) && configResponseGraceMs >= 0
+      ? configResponseGraceMs
+      : CONFIG_RESPONSE_GRACE_MS;
+    let timer = null;
+    const graceElapsed = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), graceMs);
+      if (timer?.unref) timer.unref();
+    });
+    const settled = pending.then(
+      (result) => {
+        if (timer) clearTimeout(timer);
+        return result;
+      },
+      () => {
+        if (timer) clearTimeout(timer);
+        return getStatus();
+      },
+    );
+    return Promise.race([settled, graceElapsed.then(() => getStatus())]);
+  };
+
   const setConfig = async (patch) => {
     const merged = normalizeTailscaleConfig({ ...config, ...(patch || {}) });
     const validation = validateTailscaleConfig({ ...config, ...(patch || {}) });
@@ -683,7 +841,7 @@ export const createTailscaleService = ({
     }
     bumpGeneration();
     await persistConfig(merged);
-    return reconcile();
+    return reconcileWithGrace();
   };
 
   const shutdown = async () => {
@@ -692,19 +850,23 @@ export const createTailscaleService = ({
     try {
       // Verify ownership before removing: a failed status query leaves the
       // mapping (and the record) untouched so the next start's stale
-      // cleanup can retry with verification. Each step is bounded by its
-      // own timeout (status/remove), so shutdown never hangs.
+      // cleanup can retry with verification. Each step is bounded by the
+      // shutdown timeouts, which fit inside Electron's quit timeout.
       const record = await readMappingRecord();
       if (record) {
-        const queried = await queryServeMapping(record.mode);
+        const queried = await queryServeMapping(record.mode, SHUTDOWN_STATUS_TIMEOUT_MS);
         if (!queried.ok) {
           logWarn('[tailscale] Shutdown: serve status query failed; leaving the mapping for next-start cleanup.');
         } else {
           const mapping = queried.status ? findServeMappingForPort(queried.status, record.httpsPort) : null;
           const classification = classifyServeMapping({ mapping, httpsPort: record.httpsPort, boundPort: record.localPort });
           if (classification.kind === 'ours') {
-            await removeMapping({ mode: record.mode, httpsPort: record.httpsPort });
-            await clearMappingRecord();
+            const { removed } = await removeMapping({ mode: record.mode, httpsPort: record.httpsPort, timeoutMs: SHUTDOWN_REMOVE_TIMEOUT_MS });
+            if (!removed) {
+              logWarn(`[tailscale] Shutdown: could not remove ${record.mode} mapping on https port ${record.httpsPort}; leaving it for next-start cleanup.`);
+            } else {
+              await clearMappingRecord();
+            }
           } else if (classification.kind === 'foreign') {
             logWarn(`[tailscale] Shutdown: mapping on port ${record.httpsPort} is not ours; leaving it alone.`);
             await clearMappingRecord();
@@ -751,11 +913,10 @@ export const createTailscaleService = ({
     reconcile,
     retry: () => {
       bumpGeneration();
-      return reconcile();
+      return reconcileWithGrace();
     },
     shutdown,
     dispose,
-    getServerId,
     getPairingCandidate,
     getTransports,
     validateTailscaleConfig,

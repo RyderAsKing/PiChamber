@@ -13,6 +13,9 @@
  * caller always reaches `app.exit`.
  */
 
+// The Tailscale shutdown bounds its status query + removal to fit inside this
+// (SHUTDOWN_*_TIMEOUT_MS in packages/web/server/lib/tailscale/service.js);
+// keep them in sync when changing either side.
 export const QUIT_SERVER_STOP_TIMEOUT_MS = 8_000;
 
 export const createQuitServerStop = ({ timeoutMs = QUIT_SERVER_STOP_TIMEOUT_MS, onError } = {}) => {

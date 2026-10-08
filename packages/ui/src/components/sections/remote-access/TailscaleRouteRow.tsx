@@ -283,16 +283,28 @@ export const TailscaleRouteRow: React.FC = () => {
               <p className="typography-meta text-muted-foreground">
                 {'Install Tailscale on this computer, then sign in to the same tailnet as your phone.'}
               </p>
-              <Button
-                type="button"
-                variant="outline"
-                size="xs"
-                className="!font-normal"
-                onClick={() => void openExternalUrl(TAILSCALE_DOWNLOAD_URL)}
-              >
-                {'Get Tailscale'}
-                <Icon name="external-link" className="h-3.5 w-3.5" aria-hidden />
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="!font-normal"
+                  onClick={() => void openExternalUrl(TAILSCALE_DOWNLOAD_URL)}
+                >
+                  {'Get Tailscale'}
+                  <Icon name="external-link" className="h-3.5 w-3.5" aria-hidden />
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="!font-normal"
+                  onClick={tailscale.retryNow}
+                  disabled={mutationInFlight}
+                >
+                  {'Check again'}
+                </Button>
+              </div>
             </div>
           ) : null}
 
@@ -306,7 +318,7 @@ export const TailscaleRouteRow: React.FC = () => {
                 variant="outline"
                 size="xs"
                 className="!font-normal"
-                onClick={tailscale.reload}
+                onClick={tailscale.retryNow}
                 disabled={mutationInFlight}
               >
                 {'Check again'}

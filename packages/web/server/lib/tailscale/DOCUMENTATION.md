@@ -41,18 +41,36 @@ Ephemeral Cloudflare quick tunnels were removed; this module is unaffected.
    Apply failure logs a warning and never stops startup; the status model
    carries the error and `POST /api/pichamber/tailscale/retry` (or any
    config change) reconciles again.
-2. Runtime config changes reconcile: abort the in-flight apply (generation
-   bump kills it), remove the old mapping, apply the new one (bounded
-   timeouts). A superseded apply that still created a mapping is verified
-   and removed, so no mapping is left unowned.
+2. Runtime config changes and retry respond after at most a short grace
+   (`CONFIG_RESPONSE_GRACE_MS`, 3s) with the current (possibly
+   transitional) status while reconcile continues in the background:
+   abort the in-flight apply (generation bump kills it), remove the old
+   mapping, apply the new one (bounded timeouts). A superseded apply that
+   still created a mapping is verified and removed, so no mapping is left
+   unowned. The enabled path reports `starting` synchronously before its
+   first await (approval output flips it to `needs-approval`), so the
+   early response is already transitional. Background failures are caught
+   and logged, never unhandled. Clients (the Remote Access UI hook,
+   `pichamber pair --tailscale`) poll `GET /status` until a terminal
+   state. Reconciles are serialized: each reconcile starts only after the
+   previous one settles, in call order. A reconcile superseded while queued
+   is skipped, and a superseded in-flight reconcile never removes a mapping
+   after the newer one starts — the generation is re-checked after the
+   serve-status query inside verified removal, and again before every
+   host-info/state write. A throwing reconcile never wedges the chain: the
+   next queued reconcile still runs while the caller still sees the
+   rejection.
 3. Graceful shutdown (`controller.stop`, covering CLI serve stop, SIGINT,
    SIGTERM, and the Electron in-process server stop path) removes the mapping
    PiChamber created (`serve/funnel --https=<p> off`, as appropriate) — but
    only after verifying ownership against live serve status. On a status
    query failure nothing is removed and the record is kept, so the next
    start's stale cleanup retries with verification. Electron awaits this
-   stop with a bounded quit timeout before exiting. Removal failure logs a
-   warning and never blocks shutdown.
+   stop with a bounded quit timeout (8s) before exiting, so shutdown uses
+   tighter bounds than reconcile — 3s status query + 4s removal — to finish
+   inside it; keep both sides in sync. A failed removal also
+   keeps the record and logs a warning (the next start's stale cleanup
+   retries with verification), and never blocks shutdown.
 
 ## Crash safety and conflict rules
 
@@ -64,14 +82,26 @@ Ephemeral Cloudflare quick tunnels were removed; this module is unaffected.
   stale own mapping first and then reports `blocked` (tailscaled persists
   serve config, so the mapping would otherwise stay reachable without
   auth). A failed status query keeps the record and reports `error` with
-  code `status_query_failed` (retry available) instead of acting blind.
+  code `status_query_failed` (retry available) instead of acting blind. A
+  failed removal of a verified own mapping also keeps the record and
+  reports `error` with code `remove_failed` (the mapping may still be
+  live), so a later reconcile or retry can remove it first — reconcile
+  never applies a new mapping over one it failed to remove.
 - NEVER remove or overwrite a mapping PiChamber did not create. Before
   applying, `tailscale serve status --json` (`funnel status --json` for
   public) is inspected — `Web` entries keyed by `<host>:<port>` with handler
   targets. A mapping is OURS only when every handler target points at our
-  own `http://127.0.0.1:<boundPort>`. Anything else on the target port
-  reports state `conflict` with code `conflict` and a message suggesting the
-  other ports (8443/10000).
+  own `http://127.0.0.1:<boundPort>`. A mapping on the configured port is
+  also OURS when the mapping record (same port+mode) names the local port
+  the live targets point at — a crash-restart on a new bound port leaves the
+  old record behind while the port/mode are unchanged. Such a mapping is
+  repointed to the new bound port instead of reporting conflict. Anything
+  else on the target port reports state `conflict` with code `conflict` and a message suggesting the
+  other ports (8443/10000). Disabled and blocked reconciles still query host
+  prerequisites (`tailscale status --json` only — no serve/funnel commands)
+  after the mapping-removal check, so `installed`/`running`/`loggedIn` stay
+  accurate while `state` is `off`/`blocked`; the retry route re-checks them
+  the same way.
 
 ## Security gate (core-enforced)
 
@@ -114,6 +144,15 @@ proxies and tunnels terminate TLS and set `X-Forwarded-*`).
   XFF under `trust proxy`). The socket bucket allows 5x the per-client
   limit in the same window — headroom for one forwarder multiplexing many
   clients — and an attempt is refused if EITHER bucket is exhausted.
+  A successful login clears only the requester's per-client bucket, never
+  the shared socket bucket (which decays via window/lockout expiry only);
+  otherwise any legitimate login would wipe an attacker's accumulated
+  guesses and defeat the socket bound. Accepted trade-off: because
+  Serve/Funnel share the loopback socket, an attacker exhausting the
+  socket bucket over Funnel locks out every Tailscale/loopback login for
+  the lockout window (15 min) — bounded guessing is preferred over
+  unlimited guessing; the per-client bucket keeps separate tailnet
+  devices' normal budgets.
   Threat direction: Tailscale Serve/Funnel forwards from 127.0.0.1 and
   passes attacker-supplied XFF through, so XFF alone is attacker-controlled
   and must never be the only key. Rotating XFF from one socket now hits the
@@ -151,19 +190,32 @@ may stay allowed via `PICHAMBER_ALLOW_UNAUTHENTICATED_LAN`, public never is.
 The UI disables each mode individually from these flags before the user
 clicks, instead of waiting for the 403 from `setConfig`.
 
+`installed`/`running`/`loggedIn`/`magicDnsName`/`httpsCertsAvailable` are
+refreshed from `status --json` on every reconcile — including disabled
+(`off`) and blocked reconciles, which never set prerequisite error codes
+(`not_installed`/`not_running`/`not_logged_in`) for this — so the UI renders
+Not installed / Not signed in accurately instead of a blanket Off, and
+`POST /api/pichamber/tailscale/retry` re-checks them.
+
 States: `off` | `unavailable` (not installed/running/logged in) | `blocked`
 (auth gate) | `starting` (applied, URL not yet verified) |
 `needs-approval` (+ `approvalUrl`) | `active` (+ `url`) | `conflict` |
 `error`. `url` is set ONLY after a credential-free probe of `<url>/health`
-reports this server's `serverId` (the persisted stable identity in
-`server-identity.json`, also exposed on `/health` and `/api/version` so
-clients verify a learned address BEFORE sending a bearer token). First-time
+reports this server's `serverId` — the stable relay signing-key identity
+(`deriveServerId` of the `settings.relaySigningKey` public JWK, the same id
+reported on `/health`, `/api/version`, and relay pairing candidates, so
+clients verify a learned address BEFORE sending a bearer token). There is no
+separate `server-identity.json`: the probe compares against the injected
+`getServerId` (a null/throwing id fails the probe, so the URL stays
+`starting` and is never advertised). First-time
 Funnel DNS can take minutes: `starting` keeps re-probing with backoff for up
 to ~10 minutes.
 
 Error codes: `auth_required` | `not_installed` | `not_running` |
 `not_logged_in` | `permission_denied` (`sudo tailscale set --operator=$USER`)
-| `needs_approval` | `conflict` | `apply_failed` | `status_query_failed`
+| `needs_approval` | `conflict` | `apply_failed` | `remove_failed`
+(the own mapping may still be live; the record is kept for retry) |
+`status_query_failed`
 (retry available; nothing was changed) | `probe_failed` | `invalid_config` |
 `timeout` | `unknown`.
 
@@ -179,9 +231,12 @@ hit retry.
 
 ## Platform notes
 
-- Executable: `tailscale` on PATH; macOS fallback
-  `/Applications/Tailscale.app/Contents/MacOS/Tailscale`; Windows
-  `tailscale.exe` on PATH then `%ProgramFiles%\Tailscale\tailscale.exe`.
+- Executable: the well-known install location when it exists — macOS
+  `/Applications/Tailscale.app/Contents/MacOS/Tailscale`, Windows
+  `%ProgramFiles%\Tailscale\tailscale.exe` — otherwise `tailscale` /
+  `tailscale.exe` on PATH. The install location wins because GUI installs
+  often add no CLI to PATH and Electron launched from Finder has a minimal
+  PATH.
 - Linux non-root without operator rights fails with access/permission style
   errors → code `permission_denied` with the operator fix hint.
 - Tailscale is not installed in CI/dev here; runtime validation against real

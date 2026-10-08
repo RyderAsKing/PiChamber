@@ -221,15 +221,18 @@ const recordFailedAttempt = async (req) => {
   await recordSingleFailedAttempt(getSocketRateLimitKey(req));
 };
 
+// Success clears only the per-client bucket. The socket bucket is shared
+// (Tailscale Serve/Funnel multiplexes every client onto loopback), so
+// clearing it here would let one legitimate login wipe out an attacker's
+// accumulated guesses. It decays via window/lockout expiry only.
 const clearRateLimit = async (req) => {
-  for (const key of [getRateLimitKey(req), getSocketRateLimitKey(req)]) {
-    await acquireRateLimitLock(key);
+  const key = getRateLimitKey(req);
+  await acquireRateLimitLock(key);
 
-    try {
-      loginRateLimiter.delete(key);
-    } catch (err) {
-      console.error('[RateLimit] Failed to clear', { key, error: err.message });
-    }
+  try {
+    loginRateLimiter.delete(key);
+  } catch (err) {
+    console.error('[RateLimit] Failed to clear', { key, error: err.message });
   }
 };
 

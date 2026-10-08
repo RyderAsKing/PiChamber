@@ -15,6 +15,7 @@ import { createRevocationCoordinator } from './lib/client-auth/principal-tracker
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
 import { createTailscaleService } from './lib/tailscale/service.js';
+import { createServerIdResolver } from './lib/relay/server-id.js';
 import { registerTailscaleRoutes } from './lib/tailscale/routes.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
@@ -171,12 +172,16 @@ export async function startWebUiServer(options = {}) {
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   const hasUiPasswordConfigured = () => typeof uiPassword === 'string' && uiPassword.trim().length > 0;
+  // One stable server identity: the relay signing-key serverId, shared by
+  // /health, /api/version, connection candidates, and the Tailscale probe.
+  const serverIdResolver = createServerIdResolver({ dataDir: PICHAMBER_DATA_DIR, crypto });
   // Tailscale remote access (tailnet-only serve / public funnel). Off by
   // default; enabled only via its settings API or CLI flags. The service
   // owns its persisted config, lifecycle and conflict rules — see
   // `packages/web/server/lib/tailscale/DOCUMENTATION.md`.
   const tailscaleService = createTailscaleService({
     dataDir: PICHAMBER_DATA_DIR,
+    getServerId: serverIdResolver.getServerId,
     getPort: () => {
       const address = server.address();
       return typeof address === 'object' && address ? address.port : null;
@@ -234,7 +239,7 @@ export async function startWebUiServer(options = {}) {
       return typeof address === 'object' && address ? address.port : null;
     },
     getTunnelUrl: () => null,
-    getServerId: () => tailscaleService.getServerId(),
+    getServerId: serverIdResolver.getServerId,
     tunnelAuthController,
     uiAuthController,
   });
@@ -251,7 +256,7 @@ export async function startWebUiServer(options = {}) {
     getPairingTransports: () => pairingTransports.getPairingTransports(),
     getDirectCandidateUrls: () => pairingTransports.getDirectCandidateUrls(),
     getTailscalePairingCandidate: () => tailscaleService.getPairingCandidate(),
-    getServerId: () => tailscaleService.getServerId(),
+    getServerId: serverIdResolver.getServerId,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   const piRuntimeRoutes = registerPiRuntimeRoutes(app, {

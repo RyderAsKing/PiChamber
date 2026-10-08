@@ -31,6 +31,7 @@ Host side (`packages/web/server/lib/relay/`):
 - `service.js` — relay endpoint configuration only: exports `DEFAULT_RELAY_URL`. The host entrypoint (`createRelayService`: settings persistence, the `GET/POST /api/pichamber/relay/{status,enable,disable}` management routes, the `getPairingCandidate()` accessor, and host lifecycle wiring) was removed as dead code — no runtime wired it in. The CLI pair command resolves the relay endpoint (`DEFAULT_RELAY_URL`, the `PICHAMBER_RELAY_URL` env override, stored `settings.privateRelay.relayUrl`) the same way a host would.
 - `identity.js` — the host's stable identity: the long-lived signing keypair (shared with the push relay, defines the routing id) plus a long-lived encryption keypair (the E2EE trust anchor). Reused across restarts; never rotated implicitly.
 - `signing-key.js` — storage/derivation of the signing keypair and the routing id, shared with the notifications runtime.
+- `server-id.js` — server-side resolver for that same signing-key `serverId` (`createServerIdResolver({ dataDir, crypto })` → `{ getServerId }`): reads/generates `settings.relaySigningKey` in the data dir's `settings.json` (the same file the CLI pairing command uses, so both report the same id) and derives the id. Exposed on `/health`, `/api/version`, and connection candidates, and injected into the Tailscale probe. The id is cached per process; concurrent first calls share one in-flight generation (at most one key per process); a corrupt `settings.json` rejects instead of regenerating (regeneration gate), and a throwing `getServerId` means "no id" to callers.
 - `host-client.js` — the long-lived connection manager: one outbound control connection to the relay, a per-client data connection for each connected device, reconnect/backoff, and the E2EE responder handshake per connection.
 - `tunnel-host.js` — the per-connection dispatcher: decrypts tunnel frames and forwards HTTP/SSE/WS to the local server over loopback, then streams responses back. Enforces a path allowlist and never injects credentials.
 - `e2ee.js`, `tunnel-codec.js` — host-side (JS) mirrors of the shared crypto and framing (see "Two implementations" below).
@@ -80,8 +81,8 @@ candidate, and update its saved candidate set (mobile: `mobileConnections.ts`;
 desktop: `desktopRelayRestore.ts`).
 
 Identity gating: the response carries the stable `serverId` (base64url SHA-256 of
-the public signing JWK — the same identity the relay routes by, exposed by the
-relay service's `getServerId()` and echoed unauthenticated on `/health` and
+the public signing JWK — the same identity the relay routes by, resolved by
+`server-id.js` and echoed unauthenticated on `/health` and
 `/api/version`). Clients ignore a refresh whose `serverId` does not match their
 pinned relay identity, and verify `/health`'s `serverId` on a learned address
 **before** sending their bearer token to it — a re-assigned LAN address may now

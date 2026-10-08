@@ -13,6 +13,7 @@ import {
   probeRelayDesktopHost,
   redactSensitiveUrl,
   resolveDesktopHostUrl,
+  withEditedDesktopHostUrl,
   type DesktopHost,
   type HostProbeResult,
 } from '@/lib/desktopHosts';
@@ -336,10 +337,8 @@ export function useDesktopServers(options?: { autoLoad?: boolean }) {
       const nextRemote = remoteHosts.map((host) =>
         host.id === id
           ? {
-              ...host,
+              ...withEditedDesktopHostUrl(host, url),
               label: input.label.trim() || redactSensitiveUrl(url),
-              url,
-              apiUrl: url,
               clientToken: input.token.trim() || undefined,
               requestHeaders: buildRequestHeaders(input.headers),
             }

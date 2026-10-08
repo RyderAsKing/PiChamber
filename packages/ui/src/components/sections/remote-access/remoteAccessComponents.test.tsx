@@ -1,6 +1,9 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { TailscaleStatus } from '@/lib/tailscale';
 import { AddDeviceDialogBody } from './AddDeviceDialog';
+import { TailscaleRouteRow } from './TailscaleRouteRow';
+import type { TailscaleAccessApi } from './useTailscaleAccessState';
 import { DesktopPasswordFields } from './DesktopLanAccessSettings';
 import { DevicesSection } from './DevicesSection';
 import type { AddDeviceApi } from './useAddDeviceState';
@@ -8,6 +11,49 @@ import type { DesktopLanAccessState } from './useDesktopLanAccessState';
 import type { RemoteDevicesApi } from './useRemoteDevicesState';
 
 const noop = () => undefined;
+
+let activeTailscaleApi: TailscaleAccessApi = {
+  status: null,
+  initialLoading: true,
+  loadFailed: false,
+  loadError: null,
+  actionError: null,
+  actionErrorCode: null,
+  mutationInFlight: false,
+  pendingMode: null,
+  confirmPublicOpen: false,
+  setMode: noop,
+  confirmPublic: noop,
+  cancelPublicConfirm: noop,
+  setPort: noop,
+  retryNow: noop,
+  reload: noop,
+};
+
+mock.module('./useTailscaleAccessState', () => ({
+  useTailscaleAccessState: () => activeTailscaleApi,
+}));
+
+const tailscaleApiFor = (status: TailscaleStatus): TailscaleAccessApi => ({
+  ...activeTailscaleApi,
+  status,
+  initialLoading: false,
+});
+
+const tailscaleStatus = (overrides: Partial<TailscaleStatus> = {}): TailscaleStatus => ({
+  installed: true,
+  running: true,
+  loggedIn: true,
+  magicDnsName: 'm.ts.net',
+  httpsCertsAvailable: null,
+  config: { enabled: false, mode: 'private', httpsPort: 443 },
+  state: 'off',
+  url: null,
+  approvalUrl: null,
+  errorCode: null,
+  errorMessage: null,
+  ...overrides,
+});
 
 const addDeviceStub = (overrides: Partial<AddDeviceApi> = {}): AddDeviceApi => ({
   open: true,
@@ -202,6 +248,23 @@ describe('DesktopPasswordFields (Security)', () => {
     const markup = renderToStaticMarkup(<DesktopPasswordFields lan={lanStub()} />);
     expect(markup).toContain('id="desktop-ui-password"');
     expect(markup).toContain('Desktop UI Password');
+  });
+});
+
+describe('TailscaleRouteRow check-again availability', () => {
+  test('not-installed shows Check again alongside Get Tailscale', () => {
+    activeTailscaleApi = tailscaleApiFor(tailscaleStatus({ state: 'off', installed: false }));
+    const markup = renderToStaticMarkup(<TailscaleRouteRow />);
+    expect(markup).toContain('Not installed');
+    expect(markup).toContain('Get Tailscale');
+    expect(markup).toContain('Check again');
+  });
+
+  test('signed-out still shows Check again', () => {
+    activeTailscaleApi = tailscaleApiFor(tailscaleStatus({ state: 'off', running: false }));
+    const markup = renderToStaticMarkup(<TailscaleRouteRow />);
+    expect(markup).toContain('Not signed in');
+    expect(markup).toContain('Check again');
   });
 });
 

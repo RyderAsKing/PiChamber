@@ -114,10 +114,11 @@ export const tailscaleCommandForPlatform = (platform) =>
   platform === 'win32' ? 'tailscale.exe' : 'tailscale';
 
 /**
- * Resolve the executable: PATH first, then the
- * platform install location. Returns `{ command, extraPaths }` where
- * `extraPaths` is the macOS/Windows well-known location to probe when the
- * PATH lookup misses. Uses argument arrays (no shell) at the call site.
+ * Resolve the executable: the macOS/Windows well-known install location when
+ * `existsSync` reports it present (GUI installs often leave no CLI on PATH,
+ * and Electron launched from Finder has a minimal PATH), otherwise the PATH
+ * command. Returns `{ command, source, fallback? }`. Uses argument arrays
+ * (no shell) at the call site.
  */
 export const resolveTailscaleExecutable = ({ platform = process.platform, env = process.env, existsSync = null } = {}) => {
   const command = tailscaleCommandForPlatform(platform);

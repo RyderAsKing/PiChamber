@@ -365,6 +365,20 @@ export const getDesktopHostApiUrl = (host: DesktopHost): string => {
   return normalizeHostUrl(host.apiUrl || host.url) || host.apiUrl || host.url;
 };
 
+/**
+ * Points a host at a manually edited URL. The pinned direct `serverId`
+ * belongs to the old address, so it is dropped when the address changes;
+ * otherwise every probe of the new server would fail as wrong-service. The
+ * next verified connect pins the new identity.
+ */
+export const withEditedDesktopHostUrl = (host: DesktopHost, url: string): DesktopHost => {
+  const next: DesktopHost = { ...host, url, apiUrl: url };
+  if (normalizeHostUrl(getDesktopHostApiUrl(host)) !== normalizeHostUrl(url)) {
+    delete next.serverId;
+  }
+  return next;
+};
+
 const getInvoke = (): DesktopInvoke | null => {
   if (!hasDesktopInvoke()) return null;
   return (command, args) => invokeDesktop(command, args) as Promise<unknown>;

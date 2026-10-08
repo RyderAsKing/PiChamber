@@ -459,9 +459,12 @@ export const createTunnelAuth = () => {
     recordSingleConnectFailedAttempt(req, getSocketRateLimitKey(req));
   };
 
+  // Success clears only the per-client bucket. The socket bucket is shared
+  // (Tailscale Serve/Funnel multiplexes every client onto loopback), so
+  // clearing it here would let one legitimate login wipe out an attacker's
+  // accumulated guesses. It decays via window/lockout expiry only.
   const clearConnectRateLimit = (req) => {
     connectRateLimiter.delete(getRateLimitKey(req));
-    connectRateLimiter.delete(getSocketRateLimitKey(req));
   };
 
   const getTunnelSessionFromRequest = (req) => {
