@@ -465,9 +465,9 @@ describe('session daemon engines', () => {
     expect(typeof event.payload.id).toBe('string');
     expect(event.payload.id.length).toBeGreaterThan(0);
     expect(Number.isFinite(event.payload.createdAt)).toBe(true);
-    expect(() => engine.host.publish('extension.notify', { message: '' }, 'engine-session-1', root)).toThrow(
-      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
-    );
+    expect(Number.isFinite(event.payload.serverNow)).toBe(true);
+    // An invalid engine notify is a silent no-op: no record, no publish, no throw.
+    expect(engine.host.publish('extension.notify', { message: '' }, 'engine-session-1', root)).toBeUndefined();
 
     // A late subscriber sees the normalized notice in its snapshot.
     const late = connectClient(currentEndpoint);
@@ -477,6 +477,7 @@ describe('session daemon engines', () => {
       message: 'engine did a thing', level: 'info',
     });
     expect(snapshot.payload.extensionNotices[0].id).toBe(event.payload.id);
+    expect(snapshot.payload.extensionNotices[0]).not.toHaveProperty('serverNow');
     await late.close().catch(() => {});
 
     const opened = await send('sessions.open', { sessionId: 'engine-session-1' });

@@ -7,7 +7,19 @@
 
 export const MAX_NOTIFICATION_TAG_ENTRIES = 20;
 
+const INPUT_NOTIFICATION_TAG_PREFIX = 'pichamber:input:';
+
 const normalizeTag = (tag) => (typeof tag === 'string' ? tag.trim() : '');
+
+// Only needs-input notifications need programmatic close (dismissed when
+// the session is opened/answered). Completion/error notifications carry
+// unique tags and must never be tracked: tracking them would evict (and
+// force-close) the oldest still-unread notification past the bound.
+export const isCloseableInputNotification = (tag, kind) => {
+  if (kind !== 'input') return false;
+  const key = normalizeTag(tag);
+  return key.startsWith(INPUT_NOTIFICATION_TAG_PREFIX) && key.length > INPUT_NOTIFICATION_TAG_PREFIX.length;
+};
 
 export const createNotificationTagRegistry = (maxEntries = MAX_NOTIFICATION_TAG_ENTRIES) => {
   const limit = Number.isSafeInteger(maxEntries) && maxEntries > 0 ? maxEntries : MAX_NOTIFICATION_TAG_ENTRIES;

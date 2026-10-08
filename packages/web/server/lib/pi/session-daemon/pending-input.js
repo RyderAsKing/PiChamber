@@ -75,7 +75,7 @@ export const createPendingInputIndex = ({ publish, now = Date.now, onHostedSessi
     if (entry) entry.published = summary;
     const directory = entry?.directory;
     if (typeof publish === 'function' && typeof directory === 'string' && directory.length > 0) {
-      publish('session.input', { pending: summary }, sessionId, directory);
+      publish('session.input', { pending: summary, serverNow: now() }, sessionId, directory);
     }
   };
 
@@ -169,7 +169,7 @@ export const createPendingInputIndex = ({ publish, now = Date.now, onHostedSessi
       entry.engine = null;
       entry.published = null;
       if (typeof publish === 'function') {
-        publish('session.input', { pending: null }, sessionId, entry.directory);
+        publish('session.input', { pending: null, serverNow: now() }, sessionId, entry.directory);
       }
       bySession.delete(sessionId);
     }

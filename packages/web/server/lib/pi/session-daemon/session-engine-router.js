@@ -136,7 +136,10 @@ export const createSessionEngineRouter = ({
     }
     // Engine notifications are normalized, kept in the daemon-owned bounded
     // per-session recent list, and published as the normalized payload
-    // (still through the existing redaction).
+    // (still through the existing redaction). An invalid notice is a silent
+    // no-op (no record, no publish, no throw), matching the Pi bridge path
+    // which tolerates empty messages. serverNow travels only on the live
+    // event and is never stored.
     if (event === 'extension.notify') {
       const raw = payload ?? {};
       const normalized = normalizeRecentNotice({
@@ -146,7 +149,7 @@ export const createSessionEngineRouter = ({
         createdAt: raw.createdAt,
       });
       if (!normalized) {
-        return fail('INVALID_ARGUMENT', 'The session engine notification is invalid.');
+        return;
       }
       // Redact before recording: the stored copy reaches snapshots and
       // details, which must never carry an echoed attachment path.
@@ -154,7 +157,7 @@ export const createSessionEngineRouter = ({
       try {
         recentNotices?.record(sessionId, safeNotice);
       } catch {}
-      publish(event, safeNotice, sessionId, directory);
+      publish(event, { ...safeNotice, serverNow: Date.now() }, sessionId, directory);
       return;
     }
     const { sessionId: _payloadSessionId, directory: _payloadDirectory, ...cleanPayload } = payload ?? {};

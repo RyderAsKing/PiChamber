@@ -531,14 +531,14 @@ describe('session engine router recent notices', () => {
       sessionId: 's1',
       notice: { id: 'n1', message: 'hello', level: 'warning', createdAt: 42 },
     });
-    expect(published).toEqual([
-      {
-        event: 'extension.notify',
-        payload: { id: 'n1', message: 'hello', level: 'warning', createdAt: 42 },
-        sessionId: 's1',
-        directory: '/work',
-      },
-    ]);
+    expect(published).toHaveLength(1);
+    expect(published[0].event).toBe('extension.notify');
+    expect(published[0].sessionId).toBe('s1');
+    expect(published[0].directory).toBe('/work');
+    expect(published[0].payload).toMatchObject({ id: 'n1', message: 'hello', level: 'warning', createdAt: 42 });
+    expect(Number.isFinite(published[0].payload.serverNow)).toBe(true);
+    // serverNow travels only on the live event and is never stored.
+    expect(recorded[0].notice).not.toHaveProperty('serverNow');
     // The normalized payload still travels through the redactor.
     expect(seen).toHaveLength(1);
     expect(seen[0]).toEqual({ id: 'n1', message: 'hello', level: 'warning', createdAt: 42 });
@@ -553,18 +553,21 @@ describe('session engine router recent notices', () => {
     expect(typeof recorded[0].notice.id).toBe('string');
     expect(recorded[0].notice.id.length).toBeGreaterThan(0);
     expect(Number.isFinite(recorded[0].notice.createdAt)).toBe(true);
-    expect(published[0].payload).toEqual(recorded[0].notice);
+    expect(Number.isFinite(published[0].payload.serverNow)).toBe(true);
+    expect(recorded[0].notice).not.toHaveProperty('serverNow');
+    expect(published[0].payload).toMatchObject({
+      id: recorded[0].notice.id,
+      message: recorded[0].notice.message,
+      level: 'info',
+      createdAt: recorded[0].notice.createdAt,
+    });
   });
 
-  it('rejects empty engine notifications without recording or publishing', () => {
+  it('ignores empty engine notifications without recording or publishing', () => {
     const { recentNotices, recorded } = makeNotices();
     const { router, published } = makeRouter({ recentNotices });
-    expect(() => router.publish('extension.notify', { message: '' }, 's1', '/work')).toThrow(
-      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
-    );
-    expect(() => router.publish('extension.notify', {}, 's1', '/work')).toThrow(
-      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
-    );
+    expect(router.publish('extension.notify', { message: '' }, 's1', '/work')).toBeUndefined();
+    expect(router.publish('extension.notify', {}, 's1', '/work')).toBeUndefined();
     expect(recorded).toEqual([]);
     expect(published).toEqual([]);
   });

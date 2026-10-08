@@ -158,7 +158,7 @@ describe('web notifications close and attention count', () => {
     const { createWebNotificationsAPI } = await import('./notifications');
     const api = createWebNotificationsAPI();
 
-    await expect(api.notify({ title: 'Input needed', body: 'Session', tag: 'pichamber:input:s1:111' })).resolves.toBe(true);
+    await expect(api.notify({ title: 'Input needed', body: 'Session', tag: 'pichamber:input:s1:111', kind: 'input' })).resolves.toBe(true);
     expect(created).toHaveLength(1);
 
     await api.close?.('pichamber:input:s1:111');
@@ -168,6 +168,22 @@ describe('web notifications close and attention count', () => {
     await api.close?.('pichamber:input:missing:0');
     await api.close?.('');
     expect(created[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not track completion notifications for programmatic close', async () => {
+    installWindowMock();
+    const created: Array<{ close: () => void }> = [];
+    installClosableNotificationMock(created);
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    await expect(api.notify({ title: 'Done', body: 'Session', tag: 'pichamber:completion:s1:7', kind: 'completion' })).resolves.toBe(true);
+    expect(created).toHaveLength(1);
+
+    // The untracked completion notification is not closed by tag through the page map.
+    await api.close?.('pichamber:completion:s1:7');
+    expect(created[0]?.close).not.toHaveBeenCalled();
   });
 
   it('closes service-worker notifications by tag', async () => {
@@ -282,7 +298,7 @@ describe('web notifications close and attention count', () => {
     nowSpy.mockImplementation(() => { now += 6000; return now; });
     try {
       for (let i = 0; i < 21; i += 1) {
-        await expect(api.notify({ title: `n${i}`, tag: `evict-tag-${i}` })).resolves.toBe(true);
+        await expect(api.notify({ title: `n${i}`, tag: `pichamber:input:evict:${i}`, kind: 'input' })).resolves.toBe(true);
       }
     } finally {
       nowSpy.mockRestore();
@@ -291,7 +307,7 @@ describe('web notifications close and attention count', () => {
     // The oldest entry is closed on eviction so it never orphans.
     expect(instances[0]?.close).toHaveBeenCalledTimes(1);
     // The surviving newest entry still closes by tag.
-    await api.close?.('evict-tag-20');
+    await api.close?.('pichamber:input:evict:20');
     expect(instances[20]?.close).toHaveBeenCalledTimes(1);
   });
 
@@ -315,10 +331,10 @@ describe('web notifications close and attention count', () => {
     let now = 1_700_000_000_000;
     nowSpy.mockImplementation(() => now);
     try {
-      await expect(api.notify({ title: 'first', tag: 'stale-tag' })).resolves.toBe(true);
+      await expect(api.notify({ title: 'first', tag: 'pichamber:input:stale:1', kind: 'input' })).resolves.toBe(true);
       // Move past the 5s tag dedupe so the re-used tag creates a new handle.
       now += 6000;
-      await expect(api.notify({ title: 'second', tag: 'stale-tag' })).resolves.toBe(true);
+      await expect(api.notify({ title: 'second', tag: 'pichamber:input:stale:1', kind: 'input' })).resolves.toBe(true);
     } finally {
       nowSpy.mockRestore();
     }
@@ -328,7 +344,7 @@ describe('web notifications close and attention count', () => {
     expect(instances[0]?.close).toHaveBeenCalledTimes(1);
     // A stale close from the old notification must not drop the newer entry.
     (instances[0]?.onclose as unknown as (() => void) | null | undefined)?.();
-    await api.close?.('stale-tag');
+    await api.close?.('pichamber:input:stale:1');
     expect(instances[1]?.close).toHaveBeenCalledTimes(1);
   });
 });

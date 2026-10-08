@@ -8,11 +8,22 @@ const MAX_PAGE_NOTIFICATIONS = 20;
 const notificationClaims = new Map<string, number>();
 
 /** Page-created `Notification` objects keyed by tag, so `close(tag)` can
- *  dismiss them. Bounded: the oldest entry is dropped past the cap. */
+ *  dismiss them. Bounded: the oldest entry is dropped past the cap. Only
+ *  needs-input notifications are tracked: completion/error notifications
+ *  carry unique tags and must never evict (and force-close) an unread one. */
 const pageNotificationsByTag = new Map<string, Notification>();
 
-const trackPageNotification = (tag: string | undefined, notification: Notification): void => {
-  if (!tag) return;
+const INPUT_NOTIFICATION_TAG_PREFIX = 'pichamber:input:';
+
+const isCloseableInputNotification = (tag: string | undefined, kind: string | undefined): boolean => {
+  if (kind !== 'input') return false;
+  const key = typeof tag === 'string' ? tag.trim() : '';
+  return key.startsWith(INPUT_NOTIFICATION_TAG_PREFIX) && key.length > INPUT_NOTIFICATION_TAG_PREFIX.length;
+};
+
+const trackPageNotification = (tag: string | undefined, notification: Notification, kind?: string): void => {
+  if (!isCloseableInputNotification(tag, kind)) return;
+  if (typeof tag !== 'string' || tag.length === 0) return;
   const existing = pageNotificationsByTag.get(tag);
   pageNotificationsByTag.delete(tag);
   // A re-used tag replaces the previous notification, so close the orphaned
@@ -208,7 +219,7 @@ const notifyWithWebAPI = async (payload?: NotificationPayload): Promise<boolean>
       body: payload?.body,
       tag: payload?.tag,
     });
-    trackPageNotification(payload?.tag, created);
+    trackPageNotification(payload?.tag, created, payload?.kind);
     created.onclose = () => {
       // Delete only when the tag still maps to this notification: a stale
       // close from a replaced notification must not orphan the newer one.

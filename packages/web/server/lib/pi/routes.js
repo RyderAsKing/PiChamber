@@ -726,7 +726,13 @@ export const projectEventFrame = (frame) => {
     case 'session.input': {
       const pending = projectPendingInputSummary(frame.payload.pending);
       if (pending === undefined) return null;
-      return { ...common, payload: { pending } };
+      return {
+        ...common,
+        payload: {
+          pending,
+          ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: frame.payload.serverNow } : {}),
+        },
+      };
     }
     case 'session.snapshot': {
       const snapshot = frame.payload;
@@ -864,6 +870,7 @@ export const projectEventFrame = (frame) => {
           ...(Number.isFinite(frame.payload.createdAt) && frame.payload.createdAt > 0
             ? { createdAt: frame.payload.createdAt }
             : {}),
+          ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: frame.payload.serverNow } : {}),
         },
       };
     }

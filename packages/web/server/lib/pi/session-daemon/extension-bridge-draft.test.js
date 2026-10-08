@@ -83,12 +83,10 @@ describe('extension bridge session directory scoping', () => {
     });
     expect(typeof published.at(-1).payload.id).toBe('string');
     expect(Number.isFinite(published.at(-1).payload.createdAt)).toBe(true);
-    // The notice is kept for late snapshots.
-    expect(bridge.getSnapshotState('s1').notices).toHaveLength(1);
-    expect(bridge.getSnapshotState('s1').notices[0]).toMatchObject({
-      message: 'Test notification',
-      level: 'warning',
-    });
+    expect(Number.isFinite(published.at(-1).payload.serverNow)).toBe(true);
+    // Snapshot state no longer carries notices: session-daemon reads the
+    // recent-notices store directly for snapshots/details.
+    expect(bridge.getSnapshotState('s1')).not.toHaveProperty('notices');
 
     ui.setWorkingMessage('working...');
     expect(published.at(-1)).toEqual({

@@ -695,6 +695,7 @@ describe('Pi session daemon extension bridging', () => {
     expect(typeof notify.payload.id).toBe('string');
     expect(notify.payload.id.length).toBeGreaterThan(0);
     expect(Number.isFinite(notify.payload.createdAt)).toBe(true);
+    expect(Number.isFinite(notify.payload.serverNow)).toBe(true);
 
     // Unknown levels normalize to info, matching the live event contract.
     ui.notify('Disk almost full', 'weird-level');
@@ -714,6 +715,7 @@ describe('Pi session daemon extension bridging', () => {
     });
     expect(snapshot.payload.extensionNotices[0].id).toBe(notify.payload.id);
     expect(snapshot.payload.extensionNotices[0].createdAt).toBe(notify.payload.createdAt);
+    expect(snapshot.payload.extensionNotices[0]).not.toHaveProperty('serverNow');
     expect(snapshot.payload.extensionNotices[1]).toMatchObject({
       message: 'Disk almost full', level: 'info',
     });

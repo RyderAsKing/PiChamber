@@ -220,6 +220,23 @@ describe('extension public projections', () => {
     expect(projectEventFrame(frame('session.input', { pending: { count: 1, kind: 'input' } }))).toBeNull();
   });
 
+  it('projects session.input serverNow when finite and omits it otherwise', () => {
+    expect(projectEventFrame(frame('session.input', {
+      pending: { count: 1, kind: 'input', since: 9 },
+      serverNow: 12345,
+    }))?.payload).toEqual({ pending: { count: 1, kind: 'input', since: 9 }, serverNow: 12345 });
+    // Old payloads without serverNow project as before.
+    expect(projectEventFrame(frame('session.input', {
+      pending: { count: 1, kind: 'input', since: 9 },
+    }))?.payload).toEqual({ pending: { count: 1, kind: 'input', since: 9 } });
+    for (const serverNow of [undefined, Number.NaN, Number.POSITIVE_INFINITY, '123', null]) {
+      expect(projectEventFrame(frame('session.input', {
+        pending: { count: 1, kind: 'input', since: 9 },
+        serverNow,
+      }))?.payload).toEqual({ pending: { count: 1, kind: 'input', since: 9 } });
+    }
+  });
+
   it('projects snapshot inputState and omits malformed values', () => {
     const projected = projectEventFrame(frame('session.snapshot', {
       isStreaming: false,
@@ -305,6 +322,38 @@ describe('extension public projections', () => {
 
     // Empty messages never project, as before.
     expect(projectEventFrame(frame('extension.notify', { message: '' }))).toBeNull();
+  });
+
+  it('projects extension.notify serverNow when finite and omits it otherwise', () => {
+    expect(projectEventFrame(frame('extension.notify', {
+      id: 'n1',
+      message: 'hello',
+      level: 'info',
+      createdAt: 10,
+      serverNow: 999,
+    }))?.payload).toEqual({
+      id: 'n1', message: 'hello', level: 'info', createdAt: 10, serverNow: 999,
+    });
+    // Old payloads without serverNow project as before.
+    expect(projectEventFrame(frame('extension.notify', {
+      id: 'n1',
+      message: 'hello',
+      level: 'info',
+      createdAt: 10,
+    }))?.payload).toEqual({
+      id: 'n1', message: 'hello', level: 'info', createdAt: 10,
+    });
+    for (const serverNow of [undefined, Number.NaN, Number.POSITIVE_INFINITY, '999', null]) {
+      expect(projectEventFrame(frame('extension.notify', {
+        id: 'n1',
+        message: 'hello',
+        level: 'info',
+        createdAt: 10,
+        serverNow,
+      }))?.payload).toEqual({
+        id: 'n1', message: 'hello', level: 'info', createdAt: 10,
+      });
+    }
   });
 
   it('projects snapshot extensionNotices, drops malformed entries, and omits absent fields', () => {

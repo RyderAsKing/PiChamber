@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createNotificationTagRegistry, MAX_NOTIFICATION_TAG_ENTRIES } from './notification-tags.mjs';
+import { createNotificationTagRegistry, isCloseableInputNotification, MAX_NOTIFICATION_TAG_ENTRIES } from './notification-tags.mjs';
 
 describe('notification tag registry', () => {
   it('stores and takes handles by tag', () => {
@@ -108,5 +108,17 @@ describe('notification tag registry', () => {
     assert.equal(registry.get('tag'), newHandle);
     assert.equal(registry.release('tag', newHandle), true);
     assert.equal(registry.get('tag'), undefined);
+  });
+
+  it('tracks only needs-input notifications for programmatic close', () => {
+    assert.equal(isCloseableInputNotification('pichamber:input:s1:123', 'input'), true);
+    assert.equal(isCloseableInputNotification('  pichamber:input:s1:123  ', 'input'), true);
+    assert.equal(isCloseableInputNotification('pichamber:completion:s1:1', 'completion'), false);
+    assert.equal(isCloseableInputNotification('pichamber:completion:s1:1', 'input'), false);
+    assert.equal(isCloseableInputNotification('pichamber:input:s1:123', 'completion'), false);
+    assert.equal(isCloseableInputNotification('pichamber:input:', 'input'), false);
+    assert.equal(isCloseableInputNotification('', 'input'), false);
+    assert.equal(isCloseableInputNotification(undefined, 'input'), false);
+    assert.equal(isCloseableInputNotification('pichamber:input:s1:1', undefined), false);
   });
 });

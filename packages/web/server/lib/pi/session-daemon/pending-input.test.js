@@ -81,8 +81,8 @@ describe('createPendingInputIndex', () => {
     index.open({ sessionId: 's1', directory: '/d', requestId: 'r2', kind: 'approval' });
     expect(index.summaryFor('s1')).toEqual({ count: 2, kind: 'input', since: 1100 });
     expect(events.map((entry) => entry.event)).toEqual(['session.input', 'session.input']);
-    expect(events[0].payload).toEqual({ pending: { count: 1, kind: 'input', since: 1100 } });
-    expect(events[1].payload).toEqual({ pending: { count: 2, kind: 'input', since: 1100 } });
+    expect(events[0].payload.pending).toEqual({ count: 1, kind: 'input', since: 1100 });
+    expect(events[1].payload.pending).toEqual({ count: 2, kind: 'input', since: 1100 });
     expect(events[1].directory).toBe('/d');
   });
 
@@ -105,16 +105,16 @@ describe('createPendingInputIndex', () => {
     index.open({ sessionId: 's1', directory: '/d', requestId: 'r2' });
     events.length = 0;
     index.close('s1', 'r1');
-    expect(index.summaryFor('s1')).toEqual({ count: 1, kind: 'input', since: 1200 });
+    expect(index.summaryFor('s1')).toEqual({ count: 1, kind: 'input', since: 1300 });
     expect(settled).toEqual([]);
     expect(events).toHaveLength(1);
-    expect(events[0].payload).toEqual({ pending: { count: 1, kind: 'input', since: 1200 } });
+    expect(events[0].payload.pending).toEqual({ count: 1, kind: 'input', since: 1300 });
     index.close('s1', 'r1');
     expect(events).toHaveLength(1);
     index.close('s1', 'r2');
     expect(index.summaryFor('s1')).toBeNull();
     expect(events).toHaveLength(2);
-    expect(events[1].payload).toEqual({ pending: null });
+    expect(events[1].payload.pending).toEqual(null);
     expect(settled).toEqual(['s1']);
   });
 
@@ -129,7 +129,7 @@ describe('createPendingInputIndex', () => {
     index.applyEngineSummary('s9', '/eng', null);
     expect(index.summaryFor('s9')).toBeNull();
     expect(events).toHaveLength(2);
-    expect(events[1].payload).toEqual({ pending: null });
+    expect(events[1].payload.pending).toEqual(null);
     expect(settled).toEqual([]);
   });
 
@@ -137,7 +137,7 @@ describe('createPendingInputIndex', () => {
     const { index } = setup();
     index.applyEngineSummary('s1', '/d', { count: 4, kind: 'approval', since: 10 });
     index.open({ sessionId: 's1', directory: '/d', requestId: 'r1' });
-    expect(index.summaryFor('s1')).toEqual({ count: 1, kind: 'input', since: 1100 });
+    expect(index.summaryFor('s1')).toEqual({ count: 1, kind: 'input', since: 1200 });
     index.close('s1', 'r1');
     expect(index.summaryFor('s1')).toEqual({ count: 4, kind: 'approval', since: 10 });
   });
@@ -163,9 +163,25 @@ describe('createPendingInputIndex', () => {
     index.clear();
     expect(index.summaryFor('s2')).toBeNull();
     expect(index.list()).toEqual([]);
-    expect(events).toEqual([
-      { event: 'session.input', payload: { pending: null }, sessionId: 's2', directory: '/e' },
-    ]);
+    expect(events).toHaveLength(1);
+    expect(events[0].event).toBe('session.input');
+    expect(events[0].payload.pending).toBeNull();
+    expect(events[0].sessionId).toBe('s2');
+    expect(events[0].directory).toBe('/e');
+  });
+
+  it('publishes serverNow from the injected clock', () => {
+    const events = [];
+    let now = 5000;
+    const index = createPendingInputIndex({
+      publish: (event, payload, sessionId, directory) => events.push({ event, payload, sessionId, directory }),
+      now: () => now,
+    });
+    index.open({ sessionId: 's1', directory: '/d', requestId: 'r1' });
+    expect(events[0].payload.serverNow).toBe(5000);
+    now = 6000;
+    index.close('s1', 'r1');
+    expect(events.at(-1).payload).toEqual({ pending: null, serverNow: 6000 });
   });
 
   it('reports hosted requests and tolerates a throwing settle callback', () => {

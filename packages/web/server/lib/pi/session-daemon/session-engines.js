@@ -24,7 +24,9 @@
  * malformed value falls back to the daemon index without failing the row.
  * Engines MUST publish `session.input { pending }` on every pending-input
  * transition for live updates; the daemon normalizes the summary (unknown
- * kinds become `'input'`) and republishes it canonically, rejecting a
+ * kinds become `'input'`) and republishes it canonically as
+ * `{ pending, serverNow }` (`serverNow` is the daemon ms clock at publish),
+ * rejecting a
  * malformed summary as `INVALID_ARGUMENT`. Only the engine that owns the
  * session may publish its `session.input`: a summary for a session the
  * publishing engine does not own is rejected as `INVALID_ARGUMENT` and
@@ -36,9 +38,11 @@
  * characters, level `'info'` unless `'warning'`/`'error'`, id kept when a
  * 1..128 character string else generated, `createdAt` kept when finite and
  * positive else now), keeps it in the daemon-owned bounded per-session
- * recent list (at most 20 per session, sessions evicted least-recently
- * recorded first), and publishes the normalized payload through the usual
- * redaction. Engine snapshots and details carry daemon-owned
+ * recent list without storing `serverNow` (at most 20 per session, sessions evicted least-recently
+ * recorded first), and publishes the normalized payload plus live-only
+ * `serverNow` (daemon ms clock at publish) through the usual
+ * redaction. An invalid notice is a silent no-op (no record, no publish,
+ * no throw). Engine snapshots and details carry daemon-owned
  * `extensionNotices` (oldest first); an engine `session.deleted` forgets
  * that session's notices.
  */
