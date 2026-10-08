@@ -92,6 +92,21 @@ async function displayTunnelQrCode(url) {
   }
 }
 
+const QUICK_TUNNEL_REMOVED_MESSAGE = 'Quick tunnels were removed because their URL changed on every restart. Use `pichamber pair --tailscale [--public]` or `pichamber tunnel start --mode managed-remote --token-file <path> --hostname <host>`.';
+const TUNNEL_MODE_REQUIRED_MESSAGE = 'A tunnel mode is required: --mode managed-remote or --mode managed-local. Quick tunnels were removed; use `pichamber pair --tailscale [--public]` or `pichamber tunnel profile add --mode managed-remote --name <name> --hostname <host> --token-file <path>`.';
+
+function throwQuickTunnelRemoved() {
+  const error = new TunnelCliError(QUICK_TUNNEL_REMOVED_MESSAGE, EXIT_CODE.USAGE_ERROR);
+  error.code = 'quick_tunnel_removed';
+  throw error;
+}
+
+function throwTunnelModeRequired() {
+  const error = new TunnelCliError(TUNNEL_MODE_REQUIRED_MESSAGE, EXIT_CODE.USAGE_ERROR);
+  error.code = 'tunnel_mode_required';
+  throw error;
+}
+
 function isTruthyEnv(value) {
   if (typeof value !== 'string') return false;
   const normalized = value.trim().toLowerCase();
@@ -1045,7 +1060,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
         console.log('');
 
         // ── Section 3: Modes ────────────────────────────────────
-        const DOCTOR_NOISE_CHECK_IDS = new Set(['startup_readiness', 'quick_mode_prerequisites']);
+        const DOCTOR_NOISE_CHECK_IDS = new Set(['startup_readiness']);
         const modes = doctorResult.modes || [];
         if (modes.length === 0) {
           return;
@@ -1170,15 +1185,18 @@ async function tunnelCommand(options, subcommand, action, deps) {
           hostname = typeof options.hostname === 'string' && options.hostname.trim().length > 0 ? options.hostname : selectedProfile.hostname;
         }
 
-        // Interactive profile selection when no profile/mode specified in TTY
+        // Interactive profile selection when no profile/mode specified in TTY.
+        // Stored quick profiles from older versions can no longer start, so
+        // they are hidden here instead of failing after selection.
         if (!selectedProfile && !mode && canPrompt(options)) {
           const store = ensureTunnelProfilesMigrated();
-          if (store.profiles.length > 0) {
+          const startableProfiles = store.profiles.filter((entry) => entry.mode !== 'quick');
+          if (startableProfiles.length > 0) {
             const profileChoice = await clackSelect({
               message: 'Start from a saved profile or choose a mode?',
               options: [
                 { value: '__mode__', label: 'Choose a mode manually' },
-                ...store.profiles.map((p) => ({
+                ...startableProfiles.map((p) => ({
                   value: p.id,
                   label: `${p.name} (${p.provider}/${p.mode})`,
                   hint: p.hostname,
@@ -1190,7 +1208,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
               return;
             }
             if (profileChoice !== '__mode__') {
-              selectedProfile = store.profiles.find((p) => p.id === profileChoice);
+              selectedProfile = startableProfiles.find((p) => p.id === profileChoice);
               if (selectedProfile) {
                 provider = provider || selectedProfile.provider;
                 mode = mode || selectedProfile.mode;
@@ -1202,6 +1220,12 @@ async function tunnelCommand(options, subcommand, action, deps) {
         }
 
         provider = provider || 'cloudflare';
+
+        // Quick tunnels were removed: fail fast in every mode (interactive,
+        // quiet, json, non-TTY) before prompting for anything else.
+        if (mode === 'quick') {
+          throwQuickTunnelRemoved();
+        }
 
         // Interactive mode selection when mode not yet resolved in TTY
         if (!mode && canPrompt(options)) {
@@ -1226,7 +1250,9 @@ async function tunnelCommand(options, subcommand, action, deps) {
           }
         }
 
-        mode = mode || 'quick';
+        if (!mode) {
+          throwTunnelModeRequired();
+        }
         if (mode === 'managed-remote') {
           if (!(typeof hostname === 'string' && hostname.trim().length > 0)) {
             if (canPrompt(options)) {
@@ -1441,7 +1467,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
             printJson(dryRunResult);
           } else if (!isQuietMode(options)) {
             clackIntro('Tunnel Start (dry-run)');
-            logStatus('info', `Would start ${clackFormatProviderWithIcon(provider)}/${mode}`, hostname || '(ephemeral URL)');
+            logStatus('info', `Would start ${clackFormatProviderWithIcon(provider)}/${mode}`, hostname || '(hostname from config)');
             clackOutro('dry-run complete (no changes applied)');
           }
           return;
@@ -1496,7 +1522,7 @@ async function tunnelCommand(options, subcommand, action, deps) {
             `Provider: ${provider}`,
             `Mode: ${mode}`,
             `Target: ${options.explicitPort ? `port ${options.port}` : 'running or auto-started server'}`,
-            `Hostname: ${hostname || 'ephemeral URL'}`,
+            `Hostname: ${hostname || 'n/a (managed-local uses its config file)'}`,
             `Profile: ${selectedProfile?.name || 'none'}`,
           ].join('\n'));
           const approved = await clackConfirm({
@@ -1621,9 +1647,9 @@ async function tunnelCommand(options, subcommand, action, deps) {
         if (!response.ok || !body?.ok) {
           spin?.error('Tunnel start failed');
           const baseError = body?.error || `Tunnel start failed (${response.status})`;
-          const isCloudflareTimeout = /context deadline exceeded|Client\.Timeout exceeded while awaiting headers|failed to request quick Tunnel/i.test(baseError);
+          const isCloudflareTimeout = /context deadline exceeded|Client\.Timeout exceeded while awaiting headers|failed to request Tunnel/i.test(baseError);
           const userError = isCloudflareTimeout
-            ? `Cloudflare quick tunnel request timed out. ${baseError}`
+            ? `Cloudflare tunnel request timed out. ${baseError}`
             : baseError;
           throw new Error(`${userError} Run \`pichamber logs -p ${instance.port}\` for details.`);
         }

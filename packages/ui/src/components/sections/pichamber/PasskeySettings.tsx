@@ -171,7 +171,7 @@ export const PasskeySettings: React.FC = () => {
   }, []);
 
   return (
-    <SettingsSection title={"Passkeys"}>
+    <SettingsSection title={"Passkeys"} settingsItem="remote-access.passkeys">
       <div className="space-y-2">
         <SettingsFieldRow label={"Current device"}>
           <Button

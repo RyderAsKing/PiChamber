@@ -198,6 +198,14 @@ const getClientIp = (req) => {
   return null;
 };
 
+const getSocketIp = (req) => {
+  const raw = req?.socket?.remoteAddress || req?.connection?.remoteAddress;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('::ffff:')) return trimmed.substring(7);
+  return trimmed;
+};
+
 const getRateLimitKey = (req) => {
   const ip = getClientIp(req);
   if (ip) {
@@ -206,9 +214,22 @@ const getRateLimitKey = (req) => {
   return 'connect-rate-limit:no-ip';
 };
 
+const getSocketRateLimitKey = (req) => {
+  const ip = getSocketIp(req);
+  if (ip) return `connect-rate-limit:socket:${ip}`;
+  return 'connect-rate-limit:no-socket';
+};
+
+// Socket bucket: 5x the per-client limit in the same window (see ui-auth.js
+// for the rationale). XFF rotation from one socket still hits this lockout.
+const CONNECT_RATE_LIMIT_SOCKET_MULTIPLIER = 5;
+
 const rateLimitMaxForKey = (key) => {
-  if (key === 'connect-rate-limit:no-ip') {
+  if (key === 'connect-rate-limit:no-ip' || key === 'connect-rate-limit:no-socket') {
     return CONNECT_RATE_LIMIT_NO_IP_MAX_ATTEMPTS;
+  }
+  if (key.startsWith('connect-rate-limit:socket:')) {
+    return CONNECT_RATE_LIMIT_MAX_ATTEMPTS * CONNECT_RATE_LIMIT_SOCKET_MULTIPLIER;
   }
   return CONNECT_RATE_LIMIT_MAX_ATTEMPTS;
 };
@@ -255,6 +276,10 @@ export const createTunnelAuth = () => {
     }
 
     if (isLocalHost(reqHost, req)) {
+      // WARNING: Tailscale Serve/Funnel traffic arrives from the loopback
+      // socket with a forwarded Host, so it classifies as `local` here.
+      // `local` scope must never relax authentication — it is transport
+      // classification only, not a trust signal.
       return 'local';
     }
 
@@ -372,8 +397,7 @@ export const createTunnelAuth = () => {
     };
   };
 
-  const checkConnectRateLimit = (req) => {
-    const key = getRateLimitKey(req);
+  const checkSingleConnectBucket = (req, key) => {
     const now = nowTs();
     const maxAttempts = rateLimitMaxForKey(key);
     const record = connectRateLimiter.get(key);
@@ -405,8 +429,16 @@ export const createTunnelAuth = () => {
     return { allowed: true, retryAfter: 0 };
   };
 
-  const recordConnectFailedAttempt = (req) => {
-    const key = getRateLimitKey(req);
+  // Dual-bucket gate: refuse when EITHER the per-client (XFF) bucket or the
+  // socket-address bucket is exhausted, so rotating XFF from one socket
+  // cannot bypass the /connect limiter.
+  const checkConnectRateLimit = (req) => {
+    const clientResult = checkSingleConnectBucket(req, getRateLimitKey(req));
+    if (!clientResult.allowed) return clientResult;
+    return checkSingleConnectBucket(req, getSocketRateLimitKey(req));
+  };
+
+  const recordSingleConnectFailedAttempt = (req, key) => {
     const now = nowTs();
     const record = connectRateLimiter.get(key);
 
@@ -422,9 +454,14 @@ export const createTunnelAuth = () => {
     });
   };
 
+  const recordConnectFailedAttempt = (req) => {
+    recordSingleConnectFailedAttempt(req, getRateLimitKey(req));
+    recordSingleConnectFailedAttempt(req, getSocketRateLimitKey(req));
+  };
+
   const clearConnectRateLimit = (req) => {
-    const key = getRateLimitKey(req);
-    connectRateLimiter.delete(key);
+    connectRateLimiter.delete(getRateLimitKey(req));
+    connectRateLimiter.delete(getSocketRateLimitKey(req));
   };
 
   const getTunnelSessionFromRequest = (req) => {

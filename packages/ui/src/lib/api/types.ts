@@ -1261,6 +1261,13 @@ export interface GitHubAPI {
   invalidate(input?: { directory?: string; repo?: string; kind?: 'pulls' | 'issues' | 'checks' | 'repo' | 'all'; number?: number }): Promise<{ ok: boolean; fetchedAt: number }>;
 }
 
+export interface PairingTransports {
+  local: string | null;
+  lan: string | null;
+  relayAvailable: boolean;
+  tailscale?: { available: boolean; url: string | null; mode: 'private' | 'public' } | null;
+}
+
 export interface RemoteClientRecord {
   id: string;
   label: string;
@@ -1344,7 +1351,8 @@ export interface ClientAuthAPI {
   cancelPairing(id: string): Promise<{ cancelled: boolean }>;
   // Direct transports the server can be reached on, for the create-device dialog.
   // LAN reflects the server's actual bind, independent of the UI origin.
-  getPairingTransports(): Promise<{ local: string | null; lan: string | null; relayAvailable: boolean }>;
+  // `tailscale` is present when the server's Tailscale mapping is active.
+  getPairingTransports(): Promise<PairingTransports>;
 }
 
 export interface RuntimeAPIs {

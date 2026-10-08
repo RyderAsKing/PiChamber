@@ -549,3 +549,57 @@ describe('ui auth live revocation', () => {
     }
   });
 });
+
+describe('login rate limit socket bucket (F1)', () => {
+  const perClientMax = Number(process.env.PICHAMBER_RATE_LIMIT_MAX_ATTEMPTS) || 10;
+  const socketMax = perClientMax * 5;
+
+  const loginReq = (xff, socketIp) => ({
+    method: 'POST',
+    headers: { 'x-forwarded-for': xff },
+    socket: { remoteAddress: socketIp },
+    body: { password: 'wrong-password' },
+  });
+
+  it('locks out XFF rotation from one socket after the socket threshold', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'correct-horse-battery' });
+    try {
+      // Every guess uses a fresh XFF (fresh per-client bucket) from the same
+      // socket: without the socket bucket this would never lock out.
+      for (let i = 0; i < socketMax; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq(`203.0.113.${i % 250 + 1}`, '198.51.100.71'), res);
+        expect(res.statusCode).toBe(401);
+      }
+      const lockedRes = createResponse();
+      await auth.handleSessionCreate(loginReq('203.0.113.250', '198.51.100.71'), lockedRes);
+      expect(lockedRes.statusCode).toBe(429);
+      expect(lockedRes.body?.retryAfter).toBeGreaterThan(0);
+    } finally {
+      auth.dispose();
+    }
+  });
+
+  it('keeps distinct sockets independent', async () => {
+    const createUiAuth = await loadCreateUiAuth();
+    const auth = createUiAuth({ password: 'correct-horse-battery' });
+    try {
+      // Exhaust the per-client bucket for one XFF on socket A.
+      for (let i = 0; i < perClientMax; i++) {
+        const res = createResponse();
+        await auth.handleSessionCreate(loginReq('198.51.100.72', '192.0.2.11'), res);
+        expect(res.statusCode).toBe(401);
+      }
+      const lockedRes = createResponse();
+      await auth.handleSessionCreate(loginReq('198.51.100.72', '192.0.2.11'), lockedRes);
+      expect(lockedRes.statusCode).toBe(429);
+      // A different socket with a fresh XFF is unaffected (401, not 429).
+      const otherRes = createResponse();
+      await auth.handleSessionCreate(loginReq('198.51.100.73', '192.0.2.12'), otherRes);
+      expect(otherRes.statusCode).toBe(401);
+    } finally {
+      auth.dispose();
+    }
+  });
+});

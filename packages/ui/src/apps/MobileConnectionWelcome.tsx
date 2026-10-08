@@ -7,6 +7,11 @@ import { cn } from '@/lib/utils';
 
 import { connectionDisplayUrl, useMobileConnection } from './mobileConnections';
 import { isQrScanSupported, parseConnectionPayload, scanConnectionQr } from './mobileQrScan';
+import { ServerList } from '@/components/servers/ServerList';
+import {
+  mobileConnectionToServerListItem,
+} from '@/lib/servers/mobileServerViewModel';
+import { sortServerListItems } from '@/lib/servers/serverViewModel';
 import { mobileConnectionInputClass, mobileInputKeyboardProps } from './mobileConnectionUi';
 import { MobileQrConnectionLoading, MobileQrScannerOverlay } from './MobileQrScannerOverlay';
 import { useNativeAndroidBackButton } from './mobileNativeChrome';
@@ -116,6 +121,29 @@ export const MobileConnectionWelcome: React.FC<{
     event.preventDefault();
     void conn.submitPassword(password);
   }, [conn, password]);
+
+  // Saved servers render through the shared ServerList (touch layout); rows
+  // are never current here (the welcome screen means no live endpoint) and
+  // stay unprobed until the user taps one.
+  const savedServerItems = React.useMemo(() => sortServerListItems(
+    connections.map((connection) => mobileConnectionToServerListItem(connection, {
+      isCurrent: false,
+      status: connectingId === connection.id ? { kind: 'connecting' } : { kind: 'unknown' },
+      probing: connectingId === connection.id,
+    })),
+  ), [connections, connectingId]);
+
+  const handleSavedServerConnect = React.useCallback((id: string) => {
+    const target = connections.find((connection) => connection.id === id) ?? null;
+    if (!target) return;
+    setConnectingId(id);
+    void conn.connect({
+      id: target.id,
+      candidates: target.candidates,
+      clientToken: target.clientToken,
+      label: target.label,
+    }).finally(() => setConnectingId(null));
+  }, [conn, connections]);
 
   const cancelPassword = React.useCallback(() => {
     setPassword('');
@@ -231,41 +259,17 @@ export const MobileConnectionWelcome: React.FC<{
             {connections.length > 0 ? (
               <section className="flex w-full flex-col gap-2.5">
                 <h2 className="text-center typography-micro uppercase tracking-[0.14em] text-muted-foreground">
-                  {"Saved connections"}
+                  {"Saved servers"}
                 </h2>
-                <div className="overflow-hidden rounded-[18px] border border-border/70 bg-surface-elevated">
-                  {connections.map((connection) => {
-                    const isConnectingRow = connectingId === connection.id;
-                    return (
-                      <button
-                        key={connection.id}
-                        type="button"
-                        disabled={isBusy}
-                        className="flex min-h-14 w-full items-center gap-3 border-b border-border/70 px-3.5 py-2.5 text-left last:border-b-0 hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-70"
-                        onClick={() => {
-                          setConnectingId(connection.id);
-                          void conn.connect({ id: connection.id, candidates: connection.candidates, clientToken: connection.clientToken, label: connection.label })
-                            .finally(() => setConnectingId(null));
-                        }}
-                      >
-                        <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-interactive-hover text-foreground">
-                          <Icon name="server" className="size-[18px]" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate typography-ui-label text-foreground">{connection.label}</span>
-                          <span className={cn('block truncate typography-small', isConnectingRow ? 'text-foreground' : 'text-muted-foreground')}>
-                            {isConnectingRow
-                              ? "Connecting..."
-                              : connection.candidates.some((c) => c.kind === 'direct') ? connectionDisplayUrl(connection) : "via PiChamber Relay"}
-                          </span>
-                        </span>
-                        {isConnectingRow
-                          ? <Icon name="loader-4" className="size-5 animate-spin text-muted-foreground" />
-                          : <Icon name="arrow-right-s" className="size-5 text-muted-foreground" />}
-                      </button>
-                    );
-                  })}
-                </div>
+                <ServerList
+                  items={savedServerItems}
+                  layout="touch"
+                  switchLabel="Connect"
+                  pendingId={connectingId}
+                  actionsDisabled={isBusy}
+                  onSwitch={(item) => handleSavedServerConnect(item.id)}
+                  emptyMessage="No saved servers yet."
+                />
               </section>
             ) : null}
 

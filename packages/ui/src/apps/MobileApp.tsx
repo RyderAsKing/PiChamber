@@ -748,7 +748,7 @@ export function MobileApp({ apis }: MobileAppProps) {
                   <h1 className="typography-h3 text-foreground">{"Unable to reach server"}</h1>
                   {/* Native copy — the browser-oriented sessionAuth description
                       (Desktop Network Access etc.) reads as noise here. */}
-                  <p className="typography-body text-muted-foreground">{"Could not connect to the saved server. Check that it is running, or pick another instance."}</p>
+                  <p className="typography-body text-muted-foreground">{"Could not connect to the saved server. Check that it is running, or pick another server."}</p>
                 </div>
                 <Button
                   type="button"

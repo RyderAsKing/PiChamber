@@ -27,11 +27,14 @@ describe('tunnelHelpers', () => {
 
   describe('toUiTunnelMode', () => {
     test('normalizes modes correctly', () => {
-      expect(toUiTunnelMode('quick')).toBe('quick');
       expect(toUiTunnelMode('managed-remote')).toBe('managed-remote');
       expect(toUiTunnelMode('managed-local')).toBe('managed-local');
-      expect(toUiTunnelMode('unknown')).toBe('quick');
-      expect(toUiTunnelMode(null)).toBe('quick');
+    });
+
+    test('migrates removed quick mode to managed-remote', () => {
+      expect(toUiTunnelMode('quick')).toBe('managed-remote');
+      expect(toUiTunnelMode('unknown')).toBe('managed-remote');
+      expect(toUiTunnelMode(null)).toBe('managed-remote');
     });
   });
 

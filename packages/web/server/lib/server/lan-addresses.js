@@ -18,7 +18,7 @@ export const listLanIPv4Addresses = (networkInterfaces = os.networkInterfaces())
 
 const formatHostForUrl = (host) => (host.includes(':') ? `[${host}]` : host);
 
-export const createPairingTransportResolvers = ({ getPort, bindHost, networkInterfaces } = {}) => {
+export const createPairingTransportResolvers = ({ getPort, bindHost, networkInterfaces, getTailscaleCandidate = () => null } = {}) => {
   const localUrl = () => {
     const port = getPort();
     return Number.isInteger(port) && port > 0 ? `http://127.0.0.1:${port}` : null;
@@ -31,11 +31,23 @@ export const createPairingTransportResolvers = ({ getPort, bindHost, networkInte
   };
 
   return {
-    getPairingTransports: () => ({
-      local: localUrl(),
-      lan: lanUrls()[0] ?? null,
-      relayAvailable: false,
-    }),
+    getPairingTransports: () => {
+      let tailscale = { available: false, url: null, mode: 'private' };
+      try {
+        const candidate = getTailscaleCandidate();
+        if (candidate && typeof candidate.url === 'string') {
+          tailscale = { available: true, url: candidate.url, mode: candidate.mode || 'private' };
+        }
+      } catch {
+        // A Tailscale status failure must not break the transports endpoint.
+      }
+      return {
+        local: localUrl(),
+        lan: lanUrls()[0] ?? null,
+        relayAvailable: false,
+        tailscale,
+      };
+    },
     getDirectCandidateUrls: () => lanUrls(),
   };
 };

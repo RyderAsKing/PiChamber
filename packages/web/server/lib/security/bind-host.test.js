@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isLoopbackBindHost,
   isNetworkExposedBindHost,
+  isUnsafeUnauthenticatedLanAllowed,
 } from './bind-host.js';
 
 describe('bind host exposure classification', () => {
@@ -32,5 +33,21 @@ describe('bind host exposure classification', () => {
       expect(isLoopbackBindHost(host), host).toBe(false);
       expect(isNetworkExposedBindHost(host), host).toBe(true);
     }
+  });
+});
+
+describe('unsafe unauthenticated LAN flag parsing (F10)', () => {
+  it("accepts 'true' and '1' case-insensitively with surrounding whitespace", () => {
+    for (const value of ['true', 'TRUE', ' True ', '1', ' 1 ']) {
+      expect(isUnsafeUnauthenticatedLanAllowed({ PICHAMBER_ALLOW_UNAUTHENTICATED_LAN: value }), value).toBe(true);
+    }
+  });
+
+  it('rejects anything else, including the old duplicated-operand gap', () => {
+    for (const value of ['false', '0', 'yes', '', '2', 'trueish']) {
+      expect(isUnsafeUnauthenticatedLanAllowed({ PICHAMBER_ALLOW_UNAUTHENTICATED_LAN: value }), value).toBe(false);
+    }
+    expect(isUnsafeUnauthenticatedLanAllowed({})).toBe(false);
+    expect(isUnsafeUnauthenticatedLanAllowed(undefined)).toBe(false);
   });
 });

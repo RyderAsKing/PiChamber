@@ -25,6 +25,7 @@ import {
   showHelp,
   showStartupHelp,
   showConnectUrlHelp,
+  showPairHelp,
   showTunnelHelp,
   generateCompletionScript,
   findClosestMatch,
@@ -119,6 +120,11 @@ function resolveServerExecutable() {
 const commands = {
   serve: null,
 
+  pair: null,
+
+  // Hidden alias of `pair`: same handler, with a one-line deprecation
+  // notice on stderr in human mode (suppressed under --quiet, and never on
+  // --json stdout).
   'connect-url': null,
 
   stop: null,
@@ -155,9 +161,18 @@ commands.tunnel = createTunnelCommand({
   ensureTunnelProfilesMigrated,
 });
 
-commands['connect-url'] = createConnectUrlCommand({
+const pairHandler = createConnectUrlCommand({
   serveCommand: commands.serve.bind(commands),
 });
+
+commands.pair = pairHandler;
+
+commands['connect-url'] = async (options = {}) => {
+  if (!isJsonMode(options) && !isQuietMode(options)) {
+    console.error('Note: `connect-url` is deprecated, use `pichamber pair` instead.');
+  }
+  return pairHandler(options);
+};
 
 commands.update = createUpdateCommand({
   importFromFilePath,
@@ -211,6 +226,8 @@ async function main() {
       showTunnelHelp();
     } else if (command === 'startup') {
       showStartupHelp();
+    } else if (command === 'pair') {
+      showPairHelp();
     } else if (command === 'connect-url') {
       showConnectUrlHelp();
     } else {
@@ -230,7 +247,7 @@ async function main() {
   }
 
   if (!commands[command]) {
-    const knownCommands = ['serve', 'stop', 'restart', 'status', 'tunnel', 'startup', 'logs', 'connect-url', 'update', 'version'];
+    const knownCommands = ['serve', 'stop', 'restart', 'status', 'tunnel', 'startup', 'logs', 'pair', 'connect-url', 'update', 'version'];
     const suggestion = findClosestMatch(command, knownCommands);
     const hint = suggestion ? ` Did you mean '${suggestion}'?` : '';
     if (isJsonMode(options)) {
@@ -313,11 +330,13 @@ if (isCliExecution) {
 
   main().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
+    const errorCode = typeof error?.code === 'string' && error.code.length > 0 ? error.code : null;
     if (isJsonMode(activeCommandOptions)) {
       printJson({
         status: 'error',
         error: {
           message,
+          ...(errorCode ? { code: errorCode } : {}),
         },
       });
     } else if (process.stdout?.isTTY && !HAS_PLAIN_FLAG) {

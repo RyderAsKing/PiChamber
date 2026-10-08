@@ -5,6 +5,8 @@ export type SettingsPageSlug =
   | 'home'
   | 'general'
   | 'projects'
+  | 'remote-access'
+  | 'servers'
   | 'remote-instances'
   | 'providers'
   | 'behavior'
@@ -30,6 +32,8 @@ export interface SettingsRuntimeContext {
   isWeb: boolean;
   isDesktop: boolean;
   isMobile: boolean;
+  /** Native Capacitor shell (iOS/Android app); absent/false elsewhere. */
+  isCapacitor?: boolean;
 }
 
 export interface SettingsPageMeta {
@@ -66,11 +70,32 @@ export const SETTINGS_PAGE_METADATA: readonly SettingsPageMeta[] = [
     keywords: ['project', 'projects', 'worktree', 'worktrees', 'repo', 'repository', 'directory'],
   },
   {
+    slug: 'remote-access',
+    title: 'Remote Access',
+    group: 'projects',
+    kind: 'single',
+    description: 'How other devices reach this computer.',
+    keywords: ['remote', 'access', 'mobile', 'phone', 'pair', 'qr', 'device', 'devices', 'tailscale', 'funnel', 'lan', 'network', 'wifi', 'password', 'passkey'],
+    isAvailable: (ctx) => !ctx.isMobile && (ctx.isDesktop || ctx.isWeb),
+  },
+  {
+    slug: 'servers',
+    title: 'Servers',
+    group: 'projects',
+    kind: 'single',
+    description: 'Which PiChamber server this app uses.',
+    keywords: ['server', 'servers', 'instance', 'switch', 'connect', 'import link', 'host'],
+    // Desktop shell plus the native Capacitor app (which manages its saved
+    // servers here too). Hosted mobile web and plain web stay hidden.
+    isAvailable: (ctx) => (!ctx.isMobile && ctx.isDesktop) || (ctx.isMobile && ctx.isCapacitor === true),
+  },
+  {
     slug: 'remote-instances',
     title: 'Remote Instances',
     group: 'projects',
     kind: 'single',
     keywords: ['ssh', 'remote', 'instances', 'tunnels', 'forwarding', 'connection'],
+    isAvailable: () => false,
   },
   {
     slug: 'providers',
@@ -175,6 +200,14 @@ export function resolveSettingsSlug(value: string | null | undefined): SettingsP
     return 'home';
   }
 
+  // Legacy page split: `remote-instances` mixed incoming devices and outgoing
+  // servers. It now resolves to `remote-access` (incoming); outgoing servers
+  // live on `servers`. The hidden `remote-instances` metadata entry above
+  // exists only so old slugs still resolve instead of falling to home.
+  if (normalized === 'remote-instances') {
+    return 'remote-access';
+  }
+
   const legacy = (LEGACY_SIDEBAR_SECTION_TO_SETTINGS_SLUG as Record<string, SettingsPageSlug>)[normalized];
   if (legacy) {
     return legacy;
@@ -197,6 +230,10 @@ export function getSettingsNavIcon(slug: SettingsPageSlug): IconName | null {
       return 'equalizer';
     case 'projects':
       return 'folders';
+    case 'remote-access':
+      return 'server';
+    case 'servers':
+      return 'server';
     case 'remote-instances':
       return 'server';
     case 'appearance':

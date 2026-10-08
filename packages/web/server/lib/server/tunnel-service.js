@@ -3,7 +3,6 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {
   checkCloudflaredAvailable,
-  startCloudflareQuickTunnel,
   startCloudflareManagedRemoteTunnel,
   startCloudflareManagedLocalTunnel,
 } from '../cloudflare-tunnel.js';
@@ -11,8 +10,11 @@ import { writeFileAtomicSync } from '../fs/atomic-write.js';
 import { getTunnelDependencyInstallInfo } from '../tunnels/install-help.js';
 import { TUNNEL_PROVIDER_CLOUDFLARE } from '../tunnels/types.js';
 
-const TUNNEL_STATE_FILE = 'cloudflare-tunnel-state.json';
 const TUNNEL_TOKEN_FILE = 'cloudflare-tunnel-token.json';
+
+// Quick tunnels were removed: their ephemeral URL changed on every restart and
+// broke saved device connections. Use `pichamber pair --tailscale [--public]`
+// or a managed-remote tunnel with your own hostname instead.
 
 const sanitizeToken = (value) => {
   if (typeof value !== 'string') return '';
@@ -31,7 +33,6 @@ export const createTunnelService = ({
   tunnelAuthController,
   getServerLabel = () => 'PiChamber',
 } = {}) => {
-  const statePath = path.join(dataDir, TUNNEL_STATE_FILE);
   const tokenPath = path.join(dataDir, TUNNEL_TOKEN_FILE);
   let activeController = null;
   let activePublicUrl = null;
@@ -110,9 +111,22 @@ export const createTunnelService = ({
   };
 
   const start = async (options = {}) => {
-    const mode = typeof options.mode === 'string' ? options.mode : 'quick';
+    // No mode default: quick tunnels were removed, and managed modes each
+    // require explicit inputs. Stored quick state from older versions is
+    // treated as absent (never started) so startup cannot resurrect it.
+    const mode = typeof options.mode === 'string' ? options.mode.trim().toLowerCase() : '';
     const hostname = sanitizeToken(options.hostname);
     const token = sanitizeToken(options.token);
+
+    if (mode === 'quick' || mode === '') {
+      const error = new Error(
+        mode === 'quick'
+          ? 'Quick tunnels were removed because their URL changed on every restart. Use `pichamber pair --tailscale [--public]` or `pichamber tunnel start --mode managed-remote --token-file <path> --hostname <host>`.'
+          : 'A tunnel mode is required (--mode managed-remote or --mode managed-local). Quick tunnels were removed; use `pichamber pair --tailscale [--public]` or a managed-remote tunnel with your own hostname.'
+      );
+      error.code = mode === 'quick' ? 'quick_tunnel_removed' : 'validation_error';
+      throw error;
+    }
 
     // Validate mode-specific inputs before checking binary availability so the
     // user gets a actionable validation error even when cloudflared is missing.
@@ -127,7 +141,7 @@ export const createTunnelService = ({
         error.code = 'validation_error';
         throw error;
       }
-    } else if (mode !== 'quick' && mode !== 'managed-local') {
+    } else if (mode !== 'managed-local') {
       const error = new Error(`Unsupported tunnel mode: ${mode}`);
       error.code = 'mode_unsupported';
       throw error;
@@ -145,13 +159,8 @@ export const createTunnelService = ({
       throw error;
     }
 
-    const port = typeof getPort === 'function' ? getPort() : null;
-    const originUrl = port ? `http://127.0.0.1:${port}` : undefined;
-
     let controller;
-    if (mode === 'quick') {
-      controller = await startCloudflareQuickTunnel({ originUrl });
-    } else if (mode === 'managed-remote') {
+    if (mode === 'managed-remote') {
       controller = await startCloudflareManagedRemoteTunnel({ token, hostname });
       writeTokenStore(token, hostname);
     } else if (mode === 'managed-local') {
@@ -164,7 +173,7 @@ export const createTunnelService = ({
     }
 
     activeController = controller;
-    activePublicUrl = controller.getPublicUrl?.() ?? (mode !== 'quick' ? `https://${hostname}` : null);
+    activePublicUrl = controller.getPublicUrl?.() ?? null;
     activeMode = mode;
 
     if (tunnelAuthController && activePublicUrl) {

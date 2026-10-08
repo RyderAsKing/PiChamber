@@ -73,6 +73,16 @@ export type MobileSavedConnection = {
   lastUsedAt: number;
   hasToken?: boolean;
   clientToken?: string;
+  /**
+   * Pinned server identity for direct probes (TOFU): learned from a
+   * credential-free /health response at pairing redemption or the first
+   * verified connect. When present, direct probes and live-transport
+   * establishment must verify it BEFORE sending the bearer token; a
+   * mismatch skips the candidate without sending credentials. Absent on
+   * older records, which keep working and learn it on next verified
+   * connect. Never part of the secure-token storage key.
+   */
+  pinnedServerId?: string;
 };
 
 export type MobilePendingConnection = {
@@ -81,6 +91,7 @@ export type MobilePendingConnection = {
   candidates: MobileTransportCandidate[];
   relay?: MobileRelayConfig;
   relayGrant?: string;
+  pinnedServerId?: string;
 };
 
 export type MobileConnectInput = {
@@ -114,7 +125,7 @@ export type PairingRedeemResponse = {
 };
 
 export type ChosenTransport =
-  | { kind: 'direct'; url: string }
+  | { kind: 'direct'; url: string; serverId?: string }
   | {
       kind: 'relay';
       relay: MobileRelayConfig;
@@ -129,12 +140,12 @@ export type RelayProbeResult = {
 };
 
 export type ProbeResult =
-  | { status: 'ok'; transport: ChosenTransport }
+  | { status: 'ok'; transport: ChosenTransport; serverId?: string }
   | { status: 'needs-login' }
-  | { status: 'unreachable' };
+  | { status: 'unreachable'; reason?: 'wrong-server' };
 
 export type LiveTransport =
-  | { kind: 'direct'; url: string }
+  | { kind: 'direct'; url: string; serverId?: string }
   | {
       kind: 'relay';
       relay: MobileRelayConfig;

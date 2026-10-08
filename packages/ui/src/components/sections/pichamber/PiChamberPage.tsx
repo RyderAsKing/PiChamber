@@ -2,7 +2,6 @@ import React from 'react';
 import { PiChamberVisualSettings } from './PiChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
-import { PasskeySettings } from './PasskeySettings';
 import { DefaultsSettings } from './DefaultsSettings';
 import { GitSettings } from './GitSettings';
 import { NotificationSettings } from './NotificationSettings';
@@ -13,7 +12,6 @@ import { CommandTriggersSettings } from './CommandTriggersSettings';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { useDeviceInfo } from '@/lib/device';
 import { isDesktopShell, isWebRuntime } from '@/lib/desktop';
-import { isCapacitorApp } from '@/lib/platform';
 import type { PiChamberSection } from './types';
 
 interface PiChamberPageProps {
@@ -35,7 +33,6 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
                 <DefaultsSettings />
                 {showDesktopNetworkSettings && <DesktopNetworkSettings />}
                 <SessionRetentionSettings />
-                {isWebRuntime() && !isDesktopShell() && !isCapacitorApp() && <PasskeySettings />}
                 {showAbout && <AboutSettings />}
             </SettingsPageLayout>
         );
@@ -112,17 +109,14 @@ const ShortcutsSectionContent: React.FC = () => {
     );
 };
 
-// General section: app-level settings — startup/tray/network, access password,
-// passkeys, privacy, diagnostics.
+// General section: app-level settings — startup/tray, terminal, privacy,
+// diagnostics. Remote-access controls (LAN access, UI password, passkeys)
+// live on the Remote Access page.
 const GeneralSectionContent: React.FC = () => {
     const showDesktopNetworkSettings = isDesktopShell();
-    // Passkeys only work against the browser's WebAuthn UI on the web surface —
-    // desktop shell and the Capacitor app never show the login screen.
-    const showPasskeySettings = isWebRuntime() && !isDesktopShell() && !isCapacitorApp();
     return (
         <>
             {showDesktopNetworkSettings && <DesktopNetworkSettings />}
-            {showPasskeySettings && <PasskeySettings />}
             <PiChamberVisualSettings visibleSettings={[
                 'fileEditorKeymap',
                 'autoSaveEnabled',

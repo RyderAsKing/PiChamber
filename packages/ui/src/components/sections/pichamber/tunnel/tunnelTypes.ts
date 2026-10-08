@@ -8,7 +8,7 @@ export type TunnelState =
   | 'error';
 
 export type TtlOption = { value: string; label: string; ms: number | null };
-export type TunnelMode = 'quick' | 'managed-remote' | 'managed-local';
+export type TunnelMode = 'managed-remote' | 'managed-local';
 export type ApiTunnelMode = TunnelMode;
 
 export interface ManagedRemoteTunnelPreset {

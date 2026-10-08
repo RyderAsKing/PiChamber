@@ -87,7 +87,7 @@ closed when their mint token ages out.
   response reports `closedConnections`.
 - **Cross-process propagation**: the credential store is a file shared by
   processes using the data directory (one server plus the
-  `pichamber connect-url` pairing CLI, which shares only
+  `pichamber pair` pairing CLI, which shares only
   `remote-clients.json`). No cross-process revocation emitter exists, and none
   is claimed. Propagation is a **bounded poll** of `listRevokedClientIds()`
   (default every 15 seconds, timer unref'd); a revocation committed by another
@@ -162,6 +162,20 @@ never happened.
 - Revoke/self-revoke authorization (which caller may revoke which ID) is
   enforced at the core route; the tracker keys off the store-derived
   principal only and never trusts a caller-supplied ID.
+
+## Pairing candidates (routes in `../server/core-routes.js`)
+
+Pairing v2 payloads (`POST /api/client-auth/pairing/sessions`) and the
+refresh endpoint (`GET /api/client-auth/connection/candidates`) advertise
+transport candidates ordered by priority: direct LAN (`lan`, 10), Tailscale
+(`tailscale`, 20, only while the mapping is `active` — see
+`../tailscale/DOCUMENTATION.md`), relay (`relay`, 30). The Tailscale
+candidate is `{ type: 'tailscale', url, mode, priority }` and is redeemed
+over its `url` like any direct URL. `tailscale` is a distinct type so new
+clients can label it; old parsers drop unknown candidate types, so old
+clients ignore it and use the rest. `GET
+/api/client-auth/pairing/transports` additionally reports
+`tailscale: { available, url, mode }` for the create-device dialog.
 
 ## Verification
 

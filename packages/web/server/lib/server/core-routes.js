@@ -425,6 +425,10 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
     // server can actually be reached on (LAN derived from the server bind, not
     // the UI origin), for the create-device dialog.
     getPairingTransports = () => ({ local: null, lan: null, relayAvailable: true }),
+    // Returns the active Tailscale pairing candidate
+    // ({ type: 'tailscale', url, mode, priority }) when the mapping is live,
+    // else null. Injected lazily because the service reconciles after listen.
+    getTailscalePairingCandidate = () => null,
     // Returns ALL direct LAN URLs the server is currently reachable on (client-
     // reached address first, then interface scan) for the candidates-refresh
     // endpoint. Empty when the server is loopback-only.
@@ -623,6 +627,9 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   //   false → direct only, never relay;
   //   undefined → legacy: advertise relay only if it is already enabled.
   // `includeDirect === false` produces a relay-only link (no direct candidate).
+  // A live Tailscale mapping is advertised as a `tailscale` candidate between
+  // the direct and relay candidates (priority 20): clients redeem over it
+  // like any direct URL. Old clients drop the unknown type and use the rest.
   const pairingServerCandidates = async (req, { preferredServerUrl, includeRelay, includeDirect = true } = {}) => {
     const candidates = [];
     if (includeDirect) {
@@ -635,6 +642,16 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
         } catch {
         }
         candidates.push({ type, url: direct, priority: 10 });
+      }
+    }
+    if (includeDirect) {
+      try {
+        const tailscaleCandidate = getTailscalePairingCandidate();
+        if (tailscaleCandidate && typeof tailscaleCandidate.url === 'string') {
+          candidates.push(tailscaleCandidate);
+        }
+      } catch {
+        // A Tailscale status failure must not break direct pairing.
       }
     }
     // The client races candidates and falls back to relay only if the direct URL
@@ -897,7 +914,8 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
   // candidates are a snapshot: when DHCP hands this machine a new address, the
   // device's saved LAN candidate goes stale and it is stuck on the relay forever.
   // A client that connected over any live transport calls this to learn the
-  // server's present LAN URLs (plus the relay candidate when enabled) and update
+  // server's present LAN URLs (plus the relay candidate when enabled, plus the
+  // live Tailscale candidate when active) and update
   // its saved candidate set. `serverId` lets the client bind the response — and
   // later /health probes of the learned addresses — to this server's identity
   // before trusting them with its bearer token.
@@ -916,6 +934,14 @@ export const registerAuthAndAccessRoutes = (app, dependencies) => {
       for (const url of directUrls) {
         const normalized = normalizeCandidateUrl(url);
         if (normalized) candidates.push({ type: 'lan', url: normalized, priority: 10 });
+      }
+      try {
+        const tailscaleCandidate = getTailscalePairingCandidate();
+        if (tailscaleCandidate && typeof tailscaleCandidate.url === 'string') {
+          candidates.push(tailscaleCandidate);
+        }
+      } catch {
+        // Tailscale status failure must not break the direct-candidate refresh.
       }
       try {
         const relayCandidate = await getRelayPairingCandidate({ ensureEnabled: false });

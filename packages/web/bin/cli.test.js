@@ -9,6 +9,7 @@ import { pathToFileURL } from 'url';
 
 import { isModuleCliExecution, normalizeCliEntryPath } from './cli-entry.js';
 import { requestJson } from './lib/cli-http.js';
+import { writeTunnelProfilesToDisk } from './lib/cli-tunnel-profiles.js';
 import { inspectTunnelAttachability } from './lib/cli-lifecycle.js';
 import { resolveTargetPort } from './lib/cli-api-target.js';
 import { DEFAULT_TUNNEL_PROVIDER_CAPABILITIES } from './lib/cli-tunnel-capabilities.js';
@@ -278,6 +279,41 @@ describe('cli args', () => {
     expect(parsed.helpRequested).toBe(true);
   });
 
+  it('parses the pair command with tailscale flags', () => {
+    const parsed = parseArgs(['pair', '--tailscale', '--qr']);
+
+    expect(parsed.command).toBe('pair');
+    expect(parsed.options.tailscale).toBe(true);
+    expect(commands.pair).toBeTypeOf('function');
+  });
+
+  it('keeps connect-url as a wired alias of pair', () => {
+    expect(commands['connect-url']).toBeTypeOf('function');
+    expect(parseArgs(['connect-url', '--relay']).options.relay).toBe(true);
+  });
+
+  it('parses pair --tailscale --public --https-port flags', () => {
+    const parsed = parseArgs(['pair', '--tailscale', '--public', '--https-port', '8443']);
+
+    expect(parsed.command).toBe('pair');
+    expect(parsed.options.tailscale).toBe(true);
+    expect(parsed.options.public).toBe(true);
+    expect(parsed.options.httpsPort).toBe(8443);
+  });
+
+  it('parses serve --tailscale flags', () => {
+    const parsed = parseArgs(['serve', '--tailscale', '--https-port=10000']);
+
+    expect(parsed.command).toBe('serve');
+    expect(parsed.options.tailscale).toBe(true);
+    expect(parsed.options.httpsPort).toBe(10000);
+  });
+
+  it('rejects invalid --https-port values', () => {
+    expect(() => parseArgs(['pair', '--https-port', '3000'])).toThrow(/https-port/);
+    expect(() => parseArgs(['serve', '--https-port', 'bogus'])).toThrow(/https-port/);
+  });
+
   it('parses startup api-only option', () => {
     const parsed = parseArgs(['startup', 'enable', '--api-only', '--port', '3002']);
 
@@ -383,6 +419,46 @@ describe('serve command helper', () => {
     expect(hasExplicitServeConfiguration({ foreground: true })).toBe(true);
     expect(hasExplicitServeConfiguration({ apiOnly: true })).toBe(true);
     expect(hasExplicitServeConfiguration({ port: 3000 })).toBe(false);
+  });
+
+  it('persists tailscale config for serve --tailscale with a UI password', async () => {
+    const { persistTailscaleConfigForStartup } = await import('../server/lib/tailscale/service.js');
+    await withTempPiChamberDataDir(async (dir) => {
+      const merged = await persistTailscaleConfigForStartup({
+        dataDir: dir,
+        patch: { enabled: true, mode: 'private', httpsPort: 443 },
+        uiPasswordConfigured: true,
+      });
+      expect(merged).toEqual({ enabled: true, mode: 'private', httpsPort: 443 });
+      const stored = JSON.parse(fs.readFileSync(path.join(dir, 'tailscale-config.json'), 'utf8'));
+      expect(stored).toEqual(merged);
+    });
+  });
+
+  it('rejects persisting an enabled tailscale config without a UI password', async () => {
+    const { persistTailscaleConfigForStartup } = await import('../server/lib/tailscale/service.js');
+    await withTempPiChamberDataDir(async (dir) => {
+      await expect(persistTailscaleConfigForStartup({
+        dataDir: dir,
+        patch: { enabled: true, mode: 'private', httpsPort: 443 },
+        uiPasswordConfigured: false,
+      })).rejects.toMatchObject({ code: 'auth_required' });
+      expect(fs.existsSync(path.join(dir, 'tailscale-config.json'))).toBe(false);
+    });
+  });
+
+  it('rejects serve --public without --tailscale at the gate', async () => {
+    const { checkTailscaleAuthGate } = await import('../server/lib/tailscale/tailscale.js');
+    // Public mode has no escape hatch: no UI password means blocked even
+    // with the unauthenticated-LAN env override.
+    const blocked = checkTailscaleAuthGate({
+      enabled: true,
+      mode: 'public',
+      uiPasswordConfigured: false,
+      unsafeUnauthenticatedLanAllowed: true,
+    });
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.code).toBe('auth_required');
   });
 });
 
@@ -530,6 +606,41 @@ describe('version command', () => {
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout)).toMatchObject({ status: 'ok', version: packageJson.version });
     expect(result.stderr).toBe('');
+  });
+
+  it('rejects removed quick tunnel mode with a stable JSON code', () => {
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'tunnel', 'start', '--mode', 'quick', '--json'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'error',
+      error: { code: 'quick_tunnel_removed' },
+    });
+  });
+
+  it('rejects removed quick tunnel mode in human output', () => {
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'tunnel', 'start', '--mode', 'quick', '--port', '3003'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Quick tunnels were removed');
+  });
+
+  it('requires an explicit managed mode for non-interactive JSON start', () => {
+    const result = spawnSync(process.execPath, [new URL('./cli.js', import.meta.url).pathname, 'tunnel', 'start', '--json'], {
+      encoding: 'utf8',
+    });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: 'error',
+      error: { code: 'tunnel_mode_required' },
+    });
   });
 });
 
@@ -697,7 +808,7 @@ describe('compatibility exports', () => {
     });
   });
 
-  it('supports cloudflare quick dry-run with an explicit port', async () => {
+  it('supports cloudflare managed-remote dry-run with an explicit port', async () => {
     await withTempPiChamberDataDir(async () => {
       const output = await captureStdout(async () => {
         await commands.tunnel({
@@ -706,7 +817,9 @@ describe('compatibility exports', () => {
           explicitPort: true,
           port: 3003,
           provider: 'cloudflare',
-          mode: 'quick',
+          mode: 'managed-remote',
+          hostname: 'tunnel.example.com',
+          token: 'test-token',
         }, 'start');
       });
 
@@ -715,8 +828,55 @@ describe('compatibility exports', () => {
         ok: true,
         dryRun: true,
         provider: 'cloudflare',
-        mode: 'quick',
+        mode: 'managed-remote',
       }));
+    });
+  });
+
+  it('rejects quick mode with a stable removal code', async () => {
+    await withTempPiChamberDataDir(async () => {
+      await expect(commands.tunnel({
+        json: true,
+        explicitPort: true,
+        port: 3003,
+        provider: 'cloudflare',
+        mode: 'quick',
+      }, 'start')).rejects.toMatchObject({ code: 'quick_tunnel_removed' });
+    });
+  });
+
+  it('rejects quick mode from a stored profile with the same removal code', async () => {
+    await withTempPiChamberDataDir(async () => {
+      writeTunnelProfilesToDisk({
+        version: 1,
+        profiles: [{
+          id: 'legacy-quick-id',
+          name: 'legacy-quick',
+          provider: 'cloudflare',
+          mode: 'quick',
+          hostname: 'old.example.com',
+          token: 'old-token',
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }],
+      });
+      await expect(commands.tunnel({
+        json: true,
+        explicitPort: true,
+        port: 3003,
+        profile: 'legacy-quick',
+      }, 'start')).rejects.toMatchObject({ code: 'quick_tunnel_removed' });
+    });
+  });
+
+  it('requires an explicit managed mode for non-interactive start', async () => {
+    await withTempPiChamberDataDir(async () => {
+      await expect(commands.tunnel({
+        json: true,
+        explicitPort: true,
+        port: 3003,
+        provider: 'cloudflare',
+      }, 'start')).rejects.toMatchObject({ code: 'tunnel_mode_required' });
     });
   });
 });
@@ -751,7 +911,7 @@ describe('CLI HTTP helpers', () => {
       try {
         const { response, body } = await requestJson(port, '/api/pichamber/tunnel/start', {
           method: 'POST',
-          body: JSON.stringify({ provider: 'cloudflare', mode: 'quick' }),
+          body: JSON.stringify({ provider: 'cloudflare', mode: 'managed-remote', token: 'test-token', hostname: 'tunnel.example.com' }),
         });
 
         expect(response.ok).toBe(true);

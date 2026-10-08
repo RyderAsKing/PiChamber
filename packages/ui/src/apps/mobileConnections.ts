@@ -26,6 +26,7 @@ import {
   deleteMobileConnection,
   directCandidates,
   getConnectionLabel,
+  getConnectionStorageKey,
   isSameConnectionUrl,
   loadMobileConnections,
   migrateLegacyInlineTokenRecords,
@@ -137,6 +138,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       label: string;
       candidates: MobileTransportCandidate[];
       clientToken?: string;
+      pinnedServerId?: string | null;
     }) => {
       const next = upsertConnectionInList(connectionsRef.current, draft);
       applyConnections(next);
@@ -192,11 +194,17 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
           candidates: candidates.map((c) => c.kind),
           hasToken: Boolean(token),
         });
-        const result = await probeConnectionCandidates(candidates, token);
+        const result = await probeConnectionCandidates(candidates, token, {
+          pinnedServerId: saved?.pinnedServerId,
+        });
         logConnect('connect:probe', { status: result.status });
 
         if (result.status === 'unreachable') {
-          setError('Could not reach that PiChamber server.');
+          if (result.reason === 'wrong-server') {
+            setError('That address belongs to a different server. Check the address or re-pair.');
+          } else {
+            setError('Could not reach that PiChamber server.');
+          }
           return;
         }
         if (result.status === 'needs-login') {
@@ -207,16 +215,27 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
             candidates,
             relay: relayCandidateOf({ candidates }) ?? undefined,
             relayGrant: grant,
+            ...(saved?.pinnedServerId ? { pinnedServerId: saved.pinnedServerId } : {}),
           });
           return;
         }
+
+        // Connected. Trust on first use: pin the verified server identity
+        // when this record has none yet.
+        const learnedPin = !saved?.pinnedServerId && result.serverId ? result.serverId : undefined;
 
         // Connected. Persist a user-supplied token before switching so a cold
         // restart won't re-prompt.
         if (token && tokenIsNew && isCapacitorApp()) {
           await writeSecureToken(secureTokenKeyOf({ candidates }), token);
         }
-        persistMetadata({ id: saved?.id, label, candidates, clientToken: token });
+        persistMetadata({
+          id: saved?.id,
+          label,
+          candidates,
+          clientToken: token,
+          ...(learnedPin ? { pinnedServerId: learnedPin } : {}),
+        });
         switchToTransport(result.transport, token ?? null, {
           runtimeKey: secureTokenKeyOf({ candidates }),
           grant,
@@ -238,10 +257,15 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       setError(null);
       beginBusy('pairing');
       const deviceCandidates = pairingCandidatesToMobile(payload.candidates);
+      // A pairing link for an already-saved address inherits its pin: the
+      // fresh secret is never sent to a mismatched server.
+      const savedForPin = connectionsRef.current.find((c) =>
+        candidateSetsMatch(c.candidates, deviceCandidates)
+      );
       let chosen: LiveTransport | null = null;
       let adopted = false;
       try {
-        chosen = await establishLiveTransport(deviceCandidates);
+        chosen = await establishLiveTransport(deviceCandidates, savedForPin?.pinnedServerId);
         if (!chosen) {
           setError('Could not reach that PiChamber server.');
           return;
@@ -308,9 +332,14 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
           }
         }
         persistMetadata({
+          id: savedForPin?.id,
           label,
           candidates: deviceCandidates,
           clientToken: issuedToken,
+          // Pin the verified server identity at redemption when unknown.
+          ...(!savedForPin?.pinnedServerId && chosen.kind === 'direct' && chosen.serverId
+            ? { pinnedServerId: chosen.serverId }
+            : {}),
         });
         switchToTransport(
           chosen.kind === 'relay'
@@ -342,10 +371,11 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
       const isCurrentOperation = () =>
         passwordOperationRef.current.isCurrent(operation);
       const { id, label, candidates } = pendingConnection;
+      const pendingPin = pendingConnection.pinnedServerId;
       let chosen: LiveTransport | null = null;
       let adopted = false;
       try {
-        chosen = await establishLiveTransport(candidates);
+        chosen = await establishLiveTransport(candidates, pendingPin);
         if (!isCurrentOperation()) return;
         if (!chosen) {
           setError('Could not reach that PiChamber server.');
@@ -415,7 +445,15 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
           if (!isCurrentOperation()) return;
         }
         if (!isCurrentOperation()) return;
-        persistMetadata({ id, label, candidates, clientToken: issuedToken });
+        persistMetadata({
+          id,
+          label,
+          candidates,
+          clientToken: issuedToken,
+          ...(!pendingPin && chosen.kind === 'direct' && chosen.serverId
+            ? { pinnedServerId: chosen.serverId }
+            : {}),
+        });
         setPendingConnection(null);
         switchToTransport(
           chosen.kind === 'relay'
@@ -476,6 +514,21 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         setError('Enter a server URL.');
         return null;
       }
+      // A changed direct address is a different server: drop a pin that was
+      // learned for the old address instead of enforcing it (or worse,
+      // keeping it) against the new one.
+      const prevDirectUrls = new Set(
+        (existing ? directCandidates(existing) : []).map((c) => getConnectionStorageKey(c.url)),
+      );
+      const nextDirectUrls = new Set(
+        candidates
+          .filter((c): c is Extract<MobileTransportCandidate, { kind: 'direct' }> => c.kind === 'direct')
+          .map((c) => getConnectionStorageKey(c.url)),
+      );
+      const directSetChanged =
+        prevDirectUrls.size !== nextDirectUrls.size ||
+        [...nextDirectUrls].some((url) => !prevDirectUrls.has(url));
+      const nextPin = existing && !directSetChanged ? undefined : null;
       const clientToken = input.clientToken?.trim() || undefined;
       const label =
         input.label?.trim() ||
@@ -499,6 +552,7 @@ export const useMobileConnection = (onConnected: () => void): UseMobileConnectio
         label,
         candidates,
         clientToken,
+        pinnedServerId: nextPin,
       });
       return (
         next.find((connection) =>

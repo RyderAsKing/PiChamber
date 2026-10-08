@@ -79,6 +79,9 @@ function parseArgs(argv = process.argv.slice(2)) {
     sessionTtl: undefined,
     qr: false,
     explicitQr: false,
+    tailscale: false,
+    public: false,
+    httpsPort: undefined,
     force: false,
     showSecrets: false,
     dryRun: false,
@@ -386,6 +389,25 @@ function parseArgs(argv = process.argv.slice(2)) {
       case 'relay':
         options.relay = true;
         break;
+      case 'tailscale':
+        options.tailscale = true;
+        break;
+      case 'public':
+        options.public = true;
+        break;
+      case 'https-port': {
+        const { value, nextIndex } = consumeValue(i, inlineValue);
+        i = nextIndex;
+        if (typeof value !== 'string' || !/^\d+$/.test(value.trim())) {
+          throw new TunnelCliError('Invalid --https-port value. Use 443, 8443, or 10000.', EXIT_CODE.USAGE_ERROR);
+        }
+        const parsed = Number(value);
+        if (![443, 8443, 10000].includes(parsed)) {
+          throw new TunnelCliError('Invalid --https-port value. Use 443, 8443, or 10000.', EXIT_CODE.USAGE_ERROR);
+        }
+        options.httpsPort = parsed;
+        break;
+      }
       case 'qr':
         options.qr = true;
         options.explicitQr = true;
@@ -456,7 +478,7 @@ function parseArgs(argv = process.argv.slice(2)) {
         // may still pass this when starting a remote server.
         break;
       case 'try-cf-tunnel':
-        removedFlagErrors.push('`--try-cf-tunnel` was removed. Use: pichamber tunnel start --provider cloudflare --mode quick');
+        removedFlagErrors.push('`--try-cf-tunnel` was removed. Quick tunnels were removed; use `pichamber pair --tailscale` or `pichamber tunnel start --mode managed-remote --token-file <path> --hostname <host>`.');
         break;
       case 'tunnel-qr':
         removedFlagErrors.push('`--tunnel-qr` was removed. Use: pichamber tunnel start ... --qr');
@@ -528,7 +550,7 @@ COMMANDS:
   tunnel         Tunnel lifecycle commands
   startup        Manage launch at system startup
   logs           Tail PiChamber logs
-  connect-url    Generate URL/QR for connecting another client
+  pair           Generate URL/QR for connecting another client
   update         Check for and install updates
   version        Show the installed PiChamber version
 
@@ -537,8 +559,11 @@ OPTIONS:
   --host                  Bind address (default: 127.0.0.1)
   --hostname              Alias for --host outside tunnel commands
   --lan                   Bind to 0.0.0.0 for LAN access
-  --server <url>          Public/server URL for connect-url links
-  --relay                 connect-url: also include the end-to-end-encrypted relay transport
+  --server <url>          Public/server URL for pairing links
+  --relay                 pair: also include the end-to-end-encrypted relay transport
+  --tailscale             pair/serve: enable Tailscale remote access (tailnet-only serve)
+  --public                With --tailscale: public internet via Funnel instead of tailnet-only
+  --https-port <port>     Tailscale HTTPS port: 443, 8443, or 10000 (default: 443)
   --ui-password [password] Protect browser UI with a password (generates one when omitted)
   --api-only              Start API routes only, without serving browser UI assets
   --foreground            Run server in foreground (use with systemd/process managers)
@@ -562,8 +587,9 @@ EXAMPLES:
   pichamber --lan --port 3002  # Start on LAN at 0.0.0.0:3002
   pichamber serve              # Walk through interactive server setup
   pichamber serve --foreground # Start in foreground without setup prompts
-  pichamber connect-url --port 3000 --qr
-  pichamber connect-url --server https://pichamber.example.com
+  pichamber pair --port 3000 --qr
+  pichamber pair --server https://pichamber.example.com
+  pichamber pair --tailscale --qr
   pichamber startup enable --lan --port 3002 --ui-password
                                # Login service on LAN at 0.0.0.0:3002
   pichamber tunnel help        # Show tunnel lifecycle help
@@ -628,6 +654,53 @@ EXAMPLES:
 `);
 }
 
+function showPairHelp() {
+  console.log(`
+ PiChamber Pairing Links
+
+USAGE:
+  pichamber pair [OPTIONS]
+
+DESCRIPTION:
+  Generate an pichamber:// connection link for adding this server to another
+  PiChamber app. If no server is running on the selected port, it starts one.
+  (The previous name \`connect-url\` still works as a hidden alias.)
+
+OPTIONS:
+  -p, --port <port>       Server port to use or start (default: ${DEFAULT_PORT})
+  --host <address>        Bind address when starting the server
+  --hostname <address>    Alias for --host
+  --lan                   Bind to 0.0.0.0 for LAN access when starting
+  --server <url>          Public URL saved into the connection link
+  --server-url <url>      Alias for --server
+  --relay                 Also include the end-to-end-encrypted relay transport
+                          so the link works away from the local network. The
+                          device prefers the direct connection when reachable;
+                          the instance brings the relay up on its own. Set
+                          PICHAMBER_RELAY_URL to use a self-hosted relay.
+  --tailscale             Enable Tailscale remote access on the running server
+                          (tailnet-only serve) and include its URL in the link.
+  --public                With --tailscale: public internet via Tailscale Funnel
+                          instead of tailnet-only. Requires a UI password.
+  --https-port <port>     Tailscale HTTPS port: 443, 8443, or 10000 (default: 443)
+  --name <label>          Label saved with the remote client token
+  --ui-password <value>   Protect browser access when UI routes are enabled
+  --api-only              Start in headless/API-only mode when starting
+  --qr                    Print a QR code for the connection link
+  --json                  Output machine-readable JSON
+  -q, --quiet             Print only the connection link
+  -h, --help              Show this help
+
+EXAMPLES:
+  pichamber pair --port 3000 --qr
+  pichamber pair --port 3000 --api-only --lan --server http://workstation.local:3000 --qr
+  pichamber pair --server https://pichamber.example.com --name Workstation
+  pichamber pair --relay --name "My laptop"
+  pichamber pair --tailscale --qr
+  pichamber pair --tailscale --public --https-port 8443
+`);
+}
+
 function showConnectUrlHelp() {
   console.log(`
  PiChamber Connect URL
@@ -638,6 +711,7 @@ USAGE:
 DESCRIPTION:
   Generate an pichamber:// connection link for adding this server to another
   PiChamber app. If no server is running on the selected port, it starts one.
+  NOTE: \`connect-url\` is a deprecated alias of \`pichamber pair\`.
 
 OPTIONS:
   -p, --port <port>       Server port to use or start (default: ${DEFAULT_PORT})
@@ -695,7 +769,7 @@ COMMON OPTIONS:
 
 START OPTIONS:
   --provider <id>         Tunnel provider id (default: cloudflare)
-  --mode <id>             Tunnel mode (default: quick)
+  --mode <id>             Tunnel mode (required: managed-remote or managed-local)
   --profile <name>        Start tunnel from saved profile name
   --config [path]         Managed-local config path (optional)
   --token <token>         Managed-remote token (visible in process list)
@@ -760,10 +834,11 @@ _pichamber_tunnel() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="serve stop restart status tunnel startup logs connect-url update version"
+  commands="serve stop restart status tunnel startup logs pair connect-url update version"
   tunnel_commands="help providers ready doctor status start stop profile completion"
   profile_commands="list show add remove"
   common_flags="--port --host --lan --ui-password --api-only --foreground --no-daemon --json --all --help --version --plain --quiet --yes"
+  pair_flags="--server --server-url --relay --tailscale --public --https-port --name --qr --no-qr"
   start_flags="--provider --mode --profile --config --token --token-file --token-stdin --hostname --connect-ttl --session-ttl --qr --no-qr --dry-run --show-secrets"
   update_flags="--channel --yes"
 
@@ -802,6 +877,11 @@ _pichamber_tunnel() {
     return 0
   fi
 
+  if [[ "\${COMP_WORDS[1]}" == "pair" || "\${COMP_WORDS[1]}" == "connect-url" ]]; then
+    COMPREPLY=( $(compgen -W "\${pair_flags} \${common_flags}" -- "\${cur}") )
+    return 0
+  fi
+
   COMPREPLY=( $(compgen -W "\${common_flags}" -- "\${cur}") )
   return 0
 }
@@ -825,7 +905,8 @@ _pichamber() {
     'tunnel:Tunnel lifecycle commands'
     'startup:Manage launch at system startup'
     'logs:Tail PiChamber logs'
-    'connect-url:Generate a client pairing URL'
+    'pair:Generate a client pairing URL'
+    'connect-url:Generate a client pairing URL (deprecated alias)'
     'update:Check for and install updates'
     'version:Show the installed version'
   )
@@ -893,7 +974,8 @@ complete -c pichamber -n '__fish_use_subcommand' -a 'status' -d 'Show server sta
 complete -c pichamber -n '__fish_use_subcommand' -a 'tunnel' -d 'Tunnel lifecycle commands'
 complete -c pichamber -n '__fish_use_subcommand' -a 'startup' -d 'Manage launch at system startup'
 complete -c pichamber -n '__fish_use_subcommand' -a 'logs' -d 'Tail logs'
-complete -c pichamber -n '__fish_use_subcommand' -a 'connect-url' -d 'Generate a client pairing URL'
+complete -c pichamber -n '__fish_use_subcommand' -a 'pair' -d 'Generate a client pairing URL'
+complete -c pichamber -n '__fish_use_subcommand' -a 'connect-url' -d 'Generate a client pairing URL (deprecated alias)'
 complete -c pichamber -n '__fish_use_subcommand' -a 'update' -d 'Check for updates'
 complete -c pichamber -n '__fish_use_subcommand' -a 'version' -d 'Show installed version'
 
@@ -932,6 +1014,7 @@ export {
   showHelp,
   showStartupHelp,
   showConnectUrlHelp,
+  showPairHelp,
   showTunnelHelp,
   generateCompletionScript,
   findClosestMatch,

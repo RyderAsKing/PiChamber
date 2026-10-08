@@ -2,7 +2,8 @@ import React from 'react';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
-import { RemoteInstancesPage } from '@/components/sections/remote-instances/RemoteInstancesPage';
+import { RemoteAccessPage } from '@/components/sections/remote-access/RemoteAccessPage';
+import { ServersPage } from '@/components/sections/servers/ServersPage';
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { SnippetsPage } from '@/components/sections/snippets/SnippetsPage';
 import { PromptTemplatesPage } from '@/components/sections/prompt-templates/PromptTemplatesPage';
@@ -38,6 +39,8 @@ export type SettingsPageContentProps = {
   isMobile: boolean;
   runtimeCtx: SettingsRuntimeContext;
   openChamberSectionBySlug: Record<string, PiChamberSection>;
+  /** Capacitor shell: deleting the active/last server leaves to connect. */
+  onActiveConnectionDeleted?: () => void;
 };
 
 export function SettingsPageContent({
@@ -45,6 +48,7 @@ export function SettingsPageContent({
   isMobile,
   runtimeCtx,
   openChamberSectionBySlug,
+  onActiveConnectionDeleted,
 }: SettingsPageContentProps): React.ReactNode {
   const meta = getSettingsPageMeta(slug);
   if (meta && !isPageAvailable(meta, runtimeCtx)) {
@@ -54,8 +58,15 @@ export function SettingsPageContent({
   switch (slug) {
     case 'projects':
       return <ProjectsPage />;
+    case 'remote-access':
+      return <RemoteAccessPage />;
+    case 'servers':
+      return <ServersPage onActiveConnectionDeleted={onActiveConnectionDeleted} />;
     case 'remote-instances':
-      return <RemoteInstancesPage />;
+      // Legacy deep links resolve to remote-access via resolveSettingsSlug,
+      // but a persisted raw slug can still arrive here. Render the new page
+      // so old links never land on a removed page.
+      return <RemoteAccessPage />;
     case 'behavior':
       return <BehaviorPage />;
     case 'skills.installed':

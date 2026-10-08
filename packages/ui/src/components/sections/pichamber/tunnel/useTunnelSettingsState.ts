@@ -45,7 +45,7 @@ export function useTunnelSettingsState() {
     createTunnelDependencyInstallInfo('cloudflare'),
   );
   const [providerCapabilities, setProviderCapabilities] = React.useState<TunnelProviderCapability[]>([]);
-  const [tunnelMode, setTunnelMode] = React.useState<TunnelMode>('quick');
+  const [tunnelMode, setTunnelMode] = React.useState<TunnelMode>('managed-remote');
   const [sessionRecords, setSessionRecords] = React.useState<TunnelSessionRecord[]>([]);
   const [localPort, setLocalPort] = React.useState<number | null>(null);
 
@@ -241,7 +241,7 @@ export function useTunnelSettingsState() {
         ?.map((mode) => mode.key)
         .filter(
           (mode): mode is TunnelMode =>
-            mode === 'quick' || mode === 'managed-remote' || mode === 'managed-local',
+            mode === 'managed-remote' || mode === 'managed-local',
         ),
     );
     if (supportedModes.size === 0) {
@@ -249,12 +249,6 @@ export function useTunnelSettingsState() {
     }
     return TUNNEL_MODE_OPTIONS.filter((option) => supportedModes.has(option.value));
   }, [selectedProviderCapability]);
-
-  const providerSupportsManagedModes = React.useMemo(
-    () =>
-      tunnelModeOptions.some((option) => option.value === 'managed-remote' || option.value === 'managed-local'),
-    [tunnelModeOptions],
-  );
 
   const displayedDependencyInstallInfo = React.useMemo(() => {
     if (dependencyInstallInfo.provider === tunnelProvider) {
@@ -645,7 +639,6 @@ export function useTunnelSettingsState() {
     suggestedConnectorPort,
     selectedProviderCapability,
     tunnelModeOptions,
-    providerSupportsManagedModes,
     displayedDependencyInstallInfo,
     openExternal,
     handleBrowseManagedLocalConfig,

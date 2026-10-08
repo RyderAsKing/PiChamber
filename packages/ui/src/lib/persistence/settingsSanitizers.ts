@@ -186,11 +186,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (typeof candidate.tunnelMode === 'string') {
     const mode = candidate.tunnelMode.trim().toLowerCase();
-    if (
-      mode === 'quick' ||
-      mode === 'managed-remote' ||
-      mode === 'managed-local'
-    ) {
+    // Stored 'quick' modes from older versions are dropped: quick tunnels
+    // were removed, and callers fall back to managed-remote instead.
+    if (mode === 'managed-remote' || mode === 'managed-local') {
       result.tunnelMode = mode;
     }
   }

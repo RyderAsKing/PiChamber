@@ -41,6 +41,27 @@ Signing-secret topology: the JWT secret is read once at startup (env override or
   - `ensureSessionToken(req, res)`
   - `dispose()`
 
+## Login rate limiting (dual-bucket)
+
+Password (`handleSessionCreate`) and passkey (`handlePasskeyAuthenticationVerify`)
+login attempts share one limiter with two buckets per attempt:
+
+- Per-client bucket keyed by `X-Forwarded-For` first (falls back to `req.ip`):
+  10 attempts per 5 minutes (env-overridable via
+  `PICHAMBER_RATE_LIMIT_MAX_ATTEMPTS`), then a 15-minute lockout. Preserves
+  per-device budgets behind legitimate proxies.
+- Socket bucket keyed by `req.socket.remoteAddress` (never `req.ip`, which
+  Express rewrites from XFF under `trust proxy`): 5x the per-client limit in
+  the same window, same lockout.
+
+An attempt is refused (429) if EITHER bucket is exhausted. The socket
+address is the unspoofable peer of the TCP connection: Tailscale
+Serve/Funnel forwards from loopback while passing attacker-supplied XFF
+through, so XFF alone would let a public attacker rotate headers for a
+fresh bucket per guess. The socket bucket bounds total guesses per socket
+while `trust proxy` stays enabled for real deployments. Successful logins
+clear both buckets.
+
 ## Public exports (ui-passkeys.js)
 - `createUiPasskeys({ passwordBinding, readSettingsFromDiskMigrated, storeFile, rpName, challengeTtlMs })`: creates passkey runtime with methods:
   - `enabled`

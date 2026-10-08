@@ -12,12 +12,8 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TRY_CF_URL_REGEX = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
-
-const DEFAULT_STARTUP_TIMEOUT_MS = 30000;
 const MANAGED_TUNNEL_STARTUP_TIMEOUT_MS = 20000;
 const MANAGED_TUNNEL_LIVENESS_FALLBACK_MS = 6000;
-const TUNNEL_MODE_QUICK = 'quick';
 const TUNNEL_MODE_MANAGED_REMOTE = 'managed-remote';
 const TUNNEL_MODE_MANAGED_LOCAL = 'managed-local';
 
@@ -101,39 +97,6 @@ const normalizeHostname = (value) => {
 
 export function normalizeCloudflareTunnelHostname(value) {
   return normalizeHostname(value);
-}
-
-export async function checkCloudflareApiReachability({ fetchImpl = globalThis.fetch, timeoutMs = 5000 } = {}) {
-  if (typeof fetchImpl !== 'function') {
-    return {
-      reachable: false,
-      status: null,
-      error: 'Fetch API is unavailable in this runtime.',
-    };
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetchImpl('https://api.trycloudflare.com/', {
-      method: 'GET',
-      signal: controller.signal,
-    });
-    return {
-      reachable: true,
-      status: response.status,
-      error: null,
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return {
-      reachable: false,
-      status: null,
-      error: message,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 const READY_LOG_PATTERNS = [
@@ -353,96 +316,6 @@ async function waitForManagedTunnelReady(child, { modeLabel }) {
   });
 }
 
-export async function startCloudflareQuickTunnel({ originUrl }) {
-  const cfCheck = await checkCloudflaredAvailable();
-
-  if (!cfCheck.available) {
-    printCloudflareTunnelInstallHelp();
-    throw new Error('cloudflared is not installed');
-  }
-
-  console.log(`Using cloudflared: ${cfCheck.path} (${cfCheck.version})`);
-
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-cf-'));
-
-  const child = spawnCloudflared(['tunnel', '--url', originUrl], { HOME: tempDir }, cfCheck.path);
-
-  let publicUrl = null;
-  let tunnelReady = false;
-
-  const onData = (chunk, isStderr) => {
-    const text = chunk.toString('utf8');
-
-    if (!tunnelReady) {
-      const match = text.match(TRY_CF_URL_REGEX);
-      if (match) {
-        publicUrl = match[0];
-        tunnelReady = true;
-      }
-    }
-
-    process.stderr.write(isStderr ? text : '');
-  };
-
-  child.stdout.on('data', (chunk) => onData(chunk, false));
-  child.stderr.on('data', (chunk) => onData(chunk, true));
-
-  child.on('error', (error) => {
-    console.error(`Cloudflared error: ${error.message}`);
-    cleanupTempDir();
-  });
-
-  const cleanupTempDir = () => {
-    try {
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-      }
-    } catch {
-      // Ignore cleanup errors
-    }
-  };
-
-  await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      if (!publicUrl) {
-        try { child.kill('SIGINT'); } catch { /* ignore */ }
-        cleanupTempDir();
-        reject(new Error('Tunnel URL not received within 30 seconds'));
-      }
-    }, DEFAULT_STARTUP_TIMEOUT_MS);
-
-    const checkReady = setInterval(() => {
-      if (publicUrl) {
-        clearTimeout(timeout);
-        clearInterval(checkReady);
-        resolve(null);
-      }
-    }, 100);
-
-    child.on('exit', (code) => {
-      clearTimeout(timeout);
-      clearInterval(checkReady);
-      cleanupTempDir();
-      if (code !== null && code !== 0) {
-        reject(new Error(`Cloudflared exited with code ${code}`));
-      }
-    });
-  });
-
-  return {
-    mode: TUNNEL_MODE_QUICK,
-    stop: () => {
-      try {
-        child.kill('SIGINT');
-      } catch {
-        // Ignore
-      }
-    },
-    process: child,
-    getPublicUrl: () => publicUrl,
-  };
-}
-
 export async function startCloudflareManagedRemoteTunnel({ token, hostname, tokenFilePath }) {
   const cfCheck = await checkCloudflaredAvailable();
 
@@ -598,9 +471,4 @@ export async function startCloudflareManagedLocalTunnel({ configPath, hostname }
     getResolvedHostname: () => resolvedHost,
     getEffectiveConfigPath: () => effectiveConfigPath,
   };
-}
-
-async function startCloudflareTunnel({ originUrl, port }) {
-  void port;
-  return startCloudflareQuickTunnel({ originUrl });
 }

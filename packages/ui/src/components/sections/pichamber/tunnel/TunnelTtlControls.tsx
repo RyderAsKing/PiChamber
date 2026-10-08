@@ -1,6 +1,5 @@
 import React from 'react';
 
-import { Icon } from '@/components/icon/Icon';
 import {
   SETTINGS_FIELD_LABEL_CLASS,
   SETTINGS_SELECT_SIZE,
@@ -19,14 +18,11 @@ import {
   ttlOptionLabel,
   ttlOptionValue,
 } from './tunnelHelpers';
-import type { TunnelMode } from './tunnelTypes';
 
 export interface TunnelTtlControlsProps {
   bootstrapTtlMs: number | null;
   sessionTtlMs: number;
-  tunnelMode: TunnelMode;
   disabled: boolean;
-  providerSupportsManagedModes: boolean;
   onBootstrapTtlChange: (val: string) => void;
   onSessionTtlChange: (val: string) => void;
 }
@@ -34,15 +30,12 @@ export interface TunnelTtlControlsProps {
 export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
   bootstrapTtlMs,
   sessionTtlMs,
-  tunnelMode,
   disabled,
-  providerSupportsManagedModes,
   onBootstrapTtlChange,
   onSessionTtlChange,
 }) => {
   return (
-    <>
-      <div
+    <div
         data-settings-item="tunnel.ttl"
         className="mt-2 grid grid-cols-1 gap-2 py-1.5 md:grid-cols-[14rem_auto] md:gap-x-8 md:gap-y-2"
       >
@@ -94,29 +87,5 @@ export const TunnelTtlControls: React.FC<TunnelTtlControlsProps> = ({
           </Select>
         </div>
       </div>
-
-      {tunnelMode === 'quick' && (
-        <div className="rounded-lg border border-[var(--status-warning)]/35 bg-[var(--status-warning)]/10 p-3">
-          <div className="flex items-start gap-2">
-            <Icon
-              name="error-warning"
-              className="mt-0.5 size-4 shrink-0 text-[var(--status-warning)]"
-            />
-            <div>
-              <p className="typography-meta text-[var(--status-warning)]">
-                {'Quick Tunnel is best effort and uptime is not guaranteed.'}
-              </p>
-              {providerSupportsManagedModes && (
-                <p className="typography-meta mt-1 text-[var(--status-warning)]">
-                  {
-                    'For more reliable long-lived access, switch to Managed Remote or Managed Local tunnel mode.'
-                  }
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   );
 };

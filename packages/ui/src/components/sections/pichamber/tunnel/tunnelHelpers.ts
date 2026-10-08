@@ -36,11 +36,6 @@ export const TUNNEL_MODE_OPTIONS: Array<{
   tooltip: string;
 }> = [
   {
-    value: 'quick',
-    label: 'Quick',
-    tooltip: 'Quick Tunnel is best effort and uptime is not guaranteed.',
-  },
-  {
     value: 'managed-remote',
     label: 'Managed Remote',
     tooltip:
@@ -139,16 +134,12 @@ export const getProviderLabel = (provider: string): string => {
 };
 
 export const toUiTunnelMode = (mode: string | null | undefined): TunnelMode => {
-  if (mode === 'quick') {
-    return 'quick';
-  }
-  if (mode === 'managed-remote') {
-    return 'managed-remote';
-  }
   if (mode === 'managed-local') {
     return 'managed-local';
   }
-  return 'quick';
+  // Stored 'quick' modes from older versions map to managed-remote: quick
+  // tunnels were removed, and managed-remote is the persistent replacement.
+  return 'managed-remote';
 };
 
 export const ttlOptionValue = (

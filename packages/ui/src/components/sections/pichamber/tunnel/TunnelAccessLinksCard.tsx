@@ -29,25 +29,16 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
         </div>
         <div className="space-y-1">
           {records.map((record) => {
-            const isQuick = record.mode === 'quick';
             const isManagedRemote = record.mode === 'managed-remote';
-            const modeBadgeClass = isQuick
-              ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-background)] text-[var(--status-warning)]'
-              : isManagedRemote
-                ? 'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)]'
-                : 'border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]';
+            const modeBadgeClass = isManagedRemote
+              ? 'border-[var(--status-info-border)] bg-[var(--status-info-background)] text-[var(--status-info)]'
+              : 'border-[var(--status-success-border)] bg-[var(--status-success-background)] text-[var(--status-success)]';
             const statusDotClass = record.isActive
-              ? isQuick
-                ? 'text-[var(--status-warning)]'
-                : isManagedRemote
-                  ? 'text-[var(--status-info)]'
-                  : 'text-[var(--status-success)]'
+              ? isManagedRemote
+                ? 'text-[var(--status-info)]'
+                : 'text-[var(--status-success)]'
               : 'text-muted-foreground/50';
-            const modeLabel = isQuick
-              ? 'QUICK'
-              : isManagedRemote
-                ? 'REMOTE'
-                : 'LOCAL';
+            const modeLabel = isManagedRemote ? 'REMOTE' : 'LOCAL';
 
             return (
               <div
