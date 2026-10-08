@@ -207,6 +207,7 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionStatuses'
   | 'extensionWidgets'
   | 'extensionDialogs'
+  | 'extensionNotices'
   | 'extensionPanels'
   | 'extensionApps'
   | 'extensionTitle'
@@ -1021,6 +1022,10 @@ export type PiExtensionNotifyEvent = PiEventEnvelope<
   {
     message: string;
     level: 'info' | 'warning' | 'error';
+    /** Daemon-assigned stable identity (1..128 chars). Absent on older servers. */
+    id?: string;
+    /** Daemon epoch ms. Absent on older servers. */
+    createdAt?: number;
   }
 >;
 

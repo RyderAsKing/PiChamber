@@ -53,6 +53,29 @@ describe("isPiEvent", () => {
     })).toBe(true)
   })
 
+  test("accepts extension.notify envelopes with and without daemon identity", () => {
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "extension.notify",
+      sequence: 3,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { message: "done", level: "info" },
+    })).toBe(true)
+    // Newer servers attach the stable notice id and daemon timestamp so
+    // reconnect replays and snapshot history reconcile against the same id.
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "extension.notify",
+      sequence: 4,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { message: "done", level: "warning", id: "notice-1", createdAt: 1_700_000_000_000 },
+    })).toBe(true)
+  })
+
   test("accepts session.input envelopes", () => {
     expect(isPiEvent({
       protocolVersion: 1,

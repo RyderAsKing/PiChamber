@@ -14,8 +14,9 @@ import type { PiSessionId } from '../types';
 
 export const emptySessionParts = (): PiReducerPartMap => createReducerPartMap();
 
-/** Upper bound for bounded extension feeds; oldest entries drop first. */
-export const MAX_EXTENSION_FEED_ITEMS = 10;
+/** Upper bound for bounded extension feeds; oldest entries drop first.
+ *  Matches the daemon's per-session notice retention (max 20). */
+export const MAX_EXTENSION_FEED_ITEMS = 20;
 
 let extensionFeedCounter = 0;
 export const nextExtensionFeedId = (): string => `ext-${Date.now().toString(36)}-${(extensionFeedCounter += 1)}`;

@@ -8,6 +8,7 @@ import {
 } from "./event-reducer"
 import { isPiEvent } from "./protocol"
 import type { PiSessionEvent } from "./protocol"
+import { mergeHydratedSession } from "@/sync/pi-session-store-helpers"
 
 const baseEvent = <T extends PiSessionEvent["name"]>(
   name: T,
@@ -168,16 +169,18 @@ describe("extension event reduction", () => {
 
   test("bounds notice and error feeds to the newest entries", () => {
     let state = createReducerState()
-    for (let index = 0; index < 15; index += 1) {
+    for (let index = 0; index < 25; index += 1) {
       state = applyPiEvent(state, baseEvent("extension.notify", index + 1, {
         message: `n${index}`,
         level: "info",
       })).state
     }
-    state = applyPiEvent(state, baseEvent("extension.error", 16, { source: "s", message: "boom" })).state
+    state = applyPiEvent(state, baseEvent("extension.error", 26, { source: "s", message: "boom" })).state
     const session = state.bySession.get("sess-1")!
-    expect(session.extensionNotices).toHaveLength(10)
-    expect(session.extensionNotices.at(-1)?.message).toBe("n14")
+    // Matches the daemon's per-session retention (max 20).
+    expect(session.extensionNotices).toHaveLength(20)
+    expect(session.extensionNotices.at(0)?.message).toBe("n5")
+    expect(session.extensionNotices.at(-1)?.message).toBe("n24")
     expect(session.extensionErrors).toHaveLength(1)
   })
 })
@@ -460,3 +463,210 @@ describe("hydrateSessionFromDetail with extension content", () => {
   })
 })
 
+
+describe("extension notice identity and history", () => {
+  const notify = (
+    sequence: number,
+    payload: { message: string; level: "info" | "warning" | "error"; id?: string; createdAt?: number },
+    sessionId = "sess-1",
+  ) => baseEvent("extension.notify", sequence, payload, sessionId)
+
+  test("live notify prefers the server id and timestamp", () => {
+    const state = applyPiEvent(createReducerState(), notify(1, {
+      message: "deployed",
+      level: "info",
+      id: "daemon-notice-1",
+      createdAt: 1_700_000_000_000,
+    })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    expect(notice).toMatchObject({
+      id: "daemon-notice-1",
+      message: "deployed",
+      level: "info",
+      createdAt: 1_700_000_000_000,
+      origin: "live",
+      serverTimestamp: true,
+    })
+  })
+
+  test("live notify without server fields falls back to a client id and clock", () => {
+    const before = Date.now()
+    const state = applyPiEvent(createReducerState(), notify(1, { message: "old server", level: "warning" })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    expect(notice?.id.length).toBeGreaterThan(0)
+    expect(notice?.origin).toBe("live")
+    expect(notice?.serverTimestamp).toBe(false)
+    expect(notice?.createdAt).toBeGreaterThanOrEqual(before)
+    expect((notice?.createdAt ?? 0) <= Date.now()).toBe(true)
+  })
+
+  test("a replayed event with a known server id is a no-op on the list", () => {
+    let state = applyPiEvent(createReducerState(), notify(1, {
+      message: "once",
+      level: "info",
+      id: "daemon-notice-9",
+      createdAt: 1_700_000_000_100,
+    })).state
+    const before = state.bySession.get("sess-1")!.extensionNotices
+    // Same id re-published under a newer sequence (reconnect replay).
+    state = applyPiEvent(state, notify(2, {
+      message: "once",
+      level: "info",
+      id: "daemon-notice-9",
+      createdAt: 1_700_000_000_100,
+    })).state
+    const after = state.bySession.get("sess-1")!.extensionNotices
+    expect(after).toBe(before)
+    expect(after).toHaveLength(1)
+  })
+
+  test("snapshot history replaces the list but preserves live origin by id", () => {
+    let state = applyPiEvent(createReducerState(), notify(1, {
+      message: "live confirmation",
+      level: "info",
+      id: "daemon-notice-1",
+      createdAt: 1_700_000_000_000,
+    })).state
+    state = applyPiEvent(state, notify(2, { message: "transient", level: "warning" })).state
+    state = applyPiEvent(state, baseEvent("session.snapshot", 3, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 3,
+        extensionNotices: [
+          { id: "daemon-notice-1", level: "info", message: "live confirmation", createdAt: 1_700_000_000_000 },
+          { id: "daemon-notice-2", level: "error", message: "older failure", createdAt: 1_699_999_999_000 },
+          { id: "", level: "info", message: "malformed", createdAt: 1 },
+        ],
+      },
+    } as never)).state
+    const notices = state.bySession.get("sess-1")!.extensionNotices
+    // Malformed entries drop; the id already shown live keeps its live record.
+    expect(notices.map((notice) => [notice.id, notice.origin])).toEqual([
+      ["daemon-notice-1", "live"],
+      ["daemon-notice-2", "history"],
+    ])
+    expect(notices[1]).toMatchObject({ serverTimestamp: true })
+  })
+
+  test("snapshot with an empty list clears; absent field keeps the list", () => {
+    let state = applyPiEvent(createReducerState(), notify(1, {
+      message: "kept",
+      level: "info",
+      id: "daemon-notice-1",
+      createdAt: 1_700_000_000_000,
+    })).state
+    // Older server: no extensionNotices field at all.
+    state = applyPiEvent(state, baseEvent("session.snapshot", 2, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 2,
+      },
+    } as never)).state
+    expect(state.bySession.get("sess-1")!.extensionNotices).toHaveLength(1)
+
+    // Authoritative empty history (daemon restart dropped them).
+    state = applyPiEvent(state, baseEvent("session.snapshot", 3, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 3,
+        extensionNotices: [],
+      },
+    } as never)).state
+    expect(state.bySession.get("sess-1")!.extensionNotices).toEqual([])
+  })
+
+  test("detail hydration projects history and marks authority", () => {
+    const { session: withHistory } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 4,
+      extensionNotices: [
+        { id: "daemon-notice-1", level: "warning", message: "disk filling", createdAt: 1_700_000_000_000 },
+      ],
+      messages: [],
+    })
+    expect(withHistory.extensionNotices).toEqual([
+      {
+        id: "daemon-notice-1",
+        level: "warning",
+        message: "disk filling",
+        createdAt: 1_700_000_000_000,
+        origin: "history",
+        serverTimestamp: true,
+      },
+    ])
+    expect(withHistory.extensionNoticesAuthority).toBe("history")
+
+    const { session: withoutField } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 4,
+      messages: [],
+    })
+    expect(withoutField.extensionNotices).toEqual([])
+    expect(withoutField.extensionNoticesAuthority).toBeUndefined()
+  })
+
+  test("mergeHydratedSession applies detail history and keeps the list when absent", () => {
+    const existingMessage = {
+      id: "u1",
+      sessionId: "sess-1",
+      directory: "/work",
+      role: "user",
+      createdAt: 10,
+      text: "hi",
+      thinking: "",
+      streaming: false,
+    }
+    const seedExisting = (notices: Array<{ id: string; origin: "live" | "history" }>) => {
+      let state = createReducerState()
+      state = applyPiEvent(state, notify(1, {
+        message: "live one",
+        level: "info",
+        id: "daemon-notice-1",
+        createdAt: 1_700_000_000_000,
+      })).state
+      const resident = state.bySession.get("sess-1")!
+      resident.messages = new Map([[existingMessage.id, existingMessage as never]])
+      if (notices.length === 0) resident.extensionNotices = []
+      return resident
+    }
+
+    // Detail with history replaces, preserving the live entry by id.
+    const fetched = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 9,
+      extensionNotices: [
+        { id: "daemon-notice-1", level: "info", message: "live one", createdAt: 1_700_000_000_000 },
+        { id: "daemon-notice-2", level: "error", message: "from another device", createdAt: 1_700_000_000_500 },
+      ],
+      messages: [],
+    }).session
+    const merged = mergeHydratedSession(fetched, seedExisting([{ id: "daemon-notice-1", origin: "live" }]))
+    expect(merged.extensionNotices.map((notice) => [notice.id, notice.origin])).toEqual([
+      ["daemon-notice-1", "live"],
+      ["daemon-notice-2", "history"],
+    ])
+    expect(merged.extensionNoticesAuthority).toBeUndefined()
+
+    // Detail without the field (older server) keeps the resident list.
+    const fetchedLegacy = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 9,
+      messages: [],
+    }).session
+    const mergedLegacy = mergeHydratedSession(fetchedLegacy, seedExisting([{ id: "daemon-notice-1", origin: "live" }]))
+    expect(mergedLegacy.extensionNotices.map((notice) => notice.id)).toEqual(["daemon-notice-1"])
+    expect(mergedLegacy.extensionNotices[0]?.origin).toBe("live")
+  })
+})

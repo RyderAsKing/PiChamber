@@ -97,6 +97,23 @@ export interface PiExtensionEditorOp {
   sequence: number;
 }
 
+/**
+ * A fire-and-forget extension notification held by the reducer, oldest
+ * first. `origin` records how the entry arrived: `'live'` for a live
+ * `extension.notify` event (the only entries that may toast), `'history'`
+ * for entries projected from an authoritative snapshot/detail list.
+ * `serverTimestamp` is true when `createdAt` came from the daemon, so toast
+ * freshness guards can tolerate clock skew for client-stamped entries.
+ */
+export interface PiReducerExtensionNotice {
+  id: string;
+  message: string;
+  level: 'info' | 'warning' | 'error';
+  createdAt: number;
+  origin: 'live' | 'history';
+  serverTimestamp: boolean;
+}
+
 export interface PiReducerSessionState {
   sessionId: PiSessionId;
   directory: string;
@@ -141,7 +158,15 @@ export interface PiReducerSessionState {
   /** Blocking extension dialogs awaiting a user answer, in arrival order. */
   extensionDialogs: PiExtensionDialogPayload[];
   /** Bounded feed of fire-and-forget extension notifications. */
-  extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
+  extensionNotices: PiReducerExtensionNotice[];
+  /**
+   * Set only on a freshly hydrated session whose detail carried an
+   * authoritative `extensionNotices` list. `mergeHydratedSession` reads it
+   * to distinguish authoritative-empty (replace) from absent (keep
+   * current); it is only ever read from the freshly fetched side, so a
+   * stale marker on a resident row is never consulted.
+   */
+  extensionNoticesAuthority?: 'history';
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
   /** Live declarative GUI panels keyed by stable id (latest wins). */
