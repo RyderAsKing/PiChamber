@@ -11,6 +11,7 @@ import {
   selectUnreadExtensionNotices,
   shouldToastExtensionNotice,
   STALE_LIVE_NOTICE_TOAST_GUARD_MS,
+  subscribeExtensionNoticesSeen,
 } from "./extensionNotices"
 import type { PiReducerExtensionNotice } from "./reducers/reducerTypes"
 import { getSafeStorage } from "@/stores/utils/safeStorage"
@@ -76,6 +77,18 @@ describe("extension notice seen markers", () => {
     expect(Object.keys(seen)).toHaveLength(MAX_EXTENSION_NOTICES_SEEN_ENTRIES)
     expect(getExtensionNoticesSeenAt(seen, "local", "sess-0")).toBeUndefined()
     expect(getExtensionNoticesSeenAt(seen, "local", `sess-${MAX_EXTENSION_NOTICES_SEEN_ENTRIES + 9}`)).toBeGreaterThan(0)
+  })
+
+  test("marking seen notifies subscribers until they unsubscribe", () => {
+    let calls = 0
+    const unsubscribe = subscribeExtensionNoticesSeen(() => {
+      calls += 1
+    })
+    markExtensionNoticesSeen("local", "sess-1", 1000)
+    expect(calls).toBe(1)
+    unsubscribe()
+    markExtensionNoticesSeen("local", "sess-1", 2000)
+    expect(calls).toBe(1)
   })
 
   test("newestExtensionNoticeAt finds the max timestamp", () => {

@@ -70,6 +70,20 @@ const writeExtensionNoticesSeen = (seen: ExtensionNoticesSeenMap): void => {
   }
 };
 
+const seenListeners = new Set<() => void>();
+
+/**
+ * Subscribe to seen-marker writes in this tab. The toast effect and the
+ * Recent notices button commit in the same render pass, so the button
+ * cannot rely on re-reading storage when the notice list changes.
+ */
+export const subscribeExtensionNoticesSeen = (listener: () => void): (() => void) => {
+  seenListeners.add(listener);
+  return () => {
+    seenListeners.delete(listener);
+  };
+};
+
 /** Newest seen `createdAt` for a session, or `undefined` when never seen. */
 export const getExtensionNoticesSeenAt = (
   seen: ExtensionNoticesSeenMap,
@@ -102,6 +116,13 @@ export const markExtensionNoticesSeen = (
     }
   }
   writeExtensionNoticesSeen(seen);
+  for (const listener of [...seenListeners]) {
+    try {
+      listener();
+    } catch {
+      // A failing subscriber must not block the others.
+    }
+  }
   return seen;
 };
 

@@ -17,6 +17,7 @@ import {
   safeRuntimeKeyForNotices,
   selectUnreadExtensionNotices,
   shouldToastExtensionNotice,
+  subscribeExtensionNoticesSeen,
 } from '@/lib/pi/extensionNotices';
 import type { IconName } from '@/components/icon/icons';
 import { Icon } from '@/components/icon/Icon';
@@ -287,11 +288,16 @@ export const ExtensionRecentNotices: React.FC<{ sessionId?: string | null }> = (
   ));
   const popoverRef = React.useRef<HTMLDivElement>(null);
 
-  // A toast shown while focused marks itself seen without opening the list;
-  // re-read the marker when the list changes so the dot clears promptly.
+  // A toast shown while focused marks itself seen without opening the list.
+  // Re-read on every marker write (the toast effect may commit after this
+  // one) and when the list or session changes.
   React.useEffect(() => {
     if (!activeSessionId) return;
-    setSeenAt(getExtensionNoticesSeenAt(readExtensionNoticesSeen(), runtimeKey, activeSessionId));
+    const reread = () => {
+      setSeenAt(getExtensionNoticesSeenAt(readExtensionNoticesSeen(), runtimeKey, activeSessionId));
+    };
+    reread();
+    return subscribeExtensionNoticesSeen(reread);
   }, [notices, runtimeKey, activeSessionId]);
 
   React.useEffect(() => {
