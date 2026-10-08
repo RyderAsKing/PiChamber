@@ -6,6 +6,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import {
   dispatchInputNeededNotification,
   dispatchSessionNotification,
+  inputNeededNotificationTag,
   notifySessionTurnComplete,
   useNotificationStore,
 } from './notification-store';
@@ -119,6 +120,10 @@ describe('session turn-complete notifications', () => {
     expect(payloads[0]?.requireHidden).toBe(true);
     expect(payloads[1]?.title).toBe('Approval needed');
     expect(payloads[1]?.tag).toBe('pichamber:input:s1:222');
+  });
+
+  test('inputNeededNotificationTag builds the since-scoped tag dispatch emits', () => {
+    expect(inputNeededNotificationTag('s1', 111)).toBe('pichamber:input:s1:111');
   });
 
   test('input-needed dispatch respects gates and falls back without a title', async () => {

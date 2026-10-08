@@ -153,7 +153,13 @@ export const newestExtensionNoticeAt = (
  * entry (callers track shown ids). A live server-stamped entry older than
  * the guard is a replay after reconnect — list it, do not burst-toast it.
  * The guard applies only when `createdAt` came from the server so client
- * clock skew never swallows a genuinely fresh notice.
+ * clock skew never swallows a genuinely fresh notice; when the reducer
+ * recorded a skew-corrected receive time (`toastAgeBase`, resolved from the
+ * event's `serverNow` sample) the guard measures against that instead of
+ * `createdAt`, so a skewed client clock neither swallows fresh notices nor
+ * replays stale ones. Without the sample the legacy `createdAt` behavior
+ * is kept. `createdAt` itself is never adjusted: seen markers compare
+ * server `createdAt` values.
  */
 export const shouldToastExtensionNotice = (
   notice: PiReducerExtensionNotice,
@@ -161,7 +167,8 @@ export const shouldToastExtensionNotice = (
 ): boolean => {
   if (notice.origin !== 'live') return false;
   if (!notice.serverTimestamp) return true;
-  return now - notice.createdAt <= STALE_LIVE_NOTICE_TOAST_GUARD_MS;
+  const ageBase = notice.toastAgeBase ?? notice.createdAt;
+  return now - ageBase <= STALE_LIVE_NOTICE_TOAST_GUARD_MS;
 };
 
 /** Short relative labels (`just now` / `5 min ago` / `2 h ago` / `3 d ago`). */

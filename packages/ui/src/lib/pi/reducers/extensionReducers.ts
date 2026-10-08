@@ -21,6 +21,7 @@ import {
 } from './reducerHelpers';
 import type { PiSessionId } from '../types';
 import { sanitizeExtensionMessageRender } from '../extension-ui';
+import { toClientTimestamp } from '../server-clock';
 
 export const reduceExtensionEntry = (
   session: PiReducerSessionState,
@@ -119,7 +120,13 @@ export const reduceExtensionDialogDismiss = (
 
 export const reduceExtensionNotify = (
   session: PiReducerSessionState,
-  payload: { message: string; level: 'info' | 'warning' | 'error'; id?: string; createdAt?: number },
+  payload: {
+    message: string;
+    level: 'info' | 'warning' | 'error';
+    id?: string;
+    createdAt?: number;
+    serverNow?: number;
+  },
 ): void => {
   // Prefer the daemon-assigned identity so reconnect replays and snapshot
   // history reconcile against the same id. Older servers send neither field.
@@ -134,13 +141,25 @@ export const reduceExtensionNotify = (
     && payload.createdAt > 0
     ? payload.createdAt
     : undefined;
+  const clientNow = Date.now();
+  const rawServerNow = payload.serverNow;
+  // Record the skew-corrected client-clock receive time so the toast
+  // freshness guard measures in one clock domain. Only when the event
+  // carries a clock sample; without it keep the legacy behavior.
+  const toastAgeBase = serverCreatedAt !== undefined
+    && typeof rawServerNow === 'number'
+    && Number.isFinite(rawServerNow)
+    && rawServerNow > 0
+    ? toClientTimestamp(serverCreatedAt, rawServerNow, clientNow) ?? serverCreatedAt
+    : undefined;
   session.extensionNotices = appendBoundedNoticeFeed(session.extensionNotices, {
     id,
     message: payload.message,
     level: payload.level,
-    createdAt: serverCreatedAt ?? Date.now(),
+    createdAt: serverCreatedAt ?? clientNow,
     origin: 'live',
     serverTimestamp: serverCreatedAt !== undefined,
+    ...(toastAgeBase !== undefined ? { toastAgeBase } : {}),
   });
 };
 

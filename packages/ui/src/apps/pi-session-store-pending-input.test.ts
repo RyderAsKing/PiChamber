@@ -17,6 +17,7 @@ const inputEvent = (
   sessionId: string,
   sequence: number,
   pending: { count: number; kind: 'input' | 'approval'; since: number } | null,
+  serverNow?: number,
 ): PiSessionEvent => ({
   protocolVersion: 1,
   kind: 'event',
@@ -24,7 +25,7 @@ const inputEvent = (
   sequence,
   sessionId,
   directory: '/repo',
-  payload: { pending },
+  payload: { pending, ...(serverNow !== undefined ? { serverNow } : {}) },
 });
 
 const snapshotEvent = (
@@ -175,5 +176,38 @@ describe('pending-input transitions', () => {
     ]);
     expect(seen).toHaveLength(1);
     expect(seen[0]?.type).toBe('opened');
+  });
+
+  test('opened carries the event serverNow for skew-corrected age math', () => {
+    const { internal, seen } = freshStore();
+    const pending = { count: 1, kind: 'input' as const, since: 1_000 };
+
+    internal.commitEvents([inputEvent('s1', 1, pending, 1_500)]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({
+      type: 'opened',
+      sessionId: 's1',
+      directory: '/repo',
+      pending,
+      serverNow: 1_500,
+    });
+  });
+
+  test('opened omits serverNow when the event carries none (older server)', () => {
+    const { internal, seen } = freshStore();
+    const pending = { count: 1, kind: 'input' as const, since: 1_000 };
+
+    internal.commitEvents([inputEvent('s1', 1, pending)]);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({ type: 'opened', sessionId: 's1', directory: '/repo', pending });
+    expect('serverNow' in (seen[0] as object)).toBe(false);
+
+    // A malformed clock sample is dropped rather than committed.
+    seen.length = 0;
+    internal.commitEvents([inputEvent('s1', 2, null)]);
+    internal.commitEvents([inputEvent('s1', 3, pending, Number.NaN)]);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toEqual({ type: 'cleared', sessionId: 's1', directory: '/repo', pending: null });
+    expect(seen[1]).toEqual({ type: 'opened', sessionId: 's1', directory: '/repo', pending });
   });
 });

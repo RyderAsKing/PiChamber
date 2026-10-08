@@ -997,6 +997,8 @@ export type PiSessionInputEvent = PiEventEnvelope<
   'session.input',
   {
     pending: PiPendingInputSummary | null;
+    /** Server wall clock (epoch ms) at publish. Absent on older servers. */
+    serverNow?: number;
   }
 >;
 
@@ -1042,6 +1044,8 @@ export type PiExtensionNotifyEvent = PiEventEnvelope<
     id?: string;
     /** Daemon epoch ms. Absent on older servers. */
     createdAt?: number;
+    /** Server wall clock (epoch ms) at publish. Absent on older servers. */
+    serverNow?: number;
   }
 >;
 

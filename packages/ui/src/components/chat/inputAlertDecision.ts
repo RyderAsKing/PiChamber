@@ -24,13 +24,21 @@ export interface InputAlertContext {
   focused: boolean;
   /** The user's notification mode setting. */
   mode: 'always' | 'hidden-only';
-  /** `Date.now() - pending.since` in ms. */
+  /** Skew-corrected request age in ms (`Date.now()` minus the
+   *  `toClientTimestamp`-resolved `pending.since`). Without a server clock
+   *  sample this is the raw client/server difference, so small negative
+   *  values are clamped to fresh instead of suppressing the alert. */
   ageMs: number;
 }
 
 export const decideInputAlert = (context: InputAlertContext): InputAlertDecision => {
-  if (!Number.isFinite(context.ageMs) || context.ageMs < 0) return 'none';
-  if (context.ageMs > PENDING_INPUT_MAX_ALERT_AGE_MS) return 'none';
+  if (!Number.isFinite(context.ageMs)) return 'none';
+  // `since` is a server timestamp, so a client clock behind the server (and
+   // any path without a `serverNow` sample) can produce a slightly negative
+   // age for a genuinely fresh request. Clamp to fresh instead of staying
+   // quiet; the staleness guard above still suppresses true replay bursts.
+  const ageMs = Math.max(0, context.ageMs);
+  if (ageMs > PENDING_INPUT_MAX_ALERT_AGE_MS) return 'none';
   if (context.isCurrent && context.visible && context.focused) return 'none';
   if (!context.visible || !context.focused || (context.mode === 'always' && !context.isCurrent)) {
     return 'toast-and-notify';

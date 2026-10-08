@@ -21,6 +21,7 @@ const notice = (
   createdAt: number,
   origin: PiReducerExtensionNotice["origin"] = "live",
   serverTimestamp = true,
+  toastAgeBase?: number,
 ): PiReducerExtensionNotice => ({
   id,
   message: `message ${id}`,
@@ -28,6 +29,7 @@ const notice = (
   createdAt,
   origin,
   serverTimestamp,
+  ...(toastAgeBase !== undefined ? { toastAgeBase } : {}),
 })
 
 describe("extension notice seen markers", () => {
@@ -113,6 +115,23 @@ describe("extension notice toast guard", () => {
 
   test("fresh server-stamped live entries toast", () => {
     expect(shouldToastExtensionNotice(notice("a", now - 60_000, "live", true), now)).toBe(true)
+  })
+
+  test("a skew-corrected receive time toasts a fresh notice on a skewed clock", () => {
+    // Client clock 10 min ahead of the server: the raw `createdAt` looks
+    // stale, but the corrected receive time proves it just arrived.
+    const createdAt = now - 10 * 60_000
+    expect(shouldToastExtensionNotice(notice("a", createdAt, "live", true), now)).toBe(false)
+    expect(shouldToastExtensionNotice(notice("a", createdAt, "live", true, now - 1_000), now)).toBe(true)
+  })
+
+  test("a stale receive time stays quiet even for a fresh-looking createdAt", () => {
+    const staleBase = now - STALE_LIVE_NOTICE_TOAST_GUARD_MS - 1
+    expect(shouldToastExtensionNotice(notice("a", now - 1_000, "live", true, staleBase), now)).toBe(false)
+  })
+
+  test("entries without a corrected receive time keep the legacy behavior", () => {
+    expect(shouldToastExtensionNotice(notice("a", now - 60_000, "live", true, undefined), now)).toBe(true)
   })
 })
 

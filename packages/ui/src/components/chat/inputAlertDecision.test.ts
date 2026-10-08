@@ -48,11 +48,23 @@ describe('decideInputAlert', () => {
     })).toBe('toast-and-notify');
   });
 
-  test('rejects non-finite and negative ages', () => {
-    for (const ageMs of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+  test('rejects non-finite ages', () => {
+    for (const ageMs of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(decideInputAlert({
         isCurrent: false, visible: false, focused: false, mode: 'hidden-only', ageMs,
       })).toBe('none');
     }
+  });
+
+  test('treats slightly negative ages as fresh instead of staying quiet', () => {
+    // `since` is a server timestamp, so a client clock behind the server (or
+    // an older server without a clock sample) yields a negative age for a
+    // genuinely fresh request. Clamp to fresh; staleness still suppresses.
+    expect(decideInputAlert({
+      isCurrent: false, visible: false, focused: false, mode: 'hidden-only', ageMs: -1,
+    })).toBe('toast-and-notify');
+    expect(decideInputAlert({
+      isCurrent: false, visible: true, focused: true, mode: 'hidden-only', ageMs: -5_000,
+    })).toBe('toast');
   });
 });

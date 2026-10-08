@@ -74,6 +74,23 @@ describe("isPiEvent", () => {
       directory: "/work",
       payload: { message: "done", level: "warning", id: "notice-1", createdAt: 1_700_000_000_000 },
     })).toBe(true)
+    // Newer servers also sample their wall clock at publish so clients can
+    // correct the toast freshness guard for clock skew.
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "extension.notify",
+      sequence: 5,
+      sessionId: "s1",
+      directory: "/work",
+      payload: {
+        message: "done",
+        level: "info",
+        id: "notice-2",
+        createdAt: 1_700_000_000_000,
+        serverNow: 1_700_000_000_100,
+      },
+    })).toBe(true)
   })
 
   test("accepts session.input envelopes", () => {
@@ -94,6 +111,17 @@ describe("isPiEvent", () => {
       sessionId: "s1",
       directory: "/work",
       payload: { pending: null },
+    })).toBe(true)
+    // Newer servers sample their wall clock at publish so clients can
+    // correct `since` for clock skew; older servers omit the field.
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "session.input",
+      sequence: 9,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { pending: { count: 1, kind: "input", since: 50 }, serverNow: 1_700_000_000_000 },
     })).toBe(true)
   })
 

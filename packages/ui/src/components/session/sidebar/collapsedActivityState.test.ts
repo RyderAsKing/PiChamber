@@ -44,6 +44,51 @@ describe('getSessionNodesActivityState', () => {
     )).toBe('input');
   });
 
+  test('reports input for a child needing input under a busy parent', () => {
+    const nodes = [node('busy-parent', undefined, [node('waiting-child', 'busy-parent')])];
+
+    expect(getSessionNodesActivityState(
+      nodes,
+      new Set(['busy-parent']),
+      new Set(),
+      new Set(['waiting-child']),
+    )).toBe('input');
+  });
+
+  test('reports input for a deep descendant needing input under a busy parent', () => {
+    const nodes = [
+      node('busy-parent', undefined, [
+        node('idle-child', 'busy-parent', [node('waiting-grandchild', 'idle-child')]),
+      ]),
+    ];
+
+    expect(getSessionNodesActivityState(
+      nodes,
+      new Set(['busy-parent']),
+      new Set(),
+      new Set(['waiting-grandchild']),
+    )).toBe('input');
+  });
+
+  test('keeps active for a busy parent with no descendant needing input', () => {
+    const nodes = [node('busy-parent', undefined, [node('idle-child', 'busy-parent')])];
+
+    expect(getSessionNodesActivityState(
+      nodes,
+      new Set(['busy-parent']),
+      new Set(['idle-child']),
+    )).toBe('active');
+  });
+
+  test('reports input when the busy session itself needs input', () => {
+    expect(getSessionNodesActivityState(
+      [node('busy-waiting')],
+      new Set(['busy-waiting']),
+      new Set(),
+      new Set(['busy-waiting']),
+    )).toBe('input');
+  });
+
   test('includes unread subtasks in collapsed activity', () => {
     const nodes = [node('root', undefined, [node('unread-child', 'root')])];
 

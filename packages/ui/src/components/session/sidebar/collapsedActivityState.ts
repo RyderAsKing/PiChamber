@@ -24,6 +24,15 @@ const getSessionNodeActivityState = (
     return 'input';
   }
   if (activeSessionIds.has(node.session.id)) {
+    // A busy parent must not hide a descendant waiting on the user: a
+    // needs-input child under an active session still reports 'input'.
+    for (const child of node.children) {
+      if (
+        getSessionNodeActivityState(child, activeSessionIds, unreadSessionIds, inputSessionIds) === 'input'
+      ) {
+        return 'input';
+      }
+    }
     return 'active';
   }
 

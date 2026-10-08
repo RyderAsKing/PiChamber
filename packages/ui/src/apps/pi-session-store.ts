@@ -150,6 +150,10 @@ export interface PendingInputTransition {
   directory: string;
   /** The new summary for `'opened'`, `null` for `'cleared'`. */
   pending: PiPendingInputSummary | null;
+  /** Server wall clock (epoch ms) at publish, from the live `session.input`
+   *  event. Lets alert age math correct for client/server clock skew.
+   *  Absent on older servers and on every `'cleared'` transition. */
+  serverNow?: number;
 }
 
 export type PendingInputTransitionListener = (transition: PendingInputTransition) => void;
@@ -3943,6 +3947,12 @@ export class PiSessionStore {
               ? (raw as PiPendingInputSummary)
               : undefined;
           if (normalized === undefined) continue;
+          const rawServerNow = (event.payload as { serverNow?: unknown }).serverNow;
+          const eventServerNow = typeof rawServerNow === 'number'
+            && Number.isFinite(rawServerNow)
+            && rawServerNow > 0
+            ? rawServerNow
+            : undefined;
           const wasOpen = current != null;
           const isOpen = normalized != null;
           if (!wasOpen && isOpen && normalized) {
@@ -3951,6 +3961,7 @@ export class PiSessionStore {
               sessionId,
               directory: committed.directory ?? event.directory,
               pending: normalized,
+              ...(eventServerNow !== undefined ? { serverNow: eventServerNow } : {}),
             });
           } else if (wasOpen && !isOpen) {
             walked.push({

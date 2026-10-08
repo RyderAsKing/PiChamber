@@ -472,7 +472,13 @@ describe("hydrateSessionFromDetail with extension content", () => {
 describe("extension notice identity and history", () => {
   const notify = (
     sequence: number,
-    payload: { message: string; level: "info" | "warning" | "error"; id?: string; createdAt?: number },
+    payload: {
+      message: string;
+      level: "info" | "warning" | "error";
+      id?: string;
+      createdAt?: number;
+      serverNow?: number;
+    },
     sessionId = "sess-1",
   ) => baseEvent("extension.notify", sequence, payload, sessionId)
 
@@ -503,6 +509,39 @@ describe("extension notice identity and history", () => {
     expect(notice?.serverTimestamp).toBe(false)
     expect(notice?.createdAt).toBeGreaterThanOrEqual(before)
     expect((notice?.createdAt ?? 0) <= Date.now()).toBe(true)
+    expect(notice?.toastAgeBase).toBeUndefined()
+  })
+
+  test("live notify with a server clock sample records a skew-corrected toast base", () => {
+    const clientNow = Date.now()
+    // Server clock 60 s ahead of the client: the raw `createdAt` looks 60 s
+    // old on this clock, but the corrected receive time is now.
+    const serverNow = clientNow + 60_000
+    const state = applyPiEvent(createReducerState(), notify(1, {
+      message: "fresh",
+      level: "info",
+      id: "daemon-notice-2",
+      createdAt: serverNow - 1_000,
+      serverNow,
+    })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    // `createdAt` itself is never adjusted: seen markers compare server values.
+    expect(notice?.createdAt).toBe(serverNow - 1_000)
+    expect(notice?.serverTimestamp).toBe(true)
+    expect(notice?.toastAgeBase).toBeDefined()
+    expect(Math.abs((notice?.toastAgeBase ?? 0) - clientNow)).toBeLessThan(5_000)
+  })
+
+  test("live notify without a server clock sample keeps the legacy guard behavior", () => {
+    const state = applyPiEvent(createReducerState(), notify(1, {
+      message: "legacy",
+      level: "info",
+      id: "daemon-notice-3",
+      createdAt: 1_700_000_000_000,
+    })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    expect(notice?.createdAt).toBe(1_700_000_000_000)
+    expect(notice?.toastAgeBase).toBeUndefined()
   })
 
   test("a replayed event with a known server id is a no-op on the list", () => {

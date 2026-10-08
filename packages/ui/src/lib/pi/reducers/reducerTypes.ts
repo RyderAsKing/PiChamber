@@ -104,6 +104,13 @@ export interface PiExtensionEditorOp {
  * for entries projected from an authoritative snapshot/detail list.
  * `serverTimestamp` is true when `createdAt` came from the daemon, so toast
  * freshness guards can tolerate clock skew for client-stamped entries.
+ * `toastAgeBase` is the skew-corrected client-clock receive time for a live
+ * server-stamped notice (resolved from the event's `serverNow` sample): the
+ * toast guard measures against it instead of `createdAt`, so a skewed client
+ * clock neither swallows fresh notices nor replays stale ones. Absent when
+ * the event carried no clock sample (older server) — the guard then keeps
+ * its legacy `createdAt` behavior. `createdAt` itself is never adjusted:
+ * seen markers compare server `createdAt` values.
  */
 export interface PiReducerExtensionNotice {
   id: string;
@@ -112,6 +119,7 @@ export interface PiReducerExtensionNotice {
   createdAt: number;
   origin: 'live' | 'history';
   serverTimestamp: boolean;
+  toastAgeBase?: number;
 }
 
 export interface PiReducerSessionState {

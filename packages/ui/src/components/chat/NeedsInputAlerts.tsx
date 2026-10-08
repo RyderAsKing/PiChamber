@@ -7,9 +7,10 @@ import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { isDesktopShell } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
+import { toClientTimestamp } from '@/lib/pi/server-clock';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { useUIStore } from '@/stores/useUIStore';
-import { dispatchInputNeededNotification } from '@/sync/notification-store';
+import { dispatchInputNeededNotification, inputNeededNotificationTag } from '@/sync/notification-store';
 import { liveSessionRecordToUiSession, selectSessionsNeedingInput } from '@/sync/pi-session-catalog';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useSessionsNeedingInput } from '@/sync/sync-context';
@@ -44,7 +45,11 @@ const displayTitleForSession = (sessionId: string): string => {
   return getSessionDisplayTitle(liveSessionRecordToUiSession(record), 'Untitled session');
 };
 
-const readAlertContext = (sessionId: string, pending: PiPendingInputSummary): InputAlertContext => {
+const readAlertContext = (
+  sessionId: string,
+  pending: PiPendingInputSummary,
+  serverNow?: number,
+): InputAlertContext => {
   const isCurrent = useSessionUIStore.getState().currentSessionId === sessionId;
   const visible = typeof document !== 'undefined' && document.visibilityState === 'visible';
   let focused = false;
@@ -54,12 +59,18 @@ const readAlertContext = (sessionId: string, pending: PiPendingInputSummary): In
     focused = false;
   }
   const mode = useUIStore.getState().notificationMode;
+  const clientNow = Date.now();
+  // `since` is a server timestamp: resolve it against the event's server
+  // clock sample so client/server skew cannot suppress a fresh request.
+  // Without the sample (older server) this falls back to the raw difference
+  // and the decision clamps small negative ages to fresh.
+  const resolvedSince = toClientTimestamp(pending.since, serverNow, clientNow) ?? pending.since;
   return {
     isCurrent,
     visible,
     focused,
     mode: mode === 'always' ? 'always' : 'hidden-only',
-    ageMs: Date.now() - pending.since,
+    ageMs: clientNow - resolvedSince,
   };
 };
 
@@ -77,6 +88,37 @@ const showInputToast = (sessionId: string, directory: string, pending: PiPending
       onClick: () => navigateToSession(sessionId, directory || null),
     },
   });
+};
+
+/** One catalog row read for stale-alert reconciliation. */
+interface NeedingAlertCatalogEntry {
+  /** False when the session row no longer exists. */
+  exists: boolean;
+  /** Non-null while needing, `null` when known clear, `undefined` when unknown. */
+  pendingInput: PiPendingInputSummary | null | undefined;
+}
+
+/**
+ * Raised sessions the authoritative catalog no longer reports as needing
+ * input. Only a known `null` dismisses the toast and OS notification:
+ * unknown (`undefined`) is not cleared, and a missing row is left alone
+ * because directory listings can drop rows without the session ending
+ * (real deletions already emit `cleared` through the deletion path). Non-live paths
+ * (global refetch, list rows, snapshots, details, epoch resets) never emit
+ * transitions, so without this the alert surfaces would linger forever.
+ */
+export const selectStaleNeedingAlertSessions = (
+  raisedSessionIds: readonly string[],
+  needingSessionIds: ReadonlySet<string>,
+  lookup: (sessionId: string) => NeedingAlertCatalogEntry,
+): string[] => {
+  const stale: string[] = [];
+  for (const sessionId of raisedSessionIds) {
+    if (needingSessionIds.has(sessionId)) continue;
+    const entry = lookup(sessionId);
+    if (entry.exists && entry.pendingInput === null) stale.push(sessionId);
+  }
+  return stale;
 };
 
 export const NeedsInputAlerts: React.FC = () => {
@@ -122,12 +164,12 @@ export const NeedsInputAlerts: React.FC = () => {
       return;
     }
     const pending = transition.pending;
-    const decision = decideInputAlert(readAlertContext(transition.sessionId, pending));
+    const decision = decideInputAlert(readAlertContext(transition.sessionId, pending, transition.serverNow));
     if (decision === 'none') return;
     raisedToastsRef.current.add(toastIdForSession(transition.sessionId));
     showInputToast(transition.sessionId, transition.directory, pending);
     if (decision === 'toast-and-notify') {
-      const tag = `pichamber:input:${transition.sessionId}:${pending.since}`;
+      const tag = inputNeededNotificationTag(transition.sessionId, pending.since);
       raisedTagsRef.current.set(transition.sessionId, tag);
       dispatchInputNeededNotification({
         sessionId: transition.sessionId,
@@ -143,6 +185,31 @@ export const NeedsInputAlerts: React.FC = () => {
   React.useEffect(() => {
     if (currentSessionId) dismissSessionAlert(currentSessionId);
   }, [currentSessionId, dismissSessionAlert]);
+
+  // Pending state can also clear through non-live paths — the global
+  // pending-input refetch, list rows, snapshots, details, or an epoch
+  // reset — which never emit transitions by design. Reconcile every raised
+  // alert against the authoritative catalog set so those toasts and OS
+  // notifications cannot linger forever. Only a known `null` dismisses.
+  const needing = useSessionsNeedingInput();
+  React.useEffect(() => {
+    const needingIds = new Set(needing.map((entry) => entry.sessionId));
+    const raised = new Set<string>(raisedTagsRef.current.keys());
+    for (const toastId of raisedToastsRef.current) {
+      if (toastId.startsWith(PENDING_INPUT_TOAST_ID_PREFIX)) {
+        raised.add(toastId.slice(PENDING_INPUT_TOAST_ID_PREFIX.length));
+      }
+    }
+    if (raised.size === 0) return;
+    const catalog = getPiSessionStore().getState().catalog;
+    const stale = selectStaleNeedingAlertSessions([...raised], needingIds, (sessionId) => {
+      const record = catalog.byId.get(sessionId);
+      return record
+        ? { exists: true, pendingInput: record.pendingInput }
+        : { exists: false, pendingInput: undefined };
+    });
+    for (const sessionId of stale) dismissSessionAlert(sessionId);
+  }, [needing, dismissSessionAlert]);
 
   // Runtime switch and unmount: never leave another runtime's toasts up.
   React.useEffect(() => subscribeRuntimeEndpointChanged(() => {
