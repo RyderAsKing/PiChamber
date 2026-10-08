@@ -61,3 +61,5 @@ macOS artifacts are unsigned development previews until Apple Developer Program 
 - Keep shared UI behavior in `packages/ui` and server behavior in `packages/web`.
 - Background processes on Windows must use direct hidden spawns (`windowsHide: true`) and never `cmd.exe` wrappers.
 - Validate both HMR and bundled UI startup after changing startup, preload, routing, or packaging.
+- `desktop_notify` shows a tag-deduped (5 s) native notification; `desktop_notification_close { tag }` dismisses a shown one by tag (bounded registry in `notification-tags.mjs`). Both are local-page only and never in `COMMANDS_SAFE_FOR_REMOTE`. Clicking a notification that carries a session focuses the app and emits `pichamber:open-session` to all windows.
+- `desktop_tray_update { dockBadgeCount }` sets the macOS dock badge to the count of sessions needing input (0 clears; the renderer sends 0 while the dock-badge setting is off). A badge-only update never rebuilds the tray menu.

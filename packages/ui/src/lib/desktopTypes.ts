@@ -59,6 +59,7 @@ export type DesktopSettings = {
   notificationMode?: 'always' | 'hidden-only';
   notifyOnCompletion?: boolean;
   notifyOnError?: boolean;
+  notifyOnInputNeeded?: boolean;
 
   summarizeLastMessage?: boolean;
   summaryThreshold?: number;

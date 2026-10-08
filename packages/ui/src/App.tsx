@@ -21,6 +21,7 @@ import { startAppearanceAutoSave } from '@/lib/appearanceAutoSave';
 import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
+import { NeedsInputAlerts, NeedsInputBadge, NotificationOpenSessionBridge } from '@/components/chat/NeedsInputAlerts';
 
 const AppInner: React.FC = () => {
   useAppFontEffects();
@@ -29,6 +30,9 @@ const AppInner: React.FC = () => {
     <FireworksProvider>
       <SyncAppEffects embeddedBackgroundWorkEnabled />
       <WindowTitleEffect />
+      <NeedsInputAlerts />
+      <NeedsInputBadge />
+      <NotificationOpenSessionBridge />
       <MainLayout />
       <WorktreeCreationToasts />
       <Toaster />

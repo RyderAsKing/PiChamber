@@ -946,4 +946,11 @@ describe('updateDesktopSettings', () => {
     expect(sanitizeWebSettings({ serverUpdateChannel: 'rc' })?.serverUpdateChannel).toBe('rc');
     expect(sanitizeWebSettings({ serverUpdateChannel: 'nightly' })?.serverUpdateChannel).toBeUndefined();
   });
+
+  test('sanitizes the input-needed notification toggle as a boolean', () => {
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: false })?.notifyOnInputNeeded).toBe(false);
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: true })?.notifyOnInputNeeded).toBe(true);
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: 'yes' })?.notifyOnInputNeeded).toBeUndefined();
+    expect(sanitizeWebSettings({})?.notifyOnInputNeeded).toBeUndefined();
+  });
 });

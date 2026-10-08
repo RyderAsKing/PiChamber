@@ -28,6 +28,11 @@ mock.module('@/components/perf/PerfHudHost', () => ({ PerfHudHost: () => null })
 mock.module('@/components/worktree/WorktreeCreationToasts', () => ({ WorktreeCreationToasts: () => null }));
 mock.module('@/hooks/useRouter', () => ({ useRouter: () => undefined }));
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
+mock.module('@/components/chat/NeedsInputAlerts', () => ({
+  NeedsInputAlerts: () => null,
+  NeedsInputBadge: () => null,
+  NotificationOpenSessionBridge: () => null,
+}));
 mock.module('@/lib/runtime-switch', () => ({
   getRuntimeKey: () => 'local',
   getRuntimeApiBaseUrl: () => 'http://127.0.0.1:3000',

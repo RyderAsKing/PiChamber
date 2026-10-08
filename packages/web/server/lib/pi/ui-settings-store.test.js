@@ -265,6 +265,23 @@ describe('Pi UI settings store', () => {
     });
   });
 
+  it('persists the input-needed notification toggle in portable settings', async () => {
+    const { file, store } = await makeStore();
+
+    await expect(store.write({ notifyOnInputNeeded: false })).resolves.toMatchObject({
+      notifyOnInputNeeded: false,
+    });
+    expect(await readJson(file)).toEqual({
+      __pichamberSettingsScope: 'portable-v1',
+      notifyOnInputNeeded: false,
+    });
+
+    await expect(store.write({ notifyOnInputNeeded: true })).resolves.toMatchObject({
+      notifyOnInputNeeded: true,
+    });
+    await expect(store.read()).resolves.toMatchObject({ notifyOnInputNeeded: true });
+  });
+
   it('preserves failure behavior for malformed and oversized payloads', async () => {
     const { file, store } = await makeStore();
     await writeFile(file, '{broken');

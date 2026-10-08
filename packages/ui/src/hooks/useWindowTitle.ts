@@ -3,6 +3,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { desktopHostsGet, getDesktopHostApiUrl, locationMatchesHost, redactSensitiveUrl } from '@/lib/desktopHosts';
 import { setDesktopWindowTitle } from '@/lib/desktopNative';
+import { useNeedsInputTitlePrefix } from '@/components/chat/NeedsInputAlerts';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -57,6 +58,9 @@ const useWindowTitle = () => {
   }, [activeProject]);
 
   const [instanceLabel, setInstanceLabel] = React.useState<string | null>(null);
+  // `(N)` prefix for sessions needing input (non-desktop browsers only;
+  // Electron's dock badge and native mobile cover their own surfaces).
+  const titlePrefix = useNeedsInputTitlePrefix();
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || !isDesktopShell()) {
@@ -112,8 +116,8 @@ const useWindowTitle = () => {
   }, []);
 
   const title = React.useMemo(
-    () => buildWindowTitle(extensionTitle?.trim() || projectLabel, instanceLabel),
-    [extensionTitle, instanceLabel, projectLabel],
+    () => `${titlePrefix}${buildWindowTitle(extensionTitle?.trim() || projectLabel, instanceLabel)}`,
+    [extensionTitle, instanceLabel, projectLabel, titlePrefix],
   );
 
   React.useEffect(() => {

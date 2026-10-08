@@ -130,6 +130,37 @@ export const getPiSessionStore = (): PiSessionStore => {
   return sharedStore;
 };
 
+/**
+ * Pending-input transition observed on the LIVE `session.input` event path.
+ *
+ * - `'opened'`: the session's catalog summary went from null/unknown to a
+ *   non-null summary (a new blocking request is waiting on the user).
+ * - `'cleared'`: the summary went from non-null to null, or the session row
+ *   was deleted while non-null.
+ *
+ * Changes in count or `since` while staying non-null emit nothing. List
+ * fetches, snapshots, details, and epoch resets never emit — only live
+ * `session.input` events (and row deletion) do.
+ */
+export interface PendingInputTransition {
+  type: 'opened' | 'cleared';
+  sessionId: PiSessionId;
+  directory: string;
+  /** The new summary for `'opened'`, `null` for `'cleared'`. */
+  pending: PiPendingInputSummary | null;
+}
+
+export type PendingInputTransitionListener = (transition: PendingInputTransition) => void;
+
+/**
+ * Subscribe to live pending-input transitions on the shared store.
+ * Returns an unsubscribe function. Mirrors the store-level subscription
+ * style used by `PiSessionStore.subscribe`.
+ */
+export const subscribePendingInputTransitions = (
+  listener: PendingInputTransitionListener,
+): (() => void) => getPiSessionStore().subscribePendingInputTransitions(listener);
+
 const viteHot = (import.meta as ImportMeta & { hot?: { dispose: (cb: () => void) => void } }).hot;
 if (viteHot) {
   viteHot.dispose(() => {
@@ -833,6 +864,11 @@ export class PiSessionStore {
       || this.hydratedSessionIds.has(sessionId)
       || this.state.catalog.byId.has(sessionId)
       || this.state.sessions.some((item) => item.session.id === sessionId);
+    // A row deleted while its pending-input summary is non-null clears the
+    // alert state: emit a live `cleared` transition for it (deletions never
+    // come from list/snapshot/detail/epoch paths, so the live-only rule holds).
+    const deletedPending = this.state.catalog.byId.get(sessionId)?.pendingInput ?? null;
+    const deletedDirectory = this.state.catalog.byId.get(sessionId)?.directory ?? directory ?? '';
     const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
     const selectedSessionId = this.state.selectedSessionId === sessionId
       ? (sessions.find((item) => !item.session.archived)?.session.id ?? null)
@@ -875,6 +911,14 @@ export class PiSessionStore {
     const topics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
+    if (deletedPending != null) {
+      this.emitPendingInputTransitions([{
+        type: 'cleared',
+        sessionId,
+        directory: deletedDirectory,
+        pending: null,
+      }]);
+    }
     return true;
   }
   /**
@@ -965,6 +1009,35 @@ export class PiSessionStore {
       const bucket = this.listenersByTopic.get(topic);
       if (bucket) bucket.delete(listener);
     };
+  };
+  /** Live pending-input transition listeners (see `PendingInputTransition`).
+   *  Cleared on runtime reset/switch alongside every other runtime-scoped map. */
+  private pendingInputTransitionListeners = new Set<PendingInputTransitionListener>();
+  /**
+   * Subscribe to live pending-input `opened`/`cleared` transitions.
+   * Fires only for the LIVE `session.input` event path (and row deletion),
+   * never for list fetches, snapshots, details, or epoch resets.
+   * Returns an unsubscribe function.
+   */
+  subscribePendingInputTransitions = (
+    listener: PendingInputTransitionListener,
+  ): (() => void) => {
+    this.pendingInputTransitionListeners.add(listener);
+    return () => {
+      this.pendingInputTransitionListeners.delete(listener);
+    };
+  };
+  private emitPendingInputTransitions(transitions: readonly PendingInputTransition[]): void {
+    if (transitions.length === 0 || this.pendingInputTransitionListeners.size === 0) return;
+    for (const listener of [...this.pendingInputTransitionListeners]) {
+      for (const transition of transitions) {
+        try {
+          listener(transition);
+        } catch (error) {
+          console.error('[pi-session-store] pending-input listener failed', error);
+        }
+      }
+    }
   };
   private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
@@ -3826,7 +3899,36 @@ export class PiSessionStore {
     // stale-epoch event, must not resurrect a catalog row here.
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
+    // Live-only pending-input transitions: compare the pre-commit catalog
+    // against the committed one for ids carried by `session.input` events.
+    // Snapshots, list rows, details, and epoch resets take no part — only
+    // the live event path emits. Count/`since` changes while staying
+    // non-null emit nothing.
+    const pendingInputTransitions: PendingInputTransition[] = [];
     if (catalogChanged) {
+      const prevCatalog = this.state.catalog;
+      for (const event of acceptedEvents) {
+        if (event.name !== 'session.input') continue;
+        const prev = prevCatalog.byId.get(event.sessionId)?.pendingInput;
+        const next = nextCatalog.byId.get(event.sessionId)?.pendingInput;
+        const wasOpen = prev != null;
+        const isOpen = next != null;
+        if (!wasOpen && isOpen && next) {
+          pendingInputTransitions.push({
+            type: 'opened',
+            sessionId: event.sessionId,
+            directory: nextCatalog.byId.get(event.sessionId)?.directory ?? event.directory,
+            pending: next,
+          });
+        } else if (wasOpen && !isOpen) {
+          pendingInputTransitions.push({
+            type: 'cleared',
+            sessionId: event.sessionId,
+            directory: nextCatalog.byId.get(event.sessionId)?.directory ?? event.directory,
+            pending: null,
+          });
+        }
+      }
       this.state = { ...this.state, catalog: nextCatalog };
     }
     const topics: string[] = [];
@@ -3837,6 +3939,7 @@ export class PiSessionStore {
     }
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
+    this.emitPendingInputTransitions(pendingInputTransitions);
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
     if (epochChangedResidents) {

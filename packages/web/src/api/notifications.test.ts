@@ -133,3 +133,130 @@ describe('web notifications API', () => {
     expect(created).toHaveLength(0);
   });
 });
+
+describe('web notifications close and attention count', () => {
+  const installClosableNotificationMock = (created: Array<{ close: () => void }>) => {
+    const MockNotification = function Notification(this: Notification & { close: () => void }) {
+      const close = vi.fn();
+      created.push({ close });
+      this.close = close;
+      return this;
+    } as unknown as MockNotificationConstructor;
+    MockNotification.permission = 'granted';
+    MockNotification.requestPermission = vi.fn(async () => 'granted' as NotificationPermission);
+    Object.defineProperty(globalThis, 'Notification', {
+      configurable: true,
+      value: MockNotification,
+    });
+  };
+
+  it('closes a page-created notification by tag', async () => {
+    installWindowMock();
+    const created: Array<{ close: () => void }> = [];
+    installClosableNotificationMock(created);
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    await expect(api.notify({ title: 'Input needed', body: 'Session', tag: 'pichamber:input:s1:111' })).resolves.toBe(true);
+    expect(created).toHaveLength(1);
+
+    await api.close?.('pichamber:input:s1:111');
+    expect(created[0]?.close).toHaveBeenCalledTimes(1);
+
+    // Unknown tags are a quiet no-op.
+    await api.close?.('pichamber:input:missing:0');
+    await api.close?.('');
+    expect(created[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes service-worker notifications by tag', async () => {
+    installWindowMock();
+    const created: Array<{ close: () => void }> = [];
+    installClosableNotificationMock(created);
+    const swClose = vi.fn();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        serviceWorker: {
+          getRegistration: vi.fn(async () => ({
+            active: {},
+            showNotification: vi.fn(async () => undefined),
+            getNotifications: vi.fn(async () => [{ close: swClose }]),
+          })),
+        },
+      },
+    });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    await api.close?.('pichamber:input:s1:222');
+    expect(swClose).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(0);
+  });
+
+  it('routes close through desktop IPC when available', async () => {
+    const invoke = vi.fn(async () => null);
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { __PICHAMBER_DESKTOP__: { invoke } },
+    });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    await api.close?.('pichamber:input:s1:333');
+    expect(invoke).toHaveBeenCalledWith('desktop_notification_close', { tag: 'pichamber:input:s1:333' });
+  });
+
+  it('sends the attention count through desktop IPC when available', async () => {
+    const invoke = vi.fn(async () => null);
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { __PICHAMBER_DESKTOP__: { invoke } },
+    });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    api.setAttentionCount?.(3);
+    expect(invoke).toHaveBeenCalledWith('desktop_tray_update', { dockBadgeCount: 3 });
+  });
+
+  it('uses the app badge API on the web when supported', async () => {
+    installWindowMock();
+    const setAppBadge = vi.fn(async () => undefined);
+    const clearAppBadge = vi.fn(async () => undefined);
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { setAppBadge, clearAppBadge },
+    });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    api.setAttentionCount?.(2);
+    await Promise.resolve();
+    expect(setAppBadge).toHaveBeenCalledWith(2);
+    expect(clearAppBadge).not.toHaveBeenCalled();
+
+    api.setAttentionCount?.(0);
+    await Promise.resolve();
+    expect(clearAppBadge).toHaveBeenCalledTimes(1);
+  });
+
+  it('tolerates missing badge surfaces', async () => {
+    installWindowMock();
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {},
+    });
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    expect(() => api.setAttentionCount?.(2)).not.toThrow();
+    expect(() => api.setAttentionCount?.(Number.NaN)).not.toThrow();
+  });
+});

@@ -90,6 +90,10 @@ mock.module('@/hooks/usePushVisibilityBeacon', () => ({ usePushVisibilityBeacon:
 mock.module('@/hooks/useRouter', () => ({ useRouter: () => undefined }));
 mock.module('@/hooks/useUpdatePolling', () => ({ DeferredUpdatePolling: () => null }));
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
+mock.module('@/components/chat/NeedsInputAlerts', () => ({
+  NeedsInputAlerts: () => null,
+  NeedsInputBadge: () => null,
+}));
 mock.module('@/hooks/useKeyboardShortcuts', () => ({ useKeyboardShortcuts: () => undefined }));
 mock.module('@/hooks/usePwaManifestSync', () => ({ usePwaManifestSync: () => undefined }));
 mock.module('@/hooks/useQueuedMessageAutoSend', () => ({ useQueuedMessageAutoSend: () => undefined }));
