@@ -1,7 +1,6 @@
 import UIKit
 import Capacitor
 import GameController
-import UserNotifications
 import WebKit
 import WidgetKit
 
@@ -48,42 +47,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
-    // Forward APNs registration to Capacitor so @capacitor/push-notifications can
-    // deliver the device token / error to the JS `registration` / `registrationError`
-    // listeners. Required because this app uses a custom AppDelegate (not the stock
-    // Capacitor template, which already posts these notifications).
-    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
-    }
-
-    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
-    }
-
 }
 
-/// APNs environment of this build: "development" for Xcode/dev-signed installs,
-/// "production" for TestFlight/App Store. Read from the embedded provisioning profile's
-/// aps-environment entitlement; App Store builds carry no embedded profile and are
-/// production. Exposed to the web layer so the server can deliver each device token to
-/// the APNs endpoint that actually knows it (sandbox vs production).
-let apnsEnvironment: String = {
-    guard let path = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"),
-          let data = FileManager.default.contents(atPath: path),
-          // isoLatin1, not ascii/utf8: the profile is a binary CMS envelope around the XML
-          // plist, and only Latin-1 decodes arbitrary bytes without returning nil.
-          let profile = String(data: data, encoding: .isoLatin1) else {
-        return "production"
-    }
-    let pattern = "<key>aps-environment</key>\\s*<string>development</string>"
-    return profile.range(of: pattern, options: .regularExpression) != nil ? "development" : "production"
-}()
-
-/// Bridge subclass (referenced from Main.storyboard) whose job is to expose native-only
-/// facts to the web layer as document-start user scripts. These run before any page JS,
-/// so consumers always see them — injecting later from the scene lifecycle raced the
-/// consumer (push registration) and lost on first launch.
-///
+/// Bridge subclass (referenced from Main.storyboard) that stamps the hardware-keyboard
+/// state as a document-start user script, so the web layer always sees it — injecting
+/// later from the scene lifecycle raced page load and lost on first launch.
 /// The scripts must be added in capacitorDidLoad(), NOT webViewConfiguration(for:): Capacitor's
 /// prepareWebView replaces the configuration's userContentController with its own right after
 /// calling webViewConfiguration(for:), which silently discards any user script added there.
@@ -104,7 +72,6 @@ class BridgeViewController: CAPBridgeViewController {
         // what actually settles it once the page exists.
         let attached = GCKeyboard.coalesced != nil
         let source = """
-        window.__PICHAMBER_APNS_ENV__ = '\(apnsEnvironment)';
         window.__PICHAMBER_HARDWARE_KEYBOARD__ = \(attached ? "true" : "false");
         """
         webView?.configuration.userContentController.addUserScript(
@@ -132,7 +99,7 @@ class BridgeViewController: CAPBridgeViewController {
         }
     }
 
-    /// Re-read GameController and push the current answer to the web layer.
+    /// Re-read GameController and publish the current answer to the web layer.
     /// Also called when the app returns to the foreground — a keyboard can be
     /// attached or detached while backgrounded, with no notification delivered.
     func refreshHardwareKeyboardState() {
@@ -197,15 +164,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         // Re-assert in case the WebView wasn't ready at scene-connect time, or the
         // effect was re-enabled while backgrounded.
         configureWebViewChrome()
-
-        // Clear the app-icon badge whenever the app becomes active. The server sends
-        // an absolute badge count (sessions needing attention) on each push; once the
-        // user is looking at the app, the in-app indicators take over, so reset to 0.
-        if #available(iOS 17.0, *) {
-            UNUserNotificationCenter.current().setBadgeCount(0)
-        } else {
-            UIApplication.shared.applicationIconBadgeNumber = 0
-        }
 
         // A keyboard can be attached or detached while the app is backgrounded,
         // with no GameController notification delivered to it.

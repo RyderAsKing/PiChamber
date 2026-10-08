@@ -23,8 +23,6 @@
 		D0A2000000000000000000B6 /* PiChamberControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0A1000000000000000000A3 /* PiChamberControl.swift */; };
 		D0A2000000000000000000B4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D0A1000000000000000000A4 /* Assets.xcassets */; };
 		D0A2000000000000000000B5 /* PiChamberWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D0A1000000000000000000A7 /* PiChamberWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		D0B2000000000000000000B1 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1000000000000000000A1 /* NotificationService.swift */; };
-		D0B2000000000000000000B5 /* PiChamberNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D0B1000000000000000000A7 /* PiChamberNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,10 +47,6 @@
 		D0A1000000000000000000A5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D0A1000000000000000000A6 /* PiChamberWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PiChamberWidget.entitlements; sourceTree = "<group>"; };
 		D0A1000000000000000000A7 /* PiChamberWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PiChamberWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		D0B1000000000000000000A1 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
-		D0B1000000000000000000A2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		D0B1000000000000000000A3 /* PiChamberNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PiChamberNotificationService.entitlements; sourceTree = "<group>"; };
-		D0B1000000000000000000A7 /* PiChamberNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PiChamberNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -71,13 +65,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D0B3000000000000000000C2 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,13 +74,6 @@
 			proxyType = 1;
 			remoteGlobalIDString = D0A4000000000000000000D1;
 			remoteInfo = PiChamberWidget;
-		};
-		D0B4000000000000000000D3 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 504EC2FC1FED79650016851F /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = D0B4000000000000000000D1;
-			remoteInfo = PiChamberNotificationService;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -105,7 +85,6 @@
 			dstSubfolderSpec = 13;
 			files = (
 				D0A2000000000000000000B5 /* PiChamberWidget.appex in Embed App Extensions */,
-				D0B2000000000000000000B5 /* PiChamberNotificationService.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -126,7 +105,6 @@
 			children = (
 				504EC3061FED79650016851F /* App */,
 				D0A6000000000000000000F1 /* PiChamberWidget */,
-				D0B6000000000000000000F1 /* PiChamberNotificationService */,
 				504EC3051FED79650016851F /* Products */,
 				7F8756D8B27F46E3366F6CEA /* Pods */,
 				27E2DDA53C4D2A4D1A88CE4A /* Frameworks */,
@@ -138,7 +116,6 @@
 			children = (
 				504EC3041FED79650016851F /* App.app */,
 				D0A1000000000000000000A7 /* PiChamberWidget.appex */,
-				D0B1000000000000000000A7 /* PiChamberNotificationService.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -154,16 +131,6 @@
 				D0A1000000000000000000A6 /* PiChamberWidget.entitlements */,
 			);
 			path = PiChamberWidget;
-			sourceTree = "<group>";
-		};
-		D0B6000000000000000000F1 /* PiChamberNotificationService */ = {
-			isa = PBXGroup;
-			children = (
-				D0B1000000000000000000A1 /* NotificationService.swift */,
-				D0B1000000000000000000A2 /* Info.plist */,
-				D0B1000000000000000000A3 /* PiChamberNotificationService.entitlements */,
-			);
-			path = PiChamberNotificationService;
 			sourceTree = "<group>";
 		};
 		504EC3061FED79650016851F /* App */ = {
@@ -210,7 +177,6 @@
 			);
 			dependencies = (
 				D0A4000000000000000000D2 /* PBXTargetDependency */,
-				D0B4000000000000000000D2 /* PBXTargetDependency */,
 			);
 			name = App;
 			productName = App;
@@ -234,22 +200,6 @@
 			productReference = D0A1000000000000000000A7 /* PiChamberWidget.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		D0B4000000000000000000D1 /* PiChamberNotificationService */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D0B5000000000000000000E1 /* Build configuration list for PBXNativeTarget "PiChamberNotificationService" */;
-			buildPhases = (
-				D0B3000000000000000000C1 /* Sources */,
-				D0B3000000000000000000C2 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = PiChamberNotificationService;
-			productName = PiChamberNotificationService;
-			productReference = D0B1000000000000000000A7 /* PiChamberNotificationService.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -266,10 +216,6 @@
 						ProvisioningStyle = Automatic;
 					};
 					D0A4000000000000000000D1 = {
-						CreatedOnToolsVersion = 16.0;
-						ProvisioningStyle = Automatic;
-					};
-					D0B4000000000000000000D1 = {
 						CreatedOnToolsVersion = 16.0;
 						ProvisioningStyle = Automatic;
 					};
@@ -292,7 +238,6 @@
 			targets = (
 				504EC3031FED79650016851F /* App */,
 				D0A4000000000000000000D1 /* PiChamberWidget */,
-				D0B4000000000000000000D1 /* PiChamberNotificationService */,
 			);
 		};
 /* End PBXProject section */
@@ -379,14 +324,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		D0B3000000000000000000C1 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				D0B2000000000000000000B1 /* NotificationService.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -394,11 +331,6 @@
 			isa = PBXTargetDependency;
 			target = D0A4000000000000000000D1 /* PiChamberWidget */;
 			targetProxy = D0A4000000000000000000D3 /* PBXContainerItemProxy */;
-		};
-		D0B4000000000000000000D2 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = D0B4000000000000000000D1 /* PiChamberNotificationService */;
-			targetProxy = D0B4000000000000000000D3 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -644,55 +576,6 @@
 			};
 			name = Release;
 		};
-		D0B5000000000000000000E2 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PiChamberNotificationService/PiChamberNotificationService.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5J7WJGPA2Q;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PiChamberNotificationService/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.pichamber.app.PiChamberNotificationService;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		D0B5000000000000000000E3 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = PiChamberNotificationService/PiChamberNotificationService.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 5J7WJGPA2Q;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = PiChamberNotificationService/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.5;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.pichamber.app.PiChamberNotificationService;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -719,15 +602,6 @@
 			buildConfigurations = (
 				D0A5000000000000000000E2 /* Debug */,
 				D0A5000000000000000000E3 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		D0B5000000000000000000E1 /* Build configuration list for PBXNativeTarget "PiChamberNotificationService" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				D0B5000000000000000000E2 /* Debug */,
-				D0B5000000000000000000E3 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

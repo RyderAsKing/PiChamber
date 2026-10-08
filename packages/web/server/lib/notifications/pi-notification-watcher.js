@@ -69,32 +69,33 @@ export const createPiNotificationTracker = ({ emit }) => {
 export const createPiNotificationWatcher = ({
   supervisor,
   uiSettingsStore,
-  delivery,
+  notify,
   retryMs = 1_000,
-  deliveryTimeoutMs = 15_000,
+  notifyTimeoutMs = 15_000,
 }) => {
   let stopped = false;
   let closeSubscription = null;
   let retryTimer = null;
   let fromSequence;
   let streamEpoch;
-  let deliveryChain = Promise.resolve();
+  let notifyChain = Promise.resolve();
 
   const tracker = createPiNotificationTracker({
     emit: (payload) => {
-      deliveryChain = deliveryChain.then(async () => {
+      if (typeof notify !== 'function') return;
+      notifyChain = notifyChain.then(async () => {
         const settings = await uiSettingsStore.read();
         if (settings.nativeNotificationsEnabled !== true) return;
         if (payload.data.type === 'completion' && settings.notifyOnCompletion === false) return;
         if (payload.data.type === 'error' && settings.notifyOnError === false) return;
         let timeoutId;
         const timeout = new Promise((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Notification delivery timed out')), deliveryTimeoutMs);
+          timeoutId = setTimeout(() => reject(new Error('Notification delivery timed out')), notifyTimeoutMs);
           timeoutId.unref?.();
         });
         try {
           await Promise.race([
-            delivery.send({
+            notify({
               ...payload,
               kind: payload.data.type,
               sessionId: payload.data.sessionId,
@@ -148,7 +149,7 @@ export const createPiNotificationWatcher = ({
       retryTimer = null;
       closeSubscription?.();
       closeSubscription = null;
-      await deliveryChain;
+      await notifyChain;
     },
   };
 };

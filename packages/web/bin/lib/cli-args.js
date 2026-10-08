@@ -538,7 +538,7 @@ OPTIONS:
   --hostname              Alias for --host outside tunnel commands
   --lan                   Bind to 0.0.0.0 for LAN access
   --server <url>          Public/server URL for connect-url links
-  --relay                 connect-url: also include the end-to-end-encrypted relay transport
+  --relay                 connect-url: also include the end-to-end-encrypted relay transport (requires PICHAMBER_RELAY_URL)
   --ui-password [password] Protect browser UI with a password (generates one when omitted)
   --api-only              Start API routes only, without serving browser UI assets
   --foreground            Run server in foreground (use with systemd/process managers)
@@ -648,9 +648,9 @@ OPTIONS:
   --server-url <url>      Alias for --server
   --relay                 Also include the end-to-end-encrypted relay transport
                           so the link works away from the local network. The
-                          device prefers the direct connection when reachable;
-                          the instance brings the relay up on its own. Set
-                          PICHAMBER_RELAY_URL to use a self-hosted relay.
+                          device prefers the direct connection when reachable.
+                          Requires a relay URL via PICHAMBER_RELAY_URL
+                          (self-hosted relay).
   --name <label>          Label saved with the remote client token
   --ui-password <value>   Protect browser access when UI routes are enabled
   --api-only              Start in headless/API-only mode when starting

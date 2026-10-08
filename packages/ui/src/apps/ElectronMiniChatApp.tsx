@@ -6,7 +6,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { MiniChatLayout } from '@/components/mini-chat/MiniChatLayout';
-import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
@@ -264,7 +263,6 @@ export function ElectronMiniChatApp({ apis }: ElectronMiniChatAppProps) {
 
   useAppFontEffects();
   useMiniChatKeyboardShortcuts();
-  usePushVisibilityBeacon({ enabled: true });
 
   return (
     <ErrorBoundary>

@@ -4,7 +4,6 @@ import { isDesktopShell } from '@/lib/desktop';
 import { toast } from '@/components/ui';
 import { getRegisteredRuntimeAPIs } from '@/contexts/runtimeAPIRegistry';
 import { Button } from '@/components/ui/button';
-import { getClientPlatform } from '@/lib/platform';
 import {
   SettingsSection,
   SettingsCheckboxRow,
@@ -34,47 +33,15 @@ export const NotificationSettings: React.FC = () => {
   const setNotifyOnInputNeeded = useUIStore(state => state.setNotifyOnInputNeeded);
 
   const [notificationPermission, setNotificationPermission] = React.useState<NotificationPermission>('default');
-  const [pushSupported, setPushSupported] = React.useState(false);
-  const [pushSubscribed, setPushSubscribed] = React.useState(false);
-  const [pushBusy, setPushBusy] = React.useState(false);
 
   React.useEffect(() => {
     if (!isBrowser) {
-      setPushSupported(false);
-      setPushSubscribed(false);
       return;
     }
 
     if (typeof Notification !== 'undefined') {
       setNotificationPermission(Notification.permission);
     }
-
-    const supported = typeof window !== 'undefined'
-      && 'serviceWorker' in navigator
-      && 'PushManager' in window
-      && 'Notification' in window;
-    setPushSupported(supported);
-
-    const refresh = async () => {
-      if (!supported) {
-        setPushSubscribed(false);
-        return;
-      }
-
-      try {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (!registration) {
-          setPushSubscribed(false);
-          return;
-        }
-        const subscription = await registration.pushManager.getSubscription();
-        setPushSubscribed(Boolean(subscription));
-      } catch {
-        setPushSubscribed(false);
-      }
-    };
-
-    void refresh();
   }, [isBrowser]);
 
   const handleToggleChange = async (checked: boolean) => {
@@ -111,147 +78,6 @@ export const NotificationSettings: React.FC = () => {
 
   const canShowNotifications = isDesktop || isNativeApp || (isBrowser && typeof Notification !== 'undefined' && Notification.permission === 'granted');
 
-  const base64UrlToUint8Array = (base64Url: string): Uint8Array<ArrayBuffer> => {
-    const padding = '='.repeat((4 - (base64Url.length % 4)) % 4);
-    const base64 = (base64Url + padding)
-      .replace(/-/g, '+')
-      .replace(/_/g, '/');
-    const raw = atob(base64);
-    const output = new Uint8Array(raw.length) as Uint8Array<ArrayBuffer>;
-    for (let i = 0; i < raw.length; i += 1) {
-      output[i] = raw.charCodeAt(i);
-    }
-    return output;
-  };
-
-  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error(label));
-      }, timeoutMs);
-    });
-
-    try {
-      return await Promise.race([promise, timeout]);
-    } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    }
-  };
-
-  const waitForSwActive = async (registration: ServiceWorkerRegistration): Promise<void> => {
-    if (registration.active) {
-      return;
-    }
-
-    const candidate = registration.installing || registration.waiting;
-    if (!candidate) {
-      return;
-    }
-
-    if (candidate.state === 'activated') {
-      return;
-    }
-
-    await withTimeout(
-      new Promise<void>((resolve) => {
-        const onStateChange = () => {
-          if (candidate.state === 'activated') {
-            candidate.removeEventListener('statechange', onStateChange);
-            resolve();
-          }
-        };
-
-        candidate.addEventListener('statechange', onStateChange);
-        onStateChange();
-      }),
-      15000,
-      'Service worker activation timed out'
-    );
-  };
-
-  type RegistrationOptions = {
-    scope?: string;
-    type?: 'classic' | 'module';
-    updateViaCache?: 'imports' | 'all' | 'none';
-  };
-
-  const registerServiceWorker = async (): Promise<ServiceWorkerRegistration> => {
-    if (typeof navigator.serviceWorker.register !== 'function') {
-      throw new Error('navigator.serviceWorker.register unavailable');
-    }
-
-    const attempts: Array<{ label: string; opts: RegistrationOptions | null }> = [
-      { label: 'no-options', opts: null },
-      { label: 'scope-root', opts: { scope: '/' } },
-      { label: 'type-classic', opts: { type: 'classic' } },
-      { label: 'type-classic-scope', opts: { type: 'classic', scope: '/' } },
-      { label: 'updateViaCache-none', opts: { type: 'classic', updateViaCache: 'none', scope: '/' } },
-    ];
-
-    let lastError: unknown = null;
-    for (const attempt of attempts) {
-      try {
-        const promise = attempt.opts
-          ? navigator.serviceWorker.register('/sw.js', attempt.opts)
-          : navigator.serviceWorker.register('/sw.js');
-
-        return await withTimeout(promise, 10000, `Service worker registration timed out (${attempt.label})`);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Service worker registration failed');
-  };
-
-  const getServiceWorkerRegistration = async (): Promise<ServiceWorkerRegistration> => {
-    if (!('serviceWorker' in navigator)) {
-      throw new Error('Service worker not supported');
-    }
-
-    const existing = await navigator.serviceWorker.getRegistration();
-    if (existing) {
-      return existing;
-    }
-
-    const registered = await registerServiceWorker();
-
-    try {
-      await registered.update();
-    } catch {
-      // ignore
-    }
-
-    await waitForSwActive(registered);
-    return registered;
-  };
-
-  const formatUnknownError = (error: unknown) => {
-    const anyError = error as { name?: unknown; message?: unknown; stack?: unknown } | null;
-    const parts = [
-      `type=${typeof error}`,
-      `toString=${String(error)}`,
-      `name=${String(anyError?.name ?? '')}`,
-      `message=${String(anyError?.message ?? '')}`,
-    ];
-
-    let json = '';
-    try {
-      json = JSON.stringify(error);
-    } catch {
-      // ignore
-    }
-
-    return {
-      summary: parts.filter(Boolean).join(' | '),
-      json,
-      stack: typeof anyError?.stack === 'string' ? anyError.stack : '',
-    };
-  };
-
   const handleTestNotification = async () => {
     const apis = getRegisteredRuntimeAPIs();
     if (!apis?.notifications) {
@@ -274,131 +100,6 @@ export const NotificationSettings: React.FC = () => {
     } catch (error) {
       console.error('Test notification failed:', error);
       toast.error("Failed to send test notification");
-    }
-  };
-
-  const handleEnableBackgroundNotifications = async () => {
-    if (!pushSupported) {
-      toast.error("Push notifications not supported");
-      return;
-    }
-
-    const apis = getRegisteredRuntimeAPIs();
-    if (!apis?.push) {
-      toast.error("Push API not available");
-      return;
-    }
-
-    setPushBusy(true);
-    try {
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        const permission = await Notification.requestPermission();
-        setNotificationPermission(permission);
-        if (permission !== 'granted') {
-          toast.error("Notification permission denied", {
-            description: "Enable notifications in your browser settings.",
-          });
-          return;
-        }
-      }
-
-      if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
-        toast.error("Notification permission denied", {
-          description: "Enable notifications in your browser settings.",
-        });
-        return;
-      }
-
-      const key = await apis.push.getVapidPublicKey();
-      if (!key?.publicKey) {
-        toast.error("Failed to load push key");
-        return;
-      }
-
-      const registration = await getServiceWorkerRegistration();
-      await waitForSwActive(registration);
-
-      const existing = await registration.pushManager.getSubscription();
-
-      if (!('pushManager' in registration) || !registration.pushManager) {
-        throw new Error('PushManager unavailable (requires installed PWA + iOS 16.4+)');
-      }
-
-      const subscription = existing ?? await withTimeout(
-        registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: base64UrlToUint8Array(key.publicKey),
-        }),
-        15000,
-        'Push subscription timed out'
-      );
-
-      const json = subscription.toJSON();
-      const keys = json.keys;
-      if (!json.endpoint || !keys?.p256dh || !keys.auth) {
-        throw new Error('Push subscription missing keys');
-      }
-
-      const ok = await withTimeout(
-        apis.push.subscribe({
-          endpoint: json.endpoint,
-          keys: {
-            p256dh: keys.p256dh,
-            auth: keys.auth,
-          },
-          origin: typeof window !== 'undefined' ? window.location.origin : undefined,
-          platform: getClientPlatform(),
-        }),
-        15000,
-        'Push subscribe request timed out'
-      );
-
-      if (!ok?.ok) {
-        toast.error("Failed to enable background notifications");
-        return;
-      }
-
-      setPushSubscribed(true);
-      toast.success("Background notifications enabled");
-    } catch (error) {
-      console.error('[Push] Enable failed:', error);
-      const formatted = formatUnknownError(error);
-      toast.error("Failed to enable background notifications", {
-        description: formatted.summary,
-      });
-    } finally {
-      setPushBusy(false);
-    }
-  };
-
-  const handleDisableBackgroundNotifications = async () => {
-    if (!pushSupported) {
-      setPushSubscribed(false);
-      return;
-    }
-
-    const apis = getRegisteredRuntimeAPIs();
-    if (!apis?.push) {
-      toast.error("Push API not available");
-      return;
-    }
-
-    setPushBusy(true);
-    try {
-      const registration = await getServiceWorkerRegistration();
-      const subscription = await registration.pushManager.getSubscription();
-      if (!subscription) {
-        setPushSubscribed(false);
-        return;
-      }
-
-      const endpoint = subscription.endpoint;
-      await subscription.unsubscribe();
-      await apis.push.unsubscribe({ endpoint });
-      setPushSubscribed(false);
-      toast.success("Background notifications disabled");
-    } finally {
-      setPushBusy(false);
     }
   };
 
@@ -500,33 +201,6 @@ export const NotificationSettings: React.FC = () => {
           </>
         )}
 
-        {isBrowser && (
-          <SettingsSection
-            settingsItem="notifications.push"
-            title={"Background push notifications"}
-          >
-            <SettingsCheckboxRow
-              checked={pushSupported ? pushSubscribed : false}
-              disabled={!pushSupported || pushBusy}
-              onChange={(checked) => {
-                if (checked) {
-                  void handleEnableBackgroundNotifications();
-                } else {
-                  void handleDisableBackgroundNotifications();
-                }
-              }}
-              label={"Enable push notifications"}
-              description={!pushSupported ? "Push not supported. Desktop Chrome/Edge and Android support push. iOS requires an installed PWA." : undefined}
-              info={pushSupported ? "Receive alerts via your operating system background service" : undefined}
-              ariaLabel={"Enable push notifications"}
-              labelAccessory={
-                pushBusy ? (
-                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-current text-muted-foreground animate-busy-pulse" aria-label={"Loading"} />
-                ) : null
-              }
-            />
-          </SettingsSection>
-        )}
     </>
   );
 };
