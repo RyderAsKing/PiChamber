@@ -64,6 +64,7 @@ export const createExtensionBridge = ({
   renderExtensionMessage,
   requestSessionShutdown,
   pendingInput,
+  recentNotices,
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
@@ -394,10 +395,22 @@ export const createExtensionBridge = ({
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       notify: (message, level) => {
-        publishForSession('extension.notify', {
-          message: String(message ?? ''),
-          ...(level === 'warning' || level === 'error' ? { level } : { level: 'info' }),
-        }, sessionId);
+        const notice = {
+          id: randomUUID(),
+          level: level === 'warning' || level === 'error' ? level : 'info',
+          // Redacted like other extension text: the recent list outlives the
+          // live event, so it must never retain a server-local attachment path.
+          message: redactAttachmentPaths(String(message ?? '')),
+          createdAt: Date.now(),
+        };
+        // Bounded per-session recent list so devices that connect later
+        // can show past notices. Empty messages are not recorded.
+        try {
+          recentNotices?.record(sessionId, notice);
+        } catch {
+          // Recording never breaks publication.
+        }
+        publishForSession('extension.notify', { ...notice }, sessionId);
       },
       setStatus: (key, text) => {
         if (typeof key !== 'string' || key.length === 0) return;
@@ -861,6 +874,9 @@ export const createExtensionBridge = ({
       ...(title ? { title } : {}),
       ...(working ? { working: { ...working } } : {}),
       ...(draftTracked ? { draftTracked: true } : {}),
+      // Daemon-owned recent notices, oldest first. Present (possibly empty)
+      // only when the store is injected; otherwise the key stays absent.
+      ...(recentNotices ? { notices: recentNotices.listFor(sessionId) } : {}),
     };
   };
 

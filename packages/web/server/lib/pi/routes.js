@@ -671,6 +671,17 @@ function projectExtensionSnapshotState(snapshot) {
         ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
       }))
     : undefined;
+  const extensionNotices = Array.isArray(snapshot.extensionNotices)
+    ? snapshot.extensionNotices.filter((entry) => entry
+      && typeof entry.id === 'string' && entry.id.length >= 1 && entry.id.length <= 128
+      && typeof entry.message === 'string' && entry.message.length > 0
+      && Number.isFinite(entry.createdAt) && entry.createdAt > 0).slice(0, 20).map((entry) => ({
+        id: entry.id.slice(0, 128),
+        level: ['info', 'warning', 'error'].includes(entry.level) ? entry.level : 'info',
+        message: entry.message.slice(0, 2000),
+        createdAt: entry.createdAt,
+      }))
+    : undefined;
   const extensionPanels = Array.isArray(snapshot.extensionPanels)
     ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
     : undefined;
@@ -689,6 +700,7 @@ function projectExtensionSnapshotState(snapshot) {
     ...(extensionStatuses ? { extensionStatuses } : {}),
     ...(extensionWidgets ? { extensionWidgets } : {}),
     ...(extensionDialogs ? { extensionDialogs } : {}),
+    ...(extensionNotices ? { extensionNotices } : {}),
     ...(extensionPanels ? { extensionPanels } : {}),
     ...(extensionApps ? { extensionApps } : {}),
     ...(typeof snapshot.extensionTitle === 'string' && snapshot.extensionTitle.length > 0
@@ -841,7 +853,19 @@ export const projectEventFrame = (frame) => {
     case 'extension.notify': {
       if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;
       const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
-      return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
+      return {
+        ...common,
+        payload: {
+          message: frame.payload.message.slice(0, 2000),
+          level,
+          ...(typeof frame.payload.id === 'string' && frame.payload.id.length >= 1 && frame.payload.id.length <= 128
+            ? { id: frame.payload.id.slice(0, 128) }
+            : {}),
+          ...(Number.isFinite(frame.payload.createdAt) && frame.payload.createdAt > 0
+            ? { createdAt: frame.payload.createdAt }
+            : {}),
+        },
+      };
     }
     case 'extension.catalog': {
       const providers = frame.payload.providers === true;

@@ -452,6 +452,46 @@ describe('session daemon engines', () => {
     );
   });
 
+  it('normalizes engine notifications, keeps them for snapshots/details, and forgets them on delete', async () => {
+    const engine = new FakeEngine('fake');
+    const { root } = await startDaemon({ engines: [(host) => { engine.host = host; return engine; }] });
+    await send('sessions.create', { engine: 'fake' });
+
+    const subscriber = connectClient(currentEndpoint);
+    await subscriber.authenticate();
+    engine.host.publish('extension.notify', { message: 'engine did a thing', level: 'weird' }, 'engine-session-1', root);
+    const event = await subscriber.next((message) => message.kind === 'event' && message.event === 'extension.notify');
+    expect(event.payload).toMatchObject({ sessionId: 'engine-session-1', message: 'engine did a thing', level: 'info' });
+    expect(typeof event.payload.id).toBe('string');
+    expect(event.payload.id.length).toBeGreaterThan(0);
+    expect(Number.isFinite(event.payload.createdAt)).toBe(true);
+    expect(() => engine.host.publish('extension.notify', { message: '' }, 'engine-session-1', root)).toThrow(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+
+    // A late subscriber sees the normalized notice in its snapshot.
+    const late = connectClient(currentEndpoint);
+    const snapshot = await late.authenticate({ sessionId: 'engine-session-1' });
+    expect(snapshot.payload.extensionNotices).toHaveLength(1);
+    expect(snapshot.payload.extensionNotices[0]).toMatchObject({
+      message: 'engine did a thing', level: 'info',
+    });
+    expect(snapshot.payload.extensionNotices[0].id).toBe(event.payload.id);
+    await late.close().catch(() => {});
+
+    const opened = await send('sessions.open', { sessionId: 'engine-session-1' });
+    expect(opened.result.extensionNotices).toHaveLength(1);
+    expect(opened.result.extensionNotices[0].id).toBe(event.payload.id);
+
+    // The engine deletion forgets that session's notices.
+    engine.host.publish('session.deleted', {}, 'engine-session-1', root);
+    await subscriber.next((message) => message.kind === 'event' && message.event === 'session.deleted'
+      && message.payload?.sessionId === 'engine-session-1');
+    const reopened = await send('sessions.open', { sessionId: 'engine-session-1' });
+    expect(reopened.result.extensionNotices).toEqual([]);
+    await subscriber.close().catch(() => {});
+  });
+
   it('dedups engine prompts, rejects mismatches, serves receipts, and guards stale epochs', async () => {
     const engine = new FakeEngine('fake');
     await startDaemon({ engines: [() => engine] });

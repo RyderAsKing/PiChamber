@@ -1028,6 +1028,51 @@ describe('Pi runtime route', () => {
     expect(seen).toEqual(['sessions.open', 'sessions.open']);
   });
 
+  it('projects recent extension notices on session details and omits absent fields', async () => {
+    const notices = [
+      { id: 'n1', level: 'warning', message: 'first', createdAt: 10 },
+      { id: 'n2', message: 'second', createdAt: 20 },
+      { id: '', level: 'info', message: 'bad id', createdAt: 30 },
+      { id: 'n4', level: 'info', message: '', createdAt: 40 },
+      null,
+    ];
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        calls.push(command);
+        return {
+          session: { id: 'pi-session-9', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+          messages: [],
+          lastSequence: 4,
+          isStreaming: false,
+          lifecycle: 'idle',
+          ...(calls.length === 1 ? { extensionNotices: notices } : {}),
+        };
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-9`;
+
+    const first = await fetch(base);
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({
+      extensionNotices: [
+        { id: 'n1', level: 'warning', message: 'first', createdAt: 10 },
+        { id: 'n2', level: 'info', message: 'second', createdAt: 20 },
+      ],
+    });
+
+    // An absent daemon field (older daemon) stays absent rather than empty.
+    const second = await fetch(base);
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect('extensionNotices' in secondBody).toBe(false);
+    expect(calls).toEqual(['sessions.open', 'sessions.open']);
+  });
+
   it('serves sessions.pendingInput without capturing it as a session id', async () => {
     const calls = [];
     const runtime = {
