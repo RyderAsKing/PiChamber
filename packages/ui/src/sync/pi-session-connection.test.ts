@@ -970,6 +970,117 @@ describe('PiSessionStore runtime-scoped sessions', () => {
     store.dispose();
   });
 
+  test('eviction protects sessions the catalog reports as needing input', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const stream = { dispose: () => undefined };
+    internal.stream = stream;
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      sessions: [{ session: { id: 'current', directory: '/repo' } as never, updatedAt: 1 }],
+      selectedSessionId: 'current',
+    };
+    internal.hydratedSessionIds = new Set(['current']);
+    for (let index = 0; index < 20; index += 1) {
+      const id = `idle-${index}`;
+      internal.lastAccessClock += 1;
+      internal.lastAccessById.set(id, internal.lastAccessClock);
+      const session = reducerSession({
+        sessionId: id,
+        directory: '/repo',
+        lastSequence: 100 + index,
+      });
+      const nextBySession = new Map(internal.state.reducer.bySession);
+      nextBySession.set(id, session);
+      const nextLastSequence = new Map(internal.state.reducer.lastSequence);
+      nextLastSequence.set(id, session.lastSequence);
+      const nextHydrated = new Set(internal.hydratedSessionIds);
+      nextHydrated.add(id);
+      internal.hydratedSessionIds = nextHydrated;
+      internal.state = {
+        ...store.getState(),
+        ...internal.state,
+        reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+        hydratedSessionIds: nextHydrated,
+      };
+    }
+    // The daemon reports idle-0 as waiting for the user. Committing the
+    // event also touches its access clock, so age it back to the oldest
+    // entry: without catalog protection it would evict first.
+    internal.commitEvents([{
+      protocolVersion: 1,
+      kind: 'event',
+      name: 'session.input',
+      sequence: 500,
+      sessionId: 'idle-0',
+      directory: '/repo',
+      payload: { pending: { count: 1, kind: 'input', since: 5 } },
+    } as PiSessionEvent]);
+    internal.lastAccessById.set('idle-0', 0);
+    internal.scheduleIdleEviction();
+    await tickMicrotasks();
+    expect(store.getState().catalog.byId.get('idle-0')?.pendingInput).toEqual({
+      count: 1,
+      kind: 'input',
+      since: 5,
+    });
+    expect(store.getState().reducer.bySession.has('idle-0')).toBe(true);
+    // An unprotected idle session must have been evicted instead.
+    expect(store.getState().reducer.bySession.size <= PI_TRANSCRIPT_EVICTION_SOFT_CAP + 1).toBe(true);
+    store.dispose();
+  });
+
+  test('eviction protects sessions with an open blocking dialog', async () => {
+    const store = new PiSessionStore();
+    const internal = asInternal(store);
+    const stream = { dispose: () => undefined };
+    internal.stream = stream;
+    internal.state = {
+      ...store.getState(),
+      directory: '/repo',
+      connection: 'ready',
+      sessions: [{ session: { id: 'current', directory: '/repo' } as never, updatedAt: 1 }],
+      selectedSessionId: 'current',
+    };
+    internal.hydratedSessionIds = new Set(['current']);
+    for (let index = 0; index < 20; index += 1) {
+      const id = `idle-${index}`;
+      internal.lastAccessClock += 1;
+      internal.lastAccessById.set(id, internal.lastAccessClock);
+      const session = reducerSession({
+        sessionId: id,
+        directory: '/repo',
+        lastSequence: 100 + index,
+        ...(index === 0
+          ? { extensionDialogs: [{ requestId: 'r1', method: 'confirm', title: 'Proceed?' }] }
+          : {}),
+      });
+      const nextBySession = new Map(internal.state.reducer.bySession);
+      nextBySession.set(id, session);
+      const nextLastSequence = new Map(internal.state.reducer.lastSequence);
+      nextLastSequence.set(id, session.lastSequence);
+      const nextHydrated = new Set(internal.hydratedSessionIds);
+      nextHydrated.add(id);
+      internal.hydratedSessionIds = nextHydrated;
+      internal.state = {
+        ...store.getState(),
+        ...internal.state,
+        reducer: { bySession: nextBySession, lastSequence: nextLastSequence },
+        hydratedSessionIds: nextHydrated,
+      };
+    }
+    // Age the dialog session to the oldest entry: without dialog protection
+    // it would evict first.
+    internal.lastAccessById.set('idle-0', 0);
+    internal.scheduleIdleEviction();
+    await tickMicrotasks();
+    expect(store.getState().reducer.bySession.has('idle-0')).toBe(true);
+    expect(store.getState().reducer.bySession.size <= PI_TRANSCRIPT_EVICTION_SOFT_CAP + 1).toBe(true);
+    store.dispose();
+  });
+
   test('an initial daemon failure reconnects through a background recovery stream', async () => {
     const originalFetch = globalThis.fetch;
     const encoder = new TextEncoder();

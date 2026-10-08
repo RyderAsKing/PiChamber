@@ -133,6 +133,9 @@ export const createRecordFromPiSession = (
       : {}),
     lifecycle: existing?.lifecycle ?? 'idle',
     hydrated: existing?.hydrated ?? false,
+    // Pending input is event-driven like lifecycle: a locally observed
+    // summary newer than this seed wins over unknown.
+    ...(existing?.pendingInput !== undefined ? { pendingInput: existing.pendingInput } : {}),
   };
 };
 

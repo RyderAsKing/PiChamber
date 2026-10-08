@@ -328,6 +328,9 @@ export interface PiSessionSnapshot {
   extensionWorking?: { message?: string; visible?: boolean };
   /** Whether the session daemon is tracking editor draft text for extensions. */
   extensionDraftTracked?: boolean;
+  /** Pending-input state at snapshot time. Absent means unknown (older
+   *  server), never authoritatively empty — keep the current value. */
+  inputState?: { pending: import('./protocol').PiPendingInputSummary | null };
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */

@@ -23,6 +23,7 @@ describe("protocol constants", () => {
     expect(PI_EVENT_KINDS).toContain("session.compaction")
     expect(PI_EVENT_KINDS).toContain("session.error")
     expect(PI_EVENT_KINDS).toContain("session.interrupted")
+    expect(PI_EVENT_KINDS).toContain("session.input")
   })
 })
 
@@ -49,6 +50,27 @@ describe("isPiEvent", () => {
       sessionId: "s1",
       directory: "/work",
       payload: { title: "Named from another device" },
+    })).toBe(true)
+  })
+
+  test("accepts session.input envelopes", () => {
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "session.input",
+      sequence: 7,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { pending: { count: 2, kind: "approval", since: 50 } },
+    })).toBe(true)
+    expect(isPiEvent({
+      protocolVersion: 1,
+      kind: "event",
+      name: "session.input",
+      sequence: 8,
+      sessionId: "s1",
+      directory: "/work",
+      payload: { pending: null },
     })).toBe(true)
   })
 

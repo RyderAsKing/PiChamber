@@ -56,6 +56,28 @@ fails, and `phase: 'unavailable'` would have been a misnomer — the probe
 path returns `phase: 'failed'` with an explicit `errors[]` entry so the
 caller can render the correct message.
 
+## Pending input ("sessions needing input")
+
+A session needs input while the daemon holds an open blocking request for
+it (extension `select`/`confirm`/`input`/`editor`/`form` dialogs and their
+engine-reported equivalents). The daemon derives one summary per session —
+`{ count, kind, since }` with `count` clamped to 1..99, `kind` either
+`'input'` or `'approval'`, and `since` the epoch ms of the oldest open
+request — and publishes a `session.input` event (`{ pending }`, `null` when
+authoritatively nothing is pending) whenever it changes. `protocol.ts`
+owns `PiPendingInputKind`, `PiPendingInputSummary`, `PiSessionInputState`
+(`{ pending }`, carried by snapshots and details), `PiSessionListInputState`
+(`{ pending, sequence }`, sampled with the same daemon sequence as `live`
+on list rows), the `session.input` event in the event union and
+`PI_EVENT_KINDS`, and `PiPendingInputListResponse` for
+`GET /api/pi/sessions/pending-input` (every pending session across all
+directories: `{ sessions, sequence, streamEpoch? }`). Absent `inputState` is
+unknown (older server), never empty: readers keep the current value. The
+transcript reducer treats `session.input` as a no-op (the catalog owns the
+state); `piClient.listPendingInput()` validates the response shape and
+throws on failure or malformed payloads — including 404 from older servers —
+so callers never mistake failure for an empty list.
+
 ## Sequencing and reconnect
 
 Every event the public stream publishes carries a monotonically increasing
@@ -303,7 +325,10 @@ Idle transcripts are evicted by a deferred microtask scan after both
 sessions by `lastAccessById` (a per-process monotonic clock) in ascending
 order and drops the longest-idle until the cluster is at
 `PI_TRANSCRIPT_EVICTION_SOFT_CAP` (default 16). Selected, busy/retry, and
-pending-prompt sessions are protected; `lastSequence` for evicted sessions
+pending-prompt sessions are protected, as are sessions whose catalog row
+reports non-null `pendingInput` (a waiting session keeps the transcript the
+badge points at) and sessions whose reducer row holds a non-empty
+`extensionDialogs` queue; `lastSequence` for evicted sessions
 is retained so a later rehydrate resumes from the same cursor. The scan
 never runs on the hydrate acquisition path — a render mounting many
 entries schedules one scan, not one per entry.

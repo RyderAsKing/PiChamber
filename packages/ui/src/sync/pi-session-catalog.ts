@@ -31,7 +31,7 @@ import type { Session } from '@/lib/chat/types';
 import { getGlobalSessionDirectories } from './global-session-directory';
 
 
-import type { PiSessionListItem } from '@/lib/pi/protocol';
+import type { PiSessionListItem, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
 
 // ---------------------------------------------------------------------------
@@ -78,6 +78,11 @@ export interface LiveSessionRecord {
   lifecycle: LiveSessionLifecycle;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** Pending-input summary for "sessions needing input". `null` means the
+   *  daemon authoritatively reports nothing pending; `undefined` means
+   *  unknown (older server, or never observed). Absent observations keep
+   *  the current value — unknown never clears a known state. */
+  pendingInput?: PiPendingInputSummary | null;
   /** True iff the session's transcript currently lives in `reducer.bySession`. */
   hydrated: boolean;
 }
@@ -148,6 +153,16 @@ export const upsertStubRecord = (
 const normalizedDirectory = (directory: string): string =>
   normalizePath(directory) ?? directory;
 
+/** Structural equality for pending-input summaries (`null` vs value vs unknown are all distinct). */
+const pendingInputEqual = (
+  left: PiPendingInputSummary | null | undefined,
+  right: PiPendingInputSummary | null | undefined,
+): boolean => {
+  if (left === undefined || right === undefined) return left === right;
+  if (left === null || right === null) return left === right;
+  return left.count === right.count && left.kind === right.kind && left.since === right.since;
+};
+
 /** Stable record signature for narrow no-op detection. */
 const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRecord): boolean => (
   left.id === right.id
@@ -162,6 +177,7 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.lifecycle === right.lifecycle
   && left.retry === right.retry
   && left.hydrated === right.hydrated
+  && pendingInputEqual(left.pendingInput, right.pendingInput)
 );
 
 /** Drop the prior membership for `directory` and seed `next`. The order in
@@ -208,6 +224,11 @@ const retryInfoEqual = (left: PiRetryInfo | undefined, right: PiRetryInfo | unde
  */
 export interface DirectoryListLiveOptions {
   acceptLiveObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
+  /** Ordering gate for a listing's `inputState` observation. Mirrors the
+   *  `live` gate: an observation is accepted only when its sequence is not
+   *  older than the newest accepted pending-input observation for that
+   *  session. Without a gate the observation is ignored (unknown). */
+  acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
 }
 
 /**
@@ -257,6 +278,15 @@ export const applyDirectoryListToCatalog = (
     const retry = live
       ? (retryInfoEqual(existing?.retry, listedRetry) ? existing?.retry : listedRetry)
       : existing?.retry;
+    // A listing's `inputState` rides the same gate as `live`: an absent
+    // field is unknown (keep the event-driven value), and an observation
+    // older than an accepted pending-input update must not overwrite it.
+    // `null` is authoritative empty and is adopted like any newer value.
+    const observedInput = item.inputState
+      && options?.acceptPendingInputObservation?.(session.id, item.inputState.sequence)
+      ? item.inputState.pending
+      : undefined;
+    const pendingInput = observedInput !== undefined ? observedInput : existing?.pendingInput;
     const nextRecord: LiveSessionRecord = {
       id: session.id,
       directory: sessionDirectory,
@@ -270,6 +300,7 @@ export const applyDirectoryListToCatalog = (
       ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
       lifecycle,
       ...(retry ? { retry } : {}),
+      ...(pendingInput !== undefined ? { pendingInput } : {}),
       hydrated: existing?.hydrated ?? false,
     };
     if (existing && recordsStructurallyEqual(existing, nextRecord)) {
@@ -461,6 +492,165 @@ export const applyArchiveChange = (
   const nextById = new Map(state.byId);
   nextById.set(sessionId, { ...existing, archived, updatedAt });
   return { ...state, byId: nextById };
+};
+
+/**
+ * Adopt one pending-input observation (`session.input` event, `session.snapshot`
+ * `inputState`, or session detail `inputState`) into a catalog row. An
+ * unknown session id inserts a stub row via `upsertStubRecord` (idle
+ * lifecycle — the badge rides `pendingInput`, not lifecycle) so the session
+ * shows up before its directory is listed. Reference-stable when the value
+ * is unchanged. Ordering is the caller's job: pass an `accept` gate that
+ * rejects sequences older than the newest accepted observation for the
+ * session, mirroring `acceptLiveObservation`.
+ */
+export const applyPendingInputObservation = (
+  state: PiSessionCatalogState,
+  sessionId: PiSessionId,
+  directory: string,
+  pending: PiPendingInputSummary | null,
+  sequence: number,
+  accept?: (sessionId: PiSessionId, sequence: number) => boolean,
+): PiSessionCatalogState => {
+  if (accept && !accept(sessionId, sequence)) return state;
+  const existing = state.byId.get(sessionId);
+  if (existing) {
+    if (pendingInputEqual(existing.pendingInput, pending)) return state;
+    const nextById = new Map(state.byId);
+    nextById.set(sessionId, { ...existing, pendingInput: pending });
+    return { ...state, byId: nextById };
+  }
+  // Authoritative empty for an unknown session materializes nothing: there
+  // is no badge to show and the directory list will seed the row itself.
+  if (pending === null) return state;
+  const stubbed = upsertStubRecord(state, sessionId, directory, 'idle');
+  const stub = stubbed.byId.get(sessionId);
+  if (!stub || pendingInputEqual(stub.pendingInput, pending)) return stubbed;
+  const nextById = new Map(stubbed.byId);
+  nextById.set(sessionId, { ...stub, pendingInput: pending });
+  return { ...stubbed, byId: nextById };
+};
+
+/**
+ * Commit a `GET /api/pi/sessions/pending-input` response. For each entry
+ * set pending (gated by the response `sequence`); for catalog rows NOT in
+ * the response whose current `pendingInput` is non-null and whose accepted
+ * sequence the response covers, set `null`. Rows whose value is unknown
+ * (`undefined`) stay unknown — absence from one response is not proof of
+ * emptiness for a row we never observed. Entries for sessions outside the
+ * catalog insert stub rows so the badge can show before the directory is
+ * listed. The whole response is rejected when its `streamEpoch` differs
+ * from the established epoch.
+ */
+export const applyPendingInputListToCatalog = (
+  state: PiSessionCatalogState,
+  response: {
+    sessions: ReadonlyArray<{ sessionId: PiSessionId; directory: string; pending: PiPendingInputSummary }>;
+    sequence: number;
+    streamEpoch?: string;
+  },
+  options?: {
+    /** Per-session ordering gate; mirrors the list `live` gate. */
+    acceptPendingInputObservation?: (sessionId: PiSessionId, sequence: number) => boolean;
+    /** Established stream epoch. A response from another epoch is rejected
+     *  wholesale — its sequence space is unrelated. `null` accepts any
+     *  response (pre-epoch daemon). */
+    streamEpoch?: string | null;
+  },
+): PiSessionCatalogState => {
+  const established = options?.streamEpoch ?? null;
+  if (established !== null) {
+    if (typeof response.streamEpoch !== 'string' || response.streamEpoch !== established) return state;
+  }
+  const sequence = response.sequence;
+  if (!Number.isSafeInteger(sequence) || sequence < 0) return state;
+  const accept = options?.acceptPendingInputObservation ?? (() => true);
+  const seen = new Set<PiSessionId>();
+  let next = state;
+  for (const entry of response.sessions) {
+    if (!entry || typeof entry.sessionId !== 'string' || entry.sessionId.length === 0) continue;
+    if (typeof entry.directory !== 'string' || entry.directory.length === 0) continue;
+    if (!entry.pending || typeof entry.pending !== 'object') continue;
+    if (seen.has(entry.sessionId)) continue;
+    seen.add(entry.sessionId);
+    if (!accept(entry.sessionId, sequence)) continue;
+    next = applyPendingInputObservation(next, entry.sessionId, entry.directory, entry.pending, sequence);
+  }
+  for (const [id, record] of next.byId) {
+    if (seen.has(id)) continue;
+    // `null` is already authoritatively empty and `undefined` is unknown —
+    // only a non-null (pending) row can be cleared by absence.
+    if (record.pendingInput == null) continue;
+    if (!accept(id, sequence)) continue;
+    next = applyPendingInputObservation(next, id, record.directory, null, sequence);
+  }
+  return next;
+};
+
+/**
+ * Reset every row's `pendingInput` to unknown. Runs on a verified
+ * stream-epoch change (daemon restart): the new daemon's sequence space is
+ * unrelated, so per-session markers are dropped by the caller and every
+ * row returns to unknown until the recovery re-fetch re-establishes it.
+ */
+export const resetCatalogPendingInput = (
+  state: PiSessionCatalogState,
+): PiSessionCatalogState => {
+  let nextById: Map<PiSessionId, LiveSessionRecord> | null = null;
+  for (const [id, record] of state.byId) {
+    if (record.pendingInput === undefined) continue;
+    if (!nextById) nextById = new Map(state.byId);
+    nextById.set(id, { ...record, pendingInput: undefined });
+  }
+  if (!nextById) return state;
+  return { ...state, byId: nextById };
+};
+
+/** One session that is waiting for the user, for badge/switcher surfaces. */
+export interface SessionNeedingInput {
+  sessionId: PiSessionId;
+  directory: string;
+  pending: PiPendingInputSummary;
+}
+
+export const EMPTY_SESSIONS_NEEDING_INPUT: ReadonlyArray<SessionNeedingInput> = [];
+
+/**
+ * Every catalog row with a non-null `pendingInput`, sorted by
+ * `pending.since` ascending (oldest waiter first). Null and unknown rows
+ * are excluded. Pure derivation for hooks and imperative readers; the hook
+ * keeps the reference stable via `sessionsNeedingInputEqual`.
+ */
+export const selectSessionsNeedingInput = (
+  catalog: PiSessionCatalogState,
+): SessionNeedingInput[] => {
+  const result: SessionNeedingInput[] = [];
+  for (const record of catalog.byId.values()) {
+    if (record.pendingInput == null) continue;
+    result.push({ sessionId: record.id, directory: record.directory, pending: record.pendingInput });
+  }
+  if (result.length === 0) return EMPTY_SESSIONS_NEEDING_INPUT as SessionNeedingInput[];
+  result.sort((left, right) => (
+    left.pending.since - right.pending.since
+    || (left.sessionId < right.sessionId ? -1 : left.sessionId > right.sessionId ? 1 : 0)
+  ));
+  return result;
+};
+
+/** Element-wise equality for `selectSessionsNeedingInput` results. */
+export const sessionsNeedingInputEqual = (
+  left: ReadonlyArray<SessionNeedingInput>,
+  right: ReadonlyArray<SessionNeedingInput>,
+): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (a.sessionId !== b.sessionId || a.directory !== b.directory) return false;
+    if (!pendingInputEqual(a.pending, b.pending)) return false;
+  }
+  return true;
 };
 
 /**
