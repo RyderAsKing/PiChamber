@@ -2,7 +2,12 @@ import * as React from 'react';
 
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
-import type { PiExtensionDialogPayload } from '@/lib/pi/protocol';
+import { liveSessionRecordToUiSession, selectSessionsNeedingInput } from '@/sync/pi-session-catalog';
+import { useSessionUIStore } from '@/sync/session-ui-store';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
+import { SessionNeedsInputIndicator } from '@/components/session/sidebar/SessionNeedsInputIndicator';
+import { formatNeedsInputLabel } from '@/components/session/sidebar/sessionAttention';
+import type { PiExtensionDialogPayload, PiPendingInputSummary } from '@/lib/pi/protocol';
 import { PiRequestError, piClient } from '@/lib/pi/client';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { stripAnsi } from '@/lib/pi/ansi';
@@ -426,6 +431,116 @@ export interface ExtensionPromptDockProps {
   sessionId?: string | null;
 }
 
+/** Another session waiting on the user, for the dock overflow strip. */
+interface OtherNeedingSession {
+  sessionId: string;
+  directory: string;
+  pending: PiPendingInputSummary;
+  title: string;
+}
+
+const MAX_OTHER_NEEDING_INPUT_SHOWN = 3;
+
+const otherNeedingInputEqual = (
+  left: ReadonlyArray<OtherNeedingSession>,
+  right: ReadonlyArray<OtherNeedingSession>,
+): boolean => {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    const a = left[index];
+    const b = right[index];
+    if (!a || !b) return false;
+    if (a.sessionId !== b.sessionId || a.directory !== b.directory || a.title !== b.title) return false;
+    if (a.pending.count !== b.pending.count || a.pending.kind !== b.pending.kind || a.pending.since !== b.pending.since) {
+      return false;
+    }
+  }
+  return true;
+};
+
+/** Sessions needing input other than the visible one, oldest waiter first.
+ *  Titles resolve from catalog rows through the shared display-title helper
+ *  (`Untitled session` fallback); unknown titles never infer emptiness. */
+const useOtherSessionsNeedingInput = (currentSessionId: string | null): OtherNeedingSession[] =>
+  usePiSessionSnapshot(
+    (state) => {
+      const others: OtherNeedingSession[] = [];
+      for (const entry of selectSessionsNeedingInput(state.catalog)) {
+        if (currentSessionId && entry.sessionId === currentSessionId) continue;
+        const record = state.catalog.byId.get(entry.sessionId);
+        const title = record
+          ? getSessionDisplayTitle(liveSessionRecordToUiSession(record), 'Untitled session')
+          : 'Untitled session';
+        others.push({
+          sessionId: entry.sessionId,
+          directory: entry.directory,
+          pending: entry.pending,
+          title,
+        });
+      }
+      return others;
+    },
+    otherNeedingInputEqual,
+    'catalog',
+    currentSessionId ?? '',
+  );
+
+/** Compact strip above the dock listing other sessions waiting on the user.
+ *  Visible even when the current session has no dialog, so the pending state
+ *  surfaces on app open/resume. Shared `Button` keeps touch targets at the
+ *  mobile floor; rows carry `min-h-[44px]` for comfortable tapping. */
+const OtherSessionsNeedInputStrip: React.FC<{ sessions: ReadonlyArray<OtherNeedingSession> }> = ({
+  sessions,
+}) => {
+  const setCurrentSession = useSessionUIStore((state) => state.setCurrentSession);
+  const visible = sessions.slice(0, MAX_OTHER_NEEDING_INPUT_SHOWN);
+  const remaining = sessions.length - visible.length;
+  return (
+    <div
+      role="region"
+      aria-label="Other sessions need input"
+      className="overflow-hidden rounded-xl border border-border/80 bg-card p-1.5 shadow-md"
+    >
+      <ul className="flex flex-col">
+        {visible.map((item) => {
+          const label = formatNeedsInputLabel(item.pending.kind, item.pending.count);
+          return (
+            <li key={item.sessionId} className="flex min-h-[44px] items-center gap-2 px-2 py-1">
+              <SessionNeedsInputIndicator label={label} />
+              <span
+                className="min-w-0 flex-1 truncate text-sm text-foreground"
+                title={`${item.title} \u2014 ${label}`}
+              >
+                {item.title}
+              </span>
+              {item.pending.count > 1 ? (
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {`${item.pending.count} requests`}
+                </span>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void setCurrentSession(item.sessionId, item.directory);
+                }}
+                aria-label={`Open ${item.title}`}
+              >
+                Open
+              </Button>
+            </li>
+          );
+        })}
+      </ul>
+      {remaining > 0 ? (
+        <p className="px-2 pb-1 text-xs text-muted-foreground">{`+${remaining} more`}</p>
+      ) : null}
+    </div>
+  );
+};
+
 interface ExtensionPromptTarget {
   sessionId: string;
   request: PiExtensionDialogPayload;
@@ -469,6 +584,10 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     'dialogs',
     sessionId ?? '',
   );
+
+  const storeCurrentSessionId = useSessionUIStore((state) => state.currentSessionId);
+  const currentId = sessionId ?? storeCurrentSessionId ?? null;
+  const othersNeedingInput = useOtherSessionsNeedingInput(currentId);
 
   const [responding, setResponding] = React.useState(false);
   const [responseError, setResponseError] = React.useState(false);
@@ -574,10 +693,16 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     }
   };
 
-  if (!target) return null;
+  // The strip keeps the dock mounted while other sessions wait, even when
+  // the current session has no dialog.
+  if (!target && othersNeedingInput.length === 0) return null;
 
   return (
-    <div className="chat-input-column mb-2">
+    <div className="chat-input-column mb-2 flex flex-col gap-2">
+      {othersNeedingInput.length > 0 ? (
+        <OtherSessionsNeedInputStrip sessions={othersNeedingInput} />
+      ) : null}
+      {target ? (
       <div
         ref={dockRef}
         role="dialog"
@@ -653,6 +778,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
           </p>
         )}
       </div>
+      ) : null}
     </div>
   );
 };

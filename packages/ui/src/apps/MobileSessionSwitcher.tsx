@@ -11,8 +11,10 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useSessionUnseenCount } from '@/sync/notification-store';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useGlobalSessionStatus } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSessionPendingInput } from '@/sync/sync-context';
 import { SessionUnreadDot } from '@/components/session/sidebar/SessionUnreadDot';
+import { SessionNeedsInputIndicator } from '@/components/session/sidebar/SessionNeedsInputIndicator';
+import { formatNeedsInputLabel, resolveSessionAttention } from '@/components/session/sidebar/sessionAttention';
 import { MOBILE_HEADER_POPOVER_WIDTH, useMobileHeaderOverlay } from './useMobileHeaderOverlay';
 
 const RECENT_SESSIONS_LIMIT = 10;
@@ -32,9 +34,15 @@ const SwitcherRow: React.FC<{
   
   const status = useGlobalSessionStatus(session.id);
   const unseenCount = useSessionUnseenCount(session.id);
+  const pendingInput = useSessionPendingInput(session.id);
   const statusType = status?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
-  const showUnreadDot = !isStreaming && unseenCount > 0 && !active;
+  const attention = resolveSessionAttention({ pendingInput, isStreaming, unseenCount, isActive: active });
+  const showNeedsInput = attention === 'needs-input';
+  const needsInputLabel = showNeedsInput && pendingInput
+    ? formatNeedsInputLabel(pendingInput.kind, pendingInput.count)
+    : null;
+  const showUnreadDot = attention === 'unread';
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
   const showActivityDuration = isStreaming && hasActivityDuration;
   const timeLabel = formatSessionCompactDateLabel(session.time?.updated ?? session.time?.created ?? 0);
@@ -58,7 +66,9 @@ const SwitcherRow: React.FC<{
         ) : null}
       </span>
       {/* Activity sits on the right, before the time — no reserved left gutter. */}
-      {isStreaming ? (
+      {showNeedsInput ? (
+        <SessionNeedsInputIndicator label={needsInputLabel ?? 'Needs input'} />
+      ) : isStreaming ? (
         <span
           className="size-1.5 shrink-0 rounded-full bg-primary"
           aria-hidden
@@ -72,7 +82,7 @@ const SwitcherRow: React.FC<{
           running={isStreaming}
           className="typography-micro"
         />
-      ) : showUnreadDot ? null : timeLabel ? (
+      ) : showUnreadDot || showNeedsInput ? null : timeLabel ? (
         <span className="shrink-0 typography-micro text-muted-foreground tabular-nums">{timeLabel}</span>
       ) : null}
     </button>

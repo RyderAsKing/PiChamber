@@ -4,7 +4,9 @@ import type { Session } from '@/lib/chat/types';
 
 import { Icon } from '@/components/icon/Icon';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useGlobalSessionStatus } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSessionPendingInput } from '@/sync/sync-context';
+import { formatNeedsInputLabel, resolveSessionAttention } from './sidebar/sessionAttention';
+import { SessionNeedsInputIndicator } from './sidebar/SessionNeedsInputIndicator';
 import { useSwitcherItems, type SwitcherItem } from '@/components/session/sidebar/hooks/useSwitcherItems';
 import { useUIStore } from '@/stores/useUIStore';
 import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
@@ -146,11 +148,17 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
 
   const sessionStatus = useGlobalSessionStatus(session.id);
   const unseenCount = useSessionUnseenCount(session.id);
+  const pendingInput = useSessionPendingInput(session.id);
   const isActive = currentSessionId === session.id;
   const sessionTitle = getSessionDisplayTitle(session);
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
-  const showUnreadCompleteDot = !isStreaming && unseenCount > 0 && !isActive;
+  const attention = resolveSessionAttention({ pendingInput, isStreaming, unseenCount, isActive });
+  const showNeedsInput = attention === 'needs-input';
+  const needsInputLabel = showNeedsInput && pendingInput
+    ? formatNeedsInputLabel(pendingInput.kind, pendingInput.count)
+    : null;
+  const showUnreadCompleteDot = attention === 'unread';
 
   const timestamp = session.time?.updated || session.time?.created || Date.now();
   const timeLabel = formatSessionCompactDateLabel(timestamp);
@@ -237,7 +245,11 @@ function SwitcherRow({ session, depth, variant, secondaryMeta, hasChildren, isEx
         ) : null}
       </div>
 
-      {isStreaming ? (
+      {showNeedsInput ? (
+        <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
+          <SessionNeedsInputIndicator label={needsInputLabel ?? 'Needs input'} />
+        </span>
+      ) : isStreaming ? (
         <span className="flex h-3 w-3 flex-shrink-0 items-center justify-center self-center">
           <span className="h-1.5 w-1.5 rounded-full bg-primary animate-busy-pulse" aria-label="Session active" title="Session active" />
         </span>

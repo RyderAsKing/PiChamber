@@ -18,6 +18,7 @@ export function useSessionGroupFolders({
   compareSessionNodes,
   activeActivitySessionIds,
   unreadActivitySessionIds,
+  inputActivitySessionIds,
   collectGroupSessions,
 }: {
   group: SessionGroup;
@@ -27,6 +28,7 @@ export function useSessionGroupFolders({
   compareSessionNodes: (a: SessionNode, b: SessionNode) => number;
   activeActivitySessionIds: Set<string>;
   unreadActivitySessionIds: Set<string>;
+  inputActivitySessionIds: ReadonlySet<string>;
   collectGroupSessions: (nodes: SessionNode[]) => Session[];
 }) {
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
@@ -156,11 +158,11 @@ export function useSessionGroupFolders({
 
       const entry = foldersById.get(folderId);
       let state = entry
-        ? getSessionNodesActivityState(entry.nodes, activeActivitySessionIds, unreadActivitySessionIds)
+        ? getSessionNodesActivityState(entry.nodes, activeActivitySessionIds, unreadActivitySessionIds, inputActivitySessionIds)
         : null;
       for (const child of childFoldersByParentId.get(folderId) ?? []) {
         state = mergeCollapsedActivityStates(state, visit(child.folder.id, seen));
-        if (state === 'active') break;
+        if (state === 'input') break;
       }
       result.set(folderId, state);
       return state;
@@ -168,7 +170,7 @@ export function useSessionGroupFolders({
 
     allFoldersForGroup.forEach(({ folder }) => visit(folder.id, new Set()));
     return result;
-  }, [activeActivitySessionIds, allFoldersForGroup, childFoldersByParentId, unreadActivitySessionIds]);
+  }, [activeActivitySessionIds, allFoldersForGroup, childFoldersByParentId, inputActivitySessionIds, unreadActivitySessionIds]);
 
   const folderSessionsForDeleteById = React.useMemo(() => {
     if (!group.isArchivedBucket) return new Map<string, Session[]>();

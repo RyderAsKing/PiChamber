@@ -16,6 +16,7 @@ import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { getGitHubPrStatusKey, useEnsureGitHubPrStatus, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { CollapsedActivityIndicator } from './collapsedActivityIndicator';
 import { getSessionNodesActivityState } from './collapsedActivityState';
+import { useSessionsNeedingInput } from '@/sync/sync-context';
 import {
   VirtualArchivedSessionList,
   ARCHIVED_VIRTUALIZE_THRESHOLD,
@@ -128,6 +129,15 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     return collected;
   }, []);
 
+  // Sessions needing input, computed once per group render from the shared
+  // needing list (reference-stable across unrelated catalog commits) rather
+  // than once per row. Sidebar rows subscribe narrowly per session instead.
+  const sessionsNeedingInput = useSessionsNeedingInput();
+  const inputActivitySessionIds = React.useMemo(
+    () => new Set(sessionsNeedingInput.map((entry) => entry.sessionId)),
+    [sessionsNeedingInput],
+  );
+
   const {
     folderScopeKey,
     folderScopes,
@@ -144,6 +154,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     compareSessionNodes,
     activeActivitySessionIds,
     unreadActivitySessionIds,
+    inputActivitySessionIds,
     collectGroupSessions,
   });
 
@@ -254,10 +265,10 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       ? { label: group.branch, color: null as string | null }
       : null;
   const groupActivityState = isCollapsed
-    ? getSessionNodesActivityState(sourceGroupNodes, activeActivitySessionIds, unreadActivitySessionIds)
+    ? getSessionNodesActivityState(sourceGroupNodes, activeActivitySessionIds, unreadActivitySessionIds, inputActivitySessionIds)
     : null;
   const groupActivityIndicator = groupActivityState ? (
-    <CollapsedActivityIndicator state={groupActivityState} activeLabel={'Session active'} unreadLabel={'Unread updates'} />
+    <CollapsedActivityIndicator state={groupActivityState} activeLabel={'Session active'} unreadLabel={'Unread updates'} inputLabel={'Needs input'} />
   ) : null;
 
   type FolderEntry = (typeof allFoldersForGroup)[number];

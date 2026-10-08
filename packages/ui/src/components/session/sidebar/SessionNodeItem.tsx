@@ -11,6 +11,8 @@ import type { SessionNodeChildRenderExtras } from './sessionNodeItemUtils';
 import { renderHighlightedText } from './highlightedText';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { SessionUnreadDot } from './SessionUnreadDot';
+import { SessionNeedsInputIndicator } from './SessionNeedsInputIndicator';
+import { formatNeedsInputLabel } from './sessionAttention';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -180,6 +182,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     isPinnedSession,
     isExpanded,
     needsAttention,
+    pendingInput,
+    attention,
     sessionCompactUpdatedLabel,
     forkSolid,
     rowBackground,
@@ -243,7 +247,11 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     setRenameDraft(editTitle);
   }, [editingId, editTitle, session.id]);
 
-  const showUnreadCompleteDot = !isStreaming && needsAttention && !isActive;
+  const showNeedsInput = attention === 'needs-input';
+  const needsInputLabel = showNeedsInput && pendingInput
+    ? formatNeedsInputLabel(pendingInput.kind, pendingInput.count)
+    : null;
+  const showUnreadCompleteDot = attention === 'unread';
   const showActivityDuration = isStreaming && hasActivityDuration;
   // Quick actions own the trailing edge whenever they are pinned visible.
   const trailingStatusHidden = showQuickArchiveAction && (alwaysShowActions || isContextMenuOpen);
@@ -619,7 +627,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       : null,
                 )}
               >
-                {showUnreadCompleteDot ? (
+                {showNeedsInput && !showWorkingOverlay ? (
+                  <SessionNeedsInputIndicator label={needsInputLabel ?? 'Needs input'} />
+                ) : showUnreadCompleteDot ? (
                   <SessionUnreadDot label={'Session complete'} />
                 ) : (
                   <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap">
@@ -666,7 +676,10 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 {/* Stacked on the row's two lines: the indicator stands where the
                     timestamp is, the turn time where the details line ends. */}
                 <span className="relative flex flex-col items-end gap-1">
-                  <span className="flex h-5 items-center">
+                  <span className="flex h-5 items-center gap-1.5">
+                    {showNeedsInput && needsInputLabel ? (
+                      <SessionNeedsInputIndicator label={needsInputLabel} />
+                    ) : null}
                     <AgentThinkingLoader
                       variant="inline"
                       text={null}
