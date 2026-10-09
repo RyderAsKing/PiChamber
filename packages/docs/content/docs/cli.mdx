@@ -151,7 +151,6 @@ Use a profile or explicit mode for repeatable commands:
 
 ```sh
 pichamber tunnel start --profile prod-main
-pichamber tunnel start --mode quick
 pichamber tunnel start --mode managed-remote \
   --token-file ~/.secrets/cloudflare-token \
   --hostname app.example.com
@@ -181,13 +180,14 @@ pichamber tunnel profile remove --name prod-main
 
 ## Pair devices and check the version
 
-`connect-url` creates a one-time pairing link. It starts a server on the selected
-port when one is not already running:
+`pair` creates a one-time pairing link. It starts a server on the selected
+port when one is not already running (`connect-url` still works as a
+deprecated alias):
 
 ```sh
-pichamber connect-url --qr
-pichamber connect-url --server https://pichamber.example.com --qr
-pichamber connect-url --relay --name "Laptop"
+pichamber pair --qr
+pichamber pair --server https://pichamber.example.com --qr
+pichamber pair --relay --name "Laptop"
 ```
 
 Use `--server` when a reverse proxy or tunnel provides the public URL. Use

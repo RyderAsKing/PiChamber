@@ -1,11 +1,8 @@
 import * as React from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Icon } from '@/components/icon/Icon';
-import { Input } from '@/components/ui/input';
 import {
   getDesktopCloseToTray,
-  getDesktopLanAddress,
   getDesktopKeepAwake,
   getDesktopLaunchAtLogin,
   getDesktopMinimizeToTray,
@@ -18,28 +15,26 @@ import {
   setDesktopMinimizeToTray,
 } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import {
   SettingsSection,
   SettingsCheckboxRow,
   SETTINGS_OPTION_STACK_CLASS,
-  SettingsStackedField,
-  SETTINGS_ICON_BUTTON_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 
+/**
+ * Desktop shell chrome (login item, tray, menu bar, keep-awake).
+ *
+ * Remote-access controls (LAN access + desktop UI password) used to live
+ * here; they now live in Remote Access
+ * (`@/components/sections/remote-access/DesktopLanAccessSettings`) so each
+ * control exists in exactly one place.
+ */
 export const DesktopNetworkSettings: React.FC = () => {
   const isDesktop = isDesktopShell();
   const isLocalDesktop = isDesktop && isDesktopLocalOriginActive();
   const isMacDesktop = isLocalDesktop
     && typeof window !== 'undefined'
     && window.__PICHAMBER_PLATFORM__ === 'darwin';
-  const [savedValue, setSavedValue] = React.useState(false);
-  const [draftValue, setDraftValue] = React.useState(false);
-  const [savedPassword, setSavedPassword] = React.useState('');
-  const [draftPassword, setDraftPassword] = React.useState('');
-  const [showPassword, setShowPassword] = React.useState(false);
-  const [lanAccessActive, setLanAccessActive] = React.useState(false);
-  const [lanAccessBlockedReason, setLanAccessBlockedReason] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isSaving, setIsSaving] = React.useState(false);
   const [launchAtLoginSupported, setLaunchAtLoginSupported] = React.useState(false);
@@ -57,7 +52,6 @@ export const DesktopNetworkSettings: React.FC = () => {
   const [keepAwakeEnabled, setKeepAwakeEnabled] = React.useState(false);
   const [isSavingKeepAwake, setIsSavingKeepAwake] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [lanAddress, setLanAddress] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!isLocalDesktop) {
@@ -77,26 +71,12 @@ export const DesktopNetworkSettings: React.FC = () => {
         }
 
         const data = (await response.json().catch(() => null)) as null | {
-          desktopLanAccessEnabled?: unknown;
-          desktopUiPassword?: unknown;
-          desktopLanAccessActive?: unknown;
-          desktopLanAccessBlockedReason?: unknown;
           desktopMacMenuBarEnabled?: unknown;
         };
         if (cancelled) {
           return;
         }
 
-        const enabled = data?.desktopLanAccessEnabled === true;
-        const password = typeof data?.desktopUiPassword === 'string' ? data.desktopUiPassword : '';
-        setSavedValue(enabled);
-        setDraftValue(enabled);
-        setSavedPassword(password);
-        setDraftPassword(password);
-        setLanAccessActive(data?.desktopLanAccessActive === true);
-        setLanAccessBlockedReason(
-          typeof data?.desktopLanAccessBlockedReason === 'string' ? data.desktopLanAccessBlockedReason : null
-        );
         const macMenuBarEnabled = data?.desktopMacMenuBarEnabled !== false;
         setSavedMacMenuBarEnabled(macMenuBarEnabled);
         setDraftMacMenuBarEnabled(macMenuBarEnabled);
@@ -201,55 +181,8 @@ export const DesktopNetworkSettings: React.FC = () => {
     };
   }, [isDesktop]);
 
-  React.useEffect(() => {
-    if (!isLocalDesktop || !draftValue) {
-      setLanAddress(null);
-      return;
-    }
-
-    let cancelled = false;
-
-    void (async () => {
-      const address = await getDesktopLanAddress();
-      if (!cancelled) {
-        setLanAddress(address);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [draftValue, isLocalDesktop]);
-
-  const isDirty = draftValue !== savedValue
-    || draftPassword !== savedPassword
-    || draftMacMenuBarEnabled !== savedMacMenuBarEnabled;
-  const currentPort = React.useMemo(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-
-    const runtimeApiBaseUrl = getRuntimeApiBaseUrl();
-    const portSource = runtimeApiBaseUrl || window.location.href;
-    let parsed = 0;
-    try {
-      parsed = Number(new URL(portSource).port);
-    } catch {
-      parsed = Number(window.location.port);
-    }
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-  const lanUrl = draftValue && lanAccessActive && lanAddress && currentPort ? `http://${lanAddress}:${currentPort}` : null;
-  const lanRequiresPassword = draftValue && !draftPassword.trim();
-  const lanBlockedByMissingPassword = savedValue && !lanAccessActive && lanAccessBlockedReason === 'missing-password';
-  const saveDisabled = isLoading || isSaving || !isDirty || lanRequiresPassword;
-
-  const handlePasswordChange = React.useCallback((value: string) => {
-    setDraftPassword(value);
-    if (!value.trim()) {
-      setDraftValue(false);
-    }
-  }, []);
+  const isDirty = draftMacMenuBarEnabled !== savedMacMenuBarEnabled;
+  const saveDisabled = isLoading || isSaving || !isDirty;
 
   const handleLaunchAtLoginToggle = React.useCallback(async () => {
     if (!launchAtLoginSupported || isSavingLaunchAtLogin) {
@@ -369,8 +302,6 @@ export const DesktopNetworkSettings: React.FC = () => {
           Accept: 'application/json',
         },
         body: JSON.stringify({
-          desktopLanAccessEnabled: draftValue,
-          desktopUiPassword: draftPassword,
           desktopMacMenuBarEnabled: draftMacMenuBarEnabled,
         }),
       });
@@ -379,8 +310,6 @@ export const DesktopNetworkSettings: React.FC = () => {
         throw new Error("Failed to save desktop settings");
       }
 
-      setSavedValue(draftValue);
-      setSavedPassword(draftPassword);
       setSavedMacMenuBarEnabled(draftMacMenuBarEnabled);
 
       const restarted = await restartDesktopApp();
@@ -391,14 +320,13 @@ export const DesktopNetworkSettings: React.FC = () => {
       setError(cause instanceof Error ? cause.message : "Failed to save desktop settings");
       setIsSaving(false);
     }
-  }, [draftMacMenuBarEnabled, draftPassword, draftValue, isDirty]);
+  }, [draftMacMenuBarEnabled, isDirty]);
 
   if (!isDesktop) {
     return null;
   }
 
   return (
-    <>
       <SettingsSection title={"Desktop"}>
         <div className="space-y-3">
         {(launchAtLoginSupported || isMacDesktop || minimizeToTraySupported || closeToTraySupported || keepAwakeSupported) ? (
@@ -477,99 +405,23 @@ export const DesktopNetworkSettings: React.FC = () => {
           </div>
         ) : null}
 
-        {!isLocalDesktop && error ? (
-          <div className="typography-micro text-[var(--status-error)]">{error}</div>
-        ) : null}
-        </div>
-      </SettingsSection>
-
-      {isLocalDesktop ? (
-        <SettingsSection title={"Desktop Network Access"}>
-          <div className="space-y-3">
-        <SettingsStackedField
-          settingsItem="sessions.desktop-ui-password"
-          label={(
-            <label htmlFor="desktop-ui-password">
-              {"Desktop UI Password"}
-            </label>
-          )}
-          info={"PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login."}
-        >
-          <Input
-            id="desktop-ui-password"
-            type={showPassword ? 'text' : 'password'}
-            className="h-8 min-w-0 flex-1"
-            value={draftPassword}
-            onChange={(event) => handlePasswordChange(event.target.value)}
-            placeholder={"No password required"}
-            disabled={isLoading || isSaving}
-            required={draftValue}
-            aria-invalid={lanRequiresPassword}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            onClick={() => setShowPassword((current: boolean) => !current)}
-            className={SETTINGS_ICON_BUTTON_CLASS}
-            aria-label={(showPassword ? "Hide password" : "Show password")}
-            aria-pressed={showPassword}
-          >
-            <Icon name={showPassword ? 'eye-off' : 'eye'} className="h-4 w-4" />
-          </Button>
-        </SettingsStackedField>
-
-        <div className={SETTINGS_OPTION_STACK_CLASS}>
-          <SettingsCheckboxRow
-            settingsItem="sessions.desktop-lan-access"
-            checked={draftValue}
-            onChange={setDraftValue}
-            disabled={isLoading || isSaving}
-            label={"Let other devices on your local network open this app"}
-            info={"Restarts the app so phones, tablets, and other computers on your Wi-Fi can open it. On Windows, allow PiChamber through the firewall if a phone still cannot connect."}
-            description={(
-              <>
-                <span className="block text-[var(--status-warning)]/85">
-                  {"Warning: while enabled, the app is reachable by anyone on the same local network."}
-                </span>
-                {lanRequiresPassword || lanBlockedByMissingPassword ? (
-                  <span className="block text-[var(--status-warning)]/85">
-                    {"LAN access requires a Desktop UI Password. Until one is set, the desktop app starts local-only."}
-                  </span>
-                ) : null}
-              </>
-            )}
-            ariaLabel={"Allow LAN access to desktop sidecar"}
-          />
-        </div>
-
         {error ? (
           <div className="typography-micro text-[var(--status-error)]">{error}</div>
         ) : null}
-
-        {lanUrl ? (
-          <div className="typography-micro text-muted-foreground/80">
-            {isDirty && !savedValue
-              ? "After restart, open from another device: "
-              : "Open from another device: "}
-            <span className="font-mono text-foreground">{lanUrl}</span>
+        {isLocalDesktop ? (
+          <div className="flex justify-start py-1.5">
+            <Button
+              type="button"
+              size="xs"
+              onClick={handleSaveAndRestart}
+              disabled={saveDisabled}
+              className="shrink-0 !font-normal"
+            >
+              {isSaving ? "Saving..." : "Save + Restart"}
+            </Button>
           </div>
         ) : null}
-
-        <div className="flex justify-start py-1.5">
-          <Button
-            type="button"
-            size="xs"
-            onClick={handleSaveAndRestart}
-            disabled={saveDisabled}
-            className="shrink-0 !font-normal"
-          >
-            {isSaving ? "Saving..." : "Save + Restart"}
-          </Button>
         </div>
-          </div>
-        </SettingsSection>
-      ) : null}
-    </>
+      </SettingsSection>
   );
 };

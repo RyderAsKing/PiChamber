@@ -102,7 +102,7 @@ export const TunnelStartControls: React.FC<TunnelStartControlsProps> = ({
             <p className="typography-meta text-[var(--status-info)]">
               {`Start a ${
                 TUNNEL_MODE_OPTIONS.find((option) => option.value === tunnelMode)?.label ??
-                'Quick'
+                'Managed Remote'
               } tunnel and generate a one-time connect link. Do not close the app while this tunnel is in use.`}
             </p>
           </div>

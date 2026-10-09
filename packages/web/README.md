@@ -60,7 +60,7 @@ Run `pichamber --help` for the current flags.
 | `stop` / `restart` | Stop or restart instances (broad stops confirm when more than one is affected; `--force` skips) |
 | `startup` | Run at login or boot (`enable` is guided; `status` / `disable` to inspect or remove) |
 | `tunnel` | Expose the server via Cloudflare Tunnel (`start` is guided; profiles cover repeatable runs) |
-| `connect-url` | Create a one-time pairing link for another client (`--qr` in interactive terminals; starts the server if needed) |
+| `pair` | Create a one-time pairing link for another client (`--qr` in interactive terminals; starts the server if needed; `--tailscale` adds Tailscale remote access) |
 | `update` | Install updates (reviews before changing anything; `--yes` skips confirmation, `--channel stable\|rc` overrides once) |
 | `version` | Print the installed version |
 

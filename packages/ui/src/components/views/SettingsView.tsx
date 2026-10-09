@@ -9,6 +9,7 @@ import type { PiChamberSection } from "@/components/sections/pichamber/types";
 import { useMobileAppActions } from "@/apps/mobileAppContext";
 import { useDeviceInfo } from "@/lib/device";
 import { isDesktopLocalOriginActive, isDesktopShell } from "@/lib/desktop";
+import { isCapacitorApp } from "@/lib/platform";
 import { subscribeRuntimeEndpointChanged } from "@/lib/runtime-switch";
 import { isWindowsArm64 as isWindowsArm64Platform } from "@/lib/platform";
 import { Icon } from "@/components/icon/Icon";
@@ -41,6 +42,8 @@ interface SettingsViewProps {
   /** Restrict top-level settings navigation to a specific product surface. */
   visiblePageSlugs?: SettingsPageSlug[];
   initialMobileStage?: MobileStage;
+  /** Mobile sheet fallback: deleting the active/last server leaves to connect. */
+  onActiveConnectionDeleted?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -49,6 +52,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   isWindowed,
   visiblePageSlugs,
   initialMobileStage = "nav",
+  onActiveConnectionDeleted,
 }) => {
   const deviceInfo = useDeviceInfo();
   const isMobile = forceMobile ?? deviceInfo.isMobile;
@@ -114,9 +118,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   );
   const isWindowsArm64 = React.useMemo(() => isWindowsArm64Platform(), []);
 
+  const isCapacitor = React.useMemo(() => isCapacitorApp(), []);
   const runtimeCtx = React.useMemo(
-    () => buildRuntimeContext(isDesktopApp, isMobile),
-    [isDesktopApp, isMobile],
+    () => buildRuntimeContext(isDesktopApp, isMobile, isCapacitor),
+    [isDesktopApp, isMobile, isCapacitor],
   );
 
   const visiblePages = React.useMemo(() => {
@@ -126,8 +131,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return SETTINGS_PAGE_METADATA.filter((page) => page.slug !== "home")
       .filter((page) => !allowedPages || allowedPages.has(page.slug))
       .filter((page) => isPageAvailable(page, runtimeCtx))
-      .filter((page) => !(isMobile && page.slug === "remote-instances"));
-  }, [isMobile, runtimeCtx, visiblePageSlugs]);
+      .filter((page) => !(isMobile && (page.slug === "remote-access" || page.slug === "remote-instances" || (page.slug === "servers" && !isCapacitor))));
+  }, [isCapacitor, isMobile, runtimeCtx, visiblePageSlugs]);
 
   const sortedFilteredPages = React.useMemo(() => {
     const rank = new Map<SettingsPageSlug, number>(
@@ -192,8 +197,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         return "General";
       case "projects":
         return "Projects";
+      case "remote-access":
+        return "Remote Access";
+      case "servers":
+        return "Servers";
       case "remote-instances":
-        return "Remote Instances";
+        return "Remote Access";
       case "providers":
         return "Providers";
       case "behavior":
@@ -371,6 +380,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             isMobile={isMobile}
             runtimeCtx={runtimeCtx}
             openChamberSectionBySlug={openChamberSectionBySlug}
+            onActiveConnectionDeleted={onActiveConnectionDeleted}
           />
         );
         return (
@@ -398,6 +408,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             isMobile={isMobile}
             runtimeCtx={runtimeCtx}
             openChamberSectionBySlug={openChamberSectionBySlug}
+            onActiveConnectionDeleted={onActiveConnectionDeleted}
           />
         </ErrorBoundary>
       </div>
@@ -429,6 +440,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 isMobile={isMobile}
                 runtimeCtx={runtimeCtx}
                 openChamberSectionBySlug={openChamberSectionBySlug}
+                onActiveConnectionDeleted={onActiveConnectionDeleted}
               />
             </ErrorBoundary>
           </div>
@@ -444,6 +456,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             isMobile={isMobile}
             runtimeCtx={runtimeCtx}
             openChamberSectionBySlug={openChamberSectionBySlug}
+            onActiveConnectionDeleted={onActiveConnectionDeleted}
           />
         </ErrorBoundary>
       </div>

@@ -14,6 +14,9 @@ import { createRemoteClientAuthRuntime } from './lib/client-auth/remote-clients.
 import { createRevocationCoordinator } from './lib/client-auth/principal-tracker.js';
 import { resolvePiChamberDataDir } from './lib/pichamber-data-dir.js';
 import { createTunnelService } from './lib/server/tunnel-service.js';
+import { createTailscaleService } from './lib/tailscale/service.js';
+import { createServerIdResolver } from './lib/relay/server-id.js';
+import { registerTailscaleRoutes } from './lib/tailscale/routes.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
@@ -129,13 +132,6 @@ export async function startWebUiServer(options = {}) {
   const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
-  const pairingTransports = createPairingTransportResolvers({
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
-    bindHost: host,
-  });
   const serverStartedAt = new Date().toISOString();
   const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
@@ -175,6 +171,42 @@ export async function startWebUiServer(options = {}) {
     tunnelAuthController,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
+  const hasUiPasswordConfigured = () => typeof uiPassword === 'string' && uiPassword.trim().length > 0;
+  // One stable server identity: the relay signing-key serverId, shared by
+  // /health, /api/version, connection candidates, and the Tailscale probe.
+  const serverIdResolver = createServerIdResolver({ dataDir: PICHAMBER_DATA_DIR, crypto });
+  // Resolve the identity before anything can rewrite settings.json: the UI
+  // settings store drops keys it does not own, so a legacy install's key must
+  // be copied into relay-identity.json first. Failure is not fatal here; the
+  // routes retry on demand.
+  await serverIdResolver.getServerId().catch(() => undefined);
+  // Tailscale remote access (tailnet-only serve / public funnel). Off by
+  // default; enabled only via its settings API or CLI flags. The service
+  // owns its persisted config, lifecycle and conflict rules — see
+  // `packages/web/server/lib/tailscale/DOCUMENTATION.md`.
+  const tailscaleService = createTailscaleService({
+    dataDir: PICHAMBER_DATA_DIR,
+    getServerId: serverIdResolver.getServerId,
+    getPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    isUiAuthEnabled: hasUiPasswordConfigured,
+    isUnsafeUnauthenticatedLanAllowed: () => isUnsafeUnauthenticatedLanAllowed(process.env),
+  });
+  try {
+    await tailscaleService.loadConfig();
+  } catch (error) {
+    console.warn(`[tailscale] Failed to load persisted config: ${error?.message || error}`);
+  }
+  const pairingTransports = createPairingTransportResolvers({
+    getPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    bindHost: host,
+    getTailscaleCandidate: () => tailscaleService.getPairingCandidate(),
+  });
   let stopped = false;
 
   // trust proxy = true is intentional for PiChamber's deployment model:
@@ -212,7 +244,7 @@ export async function startWebUiServer(options = {}) {
       return typeof address === 'object' && address ? address.port : null;
     },
     getTunnelUrl: () => null,
-    getServerId: async () => null,
+    getServerId: serverIdResolver.getServerId,
     tunnelAuthController,
     uiAuthController,
   });
@@ -228,7 +260,8 @@ export async function startWebUiServer(options = {}) {
     normalizeTunnelSessionTtlMs: () => 8 * 60 * 60 * 1000,
     getPairingTransports: () => pairingTransports.getPairingTransports(),
     getDirectCandidateUrls: () => pairingTransports.getDirectCandidateUrls(),
-    getServerId: async () => null,
+    getTailscalePairingCandidate: () => tailscaleService.getPairingCandidate(),
+    getServerId: serverIdResolver.getServerId,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
   const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
@@ -236,7 +269,7 @@ export async function startWebUiServer(options = {}) {
     uiSettingsStore,
   });
   registerNotificationRoutes(app, { uiAuthController, delivery: notificationDelivery });
-  // Cloudflare Tunnel external access (manual token + quick modes).
+  // Cloudflare Tunnel external access (managed-remote and managed-local modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
     try { res.json(await tunnelService.getStatus()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to get tunnel status' }); }
@@ -245,10 +278,10 @@ export async function startWebUiServer(options = {}) {
     try { res.json(await tunnelService.check(req.query?.provider)); } catch (error) { res.status(500).json({ error: error?.message || 'Tunnel check failed' }); }
   });
   app.get('/api/pichamber/tunnel/providers', requireTunnelAuth, async (_req, res) => {
-    res.json({ providers: [{ provider: 'cloudflare', modes: [{ key: 'quick' }, { key: 'managed-remote' }, { key: 'managed-local' }] }] });
+    res.json({ providers: [{ provider: 'cloudflare', modes: [{ key: 'managed-remote' }, { key: 'managed-local' }] }] });
   });
   app.post('/api/pichamber/tunnel/start', express.json({ limit: '64kb' }), requireTunnelAuth, async (req, res) => {
-    try { const result = await tunnelService.start(req.body ?? {}); res.json(result); } catch (error) { const code = error?.code === 'missing_dependency' ? 400 : error?.code === 'validation_error' ? 422 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to start tunnel', code: error?.code }); }
+    try { const result = await tunnelService.start(req.body ?? {}); res.json(result); } catch (error) { const code = error?.code === 'missing_dependency' ? 400 : error?.code === 'quick_tunnel_removed' ? 410 : error?.code === 'validation_error' ? 422 : 500; res.status(code).json({ ok: false, error: error?.message || 'Failed to start tunnel', code: error?.code }); }
   });
   app.post('/api/pichamber/tunnel/stop', requireTunnelAuth, async (_req, res) => {
     try { res.json(await tunnelService.stop()); } catch (error) { res.status(500).json({ error: error?.message || 'Failed to stop tunnel' }); }
@@ -259,10 +292,21 @@ export async function startWebUiServer(options = {}) {
   app.get('/api/pichamber/tunnel/doctor', requireTunnelAuth, async (req, res) => {
     try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
   });
+  registerTailscaleRoutes(app, { express, tailscaleService, uiAuthController });
   const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR, liveRevocation });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);
+  // Tailscale mappings apply only after the server is listening (they front
+  // the bound loopback port). Reconcile runs in the background so an
+  // approval wait (up to 5 minutes) never blocks server-ready; status
+  // reports starting/needs-approval meanwhile. A failure never stops
+  // startup: the status model carries the error and
+  // `POST /api/pichamber/tailscale/retry` (or a config change) reconciles
+  // again. Rejections are caught and logged — never unhandled.
+  void tailscaleService.reconcile().catch((error) => {
+    console.warn(`[tailscale] Failed to apply mapping on startup: ${error?.message || error}`);
+  });
   const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     dataDir: PICHAMBER_DATA_DIR,
@@ -300,7 +344,8 @@ export async function startWebUiServer(options = {}) {
     },
     getTunnelUrl: () => null,
     getDaemonProfileKey: () => piSessionDaemonRuntime?.paths?.profileKey ?? null,
-    getQuitRiskStatus: () => ({ tunnel: { active: false } }),
+    getTailscaleStatus: () => tailscaleService.getStatus(),
+    getQuitRiskStatus: () => ({ tunnel: { active: false }, tailscale: tailscaleService.getTransports() }),
     isReady: () => !stopped,
     stop: async ({ exitProcess = false } = {}) => {
       if (stopped) return;
@@ -314,6 +359,7 @@ export async function startWebUiServer(options = {}) {
         notificationWatcher?.stop(),
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
+        tailscaleService.shutdown(),
         close(server),
       ]);
       uiAuthController.dispose?.();

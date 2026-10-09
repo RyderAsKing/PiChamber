@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { desktopHostProbe, desktopHostsGet, desktopHostsSet, importDesktopHostPairing, redactSensitiveUrl, resolveDesktopHostUrl } from './desktopHosts';
+import { desktopHostProbe, desktopHostsGet, desktopHostsSet, importDesktopHostPairing, redactSensitiveUrl, resolveDesktopHostUrl, withEditedDesktopHostUrl } from './desktopHosts';
 
 const withDesktopBridge = async <T>(handler: (cmd: string, args: Record<string, unknown>) => unknown | Promise<unknown>, run: () => Promise<T>): Promise<T> => {
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -119,5 +119,22 @@ describe('desktop host runtime headers', () => {
         requestHeaders: { 'CF-Access-Client-Id': 'client-id' },
       },
     });
+  });
+});
+
+describe('withEditedDesktopHostUrl', () => {
+  const host = { id: 'h1', label: 'Old', url: 'http://old-box:3000', apiUrl: 'http://old-box:3000', serverId: 'old-id' };
+
+  test('drops the pinned serverId when the address changes', () => {
+    const next = withEditedDesktopHostUrl(host, 'https://new-box.tail.ts.net');
+    expect(next.url).toBe('https://new-box.tail.ts.net');
+    expect(next.apiUrl).toBe('https://new-box.tail.ts.net');
+    expect('serverId' in next).toBe(false);
+    expect(host.serverId).toBe('old-id');
+  });
+
+  test('keeps the pinned serverId when only other fields are edited', () => {
+    const next = withEditedDesktopHostUrl(host, 'http://old-box:3000');
+    expect(next.serverId).toBe('old-id');
   });
 });

@@ -2,16 +2,22 @@ const MAX_PAIRING_PAYLOAD_LENGTH = 16_384;
 
 // A pairing candidate is one way to reach the host's HTTP API. `type`
 // discriminates the transport:
-//   - lan / tunnel: reach `url` directly (health-check, then redeem over fetch).
+//   - lan / tunnel / tailscale: reach `url` directly (health-check, then redeem over fetch).
 //   - relay: no reachable URL — open the E2EE relay tunnel to `serverId` via
 //     `relayUrl`, trusting `hostEncPubJwk`, then redeem over the tunnel.
+// The `tailscale` type marks a Tailscale serve/funnel URL (tailnet or public)
+// so new clients can label it; it is redeemed exactly like a direct URL.
+// Backward compatibility: parsers drop unknown candidate types, so old
+// clients ignore `tailscale` candidates and use the remaining ones.
 // The one-time pairing `secret` (payload level) is the single auth credential,
 // redeemed over whichever transport connects first. Relay carries no embedded
 // bearer token — that is the v1 sin this format replaces.
 export type PairingDirectCandidate = {
-  type: 'lan' | 'tunnel';
+  type: 'lan' | 'tunnel' | 'tailscale';
   url: string;
   priority?: number;
+  /** Present on `tailscale` candidates: 'private' (tailnet serve) or 'public' (funnel). */
+  mode?: 'private' | 'public';
 };
 
 export type PairingRelayCandidate = {
@@ -121,10 +127,18 @@ const normalizePairingCandidate = (value: unknown): PairingEndpointCandidate | n
   const record = value as Record<string, unknown>;
   const priority = normalizePriority(record.priority);
 
-  if (record.type === 'lan' || record.type === 'tunnel') {
+  if (record.type === 'lan' || record.type === 'tunnel' || record.type === 'tailscale') {
     const url = normalizeHttpUrl(record.url);
     if (!url) return null;
-    return priority === undefined ? { type: record.type, url } : { type: record.type, url, priority };
+    const mode = record.type === 'tailscale' && (record.mode === 'private' || record.mode === 'public')
+      ? record.mode
+      : undefined;
+    return {
+      type: record.type,
+      url,
+      ...(mode ? { mode } : {}),
+      ...(priority === undefined ? {} : { priority }),
+    };
   }
 
   if (record.type === 'relay') {

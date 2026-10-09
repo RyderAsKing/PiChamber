@@ -39,12 +39,12 @@ describe('tunnel service', () => {
 
   it('does not expose secrets in status or logs', async () => {
     const service = createTunnelService({ dataDir, getPort: () => 3000, tunnelAuthController: { listTunnelSessions: () => [] } });
-    await service.saveManagedRemoteToken({ token: 'secret-token-12345', hostname: 'example.trycloudflare.com' });
+    await service.saveManagedRemoteToken({ token: 'secret-token-12345', hostname: 'tunnel.example.com' });
     const status = await service.getStatus();
     const serialized = JSON.stringify(status);
     expect(serialized).not.toContain('secret-token-12345');
     expect(status.hasManagedRemoteTunnelToken).toBe(true);
-    expect(status.managedRemoteTunnelHostname).toBe('example.trycloudflare.com');
+    expect(status.managedRemoteTunnelHostname).toBe('tunnel.example.com');
   });
 
   it('redacts tokens when formatting for display', async () => {
@@ -57,5 +57,22 @@ describe('tunnel service', () => {
   it('handles unsupported mode with clear error', async () => {
     const service = createTunnelService({ dataDir, getPort: () => 3000, tunnelAuthController: { setActiveTunnel: () => {}, clearActiveTunnel: () => {}, issueBootstrapToken: () => ({ token: 't', expiresAt: Date.now() + 1000 }), listTunnelSessions: () => [] } });
     await expect(service.start({ mode: 'unknown-mode' })).rejects.toThrow('Unsupported tunnel mode');
+  });
+
+  it('rejects stored quick mode instead of starting a tunnel', async () => {
+    const service = createTunnelService({ dataDir, getPort: () => 3000, tunnelAuthController: { setActiveTunnel: () => { throw new Error('must not start'); }, clearActiveTunnel: () => {}, issueBootstrapToken: () => ({ token: 't', expiresAt: Date.now() + 1000 }), listTunnelSessions: () => [] } });
+    await expect(service.start({ mode: 'quick' })).rejects.toMatchObject({ code: 'quick_tunnel_removed' });
+    await expect(service.start({ mode: '  QUICK  ' })).rejects.toMatchObject({ code: 'quick_tunnel_removed' });
+    const status = await service.getStatus();
+    expect(status.active).toBe(false);
+    expect(status.url).toBeNull();
+  });
+
+  it('requires an explicit managed mode instead of defaulting', async () => {
+    const service = createTunnelService({ dataDir, getPort: () => 3000, tunnelAuthController: { setActiveTunnel: () => { throw new Error('must not start'); }, clearActiveTunnel: () => {}, issueBootstrapToken: () => ({ token: 't', expiresAt: Date.now() + 1000 }), listTunnelSessions: () => [] } });
+    await expect(service.start({})).rejects.toMatchObject({ code: 'validation_error' });
+    await expect(service.start({ mode: '' })).rejects.toMatchObject({ code: 'validation_error' });
+    const status = await service.getStatus();
+    expect(status.active).toBe(false);
   });
 });

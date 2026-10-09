@@ -225,11 +225,16 @@ export const readConnections = (): MobileSavedConnection[] => {
         typeof c.label === 'string' && c.label.trim()
           ? c.label
           : getConnectionLabel(connectionDisplayUrl({ candidates }));
+      const pinnedServerId =
+        typeof c.pinnedServerId === 'string' && c.pinnedServerId.trim()
+          ? c.pinnedServerId.trim()
+          : undefined;
       const base: MobileSavedConnection = {
         id: c.id,
         label,
         candidates,
         lastUsedAt: typeof c.lastUsedAt === 'number' ? c.lastUsedAt : 0,
+        ...(pinnedServerId ? { pinnedServerId } : {}),
       };
       if (native)
         return [
@@ -251,6 +256,9 @@ export const writeConnections = (connections: MobileSavedConnection[]): void => 
       label: c.label,
       candidates: c.candidates.map(serializeCandidate),
       lastUsedAt: c.lastUsedAt,
+      ...(typeof c.pinnedServerId === 'string' && c.pinnedServerId.trim()
+        ? { pinnedServerId: c.pinnedServerId.trim() }
+        : {}),
     };
     return native
       ? { ...shared, hasToken: Boolean(c.hasToken || c.clientToken) }
@@ -274,6 +282,11 @@ export const upsertConnectionInList = (
     candidates: MobileTransportCandidate[];
     clientToken?: string;
     hasToken?: boolean;
+    /**
+     * Pinned server identity: a string sets it, `null` clears it, and
+     * `undefined` (omitted) preserves the existing record's pin.
+     */
+    pinnedServerId?: string | null;
   }
 ): MobileSavedConnection[] => {
   const existing = connections.find(
@@ -287,6 +300,12 @@ export const upsertConnectionInList = (
     label: draft.label,
     candidates: draft.candidates,
     lastUsedAt: Date.now(),
+    pinnedServerId:
+      typeof draft.pinnedServerId === 'string' && draft.pinnedServerId.trim()
+        ? draft.pinnedServerId.trim()
+        : draft.pinnedServerId === null
+          ? undefined
+          : existing?.pinnedServerId,
     ...(native
       ? {
           hasToken:
@@ -550,6 +569,7 @@ export const upsertMobileConnection = async (connection: {
   label: string;
   candidates: MobileTransportCandidate[];
   clientToken?: string;
+  pinnedServerId?: string | null;
 }): Promise<MobileSavedConnection[]> => {
   const next = upsertConnectionInList(readConnections(), connection);
   writeConnections(next);

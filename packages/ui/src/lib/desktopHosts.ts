@@ -51,6 +51,12 @@ export type DesktopHost = {
   requestHeaders?: Record<string, string>;
   /** When set, this host is reached over the private relay tunnel. */
   relay?: DesktopHostRelay;
+  /**
+   * Pinned direct-server identity (TOFU): verified at pairing redemption or
+   * first verified connect, enforced on later direct probes before the
+   * bearer is sent. Absent on older records, which keep working.
+   */
+  serverId?: string;
 };
 
 /** Display-only pseudo-URL for a relay host (never fetched). */
@@ -166,7 +172,7 @@ export const importDesktopHostPairing = async (
     ? { relayUrl: relayCandidate.relayUrl, serverId: relayCandidate.serverId, hostEncPubJwk: relayCandidate.hostEncPubJwk }
     : undefined);
   const firstDirectUrl = payload.candidates
-    .filter((candidate): candidate is Extract<PairingEndpointCandidate, { type: 'lan' | 'tunnel' }> => candidate.type !== 'relay')
+    .filter((candidate): candidate is Extract<PairingEndpointCandidate, { type: 'lan' | 'tunnel' | 'tailscale' }> => candidate.type !== 'relay')
     .map((candidate) => normalizeHostUrl(candidate.url))
     .find((value): value is string => Boolean(value));
   const directUrl = redeemed.directUrl || firstDirectUrl;
@@ -188,6 +194,23 @@ export const importDesktopHostPairing = async (
     clientToken: redeemed.token,
     ...(relay ? { relay } : {}),
   };
+  // Trust on first use: pin the redeemed server's identity from a
+  // credential-free /health read when the record has none yet. Best-effort:
+  // a failed read leaves the record unpinned (old behavior).
+  if (!existing?.serverId && redeemed.directUrl) {
+    try {
+      const health = await fetch(`${redeemed.directUrl}/health`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (health.ok) {
+        const body = (await health.json().catch(() => null)) as { serverId?: unknown } | null;
+        const reported = typeof body?.serverId === 'string' ? body.serverId.trim() : '';
+        if (reported) nextHost.serverId = reported;
+      }
+    } catch {
+      // Best-effort pin read: ignore failures, leave the record unpinned.
+    }
+  }
   return {
     hostId,
     hosts: existing
@@ -199,6 +222,8 @@ export const importDesktopHostPairing = async (
 export type HostProbeResult = {
   status: 'ok' | 'auth' | 'update-recommended' | 'incompatible' | 'wrong-service' | 'unreachable';
   latencyMs: number;
+  /** Server identity asserted by the probe (from /health or /api/version). */
+  reportedServerId?: string;
 };
 
 export type DesktopHostUrlResolution = {
@@ -322,6 +347,7 @@ const parseHost = (value: unknown): DesktopHost | null => {
   const clientToken = readString(value, 'clientToken') || readString(value, 'client_token');
   const requestHeaders = sanitizeRequestHeaders(value.requestHeaders);
   const relay = parseHostRelay(value.relay);
+  const serverId = readString(value, 'serverId') || readString(value, 'server_id');
   if (!id || !label || !url) return null;
   return {
     id,
@@ -331,11 +357,26 @@ const parseHost = (value: unknown): DesktopHost | null => {
     ...(clientToken ? { clientToken } : {}),
     ...(requestHeaders ? { requestHeaders } : {}),
     ...(relay ? { relay } : {}),
+    ...(serverId?.trim() ? { serverId: serverId.trim() } : {}),
   };
 };
 
 export const getDesktopHostApiUrl = (host: DesktopHost): string => {
   return normalizeHostUrl(host.apiUrl || host.url) || host.apiUrl || host.url;
+};
+
+/**
+ * Points a host at a manually edited URL. The pinned direct `serverId`
+ * belongs to the old address, so it is dropped when the address changes;
+ * otherwise every probe of the new server would fail as wrong-service. The
+ * next verified connect pins the new identity.
+ */
+export const withEditedDesktopHostUrl = (host: DesktopHost, url: string): DesktopHost => {
+  const next: DesktopHost = { ...host, url, apiUrl: url };
+  if (normalizeHostUrl(getDesktopHostApiUrl(host)) !== normalizeHostUrl(url)) {
+    delete next.serverId;
+  }
+  return next;
 };
 
 const getInvoke = (): DesktopInvoke | null => {
@@ -489,7 +530,12 @@ export const desktopHostProbe = async (url: string, options?: { clientToken?: st
       : 'unreachable';
 
   const latencyMs = readNumber(raw, 'latencyMs') ?? readNumber(raw, 'latency_ms') ?? 0;
-  return { status, latencyMs };
+  const reportedServerId = readString(raw, 'reportedServerId');
+  return {
+    status,
+    latencyMs,
+    ...(reportedServerId?.trim() ? { reportedServerId: reportedServerId.trim() } : {}),
+  };
 };
 
 export const desktopOpenNewWindowAtUrl = async (url: string, options?: { clientToken?: string | null; requestHeaders?: Record<string, string> | null }): Promise<void> => {

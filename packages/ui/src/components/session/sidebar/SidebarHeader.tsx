@@ -94,13 +94,13 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={onOpenInstances}
                     className={actionClassName}
-                    aria-label={instanceLabel ? `Instances: ${instanceLabel}` : "Instances"}
+                    aria-label={instanceLabel ? `Servers: ${instanceLabel}` : "Servers"}
                   >
                     <Icon name="server" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" sideOffset={4}>
-                  <p>{instanceLabel || "Instances"}</p>
+                  <p>{instanceLabel || "Servers"}</p>
                 </TooltipContent>
               </Tooltip>
             ) : null}

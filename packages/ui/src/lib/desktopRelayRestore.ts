@@ -63,18 +63,24 @@ export const refreshDesktopHostCandidates = async (hostId: string): Promise<void
     if (!payload || payload.serverId !== host.relay.serverId) return;
     const reported = Array.isArray(payload.candidates) ? payload.candidates : [];
     const lanUrls: string[] = [];
+    const tailscaleUrls: string[] = [];
     for (const entry of reported) {
       if (!entry || typeof entry !== 'object') continue;
       const record = entry as Record<string, unknown>;
-      if (record.type !== 'lan' || typeof record.url !== 'string') continue;
+      if ((record.type !== 'lan' && record.type !== 'tailscale') || typeof record.url !== 'string') continue;
       const url = normalizeHostUrl(record.url);
-      if (url && !lanUrls.includes(url)) lanUrls.push(url);
+      // Tailscale URLs are https and survive DHCP churn like tunnel
+      // hostnames, but unlike those the server knows them — adopt one when no
+      // fresh LAN address is reported, LAN stays preferred when both exist.
+      const bucket = record.type === 'tailscale' ? tailscaleUrls : lanUrls;
+      if (url && !bucket.includes(url)) bucket.push(url);
     }
     // Empty answer (loopback-only bind / scan failure) must not erase a stored
     // address — a stale one only costs a fast failed probe on the next start.
-    if (lanUrls.length === 0) return;
+    const reachableUrls = lanUrls.length > 0 ? lanUrls : tailscaleUrls;
+    if (reachableUrls.length === 0) return;
 
-    const nextApiUrl = currentApiUrl && lanUrls.includes(currentApiUrl) ? currentApiUrl : lanUrls[0];
+    const nextApiUrl = currentApiUrl && reachableUrls.includes(currentApiUrl) ? currentApiUrl : reachableUrls[0];
     if (nextApiUrl !== currentApiUrl) {
       await desktopHostsSet({
         hosts: config.hosts.map((entry) => (entry.id === hostId ? { ...entry, apiUrl: nextApiUrl } : entry)),
@@ -89,7 +95,7 @@ export const refreshDesktopHostCandidates = async (hostId: string): Promise<void
     const probe = await desktopHostProbe(nextApiUrl, {
       clientToken: host.clientToken || null,
       requestHeaders: host.requestHeaders || null,
-      expectedServerId: host.relay.serverId,
+      expectedServerId: host.serverId ?? host.relay.serverId,
     }).catch(() => ({ status: 'unreachable' as const, latencyMs: 0 }));
     if (probe.status === 'unreachable' || probe.status === 'wrong-service' || probe.status === 'incompatible') return;
     if (getRuntimeKey() !== runtimeKey) return; // user switched away meanwhile
@@ -238,7 +244,8 @@ export const restoreDesktopRelayRuntime = async (targetHostId?: string): Promise
     requestHeaders: host.requestHeaders || null,
     // Identity gate: a re-leased LAN address may now belong to a different
     // machine; the probe must not send the token on a serverId mismatch.
-    expectedServerId: host.relay.serverId,
+    // Prefer the pinned direct identity, falling back to the relay serverId.
+    expectedServerId: host.serverId ?? host.relay.serverId,
   }).catch(() => ({ status: 'unreachable' as const, latencyMs: 0 }));
 
   const winner = await Promise.race([

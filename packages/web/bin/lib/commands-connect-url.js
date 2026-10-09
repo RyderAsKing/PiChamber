@@ -11,11 +11,13 @@ import {
   formatHostForUrl,
 } from './cli-network.js';
 import { discoverRunningInstances } from './cli-lifecycle.js';
+import { requestJson } from './cli-http.js';
 import { getInstanceFilePath, readInstanceOptions } from './cli-process.js';
 import { resolvePiChamberDataDir } from '../../server/lib/pichamber-data-dir.js';
 import { createRemoteClientAuthRuntime } from '../../server/lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from '../../server/lib/client-auth/pairing.js';
 import { createRelayIdentityRuntime } from '../../server/lib/relay/identity.js';
+import { createRelayIdentityStore } from '../../server/lib/relay/identity-store.js';
 import { DEFAULT_RELAY_URL } from '../../server/lib/relay/service.js';
 import { bytesToBase64Url } from '../../server/lib/relay/e2ee.js';
 import {
@@ -25,6 +27,7 @@ import {
   isJsonMode,
   isQuietMode,
   canPrompt,
+  createSpinner,
   printJson,
   logStatus,
 } from '../cli-output.js';
@@ -32,6 +35,74 @@ import {
 const REMOTE_CLIENTS_FILE_NAME = 'remote-clients.json';
 const SETTINGS_FILE_NAME = 'settings.json';
 const PAIRING_SESSIONS_FILE_NAME = 'client-pairing-sessions.json';
+
+// How long `pair --tailscale` waits for the server to reach a terminal
+// Tailscale state (the approval flow alone may block up to 5 minutes).
+const TAILSCALE_PAIR_WAIT_MS = 6 * 60 * 1000;
+const TAILSCALE_PAIR_POLL_MS = 2000;
+const TAILSCALE_TERMINAL_STATES = new Set(['active', 'needs-approval', 'conflict', 'blocked', 'error', 'unavailable']);
+
+function assertTailscaleFlagCombination(options) {
+  if ((options.public === true || options.httpsPort !== undefined) && options.tailscale !== true) {
+    throw new TunnelCliError('Use --tailscale with --public / --https-port.', EXIT_CODE.USAGE_ERROR);
+  }
+}
+
+// Asks the RUNNING server to enable Tailscale (persisted server-side), then
+// waits for a terminal state. Returns the status body. Throws TunnelCliError
+// on auth/validation failures; terminal non-active states are returned (not
+// thrown) so the caller can still print the pairing link with whatever
+// candidates exist.
+async function enableTailscaleForPairing(options) {
+  const mode = options.public === true ? 'public' : 'private';
+  const httpsPort = options.httpsPort ?? 443;
+  const spin = createSpinner(options);
+  spin?.start(`Enabling Tailscale ${mode === 'public' ? 'Funnel (public)' : 'serve (tailnet-only)'} on port ${options.port}...`);
+  try {
+    const putResult = await requestJson(options.port, '/api/pichamber/tailscale/config', {
+      ...options,
+      method: 'PUT',
+      body: JSON.stringify({ enabled: true, mode, httpsPort }),
+      timeoutMs: 15000,
+    });
+    if (putResult.response.status === 403 || putResult.response.status === 422) {
+      throw new TunnelCliError(
+        typeof putResult.body?.error === 'string' ? putResult.body.error : 'Tailscale config rejected.',
+        EXIT_CODE.AUTH_CONFIG_ERROR,
+      );
+    }
+    if (!putResult.response.ok) {
+      throw new TunnelCliError(
+        typeof putResult.body?.error === 'string' ? putResult.body.error : 'Failed to enable Tailscale.',
+        EXIT_CODE.GENERAL_ERROR,
+      );
+    }
+    const deadline = Date.now() + TAILSCALE_PAIR_WAIT_MS;
+    let status = putResult.body;
+    while (!TAILSCALE_TERMINAL_STATES.has(status?.state) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, TAILSCALE_PAIR_POLL_MS));
+      const polled = await requestJson(options.port, '/api/pichamber/tailscale/status', {
+        ...options,
+        timeoutMs: 8000,
+      });
+      if (polled.response.ok && polled.body) status = polled.body;
+    }
+    if (!TAILSCALE_TERMINAL_STATES.has(status?.state)) {
+      throw new TunnelCliError('Timed out waiting for Tailscale to become active.', EXIT_CODE.GENERAL_ERROR);
+    }
+    spin?.stop(`Tailscale state: ${status.state}`);
+    return status;
+  } catch (error) {
+    spin?.stop('Tailscale setup failed');
+    throw error;
+  }
+}
+
+function appendTailscaleCandidate(candidates, tailscaleStatus) {
+  const url = typeof tailscaleStatus?.url === 'string' ? tailscaleStatus.url : null;
+  if (!url || candidates.some((candidate) => candidate?.url === url)) return candidates;
+  return [...candidates, { type: 'tailscale', url, mode: tailscaleStatus.mode || 'private', priority: 20 }];
+}
 
 function isValidRelayUrl(value) {
   if (typeof value !== 'string') return false;
@@ -54,23 +125,18 @@ function resolveRelayUrl(settings) {
   return DEFAULT_RELAY_URL;
 }
 
-// Minimal settings.json read/write for the relay identity runtime. It reads the
-// whole object and writes it back with the relay keys added, so other settings
-// are preserved. Enough for the CLI without wiring the full settings runtime.
-function createSettingsAccessors() {
+// Minimal settings.json read for non-identity relay config (privateRelay
+// relayUrl/enabled). Host identity keys live in the host-local
+// relay-identity.json (see server/lib/relay/identity-store.js) — never in
+// settings.json, which is portable between hosts and rewritten by the UI
+// settings store.
+async function readPairingRelaySettings() {
   const settingsPath = path.join(getPiChamberDataDir(), SETTINGS_FILE_NAME);
-  const readSettingsFromDiskMigrated = async () => {
-    try {
-      return JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
-    } catch {
-      return {};
-    }
-  };
-  const writeSettingsToDisk = async (settings) => {
-    await fs.promises.mkdir(path.dirname(settingsPath), { recursive: true });
-    await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-  };
-  return { readSettingsFromDiskMigrated, writeSettingsToDisk };
+  try {
+    return JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 // Resolves the instance's relay identity (serverId + encryption public key,
@@ -80,10 +146,12 @@ function createSettingsAccessors() {
 // E2EE tunnel like any other candidate. `enabled` reports whether the host relay
 // is actually on (a relay candidate only connects when the host is relaying).
 async function buildRelayPairingCandidate() {
-  const accessors = createSettingsAccessors();
-  const settings = await accessors.readSettingsFromDiskMigrated();
+  const settings = await readPairingRelaySettings();
   const relayUrl = resolveRelayUrl(settings);
-  const identityRuntime = createRelayIdentityRuntime({ crypto, ...accessors });
+  const identityRuntime = createRelayIdentityRuntime({
+    crypto,
+    ...createRelayIdentityStore({ dataDir: getPiChamberDataDir() }),
+  });
   const identity = await identityRuntime.getRelayIdentity();
   return {
     enabled: settings?.privateRelay?.enabled === true,
@@ -225,7 +293,8 @@ async function displayTunnelQrCode(url) {
 
 function createConnectUrlCommand({ serveCommand }) {
   return async function connectUrlCommand(options = {}) {
-    assertSafeBrowserPort(options.port, { context: 'PiChamber connect-url' });
+    assertSafeBrowserPort(options.port, { context: 'PiChamber pair' });
+    assertTailscaleFlagCombination(options);
     const explicitServerUrl = options.server ? normalizeServerUrlForConnection(options.server) : null;
     if (options.server && !explicitServerUrl) {
       throw new TunnelCliError('Invalid --server URL. Use an http:// or https:// URL.', EXIT_CODE.USAGE_ERROR);
@@ -270,6 +339,16 @@ function createConnectUrlCommand({ serveCommand }) {
     const relay = await buildRelayPairingCandidate();
     if (options.relay || relay.enabled) candidates.push(relay.candidate);
 
+    // Tailscale: persist the config on the RUNNING server and wait for a
+    // terminal state, then append the ts.net URL (when live) as a candidate.
+    let tailscale = null;
+    if (options.tailscale === true) {
+      tailscale = await enableTailscaleForPairing(options);
+      const withTailscale = appendTailscaleCandidate(candidates, tailscale);
+      candidates.length = 0;
+      candidates.push(...withTailscale);
+    }
+
     const pairingRuntime = createCliPairingRuntime();
     // Mark relay-carrying sessions like the server route does, so the host's
     // demand-driven relay lifecycle keeps the relay up while the link is pending.
@@ -286,6 +365,7 @@ function createConnectUrlCommand({ serveCommand }) {
         expiresAt: pairing.expiresAt,
         candidates,
         autoStarted: serverState.autoStarted,
+        ...(tailscale ? { tailscale } : {}),
       });
       return;
     }
@@ -301,6 +381,15 @@ function createConnectUrlCommand({ serveCommand }) {
     }
     logStatus('success', connectUrl);
     clackLog.info(`Server URL: ${serverUrl}`);
+    if (tailscale) {
+      if (tailscale.state === 'active' && tailscale.url) {
+        clackLog.info(`Tailscale URL: ${tailscale.url}`);
+      } else if (tailscale.state === 'needs-approval' && tailscale.approvalUrl) {
+        logStatus('warn', '[TAILSCALE_APPROVAL]', `Approve Tailscale access: ${tailscale.approvalUrl}`);
+      } else {
+        logStatus('warn', '[TAILSCALE_NOT_ACTIVE]', `Tailscale state is ${tailscale.state ?? 'unknown'}${tailscale.errorMessage ? `: ${tailscale.errorMessage}` : ''}. The link below carries the remaining candidates.`);
+      }
+    }
     if (options.relay || relay.enabled) {
       clackLog.info(`Relay fallback: ${relay.relayUrl}`);
     }

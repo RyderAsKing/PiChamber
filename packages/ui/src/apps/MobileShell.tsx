@@ -685,8 +685,8 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
             variant={surfaceVariant}
             dialogAlign="app"
             onClose={closeSurface}
-            ariaLabel={"Instances"}
-            title={"Instances"}
+            ariaLabel={"Servers"}
+            title={"Servers"}
           >
             <MobileInstancesSurface
               onConnect={closeSurface}
@@ -710,6 +710,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
                 isWindowed
                 initialMobileStage={settingsInitialMobileStage}
                 onClose={closeSurface}
+                onActiveConnectionDeleted={onActiveConnectionDeleted}
               />
             </ErrorBoundary>
           </MobileFullscreenSurface>

@@ -77,7 +77,7 @@ export function SettingsNav({
                   mobileAppActions.openInstances();
                   return;
                 }
-                openPage('remote-instances');
+                openPage('servers');
               }}
               className={cn(
                 'flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3.5 text-left shadow-sm hover:bg-interactive-hover/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
@@ -104,7 +104,7 @@ export function SettingsNav({
                       </span>
                     </div>
                     <div className="typography-micro text-muted-foreground truncate">
-                      Manage instances & pair devices
+                      Manage servers & pair devices
                     </div>
                   </>
                 ) : (
@@ -124,7 +124,7 @@ export function SettingsNav({
                       </span>
                     </div>
                     <div className="typography-micro text-muted-foreground truncate">
-                      Manage instances & pair devices
+                      Manage servers & pair devices
                     </div>
                   </>
                 )}

@@ -54,6 +54,7 @@ import {
   setLinuxAutostartEnabled,
 } from './linux-autostart.mjs';
 import { isSafeExternalUrl, openExternalUrlIfSafe, unsupportedAppSpecificOpenError, validateLocalPath } from './path-open-utils.mjs';
+import { createQuitServerStop, QUIT_SERVER_STOP_TIMEOUT_MS } from './quit-server-stop.mjs';
 import { mintOutsideFileGrant } from '@pi-chamber/web/server/lib/fs/routes.js';
 import { resolvePiChamberDataDir, resolvePiChamberDataPath } from '@pi-chamber/web/server/lib/pichamber-data-dir.js';
 
@@ -378,14 +379,36 @@ const shouldHideMainWindowToTray = (browserWindow, behavior) => {
 
 const quitRisk = {
   hasActiveTunnel: false,
+  hasActiveTailscale: false,
 };
 
-const shouldRequireQuitConfirmation = () => quitRisk.hasActiveTunnel;
+// Quit-time server stop (F5): the in-process server owns Tailscale mapping
+// removal on its stop path, so quitting must await the stop (bounded) rather
+// than firing it off. Single-flight: concurrent quit signals share one stop.
+const quitServerStop = createQuitServerStop({
+  // Bounded overall quit wait: the server stop runs Tailscale removal.
+  timeoutMs: QUIT_SERVER_STOP_TIMEOUT_MS,
+  onError: (error) => log.warn('[electron] failed to stop the PiChamber server on quit:', error),
+});
+
+// Takes the current server handle (if any) and returns the shared quit-stop
+// promise. Never throws; always resolves so the caller reaches app.exit.
+const stopServerForQuit = () => {
+  const handle = state.serverHandle;
+  state.serverHandle = null;
+  state.sidecarUrl = null;
+  return quitServerStop.requestStop(handle);
+};
+
+const shouldRequireQuitConfirmation = () => quitRisk.hasActiveTunnel || quitRisk.hasActiveTailscale;
 
 const quitConfirmationMessage = () => {
   const reasons = [];
   if (quitRisk.hasActiveTunnel) {
     reasons.push('an active tunnel');
+  }
+  if (quitRisk.hasActiveTailscale) {
+    reasons.push('an active Tailscale mapping');
   }
   if (reasons.length === 0) {
     return 'Background processes (sidecar) will be stopped.';
@@ -442,7 +465,11 @@ const performConfirmedQuit = () => {
   state.quitInProgress = true;
 
   prepareForQuit();
-  app.exit(0);
+  // Await the server stop (Tailscale removal runs inside it) with the
+  // bounded quit timeout, then exit. Quit stays responsive either way.
+  void stopServerForQuit().finally(() => {
+    app.exit(0);
+  });
 };
 
 // Hard-stop signals (`Ctrl+C` on `electron:dev`, an external `kill`/SIGTERM,
@@ -452,12 +479,21 @@ const performConfirmedQuit = () => {
 // reaper remains the backstop for an unhandled hard crash (SIGKILL).
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
+    // A second signal while quitting exits immediately instead of stacking
+    // another bounded wait.
+    if (state.quitInProgress) {
+      app.exit(0);
+      return;
+    }
+    state.quitInProgress = true;
     try {
       shutdownBackgroundServices();
     } catch (error) {
       log.warn(`[electron] ${signal} shutdown failed:`, error);
     }
-    app.exit(0);
+    void stopServerForQuit().finally(() => {
+      app.exit(0);
+    });
   });
 }
 
@@ -509,6 +545,7 @@ const refreshQuitRiskFlags = async () => {
     try {
       const status = await state.serverHandle.getQuitRiskStatus();
       quitRisk.hasActiveTunnel = Boolean(status?.tunnel?.active);
+      quitRisk.hasActiveTailscale = Boolean(status?.tailscale?.available);
       return;
     } catch {
     }
@@ -533,6 +570,16 @@ const refreshQuitRiskFlags = async () => {
 
   if (tunnel && typeof tunnel === 'object') {
     quitRisk.hasActiveTunnel = Boolean(tunnel.active);
+  }
+
+  const tailscale = await fetchJson(`${base}/api/pichamber/tailscale/status`);
+  if (tailscale && typeof tailscale === 'object') {
+    // Fallback path has no mapping-record signal, so config.enabled stands
+    // in for it: a starting/needs-approval mapping for an enabled config is
+    // quit-risky like an active one.
+    quitRisk.hasActiveTailscale = tailscale.state === 'active'
+      || ((tailscale.state === 'starting' || tailscale.state === 'needs-approval')
+        && tailscale.config?.enabled === true);
   }
 };
 
@@ -758,9 +805,16 @@ const buildStoredHostEntry = (entry) => {
   const relayField = relay ? { relay } : {};
   const directUrl = sanitizeHostUrlForStorage(entry?.url);
   const apiUrl = directUrl ? (sanitizeHostUrlForStorage(entry?.apiUrl) || directUrl) : null;
+  // Pinned direct-server identity (F9): verified at pairing redemption or
+  // first verified connect, enforced on later direct probes before the
+  // bearer is sent. Older records omit it and keep working.
+  const pinnedServerId = typeof entry?.serverId === 'string' && entry.serverId.trim()
+    ? entry.serverId.trim().slice(0, 256)
+    : '';
+  const pinField = pinnedServerId ? { serverId: pinnedServerId } : {};
 
   if (directUrl) {
-    return { id, label: labelRaw || directUrl, url: directUrl, apiUrl, ...tokenField, ...headerFields, ...relayField };
+    return { id, label: labelRaw || directUrl, url: directUrl, apiUrl, ...tokenField, ...headerFields, ...relayField, ...pinField };
   }
   if (relay) {
     const url = `relay://${relay.serverId}`;
@@ -960,6 +1014,7 @@ const probeHostWithTimeout = async (url, timeoutMs, clientToken = '', requestHea
   }
 
   const started = Date.now();
+  let reportedServerId = '';
 
   // Identity gate for learned/untrusted addresses: verify the UNAUTHENTICATED
   // /health identity before the token-carrying version fetch, so the bearer
@@ -974,8 +1029,9 @@ const probeHostWithTimeout = async (url, timeoutMs, clientToken = '', requestHea
         if (response.ok) {
           const payload = await response.json().catch(() => null);
           const reported = typeof payload?.serverId === 'string' ? payload.serverId.trim() : '';
+          if (reported) reportedServerId = reported;
           if (reported && reported !== expectedServerId.trim()) {
-            return { status: 'wrong-service', latencyMs: Date.now() - started };
+            return { status: 'wrong-service', latencyMs: Date.now() - started, ...(reportedServerId ? { reportedServerId } : {}) };
           }
         }
       } catch {
@@ -990,30 +1046,36 @@ const probeHostWithTimeout = async (url, timeoutMs, clientToken = '', requestHea
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
+    const withReportedId = (result) => reportedServerId ? { ...result, reportedServerId } : result;
     const response = await fetchVersionPayload(versionUrl, { headers, timeoutMs });
     const status = response.status;
     if (status === 401 || status === 403) {
-      return { status: 'auth', latencyMs: Date.now() - started };
+      return withReportedId({ status: 'auth', latencyMs: Date.now() - started });
     }
     if (status < 200 || status >= 300) {
-      return { status: 'unreachable', latencyMs: Date.now() - started };
+      return withReportedId({ status: 'unreachable', latencyMs: Date.now() - started });
     }
     const payload = await response.json().catch(() => null);
+    // Trust-on-first-use learning source when /health was not checked above:
+    // /api/version asserts the same server identity.
+    if (!reportedServerId && typeof payload?.serverId === 'string' && payload.serverId.trim()) {
+      reportedServerId = payload.serverId.trim();
+    }
     const versionStatus = classifyVersionPayload(payload);
     if (versionStatus !== 'ok') {
-      return { status: versionStatus, latencyMs: Date.now() - started };
+      return withReportedId({ status: versionStatus, latencyMs: Date.now() - started });
     }
     const sessionResponse = await fetchVersionPayload(sessionStatusUrl, { headers, timeoutMs });
     if (sessionResponse.status === 401 || sessionResponse.status === 403) {
-      return { status: 'auth', latencyMs: Date.now() - started };
+      return withReportedId({ status: 'auth', latencyMs: Date.now() - started });
     }
     if (!sessionResponse.ok) {
-      return { status: 'unreachable', latencyMs: Date.now() - started };
+      return withReportedId({ status: 'unreachable', latencyMs: Date.now() - started });
     }
-    return {
+    return withReportedId({
       status: versionStatus,
       latencyMs: Date.now() - started,
-    };
+    });
   } catch {
     return { status: 'unreachable', latencyMs: Date.now() - started };
   }
@@ -1559,6 +1621,8 @@ const spawnLocalServer = async () => {
 
   state.serverHandle = handle;
   state.sidecarUrl = url;
+  // Re-arm quit-stop coordination for the fresh handle.
+  quitServerStop.reset();
   recordElectronStartupPerformance('electron.server.ready', {
     durationMs: performance.now() - serverStartedAt,
   });
@@ -1571,11 +1635,7 @@ const spawnLocalServer = async () => {
 };
 
 const killSidecar = () => {
-  const handle = state.serverHandle;
-  state.serverHandle = null;
-  state.sidecarUrl = null;
-  if (!handle) return;
-  void handle.stop({ exitProcess: false }).catch((error) => {
+  void stopServerForQuit().catch((error) => {
     log.warn('[electron] failed to stop the PiChamber server:', error);
   });
 };
@@ -1939,7 +1999,7 @@ const parseConnectPairingDeepLinkPayload = (raw) => {
     const candidates = Array.isArray(payload.candidates)
       ? payload.candidates.flatMap((candidate) => {
         if (!candidate || typeof candidate !== 'object') return [];
-        const type = candidate.type === 'lan' || candidate.type === 'tunnel' || candidate.type === 'relay'
+        const type = candidate.type === 'lan' || candidate.type === 'tunnel' || candidate.type === 'tailscale' || candidate.type === 'relay'
           ? candidate.type
           : null;
         const candidateUrl = normalizeHostUrl(candidate.url || '');
@@ -1987,6 +2047,23 @@ const importConnectDeepLink = async (payload) => {
     apiUrl: serverUrl,
     clientToken: payload.token,
   };
+  // F9 trust on first use: pin the redeemed server's identity from a
+  // credential-free /health read when the record has none yet. Best-effort:
+  // a failed read simply leaves the record unpinned (old behavior).
+  if (!existing?.serverId) {
+    try {
+      const healthUrl = buildHealthUrl(serverUrl);
+      if (healthUrl) {
+        const response = await fetch(healthUrl, { signal: AbortSignal.timeout(5_000), headers: { Accept: 'application/json' } });
+        if (response.ok) {
+          const body = await response.json().catch(() => null);
+          const reported = typeof body?.serverId === 'string' ? body.serverId.trim() : '';
+          if (reported) importedHost.serverId = reported;
+        }
+      }
+    } catch {
+    }
+  }
   const hosts = existing
     ? config.hosts.map((host) => (host.id === existing.id ? importedHost : host))
     : [importedHost, ...config.hosts];
@@ -2930,6 +3007,10 @@ const resolveInitialUrl = async () => {
 
   const envTarget = normalizeHostUrl(process.env.PICHAMBER_SERVER_URL || '');
   const config = readDesktopHostsConfig();
+  // F8: the boot probe must verify the stored host's pinned identity before
+  // the stored bearer leaves this machine.
+  let bootHostId = null;
+  let bootExpectedServerId = '';
   if (envTarget) {
     apiBaseUrl = envTarget;
     clientToken = '';
@@ -2942,13 +3023,35 @@ const resolveInitialUrl = async () => {
       clientToken = host.clientToken || '';
       requestHeaders = sanitizeRuntimeRequestHeaders(host.requestHeaders || {});
       initialUrl = usePackagedUi ? localUiUrl : host.url;
+      bootHostId = host.id;
+      bootExpectedServerId = typeof host.serverId === 'string'
+        ? host.serverId
+        : (typeof host.relay?.serverId === 'string' ? host.relay.serverId : '');
     }
   }
 
   if (apiBaseUrl && apiBaseUrl !== localUrl) {
-    remoteProbe = await probeHostWithTimeout(apiBaseUrl, 2_000, clientToken, requestHeaders);
+    remoteProbe = await probeHostWithTimeout(apiBaseUrl, 2_000, clientToken, requestHeaders, bootExpectedServerId);
     if (remoteProbe.status === 'unreachable') {
-      remoteProbe = await probeHostWithTimeout(apiBaseUrl, 10_000, clientToken, requestHeaders);
+      remoteProbe = await probeHostWithTimeout(apiBaseUrl, 10_000, clientToken, requestHeaders, bootExpectedServerId);
+    }
+    // F9 trust on first use: a verified PiChamber response without a stored
+    // pin learns it now, so the next probe enforces it.
+    if (bootHostId && !bootExpectedServerId && remoteProbe?.reportedServerId
+      && (remoteProbe.status === 'ok' || remoteProbe.status === 'auth' || remoteProbe.status === 'update-recommended')) {
+      const learned = remoteProbe.reportedServerId;
+      try {
+        const current = readDesktopHostsConfig();
+        const target = current.hosts.find((entry) => entry.id === bootHostId);
+        if (target && !target.serverId) {
+          await writeDesktopHostsConfig({
+            ...current,
+            hosts: current.hosts.map((entry) => entry.id === bootHostId ? { ...entry, serverId: learned } : entry),
+          });
+        }
+      } catch (error) {
+        log.warn('[electron] failed to pin boot host serverId:', error);
+      }
     }
     if (remoteProbe.status === 'unreachable') {
       state.unreachableHosts.add(apiBaseUrl);

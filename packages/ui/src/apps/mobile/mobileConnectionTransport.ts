@@ -295,10 +295,22 @@ export const switchToRelayRuntime = (
   });
 };
 
+const readHealthServerId = async (
+  health: MobileFetchResponse | null,
+): Promise<string | null> => {
+  if (!health?.ok) return null;
+  const payload = await health.json().catch(() => null);
+  const reported =
+    payload && typeof payload === 'object'
+      ? (payload as Record<string, unknown>).serverId
+      : null;
+  return typeof reported === 'string' && reported.trim() ? reported.trim() : null;
+};
+
 export const probeConnectionCandidates = async (
   candidates: MobileTransportCandidate[],
   token: string | undefined,
-  options?: { fast?: boolean; shouldAbort?: () => boolean }
+  options?: { fast?: boolean; shouldAbort?: () => boolean; pinnedServerId?: string | null }
 ): Promise<ProbeResult> => {
   const shouldAbort = options?.shouldAbort;
   const requestOptions = options?.fast
@@ -315,11 +327,18 @@ export const probeConnectionCandidates = async (
       c.kind === 'direct'
   );
 
+  const pin = typeof options?.pinnedServerId === 'string' && options.pinnedServerId.trim()
+    ? options.pinnedServerId.trim()
+    : null;
+
   const probeDirectChain = async (): Promise<ProbeResult> => {
+    let wrongServerSeen = false;
+    let learnedServerId: string | null = null;
     for (const candidate of directList) {
       if (shouldAbort?.()) return { status: 'unreachable' };
       const url = normalizeConnectionUrl(candidate.url) || candidate.url;
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      // Credential-free identity check first: the bearer token is only sent
+      // to /auth/session after the pin (when present) verifies.
       const health = await requestWithTimeout(
         `${url}/health`,
         { method: 'GET' },
@@ -327,21 +346,26 @@ export const probeConnectionCandidates = async (
       );
       if (shouldAbort?.()) return { status: 'unreachable' };
       if (!health?.ok) continue;
+      const reportedServerId = await readHealthServerId(health);
+      if (pin) {
+        // Older servers omit serverId from /health: only an explicit
+        // mismatch rejects, so old records keep working.
+        if (reportedServerId && reportedServerId !== pin) {
+          logConnect('probe:server-id-mismatch', { url });
+          wrongServerSeen = true;
+          continue;
+        }
+      } else if (reportedServerId && !learnedServerId) {
+        // Trust on first use: learn the pin for the next probe.
+        learnedServerId = reportedServerId;
+      }
       if (expectedServerId) {
-        const payload = await health.json().catch(() => null);
-        const reported =
-          payload && typeof payload === 'object'
-            ? (payload as Record<string, unknown>).serverId
-            : null;
-        if (
-          typeof reported === 'string' &&
-          reported &&
-          reported !== expectedServerId
-        ) {
+        if (reportedServerId && reportedServerId !== expectedServerId) {
           logConnect('probe:server-id-mismatch', { url });
           continue;
         }
       }
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
       const session = await requestWithTimeout(
         `${url}/auth/session`,
         {
@@ -365,9 +389,19 @@ export const probeConnectionCandidates = async (
         status?.scope !== 'client'
       )
         return { status: 'needs-login' };
-      return { status: 'ok', transport: { kind: 'direct', url } };
+      return {
+        status: 'ok',
+        transport: {
+          kind: 'direct',
+          url,
+          ...(reportedServerId ? { serverId: reportedServerId } : {}),
+        },
+        ...(learnedServerId ? { serverId: learnedServerId } : {}),
+      };
     }
-    return { status: 'unreachable' };
+    return wrongServerSeen
+      ? { status: 'unreachable', reason: 'wrong-server' }
+      : { status: 'unreachable' };
   };
 
   const probeRelay = async (): Promise<ProbeResult> => {
@@ -518,6 +552,7 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
 
   const result = await probeConnectionCandidates(candidate.candidates, token, {
     fast: true,
+    pinnedServerId: candidate.pinnedServerId,
   });
   if (isStale()) {
     closeProbeResultTunnel(result);
@@ -531,6 +566,8 @@ export const autoConnectLastInstance = async (): Promise<AutoConnectOutcome> => 
     id: candidate.id,
     label: candidate.label,
     candidates: candidate.candidates,
+    // Trust on first use: pin the verified identity when unknown.
+    ...(!candidate.pinnedServerId && result.serverId ? { pinnedServerId: result.serverId } : {}),
   });
   if (isStale()) {
     closeChosenTransportTunnel(result.transport);
@@ -586,9 +623,13 @@ export const validateMobileConnectionSession = async (
 };
 
 export const establishLiveTransport = async (
-  candidates: MobileTransportCandidate[]
+  candidates: MobileTransportCandidate[],
+  pinnedServerId?: string | null,
 ): Promise<LiveTransport | null> => {
   const expectedServerId = relayCandidateOf({ candidates })?.serverId ?? null;
+  const pin = typeof pinnedServerId === 'string' && pinnedServerId.trim()
+    ? pinnedServerId.trim()
+    : null;
   for (const candidate of candidates) {
     if (candidate.kind === 'relay') {
       const tunnel = createRelayTunnelClient(candidate.relay);
@@ -612,22 +653,26 @@ export const establishLiveTransport = async (
       status: health?.status ?? null,
     });
     if (!health?.ok) continue;
-    if (expectedServerId) {
-      const payload = await health.json().catch(() => null);
-      const reported =
-        payload && typeof payload === 'object'
-          ? (payload as Record<string, unknown>).serverId
-          : null;
-      if (
-        typeof reported === 'string' &&
-        reported &&
-        reported !== expectedServerId
-      ) {
+    // Credential-free pin check before any credential is sent over this
+    // transport (redemption secret, password login, or stored bearer).
+    const reportedServerId = await readHealthServerId(health);
+    if (pin) {
+      if (reportedServerId && reportedServerId !== pin) {
         logConnect('establish:server-id-mismatch', { url });
         continue;
       }
     }
-    return { kind: 'direct', url };
+    if (expectedServerId) {
+      if (reportedServerId && reportedServerId !== expectedServerId) {
+        logConnect('establish:server-id-mismatch', { url });
+        continue;
+      }
+    }
+    return {
+      kind: 'direct',
+      url,
+      ...(reportedServerId ? { serverId: reportedServerId } : {}),
+    };
   }
   return null;
 };
@@ -882,6 +927,7 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
   const better = await probeConnectionCandidates(higher, token, {
     fast: true,
     shouldAbort: isStale,
+    pinnedServerId: active.pinnedServerId,
   });
   if (isStale()) {
     closeProbeResultTunnel(better);
@@ -892,6 +938,7 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
       id: active.id,
       label: active.label,
       candidates: active.candidates,
+      ...(!active.pinnedServerId && better.serverId ? { pinnedServerId: better.serverId } : {}),
     });
     if (isStale()) {
       closeChosenTransportTunnel(better.transport);
@@ -926,6 +973,7 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
   const fallback = await probeConnectionCandidates(lower, token, {
     fast: true,
     shouldAbort: isStale,
+    pinnedServerId: active.pinnedServerId,
   });
   if (isStale()) {
     closeProbeResultTunnel(fallback);
@@ -936,6 +984,7 @@ const runReprobeActiveConnection = async (): Promise<ReprobeOutcome> => {
       id: active.id,
       label: active.label,
       candidates: active.candidates,
+      ...(!active.pinnedServerId && fallback.serverId ? { pinnedServerId: fallback.serverId } : {}),
     });
     if (isStale()) {
       closeChosenTransportTunnel(fallback.transport);
@@ -1001,18 +1050,22 @@ export const refreshActiveConnectionCandidates =
         ? payload.candidates
         : [];
       const lanUrls: string[] = [];
+      const tailscaleUrls: string[] = [];
       for (const entry of reported) {
         if (!entry || typeof entry !== 'object') continue;
         const record = entry as Record<string, unknown>;
-        if (record.type !== 'lan' || typeof record.url !== 'string') continue;
+        // Tailscale candidates are direct https URLs like LAN ones, but they
+        // survive DHCP churn and NAT — learn them alongside LAN addresses.
+        if ((record.type !== 'lan' && record.type !== 'tailscale') || typeof record.url !== 'string') continue;
         try {
           const url = normalizeConnectionUrl(record.url);
-          if (url && !lanUrls.includes(url)) lanUrls.push(url);
+          const bucket = record.type === 'tailscale' ? tailscaleUrls : lanUrls;
+          if (url && !bucket.includes(url)) bucket.push(url);
         } catch {
           // invalid URL → drop
         }
       }
-      if (lanUrls.length === 0) {
+      if (lanUrls.length === 0 && tailscaleUrls.length === 0) {
         logConnect('candidates:refresh-skip', { reason: 'no-lan-reported' });
         return 'skipped';
       }
@@ -1021,7 +1074,10 @@ export const refreshActiveConnectionCandidates =
       );
       const next: MobileTransportCandidate[] = [
         ...lanUrls.map((url): MobileTransportCandidate => ({ kind: 'direct', url })),
-        ...preservedHttps,
+        ...tailscaleUrls
+          .filter((url) => !lanUrls.includes(url))
+          .map((url): MobileTransportCandidate => ({ kind: 'direct', url })),
+        ...preservedHttps.filter((candidate) => ![...lanUrls, ...tailscaleUrls].includes(candidate.url)),
         { kind: 'relay', relay },
       ];
       const unchanged =

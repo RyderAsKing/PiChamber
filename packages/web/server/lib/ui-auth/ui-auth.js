@@ -43,16 +43,50 @@ const getClientIp = (req) => {
   return null;
 };
 
+const normalizeSocketIp = (value) => {
+  if (typeof value !== 'string' || !value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('::ffff:')) return trimmed.substring(7);
+  return trimmed;
+};
+
+// The socket address is the unspoofable peer of the TCP connection
+// (`trust proxy` rewrites `req.ip` from X-Forwarded-For, and Tailscale
+// Serve/Funnel forwards from loopback while passing attacker-supplied XFF
+// through). A per-client bucket alone lets a public attacker rotate XFF
+// for a fresh bucket per guess, so every login attempt is ALSO counted
+// against the socket bucket below.
+const getSocketIp = (req) => normalizeSocketIp(req.socket?.remoteAddress || req.connection?.remoteAddress);
+
 const getRateLimitKey = (req) => {
   const ip = getClientIp(req);
   if (ip) return ip;
   return 'rate-limit:no-ip';
 };
 
+const getSocketRateLimitKey = (req) => {
+  const ip = getSocketIp(req);
+  if (ip) return `rate-limit:socket:${ip}`;
+  return 'rate-limit:no-socket';
+};
+
+// Socket bucket: 5x the per-client limit in the same window. One socket
+// (one Tailscale forwarder, one NAT, one reverse proxy) legitimately
+// multiplexes many clients, so it needs headroom — but the total guesses
+// per socket per window stay bounded, which is what stops XFF rotation.
+const RATE_LIMIT_SOCKET_MULTIPLIER = 5;
+
 const getRateLimitConfig = (key) => {
-  if (key === 'rate-limit:no-ip') {
+  if (key === 'rate-limit:no-ip' || key === 'rate-limit:no-socket') {
     return {
       maxAttempts: RATE_LIMIT_NO_IP_MAX_ATTEMPTS,
+      windowMs: RATE_LIMIT_WINDOW_MS
+    };
+  }
+  if (key.startsWith('rate-limit:socket:')) {
+    return {
+      maxAttempts: RATE_LIMIT_MAX_ATTEMPTS * RATE_LIMIT_SOCKET_MULTIPLIER,
       windowMs: RATE_LIMIT_WINDOW_MS
     };
   }
@@ -69,8 +103,7 @@ const acquireRateLimitLock = async (key) => {
   await curr;
 };
 
-const checkRateLimit = async (req) => {
-  const key = getRateLimitKey(req);
+const checkSingleRateLimitBucket = async (key) => {
   await acquireRateLimitLock(key);
 
   const now = Date.now();
@@ -144,12 +177,27 @@ const checkRateLimit = async (req) => {
   };
 };
 
-const recordFailedAttempt = async (req) => {
-  const key = getRateLimitKey(req);
+// Dual-bucket gate: the per-client bucket (XFF-derived, for UX behind legit
+// proxies) AND the socket bucket (unspoofable peer address) are both
+// checked. An attempt is refused if EITHER bucket is exhausted, so rotating
+// X-Forwarded-For from one socket still hits the socket lockout.
+const checkRateLimit = async (req) => {
+  const clientResult = await checkSingleRateLimitBucket(getRateLimitKey(req));
+  const socketResult = await checkSingleRateLimitBucket(getSocketRateLimitKey(req));
+  if (!clientResult.allowed) return clientResult;
+  if (!socketResult.allowed) return socketResult;
+  return {
+    allowed: true,
+    limit: clientResult.limit,
+    remaining: Math.min(clientResult.remaining, socketResult.remaining),
+    reset: Math.max(clientResult.reset, socketResult.reset),
+  };
+};
+
+const recordSingleFailedAttempt = async (key) => {
   await acquireRateLimitLock(key);
 
   const now = Date.now();
-  const { maxAttempts } = getRateLimitConfig(key);
   const record = loginRateLimiter.get(key);
 
   if (!record || now - record.lastAttempt > RATE_LIMIT_WINDOW_MS) {
@@ -168,6 +216,15 @@ const recordFailedAttempt = async (req) => {
   }
 };
 
+const recordFailedAttempt = async (req) => {
+  await recordSingleFailedAttempt(getRateLimitKey(req));
+  await recordSingleFailedAttempt(getSocketRateLimitKey(req));
+};
+
+// Success clears only the per-client bucket. The socket bucket is shared
+// (Tailscale Serve/Funnel multiplexes every client onto loopback), so
+// clearing it here would let one legitimate login wipe out an attacker's
+// accumulated guesses. It decays via window/lockout expiry only.
 const clearRateLimit = async (req) => {
   const key = getRateLimitKey(req);
   await acquireRateLimitLock(key);
@@ -974,8 +1031,24 @@ export const createUiAuth = ({
   };
 
   const handlePasskeyAuthenticationVerify = async (req, res) => {
+    // Passkey verification is a login attempt path: gate it with the same
+    // dual-bucket limiter as the password path so XFF rotation cannot
+    // bypass it either.
+    const rateLimitResult = await checkRateLimit(req);
+    res.setHeader('X-RateLimit-Limit', rateLimitResult.limit);
+    res.setHeader('X-RateLimit-Remaining', rateLimitResult.remaining);
+    res.setHeader('X-RateLimit-Reset', rateLimitResult.reset);
+    if (!rateLimitResult.allowed) {
+      res.setHeader('Retry-After', rateLimitResult.retryAfter);
+      res.status(429).json({
+        error: 'Too many login attempts, please try again later',
+        retryAfter: rateLimitResult.retryAfter
+      });
+      return;
+    }
     try {
       await passkeyController.finishAuthentication(req.body);
+      await clearRateLimit(req);
       const trustDevice = isTrustedDeviceRequest(req.body?.trustDevice);
       const ttlMs = resolveSessionTtlMs(trustDevice);
       await issueSession(req, res, { trustDevice });
@@ -998,6 +1071,7 @@ export const createUiAuth = ({
         ...(clientTokenResult?.token ? { clientToken: clientTokenResult.token, client: clientTokenResult.client } : {}),
       });
     } catch (error) {
+      await recordFailedAttempt(req);
       respondPasskeyError(res, error);
     }
   };

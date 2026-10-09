@@ -153,13 +153,18 @@ describe("settings separation for snippets and prompt templates", () => {
       getPageTitle,
     }).some((result) => result.title === "Desktop app update channel")).toBe(true);
 
-    for (const query of ["desktop ui password", "lan access", "menu bar"]) {
+    for (const query of ["desktop ui password", "menu bar"]) {
       expect(buildSettingsSearchResults({
         query,
         runtimeCtx: remoteDesktopCtx,
         getPageTitle,
       })).toHaveLength(0);
     }
+
+    // Since the Remote Access split, LAN status describes the connected
+    // server on every runtime (pairing targets the active runtime), so it
+    // stays searchable from a remote Electron runtime. The local-only
+    // password/tray controls above stay hidden.
   });
 
   test("returns separate search results and anchors", () => {

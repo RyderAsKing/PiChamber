@@ -123,9 +123,9 @@ need larger attachments.
 ## Cloudflare
 
 A normal Cloudflare Tunnel can carry the authenticated HTTP, SSE, and
-WebSocket routes above. Quick Tunnels are for testing and have no reliable SSE
-service guarantee. Use a managed tunnel or another proxy for a persistent
-server.
+WebSocket routes above. Use a managed tunnel or another proxy for a
+persistent server. (PiChamber's built-in ephemeral quick tunnels were
+removed because their URL changed on every restart.)
 
 ## Check the result
 

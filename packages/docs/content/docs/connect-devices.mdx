@@ -159,7 +159,7 @@ pichamber serve --port 3000 --ui-password
    ```
 
 3. Keep this terminal open.
-4. On the other device, open the printed `https://…trycloudflare.com` URL.
+4. On the other device, open the public HTTPS URL that `cloudflared` prints.
 5. Enter the server password.
 
 LAN access and a standalone tunnel can operate together.
@@ -168,18 +168,17 @@ The same tunnel command works with that server.
 Local devices use `http://HOST-IP:3000`.
 Remote devices use the standalone tunnel's HTTPS URL.
 
-Quick tunnels have temporary URLs.
-Cloudflare does not guarantee their availability.
+Manually started tunnels get a temporary URL that changes on every restart,
+which breaks saved device connections.
+For a stable address, use `pichamber pair --tailscale` or a managed tunnel
+with your own hostname instead.
 This procedure does not automatically restart the server or standalone tunnel after the host reboots.
 [Startup integration](/quickstart/#keep-it-running-after-reboot) can manage the server.
 It does not restart the standalone tunnel.
 
 ## Alternative: managed tunnel
 
-This procedure requires a server with a strong password and an installed `cloudflared` executable.
-Do not start a managed tunnel for a server without a password.
-Managed tunnel access requires a one-time browser link.
-The server does not allow ordinary password login on the managed tunnel's public hostname.
+This procedure requires a server with a strong password, an installed `cloudflared` executable, and your own hostname in Cloudflare (ephemeral quick tunnels were removed because their URL changed on every restart). Do not start a managed tunnel for a server without a password. Managed tunnel access requires a one-time browser link. The server does not allow ordinary password login on the managed tunnel's public hostname.
 
 1. If a standalone tunnel runs, press **Ctrl+C** in its terminal.
 2. Start guided tunnel setup in an interactive terminal:
@@ -189,18 +188,20 @@ The server does not allow ordinary password login on the managed tunnel's public
    ```
 
 3. If saved profiles appear, select **Choose a mode manually**.
-4. Select the quick tunnel mode.
+4. Select the managed remote tunnel mode and provide your hostname and token (or save them as a reusable profile).
 5. Confirm the settings.
 6. Copy the full `https://…/connect?t=…` link from the **Tunnel Started** output.
 
 The CLI asks for a saved profile or tunnel mode.
-Other modes can require a hostname, token, or configuration file.
+Managed remote mode requires a hostname and token; managed local mode requires a `cloudflared` config file.
 The [CLI guide](/cli/) describes these choices.
 
 For scripts, CI, and non-interactive terminals, specify the server and mode:
 
 ```sh
-pichamber tunnel start --port 3000 --mode quick
+pichamber tunnel start --port 3000 --mode managed-remote \
+  --token-file ~/.secrets/cloudflare-token \
+  --hostname pichamber.example.com
 ```
 
 1. Paste the one-time browser link directly into the intended browser.
@@ -270,23 +271,23 @@ They permit only one use and expire after ten minutes.
 Keep pairing links private.
 Pair only devices you trust.
 
-The host's browser UI has an **Add a device** control.
+The host's browser UI has an **Add a device** control under Settings → Remote Access → Ways to connect. That page shows Local network status, the Tailscale Private/Public route, the **Add a device** QR, Devices with access, and Security (UI password state). On the desktop app, outgoing servers live under Settings → Servers.
 The CLI can also generate an app pairing link.
 
 1. Generate an app pairing link with one of these methods.
 
-   In the host's browser UI, **Add a device** generates a link.
+   In the host's browser UI, open Settings → Remote Access and choose **Add a device** to generate a QR code. When no route is reachable yet, the dialog points at Ways to connect instead of showing a code.
 
    For LAN access, use this command instead:
 
    ```sh
-   pichamber connect-url --port 3000 --qr
+   pichamber pair --port 3000 --qr
    ```
 
    For a standalone tunnel, use its actual public URL:
 
    ```sh
-   pichamber connect-url --port 3000 --server https://YOUR-HOST.trycloudflare.com --qr
+   pichamber pair --port 3000 --server https://pichamber.example.com --qr
    ```
 
 2. Scan or paste the app pairing link into the receiving PiChamber client.
@@ -303,7 +304,7 @@ The [CLI guide](/cli/) describes other connection options.
 
 ## Docker hosts
 
-The browser UI has an **Add a device** control.
+The browser UI has an **Add a device** control under Settings → Remote Access → Ways to connect.
 The CLI requires an address that the receiving device can reach.
 For LAN access, Docker must publish the host port to the LAN.
 

@@ -1,5 +1,6 @@
 import { readInstanceOptions } from './cli-process.js';
 import { discoverLifecycleInstances, discoverDesktopInstance } from './cli-lifecycle.js';
+import { requestJson } from './cli-http.js';
 import {
   intro as clackIntro,
   outro as clackOutro,
@@ -33,12 +34,27 @@ async function statusCommand(options = {}) {
       }
     : null;
 
-  const cliInstances = runningInstances
+  const cliInstances = await Promise.all(runningInstances
     .filter((instance) => instance.runtime !== 'desktop')
-    .map((instance) => {
+    .map(async (instance) => {
       const storedOptions = instance.instanceFilePath ? (readInstanceOptions(instance.instanceFilePath) || {}) : {};
       const passwordProtected = storedOptions.hasUiPassword === true
         || (typeof storedOptions.uiPassword === 'string' && storedOptions.uiPassword.trim().length > 0);
+
+      // Best-effort Tailscale state per instance: a failure (older server,
+      // unreachable) reports unknown rather than failing the whole status.
+      let tailscale = null;
+      try {
+        const { response, body } = await requestJson(instance.port, '/api/pichamber/tailscale/status', { timeoutMs: 1500 });
+        if (response.ok && body && typeof body.state === 'string') {
+          tailscale = {
+            state: body.state,
+            ...(typeof body.url === 'string' ? { url: body.url } : {}),
+            ...(body.config && typeof body.config.mode === 'string' ? { mode: body.config.mode } : {}),
+          };
+        }
+      } catch {
+      }
 
       return {
         runtime: instance.source === 'probe' ? 'unmanaged' : 'cli',
@@ -46,8 +62,9 @@ async function statusCommand(options = {}) {
         pid: instance.pid,
         launchMode: instance.launchMode || 'daemon',
         passwordProtected: instance.source === 'probe' ? null : passwordProtected,
+        ...(tailscale ? { tailscale } : {}),
       };
-    });
+    }));
 
   const explicitDesktop = options.explicitPort
     ? runningInstances.find((entry) => entry.runtime === 'desktop')
@@ -81,8 +98,11 @@ async function statusCommand(options = {}) {
     }
 
     for (const instance of instances) {
+      const tailscaleSuffix = instance.tailscale?.state && instance.tailscale.state !== 'off'
+        ? ` tailscale:${instance.tailscale.state}${instance.tailscale.url ? `:${instance.tailscale.url}` : ''}`
+        : '';
       process.stdout.write(
-        `port ${instance.port} mode:${instance.launchMode || 'n/a'} pass:${toPasswordProtectionLabel(instance.passwordProtected)}\n`
+        `port ${instance.port} mode:${instance.launchMode || 'n/a'} pass:${toPasswordProtectionLabel(instance.passwordProtected)}${tailscaleSuffix}\n`
       );
     }
     return;
@@ -100,7 +120,10 @@ async function statusCommand(options = {}) {
     const pidSuffix = Number.isFinite(instance.pid) ? ` (PID: ${instance.pid})` : '';
     const modeDetail = instance.launchMode ? `mode: ${instance.launchMode}` : '';
     const protectionDetail = `password: ${toPasswordProtectionLabel(instance.passwordProtected)}`;
-    const detail = modeDetail ? `${modeDetail}; ${protectionDetail}` : protectionDetail;
+    const tailscaleDetail = instance.tailscale?.state && instance.tailscale.state !== 'off'
+      ? `tailscale: ${instance.tailscale.state}${instance.tailscale.url ? ` (${instance.tailscale.url})` : ''}`
+      : '';
+    const detail = [modeDetail, protectionDetail, tailscaleDetail].filter(Boolean).join('; ');
     if (instance.runtime === 'desktop') {
       logStatus('info', `desktop app on port ${instance.port}${pidSuffix}`, detail);
     } else {

@@ -23,7 +23,7 @@ use `pichamber tunnel start` after the server is running.
 - `install-help.js` provides provider and platform install guidance for missing
   dependencies.
 - `types.js` defines provider, mode, intent, and `TunnelServiceError` values.
-- `../cloudflare-tunnel.js` starts Cloudflare Quick, Managed Remote, and Managed
+- `../cloudflare-tunnel.js` starts Cloudflare Managed Remote and Managed
   Local children and reports their public hostname.
 - `../server/tunnel-service.js` owns one active child, token storage, public URL
   state, and tunnel-auth registration.
@@ -34,10 +34,9 @@ use `pichamber tunnel start` after the server is running.
 - `executable-search.js` → `getExecutableSearchDirectories`,
   `createExecutableSearchEnv`, `findExecutableOnPath`,
   `resolveExecutableLaunchTarget`
-- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`, `TUNNEL_MODE_QUICK`,
+- `types.js` → `TUNNEL_PROVIDER_CLOUDFLARE`,
   `TUNNEL_MODE_MANAGED_REMOTE`, `TUNNEL_MODE_MANAGED_LOCAL`,
-  `TUNNEL_INTENT_EPHEMERAL_PUBLIC`, `TUNNEL_INTENT_PERSISTENT_PUBLIC`,
-  `TunnelServiceError`
+  `TUNNEL_INTENT_PERSISTENT_PUBLIC`, `TunnelServiceError`
 
 ## Consumers
 

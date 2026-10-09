@@ -26,7 +26,8 @@ export const pageOrder: SettingsPageSlug[] = [
   'shortcuts',
   'about',
   'projects',
-  'remote-instances',
+  'remote-access',
+  'servers',
   'tunnel',
   'git',
   'providers',
@@ -43,9 +44,9 @@ export function isPageAvailable(
   return page.isAvailable?.(context) ?? true;
 }
 
-export function buildRuntimeContext(isDesktop: boolean, isMobile: boolean): SettingsRuntimeContext {
+export function buildRuntimeContext(isDesktop: boolean, isMobile: boolean, isCapacitor = false): SettingsRuntimeContext {
   const isWeb = !isDesktop && isWebRuntime();
-  return { isWeb, isDesktop, isMobile };
+  return { isWeb, isDesktop, isMobile, isCapacitor };
 }
 
 export function isObjectRecord(value: unknown): value is Record<string, unknown> {

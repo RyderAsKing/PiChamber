@@ -79,6 +79,15 @@ const buttonVariants = cva(
           "dark:aria-pressed:bg-[color-mix(in_srgb,var(--primary-base)_16%,transparent)]",
           "dark:aria-pressed:border-[color-mix(in_srgb,var(--primary-base)_20%,transparent)]",
           "dark:aria-pressed:hover:bg-[color-mix(in_srgb,var(--primary-base)_22%,transparent)]",
+          // Same selected palette for chips used as role="radio" options.
+          "aria-checked:bg-[color-mix(in_srgb,var(--primary-base)_10%,var(--background))]",
+          "aria-checked:text-[var(--primary-base)]",
+          "aria-checked:border-[color-mix(in_srgb,var(--primary-base)_12%,transparent)]",
+          "aria-checked:hover:bg-[color-mix(in_srgb,var(--primary-base)_16%,var(--background))]",
+          "aria-checked:hover:text-[var(--primary-base)]",
+          "dark:aria-checked:bg-[color-mix(in_srgb,var(--primary-base)_16%,transparent)]",
+          "dark:aria-checked:border-[color-mix(in_srgb,var(--primary-base)_20%,transparent)]",
+          "dark:aria-checked:hover:bg-[color-mix(in_srgb,var(--primary-base)_22%,transparent)]",
         ),
         secondary:
           "bg-interactive-hover text-foreground hover:bg-interactive-active",

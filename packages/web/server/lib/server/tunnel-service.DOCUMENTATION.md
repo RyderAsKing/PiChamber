@@ -4,11 +4,10 @@ PiChamber can manage a Cloudflare Tunnel that lets a browser or mobile client re
 
 ## Modes
 
-- **Quick** (`quick`): ephemeral `*.trycloudflare.com` URL, no account required, best-effort. Uses `cloudflared tunnel --url http://127.0.0.1:<port>`. Good for demos, not for production (no SLA, no SSE guarantees).
 - **Managed Remote** (`managed-remote`): persistent hostname backed by a Cloudflare Tunnel token. Requires `token` (from `cloudflared tunnel create` / dashboard) and `hostname` (e.g. `pichamber.example.com`). Uses `cloudflared tunnel run --token-file ...` and stores the token on disk with `0600`.
 - **Managed Local** (`managed-local`): uses a local `config.yml` (`~/.cloudflared/config.yml` by default) whose `ingress` hostname is proxied. Uses `cloudflared tunnel --config <path> run`.
 
-Quick is the default when no hostname/token is supplied.
+Ephemeral quick tunnels (`*.trycloudflare.com`) were removed: their URL changed on every restart, which broke saved device connections. For private remote access use `pichamber pair --tailscale [--public]`; for your own domain use `managed-remote`. A stored `quick` mode (or a missing mode) is rejected by `start` instead of launching a tunnel, so older persisted state can never resurrect one.
 
 ## Server component
 
@@ -16,7 +15,7 @@ Quick is the default when no hostname/token is supplied.
 
 - `GET /api/pichamber/tunnel/check` – availability + install help
 - `GET /api/pichamber/tunnel/status` – active, url, mode, bootstrap token presence, managed-remote token presence (boolean only), hostname, sessions, localPort
-- `POST /api/pichamber/tunnel/start` – body `{ mode, token, hostname, configPath }`
+- `POST /api/pichamber/tunnel/start` – body `{ mode, token, hostname, configPath }`. `mode` is required (`managed-remote` or `managed-local`); `quick` is rejected with code `quick_tunnel_removed` (HTTP 410) and a missing mode with `validation_error` (HTTP 422).
 - `POST /api/pichamber/tunnel/stop` – stops the child and clears `tunnelAuthController`
 - `PUT /api/pichamber/tunnel/managed-remote-token` – stores token/hostname for later starts
 - `GET /api/pichamber/tunnel/doctor` – status + check for diagnostics
@@ -62,7 +61,7 @@ The PiChamber `pichamber.service` itself already supports both user (`~/.config/
 ## Testing
 
 - `tunnel-service.test.js` covers validation (missing token/hostname, unsupported mode), status shape, secret redaction, and that `missing_dependency` is reported when `cloudflared` is absent.
-- Integration smoke against a real `cloudflared` binary is manual: install `cloudflared`, run `pichamber serve`, `curl /api/pichamber/tunnel/check`, start a quick tunnel, verify `status.url` appears and `curl -H "Host: $url-host"` reaches the server through the tunnel with `Authorization` still required.
+- Integration smoke against a real `cloudflared` binary is manual: install `cloudflared`, run `pichamber serve`, `curl /api/pichamber/tunnel/check`, start a managed-remote tunnel, verify `status.url` appears and requests through the tunnel still require `Authorization`.
 
 ## Cloudflare credentials
 

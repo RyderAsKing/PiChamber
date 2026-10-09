@@ -20,6 +20,7 @@ describe('LAN pairing addresses', () => {
       local: 'http://127.0.0.1:2606',
       lan: null,
       relayAvailable: false,
+      tailscale: { available: false, url: null, mode: 'private' },
     });
     expect(resolvers.getDirectCandidateUrls()).toEqual([]);
   });
@@ -36,7 +37,34 @@ describe('LAN pairing addresses', () => {
       local: 'http://127.0.0.1:2606',
       lan: 'http://192.168.1.20:2606',
       relayAvailable: false,
+      tailscale: { available: false, url: null, mode: 'private' },
     });
     expect(resolvers.getDirectCandidateUrls()).toEqual(['http://192.168.1.20:2606']);
+  });
+
+  it('reports the live Tailscale mapping in transports', () => {
+    const resolvers = createPairingTransportResolvers({
+      getPort: () => 2606,
+      bindHost: '127.0.0.1',
+      getTailscaleCandidate: () => ({ type: 'tailscale', url: 'https://m.ts.net', mode: 'private', priority: 20 }),
+    });
+    expect(resolvers.getPairingTransports().tailscale).toEqual({
+      available: true,
+      url: 'https://m.ts.net',
+      mode: 'private',
+    });
+  });
+
+  it('stays silent when the Tailscale lookup throws', () => {
+    const resolvers = createPairingTransportResolvers({
+      getPort: () => 2606,
+      bindHost: '127.0.0.1',
+      getTailscaleCandidate: () => { throw new Error('boom'); },
+    });
+    expect(resolvers.getPairingTransports().tailscale).toEqual({
+      available: false,
+      url: null,
+      mode: 'private',
+    });
   });
 });

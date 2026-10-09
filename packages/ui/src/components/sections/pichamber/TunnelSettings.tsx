@@ -54,7 +54,6 @@ export const TunnelSettings: React.FC = () => {
     willReplaceActiveTunnel,
     suggestedConnectorPort,
     tunnelModeOptions,
-    providerSupportsManagedModes,
     displayedDependencyInstallInfo,
     openExternal,
     handleBrowseManagedLocalConfig,
@@ -90,7 +89,7 @@ export const TunnelSettings: React.FC = () => {
       title={"External Tunnel"}
       info={(
         <div className="space-y-1">
-          <p>{"Configure secure remote access with quick links or your own managed remote Cloudflare tunnel."}</p>
+          <p>{"Configure secure remote access with your own managed Cloudflare tunnel."}</p>
           <p>{"Secure tunnel access is enforced server-side."}</p>
           <p>{"Connect links are one-time and are revoked when tunnel stops or connect-link TTL expires."}</p>
         </div>
@@ -147,9 +146,7 @@ export const TunnelSettings: React.FC = () => {
           <TunnelTtlControls
             bootstrapTtlMs={bootstrapTtlMs}
             sessionTtlMs={sessionTtlMs}
-            tunnelMode={tunnelMode}
             disabled={isSavingTtl || isSavingMode || state === 'starting' || state === 'stopping'}
-            providerSupportsManagedModes={providerSupportsManagedModes}
             onBootstrapTtlChange={(value) => {
               void handleBootstrapTtlChange(value);
             }}
