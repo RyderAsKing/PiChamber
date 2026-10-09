@@ -115,7 +115,7 @@ export function useSessionNodeItemMetadata({
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
-  const sessionTitle = getSessionDisplayTitle(session);
+  const sessionTitle = getSessionDisplayTitle(session, 'Untitled session');
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);

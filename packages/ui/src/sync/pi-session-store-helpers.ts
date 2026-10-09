@@ -4,12 +4,12 @@ import {
   createReducerState,
   type PiReducerSessionState,
 } from '@/lib/pi/event-reducer';
-import { replaceExtensionNoticesWithHistory } from '@/lib/pi/reducers/extensionReducers';
 import { PiRequestError } from '@/lib/pi/client';
-import type { PiSession, PiSessionLifecycleState } from '@/lib/pi/types';
+import type { PiSession, PiSessionId, PiSessionLifecycleState } from '@/lib/pi/types';
 import { normalizePath } from '@/lib/pathNormalization';
 import {
   initialCatalog,
+  upsertStubRecord,
   type LiveSessionLifecycle,
   type LiveSessionRecord,
   type PiSessionCatalogState,
@@ -104,7 +104,8 @@ export const initialSessionStoreState = (
  * Build a `LiveSessionRecord` from a server-confirmed `PiSession` for
  * catalog seeding. Preserves an existing row's `lifecycle` and
  * `hydrated` flag so the event-driven mirrors win over the listing's
- * snapshot of the moment.
+ * snapshot of the moment. An omitted `messageCount` is unknown and
+ * preserves the existing count instead of clearing it.
  */
 export const createRecordFromPiSession = (
   session: PiSession,
@@ -131,13 +132,46 @@ export const createRecordFromPiSession = (
         : now,
     ...(typeof session.messageCount === 'number'
       ? { messageCount: session.messageCount }
-      : {}),
+      : existing?.messageCount !== undefined ? { messageCount: existing.messageCount } : {}),
     lifecycle: existing?.lifecycle ?? 'idle',
     hydrated: existing?.hydrated ?? false,
     // Pending input is event-driven like lifecycle: a locally observed
     // summary newer than this seed wins over unknown.
     ...(existing?.pendingInput !== undefined ? { pendingInput: existing.pendingInput } : {}),
   };
+};
+
+/**
+ * Adopt a session detail's authoritative `messageCount` into the catalog.
+ * The daemon always reports the total transcript length on details, so
+ * hydration is the backfill path for rows first learned from
+ * pending-input stubs or lighter listings that omit the count. An absent
+ * or non-numeric value is unknown: it keeps the current value, never
+ * infers emptiness and never clears a known count. Reference-stable when
+ * nothing changes.
+ */
+export const applyDetailMessageCount = (
+  state: PiSessionCatalogState,
+  sessionId: PiSessionId,
+  directory: string,
+  messageCount: unknown,
+): PiSessionCatalogState => {
+  if (typeof messageCount !== 'number' || !Number.isSafeInteger(messageCount) || messageCount < 0) {
+    return state;
+  }
+  const existing = state.byId.get(sessionId);
+  if (existing) {
+    if (existing.messageCount === messageCount) return state;
+    const nextById = new Map(state.byId);
+    nextById.set(sessionId, { ...existing, messageCount });
+    return { ...state, byId: nextById };
+  }
+  const stubbed = upsertStubRecord(state, sessionId, directory, 'idle');
+  const stub = stubbed.byId.get(sessionId);
+  if (!stub || stub.messageCount === messageCount) return stubbed;
+  const nextById = new Map(stubbed.byId);
+  nextById.set(sessionId, { ...stub, messageCount });
+  return { ...stubbed, byId: nextById };
 };
 
 export const mergeHydratedSession = (
@@ -169,14 +203,6 @@ export const mergeHydratedSession = (
   const preserveExistingExtensionState = existing.lastSequence > fetched.lastSequence;
   const preservePagedHistory = fetched.hasMoreBefore === true && existing.messages.size > 0;
   if (existing.messages.size === 0 && !preserveExisting) return fetched;
-  // Notices are local live state unless the fetched detail carried an
-  // authoritative history list (marked by hydration): then it replaces the
-  // resident list while preserving live entries by id. A stale fetch keeps
-  // the resident list wholesale like the other extension state above.
-  const mergedExtensionNotices = fetched.extensionNoticesAuthority === 'history' && !preserveExistingExtensionState
-    ? replaceExtensionNoticesWithHistory(existing.extensionNotices, fetched.extensionNotices) ?? existing.extensionNotices
-    : existing.extensionNotices;
-
   const session: PiReducerSessionState = {
     ...fetched,
     ...(preservePagedHistory && existing.hasMoreBefore !== undefined
@@ -218,7 +244,7 @@ export const mergeHydratedSession = (
       : {}),
     // These fields are local live state rather than part of the session detail
     // response. Hydration must not reset them, regardless of fetched sequence.
-    extensionNotices: mergedExtensionNotices,
+    extensionNotices: existing.extensionNotices,
     extensionErrors: existing.extensionErrors,
     extensionCatalogRevision: existing.extensionCatalogRevision,
     sessionTreeRevision: existing.sessionTreeRevision,
@@ -252,8 +278,5 @@ export const mergeHydratedSession = (
       }
     }
   }
-  // The authority marker was consumed from the fetched side above; it must
-  // not linger on resident state where a later merge could misread it.
-  delete session.extensionNoticesAuthority;
   return session;
 };

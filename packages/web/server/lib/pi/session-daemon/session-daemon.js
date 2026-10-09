@@ -73,7 +73,6 @@ import {
 } from './session-engines.js';
 import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
-import { createRecentNoticeStore } from './recent-notices.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -600,10 +599,6 @@ export function createSessionDaemon({
     publish,
     onHostedSessionSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
   });
-  // Bounded per-session recent extension notices (`ctx.ui.notify`). Survives
-  // idle disposal of the runtime; dropped on session deletion and daemon
-  // stop. Memory only; lost on daemon restart.
-  const recentNotices = createRecentNoticeStore();
   const extensionBridge = createExtensionBridge({
     publish,
     resolveDirectory,
@@ -617,7 +612,6 @@ export function createSessionDaemon({
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
     pendingInput,
-    recentNotices,
   });
   const {
     buildExtensionBindings,
@@ -754,7 +748,6 @@ export function createSessionDaemon({
         ...(session.sessionId
           ? {
             inputState: { pending: pendingInput.summaryFor(session.sessionId) },
-            extensionNotices: recentNotices.listFor(session.sessionId),
           }
           : {}),
       },
@@ -817,7 +810,6 @@ export function createSessionDaemon({
     resourceReloadsByRuntime.clear();
     clearExtensionState(undefined);
     pendingInput.clear();
-    recentNotices.clear();
     const leased = [];
     try {
       for (const tracked of runtimeRegistry?.listAll?.() ?? []) {
@@ -1119,7 +1111,6 @@ export function createSessionDaemon({
           shutdownRequestedBySession.delete(sessionId);
           publish('session.deleted', {}, sessionId, targetCwd);
           pendingInput.forgetSession(sessionId);
-          recentNotices.forgetSession(sessionId);
         }
       } catch {
         // A failed disposal retains ownership (registry entry, lease, and
@@ -1929,7 +1920,6 @@ export function createSessionDaemon({
       ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
-      extensionNotices: recentNotices.listFor(session.sessionId),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
     };
   };
@@ -3571,7 +3561,6 @@ export function createSessionDaemon({
       // `session.deleted` already tells clients; drop pending-input state
       // without publishing a redundant `session.input`.
       pendingInput.forgetSession(sessionId);
-      recentNotices.forgetSession(sessionId);
     } finally {
       // Deletion never re-arms idle lifetime.
       clearIdleDisposal(sessionId);
@@ -3999,7 +3988,6 @@ export function createSessionDaemon({
     allocateSequence: () => ++sequence,
     protocolVersion: PROTOCOL_VERSION,
     pendingInput,
-    recentNotices,
     getSequence: () => sequence,
   });
 

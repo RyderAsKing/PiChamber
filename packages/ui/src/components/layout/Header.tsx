@@ -113,6 +113,10 @@ type HeaderSessionSnapshot = {
   slug: string | null;
   shareUrl: string | null;
   parentId: string | null;
+  // Carried so the header resolves the same display title as the sidebar:
+  // without it an untitled session with an authoritatively empty transcript
+  // reads as untitled here while the sidebar shows "Awaiting first prompt".
+  messageCount: number | null;
 };
 
 export const Header: React.FC<HeaderProps> = ({
@@ -149,6 +153,9 @@ export const Header: React.FC<HeaderProps> = ({
       slug: record.slug ?? null,
       shareUrl: (currentSessionRecord as { share?: { url?: string } }).share?.url ?? null,
       parentId: currentSessionRecord.parentID ?? null,
+      messageCount: typeof currentSessionRecord.messageCount === 'number'
+        ? currentSessionRecord.messageCount
+        : null,
     };
   }, [currentSessionRecord]);
   const activeProject = useProjectsStore(useShallow((state) => {
@@ -514,7 +521,7 @@ export const Header: React.FC<HeaderProps> = ({
     if (!currentSessionId) {
       return headerLocationLabel ?? 'PiChamber';
     }
-    return getSessionDisplayTitle(currentSession);
+    return getSessionDisplayTitle(currentSession, 'Untitled session');
   }, [currentSession, currentSessionId, headerLocationLabel]);
   const sync = useSync();
   const updateSessionTitle = useSessionUIStore((state) => state.updateSessionTitle);

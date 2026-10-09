@@ -683,99 +683,34 @@ describe('Pi session daemon extension bridging', () => {
     await client.close();
   });
 
-  it('keeps recent extension notices for late snapshots and details, and drops them on deletion', async () => {
-    const { client, session, endpoint, projectDir } = await startWithExtensibleSession();
+  it('publishes live extension notifications without storing history', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
     const ui = session.boundBindings.uiContext;
 
     ui.notify('Indexed 12 files', 'info');
     const notify = await client.next((message) => message.event === 'extension.notify'
       && message.payload?.message === 'Indexed 12 files');
     expect(notify.payload.sessionId).toBe('pi-session-ext');
-    expect(notify.payload.level).toBe('info');
-    expect(typeof notify.payload.id).toBe('string');
-    expect(notify.payload.id.length).toBeGreaterThan(0);
-    expect(Number.isFinite(notify.payload.createdAt)).toBe(true);
-    expect(Number.isFinite(notify.payload.serverNow)).toBe(true);
+    expect(notify.payload).toEqual(expect.objectContaining({ message: 'Indexed 12 files', level: 'info' }));
+    // Live-only: no stored identity or timestamps travel on the event.
+    expect(notify.payload).not.toHaveProperty('id');
+    expect(notify.payload).not.toHaveProperty('createdAt');
+    expect(notify.payload).not.toHaveProperty('serverNow');
 
     // Unknown levels normalize to info, matching the live event contract.
     ui.notify('Disk almost full', 'weird-level');
     const normalized = await client.next((message) => message.event === 'extension.notify'
       && message.payload?.message === 'Disk almost full');
     expect(normalized.payload.level).toBe('info');
-    expect(typeof normalized.payload.id).toBe('string');
-    expect(Number.isFinite(normalized.payload.createdAt)).toBe(true);
-    expect(normalized.payload.id).not.toBe(notify.payload.id);
 
-    // A device connecting later sees both notices in its snapshot, oldest first.
+    // A device connecting later sees no notice history in its snapshot.
     const late = connectClient(endpoint);
     const snapshot = await late.authenticate();
-    expect(snapshot.payload.extensionNotices).toHaveLength(2);
-    expect(snapshot.payload.extensionNotices[0]).toMatchObject({
-      message: 'Indexed 12 files', level: 'info',
-    });
-    expect(snapshot.payload.extensionNotices[0].id).toBe(notify.payload.id);
-    expect(snapshot.payload.extensionNotices[0].createdAt).toBe(notify.payload.createdAt);
-    expect(snapshot.payload.extensionNotices[0]).not.toHaveProperty('serverNow');
-    expect(snapshot.payload.extensionNotices[1]).toMatchObject({
-      message: 'Disk almost full', level: 'info',
-    });
+    expect(snapshot.payload).not.toHaveProperty('extensionNotices');
     await late.close();
 
     const opened = await client.request('sessions.open', { sessionId: session.sessionId });
-    expect(opened.result.extensionNotices).toHaveLength(2);
-    expect(opened.result.extensionNotices[0].id).toBe(notify.payload.id);
-
-    // Deletion drops the notices: recreating the same session id starts empty.
-    await client.request('sessions.delete', { sessionId: session.sessionId });
-    const recreated = await client.request('sessions.create', { cwd: projectDir });
-    expect(recreated.result.session.id).toBe(session.sessionId);
-    expect(recreated.result.extensionNotices).toEqual([]);
-    await client.close();
-  });
-
-  it('keeps recent notices across idle runtime disposal', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-notices-idle-'));
-    const projectDir = join(root, 'project');
-    const agentDir = join(root, 'agent');
-    await mkdir(projectDir, { recursive: true });
-    await mkdir(agentDir, { recursive: true });
-    const endpoint = join(root, 'daemon.sock');
-    const session = new ExtensibleFakeSession();
-    let disposeCount = 0;
-
-    daemon = createSessionDaemon({
-      endpoint,
-      credential,
-      cwd: projectDir,
-      agentDir,
-      idleTimeoutMs: 30,
-      createRuntime: async (_options, hooks) => {
-        if (hooks?.createExtensionBindings) {
-          await session.bindExtensions(hooks.createExtensionBindings(session));
-        }
-        return { session, cwd: projectDir, async dispose() { disposeCount += 1; } };
-      },
-    });
-    await daemon.start();
-
-    const client = connectClient(endpoint);
-    await client.authenticate();
-    await client.request('sessions.create', { cwd: projectDir });
-    session.boundBindings.uiContext.notify('still here', 'warning');
-    await client.next((message) => message.event === 'extension.notify'
-      && message.payload?.message === 'still here');
-    // Idle disposal is scheduled by Pi's settled lifecycle event.
-    session.emit({ type: 'agent_settled' });
-    await expect.poll(() => disposeCount).toBe(1);
-
-    // The runtime is gone but the notices survive: a reconnect still sees them.
-    const late = connectClient(endpoint);
-    const snapshot = await late.authenticate();
-    expect(snapshot.payload.extensionNotices).toHaveLength(1);
-    expect(snapshot.payload.extensionNotices[0]).toMatchObject({
-      message: 'still here', level: 'warning',
-    });
-    await late.close();
+    expect(opened.result).not.toHaveProperty('extensionNotices');
     await client.close();
   });
 });
@@ -1212,7 +1147,6 @@ describe('extension bridge pending-input failures', () => {
       renderExtensionMessage: undefined,
       requestSessionShutdown: undefined,
       pendingInput,
-      recentNotices: undefined,
     });
     return { bridge, published };
   };

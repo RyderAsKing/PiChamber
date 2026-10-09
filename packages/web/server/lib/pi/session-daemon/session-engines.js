@@ -32,19 +32,11 @@
  * publishing engine does not own is rejected as `INVALID_ARGUMENT` and
  * never applied.
  *
- * Recent notices: an engine publishes `extension.notify
- * { message, level, id?, createdAt? }` through the host publish wrapper.
- * The daemon normalizes the notice (non-empty message capped at 2000
- * characters, level `'info'` unless `'warning'`/`'error'`, id kept when a
- * 1..128 character string else generated, `createdAt` kept when finite and
- * positive else now), keeps it in the daemon-owned bounded per-session
- * recent list without storing `serverNow` (at most 20 per session, sessions evicted least-recently
- * recorded first), and publishes the normalized payload plus live-only
- * `serverNow` (daemon ms clock at publish) through the usual
- * redaction. An invalid notice is a silent no-op (no record, no publish,
- * no throw). Engine snapshots and details carry daemon-owned
- * `extensionNotices` (oldest first); an engine `session.deleted` forgets
- * that session's notices.
+ * Engine notifications: an engine publishes `extension.notify
+ * { message, level }` through the host publish wrapper. The payload is
+ * published live through the usual redaction (message capped at 2000
+ * characters, level `'info'` unless `'warning'`/`'error'`); notices are
+ * live-only and are never stored.
  */
 
 /**

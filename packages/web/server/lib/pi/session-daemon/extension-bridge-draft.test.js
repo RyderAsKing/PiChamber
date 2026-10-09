@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { createExtensionBridge } from './extension-bridge.js';
-import { createRecentNoticeStore } from './recent-notices.js';
 
 // Direct bridge coverage for the getEditorText() draft mirror lifecycle edges
 // that the socket-level daemon tests cannot reach (disposal, untracked reset).
@@ -17,7 +16,6 @@ const createBridge = (options = {}) => {
     getSequence: () => 0,
     protocolError: (code, message) => Object.assign(new Error(message), { code }),
     requestSessionShutdown: () => {},
-    ...(options.recentNotices ? { recentNotices: options.recentNotices } : {}),
   });
   const session = options.session || { sessionId: 's1' };
   const bindings = bridge.buildExtensionBindings(session);
@@ -63,7 +61,6 @@ describe('extension bridge session directory scoping', () => {
     const { bridge, ui, published } = createBridge({
       findRuntimeBySessionId: (id) => (id === 's1' ? { cwd: '/dir-b' } : undefined),
       getDefaultDirectory: () => '/default-dir',
-      recentNotices: createRecentNoticeStore(),
     });
 
     ui.setStatus('status-key', 'Running');
@@ -75,18 +72,12 @@ describe('extension bridge session directory scoping', () => {
     });
 
     ui.notify('Test notification', 'warning');
-    expect(published.at(-1)).toMatchObject({
+    expect(published.at(-1)).toEqual({
       event: 'extension.notify',
       payload: { message: 'Test notification', level: 'warning' },
       sessionId: 's1',
       directory: '/dir-b',
     });
-    expect(typeof published.at(-1).payload.id).toBe('string');
-    expect(Number.isFinite(published.at(-1).payload.createdAt)).toBe(true);
-    expect(Number.isFinite(published.at(-1).payload.serverNow)).toBe(true);
-    // Snapshot state no longer carries notices: session-daemon reads the
-    // recent-notices store directly for snapshots/details.
-    expect(bridge.getSnapshotState('s1')).not.toHaveProperty('notices');
 
     ui.setWorkingMessage('working...');
     expect(published.at(-1)).toEqual({

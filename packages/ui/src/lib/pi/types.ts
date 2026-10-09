@@ -267,19 +267,6 @@ export interface PiAttachmentPart extends PiPartBase {
  * are the reconnect baseline: a client connects, receives a `session.snapshot`
  * event, and resumes deltas after the snapshot's `lastSequence`.
  */
-/**
- * A fire-and-forget extension notification (`ctx.ui.notify`) as carried by
- * snapshots and session details. `id` is the daemon-assigned stable
- * identity (1..128 chars); `createdAt` is the daemon epoch ms. Older
- * servers omit both on live events; snapshots/details always carry them.
- */
-export interface PiExtensionNotice {
-  id: string;
-  level: 'info' | 'warning' | 'error';
-  message: string;
-  createdAt: number;
-}
-
 export interface PiRetryInfo {
   attempt?: number;
   next?: number;
@@ -344,10 +331,6 @@ export interface PiSessionSnapshot {
   /** Pending-input state at snapshot time. Absent means unknown (older
    *  server), never authoritatively empty — keep the current value. */
   inputState?: { pending: import('./protocol').PiPendingInputSummary | null };
-  /** Recent fire-and-forget extension notifications, oldest first (max 20,
-   *  24 h retention server-side). Absent means unknown (older server) —
-   *  keep the current list. Present (even empty) is authoritative — replace. */
-  extensionNotices?: PiExtensionNotice[];
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */

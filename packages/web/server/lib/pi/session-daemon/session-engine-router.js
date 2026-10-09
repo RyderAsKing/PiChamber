@@ -18,7 +18,6 @@ import {
   ENGINE_UNSUPPORTED_OPERATION,
 } from './session-engines.js';
 import { normalizePendingInputSummary } from './pending-input.js';
-import { normalizeRecentNotice } from './recent-notices.js';
 
 const DETAIL_COMMANDS = new Set([
   'sessions.open',
@@ -54,7 +53,6 @@ const invalidArgument = (createError, message) => {
  *   allocateSequence: () => number,
  *   protocolVersion: number,
  *   pendingInput?: { applyEngineSummary: (sessionId: string, directory: string, summary: object | null) => void, summaryFor: (sessionId: string) => object | null, forgetSession: (sessionId: string) => void },
- *   recentNotices?: { record: (sessionId: string, notice: object) => object | undefined, listFor: (sessionId: string) => Array<object>, forgetSession: (sessionId: string) => void },
  *   getSequence?: () => number,
  * }} deps
  */
@@ -72,7 +70,6 @@ export const createSessionEngineRouter = ({
   allocateSequence,
   protocolVersion,
   pendingInput,
-  recentNotices,
   getSequence,
 } = {}) => {
   // Redaction is mandatory: engine output never reaches the wire unredacted.
@@ -130,34 +127,17 @@ export const createSessionEngineRouter = ({
     // without publishing a redundant `session.input`.
     if (event === 'session.deleted') {
       pendingInput?.forgetSession(sessionId);
-      try {
-        recentNotices?.forgetSession(sessionId);
-      } catch {}
     }
-    // Engine notifications are normalized, kept in the daemon-owned bounded
-    // per-session recent list, and published as the normalized payload
-    // (still through the existing redaction). An invalid notice is a silent
-    // no-op (no record, no publish, no throw), matching the Pi bridge path
-    // which tolerates empty messages. serverNow travels only on the live
-    // event and is never stored.
+    // Engine notifications are live-only: normalize the level, cap the
+    // message, and publish through the usual redaction. An invalid notice
+    // is a silent no-op (no publish, no throw). Nothing is stored.
     if (event === 'extension.notify') {
       const raw = payload ?? {};
-      const normalized = normalizeRecentNotice({
-        id: raw.id,
-        level: raw.level,
-        message: raw.message,
-        createdAt: raw.createdAt,
-      });
-      if (!normalized) {
-        return;
-      }
-      // Redact before recording: the stored copy reaches snapshots and
-      // details, which must never carry an echoed attachment path.
-      const safeNotice = applyRedact({ ...normalized });
-      try {
-        recentNotices?.record(sessionId, safeNotice);
-      } catch {}
-      publish(event, { ...safeNotice, serverNow: Date.now() }, sessionId, directory);
+      if (typeof raw.message !== 'string' || raw.message.length === 0) return;
+      publish(event, applyRedact({
+        message: raw.message.slice(0, 2000),
+        level: raw.level === 'warning' || raw.level === 'error' ? raw.level : 'info',
+      }), sessionId, directory);
       return;
     }
     const { sessionId: _payloadSessionId, directory: _payloadDirectory, ...cleanPayload } = payload ?? {};
@@ -197,9 +177,6 @@ export const createSessionEngineRouter = ({
         inputState: {
           pending: snapshotPending === undefined ? (pendingInput?.summaryFor(sessionId) ?? null) : snapshotPending,
         },
-        // Daemon-owned recent notices, oldest first. Placed after spreading
-        // safeFields so the engine cannot inject its own list.
-        extensionNotices: recentNotices?.listFor(sessionId) ?? [],
         sessionId,
         directory: safeFields.directory,
         ...(resync ? { resync: true } : {}),
@@ -221,15 +198,10 @@ export const createSessionEngineRouter = ({
           : detailPending,
       },
     };
-    // Daemon-owned recent notices, oldest first. Placed after spreading
-    // safe so the engine cannot inject its own list.
-    const withNotices = {
-      extensionNotices: typeof sessionId === 'string' ? (recentNotices?.listFor(sessionId) ?? []) : [],
-    };
     if (safe.session && typeof safe.session === 'object') {
-      return { ...safe, ...withInput, ...withNotices, session: { ...safe.session, engine: engineId } };
+      return { ...safe, ...withInput, session: { ...safe.session, engine: engineId } };
     }
-    return { ...safe, ...withInput, ...withNotices };
+    return { ...safe, ...withInput };
   };
 
   const runHandler = async (engine, command, payload) => {

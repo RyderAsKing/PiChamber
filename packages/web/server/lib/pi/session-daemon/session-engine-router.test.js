@@ -489,136 +489,27 @@ describe('session engine router pending input', () => {
   });
 });
 
-describe('session engine router recent notices', () => {
-  const makeNotices = (lists = new Map()) => {
-    const recorded = [];
-    const forgotten = [];
-    return {
-      recorded,
-      forgotten,
-      recentNotices: {
-        record: (sessionId, notice) => {
-          recorded.push({ sessionId, notice });
-          const current = lists.get(sessionId) ?? [];
-          current.push(notice);
-          lists.set(sessionId, current);
-          return notice;
-        },
-        listFor: (sessionId) => [...(lists.get(sessionId) ?? [])],
-        forgetSession: (sessionId) => {
-          forgotten.push(sessionId);
-          lists.delete(sessionId);
-        },
-      },
-    };
-  };
-
-  it('normalizes engine notifications, records them, and publishes the redacted payload', () => {
-    const { recentNotices, recorded } = makeNotices();
+describe('session engine router extension notifications', () => {
+  it('publishes engine notifications live through redaction', () => {
     const seen = [];
     const { router, published } = makeRouter({
-      recentNotices,
       redact: (value) => {
         seen.push(value);
         return value;
       },
     });
     router.publish('extension.notify', {
-      id: 'n1', message: 'hello', level: 'warning', createdAt: 42, sessionId: 'sneaky', directory: '/nope',
+      message: 'hello', level: 'warning', sessionId: 'sneaky', directory: '/nope',
     }, 's1', '/work');
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0]).toEqual({
-      sessionId: 's1',
-      notice: { id: 'n1', message: 'hello', level: 'warning', createdAt: 42 },
-    });
     expect(published).toHaveLength(1);
-    expect(published[0].event).toBe('extension.notify');
-    expect(published[0].sessionId).toBe('s1');
-    expect(published[0].directory).toBe('/work');
-    expect(published[0].payload).toMatchObject({ id: 'n1', message: 'hello', level: 'warning', createdAt: 42 });
-    expect(Number.isFinite(published[0].payload.serverNow)).toBe(true);
-    // serverNow travels only on the live event and is never stored.
-    expect(recorded[0].notice).not.toHaveProperty('serverNow');
-    // The normalized payload still travels through the redactor.
+    expect(published[0]).toEqual({
+      event: 'extension.notify',
+      payload: { message: 'hello', level: 'warning' },
+      sessionId: 's1',
+      directory: '/work',
+    });
+    // The payload travels through the redactor; sessionId/directory never cross.
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toEqual({ id: 'n1', message: 'hello', level: 'warning', createdAt: 42 });
-  });
-
-  it('fills id/createdAt, defaults the level, and caps the message', () => {
-    const { recentNotices, recorded } = makeNotices();
-    const { router, published } = makeRouter({ recentNotices });
-    router.publish('extension.notify', { message: 'x'.repeat(2500), level: 'urgent' }, 's1', '/work');
-    expect(recorded[0].notice.message).toHaveLength(2000);
-    expect(recorded[0].notice.level).toBe('info');
-    expect(typeof recorded[0].notice.id).toBe('string');
-    expect(recorded[0].notice.id.length).toBeGreaterThan(0);
-    expect(Number.isFinite(recorded[0].notice.createdAt)).toBe(true);
-    expect(Number.isFinite(published[0].payload.serverNow)).toBe(true);
-    expect(recorded[0].notice).not.toHaveProperty('serverNow');
-    expect(published[0].payload).toMatchObject({
-      id: recorded[0].notice.id,
-      message: recorded[0].notice.message,
-      level: 'info',
-      createdAt: recorded[0].notice.createdAt,
-    });
-  });
-
-  it('ignores empty engine notifications without recording or publishing', () => {
-    const { recentNotices, recorded } = makeNotices();
-    const { router, published } = makeRouter({ recentNotices });
-    expect(router.publish('extension.notify', { message: '' }, 's1', '/work')).toBeUndefined();
-    expect(router.publish('extension.notify', {}, 's1', '/work')).toBeUndefined();
-    expect(recorded).toEqual([]);
-    expect(published).toEqual([]);
-  });
-
-  it('stamps engine snapshots and details with daemon-owned notices after engine fields', () => {
-    const lists = new Map([['engine-1', [{ id: 'n1', level: 'info', message: 'kept', createdAt: 7 }]]]);
-    const { recentNotices } = makeNotices(lists);
-    const engine = makeEngine('fake', {
-      ownsSession: (id) => id === 'engine-1',
-      snapshot: () => ({ directory: '/work', extensionNotices: [{ id: 'spoofed' }] }),
-      handlers: {
-        'sessions.open': async () => ({
-          session: { id: 'engine-1' },
-          messages: [],
-          extensionNotices: [{ id: 'spoofed' }],
-        }),
-      },
-    });
-    const { router } = makeRouter({
-      getRegistry: () => makeRegistry([engine]),
-      recentNotices,
-      getSequence: () => 7,
-    });
-    const snapshot = router.snapshotEvent('engine-1', {});
-    expect(snapshot.payload.extensionNotices).toEqual([
-      { id: 'n1', level: 'info', message: 'kept', createdAt: 7 },
-    ]);
-  });
-
-  it('includes an empty notice list on engine details without stored notices', async () => {
-    const { recentNotices } = makeNotices();
-    const engine = makeEngine('fake', {
-      ownsSession: (id) => id === 'engine-1',
-      handlers: {
-        'sessions.open': async () => ({ session: { id: 'engine-1' }, messages: [] }),
-      },
-    });
-    const { router, details } = makeRouter({
-      getRegistry: () => makeRegistry([engine]),
-      recentNotices,
-    });
-    await router.dispatch({}, { command: 'sessions.open', requestId: 'r1', payload: { sessionId: 'engine-1' } });
-    expect(details[0].detail.extensionNotices).toEqual([]);
-  });
-
-  it('forgets notices before publishing engine session.deleted', () => {
-    const lists = new Map([['s1', [{ id: 'n1', level: 'info', message: 'kept', createdAt: 7 }]]]);
-    const { recentNotices, forgotten } = makeNotices(lists);
-    const { router, published } = makeRouter({ recentNotices });
-    router.publish('session.deleted', {}, 's1', '/work');
-    expect(forgotten).toEqual(['s1']);
-    expect(published).toEqual([{ event: 'session.deleted', payload: {}, sessionId: 's1', directory: '/work' }]);
+    expect(seen[0]).toEqual({ message: 'hello', level: 'warning' });
   });
 });

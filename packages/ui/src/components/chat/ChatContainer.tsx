@@ -476,7 +476,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 								: 'flex-1 items-center justify-center bg-background px-0 pb-[6vh]'
 					)}
 				>
-                        <ChatInput scrollToBottom={scrollToBottomOnSend} />
+					<ChatInput scrollToBottom={scrollToBottomOnSend} />
 				</div>
 			</div>
         );

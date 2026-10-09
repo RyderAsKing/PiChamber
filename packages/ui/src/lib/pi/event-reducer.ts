@@ -65,7 +65,6 @@ import {
   reduceTool,
 } from './reducers/streamReducers';
 import {
-  applySnapshotExtensionNotices,
   dismissExtensionDialog,
   reduceExtensionApp,
   reduceExtensionCatalog,
@@ -211,10 +210,6 @@ export const applyPiEvent = (
           session.extensionApps = apps;
         }
         session.extensionTitle = event.payload.snapshot.extensionTitle;
-        // Authoritative notice history when the daemon carries it; absent
-        // (older server) keeps the current list. Live entries whose ids are
-        // present preserve their live origin so they are not re-toasted.
-        applySnapshotExtensionNotices(session, event.payload.snapshot.extensionNotices);
         if (event.payload.snapshot.extensionWorking) {
           session.extensionWorking = { ...event.payload.snapshot.extensionWorking };
         } else {

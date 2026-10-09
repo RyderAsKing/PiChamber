@@ -7,21 +7,17 @@ import type {
 } from '../protocol';
 import type {
   PiExtensionEditorOp,
-  PiReducerExtensionNotice,
   PiReducerMessage,
   PiReducerSessionState,
   PiReducerState,
 } from './reducerTypes';
 import {
   appendBoundedFeed,
-  appendBoundedNoticeFeed,
   markMutation,
-  MAX_EXTENSION_NOTICE_ITEMS,
   nextExtensionFeedId,
 } from './reducerHelpers';
 import type { PiSessionId } from '../types';
 import { sanitizeExtensionMessageRender } from '../extension-ui';
-import { toClientTimestamp } from '../server-clock';
 
 export const reduceExtensionEntry = (
   session: PiReducerSessionState,
@@ -120,107 +116,14 @@ export const reduceExtensionDialogDismiss = (
 
 export const reduceExtensionNotify = (
   session: PiReducerSessionState,
-  payload: {
-    message: string;
-    level: 'info' | 'warning' | 'error';
-    id?: string;
-    createdAt?: number;
-    serverNow?: number;
-  },
+  payload: { message: string; level: 'info' | 'warning' | 'error' },
 ): void => {
-  // Prefer the daemon-assigned identity so reconnect replays and snapshot
-  // history reconcile against the same id. Older servers send neither field.
-  const id = typeof payload.id === 'string' && payload.id.length > 0
-    ? payload.id
-    : nextExtensionFeedId();
-  // A replayed event with a known id is a no-op: leave the list reference
-  // untouched so downstream selectors stay stable.
-  if (session.extensionNotices.some((notice) => notice.id === id)) return;
-  const serverCreatedAt = typeof payload.createdAt === 'number'
-    && Number.isFinite(payload.createdAt)
-    && payload.createdAt > 0
-    ? payload.createdAt
-    : undefined;
-  const clientNow = Date.now();
-  const rawServerNow = payload.serverNow;
-  // Record the skew-corrected client-clock receive time so the toast
-  // freshness guard measures in one clock domain. Only when the event
-  // carries a clock sample; without it keep the legacy behavior.
-  const toastAgeBase = serverCreatedAt !== undefined
-    && typeof rawServerNow === 'number'
-    && Number.isFinite(rawServerNow)
-    && rawServerNow > 0
-    ? toClientTimestamp(serverCreatedAt, rawServerNow, clientNow) ?? serverCreatedAt
-    : undefined;
-  session.extensionNotices = appendBoundedNoticeFeed(session.extensionNotices, {
-    id,
+  session.extensionNotices = appendBoundedFeed(session.extensionNotices, {
+    id: nextExtensionFeedId(),
     message: payload.message,
     level: payload.level,
-    createdAt: serverCreatedAt ?? clientNow,
-    origin: 'live',
-    serverTimestamp: serverCreatedAt !== undefined,
-    ...(toastAgeBase !== undefined ? { toastAgeBase } : {}),
+    createdAt: Date.now(),
   });
-};
-
-/** Validate one snapshot/detail notice entry; malformed entries are dropped. */
-const toHistoryExtensionNotice = (entry: unknown): PiReducerExtensionNotice | null => {
-  if (!entry || typeof entry !== 'object') return null;
-  const candidate = entry as { id?: unknown; level?: unknown; message?: unknown; createdAt?: unknown };
-  if (typeof candidate.id !== 'string' || candidate.id.length === 0) return null;
-  if (typeof candidate.message !== 'string' || candidate.message.length === 0) return null;
-  if (candidate.level !== 'info' && candidate.level !== 'warning' && candidate.level !== 'error') return null;
-  if (typeof candidate.createdAt !== 'number' || !Number.isFinite(candidate.createdAt) || candidate.createdAt <= 0) return null;
-  return {
-    id: candidate.id,
-    message: candidate.message,
-    level: candidate.level,
-    createdAt: candidate.createdAt,
-    origin: 'history',
-    serverTimestamp: true,
-  };
-};
-
-/**
- * Authoritatively replace the notice list with snapshot/detail history
- * (oldest first). Entries whose ids are already held as live keep their
- * live record so a shown notice is neither re-toasted nor duplicated.
- * Returns `null` when `history` is absent or malformed (older server) —
- * the caller must keep the current list in that case.
- */
-export const replaceExtensionNoticesWithHistory = (
-  current: PiReducerSessionState['extensionNotices'],
-  history: unknown,
-): PiReducerExtensionNotice[] | null => {
-  if (!Array.isArray(history)) return null;
-  const liveById = new Map<string, PiReducerExtensionNotice>();
-  for (const notice of current) {
-    if (notice.origin === 'live' && !liveById.has(notice.id)) liveById.set(notice.id, notice);
-  }
-  const seen = new Set<string>();
-  const next: PiReducerExtensionNotice[] = [];
-  for (const raw of history) {
-    const notice = toHistoryExtensionNotice(raw);
-    if (!notice || seen.has(notice.id)) continue;
-    seen.add(notice.id);
-    next.push(liveById.get(notice.id) ?? notice);
-  }
-  return next.length > MAX_EXTENSION_NOTICE_ITEMS
-    ? next.slice(next.length - MAX_EXTENSION_NOTICE_ITEMS)
-    : next;
-};
-
-/**
- * Apply a snapshot's `extensionNotices` field. Absent (or malformed) keeps
- * the current list; present (even empty) replaces it authoritatively.
- */
-export const applySnapshotExtensionNotices = (
-  session: PiReducerSessionState,
-  history: unknown,
-): void => {
-  const next = replaceExtensionNoticesWithHistory(session.extensionNotices, history);
-  if (next === null) return;
-  session.extensionNotices = next;
 };
 
 export const reduceExtensionCatalog = (

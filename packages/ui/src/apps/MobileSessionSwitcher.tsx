@@ -59,7 +59,7 @@ const SwitcherRow: React.FC<{
     >
       <span className="flex min-w-0 flex-1 flex-col">
         <span className={cn('block truncate typography-ui-label', active ? 'text-primary' : 'text-foreground')}>
-          {getSessionTitle(session, "Untitled Session")}
+          {getSessionTitle(session, "Untitled session")}
         </span>
         {meta ? (
           <span className="block truncate typography-micro text-muted-foreground">{meta}</span>

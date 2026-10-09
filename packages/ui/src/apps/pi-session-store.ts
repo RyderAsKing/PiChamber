@@ -86,6 +86,7 @@ import {
   isSessionRuntimeConflictError,
   delayBeforeRetry,
   initialSessionStoreState,
+  applyDetailMessageCount,
   createRecordFromPiSession,
   mergeHydratedSession,
 } from '@/sync/pi-session-store-helpers';
@@ -320,6 +321,12 @@ export class PiSessionStore {
    *  predate the trigger (for example an epoch change), so one more fetch
    *  runs when it settles instead of being dropped. */
   private pendingInputRefetchRequested = false;
+  /** Sessions needing input whose authoritative metadata was already
+   *  demand-fetched once on this runtime lifetime. Bounds the backfill
+   *  below to one targeted detail read per session: lists, hydrates, and
+   *  recovery re-validation converge afterwards. Cleared on runtime reset
+   *  and verified epoch change. */
+  private pendingMetadataBackfillAttempted = new Set<PiSessionId>();
   /** Epochs retired by a verified transition. Snapshots, events, and stamped
    *  responses from a retired lifetime are rejected — epochs are opaque, so
    *  retirement (not ordering) is what prevents a stale frame from
@@ -560,6 +567,7 @@ export class PiSessionStore {
     this.pendingInputUnsupported = false;
     this.pendingInputFetchInFlight = null;
     this.pendingInputRefetchRequested = false;
+    this.pendingMetadataBackfillAttempted.clear();
     this.hydratedSessionIds.clear();
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
@@ -1074,6 +1082,7 @@ export class PiSessionStore {
     this.pendingInputUnsupported = false;
     this.pendingInputFetchInFlight = null;
     this.pendingInputRefetchRequested = false;
+    this.pendingMetadataBackfillAttempted.clear();
     this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
@@ -1270,6 +1279,36 @@ export class PiSessionStore {
     if (nextCatalog !== this.state.catalog) {
       this.state = { ...this.state, catalog: nextCatalog };
       this.emit([TOPIC_CATALOG]);
+    }
+    this.requestNeedingSessionMetadataBackfill(response.sessions.map((entry) => entry.sessionId));
+  }
+
+  /**
+   * Demand-fetch authoritative metadata for untitled sessions needing input
+   * whose catalog row still lacks a `messageCount`. Such rows were learned from a
+   * pending-input stub (live event or global list) on a directory this
+   * device never listed — e.g. a session another device created via an
+   * extension command — so toasts and the other-sessions strip would fall
+   * back to "Untitled session" while listed surfaces show "Awaiting first
+   * prompt" for the same session. One targeted `ensureHydrated` per session
+   * per runtime lifetime backfills the detail's total; the hydrate commit
+   * adopts it and later lists, hydrates, and recovery converge afterwards.
+   * Never selects or focuses: the fetch is metadata-only backfill.
+   */
+  private requestNeedingSessionMetadataBackfill(sessionIds: readonly PiSessionId[]): void {
+    for (const sessionId of sessionIds) {
+      if (!sessionId || this.pendingMetadataBackfillAttempted.has(sessionId)) continue;
+      const record = this.state.catalog.byId.get(sessionId);
+      if (!record || record.pendingInput == null) continue;
+      // A titled row displays its title regardless of the count; only an
+      // untitled row needs the count to pick its fallback label.
+      if (record.title.trim()) continue;
+      if (typeof record.messageCount === 'number') continue;
+      if (this.hydratedSessionIds.has(sessionId)) continue;
+      if (this.hydrateInflightById.has(sessionId)) continue;
+      if (this.isDeleted(sessionId)) continue;
+      this.pendingMetadataBackfillAttempted.add(sessionId);
+      void this.ensureHydrated(sessionId).catch(() => undefined);
     }
   }
 
@@ -2434,7 +2473,7 @@ export class PiSessionStore {
       if (!this.isResponseEpochCurrent(detail)) return detail;
       // Authoritative truncated commit — do not merge the old tail back in.
       const hydrated = this.sessionFromDetail(detail);
-      this.commitNavigationSession(hydrated, detailPendingInputOf(detail));
+      this.commitNavigationSession(hydrated, detailPendingInputOf(detail), detail.session);
       const navigation = (detail as unknown as { navigation?: { targetEntryId: string; previousLeafId: string | null; newLeafId: string | null; editorText?: string } }).navigation;
       if (navigation && typeof navigation.targetEntryId === 'string' && detail.hasMoreBefore !== true) {
         const newIds = new Set(detail.messages.map((entry) => entry.message.id));
@@ -2886,6 +2925,7 @@ export class PiSessionStore {
   private commitNavigationSession(
     hydratedSession: PiReducerSessionState,
     detailInput?: { pending: PiPendingInputSummary | null; sequence: number },
+    detailSession?: { messageCount?: unknown },
   ) {
     this.cadence.flush();
     const existing = this.state.reducer.bySession.get(hydratedSession.sessionId);
@@ -2934,6 +2974,11 @@ export class PiSessionStore {
         detailInput.sequence,
       );
     }
+    // Revert truncates the transcript: the detail's total is authoritative
+    // for the shortened branch.
+    if (detailSession) {
+      nextCatalog = applyDetailMessageCount(nextCatalog, session.sessionId, session.directory, detailSession.messageCount);
+    }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -2959,13 +3004,14 @@ export class PiSessionStore {
     detail: Awaited<ReturnType<typeof piClient.getSession>>,
     buffered: readonly PiSessionEvent[] = [],
   ): void {
-    this.commitHydratedSession(this.sessionFromDetail(detail), buffered, detailPendingInputOf(detail));
+    this.commitHydratedSession(this.sessionFromDetail(detail), buffered, detailPendingInputOf(detail), detail.session);
   }
 
   private commitHydratedSession(
     hydratedSession: PiReducerSessionState,
     buffered: readonly PiSessionEvent[] = [],
     detailInput?: { pending: PiPendingInputSummary | null; sequence: number },
+    detailSession?: { messageCount?: unknown },
   ) {
     // A committed deletion is authoritative: a late hydrate must not resurrect the row.
     if (this.isDeleted(hydratedSession.sessionId)) return;
@@ -3025,6 +3071,12 @@ export class PiSessionStore {
     nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
     if (catalogLifecycle !== undefined) {
       nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, reducerSession?.retry);
+    }
+    // The detail's total transcript length is authoritative. Adopting it
+    // backfills rows first learned from pending-input stubs or lighter
+    // listings, so every surface converges on the same display title.
+    if (detailSession) {
+      nextCatalog = applyDetailMessageCount(nextCatalog, session.sessionId, session.directory, detailSession.messageCount);
     }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
@@ -3088,8 +3140,11 @@ export class PiSessionStore {
     // A deletion committed while this hydrate was queued is authoritative;
     // fetching would only serve a response the commit below must reject.
     if (this.isDeleted(sessionId)) return;
-    const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
-    const directory = sessionDir || this.directory();
+    // Ownership comes from the session's own record (catalog row, then the
+    // focused list) so a catalog-known session from another directory can
+    // hydrate without a folder focus — the metadata backfill path relies on
+    // this when no directory is focused yet.
+    const directory = this.resolveSessionDirectory(sessionId) || this.directory();
     const runtimeKey = getRuntimeKey();
     const resident = this.state.reducer.bySession.get(sessionId);
     const residentIsHydrated = Boolean(
@@ -3197,6 +3252,9 @@ export class PiSessionStore {
         : options?.initialDetail
           ? detailPendingInputOf(options.initialDetail)
           : undefined;
+      // The detail's session record carries the authoritative total
+      // transcript length for the catalog backfill.
+      let detailSessionForCatalog = known?.session ?? options?.initialDetail?.session;
       // Adopt server authoritative timing when the known detail carries it.
       if (known && (known.lifecycle === 'busy' || known.lifecycle === 'retry') && typeof (known as { runStartedAt?: number }).runStartedAt === 'number') {
         adoptServerRunTiming(known.session.id, (known as { runStartedAt: number }).runStartedAt, (known as { serverNow?: number }).serverNow);
@@ -3223,6 +3281,7 @@ export class PiSessionStore {
           }
           hydratedInput = detailPendingInputOf(detail);
           hydratedSession = this.sessionFromDetail(detail);
+          detailSessionForCatalog = detail.session;
         } catch (error) {
           // Attach the cluster stream even when the requested chat is
           // gone so a stale deep link cannot block the rest of the runtime.
@@ -3263,7 +3322,7 @@ export class PiSessionStore {
         return;
       }
       this.stream = bootstrap.stream;
-      this.commitHydratedSession(hydratedSession, buffered, hydratedInput);
+      this.commitHydratedSession(hydratedSession, buffered, hydratedInput, detailSessionForCatalog);
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
@@ -4008,6 +4067,13 @@ export class PiSessionStore {
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
     this.emitPendingInputTransitions(pendingInputTransitions);
+    if (acceptedEvents.some((event) => event.name === 'session.input')) {
+      this.requestNeedingSessionMetadataBackfill(
+        acceptedEvents
+          .filter((event) => event.name === 'session.input')
+          .map((event) => event.sessionId),
+      );
+    }
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
     if (epochChangedResidents) {
@@ -4048,7 +4114,7 @@ export class PiSessionStore {
    * `session.updated` writes the title without changing last-prompt recency
    * (rename / explicit create). A user-message start from another device
    * both stamps recency and fills an empty stub title from the prompt text
-   * so the sidebar does not stay on "Untitled Session" until a later list.
+   * so the sidebar does not stay on "Untitled session" until a later list.
    */
   private applyCatalogFromEvents(
     events: readonly PiSessionEvent[],

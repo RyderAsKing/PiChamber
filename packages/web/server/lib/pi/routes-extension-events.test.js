@@ -274,132 +274,30 @@ describe('extension public projections', () => {
     expect(unknown?.payload.snapshot.inputState).toBeUndefined();
   });
 
-  it('projects extension.notify frames with and without daemon notice identity', () => {
-    // Current daemons attach the stored notice id and timestamp.
+  it('projects live-only extension.notify frames', () => {
     expect(projectEventFrame(frame('extension.notify', {
-      id: 'notice-1',
       message: 'Indexed 12 files',
       level: 'warning',
-      createdAt: 123,
     }))?.payload).toEqual({
-      id: 'notice-1',
       message: 'Indexed 12 files',
       level: 'warning',
-      createdAt: 123,
     });
-
-    // Frames from older daemons without id/createdAt project as before.
-    expect(projectEventFrame(frame('extension.notify', {
-      message: 'hello',
-      level: 'error',
-    }))?.payload).toEqual({ message: 'hello', level: 'error' });
 
     // Unknown levels still default to info; overlong messages stay capped.
     expect(projectEventFrame(frame('extension.notify', {
-      id: 'n2',
       message: 'x'.repeat(2500),
       level: 'urgent',
-      createdAt: 7,
     }))?.payload).toEqual({
-      id: 'n2',
       message: 'x'.repeat(2000),
       level: 'info',
-      createdAt: 7,
     });
-
-    // Invalid identity fields are dropped while the notice still projects.
-    expect(projectEventFrame(frame('extension.notify', {
-      id: '',
-      message: 'hello',
-      level: 'info',
-      createdAt: -3,
-    }))?.payload).toEqual({ message: 'hello', level: 'info' });
-    expect(projectEventFrame(frame('extension.notify', {
-      id: 'x'.repeat(200),
-      message: 'hello',
-      createdAt: Number.NaN,
-    }))?.payload).toEqual({ message: 'hello', level: 'info' });
 
     // Empty messages never project, as before.
     expect(projectEventFrame(frame('extension.notify', { message: '' }))).toBeNull();
   });
 
-  it('projects extension.notify serverNow when finite and omits it otherwise', () => {
-    expect(projectEventFrame(frame('extension.notify', {
-      id: 'n1',
-      message: 'hello',
-      level: 'info',
-      createdAt: 10,
-      serverNow: 999,
-    }))?.payload).toEqual({
-      id: 'n1', message: 'hello', level: 'info', createdAt: 10, serverNow: 999,
-    });
-    // Old payloads without serverNow project as before.
-    expect(projectEventFrame(frame('extension.notify', {
-      id: 'n1',
-      message: 'hello',
-      level: 'info',
-      createdAt: 10,
-    }))?.payload).toEqual({
-      id: 'n1', message: 'hello', level: 'info', createdAt: 10,
-    });
-    for (const serverNow of [undefined, Number.NaN, Number.POSITIVE_INFINITY, '999', null]) {
-      expect(projectEventFrame(frame('extension.notify', {
-        id: 'n1',
-        message: 'hello',
-        level: 'info',
-        createdAt: 10,
-        serverNow,
-      }))?.payload).toEqual({
-        id: 'n1', message: 'hello', level: 'info', createdAt: 10,
-      });
-    }
-  });
-
-  it('projects snapshot extensionNotices, drops malformed entries, and omits absent fields', () => {
-    const projected = projectEventFrame(frame('session.snapshot', {
-      isStreaming: false,
-      lifecycle: 'idle',
-      queue: { steering: 0, followUp: 0 },
-      lastSequence: 5,
-      extensionNotices: [
-        { id: 'n1', level: 'warning', message: 'first', createdAt: 10 },
-        { id: 'n2', message: 'second', createdAt: 20 },
-        { id: 'n3', level: 'error', message: 'x'.repeat(2500), createdAt: 30 },
-        { id: '', level: 'info', message: 'bad id', createdAt: 40 },
-        { id: 'n5', level: 'info', message: '', createdAt: 50 },
-        { id: 'n6', level: 'info', message: 'bad time', createdAt: -1 },
-        null,
-      ],
-    }));
-    expect(projected?.payload.snapshot.extensionNotices).toEqual([
-      { id: 'n1', level: 'warning', message: 'first', createdAt: 10 },
-      { id: 'n2', level: 'info', message: 'second', createdAt: 20 },
-      { id: 'n3', level: 'error', message: 'x'.repeat(2000), createdAt: 30 },
-    ]);
-
-    // At most 20 entries survive.
-    const many = projectEventFrame(frame('session.snapshot', {
-      isStreaming: false,
-      lifecycle: 'idle',
-      queue: { steering: 0, followUp: 0 },
-      lastSequence: 5,
-      extensionNotices: Array.from({ length: 25 }, (_, index) => ({
-        id: `n${index}`, level: 'info', message: `m${index}`, createdAt: index + 1,
-      })),
-    }));
-    expect(many?.payload.snapshot.extensionNotices).toHaveLength(20);
-
-    // An absent field (older daemon) stays absent rather than empty.
-    const absent = projectEventFrame(frame('session.snapshot', {
-      isStreaming: false,
-      lifecycle: 'idle',
-      queue: { steering: 0, followUp: 0 },
-      lastSequence: 5,
-    }));
-    expect('extensionNotices' in (absent?.payload.snapshot ?? {})).toBe(false);
-  });
 });
+
 
 describe('POST /api/pi/sessions/:sessionId/editor-draft', () => {
   let server;

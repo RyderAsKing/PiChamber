@@ -303,7 +303,13 @@ export const applyDirectoryListToCatalog = (
       // Recency is last-prompt. A later list must not overwrite a prompt stamp.
       updatedAt: existing ? existing.updatedAt : listedUpdatedAt,
       ...(typeof item.preview === 'string' ? { preview: item.preview } : {}),
-      ...(typeof session.messageCount === 'number' ? { messageCount: session.messageCount } : {}),
+      // An omitted count is unknown, never empty: a lighter listing that
+      // omits it must not erase a previously observed count, or a fresh
+      // extension-command session flaps between "Awaiting first prompt"
+      // and the untitled fallback across surfaces.
+      ...(typeof session.messageCount === 'number'
+        ? { messageCount: session.messageCount }
+        : existing?.messageCount !== undefined ? { messageCount: existing.messageCount } : {}),
       lifecycle,
       ...(retry ? { retry } : {}),
       ...(pendingInput !== undefined ? { pendingInput } : {}),
@@ -859,8 +865,9 @@ export const catalogLiveSessionIdsKey = (catalog: PiSessionCatalogState): string
  *   preserved via `applyDirectoryListToCatalog`'s normal merge, so a busy
  *   event during the list cannot freeze stale title/archive while a true
  *   local rename/archive newer than the list start survives. Listing-only
- *   fields (`preview`/`messageCount`/`parentId`/`createdAt`) always take the
- *   listing's authoritative values. Added rows that the stale listing already
+ *   fields (`preview`/`parentId`/`createdAt`) take the listing's
+ *   authoritative values when present; an omitted `messageCount` is unknown
+ *   and preserves the current value instead of clearing it. Added rows that the stale listing already
  *   contains are left to `applyDirectoryListToCatalog` (it preserves a
  *   stub's busy lifecycle while taking the listing's authoritative title),
  *   so a pre-list busy stub is never frozen with an empty title.

@@ -16,6 +16,7 @@ import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useSessionsNeedingInput } from '@/sync/sync-context';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import type { PiPendingInputSummary } from '@/lib/pi/protocol';
+import { TOPIC_CATALOG } from '@/sync/pi-session-store-types';
 import { decideInputAlert, PENDING_INPUT_TOAST_ID_PREFIX } from './inputAlertDecision';
 import type { InputAlertContext } from './inputAlertDecision';
 
@@ -78,16 +79,47 @@ const navigateToSession = (sessionId: string, directory: string | null): void =>
   void useSessionUIStore.getState().setCurrentSession(sessionId, directory);
 };
 
-const showInputToast = (sessionId: string, directory: string, pending: PiPendingInputSummary): void => {
+const showInputToast = (
+  sessionId: string,
+  directory: string,
+  pending: PiPendingInputSummary,
+  label: string,
+): void => {
   toast.warning(alertTitleForKind(pending.kind), {
     id: toastIdForSession(sessionId),
-    description: displayTitleForSession(sessionId),
+    description: label,
     duration: Infinity,
     action: {
       label: 'Open session',
       onClick: () => navigateToSession(sessionId, directory || null),
     },
   });
+};
+
+/** A raised toast plus the session label it currently shows. */
+interface RaisedToast {
+  directory: string;
+  pending: PiPendingInputSummary;
+  label: string;
+}
+
+/**
+ * Raised toasts whose session label changed since they were shown. A
+ * session first learned from its `session.input` event has no title or
+ * message count yet, so the toast opens with the generic fallback; the
+ * metadata backfill then resolves the real label (for example "Awaiting
+ * first prompt"), and the toast must follow so every surface agrees.
+ */
+export const selectRelabeledAlertToasts = (
+  raised: ReadonlyMap<string, { label: string }>,
+  labelFor: (sessionId: string) => string,
+): Array<[sessionId: string, label: string]> => {
+  const changed: Array<[string, string]> = [];
+  for (const [sessionId, entry] of raised) {
+    const label = labelFor(sessionId);
+    if (label !== entry.label) changed.push([sessionId, label]);
+  }
+  return changed;
 };
 
 /** One catalog row read for stale-alert reconciliation. */
@@ -128,10 +160,13 @@ export const NeedsInputAlerts: React.FC = () => {
   const raisedTagsRef = React.useRef(new Map<string, string>());
   // Every toast id this mount raised, so unmount/runtime-switch can clear them.
   const raisedToastsRef = React.useRef(new Set<string>());
+  // sessionId -> open toast content, so a late-resolving label updates it.
+  const toastContentRef = React.useRef(new Map<string, RaisedToast>());
 
   const dismissSessionAlert = React.useCallback((sessionId: string) => {
     const toastId = toastIdForSession(sessionId);
     raisedToastsRef.current.delete(toastId);
+    toastContentRef.current.delete(sessionId);
     toast.dismiss(toastId);
     const tag = raisedTagsRef.current.get(sessionId);
     if (tag !== undefined) {
@@ -148,6 +183,7 @@ export const NeedsInputAlerts: React.FC = () => {
       toast.dismiss(toastId);
     }
     raisedToastsRef.current.clear();
+    toastContentRef.current.clear();
     const close = getRegisteredRuntimeAPIs()?.notifications?.close;
     if (close) {
       for (const tag of raisedTagsRef.current.values()) {
@@ -166,8 +202,10 @@ export const NeedsInputAlerts: React.FC = () => {
     const pending = transition.pending;
     const decision = decideInputAlert(readAlertContext(transition.sessionId, pending, transition.serverNow));
     if (decision === 'none') return;
+    const label = displayTitleForSession(transition.sessionId);
     raisedToastsRef.current.add(toastIdForSession(transition.sessionId));
-    showInputToast(transition.sessionId, transition.directory, pending);
+    toastContentRef.current.set(transition.sessionId, { directory: transition.directory, pending, label });
+    showInputToast(transition.sessionId, transition.directory, pending, label);
     if (decision === 'toast-and-notify') {
       const tag = inputNeededNotificationTag(transition.sessionId, pending.since);
       raisedTagsRef.current.set(transition.sessionId, tag);
@@ -176,10 +214,23 @@ export const NeedsInputAlerts: React.FC = () => {
         directory: transition.directory,
         since: pending.since,
         kind: pending.kind,
-        title: displayTitleForSession(transition.sessionId),
+        title: label,
       });
     }
   }), [dismissSessionAlert]);
+
+  // Keep open toasts' session labels in step with the catalog. Re-showing
+  // with the same id updates the toast in place. (An OS notification that
+  // was already delivered keeps its original text.)
+  React.useEffect(() => getPiSessionStore().subscribe(() => {
+    if (toastContentRef.current.size === 0) return;
+    for (const [sessionId, label] of selectRelabeledAlertToasts(toastContentRef.current, displayTitleForSession)) {
+      const entry = toastContentRef.current.get(sessionId);
+      if (!entry) continue;
+      toastContentRef.current.set(sessionId, { ...entry, label });
+      showInputToast(sessionId, entry.directory, entry.pending, label);
+    }
+  }, TOPIC_CATALOG), []);
 
   // The user opened the session: the dock strip owns it now.
   React.useEffect(() => {

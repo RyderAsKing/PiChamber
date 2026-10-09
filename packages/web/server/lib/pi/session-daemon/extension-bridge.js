@@ -64,7 +64,6 @@ export const createExtensionBridge = ({
   renderExtensionMessage,
   requestSessionShutdown,
   pendingInput,
-  recentNotices,
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
@@ -403,25 +402,10 @@ export const createExtensionBridge = ({
         (response) => (typeof response?.value === 'string' ? response.value : undefined),
       ),
       notify: (message, level) => {
-        const nowMs = Date.now();
-        const notice = {
-          id: randomUUID(),
-          level: level === 'warning' || level === 'error' ? level : 'info',
-          // Redacted like other extension text: the recent list outlives the
-          // live event, so it must never retain a server-local attachment path.
-          message: redactAttachmentPaths(String(message ?? '')),
-          createdAt: nowMs,
-        };
-        // Bounded per-session recent list so devices that connect later
-        // can show past notices. Empty messages are not recorded. serverNow
-        // travels only on the live event (client clock-skew guard) and is
-        // never stored.
-        try {
-          recentNotices?.record(sessionId, notice);
-        } catch {
-          // Recording never breaks publication.
-        }
-        publishForSession('extension.notify', { ...notice, serverNow: nowMs }, sessionId);
+        publishForSession('extension.notify', {
+          message: String(message ?? ''),
+          ...(level === 'warning' || level === 'error' ? { level } : { level: 'info' }),
+        }, sessionId);
       },
       setStatus: (key, text) => {
         if (typeof key !== 'string' || key.length === 0) return;

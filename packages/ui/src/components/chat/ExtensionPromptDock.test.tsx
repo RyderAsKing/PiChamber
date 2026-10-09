@@ -195,6 +195,7 @@ describe('ExtensionPromptDock other-sessions strip', () => {
   });
 });
 
+
 describe('resolveSelectKeyAction', () => {
   test('navigation keys move the highlight and wrap', () => {
     expect(resolveSelectKeyAction('ArrowDown', 0, 3)).toEqual({ kind: 'highlight', index: 1 });

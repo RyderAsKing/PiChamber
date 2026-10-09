@@ -34,7 +34,6 @@ import {
   resolveParentId,
   uniqueSessionMessages,
 } from './reducerHelpers';
-import { replaceExtensionNoticesWithHistory } from './extensionReducers';
 
 const projectedPartsByReducerPart = new WeakMap<PiReducerMessagePart, PiProjectedMessagePart>();
 
@@ -272,7 +271,6 @@ export const hydrateSessionFromDetail = (
     extensionStatuses?: Array<{ key: string; text: string }>;
     extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
     extensionDialogs?: PiExtensionDialogPayload[];
-    extensionNotices?: Array<{ id: string; level: 'info' | 'warning' | 'error'; message: string; createdAt: number }>;
     extensionPanels?: PiExtensionPanelPayload[];
     extensionApps?: PiExtensionAppPayload[];
     extensionTitle?: string;
@@ -335,14 +333,6 @@ export const hydrateSessionFromDetail = (
     session.extensionDialogs = detail.extensionDialogs.filter(
       (dialog) => typeof dialog.requestId === 'string' && typeof dialog.method === 'string' && typeof dialog.title === 'string',
     );
-  }
-  // Authoritative notice history when the detail carries it; the marker
-  // lets `mergeHydratedSession` tell authoritative-empty (replace) from
-  // absent (keep current). A fresh hydrate has no previous live entries.
-  if (Array.isArray(detail.extensionNotices)) {
-    const history = replaceExtensionNoticesWithHistory([], detail.extensionNotices);
-    session.extensionNotices = history ?? [];
-    session.extensionNoticesAuthority = 'history';
   }
   if (Array.isArray(detail.extensionPanels)) {
     session.extensionPanels = new Map(detail.extensionPanels

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { selectStaleNeedingAlertSessions } from './NeedsInputAlerts';
+import { selectRelabeledAlertToasts, selectStaleNeedingAlertSessions } from './NeedsInputAlerts';
 
 const pending = { count: 1, kind: 'input' as const, since: 1_000 };
 
@@ -55,5 +55,20 @@ describe('selectStaleNeedingAlertSessions', () => {
     expect(selectStaleNeedingAlertSessions([], new Set(), () => {
       throw new Error('lookup must not run with no raised sessions');
     })).toEqual([]);
+  });
+});
+
+describe('selectRelabeledAlertToasts', () => {
+  test('reports a toast whose session label resolved after it was shown', () => {
+    // The toast opened before the metadata backfill knew the session was empty.
+    const raised = new Map([['s1', { label: 'Untitled session' }]]);
+    expect(selectRelabeledAlertToasts(raised, () => 'Awaiting first prompt'))
+      .toEqual([['s1', 'Awaiting first prompt']]);
+  });
+
+  test('leaves toasts whose label is unchanged', () => {
+    const raised = new Map([['s1', { label: 'Deploy pipeline' }], ['s2', { label: 'Awaiting first prompt' }]]);
+    const labels: Record<string, string> = { s1: 'Deploy pipeline', s2: 'Fix login' };
+    expect(selectRelabeledAlertToasts(raised, (id) => labels[id]!)).toEqual([['s2', 'Fix login']]);
   });
 });

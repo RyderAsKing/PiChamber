@@ -97,31 +97,6 @@ export interface PiExtensionEditorOp {
   sequence: number;
 }
 
-/**
- * A fire-and-forget extension notification held by the reducer, oldest
- * first. `origin` records how the entry arrived: `'live'` for a live
- * `extension.notify` event (the only entries that may toast), `'history'`
- * for entries projected from an authoritative snapshot/detail list.
- * `serverTimestamp` is true when `createdAt` came from the daemon, so toast
- * freshness guards can tolerate clock skew for client-stamped entries.
- * `toastAgeBase` is the skew-corrected client-clock receive time for a live
- * server-stamped notice (resolved from the event's `serverNow` sample): the
- * toast guard measures against it instead of `createdAt`, so a skewed client
- * clock neither swallows fresh notices nor replays stale ones. Absent when
- * the event carried no clock sample (older server) — the guard then keeps
- * its legacy `createdAt` behavior. `createdAt` itself is never adjusted:
- * seen markers compare server `createdAt` values.
- */
-export interface PiReducerExtensionNotice {
-  id: string;
-  message: string;
-  level: 'info' | 'warning' | 'error';
-  createdAt: number;
-  origin: 'live' | 'history';
-  serverTimestamp: boolean;
-  toastAgeBase?: number;
-}
-
 export interface PiReducerSessionState {
   sessionId: PiSessionId;
   directory: string;
@@ -166,15 +141,7 @@ export interface PiReducerSessionState {
   /** Blocking extension dialogs awaiting a user answer, in arrival order. */
   extensionDialogs: PiExtensionDialogPayload[];
   /** Bounded feed of fire-and-forget extension notifications. */
-  extensionNotices: PiReducerExtensionNotice[];
-  /**
-   * Set only on a freshly hydrated session whose detail carried an
-   * authoritative `extensionNotices` list. `mergeHydratedSession` reads it
-   * to distinguish authoritative-empty (replace) from absent (keep
-   * current); it is only ever read from the freshly fetched side, so a
-   * stale marker on a resident row is never consulted.
-   */
-  extensionNoticesAuthority?: 'history';
+  extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
   /** Live declarative GUI panels keyed by stable id (latest wins). */
