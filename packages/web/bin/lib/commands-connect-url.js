@@ -17,6 +17,7 @@ import { resolvePiChamberDataDir } from '../../server/lib/pichamber-data-dir.js'
 import { createRemoteClientAuthRuntime } from '../../server/lib/client-auth/remote-clients.js';
 import { createClientPairingRuntime } from '../../server/lib/client-auth/pairing.js';
 import { createRelayIdentityRuntime } from '../../server/lib/relay/identity.js';
+import { createRelayIdentityStore } from '../../server/lib/relay/identity-store.js';
 import { DEFAULT_RELAY_URL } from '../../server/lib/relay/service.js';
 import { bytesToBase64Url } from '../../server/lib/relay/e2ee.js';
 import {
@@ -124,23 +125,18 @@ function resolveRelayUrl(settings) {
   return DEFAULT_RELAY_URL;
 }
 
-// Minimal settings.json read/write for the relay identity runtime. It reads the
-// whole object and writes it back with the relay keys added, so other settings
-// are preserved. Enough for the CLI without wiring the full settings runtime.
-function createSettingsAccessors() {
+// Minimal settings.json read for non-identity relay config (privateRelay
+// relayUrl/enabled). Host identity keys live in the host-local
+// relay-identity.json (see server/lib/relay/identity-store.js) — never in
+// settings.json, which is portable between hosts and rewritten by the UI
+// settings store.
+async function readPairingRelaySettings() {
   const settingsPath = path.join(getPiChamberDataDir(), SETTINGS_FILE_NAME);
-  const readSettingsFromDiskMigrated = async () => {
-    try {
-      return JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
-    } catch {
-      return {};
-    }
-  };
-  const writeSettingsToDisk = async (settings) => {
-    await fs.promises.mkdir(path.dirname(settingsPath), { recursive: true });
-    await fs.promises.writeFile(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
-  };
-  return { readSettingsFromDiskMigrated, writeSettingsToDisk };
+  try {
+    return JSON.parse(await fs.promises.readFile(settingsPath, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 // Resolves the instance's relay identity (serverId + encryption public key,
@@ -150,10 +146,12 @@ function createSettingsAccessors() {
 // E2EE tunnel like any other candidate. `enabled` reports whether the host relay
 // is actually on (a relay candidate only connects when the host is relaying).
 async function buildRelayPairingCandidate() {
-  const accessors = createSettingsAccessors();
-  const settings = await accessors.readSettingsFromDiskMigrated();
+  const settings = await readPairingRelaySettings();
   const relayUrl = resolveRelayUrl(settings);
-  const identityRuntime = createRelayIdentityRuntime({ crypto, ...accessors });
+  const identityRuntime = createRelayIdentityRuntime({
+    crypto,
+    ...createRelayIdentityStore({ dataDir: getPiChamberDataDir() }),
+  });
   const identity = await identityRuntime.getRelayIdentity();
   return {
     enabled: settings?.privateRelay?.enabled === true,

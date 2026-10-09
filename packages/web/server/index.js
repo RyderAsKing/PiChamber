@@ -175,6 +175,11 @@ export async function startWebUiServer(options = {}) {
   // One stable server identity: the relay signing-key serverId, shared by
   // /health, /api/version, connection candidates, and the Tailscale probe.
   const serverIdResolver = createServerIdResolver({ dataDir: PICHAMBER_DATA_DIR, crypto });
+  // Resolve the identity before anything can rewrite settings.json: the UI
+  // settings store drops keys it does not own, so a legacy install's key must
+  // be copied into relay-identity.json first. Failure is not fatal here; the
+  // routes retry on demand.
+  await serverIdResolver.getServerId().catch(() => undefined);
   // Tailscale remote access (tailnet-only serve / public funnel). Off by
   // default; enabled only via its settings API or CLI flags. The service
   // owns its persisted config, lifecycle and conflict rules — see

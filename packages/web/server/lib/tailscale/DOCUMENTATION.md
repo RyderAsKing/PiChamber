@@ -202,12 +202,13 @@ States: `off` | `unavailable` (not installed/running/logged in) | `blocked`
 `needs-approval` (+ `approvalUrl`) | `active` (+ `url`) | `conflict` |
 `error`. `url` is set ONLY after a credential-free probe of `<url>/health`
 reports this server's `serverId` — the stable relay signing-key identity
-(`deriveServerId` of the `settings.relaySigningKey` public JWK, the same id
-reported on `/health`, `/api/version`, and relay pairing candidates, so
-clients verify a learned address BEFORE sending a bearer token). There is no
-separate `server-identity.json`: the probe compares against the injected
-`getServerId` (a null/throwing id fails the probe, so the URL stays
-`starting` and is never advertised). First-time
+(`deriveServerId` of the `relaySigningKey` public JWK in the host-local
+`<dataDir>/relay-identity.json`, the same id reported on `/health`,
+`/api/version`, and relay pairing candidates, so clients verify a learned
+address BEFORE sending a bearer token). `settings.json` is portable (copied
+between hosts) and must never hold host identity. The probe compares against
+the injected `getServerId` (a null/throwing id fails the probe, so the URL
+stays `starting` and is never advertised). First-time
 Funnel DNS can take minutes: `starting` keeps re-probing with backoff for up
 to ~10 minutes.
 

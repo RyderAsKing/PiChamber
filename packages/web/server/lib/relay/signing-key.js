@@ -1,9 +1,12 @@
 // Per-server relay signing identity (ECDSA P-256), extracted from
 // lib/notifications/apns-runtime.js so both the push relay and the private
 // relay share the SAME keypair and thus the SAME serverId
-// (base64url(SHA-256(canonical public JWK))). Storage format is unchanged:
-// `settings.relaySigningKey = { privateJwk, publicJwk }` — existing installs'
-// serverId must stay stable because push token binding depends on it.
+// (base64url(SHA-256(canonical public JWK))). Storage is via the injected
+// accessors backed by the host-local `<dataDir>/relay-identity.json` (see
+// `identity-store.js`) — never settings.json, which is portable between hosts
+// and rewritten by the UI settings store. Existing installs migrate: when the
+// identity file does not exist, reads fall back to the legacy settings.json
+// keys so serverId stays stable (push token binding depends on it).
 
 /**
  * @param {{
@@ -27,7 +30,7 @@ export const getOrCreateRelaySigningKeypair = async ({ crypto, readSettingsFromD
   // Regeneration gate: the lenient settings reader maps read failures to `{}`,
   // indistinguishable from "first run". Minting a new keypair changes serverId,
   // which orphans every paired device and push binding AND the write below would
-  // clobber the settings file with the empty spread. Re-verify with the strict
+  // clobber the identity file with the empty spread. Re-verify with the strict
   // reader (throws on corrupt/unreadable) before generating; if it finds the
   // key the lenient read lost, use it and generate nothing.
   let verifiedSettings = settings;

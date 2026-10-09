@@ -1,9 +1,11 @@
 // Host relay identity: the EXISTING ECDSA P-256 signing keypair (shared with
-// the push relay via signing-key.js — same storage, same serverId) plus a NEW
+// the push relay via signing-key.js — same store, same serverId) plus a NEW
 // long-lived ECDH P-256 encryption keypair for the E2EE channel (WebCrypto
 // keys are single-purpose, so signing and encryption keys must differ).
-// The encryption keypair is persisted as `settings.relayEncryptionKey =
-// { privateJwk, publicJwk }`, mirroring the relaySigningKey precedent.
+// Both keypairs persist as `relaySigningKey` / `relayEncryptionKey` in the
+// host-local `<dataDir>/relay-identity.json` (see `identity-store.js`) — never
+// settings.json, which is portable between hosts and rewritten by the UI
+// settings store.
 
 import {
   canonicalPublicJwkString,
