@@ -3,8 +3,7 @@
  *
  * `profile:idle` historically reported CPU, style/layout, DOM, and heap work
  * while nobody interacts with the app, but not the repeating fetches that keep
- * the tab busy (`/api/git/worktrees`, `/api/git/check`, `/api/push/visibility`,
- * ...). This module owns the CDP `Network.requestWillBeSent` plumbing behind
+ * the tab busy (`/api/git/worktrees`, `/api/git/check`, ...). This module owns the CDP `Network.requestWillBeSent` plumbing behind
  * that gap so `profile-idle.mjs` stays a thin orchestrator.
  *
  * Privacy rule: query string VALUES are never stored or printed because they

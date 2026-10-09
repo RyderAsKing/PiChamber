@@ -53,11 +53,6 @@ const trackPageNotification = (tag: string | undefined, notification: Notificati
   }
 };
 
-const isClientFocused = (): boolean => {
-  if (typeof document === 'undefined') return true;
-  return document.visibilityState === 'visible' && document.hasFocus();
-};
-
 const getNotificationClaimKey = (payload?: NotificationPayload): string => {
   const tag = typeof payload?.tag === 'string' ? payload.tag.trim() : '';
   if (tag) return tag;
@@ -161,19 +156,6 @@ const notifyWithServiceWorker = async (payload?: NotificationPayload): Promise<b
   }
 };
 
-const hasActivePushSubscription = async (): Promise<boolean> => {
-  const registration = await getNotificationRegistration();
-  if (!registration || !('pushManager' in registration) || !registration.pushManager) {
-    return false;
-  }
-
-  try {
-    return Boolean(await registration.pushManager.getSubscription());
-  } catch {
-    return false;
-  }
-};
-
 const notifyWithWebAPI = async (payload?: NotificationPayload): Promise<boolean> => {
   if (payload?.requireHidden && typeof document !== 'undefined' && document.hasFocus()) {
     return true;
@@ -195,13 +177,6 @@ const notifyWithWebAPI = async (payload?: NotificationPayload): Promise<boolean>
   if (Notification.permission !== 'granted') {
     console.warn('Notification permission not granted');
     return false;
-  }
-
-  // Background push is the delivery channel when the web/PWA client is not
-  // focused. Keep notification preferences enabled, but avoid also showing the
-  // same foreground notification from a hidden page.
-  if (!isClientFocused() && await hasActivePushSubscription()) {
-    return true;
   }
 
   if (!claimNotificationPayload(payload)) {

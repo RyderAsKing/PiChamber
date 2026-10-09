@@ -583,13 +583,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     title: "Notification events",
     keywords: ['completion', 'finished', 'errors', 'failed', 'input needed', 'approval', 'waiting', 'extension'],
   },
-  {
-    id: 'notifications.push',
-    page: 'notifications',
-    title: "Background push notifications",
-    keywords: ['background', 'push'],
-    isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
-  },
 ] as const;
 
 interface BuildSettingsSearchResultsOptions {

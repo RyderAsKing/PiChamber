@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { runtimeFetchMock } = vi.hoisted(() => ({
-  runtimeFetchMock: vi.fn(async () => new Response('{"ok":true,"publicKey":"key"}', { status: 200 })),
-}));
-vi.mock('@pichamber/ui/lib/runtime-fetch', () => ({ runtimeFetch: runtimeFetchMock }));
-
 type MockNotificationConstructor = {
   new (title: string, options?: NotificationOptions): Notification;
   permission: NotificationPermission;
@@ -54,20 +49,6 @@ afterEach(() => {
 });
 
 describe('web notifications API', () => {
-  it('provides the push API used by browser and native-mobile registration', async () => {
-    const { createWebPushAPI } = await import('./push');
-    const push = createWebPushAPI();
-
-    await expect(push.getVapidPublicKey()).resolves.toEqual({ ok: true, publicKey: 'key' });
-    await expect(push.registerApnsToken({ token: 'token', platform: 'ios' })).resolves.toEqual({ ok: true, publicKey: 'key' });
-
-    expect(runtimeFetchMock).toHaveBeenNthCalledWith(1, '/api/push/vapid-public-key', undefined);
-    expect(runtimeFetchMock).toHaveBeenNthCalledWith(2, '/api/push/apns-token', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ token: 'token', platform: 'ios' }),
-    }));
-  });
-
   it('deduplicates repeated foreground notifications by tag', async () => {
     installWindowMock();
     const created: Array<{ title: string; options?: NotificationOptions }> = [];
@@ -83,21 +64,17 @@ describe('web notifications API', () => {
     expect(created[0]?.title).toBe('Ready');
   });
 
-  it('defers hidden-page notification delivery to active push subscription without claiming foreground delivery', async () => {
+  it('shows hidden-page notifications through the normal local path instead of deferring to push', async () => {
     installWindowMock();
     const created: Array<{ title: string; options?: NotificationOptions }> = [];
     installNotificationMock((title, options) => created.push({ title, options }));
     const showNotification = vi.fn(async () => undefined);
-    let visibilityState: DocumentVisibilityState = 'hidden';
-    let focused = false;
 
     Object.defineProperty(globalThis, 'document', {
       configurable: true,
       value: {
-        get visibilityState() {
-          return visibilityState;
-        },
-        hasFocus: () => focused,
+        visibilityState: 'hidden',
+        hasFocus: () => false,
       },
     });
     Object.defineProperty(globalThis, 'navigator', {
@@ -107,9 +84,6 @@ describe('web notifications API', () => {
           getRegistration: vi.fn(async () => ({
             active: {},
             showNotification,
-            pushManager: {
-              getSubscription: vi.fn(async () => ({ endpoint: 'https://push.example/subscription' })),
-            },
           })),
         },
       },
@@ -117,14 +91,6 @@ describe('web notifications API', () => {
 
     const { createWebNotificationsAPI } = await import('./notifications');
     const api = createWebNotificationsAPI();
-
-    await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
-
-    expect(showNotification).not.toHaveBeenCalled();
-    expect(created).toHaveLength(0);
-
-    visibilityState = 'visible';
-    focused = true;
 
     await expect(api.notify({ title: 'Ready', body: 'Done', tag: 'ready-session' })).resolves.toBe(true);
 

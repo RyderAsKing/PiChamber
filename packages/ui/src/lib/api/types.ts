@@ -705,42 +705,6 @@ export interface EditorAPI {
   ): Promise<void>;
 }
 
-export interface PushSubscribePayload {
-  endpoint: string;
-  keys: {
-    p256dh: string;
-    auth: string;
-  };
-  origin?: string;
-  /** Runtime surface ('ios' | 'android' | 'desktop' | 'web') for presence-aware routing. */
-  platform?: string;
-}
-
-export interface PushUnsubscribePayload {
-  endpoint: string;
-}
-
-export interface ApnsTokenPayload {
-  token: string;
-  /** 'ios' (APNs) or 'android' (FCM) — lets the relay route the token to the right service. */
-  platform?: string;
-  /**
-   * APNs environment the token belongs to: 'sandbox' for Xcode/dev-signed installs,
-   * 'production' for TestFlight/App Store. Omitted when unknown (server defaults to production).
-   */
-  environment?: 'sandbox' | 'production';
-}
-
-export interface PushAPI {
-  getVapidPublicKey(): Promise<{ publicKey: string } | null>;
-  subscribe(payload: PushSubscribePayload): Promise<{ ok: true } | null>;
-  unsubscribe(payload: PushUnsubscribePayload): Promise<{ ok: true } | null>;
-  setVisibility(payload: { visible: boolean; platform?: string }): Promise<{ ok: true } | null>;
-  /** Register a native iOS APNs device token (Capacitor mobile app only). */
-  registerApnsToken(payload: ApnsTokenPayload): Promise<{ ok: true } | null>;
-  unregisterApnsToken(payload: ApnsTokenPayload): Promise<{ ok: true } | null>;
-}
-
 /**
  * GitHub integration contract (native gh-CLI plan, §6.1).
  *
@@ -1360,7 +1324,6 @@ export interface RuntimeAPIs {
   permissions: PermissionsAPI;
   notifications: NotificationsAPI;
   github?: GitHubAPI;
-  push?: PushAPI;
   diagnostics?: DiagnosticsAPI;
   clientAuth?: ClientAuthAPI;
   tools: ToolsAPI;

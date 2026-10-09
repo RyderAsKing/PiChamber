@@ -34,12 +34,6 @@ const config: CapacitorConfig = {
       overlaysWebView: true,
       style: 'DEFAULT',
     },
-    PushNotifications: {
-      // Never display an APNs alert while the app is foreground. The server always sends
-      // (no racy visibility gate); iOS suppresses the foreground banner, so there is no
-      // notification when the app is active. Background pushes are shown by iOS as usual.
-      presentationOptions: [],
-    },
   },
 };
 

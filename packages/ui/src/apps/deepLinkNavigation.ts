@@ -7,7 +7,7 @@ import { buildDeepLink, parseDeepLink, type DeepLinkIntent, type SessionsFilter,
 
 /**
  * Navigation layer for {@link DeepLinkIntent}s — the only place that knows how to *apply* a
- * deep link. Producers (notification taps, widget `widgetURL`, Live Activities) feed intents
+ * deep link. Producers (widgets, Live Activities) feed intents
  * in via {@link useDeepLinkSource}; the surfaces that can satisfy them register imperative
  * handlers via {@link useDeepLinkHandlers}. Session/new-session navigation goes straight to
  * the session store (always available), so those resolve even before the shell has mounted.
@@ -129,10 +129,10 @@ export const useDeepLinkHandlers = (next: DeepLinkHandlers): void => {
 };
 
 /**
- * Single native entry point for deep links. Subscribes to both the custom URL scheme
- * (`App.appUrlOpen` — widgets, Live Activities, external links) and notification taps
- * (`pushNotificationActionPerformed`), normalising each into a {@link DeepLinkIntent}.
- * Both listeners are registered UNCONDITIONALLY so a cold-launch tap/open isn't lost while
+ * Single native entry point for deep links. Subscribes to the custom URL scheme
+ * (`App.appUrlOpen` — widgets, Live Activities, external links),
+ * normalising each into a {@link DeepLinkIntent}.
+ * The listener is registered UNCONDITIONALLY so a cold-launch open isn't lost while
  * the app is still connecting; intents stash until `ready` (connected + initialized).
  */
 export const useDeepLinkSource = (options: { ready: boolean }): void => {
@@ -161,31 +161,6 @@ export const useDeepLinkSource = (options: { ready: boolean }): void => {
       })
       .catch(() => undefined);
 
-    void import('@capacitor/push-notifications')
-      .then(async ({ PushNotifications }) => {
-        if (disposed) return;
-        const handle = await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
-          const data = action?.notification?.data as Record<string, unknown> | undefined;
-          // Prefer an explicit deep link in the payload (richest); fall back to a bare
-          // sessionId for backwards compatibility with existing push senders.
-          const url = typeof data?.url === 'string' ? data.url : typeof data?.deeplink === 'string' ? data.deeplink : undefined;
-          if (url) {
-            applyDeepLinkUrl(url);
-            return;
-          }
-          const sessionId = typeof data?.sessionId === 'string' ? data.sessionId : undefined;
-          if (sessionId) {
-            applyDeepLinkIntent({ type: 'session', sessionId });
-          }
-        });
-        if (disposed) {
-          void handle.remove();
-          return;
-        }
-        cleanup.push(() => void handle.remove());
-      })
-      .catch(() => undefined);
-
     return () => {
       disposed = true;
       cleanup.forEach((remove) => remove());
@@ -193,6 +168,6 @@ export const useDeepLinkSource = (options: { ready: boolean }): void => {
   }, []);
 };
 
-// Re-export so producers (notifications, future widgets) have one import for the whole vocabulary.
+// Re-export so producers (future widgets) have one import for the whole vocabulary.
 export { buildDeepLink, parseDeepLink };
 export type { DeepLinkIntent, SessionsFilter, ViewTarget };

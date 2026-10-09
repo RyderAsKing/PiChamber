@@ -11,7 +11,6 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/sonner';
 import { PerfHudHost } from '@/components/perf/PerfHudHost';
 import { WorktreeCreationToasts } from '@/components/worktree/WorktreeCreationToasts';
-import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
@@ -46,7 +45,6 @@ import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from
 import { useAppFontEffects } from './useAppFontEffects';
 import { useFontsReady } from './useFontsReady';
 import { useDeepLinkSource } from './deepLinkNavigation';
-import { useNativePushRegistration } from './useNativePushRegistration';
 
 type MobileAppProps = {
   apis: RuntimeAPIs;
@@ -691,15 +689,11 @@ export function MobileApp({ apis }: MobileAppProps) {
   }, [isConnected, isNativeMobileApp, connectionEpoch, recoveryPhase, runtimeEndpointEpoch, coldLaunchClassificationPending]);
 
   useAppFontEffects();
-  usePushVisibilityBeacon({ enabled: true });
   useRouter();
-  // Remote APNs/FCM push is the only notification channel on the native app. It works in
-  // the background, while the native shell suppresses foreground presentation. Local notifications are
-  // intentionally disabled — they can't tell foreground from background in a WKWebView
-  // (document.hasFocus() is unreliable) and leaked while the app was open; the in-app SSE
-  // notification dispatch is no-op'd for native in renderMobileApp.
-  useNativePushRegistration({ enabled: isNativeMobileApp && isConnected });
-  // Single native deep-link entry point: notification taps AND the pichamber:// URL
+  // The native Capacitor app keeps in-app alerts only (no local-notification plugin
+  // exists): the in-app SSE notification dispatch is no-op'd for native in
+  // renderMobileApp.
+  // Single native deep-link entry point: the pichamber:// URL
   // scheme (widgets, Live Activities, external links). Registered unconditionally so a
   // cold-launch tap/open isn't lost on the connect/splash screen; intents stash until
   // the app is ready (connected + initialized) and shell handlers are registered.

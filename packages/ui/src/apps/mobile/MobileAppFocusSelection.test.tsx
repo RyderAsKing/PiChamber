@@ -86,7 +86,6 @@ mock.module('@/components/ui/tooltip', () => ({
 mock.module('@/components/ui/sonner', () => ({ Toaster: () => null }));
 mock.module('@/components/perf/PerfHudHost', () => ({ PerfHudHost: () => null }));
 mock.module('@/components/worktree/WorktreeCreationToasts', () => ({ WorktreeCreationToasts: () => null }));
-mock.module('@/hooks/usePushVisibilityBeacon', () => ({ usePushVisibilityBeacon: () => undefined }));
 mock.module('@/hooks/useRouter', () => ({ useRouter: () => undefined }));
 mock.module('@/hooks/useUpdatePolling', () => ({ DeferredUpdatePolling: () => null }));
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
@@ -167,7 +166,6 @@ mock.module('@/apps/runtimeEndpointReset', () => ({
 mock.module('@/apps/useAppFontEffects', () => ({ useAppFontEffects: () => undefined }));
 mock.module('@/apps/useFontsReady', () => ({ useFontsReady: () => true }));
 mock.module('@/apps/deepLinkNavigation', () => ({ useDeepLinkSource: () => undefined }));
-mock.module('@/apps/useNativePushRegistration', () => ({ useNativePushRegistration: () => undefined }));
 
 const { MobileApp } = await import('../MobileApp');
 const { getPiSessionStore } = await import('@/apps/pi-session-store');

@@ -25,9 +25,7 @@ export const isIPadApp = (): boolean => {
 export type ClientPlatform = 'ios' | 'android' | 'desktop' | 'web';
 
 /**
- * The runtime surface this client is. Used by the push presence model: only 'ios'/'android'
- * count as mobile (push recipients); everything else is an interactive surface that suppresses
- * mobile push while visible.
+ * The runtime surface this client is.
  */
 export const getClientPlatform = (): ClientPlatform => {
   if (typeof window !== 'undefined') {

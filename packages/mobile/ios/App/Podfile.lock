@@ -12,8 +12,6 @@ PODS:
   - CapacitorMlkitBarcodeScanning (8.1.0):
     - Capacitor
     - GoogleMLKit/BarcodeScanning (~> 8.0.0)
-  - CapacitorPushNotifications (8.1.1):
-    - Capacitor
   - CapacitorStatusBar (8.0.2):
     - Capacitor
   - GoogleDataTransport (10.1.0):
@@ -71,7 +69,6 @@ DEPENDENCIES:
   - "CapacitorCordova (from `../../../../node_modules/.bun/@capacitor+ios@8.4.1+767ac80cbab8ae50/node_modules/@capacitor/ios`)"
   - "CapacitorKeyboard (from `../../../../node_modules/.bun/@capacitor+keyboard@8.0.5+767ac80cbab8ae50/node_modules/@capacitor/keyboard`)"
   - "CapacitorMlkitBarcodeScanning (from `../../../../node_modules/.bun/@capacitor-mlkit+barcode-scanning@8.1.0+767ac80cbab8ae50/node_modules/@capacitor-mlkit/barcode-scanning`)"
-  - "CapacitorPushNotifications (from `../../../../node_modules/.bun/@capacitor+push-notifications@8.1.1+767ac80cbab8ae50/node_modules/@capacitor/push-notifications`)"
   - "CapacitorStatusBar (from `../../../../node_modules/.bun/@capacitor+status-bar@8.0.2+767ac80cbab8ae50/node_modules/@capacitor/status-bar`)"
 
 SPEC REPOS:
@@ -102,8 +99,6 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/.bun/@capacitor+keyboard@8.0.5+767ac80cbab8ae50/node_modules/@capacitor/keyboard"
   CapacitorMlkitBarcodeScanning:
     :path: "../../../../node_modules/.bun/@capacitor-mlkit+barcode-scanning@8.1.0+767ac80cbab8ae50/node_modules/@capacitor-mlkit/barcode-scanning"
-  CapacitorPushNotifications:
-    :path: "../../../../node_modules/.bun/@capacitor+push-notifications@8.1.1+767ac80cbab8ae50/node_modules/@capacitor/push-notifications"
   CapacitorStatusBar:
     :path: "../../../../node_modules/.bun/@capacitor+status-bar@8.0.2+767ac80cbab8ae50/node_modules/@capacitor/status-bar"
 
@@ -114,7 +109,6 @@ SPEC CHECKSUMS:
   CapacitorCordova: eebe6bcf807b1b06f3f48237650f96bbcd0eef09
   CapacitorKeyboard: b6b0744890cdb1d9a96e2cafcc9253fdcc55de3b
   CapacitorMlkitBarcodeScanning: 31c6af9f39873ff69e16ed5b39ebe2e1915f16fe
-  CapacitorPushNotifications: ec08d589c226a2c0db7c032ec1bf5b044ec85f8e
   CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleMLKit: ddd51d7dff36ff28defa69afedd9cdce684fd857

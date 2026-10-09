@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createPiNotificationTracker, createPiNotificationWatcher } from './pi-notification-watcher.js';
 
@@ -69,7 +69,7 @@ describe('Pi notification tracker', () => {
     const watcher = createPiNotificationWatcher({
       supervisor,
       uiSettingsStore: { read: async () => ({}) },
-      delivery: { send: async () => undefined },
+      notify: async () => undefined,
       retryMs: 1,
     });
 
@@ -80,5 +80,91 @@ describe('Pi notification tracker', () => {
     expect(subscriptions).toHaveLength(2);
     expect(closes).toEqual([1]);
     await watcher.stop();
+  });
+
+  it('delivers terminal completions to the desktop callback with the desktop payload', async () => {
+    const seen = [];
+    let onEvent;
+    const supervisor = {
+      subscribe: async (options) => {
+        onEvent = options.onEvent;
+        return () => {};
+      },
+    };
+    const watcher = createPiNotificationWatcher({
+      supervisor,
+      uiSettingsStore: { read: async () => ({ nativeNotificationsEnabled: true }) },
+      notify: async (payload) => { seen.push(payload); },
+      retryMs: 1,
+    });
+
+    await watcher.start();
+    onEvent(event('session.lifecycle', 1, { state: 'busy' }));
+    onEvent(event('session.lifecycle', 2, { state: 'idle' }));
+    await watcher.stop();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({
+      title: 'Work completed',
+      kind: 'completion',
+      sessionId: 'session-1',
+      requireHidden: true,
+    });
+  });
+
+  it('gates desktop delivery on the notification settings', async () => {
+    for (const settings of [
+      { nativeNotificationsEnabled: false },
+      { nativeNotificationsEnabled: true, notifyOnCompletion: false },
+    ]) {
+      const seen = [];
+      let onEvent;
+      const supervisor = {
+        subscribe: async (options) => {
+          onEvent = options.onEvent;
+          return () => {};
+        },
+      };
+      const watcher = createPiNotificationWatcher({
+        supervisor,
+        uiSettingsStore: { read: async () => settings },
+        notify: async (payload) => { seen.push(payload); },
+        retryMs: 1,
+      });
+
+      await watcher.start();
+      onEvent(event('session.lifecycle', 1, { state: 'busy' }));
+      onEvent(event('session.lifecycle', 2, { state: 'idle' }));
+      await watcher.stop();
+
+      expect(seen).toEqual([]);
+    }
+  });
+
+  it('catches desktop callback failures instead of breaking the watcher', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    let onEvent;
+    const supervisor = {
+      subscribe: async (options) => {
+        onEvent = options.onEvent;
+        return () => {};
+      },
+    };
+    const watcher = createPiNotificationWatcher({
+      supervisor,
+      uiSettingsStore: { read: async () => ({ nativeNotificationsEnabled: true }) },
+      notify: async () => { throw new Error('native bridge exploded'); },
+      retryMs: 1,
+    });
+
+    try {
+      await watcher.start();
+      onEvent(event('session.lifecycle', 1, { state: 'busy' }));
+      onEvent(event('session.lifecycle', 2, { state: 'idle' }));
+      await watcher.stop();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('[Notifications] delivery failed'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
