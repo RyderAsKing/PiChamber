@@ -200,6 +200,47 @@ export function dispatchSessionNotification(input: {
   })
 }
 
+/**
+ * Stable OS-notification tag for a needs-input cycle. The `since` stamp
+ * keeps the 5 s transport dedupe from swallowing a new request cycle, and
+ * sharing one builder lets the raiser and the closer agree on the tag.
+ */
+export function inputNeededNotificationTag(sessionId: string, since: number): string {
+  return `pichamber:input:${sessionId}:${since}`;
+}
+
+/**
+ * Local OS notification for a session waiting on the user (extension
+ * dialogs or their engine-reported equivalents). Only the fixed title
+ * plus the session title are sent — never dialog titles, fields, or
+ * notice text. The `since` stamp in the tag keeps the 5 s transport
+ * dedupe from swallowing a new request cycle.
+ */
+export function dispatchInputNeededNotification(input: {
+  sessionId: string
+  directory?: string
+  since: number
+  kind: 'input' | 'approval'
+  title?: string
+}) {
+  const settings = useUIStore.getState()
+  if (!settings.nativeNotificationsEnabled) return
+  if (settings.notifyOnInputNeeded === false) return
+
+  const notifications = getRegisteredRuntimeAPIs()?.notifications
+  if (!notifications) return
+  const body = input.title?.trim() || 'Open PiChamber to answer.'
+  void notifications.notify({
+    title: input.kind === 'approval' ? 'Approval needed' : 'Input needed',
+    body,
+    tag: inputNeededNotificationTag(input.sessionId, input.since),
+    kind: 'input',
+    sessionId: input.sessionId,
+    directory: input.directory,
+    requireHidden: settings.notificationMode !== 'always',
+  })
+}
+
 // ---------------------------------------------------------------------------
 // React hooks for fine-grained subscriptions
 // ---------------------------------------------------------------------------

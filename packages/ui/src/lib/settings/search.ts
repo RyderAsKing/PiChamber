@@ -581,7 +581,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'notifications.events',
     page: 'notifications',
     title: "Notification events",
-    keywords: ['completion', 'finished', 'errors', 'failed'],
+    keywords: ['completion', 'finished', 'errors', 'failed', 'input needed', 'approval', 'waiting', 'extension'],
   },
   {
     id: 'notifications.push',

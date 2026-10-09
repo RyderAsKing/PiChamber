@@ -18,7 +18,8 @@ import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
-import type { PiSessionEvent, PiSessionListItem } from '@/lib/pi/protocol';
+import type { PiSessionEvent, PiSessionListItem, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
+import { isValidPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
 import { deriveSessionTitle } from '@/lib/chat/deriveSessionTitle';
@@ -40,13 +41,17 @@ import {
   applyDirectoryListWithReconciliation,
   applyHydratedChange,
   applyLifecycleChange,
+  applyPendingInputListToCatalog,
+  applyPendingInputObservation,
   applyTitleChange,
   initialCatalog,
   liveSessionRecordToUiSession,
   markDirectoryFailed,
   markDirectoryLoading,
   mapDirectoriesWithRefreshSlot,
+  pendingInputEqual,
   removeRecord,
+  resetCatalogPendingInput,
   upsertRecord,
   upsertStubRecord,
   touchRecordUpdatedAt,
@@ -81,6 +86,7 @@ import {
   isSessionRuntimeConflictError,
   delayBeforeRetry,
   initialSessionStoreState,
+  applyDetailMessageCount,
   createRecordFromPiSession,
   mergeHydratedSession,
 } from '@/sync/pi-session-store-helpers';
@@ -114,10 +120,53 @@ const affectsCatalogLifecycle = (event: PiSessionEvent): boolean => (
   lifecycleFromEvent(event) !== undefined || LIFECYCLE_EVENT_NAMES.has(event.name)
 );
 
+/** Extract a session detail's pending-input observation for catalog adoption.
+ *  `undefined` means unknown (older server) — keep the current value. */
+const detailPendingInputOf = (
+  detail: { inputState?: { pending: PiPendingInputSummary | null }; lastSequence: number },
+): { pending: PiPendingInputSummary | null; sequence: number } | undefined => (
+  detail.inputState ? { pending: detail.inputState.pending, sequence: detail.lastSequence } : undefined
+);
+
 export const getPiSessionStore = (): PiSessionStore => {
   sharedStore ??= new PiSessionStore();
   return sharedStore;
 };
+
+/**
+ * Pending-input transition observed on the LIVE `session.input` event path.
+ *
+ * - `'opened'`: the session's catalog summary went from null/unknown to a
+ *   non-null summary (a new blocking request is waiting on the user).
+ * - `'cleared'`: the summary went from non-null to null, or the session row
+ *   was deleted while non-null.
+ *
+ * Changes in count or `since` while staying non-null emit nothing. List
+ * fetches, snapshots, details, and epoch resets never emit — only live
+ * `session.input` events (and row deletion) do.
+ */
+export interface PendingInputTransition {
+  type: 'opened' | 'cleared';
+  sessionId: PiSessionId;
+  directory: string;
+  /** The new summary for `'opened'`, `null` for `'cleared'`. */
+  pending: PiPendingInputSummary | null;
+  /** Server wall clock (epoch ms) at publish, from the live `session.input`
+   *  event. Lets alert age math correct for client/server clock skew.
+   *  Absent on older servers and on every `'cleared'` transition. */
+  serverNow?: number;
+}
+
+export type PendingInputTransitionListener = (transition: PendingInputTransition) => void;
+
+/**
+ * Subscribe to live pending-input transitions on the shared store.
+ * Returns an unsubscribe function. Mirrors the store-level subscription
+ * style used by `PiSessionStore.subscribe`.
+ */
+export const subscribePendingInputTransitions = (
+  listener: PendingInputTransitionListener,
+): (() => void) => getPiSessionStore().subscribePendingInputTransitions(listener);
 
 const viteHot = (import.meta as ImportMeta & { hot?: { dispose: (cb: () => void) => void } }).hot;
 if (viteHot) {
@@ -254,6 +303,30 @@ export class PiSessionStore {
    *  Orders a listing's sampled `live` lifecycle against events: an
    *  observation older than an accepted event must not overwrite it. */
   private lifecycleSequenceById = new Map<PiSessionId, number>();
+  /** Newest accepted pending-input sequence per session in the current
+   *  stream epoch. Orders every `pendingInput` observation (list-row
+   *  `inputState`, `session.input` events, snapshot `inputState`, detail
+   *  `inputState`, and the global pending-input list) against each other:
+   *  an observation older than an accepted one must not overwrite it.
+   *  Cleared on epoch change and runtime reset, like `lifecycleSequenceById`. */
+  private pendingInputSequenceById = new Map<PiSessionId, number>();
+  /** True once the runtime answered the pending-input list with 404 (older
+   *  server without the endpoint). Fetching stops for this runtime until a
+   *  runtime switch clears it; unknown stays unknown, never empty. */
+  private pendingInputUnsupported = false;
+  /** In-flight global pending-input list fetch, coalesced so bootstrap,
+   *  recovery, and reconnect triggers share one request. */
+  private pendingInputFetchInFlight: Promise<void> | null = null;
+  /** A trigger arrived while a fetch was in flight. That response may
+   *  predate the trigger (for example an epoch change), so one more fetch
+   *  runs when it settles instead of being dropped. */
+  private pendingInputRefetchRequested = false;
+  /** Sessions needing input whose authoritative metadata was already
+   *  demand-fetched once on this runtime lifetime. Bounds the backfill
+   *  below to one targeted detail read per session: lists, hydrates, and
+   *  recovery re-validation converge afterwards. Cleared on runtime reset
+   *  and verified epoch change. */
+  private pendingMetadataBackfillAttempted = new Set<PiSessionId>();
   /** Epochs retired by a verified transition. Snapshots, events, and stamped
    *  responses from a retired lifetime are rejected — epochs are opaque, so
    *  retirement (not ordering) is what prevents a stale frame from
@@ -375,6 +448,75 @@ export class PiSessionStore {
     return { options, commit };
   }
   /**
+   * Ordering gate for a listing's sampled `inputState`. Mirrors
+   * `acceptLiveObservation`: only a list stamped with the established epoch
+   * can be ordered, an observation is accepted when its sequence is not
+   * older than the newest accepted pending-input observation for that
+   * session, and without an attached stream (or an attaching first-attach
+   * stream) the observation stays unknown. `commit` advances the
+   * per-session markers for the accepted rows.
+   */
+  private createListPendingInputGate(
+    response: { streamEpoch?: unknown },
+    { streamAttaching = false }: { streamAttaching?: boolean } = {},
+  ): {
+    options: DirectoryListLiveOptions | undefined;
+    commit: (items: readonly PiSessionListItem[]) => void;
+  } {
+    const epoch = typeof response.streamEpoch === 'string' && response.streamEpoch.length > 0 ? response.streamEpoch : null;
+    if (!epoch || epoch !== this.streamEpoch) return { options: undefined, commit: () => undefined };
+    if (!this.stream && !streamAttaching) return { options: undefined, commit: () => undefined };
+    const accepted = new Map<PiSessionId, number>();
+    const options: DirectoryListLiveOptions = {
+      acceptPendingInputObservation: (sessionId, sequence) => {
+        if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+        if (sequence < (this.pendingInputSequenceById.get(sessionId) ?? -1)) return false;
+        const known = accepted.get(sessionId);
+        if (known === undefined || sequence > known) accepted.set(sessionId, sequence);
+        return true;
+      },
+    };
+    const commit = (items: readonly PiSessionListItem[]) => {
+      if (epoch !== this.streamEpoch) return;
+      if (accepted.size === 0) return;
+      const sequences = new Map<PiSessionId, number>();
+      for (const item of items) {
+        if (item.inputState && accepted.has(item.session.id)) sequences.set(item.session.id, item.inputState.sequence);
+      }
+      for (const [sessionId, sequence] of accepted) {
+        const observed = sequences.get(sessionId) ?? sequence;
+        if ((this.pendingInputSequenceById.get(sessionId) ?? -1) < observed) {
+          this.pendingInputSequenceById.set(sessionId, observed);
+        }
+      }
+    };
+    return { options, commit };
+  }
+  /**
+   * Merge the `live` and pending-input ordering gates for one stamped
+   * list response. Both ride the same `DirectoryListLiveOptions` object
+   * into `applyDirectoryListWithReconciliation`; both commit their
+   * per-session markers after the list applies.
+   */
+  private createDirectoryListGates(
+    response: { streamEpoch?: unknown },
+    { streamAttaching = false }: { streamAttaching?: boolean } = {},
+  ): {
+    options: DirectoryListLiveOptions | undefined;
+    commit: (items: readonly PiSessionListItem[]) => void;
+  } {
+    const liveGate = this.createListLiveGate(response, { streamAttaching });
+    const inputGate = this.createListPendingInputGate(response, { streamAttaching });
+    const options = liveGate.options || inputGate.options
+      ? { ...liveGate.options, ...inputGate.options }
+      : undefined;
+    const commit = (items: readonly PiSessionListItem[]): void => {
+      liveGate.commit(items);
+      inputGate.commit(items);
+    };
+    return { options, commit };
+  }
+  /**
    * Adopt a health-verified stream epoch. On a change from an established
    * epoch, reset every resident transcript and cursor (the new daemon's
    * sequence space is unrelated) and queue recovery of former residents and
@@ -415,6 +557,17 @@ export class PiSessionStore {
   private resetForEpochChange(): Set<PiSessionId> {
     const previouslyHydrated = new Set(this.hydratedSessionIds);
     this.lifecycleSequenceById.clear();
+    // The new daemon's sequence space is unrelated: drop every accepted
+    // pending-input marker and return all rows to unknown. Recovery
+    // re-establishes the state through directory lists and the global
+    // pending-input fetch.
+    this.pendingInputSequenceById.clear();
+    // A new epoch means the daemon restarted and may have been upgraded:
+    // retry the global list even after a 404 latched it as unsupported.
+    this.pendingInputUnsupported = false;
+    this.pendingInputFetchInFlight = null;
+    this.pendingInputRefetchRequested = false;
+    this.pendingMetadataBackfillAttempted.clear();
     this.hydratedSessionIds.clear();
     this.restoringTranscriptById.clear();
     this.hydrateInflightById.clear();
@@ -425,6 +578,8 @@ export class PiSessionStore {
     // Stale history completions reject through navigation generation too.
     for (const [id, gen] of this.navigationGenerationById) this.navigationGenerationById.set(id, gen + 1);
     this.settleCarriedOverActivity();
+    const unknownPending = resetCatalogPendingInput(this.state.catalog);
+    if (unknownPending !== this.state.catalog) this.state = { ...this.state, catalog: unknownPending };
     return previouslyHydrated;
   }
   /**
@@ -452,6 +607,11 @@ export class PiSessionStore {
    * work. Additive and idempotent; starts a bounded recovery pass.
    */
   private queueSyncRecovery(scope: { directories?: 'all-known' | Iterable<string>; residents?: Iterable<PiSessionId> }): void {
+    // Every recovery signal (resync snapshot, verified epoch change)
+    // re-reads the global pending-input list: it is the cross-directory
+    // source the directory re-lists cannot provide. Non-blocking; failure
+    // keeps prior state and retries on the next recovery/reconnect trigger.
+    this.refreshPendingInputList();
     let requested = false;
     let added = false;
     if (scope.directories === 'all-known') {
@@ -583,7 +743,7 @@ export class PiSessionStore {
             if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
               adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
             }
-            this.commitHydratedSession(this.sessionFromDetail(detail));
+            this.commitSessionDetail(detail);
           }
           this.recoveryResidents.delete(sessionId);
         } catch (error) {
@@ -711,6 +871,9 @@ export class PiSessionStore {
     removeSessionOrdering(sessionId);
     clearRevertNavigation(sessionId);
     this.navigationGenerationById.delete(sessionId);
+    // The catalog row is gone; its pending-input marker goes with it so a
+    // same-id row re-created later starts from unknown, not a stale floor.
+    this.pendingInputSequenceById.delete(sessionId);
     this.historyInflightById.delete(sessionId);
     this.hydrateInflightById.delete(sessionId);
     this.restoringTranscriptById.delete(sessionId);
@@ -718,6 +881,11 @@ export class PiSessionStore {
       || this.hydratedSessionIds.has(sessionId)
       || this.state.catalog.byId.has(sessionId)
       || this.state.sessions.some((item) => item.session.id === sessionId);
+    // A row deleted while its pending-input summary is non-null clears the
+    // alert state: emit a live `cleared` transition for it (deletions never
+    // come from list/snapshot/detail/epoch paths, so the live-only rule holds).
+    const deletedPending = this.state.catalog.byId.get(sessionId)?.pendingInput ?? null;
+    const deletedDirectory = this.state.catalog.byId.get(sessionId)?.directory ?? directory ?? '';
     const sessions = this.state.sessions.filter((item) => item.session.id !== sessionId);
     const selectedSessionId = this.state.selectedSessionId === sessionId
       ? (sessions.find((item) => !item.session.archived)?.session.id ?? null)
@@ -760,6 +928,14 @@ export class PiSessionStore {
     const topics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
+    if (deletedPending != null) {
+      this.emitPendingInputTransitions([{
+        type: 'cleared',
+        sessionId,
+        directory: deletedDirectory,
+        pending: null,
+      }]);
+    }
     return true;
   }
   /**
@@ -851,6 +1027,35 @@ export class PiSessionStore {
       if (bucket) bucket.delete(listener);
     };
   };
+  /** Live pending-input transition listeners (see `PendingInputTransition`).
+   *  Cleared on runtime reset/switch alongside every other runtime-scoped map. */
+  private pendingInputTransitionListeners = new Set<PendingInputTransitionListener>();
+  /**
+   * Subscribe to live pending-input `opened`/`cleared` transitions.
+   * Fires only for the LIVE `session.input` event path (and row deletion),
+   * never for list fetches, snapshots, details, or epoch resets.
+   * Returns an unsubscribe function.
+   */
+  subscribePendingInputTransitions = (
+    listener: PendingInputTransitionListener,
+  ): (() => void) => {
+    this.pendingInputTransitionListeners.add(listener);
+    return () => {
+      this.pendingInputTransitionListeners.delete(listener);
+    };
+  };
+  private emitPendingInputTransitions(transitions: readonly PendingInputTransition[]): void {
+    if (transitions.length === 0 || this.pendingInputTransitionListeners.size === 0) return;
+    for (const listener of [...this.pendingInputTransitionListeners]) {
+      for (const transition of transitions) {
+        try {
+          listener(transition);
+        } catch (error) {
+          console.error('[pi-session-store] pending-input listener failed', error);
+        }
+      }
+    }
+  };
   private resetLiveRuntimeState(): void {
     this.providerRefreshRevisionByDirectory.clear();
     this.deletedSessionIds.clear();
@@ -873,6 +1078,11 @@ export class PiSessionStore {
     this.streamEpoch = null;
     this.retiredStreamEpochs.clear();
     this.lifecycleSequenceById.clear();
+    this.pendingInputSequenceById.clear();
+    this.pendingInputUnsupported = false;
+    this.pendingInputFetchInFlight = null;
+    this.pendingInputRefetchRequested = false;
+    this.pendingMetadataBackfillAttempted.clear();
     this.clearSyncRecovery();
     this.evictionScheduled = false;
     this.restoringTranscriptById.clear();
@@ -1036,6 +1246,134 @@ export class PiSessionStore {
   // the single mutation authority).
 
   /**
+   * Per-session ordering check for a pending-input observation. Accepts
+   * only sequences not older than the newest accepted observation for the
+   * session and records the new floor. Mirrors the `live` ordering gate;
+   * every source (list rows, `session.input` events, snapshots, details,
+   * the global list) funnels through here.
+   */
+  private acceptPendingInputSequence(sessionId: PiSessionId, sequence: number): boolean {
+    if (!Number.isSafeInteger(sequence) || sequence < 0) return false;
+    if (sequence < (this.pendingInputSequenceById.get(sessionId) ?? -1)) return false;
+    this.pendingInputSequenceById.set(sessionId, sequence);
+    return true;
+  }
+
+  /**
+   * Commit a `GET /api/pi/sessions/pending-input` response: entries set
+   * pending, absent non-null rows clear to `null` when the response
+   * sequence covers them, and unknown sessions gain stub rows. The whole
+   * response is rejected when its epoch differs from the established one.
+   * Unlike per-directory list rows this commit does not require an attached
+   * stream: the endpoint is itself the authoritative global source and is
+   * re-fetched on every recovery, so staleness self-heals.
+   */
+  private applyPendingInputList(response: PiPendingInputListResponse): void {
+    // A response from a previous daemon process predates the current stream
+    // epoch; drop it like a stale list so prior rows survive with a retry path.
+    if (!this.isResponseEpochCurrent(response)) return;
+    const nextCatalog = applyPendingInputListToCatalog(this.state.catalog, response, {
+      acceptPendingInputObservation: (sessionId, sequence) => this.acceptPendingInputSequence(sessionId, sequence),
+      streamEpoch: this.streamEpoch,
+    });
+    if (nextCatalog !== this.state.catalog) {
+      this.state = { ...this.state, catalog: nextCatalog };
+      this.emit([TOPIC_CATALOG]);
+    }
+    this.requestNeedingSessionMetadataBackfill(response.sessions.map((entry) => entry.sessionId));
+  }
+
+  /**
+   * Demand-fetch authoritative metadata for untitled sessions needing input
+   * whose catalog row still lacks a `messageCount`. Such rows were learned from a
+   * pending-input stub (live event or global list) on a directory this
+   * device never listed — e.g. a session another device created via an
+   * extension command — so toasts and the other-sessions strip would fall
+   * back to "Untitled session" while listed surfaces show "Awaiting first
+   * prompt" for the same session. One targeted `ensureHydrated` per session
+   * per runtime lifetime backfills the detail's total; the hydrate commit
+   * adopts it and later lists, hydrates, and recovery converge afterwards.
+   * Never selects or focuses: the fetch is metadata-only backfill.
+   */
+  private requestNeedingSessionMetadataBackfill(sessionIds: readonly PiSessionId[]): void {
+    for (const sessionId of sessionIds) {
+      if (!sessionId || this.pendingMetadataBackfillAttempted.has(sessionId)) continue;
+      const record = this.state.catalog.byId.get(sessionId);
+      if (!record || record.pendingInput == null) continue;
+      // A titled row displays its title regardless of the count; only an
+      // untitled row needs the count to pick its fallback label.
+      if (record.title.trim()) continue;
+      if (typeof record.messageCount === 'number') continue;
+      if (this.hydratedSessionIds.has(sessionId)) continue;
+      if (this.hydrateInflightById.has(sessionId)) continue;
+      if (this.isDeleted(sessionId)) continue;
+      this.pendingMetadataBackfillAttempted.add(sessionId);
+      void this.ensureHydrated(sessionId).catch(() => undefined);
+    }
+  }
+
+  /**
+   * Fetch the global pending-input list without blocking the caller.
+   * Failure keeps prior/unknown state and is retried on the next
+   * recovery/reconnect trigger; it never marks anything as
+   * authoritative-empty. A 404 (older server) disables the feature for this
+   * runtime until a runtime switch clears the flag. No polling: callers are
+   * bootstrap, recovery, and reconnect only.
+   */
+  private refreshPendingInputList(): void {
+    if (this.pendingInputUnsupported) return;
+    if (this.pendingInputFetchInFlight) {
+      this.pendingInputRefetchRequested = true;
+      return;
+    }
+    // Only once the stream epoch is established: earlier responses cannot
+    // be ordered against the daemon's sequence space.
+    if (this.streamEpoch === null) return;
+    const expected = this.runtimeGeneration;
+    const runtimeKey = getRuntimeKey();
+    const task = piClient.listPendingInput({ runtimeKey }).then(
+      (response) => {
+        if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+        this.applyPendingInputList(response);
+      },
+      (error) => {
+        if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
+        if (error instanceof PiRequestError && error.status === 404) {
+          this.pendingInputUnsupported = true;
+        }
+        // Any other failure keeps prior/unknown state; the next
+        // recovery/reconnect trigger retries.
+      },
+    ).finally(() => {
+      if (this.pendingInputFetchInFlight !== task) return;
+      this.pendingInputFetchInFlight = null;
+      if (this.pendingInputRefetchRequested) {
+        this.pendingInputRefetchRequested = false;
+        this.refreshPendingInputList();
+      }
+    });
+    this.pendingInputFetchInFlight = task;
+  }
+
+  /**
+   * Adopt a session detail's `inputState` into a catalog under construction,
+   * ordered by the detail's `lastSequence`. Absent means unknown (older
+   * server) and keeps the current value. Callers already rejected
+   * stale-epoch details via `isResponseEpochCurrent`.
+   */
+  private adoptDetailPendingInput(
+    catalog: PiSessionCatalogState,
+    sessionId: PiSessionId,
+    directory: string,
+    inputState: { pending: PiPendingInputSummary | null } | undefined,
+    sequence: number,
+  ): PiSessionCatalogState {
+    if (!inputState) return catalog;
+    if (!this.acceptPendingInputSequence(sessionId, sequence)) return catalog;
+    return applyPendingInputObservation(catalog, sessionId, directory, inputState.pending, sequence);
+  }
+
+  /**
    * Refresh the catalog for a single directory. A successful list replaces
    * that directory's membership; other directories are untouched. Failure
    * keeps the prior catalog rows for the directory and marks it `'failed'`,
@@ -1082,15 +1420,15 @@ export class PiSessionStore {
         throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session list predates the current stream epoch');
       }
       const listedSessions = this.filterDeletedListItems(result.sessions);
-      const liveGate = this.createListLiveGate(result);
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, listedSessions, Date.now(), this.deletedSessionIds, liveGate.options);
+      const listGates = this.createDirectoryListGates(result);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, normalized, listedSessions, Date.now(), this.deletedSessionIds, listGates.options);
       if (nextCatalog !== this.state.catalog) {
         this.state = { ...this.state, catalog: nextCatalog };
-        liveGate.commit(listedSessions);
+        listGates.commit(listedSessions);
         this.emit([TOPIC_CATALOG]);
         this.raiseOrderingBaselinesForDirectory(normalized);
       } else {
-        liveGate.commit(listedSessions);
+        listGates.commit(listedSessions);
       }
       return { ok: true };
     } catch (error) {
@@ -1286,6 +1624,9 @@ export class PiSessionStore {
       };
       this.attachClusterStream(expected, getRuntimeKey());
       this.emit([TOPIC_CHROME, TOPIC_CATALOG]);
+      // The epoch is established; pull the global pending-input list once
+      // for bootstrap. Non-blocking and never authoritative-empty.
+      this.refreshPendingInputList();
     } catch (error) {
       if (expected === this.runtimeGeneration) this.reportError(error);
     }
@@ -1481,8 +1822,8 @@ export class PiSessionStore {
           ?? null
         ));
       this.pendingPreferredSessionId = null;
-      const liveGate = this.createListLiveGate(result.payload);
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.deletedSessionIds, liveGate.options);
+      const listGates = this.createDirectoryListGates(result.payload);
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, resolvedDirectory, listPayload.sessions, Date.now(), this.deletedSessionIds, listGates.options);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.state = {
         ...this.state,
@@ -1493,7 +1834,7 @@ export class PiSessionStore {
         error: null,
         catalog: nextCatalog,
       };
-      liveGate.commit(listPayload.sessions);
+      listGates.commit(listPayload.sessions);
       const listTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) listTopics.push(TOPIC_CATALOG);
       this.emit(listTopics);
@@ -1837,8 +2178,8 @@ export class PiSessionStore {
       // must focus, not dispose. `commitHydratedSession` keeps
       // `connection` untouched; we flip to `'ready'` here so the cluster
       // is considered attached before SSE is plugged.
-      const liveGate = this.createListLiveGate(result, { streamAttaching: true });
-      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds, liveGate.options);
+      const listGates = this.createDirectoryListGates(result, { streamAttaching: true });
+      const nextCatalog = applyDirectoryListWithReconciliation(baseline, this.state.catalog, selected.directory, listedSessions, Date.now(), this.deletedSessionIds, listGates.options);
       const catalogChanged = nextCatalog !== this.state.catalog;
       this.recordClusterConnectionChange('ready');
       this.state = {
@@ -1848,11 +2189,14 @@ export class PiSessionStore {
         connection: 'ready',
         catalog: nextCatalog,
       };
-      liveGate.commit(listedSessions);
+      listGates.commit(listedSessions);
       const openTopics: string[] = [TOPIC_CHROME];
       if (catalogChanged) openTopics.push(TOPIC_CATALOG);
       this.emit(openTopics);
       if (catalogChanged) this.raiseOrderingBaselinesForDirectory(selected.directory);
+      // The epoch is established; pull the global pending-input list once
+      // for bootstrap. Non-blocking and never authoritative-empty.
+      this.refreshPendingInputList();
       if (selectedSessionId) {
         // The prefetch (or the lookup detail above) already carries this
         // id's transcript when it won selection: reuse it instead of a
@@ -2129,7 +2473,7 @@ export class PiSessionStore {
       if (!this.isResponseEpochCurrent(detail)) return detail;
       // Authoritative truncated commit — do not merge the old tail back in.
       const hydrated = this.sessionFromDetail(detail);
-      this.commitNavigationSession(hydrated);
+      this.commitNavigationSession(hydrated, detailPendingInputOf(detail), detail.session);
       const navigation = (detail as unknown as { navigation?: { targetEntryId: string; previousLeafId: string | null; newLeafId: string | null; editorText?: string } }).navigation;
       if (navigation && typeof navigation.targetEntryId === 'string' && detail.hasMoreBefore !== true) {
         const newIds = new Set(detail.messages.map((entry) => entry.message.id));
@@ -2373,7 +2717,7 @@ export class PiSessionStore {
           };
         }
       }
-      this.commitHydratedSession(this.sessionFromDetail(detail));
+      this.commitSessionDetail(detail);
       return settled;
     } catch {
       // The event stream remains primary. A failed fallback must preserve
@@ -2578,7 +2922,11 @@ export class PiSessionStore {
    * `mergeHydratedSession` deliberately preserves the tail for stale-hydrate
    * safety, which would make revert appear not to delete messages.
    */
-  private commitNavigationSession(hydratedSession: PiReducerSessionState) {
+  private commitNavigationSession(
+    hydratedSession: PiReducerSessionState,
+    detailInput?: { pending: PiPendingInputSummary | null; sequence: number },
+    detailSession?: { messageCount?: unknown },
+  ) {
     this.cadence.flush();
     const existing = this.state.reducer.bySession.get(hydratedSession.sessionId);
     // Keep model/thinking from existing if the detail didn't include them,
@@ -2617,6 +2965,20 @@ export class PiSessionStore {
     }
     nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
     nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, session.retry);
+    if (detailInput) {
+      nextCatalog = this.adoptDetailPendingInput(
+        nextCatalog,
+        session.sessionId,
+        session.directory,
+        { pending: detailInput.pending },
+        detailInput.sequence,
+      );
+    }
+    // Revert truncates the transcript: the detail's total is authoritative
+    // for the shortened branch.
+    if (detailSession) {
+      nextCatalog = applyDetailMessageCount(nextCatalog, session.sessionId, session.directory, detailSession.messageCount);
+    }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -2633,7 +2995,24 @@ export class PiSessionStore {
     this.scheduleIdleEviction();
   }
 
-  private commitHydratedSession(hydratedSession: PiReducerSessionState, buffered: readonly PiSessionEvent[] = []) {
+  /**
+   * Hydrate-commit for a full session detail, including its `inputState`
+   * observation. Prefer this over `commitHydratedSession` + `sessionFromDetail`
+   * at sites that hold the raw detail response.
+   */
+  private commitSessionDetail(
+    detail: Awaited<ReturnType<typeof piClient.getSession>>,
+    buffered: readonly PiSessionEvent[] = [],
+  ): void {
+    this.commitHydratedSession(this.sessionFromDetail(detail), buffered, detailPendingInputOf(detail), detail.session);
+  }
+
+  private commitHydratedSession(
+    hydratedSession: PiReducerSessionState,
+    buffered: readonly PiSessionEvent[] = [],
+    detailInput?: { pending: PiPendingInputSummary | null; sequence: number },
+    detailSession?: { messageCount?: unknown },
+  ) {
     // A committed deletion is authoritative: a late hydrate must not resurrect the row.
     if (this.isDeleted(hydratedSession.sessionId)) return;
     this.cadence.flush();
@@ -2674,6 +3053,15 @@ export class PiSessionStore {
     // merged reducer now holds. A buffered-event batch is folded into the
     // catalog via the same `applyCatalogFromEvents` path the SSE uses.
     let nextCatalog = this.applyCatalogFromEvents(buffered, reducer);
+    if (detailInput) {
+      nextCatalog = this.adoptDetailPendingInput(
+        nextCatalog,
+        session.sessionId,
+        session.directory,
+        { pending: detailInput.pending },
+        detailInput.sequence,
+      );
+    }
     const reducerSession = reducer.bySession.get(session.sessionId);
     const reducerLifecycle = reducerSession?.lifecycle;
     const catalogLifecycle = reducerLifecycle ? catalogLifecycleFromReducer(reducerLifecycle) : undefined;
@@ -2683,6 +3071,12 @@ export class PiSessionStore {
     nextCatalog = applyHydratedChange(nextCatalog, session.sessionId, true);
     if (catalogLifecycle !== undefined) {
       nextCatalog = applyLifecycleChange(nextCatalog, session.sessionId, catalogLifecycle, reducerSession?.retry);
+    }
+    // The detail's total transcript length is authoritative. Adopting it
+    // backfills rows first learned from pending-input stubs or lighter
+    // listings, so every surface converges on the same display title.
+    if (detailSession) {
+      nextCatalog = applyDetailMessageCount(nextCatalog, session.sessionId, session.directory, detailSession.messageCount);
     }
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
@@ -2746,8 +3140,11 @@ export class PiSessionStore {
     // A deletion committed while this hydrate was queued is authoritative;
     // fetching would only serve a response the commit below must reject.
     if (this.isDeleted(sessionId)) return;
-    const sessionDir = this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
-    const directory = sessionDir || this.directory();
+    // Ownership comes from the session's own record (catalog row, then the
+    // focused list) so a catalog-known session from another directory can
+    // hydrate without a folder focus — the metadata backfill path relies on
+    // this when no directory is focused yet.
+    const directory = this.resolveSessionDirectory(sessionId) || this.directory();
     const runtimeKey = getRuntimeKey();
     const resident = this.state.reducer.bySession.get(sessionId);
     const residentIsHydrated = Boolean(
@@ -2788,7 +3185,7 @@ export class PiSessionStore {
         if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
           adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
         }
-        this.commitHydratedSession(this.sessionFromDetail(detail));
+        this.commitSessionDetail(detail);
         return;
       }
       const buffered: PiSessionEvent[] = [];
@@ -2847,6 +3244,17 @@ export class PiSessionStore {
       let hydratedSession = known
         ? this.sessionFromDetail(known)
         : bootstrap.reducerState.bySession.get(sessionId);
+      // A detail-sourced hydrate carries its `inputState` observation,
+      // ordered by the detail's `lastSequence`. A bootstrap reducer snapshot
+      // has no detail behind it and contributes no observation.
+      let hydratedInput = known
+        ? detailPendingInputOf(known)
+        : options?.initialDetail
+          ? detailPendingInputOf(options.initialDetail)
+          : undefined;
+      // The detail's session record carries the authoritative total
+      // transcript length for the catalog backfill.
+      let detailSessionForCatalog = known?.session ?? options?.initialDetail?.session;
       // Adopt server authoritative timing when the known detail carries it.
       if (known && (known.lifecycle === 'busy' || known.lifecycle === 'retry') && typeof (known as { runStartedAt?: number }).runStartedAt === 'number') {
         adoptServerRunTiming(known.session.id, (known as { runStartedAt: number }).runStartedAt, (known as { serverNow?: number }).serverNow);
@@ -2871,7 +3279,9 @@ export class PiSessionStore {
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
           }
+          hydratedInput = detailPendingInputOf(detail);
           hydratedSession = this.sessionFromDetail(detail);
+          detailSessionForCatalog = detail.session;
         } catch (error) {
           // Attach the cluster stream even when the requested chat is
           // gone so a stale deep link cannot block the rest of the runtime.
@@ -2912,7 +3322,7 @@ export class PiSessionStore {
         return;
       }
       this.stream = bootstrap.stream;
-      this.commitHydratedSession(hydratedSession, buffered);
+      this.commitHydratedSession(hydratedSession, buffered, hydratedInput, detailSessionForCatalog);
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
@@ -2940,7 +3350,7 @@ export class PiSessionStore {
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
           }
-          this.commitHydratedSession(this.sessionFromDetail(detail));
+          this.commitSessionDetail(detail);
         } catch (retryError) {
           if (expected !== this.runtimeGeneration) return;
           this.failSessionLoad(sessionId, asError(retryError));
@@ -3121,6 +3531,12 @@ export class PiSessionStore {
         for (const id of mergedSessionIds) reconnectTopics.push(`session:${id}`);
         if (catalogChanged || epochChanged) reconnectTopics.push(TOPIC_CATALOG);
         this.emit(reconnectTopics);
+        // After every reconnect, re-read the global pending-input list:
+        // replay may have missed the `session.input` frames from the gap.
+        // Non-blocking; failure keeps prior state for the next trigger.
+        // A replay miss or epoch change already queued a bounded recovery
+        // above, which re-reads it as well (coalesced into one request).
+        this.refreshPendingInputList();
         // Catch-up policy is replay-driven, not unconditional. A contiguous
         // same-epoch replay from this client's own cursor covers every event
         // it missed, so residents and catalogs need no reload. A replay miss
@@ -3551,7 +3967,95 @@ export class PiSessionStore {
     // stale-epoch event, must not resurrect a catalog row here.
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
+    // Live-only pending-input transitions: walk the accepted `session.input`
+    // events per session in order, starting from the pre-batch catalog value
+    // and normalizing each payload the same way the catalog does (malformed
+    // summaries are unknown and change nothing). `opened` fires on
+    // null/unknown -> non-null, `cleared` on non-null -> null; staying
+    // non-null (count/`since` changes, duplicate opens) emits nothing. When
+    // the walk's final state disagrees with the committed row (gating
+    // rejected some events), fall back to the endpoint comparison for that
+    // session so no spurious transitions emit. Snapshots, list rows,
+    // details, and epoch resets take no part — only the live event path
+    // emits (row deletion emits `cleared` through `commitDeletion`).
+    const pendingInputTransitions: PendingInputTransition[] = [];
     if (catalogChanged) {
+      const prevCatalog = this.state.catalog;
+      const inputEventsBySession = new Map<PiSessionId, PiSessionEvent[]>();
+      for (const event of acceptedEvents) {
+        if (event.name !== 'session.input') continue;
+        const list = inputEventsBySession.get(event.sessionId);
+        if (list) list.push(event);
+        else inputEventsBySession.set(event.sessionId, [event]);
+      }
+      for (const [sessionId, sessionEvents] of inputEventsBySession) {
+        const committed = nextCatalog.byId.get(sessionId);
+        // A removed row is owned by the deletion path (`commitDeletion`
+        // already emitted `cleared` when it was pending).
+        if (!committed) continue;
+        const prev = prevCatalog.byId.get(sessionId)?.pendingInput;
+        const next = committed.pendingInput;
+        let current = prev;
+        const walked: PendingInputTransition[] = [];
+        for (const event of sessionEvents) {
+          if (event.name !== 'session.input') continue;
+          const raw = (event.payload as { pending?: unknown }).pending;
+          const normalized = raw === null
+            ? null
+            : isValidPendingInputSummary(raw)
+              ? (raw as PiPendingInputSummary)
+              : undefined;
+          if (normalized === undefined) continue;
+          const rawServerNow = (event.payload as { serverNow?: unknown }).serverNow;
+          const eventServerNow = typeof rawServerNow === 'number'
+            && Number.isFinite(rawServerNow)
+            && rawServerNow > 0
+            ? rawServerNow
+            : undefined;
+          const wasOpen = current != null;
+          const isOpen = normalized != null;
+          if (!wasOpen && isOpen && normalized) {
+            walked.push({
+              type: 'opened',
+              sessionId,
+              directory: committed.directory ?? event.directory,
+              pending: normalized,
+              ...(eventServerNow !== undefined ? { serverNow: eventServerNow } : {}),
+            });
+          } else if (wasOpen && !isOpen) {
+            walked.push({
+              type: 'cleared',
+              sessionId,
+              directory: committed.directory ?? event.directory,
+              pending: null,
+            });
+          }
+          current = normalized;
+        }
+        if (!pendingInputEqual(current, next)) {
+          // Gating dropped an event (or the catalog normalized
+          // differently): fall back to the endpoint comparison.
+          const wasOpen = prev != null;
+          const isOpen = next != null;
+          if (!wasOpen && isOpen && next) {
+            pendingInputTransitions.push({
+              type: 'opened',
+              sessionId,
+              directory: committed.directory,
+              pending: next,
+            });
+          } else if (wasOpen && !isOpen) {
+            pendingInputTransitions.push({
+              type: 'cleared',
+              sessionId,
+              directory: committed.directory,
+              pending: null,
+            });
+          }
+        } else {
+          for (const transition of walked) pendingInputTransitions.push(transition);
+        }
+      }
       this.state = { ...this.state, catalog: nextCatalog };
     }
     const topics: string[] = [];
@@ -3562,6 +4066,14 @@ export class PiSessionStore {
     }
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
+    this.emitPendingInputTransitions(pendingInputTransitions);
+    if (acceptedEvents.some((event) => event.name === 'session.input')) {
+      this.requestNeedingSessionMetadataBackfill(
+        acceptedEvents
+          .filter((event) => event.name === 'session.input')
+          .map((event) => event.sessionId),
+      );
+    }
     if (touched) this.scheduleIdleEviction();
     for (const sessionId of restoreIds) this.restoreTranscript(sessionId);
     if (epochChangedResidents) {
@@ -3602,7 +4114,7 @@ export class PiSessionStore {
    * `session.updated` writes the title without changing last-prompt recency
    * (rename / explicit create). A user-message start from another device
    * both stamps recency and fills an empty stub title from the prompt text
-   * so the sidebar does not stay on "Untitled Session" until a later list.
+   * so the sidebar does not stay on "Untitled session" until a later list.
    */
   private applyCatalogFromEvents(
     events: readonly PiSessionEvent[],
@@ -3635,6 +4147,35 @@ export class PiSessionStore {
           catalogLifecycleFromReducer(reducerLifecycle),
           reducerSession?.retry,
         );
+      }
+      if (event.name === 'session.input') {
+        // Pending-input changes carry no transcript state; the catalog row
+        // is their only home. Unknown ids gain a stub row (idle lifecycle)
+        // so the session shows up before its directory is listed.
+        if (this.acceptPendingInputSequence(event.sessionId, event.sequence)) {
+          catalog = applyPendingInputObservation(
+            catalog,
+            event.sessionId,
+            event.directory,
+            event.payload.pending,
+            event.sequence,
+          );
+        }
+      }
+      if (event.name === 'session.snapshot') {
+        // Snapshots carry the session's current `inputState`, ordered by the
+        // snapshot frame's sequence like every other event observation.
+        // Absent means unknown (older daemon) and keeps the current value.
+        const snapshotInput = event.payload.snapshot.inputState;
+        if (snapshotInput && this.acceptPendingInputSequence(event.sessionId, event.sequence)) {
+          catalog = applyPendingInputObservation(
+            catalog,
+            event.sessionId,
+            event.directory,
+            snapshotInput.pending,
+            event.sequence,
+          );
+        }
       }
       if (event.name === 'session.updated') {
         const title = typeof event.payload.title === 'string' ? event.payload.title.trim() : '';
@@ -3688,6 +4229,13 @@ export class PiSessionStore {
     if (this.state.selectedSessionId) protectedIds.add(this.state.selectedSessionId);
     for (const [sessionId, session] of bySession) {
       if (session.lifecycle === 'busy' || session.lifecycle === 'retry') protectedIds.add(sessionId);
+      // A session with an open blocking dialog keeps its transcript so the
+      // dialog the badge points at is not dropped; the same holds for a
+      // catalog row the daemon reports as needing input (`null` is
+      // authoritatively empty and unknown needs nothing — only non-null
+      // protects).
+      if (session.extensionDialogs.length > 0) protectedIds.add(sessionId);
+      if (this.state.catalog.byId.get(sessionId)?.pendingInput != null) protectedIds.add(sessionId);
     }
     for (const sessionId of this.pendingPromptById) protectedIds.add(sessionId);
 

@@ -63,6 +63,7 @@ export const createExtensionBridge = ({
   protocolError,
   renderExtensionMessage,
   requestSessionShutdown,
+  pendingInput,
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
@@ -332,6 +333,11 @@ export const createExtensionBridge = ({
           signal?.removeEventListener('abort', onAbort);
           pendingExtensionDialogs.delete(requestId);
           publishForSession('extension.dialog.dismiss', { requestId, reason }, sessionId);
+          try {
+            pendingInput?.close(sessionId, requestId);
+          } catch {
+            // Pending-input bookkeeping never blocks dialog settlement.
+          }
           resolve(parseResponse(response));
         };
         const onAbort = () => settle({}, 'aborted');
@@ -348,6 +354,11 @@ export const createExtensionBridge = ({
         };
         pendingExtensionDialogs.set(requestId, { sessionId, settle, timer, payload });
         publishForSession('extension.dialog', payload, sessionId);
+        try {
+          pendingInput?.open({ sessionId, directory: directoryForSession(sessionId), requestId, kind: 'input' });
+        } catch {
+          // Pending-input bookkeeping never blocks dialog delivery.
+        }
       });
     };
 

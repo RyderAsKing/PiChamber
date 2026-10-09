@@ -145,13 +145,69 @@ const projectSessionList = (sessions) => {
   return sessions.map((item) => {
     if (!item || typeof item !== 'object' || !Number.isFinite(item.updatedAt)) throw protocolMismatch();
     const live = projectListLiveStatus(item.live);
+    const inputState = projectInputState(item.inputState, { withSequence: true });
     return {
       session: projectSession(item.session),
       ...(typeof item.preview === 'string' ? { preview: item.preview } : {}),
       updatedAt: item.updatedAt,
       ...(live ? { live } : {}),
+      ...(inputState ? { inputState } : {}),
     };
   });
+};
+
+// Daemon-level pending input: whether a session is blocked waiting for the
+// user. `null` means authoritatively nothing pending; `undefined` means
+// unknown (older daemon) or malformed. Unknown kind strings normalize to
+// 'input'; a zero count normalizes to null. Only the three wire keys cross
+// the public boundary.
+const projectPendingInputSummary = (value) => {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  if (typeof value.count !== 'number' || !Number.isSafeInteger(value.count)) return undefined;
+  if (value.count === 0) return null;
+  if (value.count < 0) return undefined;
+  if (typeof value.since !== 'number' || !Number.isFinite(value.since) || value.since <= 0) return undefined;
+  return {
+    count: Math.min(value.count, 99),
+    kind: typeof value.kind === 'string' && ['input', 'approval'].includes(value.kind) ? value.kind : 'input',
+    since: value.since,
+  };
+};
+
+// Projects `inputState` like `projectListLiveStatus` projects `live`: a
+// malformed value is omitted (unknown) rather than failing the row, and
+// only whitelisted fields cross the public boundary. List rows carry
+// `{ pending, sequence }`; snapshots and details carry `{ pending }`.
+const projectInputState = (value, { withSequence = false } = {}) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const pending = projectPendingInputSummary(value.pending);
+  if (pending === undefined) return undefined;
+  if (withSequence) {
+    if (!Number.isSafeInteger(value.sequence) || value.sequence < 0) return undefined;
+    return { pending, sequence: value.sequence };
+  }
+  return { pending };
+};
+
+const projectPendingInputList = (value) => {
+  if (!value || typeof value !== 'object' || !Array.isArray(value.sessions)) throw protocolMismatch();
+  const sessions = [];
+  for (const item of value.sessions) {
+    if (!item || typeof item !== 'object'
+      || typeof item.sessionId !== 'string' || item.sessionId.length === 0
+      || typeof item.directory !== 'string' || item.directory.length === 0) continue;
+    const pending = projectPendingInputSummary(item.pending);
+    if (!pending) continue;
+    sessions.push({ sessionId: item.sessionId, directory: item.directory, pending });
+  }
+  if (!Number.isSafeInteger(value.sequence) || value.sequence < 0) throw protocolMismatch();
+  return {
+    sessions,
+    sequence: value.sequence,
+    ...(typeof value.streamEpoch === 'string' && value.streamEpoch ? { streamEpoch: value.streamEpoch } : {}),
+  };
 };
 
 /**
@@ -345,6 +401,7 @@ const projectSessionDetail = (value) => {
     : (isStreaming ? 'busy' : 'idle');
   const retry = lifecycle === 'retry' ? projectRetryInfo(value.retry) : null;
   const compaction = projectCompactionInfo(value.compaction);
+  const inputState = projectInputState(value.inputState);
   return {
     session: projectSession(value.session),
     messages,
@@ -364,6 +421,7 @@ const projectSessionDetail = (value) => {
       ? { streamEpoch: value.streamEpoch }
       : {}),
     ...projectExtensionSnapshotState(value),
+    ...(inputState ? { inputState } : {}),
   };
 };
 
@@ -613,6 +671,7 @@ function projectExtensionSnapshotState(snapshot) {
         ...(Number.isFinite(entry.timeoutMs) ? { timeoutMs: Math.floor(entry.timeoutMs) } : {}),
       }))
     : undefined;
+
   const extensionPanels = Array.isArray(snapshot.extensionPanels)
     ? snapshot.extensionPanels.filter((entry) => entry && typeof entry.id === 'string' && entry.id.length > 0).slice(0, 24).map(projectExtensionPanelPayload)
     : undefined;
@@ -653,12 +712,24 @@ export const projectEventFrame = (frame) => {
     : undefined;
   const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory, ...(streamEpoch ? { streamEpoch } : {}) };
   switch (frame.event) {
+    case 'session.input': {
+      const pending = projectPendingInputSummary(frame.payload.pending);
+      if (pending === undefined) return null;
+      return {
+        ...common,
+        payload: {
+          pending,
+          ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: frame.payload.serverNow } : {}),
+        },
+      };
+    }
     case 'session.snapshot': {
       const snapshot = frame.payload;
       const extensionSnapshot = projectExtensionSnapshotState(snapshot);
       const lifecycle = ['idle', 'busy', 'retry', 'error', 'interrupted'].includes(snapshot.lifecycle) ? snapshot.lifecycle : 'idle';
       const retry = lifecycle === 'retry' ? projectRetryInfo(snapshot.retry) : null;
       const compaction = projectCompactionInfo(snapshot.compaction);
+      const inputState = projectInputState(snapshot.inputState);
       return { ...common, payload: { snapshot: {
         sessionId, directory, isStreaming: snapshot.isStreaming === true,
         lifecycle,
@@ -674,6 +745,7 @@ export const projectEventFrame = (frame) => {
         lastSequence: Number.isSafeInteger(snapshot.lastSequence) ? snapshot.lastSequence : frame.sequence,
         ...(snapshot.resync === true ? { resync: true } : {}),
         ...extensionSnapshot,
+        ...(inputState ? { inputState } : {}),
       } } };
     }
     case 'session.lifecycle': {
@@ -1745,6 +1817,17 @@ export const registerPiRuntimeRoutes = (app, {
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),
       });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // Registered before any `/api/pi/sessions/:id` route so `pending-input`
+  // is not captured as a session id.
+  app.get('/api/pi/sessions/pending-input', async (_req, res) => {
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.pendingInput');
+      res.json(projectPendingInputList(result));
     } catch (error) {
       writeDaemonError(res, error);
     }

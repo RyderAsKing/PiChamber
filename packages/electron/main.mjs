@@ -11,6 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import updaterPkg from 'electron-updater';
 import { createTrayController } from './tray.mjs';
+import { createNotificationTagRegistry, isCloseableInputNotification } from './notification-tags.mjs';
+import { createDockBadgeAggregator, originOfUrl } from './dock-badge.mjs';
 import {
   resolveDesktopHostRuntimeConfig,
   resolveStartupUrlProbePlan,
@@ -1269,6 +1271,14 @@ const focusForegroundWindow = () => {
 const activeNotifications = new Set();
 const nativeNotificationClaims = new Map();
 const NATIVE_NOTIFICATION_DEDUPE_TTL_MS = 5000;
+// Live notifications by tag, so `desktop_notification_close` can dismiss a
+// previously shown one. Bounded; entries are removed on close/click too.
+const notificationTags = createNotificationTagRegistry();
+// Per-sender dock-badge counts: last-writer-wins would let an idle window
+// hide another window's count, so each sender keeps its own entry and the
+// badge shows the max per origin summed across distinct origins.
+const dockBadge = createDockBadgeAggregator();
+const dockBadgeCleanupBySender = new Set();
 
 const getNativeNotificationClaimKey = (payload) => {
   const tag = typeof payload?.tag === 'string' ? payload.tag.trim() : '';
@@ -1334,7 +1344,17 @@ const maybeShowNativeNotification = (rawInput) => {
   });
 
   activeNotifications.add(notification);
-  const release = () => { activeNotifications.delete(notification); };
+  const tag = typeof payload.tag === 'string' ? payload.tag.trim() : '';
+  // Only needs-input notifications are tracked for programmatic close.
+  // Completion/error notifications carry unique tags; tracking them would
+  // evict (and force-close) the oldest still-unread notification past the
+  // bound.
+  const trackable = isCloseableInputNotification(tag, payload.kind) ? tag : '';
+  if (trackable) notificationTags.set(trackable, notification);
+  const release = () => {
+    activeNotifications.delete(notification);
+    if (trackable) notificationTags.release(trackable, notification);
+  };
 
   notification.on('click', () => {
     focusForegroundWindow();
@@ -3609,7 +3629,7 @@ const runSpecChain = (specs, appName) => {
   throw new Error(`Failed to open in ${appName}: ${failures.join('; ')}`);
 };
 
-const handleInvoke = async (browserWindow, command, args = {}) => {
+const handleInvoke = async (browserWindow, command, args = {}, senderContext) => {
   switch (command) {
     case 'desktop_start_window_drag':
       return null;
@@ -3876,19 +3896,49 @@ const handleInvoke = async (browserWindow, command, args = {}) => {
       maybeShowNativeNotification(args);
       return null;
 
-    case 'desktop_tray_update':
-      if (state.trayController) {
-        try {
-          state.trayController.update(args || {});
-        } catch (error) {
-          log.warn('[electron] tray update failed', error);
+    case 'desktop_notification_close': {
+      // Local-only like `desktop_notify`: NOT in COMMANDS_SAFE_FOR_REMOTE,
+      // so remote pages cannot dismiss (or probe) desktop notifications.
+      const tag = typeof args?.tag === 'string' ? args.tag.trim() : '';
+      if (tag) {
+        const notification = notificationTags.take(tag);
+        if (notification) {
+          try {
+            notification.close();
+          } catch (error) {
+            log.warn('[electron] notification close failed', error);
+          }
         }
       }
-      // Dock badge: count of chats with unseen activity (0 = cleared, also when
+      return null;
+    }
+
+    case 'desktop_tray_update':
+      if (state.trayController) {
+        // A badge-only update (`{ dockBadgeCount }` with no menu snapshot)
+        // must not wipe the tray menu: only push menu content when the
+        // args actually carry a menu snapshot.
+        const hasMenuSnapshot = !!args && typeof args === 'object'
+          && ('sessions' in args || 'approvals' in args || 'usage' in args || 'instanceName' in args);
+        if (hasMenuSnapshot) {
+          try {
+            state.trayController.update(args || {});
+          } catch (error) {
+            log.warn('[electron] tray update failed', error);
+          }
+        }
+      }
+      // Dock badge: count of sessions needing input (0 = cleared, also when
       // the user disabled the badge). setBadgeCount drives the macOS dock badge.
+      // Aggregated per sender: the max per sender origin summed across
+      // distinct origins, so an idle window cannot hide another's count.
+      // A sender without context (menu-initiated) falls back to a direct set.
       try {
         const rawCount = args && typeof args.dockBadgeCount === 'number' ? args.dockBadgeCount : 0;
-        const badgeCount = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+        const senderId = senderContext?.senderId;
+        const badgeCount = senderId === undefined || senderId === null || senderId === ''
+          ? (Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0)
+          : dockBadge.set(senderId, senderContext?.origin, rawCount);
         if (typeof app.setBadgeCount === 'function') {
           app.setBadgeCount(badgeCount);
         }
@@ -4819,7 +4869,26 @@ ipcMain.handle('pichamber:invoke', async (event, command, args) => {
     throw new Error('IPC not available for this origin');
   }
   const browserWindow = BrowserWindow.fromWebContents(event.sender);
-  return handleInvoke(browserWindow, command, args);
+  const senderId = event.sender?.id;
+  const senderUrl = event.sender?.getURL?.() || '';
+  const senderContext = senderId === undefined || senderId === null
+    ? undefined
+    : { senderId, origin: originOfUrl(senderUrl) };
+  if (senderContext && !dockBadgeCleanupBySender.has(senderId)) {
+    dockBadgeCleanupBySender.add(senderId);
+    try {
+      event.sender.once('destroyed', () => {
+        dockBadgeCleanupBySender.delete(senderId);
+        try {
+          const badgeCount = dockBadge.remove(senderId);
+          if (typeof app.setBadgeCount === 'function') app.setBadgeCount(badgeCount);
+        } catch (error) {
+          log.warn('[electron] dock badge cleanup failed', error);
+        }
+      });
+    } catch {}
+  }
+  return handleInvoke(browserWindow, command, args, senderContext);
 });
 
 ipcMain.handle('pichamber:dialog:open', async (event, options) => {

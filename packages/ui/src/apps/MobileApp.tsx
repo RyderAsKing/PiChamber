@@ -15,6 +15,7 @@ import { usePushVisibilityBeacon } from '@/hooks/usePushVisibilityBeacon';
 import { useRouter } from '@/hooks/useRouter';
 import { DeferredUpdatePolling } from '@/hooks/useUpdatePolling';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
+import { NeedsInputAlerts, NeedsInputBadge, NotificationOpenSessionBridge } from '@/components/chat/NeedsInputAlerts';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import type { RuntimeAPIs } from '@/lib/api/types';
 import { getRuntimeApiBaseUrl, getRuntimeKey, subscribeRuntimeEndpointChanged, switchRuntimeEndpoint } from '@/lib/runtime-switch';
@@ -821,6 +822,9 @@ export function MobileApp({ apis }: MobileAppProps) {
       <PiSessionProvider key={runtimeEndpointEpoch}>
         <RuntimeAPIProvider apis={apis}>
           <WindowTitleEffect />
+          <NeedsInputAlerts />
+          <NeedsInputBadge />
+          <NotificationOpenSessionBridge />
           <TooltipProvider delayDuration={300} skipDelayDuration={150}>
             <FireworksProvider>
               <DeferredUpdatePolling />

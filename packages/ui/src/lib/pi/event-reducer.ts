@@ -318,6 +318,10 @@ export const applyPiEvent = (
     case 'session.updated':
       // Title/metadata lives in the live catalog, not the transcript reducer.
       break;
+    case 'session.input':
+      // Pending-input state lives in the live catalog, not the transcript
+      // reducer. Kept explicit so the exhaustive switch still compiles.
+      break;
     case 'session.tree.updated':
       session.sessionTreeRevision = (session.sessionTreeRevision ?? 0) + 1;
       break;

@@ -30,6 +30,8 @@ export const NotificationSettings: React.FC = () => {
   const setNotifyOnCompletion = useUIStore(state => state.setNotifyOnCompletion);
   const notifyOnError = useUIStore(state => state.notifyOnError);
   const setNotifyOnError = useUIStore(state => state.setNotifyOnError);
+  const notifyOnInputNeeded = useUIStore(state => state.notifyOnInputNeeded);
+  const setNotifyOnInputNeeded = useUIStore(state => state.setNotifyOnInputNeeded);
 
   const [notificationPermission, setNotificationPermission] = React.useState<NotificationPermission>('default');
   const [pushSupported, setPushSupported] = React.useState(false);
@@ -483,6 +485,14 @@ export const NotificationSettings: React.FC = () => {
                   onChange={setNotifyOnError}
                   label={"Errors"}
                   ariaLabel={"Notify when work fails"}
+                />
+
+                <SettingsCheckboxRow
+                  checked={notifyOnInputNeeded}
+                  onChange={setNotifyOnInputNeeded}
+                  label={"Input needed"}
+                  ariaLabel={"Notify when an extension is waiting for your answer"}
+                  info={"When an extension is waiting for your answer."}
                 />
               </div>
             </SettingsSection>

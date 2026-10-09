@@ -2,6 +2,7 @@ import React from 'react';
 
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
+import { formatSessionsNeedingInputLabel, hasPendingInput } from './sessionAttention';
 import { normalizePath } from './utils';
 
 export interface ProjectAggregateStatusIndicatorProps {
@@ -10,7 +11,8 @@ export interface ProjectAggregateStatusIndicatorProps {
 
 // Aggregated activity/attention dot for a collapsed project header. Only
 // mounted while the project is collapsed, so the per-status-event scans stay
-// rare and bounded by the project's directory count.
+// rare and bounded by the project's directory count. A session needing input
+// takes precedence over the busy spinner.
 export const ProjectAggregateStatusIndicator: React.FC<ProjectAggregateStatusIndicatorProps> = ({
   directories,
 }) => {
@@ -23,16 +25,35 @@ export const ProjectAggregateStatusIndicator: React.FC<ProjectAggregateStatusInd
     return set;
   }, [directories]);
 
-  const hasBusySession = usePiSessionSnapshot((state) => {
+  const status = usePiSessionSnapshot((state) => {
+    let inputCount = 0;
+    let hasBusySession = false;
     for (const record of state.catalog.byId.values()) {
-      if (record.lifecycle !== 'busy' && record.lifecycle !== 'retry') continue;
       const directory = normalizePath(record.directory)?.toLowerCase();
-      if (directory && directorySet.has(directory)) return true;
+      if (!directory || !directorySet.has(directory)) continue;
+      if (hasPendingInput(record.pendingInput)) {
+        inputCount += 1;
+      } else if (record.lifecycle === 'busy' || record.lifecycle === 'retry') {
+        hasBusySession = true;
+      }
     }
-    return false;
-  }, undefined, 'catalog');
+    return { inputCount, hasBusySession };
+  }, (left, right) => left.inputCount === right.inputCount && left.hasBusySession === right.hasBusySession, 'catalog');
 
-  if (hasBusySession) {
+  if (status.inputCount > 0) {
+    const label = formatSessionsNeedingInputLabel(status.inputCount);
+    return (
+      <span
+        className="inline-flex items-center"
+        aria-label={label}
+        title={label}
+      >
+        <span className="size-1.5 shrink-0 rounded-full bg-status-warning" />
+      </span>
+    );
+  }
+
+  if (status.hasBusySession) {
     return (
       <span
         className="inline-flex items-center"

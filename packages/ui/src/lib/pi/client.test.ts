@@ -724,3 +724,82 @@ describe("module exports", () => {
     expect(scoped.getDirectory()).toBe("/scoped")
   })
 })
+
+describe("listPendingInput", () => {
+  beforeEach(() => {
+    observePiStreamEpoch(getRuntimeKey(), "epoch-client")
+  })
+
+  test("reads the global pending-input list", async () => {
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/sessions/pending-input")
+      expect(call.init?.method).toBe("GET")
+      return jsonResponse({
+        sessions: [
+          { sessionId: "s1", directory: "/repo", pending: { count: 2, kind: "approval", since: 50 } },
+          { sessionId: "s2", directory: "/other", pending: { count: 1, kind: "input", since: 40 } },
+        ],
+        sequence: 9,
+        streamEpoch: "epoch-client",
+      })
+    })
+    const result = await new PiService().listPendingInput()
+    expect(result).toEqual({
+      sessions: [
+        { sessionId: "s1", directory: "/repo", pending: { count: 2, kind: "approval", since: 50 } },
+        { sessionId: "s2", directory: "/other", pending: { count: 1, kind: "input", since: 40 } },
+      ],
+      sequence: 9,
+      streamEpoch: "epoch-client",
+    })
+  })
+
+  test("throws on HTTP failure instead of returning an empty list", async () => {
+    installFetchMock(() =>
+      jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }),
+    )
+    try {
+      await new PiService().listPendingInput()
+      throw new Error("expected listPendingInput to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiRequestError)
+    }
+  })
+
+  test("surfaces a 404 for older servers without the endpoint", async () => {
+    installFetchMock(() =>
+      jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 404 }),
+    )
+    try {
+      await new PiService().listPendingInput()
+      throw new Error("expected listPendingInput to throw")
+    } catch (error) {
+      expect(error).toBeInstanceOf(PiRequestError)
+      expect((error as PiRequestError).status).toBe(404)
+    }
+  })
+
+  test("throws DAEMON_PROTOCOL_MISMATCH on malformed payloads", async () => {
+    const malformed = [
+      { sessions: [], sequence: -1 },
+      { sessions: [{ sessionId: "", directory: "/repo", pending: { count: 1, kind: "input", since: 1 } }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "", pending: { count: 1, kind: "input", since: 1 } }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "/repo", pending: null }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "/repo", pending: { count: 0, kind: "input", since: 1 } }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "/repo", pending: { count: 100, kind: "input", since: 1 } }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "/repo", pending: { count: 1, kind: "exotic", since: 1 } }], sequence: 1 },
+      { sessions: [{ sessionId: "s1", directory: "/repo", pending: { count: 1, kind: "input" } }], sequence: 1 },
+      { sessions: "none", sequence: 1 },
+    ]
+    for (const body of malformed) {
+      installFetchMock(() => jsonResponse(body))
+      try {
+        await new PiService().listPendingInput()
+        throw new Error(`expected listPendingInput to throw for ${JSON.stringify(body)}`)
+      } catch (error) {
+        expect(error).toBeInstanceOf(PiRequestError)
+        expect((error as PiRequestError).code).toBe("DAEMON_PROTOCOL_MISMATCH")
+      }
+    }
+  })
+})

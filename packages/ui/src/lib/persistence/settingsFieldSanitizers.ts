@@ -325,6 +325,7 @@ export const materializeAuthoritativeUiSettings = (
     notificationMode: defaults.notificationMode,
     notifyOnCompletion: defaults.notifyOnCompletion,
     notifyOnError: defaults.notifyOnError,
+    notifyOnInputNeeded: defaults.notifyOnInputNeeded,
     summarizeLastMessage: defaults.summarizeLastMessage,
     summaryThreshold: defaults.summaryThreshold,
     summaryLength: defaults.summaryLength,

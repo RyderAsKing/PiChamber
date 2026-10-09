@@ -299,6 +299,9 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (typeof candidate.notifyOnError === 'boolean') {
     result.notifyOnError = candidate.notifyOnError;
   }
+  if (typeof candidate.notifyOnInputNeeded === 'boolean') {
+    result.notifyOnInputNeeded = candidate.notifyOnInputNeeded;
+  }
   if (typeof candidate.summarizeLastMessage === 'boolean') {
     result.summarizeLastMessage = candidate.summarizeLastMessage;
   }

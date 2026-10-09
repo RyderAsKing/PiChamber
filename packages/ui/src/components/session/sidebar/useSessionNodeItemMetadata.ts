@@ -5,9 +5,10 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useGitBranchLabel, useIsGitRepo } from '@/stores/useGitStore';
 import { getGitHubPrStatusKey, useEnsureGitHubPrStatus, usePrVisualSummary } from '@/stores/useGitHubPrStatusStore';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
-import { useGlobalSessionStatus } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSessionPendingInput } from '@/sync/sync-context';
 import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
-import { useSessionUnseenCount } from '@/sync/notification-store';
+import { useNotificationStore, useSessionUnseenCount } from '@/sync/notification-store';
+import { hasPendingInput, resolveSessionAttention } from './sessionAttention';
 import { isSessionPinned } from '@/stores/useSessionPinnedStore';
 import { formatDirectoryName } from '@/lib/utils';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
@@ -114,13 +115,24 @@ export function useSessionNodeItemMetadata({
   const statusType = sessionStatus?.type ?? 'idle';
   const isStreaming = statusType === 'busy' || statusType === 'retry';
   const hasActivityDuration = useHasSessionActivityDuration(session.id, isStreaming);
-  const sessionTitle = getSessionDisplayTitle(session);
+  const sessionTitle = getSessionDisplayTitle(session, 'Untitled session');
   const hasChildren = node.children.length > 0;
   const isPinnedSession = isSessionPinned(pinnedSessionIds, sessionDirectory, session.id);
   const isExpanded = hasSessionSearchQuery ? true : expandedParents.has(expansionKey);
 
   const unseenCount = useSessionUnseenCount(session.id);
-  const needsAttention = unseenCount > 0;
+  const unseenHasError = useNotificationStore(
+    React.useCallback((state) => state.index.session.unseenHasError[session.id] ?? false, [session.id]),
+  );
+  const pendingInput = useSessionPendingInput(session.id);
+  const attention = resolveSessionAttention({
+    pendingInput,
+    isStreaming,
+    unseenCount,
+    unseenHasError,
+    isActive,
+  });
+  const needsAttention = unseenCount > 0 || hasPendingInput(pendingInput);
   const sessionTimestamp = session.time?.updated || session.time?.created || Date.now();
   const sessionCompactUpdatedLabel = formatSessionCompactDateLabel(sessionTimestamp);
 
@@ -160,6 +172,8 @@ export function useSessionNodeItemMetadata({
     isPinnedSession,
     isExpanded,
     needsAttention,
+    pendingInput,
+    attention,
     sessionCompactUpdatedLabel,
     forkSolid,
     rowBackground,

@@ -680,6 +680,10 @@ export interface NotificationPayload {
 export interface NotificationsAPI {
   notify(payload?: NotificationPayload): Promise<boolean>;
   canNotify?: () => boolean | Promise<boolean>;
+  /** Close a previously raised OS notification by its tag. Absent = no-op. */
+  close?: (tag: string) => Promise<void>;
+  /** Reflect the count of sessions needing attention (badge). Absent = no-op. */
+  setAttentionCount?: (count: number) => void;
 }
 
 interface DiagnosticsAPI {

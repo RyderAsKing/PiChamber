@@ -128,6 +128,12 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     store.setNotifyOnError(settings.notifyOnError);
   }
   if (
+    typeof settings.notifyOnInputNeeded === 'boolean' &&
+    settings.notifyOnInputNeeded !== store.notifyOnInputNeeded
+  ) {
+    store.setNotifyOnInputNeeded(settings.notifyOnInputNeeded);
+  }
+  if (
     typeof settings.summarizeLastMessage === 'boolean' &&
     settings.summarizeLastMessage !== store.summarizeLastMessage
   ) {

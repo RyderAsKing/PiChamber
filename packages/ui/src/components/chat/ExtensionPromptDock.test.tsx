@@ -3,8 +3,38 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { createReducerPartMap, type PiReducerSessionState } from '@/lib/pi/reducers/reducerTypes';
+import type { PiPendingInputSummary } from '@/lib/pi/protocol';
+import type { LiveSessionRecord } from '@/sync/pi-session-catalog';
 import { ExtensionPromptDock } from './ExtensionPromptDock';
 import { resolveSelectKeyAction } from './extensionPromptKeys';
+
+const catalogRow = (
+  id: string,
+  title: string,
+  pending: PiPendingInputSummary | null,
+  directory = '/repo',
+): LiveSessionRecord => ({
+  id,
+  directory,
+  parentId: null,
+  title,
+  archived: false,
+  createdAt: 1,
+  updatedAt: 2,
+  lifecycle: 'idle',
+  hydrated: false,
+  pendingInput: pending,
+});
+
+const seedCatalogRow = (row: LiveSessionRecord): void => {
+  (getPiSessionStore().getState().catalog.byId as Map<string, LiveSessionRecord>).set(row.id, row);
+};
+
+const pendingSummary = (
+  count: number,
+  kind: PiPendingInputSummary['kind'] = 'input',
+  since = 1_700_000_000_000,
+): PiPendingInputSummary => ({ count, kind, since });
 
 const createTestSession = (sessionId: string, directory = '/repo'): PiReducerSessionState => ({
   sessionId,
@@ -120,6 +150,51 @@ describe('ExtensionPromptDock', () => {
     expect(markup).toContain('No (N)');
   });
 });
+
+describe('ExtensionPromptDock other-sessions strip', () => {
+  beforeEach(() => {
+    getPiSessionStore().clear();
+  });
+
+  test('lists another session needing input even when the current session has no dialog', () => {
+    seedCatalogRow(catalogRow('sess-other', 'Fix login bug', pendingSummary(1)));
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-current" />);
+    expect(markup).toContain('aria-label="Other sessions need input"');
+    expect(markup).toContain('Fix login bug');
+    expect(markup).toContain('aria-label="Needs input"');
+    expect(markup).toContain('aria-label="Open Fix login bug"');
+    expect(markup).not.toContain('role="dialog"');
+  });
+
+  test('excludes the current session from the strip', () => {
+    seedCatalogRow(catalogRow('sess-current', 'Current work', pendingSummary(1)));
+    seedCatalogRow(catalogRow('sess-other', 'Other work', pendingSummary(1)));
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-current" />);
+    expect(markup).toContain('Other work');
+    expect(markup).not.toContain('Current work');
+  });
+
+  test('shows request counts and collapses beyond three sessions', () => {
+    seedCatalogRow(catalogRow('sess-a', 'Alpha', pendingSummary(2, 'approval', 100)));
+    seedCatalogRow(catalogRow('sess-b', 'Beta', pendingSummary(1, 'input', 200)));
+    seedCatalogRow(catalogRow('sess-c', 'Gamma', pendingSummary(1, 'input', 300)));
+    seedCatalogRow(catalogRow('sess-d', 'Delta', pendingSummary(1, 'input', 400)));
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-current" />);
+    expect(markup).toContain('Alpha');
+    expect(markup).toContain('2 requests');
+    expect(markup).toContain('Needs approval (2 requests)');
+    expect(markup).toContain('+1 more');
+    // The fourth waiter is hidden behind the overflow line.
+    expect(markup).not.toContain('Delta');
+  });
+
+  test('falls back to Untitled session for title-less rows', () => {
+    seedCatalogRow(catalogRow('sess-other', '   ', pendingSummary(1)));
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-current" />);
+    expect(markup).toContain('Untitled session');
+  });
+});
+
 
 describe('resolveSelectKeyAction', () => {
   test('navigation keys move the highlight and wrap', () => {

@@ -899,6 +899,22 @@ describe('updateDesktopSettings', () => {
     expect(saveCalls.some((changes) => changes.autoSaveEnabled === false)).toBe(true);
   });
 
+  test('autosaves notifyOnInputNeeded changes to shared settings', async () => {
+    getWindow();
+    useUIStore.getState().setNotifyOnInputNeeded(true);
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    startAppearanceAutoSave();
+
+    useUIStore.getState().setNotifyOnInputNeeded(false);
+    await delay(500);
+
+    expect(saveCalls.some((changes) => changes.notifyOnInputNeeded === false)).toBe(true);
+  });
+
   test('seeds omitted autoSaveEnabled from the hydrated client preference', async () => {
     getWindow();
     invalidateSettingsCache();
@@ -945,5 +961,12 @@ describe('updateDesktopSettings', () => {
     expect(sanitizeWebSettings({ desktopUpdateChannel: 'beta' })?.desktopUpdateChannel).toBeUndefined();
     expect(sanitizeWebSettings({ serverUpdateChannel: 'rc' })?.serverUpdateChannel).toBe('rc');
     expect(sanitizeWebSettings({ serverUpdateChannel: 'nightly' })?.serverUpdateChannel).toBeUndefined();
+  });
+
+  test('sanitizes the input-needed notification toggle as a boolean', () => {
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: false })?.notifyOnInputNeeded).toBe(false);
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: true })?.notifyOnInputNeeded).toBe(true);
+    expect(sanitizeWebSettings({ notifyOnInputNeeded: 'yes' })?.notifyOnInputNeeded).toBeUndefined();
+    expect(sanitizeWebSettings({})?.notifyOnInputNeeded).toBeUndefined();
   });
 });

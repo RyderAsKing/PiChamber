@@ -23,6 +23,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import {
   type PiError,
   type PiEngineListResponse,
+  type PiPendingInputListResponse,
   type PiPromptInput,
   type PiPromptResult,
   type PiProviderListResponse,
@@ -70,6 +71,7 @@ import {
   type PiAbortInput,
   type PiExtensionListResponse,
   type PiExtensionDialogResponseInput,
+  isValidPendingInputSummary,
 } from './protocol';
 import type {
   PiAttachment,
@@ -232,6 +234,21 @@ export class PiSendUnconfirmedError extends Error {
     }
   }
 }
+
+const isValidPendingInputList = (value: unknown): value is PiPendingInputListResponse => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { sessions?: unknown; sequence?: unknown };
+  if (!Array.isArray(candidate.sessions)) return false;
+  if (!Number.isSafeInteger(candidate.sequence) || (candidate.sequence as number) < 0) return false;
+  for (const item of candidate.sessions) {
+    if (!item || typeof item !== 'object') return false;
+    const entry = item as { sessionId?: unknown; directory?: unknown; pending?: unknown };
+    if (typeof entry.sessionId !== 'string' || entry.sessionId.length === 0) return false;
+    if (typeof entry.directory !== 'string' || entry.directory.length === 0) return false;
+    if (!isValidPendingInputSummary(entry.pending)) return false;
+  }
+  return true;
+};
 
 const isValidPromptResult = (value: unknown): value is PiPromptResult => {
   if (!value || typeof value !== 'object') return false;
@@ -463,6 +480,26 @@ export class PiService {
       ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  /**
+   * List every session with pending input across all directories. Throws
+   * on failure — never returns an empty list on failure — so callers keep
+   * prior/unknown state instead of clearing it. A 404 means an older
+   * server without the endpoint; callers treat that as "feature
+   * unavailable", not as authoritative empty. Malformed payloads throw
+   * `DAEMON_PROTOCOL_MISMATCH`.
+   */
+  async listPendingInput(scope?: PiClientScope): Promise<PiPendingInputListResponse> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, PiPendingInputListResponse>('/api/pi/sessions/pending-input', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    if (!isValidPendingInputList(result)) {
+      throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed pending-input list');
+    }
+    return result;
   }
 
   async createSession(input: PiSessionCreateInput, scope?: PiClientScope): Promise<PiSessionDetailResponse> {

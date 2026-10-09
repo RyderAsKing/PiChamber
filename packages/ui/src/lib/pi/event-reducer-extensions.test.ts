@@ -8,6 +8,7 @@ import {
 } from "./event-reducer"
 import { isPiEvent } from "./protocol"
 import type { PiSessionEvent } from "./protocol"
+import { mergeHydratedSession } from "@/sync/pi-session-store-helpers"
 
 const baseEvent = <T extends PiSessionEvent["name"]>(
   name: T,
@@ -460,3 +461,56 @@ describe("hydrateSessionFromDetail with extension content", () => {
   })
 })
 
+
+describe("extension notice live feed", () => {
+  test("live notify appends entries with client identity", () => {
+    const before = Date.now()
+    const state = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, {
+      message: "deployed",
+      level: "info",
+    })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    expect(notice?.id.length).toBeGreaterThan(0)
+    expect(notice?.message).toBe("deployed")
+    expect(notice?.level).toBe("info")
+    expect(notice?.createdAt).toBeGreaterThanOrEqual(before)
+  })
+
+  test("snapshots and details never replace the live notice feed", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, {
+      message: "live confirmation",
+      level: "info",
+    })).state
+    state = applyPiEvent(state, baseEvent("session.snapshot", 2, {
+      snapshot: {
+        sessionId: "sess-1",
+        directory: "/work",
+        isStreaming: false,
+        lifecycle: "idle",
+        queue: { steering: 0, followUp: 0 },
+        lastSequence: 2,
+      },
+    } as never)).state
+    expect(state.bySession.get("sess-1")!.extensionNotices).toHaveLength(1)
+
+    const fetched = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 9,
+      messages: [],
+    }).session
+    const existingMessage = {
+      id: "u1",
+      sessionId: "sess-1",
+      directory: "/work",
+      role: "user",
+      createdAt: 10,
+      text: "hi",
+      thinking: "",
+      streaming: false,
+    }
+    const resident = state.bySession.get("sess-1")!
+    resident.messages = new Map([[existingMessage.id, existingMessage as never]])
+    const merged = mergeHydratedSession(fetched, resident)
+    expect(merged.extensionNotices).toHaveLength(1)
+  })
+})

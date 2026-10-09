@@ -26,7 +26,7 @@ const PORTABLE_FIELDS = new Set([
   'themeId', 'useSystemTheme', 'themeVariant', 'lightThemeId', 'darkThemeId',
   'splashBgLight', 'splashFgLight', 'splashBgDark', 'splashFgDark',
   'showDeletionDialog', 'nativeNotificationsEnabled', 'notificationMode',
-  'notifyOnCompletion', 'notifyOnError',
+  'notifyOnCompletion', 'notifyOnError', 'notifyOnInputNeeded',
   'summarizeLastMessage', 'summaryThreshold', 'summaryLength',
   'maxLastMessageLength', 'usageAutoRefresh', 'usageRefreshIntervalMs',
   'usageDisplayMode', 'usageShowPredValues', 'usageDropdownProviders',

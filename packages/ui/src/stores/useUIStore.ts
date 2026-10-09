@@ -170,6 +170,7 @@ interface UIStore {
   // Event toggles (which events trigger notifications)
   notifyOnCompletion: boolean;
   notifyOnError: boolean;
+  notifyOnInputNeeded: boolean;
 
   // Summarization settings
   summarizeLastMessage: boolean;
@@ -296,6 +297,7 @@ interface UIStore {
   setDockBadgeEnabled: (value: boolean) => void;
   setNotifyOnCompletion: (value: boolean) => void;
   setNotifyOnError: (value: boolean) => void;
+  setNotifyOnInputNeeded: (value: boolean) => void;
   setSummarizeLastMessage: (value: boolean) => void;
   setSummaryThreshold: (value: number) => void;
   setSummaryLength: (value: number) => void;
@@ -395,6 +397,7 @@ export const useUIStore = create<UIStore>()(
         // Event toggles (which events trigger notifications)
         notifyOnCompletion: true,
         notifyOnError: true,
+        notifyOnInputNeeded: true,
 
         // Summarization settings
         summarizeLastMessage: false,
@@ -1410,6 +1413,7 @@ export const useUIStore = create<UIStore>()(
 
         setNotifyOnCompletion: (value) => { set({ notifyOnCompletion: value }); },
         setNotifyOnError: (value) => { set({ notifyOnError: value }); },
+        setNotifyOnInputNeeded: (value) => { set({ notifyOnInputNeeded: value }); },
         setSummarizeLastMessage: (value) => { set({ summarizeLastMessage: value }); },
         setSummaryThreshold: (value) => { set({ summaryThreshold: value }); },
         setSummaryLength: (value) => { set({ summaryLength: value }); },
@@ -1768,6 +1772,7 @@ export const useUIStore = create<UIStore>()(
           dockBadgeEnabled: state.dockBadgeEnabled,
           notifyOnCompletion: state.notifyOnCompletion,
           notifyOnError: state.notifyOnError,
+          notifyOnInputNeeded: state.notifyOnInputNeeded,
           summarizeLastMessage: state.summarizeLastMessage,
           summaryThreshold: state.summaryThreshold,
           summaryLength: state.summaryLength,

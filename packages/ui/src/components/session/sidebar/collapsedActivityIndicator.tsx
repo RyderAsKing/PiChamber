@@ -7,13 +7,29 @@ export function CollapsedActivityIndicator({
   state,
   activeLabel,
   unreadLabel,
+  inputLabel,
   className,
 }: {
   state: Exclude<CollapsedActivityState, null>;
   activeLabel: string;
   unreadLabel?: string;
+  inputLabel?: string;
   className?: string;
 }): React.ReactNode {
+  if (state === 'input') {
+    // Callers that have not been updated to pass `inputLabel` still announce
+    // the pending state correctly through the shared default.
+    const label = inputLabel ?? 'Needs input';
+    return (
+      <span
+        className={cn('inline-flex items-center', className)}
+        aria-label={label}
+        title={label}
+      >
+        <span className="size-1.5 shrink-0 rounded-full bg-status-warning" />
+      </span>
+    );
+  }
   if (state === 'unread') {
     return (
       <span

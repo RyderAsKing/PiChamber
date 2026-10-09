@@ -107,6 +107,11 @@ mock.module('@/hooks/usePushVisibilityBeacon', () => ({ usePushVisibilityBeacon:
 mock.module('@/hooks/useRouter', () => ({ useRouter: () => undefined }));
 mock.module('@/hooks/useUpdatePolling', () => ({ DeferredUpdatePolling: () => null }));
 mock.module('@/hooks/useWindowTitle', () => ({ WindowTitleEffect: () => null }));
+mock.module('@/components/chat/NeedsInputAlerts', () => ({
+  NeedsInputAlerts: () => null,
+  NeedsInputBadge: () => null,
+  NotificationOpenSessionBridge: () => null,
+}));
 mock.module('@/apps/pi-session-store', () => ({
   getPiSessionStore: () => ({
     getState: () => ({ directory: '/repo' }),

@@ -958,6 +958,139 @@ describe('Pi runtime route', () => {
     }
   });
 
+  it('whitelists pending input state on list rows and drops malformed values', async () => {
+    const row = (id, inputState) => ({
+      session: { id, directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      updatedAt: 2,
+      ...(inputState !== undefined ? { inputState } : {}),
+    });
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.list'] }),
+      request: async () => ({
+        streamEpoch: 'epoch-1',
+        sessions: [
+          row('pending', { pending: { count: 2, kind: 'approval', since: 50, sessionId: 'sneaky' }, sequence: 7 }),
+          row('none', { pending: null, sequence: 8 }),
+          row('bad-pending', { pending: { count: 'many' }, sequence: 1 }),
+          row('bad-sequence', { pending: { count: 1, kind: 'input', since: 5 }, sequence: -1 }),
+          row('unknown'),
+        ],
+      }),
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions?directory=%2Fworkspace`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const byId = new Map(body.sessions.map((item) => [item.session.id, item]));
+    expect(body.sessions).toHaveLength(5);
+    expect(byId.get('pending').inputState).toEqual({ pending: { count: 2, kind: 'approval', since: 50 }, sequence: 7 });
+    expect(byId.get('none').inputState).toEqual({ pending: null, sequence: 8 });
+    for (const id of ['bad-pending', 'bad-sequence', 'unknown']) {
+      expect(byId.get(id).inputState).toBeUndefined();
+    }
+  });
+
+  it('projects pending input state on session details and omits malformed values', async () => {
+    const detail = (inputState) => ({
+      session: { id: 'pi-session-9', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+      messages: [],
+      lastSequence: 4,
+      isStreaming: false,
+      lifecycle: 'idle',
+      ...(inputState !== undefined ? { inputState } : {}),
+    });
+    const seen = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        seen.push(command);
+        return detail(seen.length === 1
+          ? { pending: { count: 1, kind: 'input', since: 9 } }
+          : { pending: { count: 1, kind: 'input' } });
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-9`;
+
+    const first = await fetch(base);
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({ inputState: { pending: { count: 1, kind: 'input', since: 9 } } });
+
+    const second = await fetch(base);
+    expect(second.status).toBe(200);
+    const secondBody = await second.json();
+    expect(secondBody.inputState).toBeUndefined();
+    expect(seen).toEqual(['sessions.open', 'sessions.open']);
+  });
+
+  it('serves sessions.pendingInput without capturing it as a session id', async () => {
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.pendingInput') {
+          return {
+            sessions: [
+              { sessionId: 's1', directory: '/workspace', pending: { count: 1, kind: 'input', since: 50 } },
+              { sessionId: 's2', directory: '/workspace', pending: null },
+              { sessionId: '', directory: '/workspace', pending: { count: 1, kind: 'input', since: 51 } },
+              { sessionId: 's3', directory: '/workspace', pending: { count: 'many' } },
+            ],
+            sequence: 12,
+            streamEpoch: 'epoch-pending',
+            credential: 'never-expose-this',
+          };
+        }
+        return {
+          session: { id: 'pi-session-9', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+          messages: [],
+          lastSequence: 1,
+        };
+      },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions`;
+
+    const response = await fetch(`${base}/pending-input`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      sessions: [{ sessionId: 's1', directory: '/workspace', pending: { count: 1, kind: 'input', since: 50 } }],
+      sequence: 12,
+      streamEpoch: 'epoch-pending',
+    });
+    // The literal segment routes to the pending-input command, never to a
+    // `:sessionId` detail read.
+    expect(calls).toEqual([{ command: 'sessions.pendingInput', payload: undefined }]);
+
+    const detail = await fetch(`${base}/other-session`);
+    expect(detail.status).toBe(200);
+    expect(calls.at(-1)).toEqual({ command: 'sessions.open', payload: { sessionId: 'other-session' } });
+  });
+
+  it('maps pending-input daemon errors instead of returning an empty list', async () => {
+    const error = new Error('The Pi session does not exist.');
+    error.code = 'INVALID_SESSION';
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async () => { throw error; },
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pending-input`);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: { code: 'INVALID_SESSION' } });
+  });
+
   it('renames a session through the daemon without accepting a body session identity', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.rename'] }),

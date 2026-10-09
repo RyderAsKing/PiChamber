@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   catalogLifecycleFromReducer,
   lifecycleFromEvent,
+  applyDetailMessageCount,
   asError,
   isInvalidSessionError,
   isSessionInUseError,
@@ -9,7 +10,7 @@ import {
   createRecordFromPiSession,
   mergeHydratedSession,
 } from './pi-session-store-helpers';
-import { initialCatalog } from './pi-session-catalog';
+import { initialCatalog, upsertRecord, upsertStubRecord } from './pi-session-catalog';
 import { PiRequestError } from '@/lib/pi/client';
 import type { PiSession } from '@/lib/pi/types';
 import { hydrateSessionFromDetail } from '@/lib/pi/event-reducer';
@@ -87,6 +88,39 @@ describe('pi-session-store-helpers', () => {
     expect(record.title).toBe('Test Session');
     expect(record.archived).toBe(false);
     expect(record.lifecycle).toBe('idle');
+  });
+
+  test('createRecordFromPiSession preserves an observed messageCount when the seed omits it', () => {
+    const first = createRecordFromPiSession(
+      { id: 's-1', directory: '/dir', createdAt: 1, updatedAt: 1, messageCount: 0 },
+      initialCatalog(),
+    );
+    expect(first.messageCount).toBe(0);
+    const catalog = upsertRecord(initialCatalog(), first);
+    const second = createRecordFromPiSession(
+      { id: 's-1', directory: '/dir', createdAt: 1, updatedAt: 1 },
+      catalog,
+    );
+    expect(second.messageCount).toBe(0);
+  });
+
+  test('applyDetailMessageCount adopts the authoritative total onto a stub row', () => {
+    const stubbed = upsertStubRecord(initialCatalog(), 's-1', '/dir', 'idle');
+    expect(stubbed.byId.get('s-1')?.messageCount).toBeUndefined();
+    const next = applyDetailMessageCount(stubbed, 's-1', '/dir', 0);
+    expect(next).not.toBe(stubbed);
+    expect(next.byId.get('s-1')?.messageCount).toBe(0);
+  });
+
+  test('applyDetailMessageCount treats absent counts as unknown and never clears', () => {
+    const stubbed = upsertStubRecord(initialCatalog(), 's-1', '/dir', 'idle');
+    expect(applyDetailMessageCount(stubbed, 's-1', '/dir', undefined)).toBe(stubbed);
+    expect(applyDetailMessageCount(stubbed, 's-1', '/dir', 'zero')).toBe(stubbed);
+    expect(applyDetailMessageCount(stubbed, 's-1', '/dir', -1)).toBe(stubbed);
+    const seeded = applyDetailMessageCount(stubbed, 's-1', '/dir', 0);
+    expect(applyDetailMessageCount(seeded, 's-1', '/dir', 0)).toBe(seeded);
+    expect(applyDetailMessageCount(seeded, 's-1', '/dir', undefined).byId.get('s-1')?.messageCount).toBe(0);
+    expect(applyDetailMessageCount(seeded, 's-1', '/dir', 2).byId.get('s-1')?.messageCount).toBe(2);
   });
 
   test('preserves loaded older pages when a reconnect refreshes a bounded tail', () => {

@@ -11,6 +11,7 @@ type AppearanceSlice = {
   notificationMode: 'always' | 'hidden-only';
   notifyOnCompletion: boolean;
   notifyOnError: boolean;
+  notifyOnInputNeeded: boolean;
   summarizeLastMessage: boolean;
   summaryThreshold: number;
   summaryLength: number;
@@ -47,6 +48,7 @@ export const startAppearanceAutoSave = (): (() => void) => {
     notificationMode: useUIStore.getState().notificationMode,
     notifyOnCompletion: useUIStore.getState().notifyOnCompletion,
     notifyOnError: useUIStore.getState().notifyOnError,
+    notifyOnInputNeeded: useUIStore.getState().notifyOnInputNeeded,
     summarizeLastMessage: useUIStore.getState().summarizeLastMessage,
     summaryThreshold: useUIStore.getState().summaryThreshold,
     summaryLength: useUIStore.getState().summaryLength,
@@ -77,6 +79,7 @@ export const startAppearanceAutoSave = (): (() => void) => {
       notificationMode: state.notificationMode,
       notifyOnCompletion: state.notifyOnCompletion,
       notifyOnError: state.notifyOnError,
+      notifyOnInputNeeded: state.notifyOnInputNeeded,
       summarizeLastMessage: state.summarizeLastMessage,
       summaryThreshold: state.summaryThreshold,
       summaryLength: state.summaryLength,
@@ -115,6 +118,9 @@ export const startAppearanceAutoSave = (): (() => void) => {
     }
     if (current.notifyOnError !== previous.notifyOnError) {
       diff.notifyOnError = current.notifyOnError;
+    }
+    if (current.notifyOnInputNeeded !== previous.notifyOnInputNeeded) {
+      diff.notifyOnInputNeeded = current.notifyOnInputNeeded;
     }
     if (current.summarizeLastMessage !== previous.summarizeLastMessage) {
       diff.summarizeLastMessage = current.summarizeLastMessage;

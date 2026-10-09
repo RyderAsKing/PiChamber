@@ -58,7 +58,7 @@ describe('extension bridge draft mirror', () => {
 
 describe('extension bridge session directory scoping', () => {
   it('publishes session-scoped events stamped with the session runtime directory', () => {
-    const { ui, published } = createBridge({
+    const { bridge, ui, published } = createBridge({
       findRuntimeBySessionId: (id) => (id === 's1' ? { cwd: '/dir-b' } : undefined),
       getDefaultDirectory: () => '/default-dir',
     });

@@ -3,8 +3,55 @@ import type { NotificationPayload, NotificationsAPI } from '@pichamber/ui/lib/ap
 const SW_READY_TIMEOUT_MS = 1500;
 const NOTIFICATION_DEDUPE_TTL_MS = 5000;
 const NOTIFICATION_DEDUPE_STORAGE_PREFIX = 'pichamber-notification-claim:';
+const MAX_PAGE_NOTIFICATIONS = 20;
 
 const notificationClaims = new Map<string, number>();
+
+/** Page-created `Notification` objects keyed by tag, so `close(tag)` can
+ *  dismiss them. Bounded: the oldest entry is dropped past the cap. Only
+ *  needs-input notifications are tracked: completion/error notifications
+ *  carry unique tags and must never evict (and force-close) an unread one. */
+const pageNotificationsByTag = new Map<string, Notification>();
+
+const INPUT_NOTIFICATION_TAG_PREFIX = 'pichamber:input:';
+
+const isCloseableInputNotification = (tag: string | undefined, kind: string | undefined): boolean => {
+  if (kind !== 'input') return false;
+  const key = typeof tag === 'string' ? tag.trim() : '';
+  return key.startsWith(INPUT_NOTIFICATION_TAG_PREFIX) && key.length > INPUT_NOTIFICATION_TAG_PREFIX.length;
+};
+
+const trackPageNotification = (tag: string | undefined, notification: Notification, kind?: string): void => {
+  if (!isCloseableInputNotification(tag, kind)) return;
+  if (typeof tag !== 'string' || tag.length === 0) return;
+  const existing = pageNotificationsByTag.get(tag);
+  pageNotificationsByTag.delete(tag);
+  // A re-used tag replaces the previous notification, so close the orphaned
+  // handle best-effort instead of leaving it uncloseable.
+  if (existing && existing !== notification) {
+    try {
+      existing.close();
+    } catch {
+      // ignore
+    }
+  }
+  pageNotificationsByTag.set(tag, notification);
+  while (pageNotificationsByTag.size > MAX_PAGE_NOTIFICATIONS) {
+    const oldest = pageNotificationsByTag.keys().next().value;
+    if (oldest === undefined) break;
+    const evicted = pageNotificationsByTag.get(oldest);
+    pageNotificationsByTag.delete(oldest);
+    // An evicted entry could never be closed by tag again; close it
+    // best-effort instead of orphaning it.
+    if (evicted) {
+      try {
+        evicted.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+};
 
 const isClientFocused = (): boolean => {
   if (typeof document === 'undefined') return true;
@@ -168,10 +215,37 @@ const notifyWithWebAPI = async (payload?: NotificationPayload): Promise<boolean>
       return true;
     }
 
-    new Notification(payload?.title ?? 'PiChamber', {
+    const created = new Notification(payload?.title ?? 'PiChamber', {
       body: payload?.body,
       tag: payload?.tag,
     });
+    trackPageNotification(payload?.tag, created, payload?.kind);
+    created.onclose = () => {
+      // Delete only when the tag still maps to this notification: a stale
+      // close from a replaced notification must not orphan the newer one.
+      if (payload?.tag && pageNotificationsByTag.get(payload.tag) === created) {
+        pageNotificationsByTag.delete(payload.tag);
+      }
+    };
+    // Focus the app and route through the same `pichamber:open-session`
+    // navigation the full app shell listens for.
+    created.onclick = () => {
+      try {
+        if (typeof window !== 'undefined') window.focus();
+      } catch {
+        // ignore
+      }
+      try {
+        if (typeof window !== 'undefined' && payload?.sessionId) {
+          window.dispatchEvent(new CustomEvent('pichamber:open-session', {
+            detail: { sessionId: payload.sessionId, directory: payload.directory ?? '' },
+          }));
+        }
+      } catch {
+        // ignore
+      }
+      created.close();
+    };
     return true;
   } catch (error) {
     console.warn('Failed to send notification', error);
@@ -220,6 +294,74 @@ export const createWebNotificationsAPI = (): NotificationsAPI => ({
       }
     }
     return typeof Notification !== 'undefined' ? Notification.permission === 'granted' : false;
+  },
+  async close(tag: string): Promise<void> {
+    if (typeof tag !== 'string' || tag.trim().length === 0) return;
+    const trimmed = tag.trim();
+    // In Electron the shown notification lives in the main process; close it there.
+    if (typeof window !== 'undefined') {
+      const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
+      if (desktop?.invoke) {
+        try {
+          await desktop.invoke('desktop_notification_close', { tag: trimmed });
+        } catch (error) {
+          console.warn('Failed to close native notification (desktop)', error);
+        }
+        return;
+      }
+    }
+    const pageNotification = pageNotificationsByTag.get(trimmed);
+    if (pageNotification) {
+      pageNotificationsByTag.delete(trimmed);
+      try {
+        pageNotification.close();
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      const registration = await getNotificationRegistration();
+      const shown = typeof registration?.getNotifications === 'function'
+        ? await registration.getNotifications({ tag: trimmed })
+        : [];
+      for (const notification of shown ?? []) {
+        try {
+          notification.close();
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+  },
+  setAttentionCount(count: number): void {
+    const normalized = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    // In Electron the dock badge lives in the main process.
+    if (typeof window !== 'undefined') {
+      const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
+      if (desktop?.invoke) {
+        void desktop.invoke('desktop_tray_update', { dockBadgeCount: normalized }).catch((error: unknown) => {
+          console.warn('Failed to update desktop attention count', error);
+        });
+        return;
+      }
+    }
+    // Badging API (ChromiumPWAs / supported mobile browsers). Feature-detect and swallow.
+    try {
+      const nav = typeof navigator !== 'undefined' ? navigator as Navigator & {
+        setAppBadge?: (count: number) => Promise<void>;
+        clearAppBadge?: () => Promise<void>;
+      } : null;
+      if (!nav) return;
+      if (normalized > 0 && typeof nav.setAppBadge === 'function') {
+        void nav.setAppBadge(normalized).catch(() => undefined);
+      } else if (normalized === 0 && typeof nav.clearAppBadge === 'function') {
+        void nav.clearAppBadge().catch(() => undefined);
+      }
+    } catch {
+      // ignore
+    }
   },
 });
 type DesktopBridgeGlobal = {

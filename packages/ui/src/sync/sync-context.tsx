@@ -4,14 +4,17 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
-import type { PiErrorCode } from '@/lib/pi/protocol';
+import type { PiErrorCode, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import {
   listUiSessionsFromCatalog,
   liveSessionRecordToUiSession,
+  selectSessionsNeedingInput,
+  sessionsNeedingInputEqual,
   uiSessionListEqual,
   type LiveSessionLifecycle,
+  type SessionNeedingInput,
 } from './pi-session-catalog';
 import { selectAwaitingPromptEcho, selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
 
@@ -62,6 +65,31 @@ export function useCatalogUiSessions(options?: { archived?: boolean; directory?:
 
 export function useGlobalSessionStatus(sessionID: string, directory?: string): SessionStatus {
   return useSessionStatus(sessionID, directory);
+}
+/**
+ * Pending-input summary for one session: the value the daemon reports for
+ * "sessions needing input". `null` is authoritatively nothing pending;
+ * `undefined` is unknown (older server or never observed).
+ */
+export function useSessionPendingInput(sessionID: string): PiPendingInputSummary | null | undefined {
+  // Same collection-subscription rule as `useSession`: the id lookup stays
+  // outside the snapshot selector so an id switch without a catalog emit
+  // still resolves the new id.
+  const byId = usePiSessionSnapshot((state) => state.catalog.byId, undefined, TOPIC_CATALOG);
+  if (!sessionID) return undefined;
+  return byId.get(sessionID)?.pendingInput;
+}
+/**
+ * Every session waiting for the user, oldest waiter first. Subscribes on
+ * `catalog` only, so streaming token deltas never recompute it; the
+ * reference stays stable unless the needing set actually changed.
+ */
+export function useSessionsNeedingInput(): ReadonlyArray<SessionNeedingInput> {
+  return usePiSessionSnapshot(
+    (state) => selectSessionsNeedingInput(state.catalog),
+    sessionsNeedingInputEqual,
+    TOPIC_CATALOG,
+  );
 }
 export function setActiveSession(directory: string, sessionId: string) {
   // Cross-folder select is a runtime-cluster focus change, never a

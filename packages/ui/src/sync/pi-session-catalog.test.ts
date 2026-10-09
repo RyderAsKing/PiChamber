@@ -264,6 +264,29 @@ describe('pi-session-catalog helpers', () => {
     expect(state.byId.get('archived')?.archived).toBe(true);
   });
 
+  test('a listing that omits messageCount preserves the previously observed count', () => {
+    const seeded = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('s', '/repo-a', { title: '', messageCount: 0 }),
+    ], 100);
+    expect(seeded.byId.get('s')?.messageCount).toBe(0);
+    // A lighter listing without the field is unknown, never empty: the
+    // known count must survive so the row keeps its display title.
+    const next = applyDirectoryListToCatalog(seeded, '/repo-a', [
+      listItem('s', '/repo-a', { title: '' }),
+    ], 200);
+    expect(next.byId.get('s')?.messageCount).toBe(0);
+  });
+
+  test('a listing that carries messageCount adopts it over the previous value', () => {
+    const seeded = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('s', '/repo-a', { title: '', messageCount: 0 }),
+    ], 100);
+    const next = applyDirectoryListToCatalog(seeded, '/repo-a', [
+      listItem('s', '/repo-a', { title: '', messageCount: 3 }),
+    ], 200);
+    expect(next.byId.get('s')?.messageCount).toBe(3);
+  });
+
   test('applyLifecycleChange is a no-op when the value matches', () => {
     const seeded = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [listItem('s', '/repo-a')], 100);
     const same = applyLifecycleChange(seeded, 's', 'idle');

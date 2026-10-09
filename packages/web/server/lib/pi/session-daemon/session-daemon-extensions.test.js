@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
+import { createExtensionBridge } from './extension-bridge.js';
 import { createSessionDaemon } from './session-daemon.js';
 
 const credential = 'a-private-daemon-credential';
@@ -184,7 +185,7 @@ describe('Pi session daemon extension bridging', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     await client.request('sessions.create', { cwd: projectDir });
-    return { client, session, endpoint, runtimeState };
+    return { client, session, endpoint, runtimeState, projectDir };
   };
 
   afterEach(async () => {
@@ -479,7 +480,7 @@ describe('Pi session daemon extension bridging', () => {
     await client.close();
   });
 
-  it('cancels pending dialogs when the owning runtime is disposed at idle timeout', async () => {
+  it('keeps pending dialogs across idle timeout and re-arms disposal after the last one settles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-idle-'));
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
@@ -487,6 +488,7 @@ describe('Pi session daemon extension bridging', () => {
     await mkdir(agentDir, { recursive: true });
     const endpoint = join(root, 'daemon.sock');
     const session = new ExtensibleFakeSession();
+    let disposeCount = 0;
 
     daemon = createSessionDaemon({
       endpoint,
@@ -498,7 +500,7 @@ describe('Pi session daemon extension bridging', () => {
         if (hooks?.createExtensionBindings) {
           await session.bindExtensions(hooks.createExtensionBindings(session));
         }
-        return { session, cwd: projectDir, async dispose() {} };
+        return { session, cwd: projectDir, async dispose() { disposeCount += 1; } };
       },
     });
     await daemon.start();
@@ -509,15 +511,144 @@ describe('Pi session daemon extension bridging', () => {
     // Idle disposal is scheduled by Pi's settled lifecycle event.
     session.emit({ type: 'agent_settled' });
     const settled = { value: 'pending' };
-    const dialogPromise = session.boundBindings.uiContext.confirm('Waiting…', 'Idle disposal will cancel this');
+    const dialogPromise = session.boundBindings.uiContext.confirm('Waiting…', 'Idle disposal must wait for this');
     dialogPromise.then(() => {
       settled.value = 'settled';
     });
     await client.next((message) => message.event === 'extension.dialog');
 
+    // The idle timer elapses while the dialog is pending: the runtime must
+    // survive and the dialog must stay unanswered.
     await new Promise((resolve) => setTimeout(resolve, 120));
-    expect(settled.value).toBe('settled');
-    await expect(dialogPromise).resolves.toBe(false);
+    expect(settled.value).toBe('pending');
+    expect(disposeCount).toBe(0);
+
+    // Answering the last dialog re-arms the idle timer and disposal happens.
+    const dialogMsg = client.events.find((message) => message.event === 'extension.dialog');
+    await client.request('extensions.respond', { requestId: dialogMsg.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(disposeCount).toBe(1);
+    await client.close();
+  });
+
+  it('tracks pending input across dialog open, answer, and timeout', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+    // Register the waiter before opening the dialog: both frames publish in
+    // the same tick, so capturing freshness afterwards would miss them.
+    const waitInput = () => {
+      const seen = client.events.length;
+      return client.next((message) => client.events.indexOf(message) >= seen && message.event === 'session.input');
+    };
+
+    const awaitInput1 = waitInput();
+    const firstPromise = ui.confirm('First?', 'Question one');
+    const dialog1 = await client.next((message) => message.event === 'extension.dialog' && message.payload?.title === 'First?');
+    const input1 = await awaitInput1;
+    expect(input1.payload.sessionId).toBe('pi-session-ext');
+    expect(input1.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(typeof input1.payload.pending.since).toBe('number');
+    // Event order is extension.dialog then session.input.
+    expect(client.events.indexOf(dialog1)).toBeLessThan(client.events.indexOf(input1));
+    const firstSince = input1.payload.pending.since;
+
+    const awaitInput2 = waitInput();
+    const secondPromise = ui.select('Second?', ['A', 'B']);
+    const dialog2 = await client.next((message) => message.event === 'extension.dialog' && message.payload?.title === 'Second?');
+    const input2 = await awaitInput2;
+    expect(input2.payload.pending).toMatchObject({ count: 2, kind: 'input', since: firstSince });
+    expect(client.events.indexOf(dialog2)).toBeLessThan(client.events.indexOf(input2));
+
+    const awaitInput3 = waitInput();
+    await client.request('extensions.respond', { requestId: dialog1.payload.requestId, confirmed: true });
+    await expect(firstPromise).resolves.toBe(true);
+    const dismiss1 = await client.next((message) => message.event === 'extension.dialog.dismiss'
+      && message.payload?.requestId === dialog1.payload.requestId);
+    expect(dismiss1.payload.reason).toBe('answered');
+    const input3 = await awaitInput3;
+    expect(input3.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(input3.payload.pending.since).toBeGreaterThanOrEqual(firstSince);
+    expect(client.events.indexOf(dismiss1)).toBeLessThan(client.events.indexOf(input3));
+
+    const awaitInput4 = waitInput();
+    await client.request('extensions.respond', { requestId: dialog2.payload.requestId, value: 'B' });
+    await expect(secondPromise).resolves.toBe('B');
+    const input4 = await awaitInput4;
+    expect(input4.payload.pending).toBeNull();
+
+    // Timeout settles through the same path and clears pending state.
+    const awaitTimeoutInput = waitInput();
+    const timeoutPromise = ui.confirm('Timeout?', 'Question two', { timeout: 20 });
+    const timeoutDialog = await client.next((message) => message.event === 'extension.dialog'
+      && message.payload?.title === 'Timeout?');
+    const timeoutInput = await awaitTimeoutInput;
+    expect(timeoutInput.payload.pending).toMatchObject({ count: 1, kind: 'input' });
+    await expect(timeoutPromise).resolves.toBe(false);
+    const timeoutDismiss = await client.next((message) => message.event === 'extension.dialog.dismiss'
+      && message.payload?.requestId === timeoutDialog.payload.requestId);
+    expect(timeoutDismiss.payload.reason).toBe('timeout');
+    // The clearing publish fires with the dismiss in the same tick, so match
+    // by position after the dismiss instead of registration freshness.
+    const timeoutCleared = await client.next((message) => message.event === 'session.input'
+      && message.payload?.pending === null
+      && client.events.indexOf(message) > client.events.indexOf(timeoutDismiss));
+    expect(timeoutCleared.payload.pending).toBeNull();
+    await client.close();
+  });
+
+  it('exposes pending input in snapshots, list rows, details, and sessions.pendingInput', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+
+    const dialogPromise = ui.confirm('Pending?', 'Someone must answer');
+    const dialog = await client.next((message) => message.event === 'extension.dialog');
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending?.count === 1);
+
+    const listed = await client.request('sessions.list', {});
+    const row = listed.result.sessions.find((item) => item.session.id === 'pi-session-ext');
+    expect(row.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+    expect(Number.isSafeInteger(row.inputState.sequence)).toBe(true);
+
+    const opened = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(opened.result.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+
+    // A reconnect snapshot carries the same authoritative pending state.
+    const watcher = connectClient(endpoint);
+    const snapshot = await watcher.authenticate();
+    expect(snapshot.payload.inputState.pending).toMatchObject({ count: 1, kind: 'input' });
+    await watcher.close();
+
+    await client.request('extensions.respond', { requestId: dialog.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending === null);
+
+    const cleared = await client.request('sessions.list', {});
+    const clearedRow = cleared.result.sessions.find((item) => item.session.id === 'pi-session-ext');
+    expect(clearedRow.inputState).toEqual({ pending: null, sequence: expect.any(Number) });
+
+    const pending = await client.request('sessions.pendingInput', {});
+    expect(pending.result.sessions).toEqual([]);
+    expect(Number.isSafeInteger(pending.result.sequence)).toBe(true);
+    expect(typeof pending.result.streamEpoch).toBe('string');
+    await client.close();
+  });
+
+  it('reports open dialogs from sessions.pendingInput', async () => {
+    const { client, session } = await startWithExtensibleSession();
+    const dialogPromise = session.boundBindings.uiContext.confirm('Pending?', 'Someone must answer');
+    await client.next((message) => message.event === 'session.input' && message.payload?.pending?.count === 1);
+    const pending = await client.request('sessions.pendingInput', {});
+    expect(pending.result.sessions).toHaveLength(1);
+    expect(pending.result.sessions[0]).toMatchObject({
+      sessionId: 'pi-session-ext',
+      pending: { count: 1, kind: 'input' },
+    });
+    expect(typeof pending.result.sessions[0].directory).toBe('string');
+    expect(Number.isSafeInteger(pending.result.sequence)).toBe(true);
+    const dialog = client.events.find((message) => message.event === 'extension.dialog');
+    await client.request('extensions.respond', { requestId: dialog.payload.requestId, confirmed: true });
+    await expect(dialogPromise).resolves.toBe(true);
     await client.close();
   });
 
@@ -549,6 +680,37 @@ describe('Pi session daemon extension bridging', () => {
       revision: 1,
     });
     expect(draftRes.result).toEqual({ accepted: false });
+    await client.close();
+  });
+
+  it('publishes live extension notifications without storing history', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
+    const ui = session.boundBindings.uiContext;
+
+    ui.notify('Indexed 12 files', 'info');
+    const notify = await client.next((message) => message.event === 'extension.notify'
+      && message.payload?.message === 'Indexed 12 files');
+    expect(notify.payload.sessionId).toBe('pi-session-ext');
+    expect(notify.payload).toEqual(expect.objectContaining({ message: 'Indexed 12 files', level: 'info' }));
+    // Live-only: no stored identity or timestamps travel on the event.
+    expect(notify.payload).not.toHaveProperty('id');
+    expect(notify.payload).not.toHaveProperty('createdAt');
+    expect(notify.payload).not.toHaveProperty('serverNow');
+
+    // Unknown levels normalize to info, matching the live event contract.
+    ui.notify('Disk almost full', 'weird-level');
+    const normalized = await client.next((message) => message.event === 'extension.notify'
+      && message.payload?.message === 'Disk almost full');
+    expect(normalized.payload.level).toBe('info');
+
+    // A device connecting later sees no notice history in its snapshot.
+    const late = connectClient(endpoint);
+    const snapshot = await late.authenticate();
+    expect(snapshot.payload).not.toHaveProperty('extensionNotices');
+    await late.close();
+
+    const opened = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(opened.result).not.toHaveProperty('extensionNotices');
     await client.close();
   });
 });
@@ -965,5 +1127,47 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     });
     expect(draftRes3.result).toEqual({ accepted: true });
     expect(ui.getEditorText()).toBe('Typing next turn');
+  });
+});
+
+describe('extension bridge pending-input failures', () => {
+  const makeBridge = (pendingInput) => {
+    const published = [];
+    const bridge = createExtensionBridge({
+      publish: (event, payload, sessionId, directory) => {
+        published.push({ event, payload, sessionId, directory });
+      },
+      resolveDirectory: async (dir) => dir,
+      redactAttachmentPaths: (value) => value,
+      redactAttachmentValues: (value) => value,
+      findRuntimeBySessionId: () => undefined,
+      getDefaultDirectory: () => '/work',
+      getSequence: () => 1,
+      protocolError: (code, message) => Object.assign(new Error(message), { code }),
+      renderExtensionMessage: undefined,
+      requestSessionShutdown: undefined,
+      pendingInput,
+    });
+    return { bridge, published };
+  };
+
+  it('still delivers and settles a dialog when the pending-input index throws', async () => {
+    const throwing = {
+      open: () => { throw new Error('index exploded'); },
+      close: () => { throw new Error('index exploded'); },
+    };
+    const { bridge, published } = makeBridge(throwing);
+    const bindings = bridge.buildExtensionBindings({
+      sessionId: 's1',
+      sessionManager: {},
+      modelRuntime: undefined,
+    });
+    const pending = bindings.uiContext.confirm('Dangerous?', 'Allow?');
+    expect(published.some((entry) => entry.event === 'extension.dialog')).toBe(true);
+    const dialog = published.find((entry) => entry.event === 'extension.dialog');
+    const resolved = await bridge.resolveExtensionDialog({ requestId: dialog.payload.requestId, confirmed: true });
+    expect(resolved).toEqual({ resolved: true });
+    await expect(pending).resolves.toBe(true);
+    expect(published.some((entry) => entry.event === 'extension.dialog.dismiss')).toBe(true);
   });
 });

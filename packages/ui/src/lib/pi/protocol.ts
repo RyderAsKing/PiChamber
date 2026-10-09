@@ -162,6 +162,9 @@ export interface PiSessionListItem {
   updatedAt: number;
   /** Live lifecycle when the session is resident in the connected daemon. */
   live?: PiSessionListLiveStatus;
+  /** Pending-input state sampled with the same daemon sequence as `live`.
+   *  Absent means unknown (older server), never authoritatively empty. */
+  inputState?: PiSessionListInputState;
 }
 
 export interface PiSessionListResponse {
@@ -209,6 +212,7 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionTitle'
   | 'extensionWorking'
   | 'extensionDraftTracked'
+  | 'inputState'
 > {
   session: PiSession;
   messages: PiMessageView[];
@@ -306,6 +310,72 @@ export type PiSessionMessagePart =
       filename?: string;
       url?: string;
     };
+
+// ---------------------------------------------------------------------------
+// Pending input ("sessions needing input")
+//
+// A session is "needing input" while the daemon holds an open blocking
+// request for it (extension `select`/`confirm`/`input`/`editor`/`form`
+// dialogs and their engine-reported equivalents). The daemon derives one
+// summary per session and publishes `session.input` whenever it changes.
+// ---------------------------------------------------------------------------
+
+/** What the oldest open request is waiting for. Unknown kinds normalize to `'input'` server-side. */
+export type PiPendingInputKind = 'input' | 'approval';
+
+/**
+ * Derived per-session pending-input summary. `null` means authoritatively
+ * nothing is pending; an absent field (older server or malformed value)
+ * means unknown and must keep the current value, never clear it.
+ */
+export interface PiPendingInputSummary {
+  /** Open request count, clamped to 1..99. */
+  count: number;
+  kind: PiPendingInputKind;
+  /** Epoch ms of the oldest open request; drives oldest-first ordering. */
+  since: number;
+}
+
+/** Pending-input state without a sequence (snapshots and details). */
+export interface PiSessionInputState {
+  pending: PiPendingInputSummary | null;
+}
+
+/** Pending-input state on a list row, sampled with the same daemon sequence as `live`. */
+export interface PiSessionListInputState extends PiSessionInputState {
+  sequence: number;
+}
+
+/** `GET /api/pi/sessions/pending-input` response: every session with
+ *  something pending across all directories. Errors are HTTP errors, never
+ *  an empty success; older servers return 404. */
+export interface PiPendingInputListResponse {
+  sessions: Array<{
+    sessionId: PiSessionId;
+    directory: string;
+    pending: PiPendingInputSummary;
+  }>;
+  /** Daemon event sequence at sampling time; gates per-session adoption. */
+  sequence: number;
+  /** Opaque stream-lifetime id of the daemon that produced this response. */
+  streamEpoch?: string;
+}
+
+/** Validate a pending-input summary. Malformed values are unknown (never
+ *  empty): callers must keep the current value instead of adopting them. */
+export const isValidPendingInputSummary = (value: unknown): value is PiPendingInputSummary => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as { count?: unknown; kind?: unknown; since?: unknown };
+  return (
+    Number.isSafeInteger(candidate.count)
+    && (candidate.count as number) >= 1
+    && (candidate.count as number) <= 99
+    && (candidate.kind === 'input' || candidate.kind === 'approval')
+    && typeof candidate.since === 'number'
+    && Number.isFinite(candidate.since)
+    && (candidate.since as number) > 0
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Session operations
@@ -686,6 +756,7 @@ export type PiEventName =
   | 'session.deleted'
   | 'session.updated'
   | 'session.tree.updated'
+  | 'session.input'
   | 'assistant.message.start'
   | 'assistant.message.delta'
   | 'assistant.message.end'
@@ -921,6 +992,15 @@ export type PiSessionInterruptedEvent = PiEventEnvelope<
   }
 >;
 
+export type PiSessionInputEvent = PiEventEnvelope<
+  'session.input',
+  {
+    pending: PiPendingInputSummary | null;
+    /** Server wall clock (epoch ms) at publish. Absent on older servers. */
+    serverNow?: number;
+  }
+>;
+
 // ---------------------------------------------------------------------------
 // Extensions
 //
@@ -1118,6 +1198,7 @@ export type PiSessionEvent =
   | PiSessionDeletedEvent
   | PiSessionUpdatedEvent
   | PiSessionTreeUpdatedEvent
+  | PiSessionInputEvent
   | PiAssistantMessageStartEvent
   | PiAssistantMessageDeltaEvent
   | PiAssistantMessageEndEvent
@@ -1158,6 +1239,7 @@ export const PI_EVENT_KINDS = [
   'session.deleted',
   'session.updated',
   'session.tree.updated',
+  'session.input',
   'assistant.message.start',
   'assistant.message.delta',
   'assistant.message.end',
