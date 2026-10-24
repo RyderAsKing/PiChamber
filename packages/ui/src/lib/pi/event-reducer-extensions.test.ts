@@ -169,16 +169,19 @@ describe("extension event reduction", () => {
 
   test("bounds notice and error feeds to the newest entries", () => {
     let state = createReducerState()
-    for (let index = 0; index < 15; index += 1) {
+    for (let index = 0; index < 55; index += 1) {
       state = applyPiEvent(state, baseEvent("extension.notify", index + 1, {
         message: `n${index}`,
         level: "info",
       })).state
     }
-    state = applyPiEvent(state, baseEvent("extension.error", 16, { source: "s", message: "boom" })).state
+    state = applyPiEvent(state, baseEvent("extension.error", 56, { source: "s", message: "boom" })).state
     const session = state.bySession.get("sess-1")!
-    expect(session.extensionNotices).toHaveLength(10)
-    expect(session.extensionNotices.at(-1)?.message).toBe("n14")
+    // Notices render as chat rows, so they keep a deeper window than the
+    // other bounded feeds.
+    expect(session.extensionNotices).toHaveLength(50)
+    expect(session.extensionNotices.at(0)?.message).toBe("n5")
+    expect(session.extensionNotices.at(-1)?.message).toBe("n54")
     expect(session.extensionErrors).toHaveLength(1)
   })
 })
@@ -474,6 +477,60 @@ describe("extension notice live feed", () => {
     expect(notice?.message).toBe("deployed")
     expect(notice?.level).toBe("info")
     expect(notice?.createdAt).toBeGreaterThanOrEqual(before)
+  })
+
+  test("adopts the daemon id and clock when present", () => {
+    const state = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, {
+      id: "notice-sess-1-7",
+      message: "deployed",
+      level: "warning",
+      createdAt: 1_700_000_000_000,
+    })).state
+    const [notice] = state.bySession.get("sess-1")!.extensionNotices
+    expect(notice?.id).toBe("notice-sess-1-7")
+    expect(notice?.level).toBe("warning")
+    expect(notice?.createdAt).toBe(1_700_000_000_000)
+  })
+
+  test("falls back to the client clock for missing or non-finite timestamps", () => {
+    const before = Date.now()
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, {
+      message: "first",
+      level: "info",
+    })).state
+    state = applyPiEvent(state, baseEvent("extension.notify", 2, {
+      id: "notice-sess-1-2",
+      message: "second",
+      level: "info",
+      createdAt: Number.NaN,
+    } as never)).state
+    const notices = state.bySession.get("sess-1")!.extensionNotices
+    expect(notices).toHaveLength(2)
+    expect(notices[0]?.createdAt).toBeGreaterThanOrEqual(before)
+    expect(notices[1]?.createdAt).toBeGreaterThanOrEqual(before)
+  })
+
+  test("a replayed daemon id is a no-op that keeps every reference", () => {
+    const state = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, {
+      id: "notice-sess-1-1",
+      message: "deployed",
+      level: "info",
+      createdAt: 1_700_000_000_000,
+    })).state
+    const before = state.bySession.get("sess-1")!
+    const result = applyPiEvent(state, baseEvent("extension.notify", 2, {
+      id: "notice-sess-1-1",
+      message: "deployed again",
+      level: "error",
+      createdAt: 1_700_000_000_001,
+    }))
+    expect(result.didApply).toBe(true)
+    expect(result.state.lastSequence.get("sess-1")).toBe(2)
+    // No duplication and no new references: the live rows are untouched.
+    expect(result.state.bySession).toBe(state.bySession)
+    expect(result.state.bySession.get("sess-1")).toBe(before)
+    expect(result.state.bySession.get("sess-1")!.extensionNotices).toBe(before.extensionNotices)
+    expect(result.state.bySession.get("sess-1")!.extensionNotices).toHaveLength(1)
   })
 
   test("snapshots and details never replace the live notice feed", () => {

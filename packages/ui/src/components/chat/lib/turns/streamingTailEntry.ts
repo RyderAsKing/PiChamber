@@ -132,16 +132,22 @@ export const buildLiveStreamingEntry = <TEntry extends StreamingTailEntry>(
             .map((record) => liveMessageById.get(record.messageId) ?? record.message)
         : [entry.turn.userMessage, ...assistantMessages];
 
-    const projection = projectTurnRecords(sourceMessages, {
+    const sourceWithNotices = [...sourceMessages, ...entry.turn.notices];
+    const projection = projectTurnRecords(sourceWithNotices, {
         showTextJustificationActivity: options.showTextJustificationActivity,
         mergeHiddenUserTurns: options.mergeHiddenUserTurns,
     });
-    const turn = projection.turns[0] ?? {
-        ...entry.turn,
-        assistantMessages,
-        assistantMessageIds: assistantMessages.map((message) => message.info.id),
-        messages: patchTurnMessages(entry.turn, assistantMessages),
-    };
+    const projected = projection.turns[0];
+    const turn = projected
+        ? (projected.notices.length > 0 || entry.turn.notices.length > 0
+            ? { ...projected, notices: entry.turn.notices }
+            : projected)
+        : {
+            ...entry.turn,
+            assistantMessages,
+            assistantMessageIds: assistantMessages.map((message) => message.info.id),
+            messages: patchTurnMessages(entry.turn, assistantMessages),
+        };
 
     return {
         ...entry,

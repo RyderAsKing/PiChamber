@@ -4,6 +4,7 @@ import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
+import type { PiExtensionNotice } from '@/lib/pi/reducers/reducerTypes';
 import type { PiErrorCode, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
@@ -197,6 +198,22 @@ export function useSessionCompaction(sessionID: string): PiCompactionInfo | null
   return usePiSessionSnapshot(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.compaction ?? null : null),
     undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+}
+
+const EMPTY_EXTENSION_NOTICES: PiExtensionNotice[] = [];
+
+/**
+ * Live-only extension notices (`ctx.ui.notify`) for one session, in arrival
+ * order. The notice overlay projects them as transcript rows; snapshots and
+ * details never replace this feed, so hydration keeps the same reference.
+ */
+export function useSessionExtensionNotices(sessionID: string): PiExtensionNotice[] {
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.extensionNotices ?? EMPTY_EXTENSION_NOTICES : EMPTY_EXTENSION_NOTICES),
+    (previous, next) => previous.length === next.length
+      && previous.every((notice, index) => notice.id === next[index]?.id),
     sessionID ? sessionTopic(sessionID) : '*',
   );
 }

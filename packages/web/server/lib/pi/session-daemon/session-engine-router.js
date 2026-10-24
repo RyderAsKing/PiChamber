@@ -11,6 +11,7 @@
  * (the daemon passes `redactAttachmentValues`).
  */
 
+import { randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 
 import {
@@ -128,15 +129,20 @@ export const createSessionEngineRouter = ({
     if (event === 'session.deleted') {
       pendingInput?.forgetSession(sessionId);
     }
-    // Engine notifications are live-only: normalize the level, cap the
-    // message, and publish through the usual redaction. An invalid notice
-    // is a silent no-op (no publish, no throw). Nothing is stored.
+    // Engine notifications are live-only: normalize the level, attach a
+    // stable server id and daemon timestamp, and publish through the usual
+    // redaction. An invalid notice is a silent no-op (no publish, no throw).
+    // Nothing is stored.
     if (event === 'extension.notify') {
       const raw = payload ?? {};
       if (typeof raw.message !== 'string' || raw.message.length === 0) return;
       publish(event, applyRedact({
+        id: typeof raw.id === 'string' && raw.id.length > 0
+          ? raw.id
+          : `notice-${sessionId}-${randomUUID()}`,
         message: raw.message.slice(0, 2000),
         level: raw.level === 'warning' || raw.level === 'error' ? raw.level : 'info',
+        createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : Date.now(),
       }), sessionId, directory);
       return;
     }

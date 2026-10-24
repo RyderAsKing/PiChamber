@@ -11,6 +11,7 @@ import { useTurnRecords } from './hooks/useTurnRecords';
 import { useOlderHistoryDemand } from './hooks/useOlderHistoryDemand';
 import { applyCompactionOverlay } from './lib/turns/applyCompactionOverlay';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
+import { applyExtensionNoticeOverlay } from './lib/turns/applyExtensionNoticeOverlay';
 import { buildStaticRenderEntries, type RenderEntry } from './lib/turns/staticRenderEntries';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
 import { revealTurnAssistantMessage } from './lib/turns/turnAssistantReveal';
@@ -20,7 +21,7 @@ import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/
 import { streamPerfCount, streamPerfMark, streamPerfMeasure } from '@/stores/utils/streamDebug';
 import type { StreamPhase } from './message/types';
 import type { PiCompactionInfo } from '@/lib/pi/types';
-import { useSessionHistoryPagination, useSessionParts } from '@/sync/sync-context';
+import { useSessionHistoryPagination, useSessionParts, useSessionExtensionNotices } from '@/sync/sync-context';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import {
     isUserShellMarkerMessage,
@@ -654,6 +655,10 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     streamPerfMark('react.message_list_render');
     streamPerfCount('ui.message_list.render');
     const { hasMoreBefore, beforeCursor, loadOlder } = useSessionHistoryPagination(sessionKey);
+    // Live-only extension notices render as inline rows. This subscription
+    // bypasses the message-record freeze above so a notice that arrives
+    // mid-turn shows immediately instead of waiting for the turn to settle.
+    const sessionNotices = useSessionExtensionNotices(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
     );
@@ -806,12 +811,13 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             confirmedAt: retryOverlay?.confirmedAt,
             fallbackTimestamp: retryOverlay?.fallbackTimestamp ?? 0,
         });
-        return applyCompactionOverlay(
+        const withCompaction = applyCompactionOverlay(
             withRetry,
             compactionOverlay?.sessionId ?? null,
             compactionOverlay?.compaction ?? null,
         );
-    }), [baseDisplayMessages, compactionOverlay, retryOverlay]);
+        return applyExtensionNoticeOverlay(withCompaction, sessionNotices, sessionKey);
+    }), [baseDisplayMessages, compactionOverlay, retryOverlay, sessionNotices, sessionKey]);
 
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,

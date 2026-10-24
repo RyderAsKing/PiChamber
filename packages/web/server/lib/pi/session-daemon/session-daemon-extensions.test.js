@@ -292,8 +292,12 @@ describe('Pi session daemon extension bridging', () => {
     ui.notify('Disk almost full', 'warning');
     const notify = await client.next((message) => message.event === 'extension.notify');
     expect(notify.payload).toMatchObject({ sessionId: 'pi-session-ext', message: 'Indexed 12 files', level: 'info' });
+    expect(notify.payload.id).toMatch(/^notice-pi-session-ext-[0-9a-f-]{36}$/);
+    expect(notify.payload.createdAt).toEqual(expect.any(Number));
     const warning = await client.next((message) => message.event === 'extension.notify' && message.payload?.level === 'warning');
     expect(warning.payload.message).toBe('Disk almost full');
+    expect(warning.payload.id).toMatch(/^notice-pi-session-ext-[0-9a-f-]{36}$/);
+    expect(warning.payload.id).not.toBe(notify.payload.id);
 
     ui.setStatus('my-ext', 'Processing…');
     const status = await client.next((message) => message.event === 'extension.status');
@@ -692,9 +696,10 @@ describe('Pi session daemon extension bridging', () => {
       && message.payload?.message === 'Indexed 12 files');
     expect(notify.payload.sessionId).toBe('pi-session-ext');
     expect(notify.payload).toEqual(expect.objectContaining({ message: 'Indexed 12 files', level: 'info' }));
-    // Live-only: no stored identity or timestamps travel on the event.
-    expect(notify.payload).not.toHaveProperty('id');
-    expect(notify.payload).not.toHaveProperty('createdAt');
+    // Live-only: the notice carries its stable server id and daemon timestamp
+    // so clients can dedupe replays and place the row where it arrived.
+    expect(notify.payload.id).toMatch(/^notice-pi-session-ext-[0-9a-f-]{36}$/);
+    expect(notify.payload.createdAt).toEqual(expect.any(Number));
     expect(notify.payload).not.toHaveProperty('serverNow');
 
     // Unknown levels normalize to info, matching the live event contract.

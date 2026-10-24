@@ -4,6 +4,8 @@ import type { AnimationHandlers, ContentChangeReason } from '@/hooks/useChatAuto
 import ChatMessage from '../ChatMessage';
 import { ExtensionMessageCard } from '../message/parts/extension/ExtensionMessageCard';
 import { ExtensionNoteRow } from '../message/parts/extension/ExtensionNoteRow';
+import { ExtensionNoticeRow } from '../message/parts/extension/ExtensionNoticeRow';
+import { EXTENSION_NOTICE_CUSTOM_TYPE } from '../lib/turns/applyExtensionNoticeOverlay';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import type { PiExtensionMessageRender } from '@/lib/pi/types';
 import {
@@ -52,6 +54,23 @@ export const MessageRow = React.memo<MessageRowProps>(
       text?: string;
       render?: PiExtensionMessageRender;
     };
+
+    // Live extension notices (`ctx.ui.notify`) render as inline rows, before
+    // the generic extension handling: their reserved custom type never
+    // carries card descriptors or JSON details.
+    if (info.role === 'extension' && info.customType === EXTENSION_NOTICE_CUSTOM_TYPE) {
+      const rawLevel = (info as { noticeLevel?: unknown }).noticeLevel;
+      const level = rawLevel === 'warning' || rawLevel === 'error' ? rawLevel : 'info';
+      return (
+        <div className="chat-message-column">
+          <ExtensionNoticeRow
+            messageId={message.info.id}
+            level={level}
+            message={typeof info.text === 'string' ? info.text : ''}
+          />
+        </div>
+      );
+    }
 
     // Extension-authored content renders through declarative UI cards when recognized,
     // or compact note rows for custom text/fallback messages. Daemon-rendered

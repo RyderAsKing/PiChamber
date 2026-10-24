@@ -39,6 +39,21 @@ export const projectTurnIndexes = (turns: TurnRecord[]): TurnProjectionResult =>
                 headerMessageId: turn.headerMessageId,
             });
         });
+
+        (turn.notices ?? []).forEach((notice) => {
+            messageToTurnId.set(notice.info.id, turn.turnId);
+            groupedMessageIds.add(notice.info.id);
+            messageMetaById.set(notice.info.id, {
+                turnId: turn.turnId,
+                messageId: notice.info.id,
+                userMessageId: turn.userMessageId,
+                isUserMessage: false,
+                isAssistantMessage: false,
+                isFirstAssistantInTurn: false,
+                isLastAssistantInTurn: false,
+                headerMessageId: turn.headerMessageId,
+            });
+        });
     });
 
     const lastTurn = turns.length > 0 ? turns[turns.length - 1] : null;
@@ -47,6 +62,9 @@ export const projectTurnIndexes = (turns: TurnRecord[]): TurnProjectionResult =>
         lastTurnMessageIds.add(lastTurn.userMessageId);
         lastTurn.assistantMessageIds.forEach((messageId) => {
             lastTurnMessageIds.add(messageId);
+        });
+        (lastTurn.notices ?? []).forEach((notice) => {
+            lastTurnMessageIds.add(notice.info.id);
         });
     }
 

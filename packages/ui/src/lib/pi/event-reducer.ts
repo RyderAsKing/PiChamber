@@ -349,9 +349,25 @@ export const applyPiEvent = (
     case 'extension.message':
       reduceExtensionMessage(session, event.directory, event.sessionId, event.payload);
       break;
-    case 'extension.notify':
+    case 'extension.notify': {
+      // A replayed notice after resync carries the daemon's stable id: skip
+      // it without touching the session so live rows keep their references.
+      // The per-session sequence still advances past the duplicate.
+      const noticeId = typeof event.payload.id === 'string' && event.payload.id.length > 0
+        ? event.payload.id
+        : undefined;
+      if (noticeId && session.extensionNotices.some((notice) => notice.id === noticeId)) {
+        const nextLastSequence = new Map(state.lastSequence);
+        nextLastSequence.set(event.sessionId, event.sequence);
+        return {
+          state: { bySession: state.bySession, lastSequence: nextLastSequence },
+          didApply: true,
+          sessionId: event.sessionId,
+        };
+      }
       reduceExtensionNotify(session, event.payload);
       break;
+    }
     case 'extension.catalog':
       reduceExtensionCatalog(session, event.payload);
       break;

@@ -35,8 +35,11 @@
  * Engine notifications: an engine publishes `extension.notify
  * { message, level }` through the host publish wrapper. The payload is
  * published live through the usual redaction (message capped at 2000
- * characters, level `'info'` unless `'warning'`/`'error'`); notices are
- * live-only and are never stored.
+ * characters, level `'info'` unless `'warning'`/`'error'`) with a stable
+ * server `id` (`notice-<sessionId>-<random UUID>`, unique across daemon
+ * restarts) and daemon `createdAt` wall clock so clients can dedupe replays
+ * and place rows where they arrived; notices are live-only and are never
+ * stored.
  */
 
 /**

@@ -62,12 +62,17 @@ export interface TurnStreamState {
     settledReason?: 'steered';
 }
 
+/** Shared empty notices list so turns without notices keep a stable reference. */
+export const EMPTY_TURN_NOTICES: ChatMessageEntry[] = [];
+
 export interface TurnRecord {
     turnId: string;
     /** A user turn that superseded an assistant which had not completed. */
     isSteering: boolean;
     userMessageId: string;
     userMessage: ChatMessageEntry;
+    /** Live extension notices (`pichamber.notice`) created while this turn was running. */
+    notices: ChatMessageEntry[];
     headerMessageId?: string;
     messages: TurnMessageRecord[];
     assistantMessageIds: string[];

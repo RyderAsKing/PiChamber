@@ -1039,6 +1039,12 @@ export type PiExtensionNotifyEvent = PiEventEnvelope<
   {
     message: string;
     level: 'info' | 'warning' | 'error';
+    /** Stable server id, unique per daemon lifetime. Absent when the daemon
+     *  predates inline notice rows; clients fall back to a local id. */
+    id?: string;
+    /** Daemon wall clock (epoch ms) at publish, on the same clock as
+     *  extension.message createdAt. Absent on older servers. */
+    createdAt?: number;
   }
 >;
 

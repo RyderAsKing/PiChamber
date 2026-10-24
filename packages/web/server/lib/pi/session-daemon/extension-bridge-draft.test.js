@@ -74,7 +74,12 @@ describe('extension bridge session directory scoping', () => {
     ui.notify('Test notification', 'warning');
     expect(published.at(-1)).toEqual({
       event: 'extension.notify',
-      payload: { message: 'Test notification', level: 'warning' },
+      payload: {
+        id: expect.stringMatching(/^notice-s1-[0-9a-f-]{36}$/),
+        message: 'Test notification',
+        level: 'warning',
+        createdAt: expect.any(Number),
+      },
       sessionId: 's1',
       directory: '/dir-b',
     });

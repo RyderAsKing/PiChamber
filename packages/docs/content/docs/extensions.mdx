@@ -17,12 +17,12 @@ On top of that compatibility layer, extensions can render rich UI directly insid
 | `pi.registerCommand()` | Invokable from the composer as `/command args` |
 | Lifecycle + agent events | Fully supported (`tool_call`, `before_agent_start`, compaction, …) |
 | `ctx.ui.select / confirm / input / editor` | Rendered as a blocking dialog in the chat; the extension waits for your answer |
-| `ctx.ui.notify` | Shown as a notification |
+| `ctx.ui.notify` | Shown as a row in the chat where it arrived; live only, not saved to the session |
 | `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
 | `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
 | `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
 | `registerMessageRenderer()` (custom message renderers) | Rendered lines shown as the message body; expanded lines behind Show more, raw text under Raw message (see below) |
-| TUI-only surfaces (`custom()`, editor manipulation, footers, themes) | Intentionally no-ops; use the GUI protocol instead |
+| TUI-only surfaces (`custom()`, `setHeader`/`setFooter`, `onTerminalInput`, `setEditorComponent`, autocomplete providers, theme switching) | Intentional no-ops; use the GUI protocol instead |
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
 
