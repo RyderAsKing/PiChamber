@@ -85,6 +85,15 @@ export interface PiReducerMessage {
 }
 
 export type PiReducerPartMap = CowMap<PiReducerMessagePart>;
+
+/** Live-only fire-and-forget extension notification (`ctx.ui.notify`).
+ *  Rendered inline in the chat where it arrived; never persisted. */
+export interface PiExtensionNotice {
+  id: string;
+  message: string;
+  level: 'info' | 'warning' | 'error';
+  createdAt: number;
+}
 export type PiReducerMutationKind = 'part' | 'structure';
 
 export const createReducerPartMap = (
@@ -140,8 +149,8 @@ export interface PiReducerSessionState {
   extensionWidgets: Map<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>;
   /** Blocking extension dialogs awaiting a user answer, in arrival order. */
   extensionDialogs: PiExtensionDialogPayload[];
-  /** Bounded feed of fire-and-forget extension notifications. */
-  extensionNotices: Array<{ id: string; message: string; level: 'info' | 'warning' | 'error'; createdAt: number }>;
+  /** Bounded feed of live-only extension notifications, rendered inline. */
+  extensionNotices: PiExtensionNotice[];
   /** Bounded feed of extension runtime errors. */
   extensionErrors: Array<{ id: string; source: string; event?: string; message: string; createdAt: number }>;
   /** Live declarative GUI panels keyed by stable id (latest wins). */

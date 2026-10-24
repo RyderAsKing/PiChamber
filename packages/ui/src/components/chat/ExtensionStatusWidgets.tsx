@@ -6,14 +6,16 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useDeviceInfo } from '@/lib/device';
 import { ExtensionsSurface } from '@/components/chat/extension/ExtensionsSurface';
 import { AnsiText } from '@/components/chat/AnsiText';
-import { stripAnsi } from '@/lib/pi/ansi';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
-import { toast } from '@/components/ui';
 
 /**
- * Live pi extension surfaces for the selected session: footer-style status
- * entries (`ctx.ui.setStatus`) and rail navigation chip.
+ * Live pi extension footer surface for the selected session: status entries
+ * (`ctx.ui.setStatus`) and the rail navigation chip for widget content.
+ *
+ * Fire-and-forget extension notices (`ctx.ui.notify`) are not toasted here;
+ * they render as inline transcript rows (see the notice overlay applied in
+ * MessageList and ExtensionNoticeRow).
  */
 
 const stripEquality = (a: unknown[], b: unknown[]): boolean => (
@@ -121,57 +123,4 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
       )}
     </div>
   );
-};
-
-/**
- * IDs of extension notices already surfaced as toasts in this tab.
- *
- * Module scope (not a per-instance ref) is load-bearing: chat branches
- * unmount/remount this component as a session moves between loading, working,
- * and settled-empty views. A notice that arrived while the working branch was
- * mounted must still be "shown" when the settled branch mounts, and a notice
- * that arrived while no branch was mounted must toast on the next mount
- * rather than being seeded away as historical. Reconnect replays can re-toast
- * a recent notice after a reload; that references a real event and is cheaper
- * than swallowing routine command confirmations. Bounded so long-lived tabs
- * cannot grow it without limit.
- */
-const shownExtensionNoticeIds = new Set<string>();
-const MAX_SHOWN_EXTENSION_NOTICE_IDS = 200;
-
-const markExtensionNoticeShown = (id: string): void => {
-  shownExtensionNoticeIds.add(id);
-  while (shownExtensionNoticeIds.size > MAX_SHOWN_EXTENSION_NOTICE_IDS) {
-    const oldest = shownExtensionNoticeIds.values().next().value;
-    if (oldest === undefined) break;
-    shownExtensionNoticeIds.delete(oldest);
-  }
-};
-
-/** Fire-and-forget ctx.ui.notify calls surface as transient toasts. */
-export const ExtensionNoticeToasts: React.FC<{ sessionId?: string | null }> = ({ sessionId }) => {
-  const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
-  const activeSessionId = sessionId ?? selectedSessionId;
-
-  const notices = usePiSessionSnapshot(
-    (state) => {
-      const session = activeSessionId ? state.reducer.bySession.get(activeSessionId) : undefined;
-      return session?.extensionNotices ?? [];
-    },
-    (a, b) => a.length === b.length && a.every((notice, index) => notice.id === b[index]?.id),
-    `session:${activeSessionId ?? ''}`,
-  );
-
-  React.useEffect(() => {
-    for (const notice of notices) {
-      if (shownExtensionNoticeIds.has(notice.id)) continue;
-      markExtensionNoticeShown(notice.id);
-      const message = stripAnsi(notice.message || 'Extension notification');
-      if (notice.level === 'error') toast.error(message);
-      else if (notice.level === 'warning') toast.warning(message);
-      else toast.info(message);
-    }
-  }, [notices]);
-
-  return null;
 };

@@ -130,6 +130,14 @@ const TurnItem: React.FC<TurnItemProps> = ({
                 renderMessage={renderMessage}
             />
 
+            {turn.notices.length > 0 ? (
+                turn.notices.map((notice) => (
+                    <React.Fragment key={notice.info.id}>
+                        {renderMessage(notice)}
+                    </React.Fragment>
+                ))
+            ) : null}
+
             {shouldShowWorkingHeader ? (
                 <TurnWorkingHeader
                     turnId={turn.turnId}

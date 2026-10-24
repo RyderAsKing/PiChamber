@@ -403,8 +403,13 @@ export const createExtensionBridge = ({
       ),
       notify: (message, level) => {
         publishForSession('extension.notify', {
+          // Random, not a counter: clients keep notices across a daemon restart,
+          // and a restarted counter would collide with them and be deduped.
+          id: `notice-${sessionId}-${randomUUID()}`,
           message: String(message ?? ''),
           ...(level === 'warning' || level === 'error' ? { level } : { level: 'info' }),
+          // Daemon wall clock, same clock as extension.message createdAt.
+          createdAt: Date.now(),
         }, sessionId);
       },
       setStatus: (key, text) => {

@@ -133,7 +133,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
                     size="xs"
                     onClick={() => setIsRenderExpanded((expanded) => !expanded)}
                     aria-expanded={isRenderExpanded}
-                    className="h-5 gap-1 px-1.5 typography-micro font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+                    className="h-5 gap-1 px-1.5 typography-micro font-medium normal-case text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
                 >
                     <Icon name={isRenderExpanded ? 'arrow-down-s' : 'arrow-right-s'} className="size-3" />
                     <span>{isRenderExpanded ? 'Show less' : 'Show more'}</span>

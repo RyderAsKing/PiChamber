@@ -14,6 +14,7 @@ import type {
 import {
   appendBoundedFeed,
   markMutation,
+  MAX_EXTENSION_NOTICE_ITEMS,
   nextExtensionFeedId,
 } from './reducerHelpers';
 import type { PiSessionId } from '../types';
@@ -116,14 +117,22 @@ export const reduceExtensionDialogDismiss = (
 
 export const reduceExtensionNotify = (
   session: PiReducerSessionState,
-  payload: { message: string; level: 'info' | 'warning' | 'error' },
+  payload: { message: string; level: 'info' | 'warning' | 'error'; id?: string; createdAt?: number },
 ): void => {
+  // Prefer the daemon's stable id so a replay after resync dedupes instead
+  // of duplicating the row. Older servers omit it; fall back to a local id.
+  const id = typeof payload.id === 'string' && payload.id.length > 0
+    ? payload.id
+    : nextExtensionFeedId();
+  if (session.extensionNotices.some((notice) => notice.id === id)) return;
   session.extensionNotices = appendBoundedFeed(session.extensionNotices, {
-    id: nextExtensionFeedId(),
+    id,
     message: payload.message,
     level: payload.level,
-    createdAt: Date.now(),
-  });
+    createdAt: typeof payload.createdAt === 'number' && Number.isFinite(payload.createdAt)
+      ? payload.createdAt
+      : Date.now(),
+  }, MAX_EXTENSION_NOTICE_ITEMS);
 };
 
 export const reduceExtensionCatalog = (

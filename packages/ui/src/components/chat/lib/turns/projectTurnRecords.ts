@@ -1,4 +1,5 @@
 import { isHiddenUserMessage } from '../../message/hiddenUserMessage';
+import { EXTENSION_NOTICE_CUSTOM_TYPE } from './applyExtensionNoticeOverlay';
 import { projectTurnActivity } from './projectTurnActivity';
 import { projectTurnIndexes } from './projectTurnIndexes';
 import { projectTurnDiffStats, projectTurnSummary } from './projectTurnSummary';
@@ -9,6 +10,7 @@ import type {
     TurnRecord,
     TurnStreamState,
 } from './types';
+import { EMPTY_TURN_NOTICES } from './types';
 
 const resolveMessageRole = (message: ChatMessageEntry): string => {
     const role = (message.info as { clientRole?: string | null; role?: string | null }).clientRole ?? message.info.role;
@@ -41,6 +43,19 @@ const getUserSummaryBody = (message: ChatMessageEntry): string | undefined => {
 
     const trimmed = summaryBody.trim();
     return trimmed.length > 0 ? summaryBody : undefined;
+};
+
+const isNoticeEntry = (message: ChatMessageEntry): boolean => {
+    const info = message.info as { role?: unknown; customType?: unknown };
+    return info.role === 'extension' && info.customType === EXTENSION_NOTICE_CUSTOM_TYPE;
+};
+
+const areSameNoticeRefs = (left: readonly ChatMessageEntry[], right: readonly ChatMessageEntry[]): boolean => {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) return false;
+    }
+    return true;
 };
 
 const createTurnMessageRecord = (message: ChatMessageEntry, order: number): TurnMessageRecord => {
@@ -217,6 +232,59 @@ const hydrateStableTurnRecords = (
     return nextTurns;
 };
 
+/**
+ * In-turn notice placement: a notice renders inside the turn whose user
+ * message most recently precedes it, only while that turn is still running
+ * (`completedAt === undefined || notice.created <= turn.completedAt`).
+ * Later notices, and notices before the first turn, stay ungrouped.
+ * Element-wise comparison keeps turn identity stable when nothing changed.
+ */
+const attachTurnNotices = (
+    turns: TurnRecord[],
+    messages: ChatMessageEntry[],
+    noticeOwnerTurnIdByNoticeId: Map<string, string>,
+): TurnRecord[] => {
+    // Turns reused from the previous projection carry their old notices, so
+    // only skip reconciliation when no turn has notices to clear.
+    if (noticeOwnerTurnIdByNoticeId.size === 0 && turns.every((turn) => turn.notices.length === 0)) {
+        return turns;
+    }
+    const turnById = new Map<string, TurnRecord>();
+    turns.forEach((turn) => turnById.set(turn.turnId, turn));
+    const bucketByTurnId = new Map<string, ChatMessageEntry[]>();
+    messages.forEach((message) => {
+        if (!isNoticeEntry(message)) return;
+        const ownerTurnId = noticeOwnerTurnIdByNoticeId.get(message.info.id);
+        if (!ownerTurnId) return;
+        const turn = turnById.get(ownerTurnId);
+        if (!turn) return;
+        if (turn.completedAt !== undefined) {
+            const created = getMessageCreatedAt(message);
+            if (created === undefined || created > turn.completedAt) return;
+        }
+        const bucket = bucketByTurnId.get(ownerTurnId);
+        if (bucket) {
+            bucket.push(message);
+        } else {
+            bucketByTurnId.set(ownerTurnId, [message]);
+        }
+    });
+    let changed = false;
+    const nextTurns = turns.map((turn) => {
+        const bucket = bucketByTurnId.get(turn.turnId);
+        const current = turn.notices ?? EMPTY_TURN_NOTICES;
+        if (!bucket) {
+            if (current.length === 0) return turn;
+            changed = true;
+            return { ...turn, notices: EMPTY_TURN_NOTICES };
+        }
+        if (areSameNoticeRefs(current, bucket)) return turn;
+        changed = true;
+        return { ...turn, notices: bucket };
+    });
+    return changed ? nextTurns : turns;
+};
+
 export const projectTurnRecords = (
     messages: ChatMessageEntry[],
     options?: Partial<ProjectTurnRecordsOptions>,
@@ -256,6 +324,7 @@ export const projectTurnRecords = (
             isSteering: false,
             userMessageId: message.info.id,
             userMessage: message,
+            notices: EMPTY_TURN_NOTICES,
             headerMessageId: undefined,
             messages: [createTurnMessageRecord(message, index)],
             assistantMessageIds: [],
@@ -299,8 +368,30 @@ export const projectTurnRecords = (
         groupedMessageIds.add(message.info.id);
     });
 
+    // Ownership pass in display order: a notice belongs to the span opened by
+    // the most recent user message (hidden-user merges resolve to the previous
+    // turn via turnByUserId). Timing is applied after hydration/steering.
+    const noticeOwnerTurnIdByNoticeId = new Map<string, string>();
+    {
+        let currentTurn: TurnRecord | null = null;
+        messages.forEach((message) => {
+            if (resolveMessageRole(message) === 'user') {
+                currentTurn = turnByUserId.get(message.info.id) ?? null;
+                return;
+            }
+            if (isNoticeEntry(message) && currentTurn) {
+                noticeOwnerTurnIdByNoticeId.set(message.info.id, currentTurn.turnId);
+            }
+        });
+    }
+
     const stableTurns = applySteeringBoundaries(hydrateStableTurnRecords(turns, effectiveOptions));
-    const projection = projectTurnIndexes(stableTurns);
+    const withNotices = attachTurnNotices(stableTurns, messages, noticeOwnerTurnIdByNoticeId);
+    withNotices.forEach((turn) => {
+        if (turn.notices.length === 0) return;
+        turn.notices.forEach((notice) => groupedMessageIds.add(notice.info.id));
+    });
+    const projection = projectTurnIndexes(withNotices);
     const ungroupedMessageIds = new Set<string>();
     messages.forEach((message) => {
         if (resolveMessageRole(message) === 'assistant') {

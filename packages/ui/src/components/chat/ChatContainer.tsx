@@ -3,7 +3,7 @@ import type { Message } from '@/lib/chat/types';
 
 import { ChatInput } from './ChatInput';
 import { ExtensionPromptDock } from './ExtensionPromptDock';
-import { ExtensionStatusStrip, ExtensionNoticeToasts } from './ExtensionStatusWidgets';
+import { ExtensionStatusStrip } from './ExtensionStatusWidgets';
 import { ComposerCommandTriggers } from './composer/ui/ComposerCommandTriggers';
 import { useUIStore } from '@/stores/useUIStore';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
@@ -25,6 +25,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { isNewSessionDraftSendPending } from '@/sync/session-ui-draft-helpers';
 import {
     useSessionAwaitingPromptEcho,
+    useSessionExtensionNotices,
     useSessionStreamingMessageId,
     usePiConnectionState,
     useSessionMessageCount,
@@ -111,6 +112,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     // Messages from sync system
     const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveSessionDirectory);
     const sessionMessages = currentSessionId ? sessionMessageRecords : EMPTY_MESSAGES;
+    // Live-only extension notices render as inline transcript rows (see the
+    // notice overlay in MessageList). They must also lift an empty transcript
+    // out of the composer-first branch below, or a notice in a fresh session
+    // would have no transcript to render in.
+    const sessionNotices = useSessionExtensionNotices(currentSessionId ?? '');
     const sessionMessageLoadState = useSessionMessageLoadState(
         currentSessionId ?? '',
         effectiveSessionDirectory,
@@ -539,7 +545,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         );
     }
 
-	if (sessionMessages.length === 0 && !sessionIsWorking && !sessionAwaitingRecovery) {
+	if (sessionMessages.length === 0 && sessionNotices.length === 0 && !sessionIsWorking && !sessionAwaitingRecovery) {
 		return (
 			// A transcript-less extension command has configured the backend but has
 			// not started the conversation. Keep the materialized session selected
@@ -566,9 +572,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 						<ChatInput scrollToBottom={scrollToBottomOnSend} />
 					</div>
 				</div>
-				{/* Extension notices (e.g. mode-switch confirmations) toast here too:
-				this branch owns sessions whose transcript is still empty. */}
-				<ExtensionNoticeToasts sessionId={currentSessionId} />
 			</div>
 		);
 	}
@@ -621,8 +624,6 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 <ExtensionStatusStrip sessionId={currentSessionId} />
                 <ChatInput scrollToBottom={scrollToBottomOnSend} />
             </div>
-
-            <ExtensionNoticeToasts sessionId={currentSessionId} />
 
             <TimelineDialog
                 open={isTimelineDialogOpen}

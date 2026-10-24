@@ -21,6 +21,7 @@ const makeTurn = (activities: TurnRecord['activityParts']): TurnRecord => ({
         info: { id: 'user-1', role: 'user' } as Message,
         parts: [],
     },
+    notices: [],
     messages: [],
     assistantMessageIds: [],
     assistantMessages: [],

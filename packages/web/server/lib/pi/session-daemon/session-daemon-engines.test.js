@@ -462,8 +462,8 @@ describe('session daemon engines', () => {
     engine.host.publish('extension.notify', { message: 'engine did a thing', level: 'weird' }, 'engine-session-1', root);
     const event = await subscriber.next((message) => message.kind === 'event' && message.event === 'extension.notify');
     expect(event.payload).toMatchObject({ sessionId: 'engine-session-1', message: 'engine did a thing', level: 'info' });
-    expect(event.payload).not.toHaveProperty('id');
-    expect(event.payload).not.toHaveProperty('createdAt');
+    expect(event.payload.id).toMatch(/^notice-engine-session-1-[0-9a-f-]{36}$/);
+    expect(event.payload.createdAt).toEqual(expect.any(Number));
     expect(event.payload).not.toHaveProperty('serverNow');
 
     // A late subscriber sees no notice history in its snapshot.

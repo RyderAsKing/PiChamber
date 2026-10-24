@@ -504,12 +504,22 @@ describe('session engine router extension notifications', () => {
     expect(published).toHaveLength(1);
     expect(published[0]).toEqual({
       event: 'extension.notify',
-      payload: { message: 'hello', level: 'warning' },
+      payload: {
+        id: expect.stringMatching(/^notice-s1-[0-9a-f-]{36}$/),
+        message: 'hello',
+        level: 'warning',
+        createdAt: expect.any(Number),
+      },
       sessionId: 's1',
       directory: '/work',
     });
     // The payload travels through the redactor; sessionId/directory never cross.
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toEqual({ message: 'hello', level: 'warning' });
+    expect(seen[0]).toEqual({
+      id: expect.stringMatching(/^notice-s1-[0-9a-f-]{36}$/),
+      message: 'hello',
+      level: 'warning',
+      createdAt: expect.any(Number),
+    });
   });
 });

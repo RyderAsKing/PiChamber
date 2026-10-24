@@ -17,12 +17,16 @@ export const emptySessionParts = (): PiReducerPartMap => createReducerPartMap();
 /** Upper bound for bounded extension feeds; oldest entries drop first. */
 export const MAX_EXTENSION_FEED_ITEMS = 10;
 
+/** Upper bound for the live extension notice feed. Notices render as chat
+ *  rows, so they keep a deeper window than the other status feeds. */
+export const MAX_EXTENSION_NOTICE_ITEMS = 50;
+
 let extensionFeedCounter = 0;
 export const nextExtensionFeedId = (): string => `ext-${Date.now().toString(36)}-${(extensionFeedCounter += 1)}`;
 
-export const appendBoundedFeed = <T>(feed: T[], item: T): T[] => {
+export const appendBoundedFeed = <T>(feed: T[], item: T, bound: number = MAX_EXTENSION_FEED_ITEMS): T[] => {
   const next = [...feed, item];
-  return next.length > MAX_EXTENSION_FEED_ITEMS ? next.slice(next.length - MAX_EXTENSION_FEED_ITEMS) : next;
+  return next.length > bound ? next.slice(next.length - bound) : next;
 };
 
 export const markMutation = (

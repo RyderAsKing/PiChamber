@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { Message, Part } from '@/lib/chat/types';
 import { applyCompactionOverlay } from './applyCompactionOverlay';
+import { EXTENSION_NOTICE_CUSTOM_TYPE } from './applyExtensionNoticeOverlay';
 import { applyRetryOverlay } from './applyRetryOverlay';
 import { projectTurnRecords } from './projectTurnRecords';
 import type { ChatMessageEntry } from './types';
@@ -337,5 +338,123 @@ describe('projectTurnRecords', () => {
         expect(turn?.activityParts.some((activity) => activity.kind === 'tool')).toBe(true);
         expect(turn?.activityParts.find((activity) => activity.kind === 'justification')).toBe(undefined);
         expect(turn?.activityParts.find((activity) => activity.messageId === 'a2')).toBe(undefined);
+    });
+});
+
+describe('projectTurnRecords extension notices', () => {
+    const noticeEntry = (id: string, createdAt: number): ChatMessageEntry => ({
+        info: {
+            id,
+            role: 'extension',
+            customType: EXTENSION_NOTICE_CUSTOM_TYPE,
+            text: `body-${id}`,
+            noticeLevel: 'info',
+            time: { created: createdAt, completed: createdAt },
+        } as unknown as Message,
+        parts: [] as Part[],
+    });
+
+    const completedAssistant = (id: string, parentID: string, createdAt: number, completedAt: number): ChatMessageEntry => {
+        const entry = createMessageEntry({ id, role: 'assistant', parentID, createdAt });
+        (entry.info as { time?: { created?: number; completed?: number } }).time = { created: createdAt, completed: completedAt };
+        return entry;
+    };
+
+    test('a notice created while the turn runs attaches to that turn', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const notice = noticeEntry('notice:n1', 150);
+        const assistant = completedAssistant('a1', 'u1', 200, 300);
+
+        const projection = projectTurnRecords([user, notice, assistant]);
+
+        expect(projection.turns).toHaveLength(1);
+        expect(projection.turns[0]?.notices.map((entry) => entry.info.id)).toEqual(['notice:n1']);
+        expect(projection.ungroupedMessageIds.has('notice:n1')).toBe(false);
+        expect(projection.indexes.messageToTurnId.get('notice:n1')).toBe('u1');
+    });
+
+    test('a notice created after the turn completed stays ungrouped', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const assistant = completedAssistant('a1', 'u1', 200, 300);
+        const notice = noticeEntry('notice:n1', 400);
+        const user2 = createMessageEntry({ id: 'u2', role: 'user', createdAt: 500 });
+
+        const projection = projectTurnRecords([user, assistant, notice, user2]);
+
+        expect(projection.turns).toHaveLength(2);
+        expect(projection.turns[0]?.notices).toHaveLength(0);
+        expect(projection.turns[1]?.notices).toHaveLength(0);
+        expect(projection.ungroupedMessageIds.has('notice:n1')).toBe(true);
+    });
+
+    test('a notice attaches while the turn has no assistant yet', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const notice = noticeEntry('notice:n1', 150);
+
+        const projection = projectTurnRecords([user, notice]);
+
+        expect(projection.turns).toHaveLength(1);
+        expect(projection.turns[0]?.notices.map((entry) => entry.info.id)).toEqual(['notice:n1']);
+        expect(projection.ungroupedMessageIds.has('notice:n1')).toBe(false);
+    });
+
+    test('a notice before any user message stays ungrouped', () => {
+        const notice = noticeEntry('notice:n1', 50);
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+
+        const projection = projectTurnRecords([notice, user]);
+
+        expect(projection.turns).toHaveLength(1);
+        expect(projection.turns[0]?.notices).toHaveLength(0);
+        expect(projection.ungroupedMessageIds.has('notice:n1')).toBe(true);
+    });
+
+    test('unchanged inputs reuse the same turns array and turn objects', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const notice = noticeEntry('notice:n1', 150);
+        const assistant = completedAssistant('a1', 'u1', 200, 300);
+        const initial = projectTurnRecords([user, notice, assistant]);
+
+        const next = projectTurnRecords([user, notice, assistant], {
+            previousProjection: initial,
+        });
+
+        expect(next.turns).toBe(initial.turns);
+        expect(next.turns[0]).toBe(initial.turns[0]);
+    });
+
+    test('adding a notice to a turn replaces only that turn object', () => {
+        const user1 = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const assistant1 = completedAssistant('a1', 'u1', 200, 300);
+        const user2 = createMessageEntry({ id: 'u2', role: 'user', createdAt: 400 });
+        const assistant2 = completedAssistant('a2', 'u2', 500, 600);
+        const initial = projectTurnRecords([user1, assistant1, user2, assistant2]);
+        expect(initial.turns[1]?.notices).toHaveLength(0);
+
+        const notice = noticeEntry('notice:n2', 450);
+        const next = projectTurnRecords([user1, assistant1, user2, notice, assistant2], {
+            previousProjection: initial,
+        });
+
+        expect(next.turns).toHaveLength(2);
+        expect(next.turns[0]).toBe(initial.turns[0]);
+        expect(next.turns[1]).not.toBe(initial.turns[1]);
+        expect(next.turns[1]?.notices.map((entry) => entry.info.id)).toEqual(['notice:n2']);
+        expect(next.ungroupedMessageIds.has('notice:n2')).toBe(false);
+    });
+
+    test('a reused turn drops notices that left the feed', () => {
+        const user = createMessageEntry({ id: 'u1', role: 'user', createdAt: 100 });
+        const notice = noticeEntry('notice:n1', 150);
+        const assistant = completedAssistant('a1', 'u1', 200, 300);
+        const initial = projectTurnRecords([user, notice, assistant]);
+        expect(initial.turns[0]?.notices).toHaveLength(1);
+
+        const next = projectTurnRecords([user, assistant], {
+            previousProjection: initial,
+        });
+
+        expect(next.turns[0]?.notices).toHaveLength(0);
+        expect(next.indexes.messageToTurnId.has('notice:n1')).toBe(false);
     });
 });
