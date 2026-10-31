@@ -137,10 +137,12 @@ let _settingsResponseRevision = 0;
 //   merging the acknowledged patch into the image and invalidating the cache.
 //
 // Before sending a debounced PUT, pending keys deep-equal to the image are
-// no-ops: when nothing remains the flush is skipped but callers still resolve
-// and observe the same `saved` state as a successful save. Write ordering for
-// changed keys is unchanged — a partially changed patch is still sent whole,
-// matching the existing PUT contract. The image (and the
+// no-ops and are dropped one by one: a partially changed patch sends only its
+// changed keys, so a key changed and reverted before the flush cannot
+// overwrite a newer value another client saved. When nothing remains the
+// flush is skipped but callers still resolve and observe the same `saved`
+// state as a successful save. Write ordering for changed keys is unchanged.
+// The image (and the
 // initial-load-succeeded marker below) reset on runtime endpoint change
 // alongside the GET cache, so one runtime's state never suppresses another's
 // writes; `invalidateSettingsCache()` still forces the next write out.
@@ -232,20 +234,32 @@ const recordAcknowledgedSettings = (changes: Partial<DesktopSettings>): void => 
   _lastSyncedSettings = merged as DesktopSettings;
 };
 
-const isPendingSettingsNoop = (changes: Partial<DesktopSettings>): boolean => {
+const isPendingSettingKeyNoop = (key: string, value: unknown): boolean => {
   if (!_lastSyncedSettings) return false;
+  if (_settingsPatchesInFlight.some((patch) => Object.prototype.hasOwnProperty.call(patch, key))) {
+    return false;
+  }
   const baseline = _lastSyncedSettings as Record<string, unknown>;
-  return Object.entries(changes).every(([key, value]) => {
-    if (_settingsPatchesInFlight.some((patch) => Object.prototype.hasOwnProperty.call(patch, key))) {
-      return false;
-    }
-    if (!Object.prototype.hasOwnProperty.call(baseline, key)) {
-      // Absent baseline key: only `undefined` (already absent after the
-      // JSON-file merge) is a no-op. `null` persists as a value — send it.
-      return value === undefined;
-    }
-    return areSettingsValuesEqual(value, baseline[key]);
-  });
+  if (!Object.prototype.hasOwnProperty.call(baseline, key)) {
+    // Absent baseline key: only `undefined` (already absent after the
+    // JSON-file merge) is a no-op. `null` persists as a value — send it.
+    return value === undefined;
+  }
+  return areSettingsValuesEqual(value, baseline[key]);
+};
+
+// Drop each field that echoes the synced image. The server replaces every
+// field it receives, so a field changed and then reverted before the flush
+// would otherwise ride along with an unrelated change and overwrite a newer
+// value saved by another client.
+const stripSyncedSettingsFields = (
+  changes: Partial<DesktopSettings>
+): Partial<DesktopSettings> => {
+  const remaining: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(changes)) {
+    if (!isPendingSettingKeyNoop(key, value)) remaining[key] = value;
+  }
+  return remaining as Partial<DesktopSettings>;
 };
 
 const captureSettingsRuntimeContext = (): SettingsRuntimeContext => ({
@@ -686,14 +700,14 @@ async function _runSettingsFlush(
       dispatchSettingsSaveState('saved');
       return;
     }
-    const changes: Partial<DesktopSettings> = snapshot;
     // Snapshotting after the initial-load wait already includes every patch
     // that arrived while waiting, preserving write order like the debounce
     // does — no separate merge step.
+    const changes = stripSyncedSettingsFields(snapshot);
 
     // Drop the network round trip when the whole patch echoes the last
     // synced image, but resolve/dispatch exactly as a successful save would.
-    if (isPendingSettingsNoop(changes)) {
+    if (Object.keys(changes).length === 0) {
       dispatchSettingsSaveState('saved');
       return;
     }
