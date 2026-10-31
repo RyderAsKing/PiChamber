@@ -599,7 +599,10 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (favoriteModels) {
     result.favoriteModels = favoriteModels;
   }
-  const hiddenModels = sanitizeModelRefs(candidate.hiddenModels, 200);
+  // Hiding every model of a large catalog (OpenRouter lists hundreds) must
+  // not push other providers' entries past the cap; the server's 2 MB
+  // document limit is the real bound.
+  const hiddenModels = sanitizeModelRefs(candidate.hiddenModels, 10_000);
   if (hiddenModels) {
     result.hiddenModels = hiddenModels;
   }

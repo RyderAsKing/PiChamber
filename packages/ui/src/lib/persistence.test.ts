@@ -12,6 +12,7 @@ import {
   getRuntimeSettingsMirrorStorageKey,
   getSettingsSaveState,
   invalidateSettingsCache,
+  refreshDesktopSettings,
   subscribeToSettingsSaveState,
   syncDesktopSettings,
   updateDesktopSettings,
@@ -722,6 +723,65 @@ describe('updateDesktopSettings', () => {
     } finally {
       stop();
     }
+  });
+
+  test('autosaves only the model selector fields that changed', async () => {
+    getWindow();
+    useUIStore.setState({
+      hiddenModels: [{ providerID: 'openai', modelID: 'gpt-5' }],
+      favoriteModels: [{ providerID: 'anthropic', modelID: 'claude-haiku-4' }],
+    });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsSave(async (changes) => {
+      saveCalls.push(changes);
+      return changes as SettingsPayload;
+    });
+    const stop = startModelPrefsAutoSave();
+
+    try {
+      useUIStore.getState().addRecentModel('google', 'gemini-pro');
+      await delay(300);
+
+      // A window holding an older hidden/favorite list must not overwrite
+      // newer values saved by another client just because it used a model.
+      expect(saveCalls).toHaveLength(1);
+      expect(Object.keys(saveCalls[0] ?? {})).toEqual(['recentModels']);
+    } finally {
+      stop();
+    }
+  });
+
+  test('a settings refresh does not revert an unsent hidden-model toggle', async () => {
+    getWindow();
+    invalidateSettingsCache();
+    resetModelPrefsState();
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    registerSettingsApi(
+      async (changes) => {
+        saveCalls.push(changes);
+        return changes as SettingsPayload;
+      },
+      async () => ({ settings: { hiddenModels: [] }, source: 'web' }),
+    );
+    const stop = startModelPrefsAutoSave();
+
+    try {
+      useUIStore.getState().toggleHiddenModel('openai', 'gpt-5');
+      await refreshDesktopSettings();
+      await delay(300);
+
+      expect(useUIStore.getState().hiddenModels).toEqual([{ providerID: 'openai', modelID: 'gpt-5' }]);
+      expect(saveCalls.at(-1)?.hiddenModels).toEqual([{ providerID: 'openai', modelID: 'gpt-5' }]);
+    } finally {
+      stop();
+    }
+  });
+
+  test('keeps hidden models from every provider past the old 200-entry cap', () => {
+    const large = Array.from({ length: 300 }, (_, index) => ({ providerID: 'openrouter', modelID: `model-${index}` }));
+    const hiddenModels = [...large, { providerID: 'openai', modelID: 'gpt-5' }];
+
+    expect(sanitizeWebSettings({ hiddenModels })?.hiddenModels).toEqual(hiddenModels);
   });
 
   test('restores session pruning settings from shared settings', async () => {

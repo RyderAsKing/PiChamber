@@ -177,7 +177,7 @@ describe('settings write suppression', () => {
     }
   });
 
-  test('sends a changed key with the existing whole-patch contract, then suppresses the repeat', async () => {
+  test('sends a changed key, then suppresses the repeat', async () => {
     switchRuntimeEndpoint({ apiBaseUrl: 'https://suppression-changed.example', runtimeKey: 'suppression-changed' });
     const saveCalls: Array<Partial<SettingsPayload>> = [];
     const autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
@@ -207,6 +207,83 @@ describe('settings write suppression', () => {
     // The acknowledged PUT joined the image, so the identical write is a no-op.
     await updateDesktopSettings({ homeDirectory: '/home/elsewhere' });
     expect(saveCalls).toHaveLength(1);
+  });
+
+  test('drops echoed keys from a mixed patch and sends only the changed ones', async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://suppression-mixed.example', runtimeKey: 'suppression-mixed' });
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    const autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
+    registerSettingsApi(
+      async (changes) => {
+        saveCalls.push(changes);
+        return changes as SettingsPayload;
+      },
+      async () => ({
+        settings: {
+          themeId: 'mixed-theme',
+          autoSaveEnabled,
+          homeDirectory: '/home/mixed',
+          lastDirectory: '/home/mixed/proj',
+          draftStartersScheduleTaskAdded: true,
+        },
+        source: 'web',
+      }),
+    );
+
+    await syncDesktopSettings();
+    expect(saveCalls).toHaveLength(0);
+
+    // `homeDirectory` is changed and reverted before the debounced flush, so
+    // it must not ride along with the real `lastDirectory` change and
+    // overwrite a newer value another client saved.
+    const first = updateDesktopSettings({ homeDirectory: '/home/elsewhere' });
+    const second = updateDesktopSettings({ homeDirectory: '/home/mixed', lastDirectory: '/home/mixed/other' });
+    await Promise.all([first, second]);
+
+    expect(saveCalls).toEqual([{ lastDirectory: '/home/mixed/other' }]);
+  });
+
+  test('keeps a key carried by an in-flight PUT in a mixed patch', async () => {
+    switchRuntimeEndpoint({ apiBaseUrl: 'https://suppression-mixed-inflight.example', runtimeKey: 'suppression-mixed-inflight' });
+    const autoSaveEnabled = useUIStore.getState().autoSaveEnabled;
+    const stored: SettingsPayload = {
+      themeId: 'mixed-inflight-theme',
+      autoSaveEnabled,
+      homeDirectory: '/home/original',
+      lastDirectory: '/home/original/proj',
+      draftStartersScheduleTaskAdded: true,
+    };
+    const saveCalls: Array<Partial<SettingsPayload>> = [];
+    const responses: Array<ReturnType<typeof deferred<SettingsPayload>>> = [];
+    registerSettingsApi(
+      (changes) => {
+        saveCalls.push(changes);
+        const response = deferred<SettingsPayload>();
+        responses.push(response);
+        return response.promise;
+      },
+      async () => ({ settings: stored, source: 'web' }),
+    );
+
+    await syncDesktopSettings();
+
+    const changed = updateDesktopSettings({ homeDirectory: '/home/changed' }, { immediate: true });
+    const restored = updateDesktopSettings(
+      { homeDirectory: '/home/original', lastDirectory: '/home/original/proj', themeId: 'next-theme' },
+      { immediate: true },
+    );
+
+    // `homeDirectory` restores a value the outstanding PUT is replacing, so it
+    // is sent; `lastDirectory` echoes the image and is dropped.
+    expect(saveCalls).toEqual([
+      { homeDirectory: '/home/changed' },
+      { homeDirectory: '/home/original', themeId: 'next-theme' },
+    ]);
+
+    responses[0].resolve({ ...stored, homeDirectory: '/home/changed' });
+    await changed;
+    responses[1].resolve({ ...stored, themeId: 'next-theme' });
+    await restored;
   });
 
   test('restoring a key while its PUT is in flight still sends', async () => {
