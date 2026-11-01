@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Pi SDK 1.4.0.** `@earendil-works/pi-coding-agent` moves from 1.0.0 to 1.4.0, which brings upstream's newer models, provider fixes, and codemode and MCP improvements. Sessions, settings, credentials, and custom models stay in place without migration. Upstream moved OpenCode models to `https://opencode.ai/inference/v1`. A `models.json` that sets the OpenCode provider `baseUrl` to the old `zen/v1` address still overrides it. Upstream renamed the Azure provider from `azure-openai-responses` to `azure`, so Azure users rename it in `auth.json`, `models.json`, and `settings.json` or log in again (`session-daemon/DOCUMENTATION.md`).
+- **Dependency refresh.** Third-party packages move to their latest release within the current major version, including React 19.3, Electron 41.10, Capacitor 8.6, Vite 7.3, Tailwind 4.3, Zod 4.6, and CodeMirror view 6.43 and language 6.13. The lockfile is regenerated, which leaves a single copy of each CodeMirror core package. `bun-pty` stays pinned at 0.4.8 because its patch is tied to that version. Major-version upgrades are left for later.
+
 ## [1.0.5] - 2026-10-19
 
 Tailscale remote access, needs-input alerts on every device, push notification removal, and composer, diff, and config fixes since 1.0.4.

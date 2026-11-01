@@ -68,9 +68,18 @@ Routing is ownership-first: a command in the engine command set (open/messages/r
 
 This module defines the authenticated session API boundary consumed by the Pi-native session UI. Session leases coordinate PiChamber daemons only: the standalone `pi` CLI runs its own foreground runtime and does not honor these leases, so concurrently editing the same session through PiChamber and `pi` remains unsupported until Pi provides compatible upstream locking. Resource configuration and richer attachment extraction remain owned by their dedicated workstreams. The session event stream is SSE over the existing authenticated runtime transport; WebSocket callers fall back to it, preserving direct and relay behavior without a second daemon listener. The public route emits named heartbeat events so native `EventSource` clients can detect a silent foreground connection, reconnect, and resume from their last accepted sequence.
 
-The Pi SDK is pinned exactly at `1.0.0`. Any Pi upgrade requires a deliberate SDK/release-note review and repeat of this module's disposable-runtime smoke validation.
+The Pi SDK is pinned exactly at `1.4.0`. Any Pi upgrade requires a deliberate SDK/release-note review and repeat of this module's disposable-runtime smoke validation.
 
 ## SDK upgrade validation
+
+The 1.0.0 to 1.4.0 upgrade needs no daemon code change and no PiChamber data migration. What changed in the SDK and how it affects PiChamber:
+
+- OpenCode endpoints. Bundled OpenCode Zen and OpenCode Go models moved from `https://opencode.ai/zen/v1` to `https://opencode.ai/inference/v1` (1.3.0). A provider-level `baseUrl` in a user's `models.json` still overrides every model of that provider, cached remote models included, so a saved `zen/v1` override keeps sending requests to the old endpoint. `sdk-upgrade.test.js` derives the override from the bundled model instead of hardcoding a URL.
+- Azure rename. The `azure-openai-responses` provider is now `azure` (1.0.3). Users rename the key in `auth.json`, `models.json`, and `settings.json` or log in again. PiChamber does not reference the provider ID.
+- Extension run start. `before_agent_start` is a union on `messageType` and also fires for `pi.sendMessage(..., { triggerTurn: true })` runs, and the session counts as busy while a run starts (1.2.0). Extensions need the change. The daemon's own prompts are unaffected: preflight, steer, and follow-up still pass `session-daemon-turn.e2e.test.js`.
+- Theme schema. Theme files load with `https://pi.dev/schemas/theme.schema.json` validation at startup (1.2.0). PiChamber's extension theme is built in memory and does not load theme files.
+- `kimi-coding` uses Chat Completions, and a `models.json` base URL override must include `/v1` (1.3.0). This is user configuration with no PiChamber change.
+- Built-in extensions. The installed CLI lists no built-in that `builtin-extensions.js` neither loads nor skips.
 
 The 0.85.1 to 1.0.0 upgrade keeps the public session runtime/services API and the v3 JSONL format. No PiChamber data migration or cache deletion is required. Existing settings, custom model definitions, labels, and extension entries remain intact.
 
