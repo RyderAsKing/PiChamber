@@ -61,7 +61,7 @@ describe('pinned SDK upgrade compatibility', () => {
       opencode: { models: [cached], checkedAt: Date.now(), lastModified: Date.UTC(2030, 0, 1), etag: '"old-catalog"' },
     }));
     const customConfig = JSON.stringify({ providers: { opencode: {
-      baseUrl: 'https://opencode.ai/zen/v1',
+      baseUrl: flash.baseUrl,
       models: [{ id: 'upgrade-custom-model', name: 'My custom model', api: 'openai-completions', contextWindow: 8192, maxTokens: 1024 }],
       modelOverrides: { 'deepseek-v4-flash': { name: 'My Flash override' } },
     } } });

@@ -13,13 +13,13 @@
   "dependencies": {
     "@pi-chamber/web": "workspace:*",
     "electron-context-menu": "^4.1.2",
-    "electron-log": "^5.4.3",
-    "electron-updater": "^6.8.3"
+    "electron-log": "^5.4.4",
+    "electron-updater": "^6.8.12"
   },
   "devDependencies": {
-    "@electron/rebuild": "^3.7.0",
-    "electron": "^41.2.1",
-    "electron-builder": "^26.0.0"
+    "@electron/rebuild": "^3.7.2",
+    "electron": "^41.10.7",
+    "electron-builder": "^26.18.1"
   },
   "trustedDependencies": [
     "electron"

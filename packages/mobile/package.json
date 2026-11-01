@@ -30,19 +30,19 @@
     "lint": "eslint \"./**/*.{ts,tsx,js,mjs}\" --config ../../eslint.config.js --ignore-pattern dist --ignore-pattern ios --ignore-pattern android"
   },
   "dependencies": {
-    "@aparajita/capacitor-secure-storage": "^8.0.0",
-    "@capacitor-mlkit/barcode-scanning": "^8.1.0",
-    "@capacitor/app": "^8.0.0",
-    "@capacitor/core": "^8.4.1",
-    "@capacitor/keyboard": "^8.0.0",
-    "@capacitor/status-bar": "^8.0.0"
+    "@aparajita/capacitor-secure-storage": "^8.0.1",
+    "@capacitor-mlkit/barcode-scanning": "^8.2.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/keyboard": "^8.0.6",
+    "@capacitor/status-bar": "^8.0.4"
   },
   "devDependencies": {
-    "@capacitor/android": "^8.4.1",
-    "@capacitor/cli": "^8.4.1",
-    "@capacitor/ios": "^8.4.1",
-    "@types/node": "^24.3.1",
-    "serve-sim": "^0.1.45",
-    "typescript": "~5.9.0"
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/ios": "^8.6.0",
+    "@types/node": "^24.19.2",
+    "serve-sim": "^0.1.48",
+    "typescript": "~5.9.3"
   }
 }
