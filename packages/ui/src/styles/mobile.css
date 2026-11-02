@@ -714,14 +714,13 @@
     padding-top: calc(var(--oc-safe-area-top, env(safe-area-inset-top, 0px)) + 0.5rem) !important;
   }
 
-  /* iOS standalone can leave 100dvh stuck at the keyboard-shrunk value after
-     the keyboard hides (WebKit doesn't reliably restore the dynamic viewport),
-     which shifted the whole shell up by that leftover. Standalone has no
-     collapsing browser chrome, so the dynamic and large viewports are the same
-     thing — pin the shell to 100lvh, which always reports full screen height.
-     Initial geometry is identical (lvh == dvh on load). */
+  /* iOS standalone can leave dvh keyboard-shrunk after dismissal, while
+     lvh can include status-bar space outside the usable layout viewport
+     (WebKit bugs 301994 / 313800). The root chain already has height: 100%;
+     inherit that layout viewport instead of either viewport unit so the
+     composer stays inside the page's overflow-hidden bounds. */
   :root:not(.oc-capacitor-app) .oc-mobile-app-shell {
-    height: 100lvh;
+    height: 100%;
   }
 
   /* Top toasts: same offset the Capacitor shell already applies — without it

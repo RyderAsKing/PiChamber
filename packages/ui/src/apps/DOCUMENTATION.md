@@ -133,3 +133,19 @@ leave the dirty editor intact.
 - A failed gesture leaves the drawer in its starting state (open or closed) with transitions cleared. No partial opacity/transform remains.
 - A failed `readTabletLayout` (e.g., `window` undefined during SSR) returns the default layout without throwing.
 - `GitView` mount failure does not affect chat; the drawer can be retried. No optimistic state is stranded.
+
+## Installed PWA viewport
+
+The standalone hosted-mobile shell fills the `html` / `body` / `#root` height
+chain with `height: 100%`. Do not size it to `100lvh`: on affected iOS versions
+the large viewport includes status-bar space outside the usable layout
+viewport, putting the composer footer below the root's clipped bottom edge.
+Using `100dvh` instead would reintroduce the keyboard-dismissal bug where WebKit
+leaves the dynamic viewport shrunk. Native Capacitor and browser-tab shells
+retain their existing viewport rules.
+
+Run `node scripts/test-pwa-layout.mjs --chrome /path/to/chrome` for browser
+geometry coverage of equal viewports, a shorter usable viewport, zero/nonzero
+bottom insets, and stale keyboard-shrunk dynamic viewport values. This simulates
+the iOS geometry using the production stylesheet; it does not validate iOS
+system chrome or hardware keyboard/focus behavior.
