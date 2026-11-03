@@ -26,7 +26,7 @@ try {
     // has recovered, so the shell must fill it without depending on dvh.
     { viewport: 874, large: 874, dynamic: 500 },
   ]) {
-    for (const safeBottom of [0, 34]) {
+    for (const safeBottom of [0, 21, 34]) {
       const css = mobileCss
         .replaceAll('(display-mode: standalone)', '(min-width: 0px)')
         .replaceAll('100lvh', `${large}px`)
@@ -56,8 +56,10 @@ form { margin: 0; flex-shrink: 0; }
 const shell = document.querySelector('.oc-mobile-app-shell').getBoundingClientRect();
 const footer = document.querySelector('.footer').getBoundingClientRect();
 const overlay = getComputedStyle(document.body, '::after');
+const card = document.querySelector('.card').getBoundingClientRect();
 document.querySelector('#result').textContent = JSON.stringify({
   viewport: innerHeight, shellHeight: shell.height, footerBottom: footer.bottom,
+  cardBottom: card.bottom, bottomGap: shell.bottom - card.bottom,
   overlayHeight: parseFloat(overlay.height) || 0
 });
 })();
@@ -66,6 +68,7 @@ document.querySelector('#result').textContent = JSON.stringify({
       assert.equal(result.viewport, viewport, 'Fixture viewport must match the requested geometry');
       console.log({ large, dynamic, safeBottom, ...result });
       assert.equal(result.shellHeight, result.viewport, 'PWA shell must fit its layout viewport');
+      assert.equal(result.bottomGap, Math.max(16, safeBottom), 'Composer must reserve the bottom safe area once, without an extra spacer');
       assert(result.footerBottom <= result.viewport - result.overlayHeight, 'Composer footer must remain above bottom clipping and overlay');
     }
   }

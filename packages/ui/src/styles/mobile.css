@@ -690,10 +690,10 @@
    needs real top/bottom safe-area room of its own. */
 @media (display-mode: standalone) {
   /* Bottom: reserve home-indicator room under the composer while the keyboard
-     is down. The generic .bottom-safe-area token is intentionally capped at
-     4px (visual tuck under the gradient overlay), which is not enough to keep
-     controls clear of the indicator / rounded corners. A fixed floor is
-     required: iOS 26 standalone reports env(safe-area-inset-bottom) as 0.
+     is down. The generic .bottom-safe-area token is capped at 12px, which is
+     not enough to keep controls clear of the indicator / rounded corners.
+     Apply the inset once, without adding another spacing allowance above it.
+     Keep a 16px floor for iOS standalone versions reporting a zero inset.
      Cancel the room while the keyboard is up (the indicator area is behind the
      keyboard, and the pinned form anchors by its offsetHeight). The class flip
      is deliberately delayed (tap race, see ChatInput onBlur) — the transition
@@ -703,7 +703,7 @@
   }
 
   :root:not(.oc-capacitor-app):not(.oc-browser-keyboard-open) .oc-mobile-composer {
-    padding-bottom: calc(0.75rem + max(16px, var(--oc-safe-area-bottom, env(safe-area-inset-bottom, 0px)))) !important;
+    padding-bottom: max(16px, var(--oc-safe-area-bottom, env(safe-area-inset-bottom, 0px))) !important;
   }
 
   /* Fullscreen composer: ChatInput pins the form to the visual viewport from

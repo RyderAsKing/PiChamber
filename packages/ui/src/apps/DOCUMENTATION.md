@@ -149,3 +149,9 @@ geometry coverage of equal viewports, a shorter usable viewport, zero/nonzero
 bottom insets, and stale keyboard-shrunk dynamic viewport values. This simulates
 the iOS geometry using the production stylesheet; it does not validate iOS
 system chrome or hardware keyboard/focus behavior.
+
+The resting standalone composer reserves the bottom safe-area inset once, with
+16px minimum clearance when the browser reports zero. It does not add the
+normal composer spacing on top of that inset. This reduces app-owned padding;
+it does not reclaim any area iOS reserves outside the web viewport. The input
+bar offset preference remains an additional explicit user-controlled margin.
