@@ -50,6 +50,7 @@
     "dev:web:server": "bun run --cwd packages/web dev:server:watch",
     "dev:web:full": "node ./scripts/dev-web-full.mjs",
     "dev:web:hmr": "node ./scripts/dev-web-hmr.mjs",
+    "screenshots": "node ./scripts/screenshots.mjs",
     "start": "bun run start:web",
     "start:web": "bun run --cwd packages/web start",
     "stop": "node packages/web/bin/cli.js stop",

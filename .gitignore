@@ -1,6 +1,9 @@
 # Agent memory
 .graymatter/
 
+# UI screenshots (scripts/screenshots.mjs)
+.screenshots/
+
 # Logs
 logs
 *.log
