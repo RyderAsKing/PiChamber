@@ -46,6 +46,18 @@ const PAGES = {
     height: 1300,
     // File headers only: the diff bodies themselves are what before/after compares.
     readyText: ['billing.ts', 'settings.ts', 'retry.ts'],
+    // After expanding: every entry has a body, none is mounting or loading, and
+    // git requests are idle. An empty body is a valid result (it is the bug
+    // #205 fixed), so this checks that loading finished, not that lines exist.
+    settledScript: `(() => {
+      const headers = [...document.querySelectorAll('[data-diff-virtual-content] > div > div > div[role="button"]')];
+      const panel = document.querySelector('[data-diff-virtual-content]');
+      return headers.length === 3
+        && headers.every((header) => header.parentElement?.parentElement?.children.length > 1)
+        && !panel.innerText.includes('Loading diff')
+        && !panel.querySelector('.h-40');
+    })()`,
+    idleRequestPrefix: '/api/git/',
   },
 };
 
@@ -106,6 +118,13 @@ class Cdp {
     this.socket = new WebSocket(url);
     this.nextId = 1;
     this.pending = new Map();
+    this.listeners = new Map();
+  }
+
+  on(method, listener) {
+    const listeners = this.listeners.get(method) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(method, listeners);
   }
 
   async connect() {
@@ -115,15 +134,29 @@ class Cdp {
     });
     this.socket.addEventListener('message', (event) => {
       const message = JSON.parse(String(event.data));
-      const pending = message.id ? this.pending.get(message.id) : null;
+      if (!message.id) {
+        for (const listener of this.listeners.get(message.method) ?? []) listener(message.params ?? {});
+        return;
+      }
+      const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
       if (message.error) pending.reject(new Error(message.error.message));
       else pending.resolve(message.result ?? {});
     });
+    // If Chrome exits mid-command, fail the run instead of hanging on a reply that never comes.
+    const failPending = (error) => {
+      for (const { reject } of this.pending.values()) reject(error);
+      this.pending.clear();
+    };
+    this.socket.addEventListener('close', () => failPending(new Error('DevTools socket closed')));
+    this.socket.addEventListener('error', () => failPending(new Error('DevTools socket error')));
   }
 
   send(method, params = {}) {
+    if (this.socket.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('DevTools socket is not open'));
+    }
     const id = this.nextId++;
     return new Promise((ok, fail) => {
       this.pending.set(id, { resolve: ok, reject: fail });
@@ -142,7 +175,34 @@ class Cdp {
   }
 }
 
-const capture = async (client, baseUrl, pageName, page, viewport, theme, outDir) => {
+// Settled = the page's DOM check holds and no matching request has been in
+// flight for IDLE_MS. Waiting on the network too matters: an entry can show
+// prefetched content while its own request is still pending.
+const IDLE_MS = 500;
+const waitForSettled = async (client, page, network, label) => {
+  let stableSince = null;
+  await waitFor(async () => {
+    const ok = network.inFlight(page.idleRequestPrefix) === 0 && await client.evaluate(page.settledScript);
+    if (!ok) {
+      stableSince = null;
+      return false;
+    }
+    stableSince ??= Date.now();
+    return Date.now() - stableSince >= IDLE_MS;
+  }, 20_000, label);
+};
+
+const trackRequests = (client) => {
+  const open = new Map();
+  client.on('Network.requestWillBeSent', ({ requestId, request }) => open.set(requestId, new URL(request.url).pathname));
+  client.on('Network.loadingFinished', ({ requestId }) => open.delete(requestId));
+  client.on('Network.loadingFailed', ({ requestId }) => open.delete(requestId));
+  return {
+    inFlight: (prefix) => (prefix ? [...open.values()].filter((path) => path.startsWith(prefix)).length : 0),
+  };
+};
+
+const capture = async (client, network, baseUrl, pageName, page, viewport, theme, outDir) => {
   await client.send('Emulation.setDeviceMetricsOverride', {
     width: viewport.width,
     height: page.height ?? viewport.height,
@@ -177,23 +237,25 @@ const capture = async (client, baseUrl, pageName, page, viewport, theme, outDir)
       45_000,
       `${pageName} content (${page.readyText.join(', ')})`,
     );
+    if (page.expandSelector) {
+      await client.evaluate(`document.querySelectorAll(${JSON.stringify(page.expandSelector)}).forEach((el) => el.click())`);
+    }
+    if (page.settledScript) {
+      await waitForSettled(client, page, network, `${pageName} settled`);
+    }
   } catch (error) {
     // Keep what the page showed so a login screen or error page is easy to diagnose.
     const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
     await writeFile(join(outDir, `${pageName}-${viewport.name}-FAILED.png`), Buffer.from(data, 'base64'));
     throw error;
   }
-  if (page.expandSelector) {
-    await client.evaluate(`document.querySelectorAll(${JSON.stringify(page.expandSelector)}).forEach((el) => el.click())`);
-  }
   await client.evaluate(`(async () => {
     const style = document.createElement('style');
     style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
     document.head.appendChild(style);
     await document.fonts.ready;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   })()`);
-  // Let pending diff requests settle so a late empty response is captured, not hidden.
-  await wait(1500);
 
   const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
   const file = join(outDir, `${pageName}-${viewport.name}-${theme}.png`);
@@ -202,12 +264,14 @@ const capture = async (client, baseUrl, pageName, page, viewport, theme, outDir)
 };
 
 // Synthetic repo: billing.ts staged only (M ), settings.ts staged then edited
-// (MM), retry.ts a staged new file (A ). Safe to rerun; it replaces <dir>.
+// (MM), retry.ts a staged new file (A ). Safe to rerun; it replaces only
+// <dir>/repo and <dir>/data and leaves anything else in <dir> alone.
 const seed = async (dir) => {
   const root = resolve(dir);
   const repo = join(root, 'repo');
   const data = join(root, 'data');
-  await rm(root, { recursive: true, force: true });
+  await rm(repo, { recursive: true, force: true });
+  await rm(data, { recursive: true, force: true });
   await mkdir(repo, { recursive: true });
   await mkdir(data, { recursive: true });
   const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
@@ -302,11 +366,13 @@ const main = async () => {
     await client.connect();
     await client.send('Page.enable');
     await client.send('Runtime.enable');
+    await client.send('Network.enable');
+    const network = trackRequests(client);
 
     for (const name of pageNames) {
       const viewports = VIEWPORTS.filter((v) => !PAGES[name].viewports || PAGES[name].viewports.includes(v.name));
       for (const viewport of viewports) {
-        const file = await capture(client, baseUrl, name, PAGES[name], viewport, theme, outDir);
+        const file = await capture(client, network, baseUrl, name, PAGES[name], viewport, theme, outDir);
         console.log(file);
       }
     }
