@@ -742,7 +742,7 @@ export const ContextPanel: React.FC = () => {
               activeTab?.id !== tab.id && 'hidden'
             )}
           >
-            <ContextPanelBrowserPane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} />
+            <ContextPanelBrowserPane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} browserRoute={tab.browserRoute} />
           </div>
         ))}
         {isOpen ? diffTabs.filter((tab) => activeTab?.id === tab.id).map((tab) => (

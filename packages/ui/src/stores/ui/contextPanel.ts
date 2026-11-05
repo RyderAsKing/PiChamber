@@ -3,6 +3,9 @@ import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
 export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'terminal' | 'pull-requests' | 'issues' | 'extensions';
+// Which network a PiChamber browser tab loads pages through: the server
+// machine's (through the preview proxy) or the device's own.
+export type BrowserRoute = 'server' | 'device';
 
 export interface ContextPanelTab {
   id: string;
@@ -14,6 +17,8 @@ export interface ContextPanelTab {
   readOnly: boolean;
   stagedDiff: boolean;
   diffScope: PendingDiffScope | null;
+  // Browser tabs only; null means "use the remembered default".
+  browserRoute: BrowserRoute | null;
   touchedAt: number;
 }
 
@@ -26,6 +31,7 @@ export interface ContextPanelTabDescriptor {
   readOnly?: boolean;
   stagedDiff?: boolean;
   diffScope?: PendingDiffScope | null;
+  browserRoute?: BrowserRoute | null;
 }
 
 export interface ContextPanelDirectoryState {
@@ -122,6 +128,10 @@ export const normalizeContextTabLabel = (value: string | null | undefined): stri
     : trimmed;
 };
 
+export const normalizeBrowserRoute = (value: unknown): BrowserRoute | null => {
+  return value === 'server' || value === 'device' ? value : null;
+};
+
 export const normalizePendingDiffScope = (value: unknown): PendingDiffScope | null => {
   return value === 'all' || value === 'working' || value === 'staged' || value === 'turn' || value === 'branch'
     ? value
@@ -183,6 +193,7 @@ export const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): Co
     readOnly: descriptor.readOnly === true,
     stagedDiff: descriptor.stagedDiff === true,
     diffScope: normalizePendingDiffScope(descriptor.diffScope) ?? (descriptor.stagedDiff === true ? 'staged' : 'working'),
+    browserRoute: descriptor.mode === 'browser' ? normalizeBrowserRoute(descriptor.browserRoute) : null,
     touchedAt: Date.now(),
   };
 };
@@ -229,6 +240,7 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       readOnly?: unknown;
       stagedDiff?: unknown;
       diffScope?: unknown;
+      browserRoute?: unknown;
       touchedAt?: unknown;
     };
 
@@ -275,6 +287,7 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       diffScope:
         normalizePendingDiffScope(candidate.diffScope) ??
         (candidate.stagedDiff === true ? 'staged' : 'working'),
+      browserRoute: candidate.mode === 'browser' ? normalizeBrowserRoute(candidate.browserRoute) : null,
       touchedAt:
         typeof candidate.touchedAt === 'number' && Number.isFinite(candidate.touchedAt)
           ? candidate.touchedAt
@@ -350,6 +363,7 @@ export const upsertContextPanelTab = (
                 sessionTitleFallback: nextTab.sessionTitleFallback || tab.sessionTitleFallback,
                 stagedDiff: nextTab.stagedDiff,
                 diffScope: nextTab.diffScope,
+                browserRoute: nextTab.browserRoute ?? tab.browserRoute,
                 readOnly: nextTab.readOnly,
                 touchedAt: Date.now(),
               }

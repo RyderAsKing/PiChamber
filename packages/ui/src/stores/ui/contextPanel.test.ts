@@ -10,7 +10,9 @@ import {
   normalizeContextTabLabel,
   normalizeContextTargetPath,
   normalizePendingDiffScope,
+  normalizeBrowserRoute,
   reorderContextPanelTabs,
+  sanitizeContextPanelTabs,
   resolveSharedContextPanelWidth,
   touchContextPanelState,
   upsertContextPanelTab,
@@ -181,6 +183,38 @@ describe('contextPanel domain logic', () => {
 
       const clamped = clampContextPanelRoots(roots, 2);
       expect(Object.keys(clamped)).toEqual(['/dir2', '/dir3']);
+    });
+  });
+  describe('browser route', () => {
+    test('normalizes only known routes', () => {
+      expect(normalizeBrowserRoute('server')).toBe('server');
+      expect(normalizeBrowserRoute('device')).toBe('device');
+      expect(normalizeBrowserRoute('proxy')).toBeNull();
+      expect(normalizeBrowserRoute(undefined)).toBeNull();
+    });
+
+    test('keeps a route only on browser tabs', () => {
+      expect(createContextPanelTab({ mode: 'browser', dedupeKey: 'desktop-browser', browserRoute: 'device' }).browserRoute).toBe('device');
+      expect(createContextPanelTab({ mode: 'preview', targetPath: 'http://localhost:3000', browserRoute: 'device' }).browserRoute).toBeNull();
+    });
+
+    test('an explicit route replaces the tab route and a missing one keeps it', () => {
+      const state = touchContextPanelState(undefined);
+      const opened = upsertContextPanelTab(state, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com', browserRoute: 'device' });
+      const reopened = upsertContextPanelTab(opened, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.org' });
+      expect(reopened.tabs[0]?.browserRoute).toBe('device');
+      const forced = upsertContextPanelTab(reopened, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'http://localhost:19432', browserRoute: 'server' });
+      expect(forced.tabs[0]?.browserRoute).toBe('server');
+      expect(forced.tabs[0]?.targetPath).toBe('http://localhost:19432');
+    });
+
+    test('restores a persisted route and drops malformed values', () => {
+      const [valid, malformed] = sanitizeContextPanelTabs([
+        { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://a.example', browserRoute: 'server' },
+        { mode: 'browser', dedupeKey: 'other-browser', targetPath: 'https://b.example', browserRoute: 'tunnel' },
+      ]);
+      expect(valid?.browserRoute).toBe('server');
+      expect(malformed?.browserRoute).toBeNull();
     });
   });
 });

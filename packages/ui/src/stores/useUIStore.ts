@@ -20,6 +20,8 @@ import {
   type ContextPanelTab,
   type ContextPanelTabDescriptor,
   type ContextPanelDirectoryState,
+  type BrowserRoute,
+  normalizeBrowserRoute,
   normalizeContextPanelDirectoryKey,
   clampContextPanelWidth,
   normalizeContextTargetPath,
@@ -203,7 +205,11 @@ interface UIStore {
   openContextFileAtLine: (directory: string, filePath: string, line: number, column?: number) => void;
   openContextOverview: (directory: string) => void;
   openContextPreview: (directory: string, url: string) => void;
-  openContextBrowser: (directory: string, url?: string) => void;
+  openContextBrowser: (directory: string, url?: string, options?: { route?: BrowserRoute }) => void;
+  // Last route picked in a browser tab; new tabs start with it. null means
+  // the runtime default (see resolveDefaultBrowserRoute).
+  browserRoutePreference: BrowserRoute | null;
+  setContextPanelBrowserRoute: (directory: string, tabID: string, route: BrowserRoute) => void;
   setContextPanelTabTargetPath: (directory: string, tabID: string, targetPath: string) => void;
   setActiveContextPanelTab: (directory: string, tabID: string) => void;
   reorderContextPanelTabs: (directory: string, activeTabID: string, overTabID: string) => void;
@@ -327,6 +333,7 @@ export const useUIStore = create<UIStore>()(
         sidebarWidth: LEFT_SIDEBAR_MIN_WIDTH,
         hasManuallyResizedLeftSidebar: false,
         contextPanelByDirectory: {},
+        browserRoutePreference: null,
         contextRailOrder: [],
         contextEditorTreeVisible: true,
         contextEditorTreeWidth: 240,
@@ -635,7 +642,7 @@ export const useUIStore = create<UIStore>()(
             label,
           });
         },
-        openContextBrowser: (directory, url = '') => {
+        openContextBrowser: (directory, url = '', options) => {
           const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
           if (!normalizedDirectory) return;
           const targetUrl = typeof url === 'string' && url.trim().length > 0 ? url.trim() : '';
@@ -644,6 +651,30 @@ export const useUIStore = create<UIStore>()(
             targetPath: targetUrl,
             dedupeKey: 'desktop-browser',
             label: 'Browser',
+            browserRoute: options?.route ?? null,
+          });
+        },
+
+        setContextPanelBrowserRoute: (directory, tabID, route) => {
+          const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
+          const normalizedTabID = (tabID || '').trim();
+          const nextRoute = normalizeBrowserRoute(route);
+          if (!normalizedDirectory || !normalizedTabID || !nextRoute) return;
+          set((state) => {
+            const current = state.contextPanelByDirectory[normalizedDirectory];
+            if (!current) return { browserRoutePreference: nextRoute };
+            return {
+              browserRoutePreference: nextRoute,
+              contextPanelByDirectory: {
+                ...state.contextPanelByDirectory,
+                [normalizedDirectory]: {
+                  ...current,
+                  tabs: current.tabs.map((tab) => (
+                    tab.id === normalizedTabID && tab.mode === 'browser' ? { ...tab, browserRoute: nextRoute } : tab
+                  )),
+                },
+              },
+            };
           });
         },
 
@@ -1726,6 +1757,7 @@ export const useUIStore = create<UIStore>()(
           isSidebarOpen: state.isSidebarOpen,
           sidebarWidth: state.sidebarWidth,
           contextPanelByDirectory: state.contextPanelByDirectory,
+          browserRoutePreference: state.browserRoutePreference,
           contextRailOrder: state.contextRailOrder,
           contextEditorTreeVisible: state.contextEditorTreeVisible,
           contextEditorTreeWidth: state.contextEditorTreeWidth,
