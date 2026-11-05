@@ -30,6 +30,7 @@ import {
   applyHunk,
   getDiff,
   getFileDiff,
+  resolveDiffSource,
 } from './service.js';
 
 // ---------------------------------------------------------------------------
@@ -332,6 +333,98 @@ describe('applyHunk', () => {
 
     const staged = (await git.raw(['show', `:${filePath}`])).replace(/\r\n/g, '\n');
     expect(staged).toBe(makeFile('TOP', 'line20'));
+  });
+});
+
+describe.skipIf(!canRunGit())('getDiff sources', () => {
+  const createCommittedRepo = async () => {
+    const { tmpDir, git } = await createTempRepo();
+    await writeFile(tmpDir, 'file.txt', ORIGINAL_FILE);
+    await git.add('file.txt');
+    await git.commit('Initial');
+    return { tmpDir, git };
+  };
+
+  it('shows staged-only changes for the head source', async () => {
+    const { tmpDir, git } = await createCommittedRepo();
+    await writeFile(tmpDir, 'file.txt', makeFile('TOP', 'line20'));
+    await git.add('file.txt');
+
+    expect(await getDiff(tmpDir, { path: 'file.txt' })).toBe('');
+    const diff = await getDiff(tmpDir, { path: 'file.txt', source: 'head' });
+    expect(diff).toContain('-line1');
+    expect(diff).toContain('+TOP');
+  });
+
+  it('combines staged and unstaged changes for the head source', async () => {
+    const { tmpDir, git } = await createCommittedRepo();
+    await writeFile(tmpDir, 'file.txt', makeFile('TOP', 'line20'));
+    await git.add('file.txt');
+    await writeFile(tmpDir, 'file.txt', EDITED_FILE);
+
+    const unstaged = await getDiff(tmpDir, { path: 'file.txt', source: 'unstaged' });
+    expect(unstaged).not.toContain('+TOP');
+    expect(unstaged).toContain('+BOTTOM');
+
+    const staged = await getDiff(tmpDir, { path: 'file.txt', source: 'staged' });
+    expect(staged).toContain('+TOP');
+    expect(staged).not.toContain('+BOTTOM');
+
+    const head = await getDiff(tmpDir, { path: 'file.txt', source: 'head' });
+    expect(head).toContain('+TOP');
+    expect(head).toContain('+BOTTOM');
+  });
+
+  it('shows a staged new file with later edits as a whole new file', async () => {
+    const { tmpDir, git } = await createCommittedRepo();
+    await writeFile(tmpDir, 'new.txt', 'first\n');
+    await git.add('new.txt');
+    await writeFile(tmpDir, 'new.txt', 'first\nsecond\n');
+
+    const diff = await getDiff(tmpDir, { path: 'new.txt', source: 'head' });
+    expect(diff).toContain('new file mode');
+    expect(diff).toContain('+first');
+    expect(diff).toContain('+second');
+  });
+
+  it('shows untracked and deleted files for the head source', async () => {
+    const { tmpDir } = await createCommittedRepo();
+    await writeFile(tmpDir, 'untracked.txt', 'hello\n');
+    fs.rmSync(path.join(tmpDir, 'file.txt'));
+
+    expect(await getDiff(tmpDir, { path: 'untracked.txt', source: 'head' })).toContain('+hello');
+    const deleted = await getDiff(tmpDir, { path: 'file.txt', source: 'head' });
+    expect(deleted).toContain('deleted file mode');
+    expect(deleted).toContain('-line1');
+  });
+
+  it('diffs against the empty tree before the first commit', async () => {
+    const { tmpDir, git } = await createTempRepo();
+    await writeFile(tmpDir, 'file.txt', 'staged\n');
+    await git.add('file.txt');
+    await writeFile(tmpDir, 'file.txt', 'staged\nedited\n');
+
+    const diff = await getDiff(tmpDir, { path: 'file.txt', source: 'head' });
+    expect(diff).toContain('+staged');
+    expect(diff).toContain('+edited');
+  });
+
+  it('keeps staged: true as the staged source', async () => {
+    const { tmpDir, git } = await createCommittedRepo();
+    await writeFile(tmpDir, 'file.txt', makeFile('TOP', 'line20'));
+    await git.add('file.txt');
+
+    expect(await getDiff(tmpDir, { path: 'file.txt', staged: true })).toContain('+TOP');
+  });
+
+  it('rejects a repeated source key instead of falling back', () => {
+    expect(() => resolveDiffSource({ source: ['head', 'staged'] })).toThrow('Invalid diff source');
+    expect(resolveDiffSource({ source: undefined, staged: true })).toBe('staged');
+  });
+
+  it('rejects an unknown source', async () => {
+    const { tmpDir } = await createCommittedRepo();
+    await expect(getDiff(tmpDir, { path: 'file.txt', source: 'bogus' })).rejects.toThrow('Invalid diff source');
   });
 });
 

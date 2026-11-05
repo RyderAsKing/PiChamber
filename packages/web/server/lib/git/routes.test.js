@@ -11,6 +11,8 @@ const gitLibraries = {
   createWorktree: vi.fn(),
   removeWorktree: vi.fn(),
   getWorktreeBootstrapStatus: vi.fn(),
+  getDiff: vi.fn(),
+  resolveDiffSource: vi.fn(),
 };
 
 vi.mock('./index.js', () => ({
@@ -24,6 +26,8 @@ vi.mock('./index.js', () => ({
   createWorktree: gitLibraries.createWorktree,
   removeWorktree: gitLibraries.removeWorktree,
   getWorktreeBootstrapStatus: gitLibraries.getWorktreeBootstrapStatus,
+  getDiff: gitLibraries.getDiff,
+  resolveDiffSource: gitLibraries.resolveDiffSource,
 }));
 
 const { registerGitRoutes } = await import('./routes.js');
@@ -382,5 +386,81 @@ describe('git routes status discovery', () => {
     expect(gitLibraries.isGitRepository).toHaveBeenCalledWith('/opened/git-project');
     expect(gitLibraries.getStatus).toHaveBeenCalledWith('/opened/git-project', { mode: undefined });
     expect(response.body).toMatchObject({ current: 'main' });
+  });
+});
+
+describe('git routes diff', () => {
+  beforeEach(() => {
+    gitLibraries.getDiff.mockReset();
+    gitLibraries.resolveDiffSource.mockReset();
+  });
+
+  it('passes the resolved diff source to getDiff', async () => {
+    gitLibraries.resolveDiffSource.mockReturnValue('head');
+    gitLibraries.getDiff.mockResolvedValue('patch');
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('GET', '/api/git/diff')(
+      { query: { directory: '/repo', path: 'file.txt', source: 'head', context: '5' } },
+      response,
+    );
+
+    expect(gitLibraries.resolveDiffSource).toHaveBeenCalledWith({ source: 'head', staged: false });
+    expect(gitLibraries.getDiff).toHaveBeenCalledWith('/repo', { path: 'file.txt', source: 'head', contextLines: 5 });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ diff: 'patch' });
+  });
+
+  it('keeps staged=true working for older clients', async () => {
+    gitLibraries.resolveDiffSource.mockReturnValue('staged');
+    gitLibraries.getDiff.mockResolvedValue('');
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+
+    await getRoute('GET', '/api/git/diff')(
+      { query: { directory: '/repo', path: 'file.txt', staged: 'true' } },
+      createMockResponse(),
+    );
+
+    expect(gitLibraries.resolveDiffSource).toHaveBeenCalledWith({ source: undefined, staged: true });
+    expect(gitLibraries.getDiff).toHaveBeenCalledWith('/repo', { path: 'file.txt', source: 'staged', contextLines: 3 });
+  });
+
+  it('passes a repeated source key through so the resolver can reject it', async () => {
+    gitLibraries.resolveDiffSource.mockImplementation(() => {
+      throw new Error('Invalid diff source: head,staged');
+    });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('GET', '/api/git/diff')(
+      { query: { directory: '/repo', path: 'file.txt', source: ['head', 'staged'] } },
+      response,
+    );
+
+    expect(gitLibraries.resolveDiffSource).toHaveBeenCalledWith({ source: ['head', 'staged'], staged: false });
+    expect(response.statusCode).toBe(400);
+    expect(gitLibraries.getDiff).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid source with 400 without running git', async () => {
+    gitLibraries.resolveDiffSource.mockImplementation(() => {
+      throw new Error('Invalid diff source: bogus');
+    });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('GET', '/api/git/diff')(
+      { query: { directory: '/repo', path: 'file.txt', source: 'bogus' } },
+      response,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({ error: 'Invalid diff source: bogus' });
+    expect(gitLibraries.getDiff).not.toHaveBeenCalled();
   });
 });

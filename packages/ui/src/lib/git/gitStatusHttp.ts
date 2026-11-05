@@ -271,11 +271,13 @@ export async function getGitDiff(directory: string, options: GetGitDiffOptions):
   if (!path) {
     throw new Error('path is required to fetch git diff');
   }
+  const source = options.source ?? (staged ? 'staged' : 'unstaged');
 
   const response = await runtimeFetch(
     buildUrl(`${API_BASE}/diff`, directory, {
       path,
-      staged: staged ? 'true' : undefined,
+      source,
+      staged: source === 'staged' ? 'true' : undefined,
       context: contextLines,
     })
   );

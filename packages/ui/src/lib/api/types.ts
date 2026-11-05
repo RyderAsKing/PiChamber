@@ -137,9 +137,19 @@ export interface GitDiffResponse {
   diff: string;
 }
 
+/**
+ * Which change set a file diff shows:
+ * - `unstaged`: index → working tree (`git diff`)
+ * - `staged`: HEAD → index (`git diff --cached`)
+ * - `head`: HEAD → working tree, staged and unstaged together (`git diff HEAD`)
+ */
+export type GitDiffSource = 'unstaged' | 'staged' | 'head';
+
 export interface GetGitDiffOptions {
   path: string;
+  /** Legacy alias for `source: 'staged'`; `source` wins when both are set. */
   staged?: boolean;
+  source?: GitDiffSource;
   contextLines?: number;
 }
 
