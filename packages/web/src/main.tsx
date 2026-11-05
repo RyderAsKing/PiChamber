@@ -3,6 +3,7 @@ import { registerSW } from 'virtual:pwa-register';
 
 import type { RuntimeAPIs } from '@pichamber/ui/lib/api/types';
 import { resolveHostedSurface, type HostedSurface } from '@pichamber/ui/lib/runtimeSurface';
+import { installStandaloneViewportInsets } from '@pichamber/ui/lib/standaloneViewportInsets';
 import '@pichamber/ui/index.css';
 import '@pichamber/ui/styles/fonts';
 
@@ -14,6 +15,7 @@ declare global {
 }
 
 const hostedSurface: HostedSurface = resolveHostedSurface();
+installStandaloneViewportInsets();
 
 type PrerenderingDocument = Document & {
   prerendering?: boolean;

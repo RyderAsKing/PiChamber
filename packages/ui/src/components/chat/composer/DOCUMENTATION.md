@@ -224,6 +224,15 @@ refusing programmatic focus outside a gesture, WebKit leaving the layout
 viewport panned after the keyboard hides, overlay chains handing off through a
 frame where nothing is open.
 
+Installed iOS Home Screen apps can get a web view that ends 62px above the
+screen bottom (WebKit bug 313800). iOS draws that strip itself and it already
+covers the home indicator, but `env(safe-area-inset-bottom)` still reports
+34px. `lib/standaloneViewportInsets.ts`, installed from the web entrypoint,
+publishes the measured strip as `--oc-viewport-bottom-strip`, and `mobile.css`
+subtracts it from `--oc-safe-area-bottom`, which leaves the composer's 16px
+floor. The strip itself cannot be reclaimed from CSS or JS.
+`scripts/test-pwa-layout.mjs` covers this geometry.
+
 **Every timeout and `flushSync` in them has a reason recorded next to it, and
 none of them is verifiable outside a real device.** Change them only against
 hardware.
