@@ -291,7 +291,7 @@ export function registerGitRoutes(app) {
   });
 
   app.get('/api/git/diff', async (req, res) => {
-    const { getDiff } = await getGitLibraries();
+    const { getDiff, resolveDiffSource } = await getGitLibraries();
     try {
       const directory = req.query.directory;
       if (!directory) {
@@ -303,12 +303,20 @@ export function registerGitRoutes(app) {
         return res.status(400).json({ error: 'path parameter is required' });
       }
 
-      const staged = req.query.staged === 'true';
+      let source;
+      try {
+        source = resolveDiffSource({
+          source: typeof req.query.source === 'string' ? req.query.source : undefined,
+          staged: req.query.staged === 'true',
+        });
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
       const context = req.query.context ? parseInt(String(req.query.context), 10) : undefined;
 
       const diff = await getDiff(directory, {
         path,
-        staged,
+        source,
         contextLines: Number.isFinite(context) ? context : 3,
       });
 

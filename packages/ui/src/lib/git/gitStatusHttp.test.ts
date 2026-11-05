@@ -17,6 +17,7 @@ import {
   checkIsGitRepository,
   createGitWorktree,
   deleteGitWorktree,
+  getGitDiff,
   listGitWorktrees,
 } from './gitStatusHttp';
 import { getRuntimeKey } from '../runtime-switch';
@@ -70,6 +71,42 @@ beforeEach(() => {
 });
 
 const afterEachRestore = () => restoreMocks();
+
+describe('getGitDiff source', () => {
+  const requestedQuery = async (options: Parameters<typeof getGitDiff>[1]) => {
+    const calls = installFetchMock(() => jsonResponse({ diff: '' }));
+    try {
+      await getGitDiff('/repo', options);
+      return new URL(calls[0].url, 'http://localhost').searchParams;
+    } finally {
+      afterEachRestore();
+    }
+  };
+
+  test('requests the HEAD to working tree diff', async () => {
+    const query = await requestedQuery({ path: 'file.txt', source: 'head' });
+    expect(query.get('source')).toBe('head');
+    expect(query.get('staged')).toBeNull();
+  });
+
+  test('sends staged=true for the staged source so older servers keep working', async () => {
+    const query = await requestedQuery({ path: 'file.txt', source: 'staged' });
+    expect(query.get('source')).toBe('staged');
+    expect(query.get('staged')).toBe('true');
+  });
+
+  test('keeps the legacy staged flag', async () => {
+    const query = await requestedQuery({ path: 'file.txt', staged: true });
+    expect(query.get('source')).toBe('staged');
+    expect(query.get('staged')).toBe('true');
+  });
+
+  test('defaults to the unstaged diff', async () => {
+    const query = await requestedQuery({ path: 'file.txt' });
+    expect(query.get('source')).toBe('unstaged');
+    expect(query.get('staged')).toBeNull();
+  });
+});
 
 describe('checkIsGitRepository cache', () => {
   test('positive results are served from cache', async () => {

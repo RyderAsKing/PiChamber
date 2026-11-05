@@ -2243,7 +2243,40 @@ export async function getStatus(directory, options = {}) {
   }
 }
 
-export async function getDiff(directory, { path: filePath, staged = false, contextLines = 3 } = {}) {
+const DIFF_SOURCES = new Set(['unstaged', 'staged', 'head']);
+
+const EMPTY_TREE_BY_OBJECT_FORMAT = {
+  sha1: '4b825dc642cb6eb9a060e54bf8d69288fbee4904',
+  sha256: '6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321',
+};
+
+export function resolveDiffSource({ source, staged = false } = {}) {
+  if (source === undefined || source === null || source === '') {
+    return staged ? 'staged' : 'unstaged';
+  }
+  if (!DIFF_SOURCES.has(source)) {
+    throw new Error(`Invalid diff source: ${source}`);
+  }
+  return source;
+}
+
+const resolveHeadDiffBase = async (git) => {
+  const head = await git
+    .raw(['rev-parse', '--verify', '--quiet', 'HEAD'])
+    .then((value) => String(value || '').trim())
+    .catch(() => '');
+  if (head) {
+    return 'HEAD';
+  }
+  const objectFormat = await git
+    .raw(['rev-parse', '--show-object-format'])
+    .then((value) => String(value || '').trim())
+    .catch(() => 'sha1');
+  return EMPTY_TREE_BY_OBJECT_FORMAT[objectFormat] ?? EMPTY_TREE_BY_OBJECT_FORMAT.sha1;
+};
+
+export async function getDiff(directory, { path: filePath, staged = false, source, contextLines = 3 } = {}) {
+  const diffSource = resolveDiffSource({ source, staged });
   const { directoryPath, directoryGit, repoRoot, git } = await createRepositoryGitContext(directory);
 
   try {
@@ -2254,8 +2287,10 @@ export async function getDiff(directory, { path: filePath, staged = false, conte
       args.push(`-U${Math.max(0, contextLines)}`);
     }
 
-    if (staged) {
+    if (diffSource === 'staged') {
       args.push('--cached');
+    } else if (diffSource === 'head') {
+      args.push(await resolveHeadDiffBase(git));
     }
 
     if (fileContext) {
@@ -2267,7 +2302,7 @@ export async function getDiff(directory, { path: filePath, staged = false, conte
       return diff;
     }
 
-    if (staged) {
+    if (diffSource === 'staged') {
       return diff;
     }
 
