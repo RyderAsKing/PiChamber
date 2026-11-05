@@ -88,8 +88,8 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   const [isLoading, setIsLoading] = React.useState(false);
   const [fileAction, setFileAction] = React.useState<FileDiffAction | null>(null);
   const [forceRenderLarge, setForceRenderLarge] = React.useState(false);
-  const [localDiffData, setLocalDiffData] = React.useState<DiffData | null>(null);
-  const [stagedDiffData, setStagedDiffData] = React.useState<DiffData | null>(null);
+  // Tagged with its source so a scope switch never renders the previous source's patch.
+  const [loadedDiff, setLoadedDiff] = React.useState<{ source: GitDiffSource; data: DiffData } | null>(null);
   const lastDiffRequestRef = React.useRef<string | null>(null);
   const sectionRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -100,12 +100,11 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
 
   const diffData = React.useMemo<DiffData | null>(() => {
     if (initialDiffData) return initialDiffData;
-    if (diffSource === 'staged') return stagedDiffData;
-    if (localDiffData) return localDiffData;
+    if (loadedDiff?.source === diffSource) return loadedDiff.data;
     // The shared cache holds HEAD → working tree contents, so it only matches the head source.
     if (diffSource !== 'head' || !cachedDiff) return null;
     return { original: cachedDiff.original, modified: cachedDiff.modified, isBinary: cachedDiff.isBinary, contextMode: 'full' };
-  }, [cachedDiff, diffSource, initialDiffData, localDiffData, stagedDiffData]);
+  }, [cachedDiff, diffSource, initialDiffData, loadedDiff]);
 
   const diffDataMatchesContextMode = diffData?.contextMode === desiredContextMode;
 
@@ -123,12 +122,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   }, [file.path, onSelect]);
 
   React.useEffect(() => {
-    if (diffSource === 'staged') {
-      setStagedDiffData(null);
-    } else {
-      setLocalDiffData(null);
-    }
-
+    setLoadedDiff(null);
     setDiffLoadError(null);
     lastDiffRequestRef.current = null;
   }, [diffSource, fileStatusKey]);
@@ -166,11 +160,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
 
         if ('diff' in response) {
           const nextDiff = createTextDiffDataFromPatch(file.path, response.diff, desiredContextMode);
-          if (diffSource === 'staged') {
-            setStagedDiffData(nextDiff);
-          } else {
-            setLocalDiffData(nextDiff);
-          }
+          setLoadedDiff({ source: diffSource, data: nextDiff });
         } else {
           const nextDiff = {
             original: response.original ?? '',
@@ -178,12 +168,10 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
             isBinary: response.isBinary,
             contextMode: 'full' as const,
           };
-          if (diffSource === 'staged') {
-            setStagedDiffData(nextDiff);
-          } else if (diffSource === 'head') {
+          if (diffSource === 'head') {
             setDiff(directory, file.path, nextDiff, runtimeKey);
           } else {
-            setLocalDiffData(nextDiff);
+            setLoadedDiff({ source: diffSource, data: nextDiff });
           }
         }
         setIsLoading(false);
