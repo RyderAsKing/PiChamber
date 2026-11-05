@@ -306,7 +306,7 @@ export function registerGitRoutes(app) {
       let source;
       try {
         source = resolveDiffSource({
-          source: typeof req.query.source === 'string' ? req.query.source : undefined,
+          source: req.query.source,
           staged: req.query.staged === 'true',
         });
       } catch (error) {

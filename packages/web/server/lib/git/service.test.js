@@ -30,6 +30,7 @@ import {
   applyHunk,
   getDiff,
   getFileDiff,
+  resolveDiffSource,
 } from './service.js';
 
 // ---------------------------------------------------------------------------
@@ -414,6 +415,11 @@ describe.skipIf(!canRunGit())('getDiff sources', () => {
     await git.add('file.txt');
 
     expect(await getDiff(tmpDir, { path: 'file.txt', staged: true })).toContain('+TOP');
+  });
+
+  it('rejects a repeated source key instead of falling back', () => {
+    expect(() => resolveDiffSource({ source: ['head', 'staged'] })).toThrow('Invalid diff source');
+    expect(resolveDiffSource({ source: undefined, staged: true })).toBe('staged');
   });
 
   it('rejects an unknown source', async () => {

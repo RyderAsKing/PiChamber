@@ -428,6 +428,24 @@ describe('git routes diff', () => {
     expect(gitLibraries.getDiff).toHaveBeenCalledWith('/repo', { path: 'file.txt', source: 'staged', contextLines: 3 });
   });
 
+  it('passes a repeated source key through so the resolver can reject it', async () => {
+    gitLibraries.resolveDiffSource.mockImplementation(() => {
+      throw new Error('Invalid diff source: head,staged');
+    });
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    const response = createMockResponse();
+
+    await getRoute('GET', '/api/git/diff')(
+      { query: { directory: '/repo', path: 'file.txt', source: ['head', 'staged'] } },
+      response,
+    );
+
+    expect(gitLibraries.resolveDiffSource).toHaveBeenCalledWith({ source: ['head', 'staged'], staged: false });
+    expect(response.statusCode).toBe(400);
+    expect(gitLibraries.getDiff).not.toHaveBeenCalled();
+  });
+
   it('rejects an invalid source with 400 without running git', async () => {
     gitLibraries.resolveDiffSource.mockImplementation(() => {
       throw new Error('Invalid diff source: bogus');
