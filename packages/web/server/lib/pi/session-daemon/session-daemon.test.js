@@ -58,6 +58,13 @@ class FakeSession {
     };
   }
 
+  setSessionName(name) {
+    this.sessionManager.appendSessionInfo(name);
+    const event = { type: 'session_info_changed', name: this.sessionManager.getSessionName() };
+    this.emit(event);
+    this.extensionEvents = [...(this.extensionEvents ?? []), event];
+  }
+
   subscribe(listener) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -720,13 +727,13 @@ describe('Pi session daemon spike', () => {
     const endpoint = testDaemonEndpoint(root);
     const persistedSessionFile = join(root, 'persisted.jsonl');
     await writeFile(persistedSessionFile, `{"type":"session","id":"pi-session-persisted","cwd":"${root}"}\n`);
-    const activeSession = new FakeSession('pi-session-active');
+    const activeRuntime = new FakeRuntime({ cwd: root, session: new FakeSession('pi-session-active') });
     const renamed = [];
     daemon = createSessionDaemon({
       endpoint,
       credential,
       cwd: root,
-      createRuntime: async () => new FakeRuntime({ cwd: root, session: activeSession }),
+      createRuntime: async () => activeRuntime,
       listSessions: async () => [{
         path: persistedSessionFile,
         id: 'pi-session-persisted',
@@ -743,7 +750,12 @@ describe('Pi session daemon spike', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     await client.request('sessions.create', { cwd: root });
+    const activeUpdated = client.next((frame) => frame.event === 'session.updated' && frame.payload?.title === 'Active title');
     await expect(client.request('sessions.rename', { sessionId: 'pi-session-new', title: '  Active title  ' })).resolves.toMatchObject({ result: {} });
+    await expect(activeUpdated).resolves.toMatchObject({ payload: { sessionId: 'pi-session-new', title: 'Active title' } });
+    // Renames of a resident session go through Pi so extensions observe them.
+    expect(activeRuntime.session.names).toEqual(['Active title']);
+    expect(activeRuntime.session.extensionEvents).toEqual([{ type: 'session_info_changed', name: 'Active title' }]);
     await expect(client.request('sessions.rename', { sessionId: 'pi-session-persisted', title: 'Persisted title' })).resolves.toMatchObject({ result: {} });
     expect(renamed).toEqual([{ sessionFile: persistedSessionFile, title: 'Persisted title' }]);
     await client.close();
@@ -799,7 +811,9 @@ describe('Pi session daemon spike', () => {
     await expect(promptedUpdated).resolves.toMatchObject({
       payload: { sessionId: 'pi-session-new', title: 'Build the feature' },
     });
-    expect(runtime.session.names).toEqual(['Build the feature']);
+    // Like the Pi CLI, the derived first-prompt title is published live but
+    // never persisted as a session_info entry.
+    expect(runtime.session.names).toEqual([]);
     await client.close();
   });
 

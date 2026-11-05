@@ -4226,6 +4226,14 @@ export class PiSessionStore {
             title,
             existing?.updatedAt ?? Date.now(),
           );
+        } else {
+          // Empty title: Pi cleared the name. Fall back to the title the
+          // list derives from the first user prompt.
+          const existing = catalog.byId.get(event.sessionId);
+          if (existing) {
+            const derived = deriveSessionTitle(existing.preview ?? '');
+            catalog = applyTitleChange(catalog, event.sessionId, derived, existing.updatedAt);
+          }
         }
       }
       if (event.name === 'assistant.message.start' && event.payload.role === 'user') {

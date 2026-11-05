@@ -241,4 +241,24 @@ describe('session daemon list live status', () => {
     expect(response.result.sessions).toHaveLength(1);
     expect(response.result.sessions[0].live).toMatchObject({ lifecycle: 'idle' });
   });
+
+  it('prefers the resident runtime name over the disk name, including clears', async () => {
+    const { session, list } = await setup();
+    let liveName = 'Not yet flushed';
+    session.sessionManager.getSessionName = () => liveName;
+    let { byId } = await list();
+    expect(byId.get('resident').session.title).toBe('Not yet flushed');
+    expect(byId.get('disk-only').session.title).toBe('disk-only');
+    liveName = undefined;
+    ({ byId } = await list());
+    // Cleared in Pi: the stale disk name must not win; no prompt to derive from.
+    expect(byId.get('resident').session.title).toBeUndefined();
+  });
+
+  it('publishes an empty title when Pi clears the session name', async () => {
+    const { session, client } = await setup();
+    const cleared = client.next((message) => message.kind === 'event' && message.event === 'session.updated');
+    session.emit({ type: 'session_info_changed', name: undefined });
+    await expect(cleared).resolves.toMatchObject({ payload: { sessionId: 'resident', title: '' } });
+  });
 });

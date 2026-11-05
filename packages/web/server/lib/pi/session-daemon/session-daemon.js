@@ -62,6 +62,7 @@ import { withCrossProcessLock } from '../../server/cross-process-lock.js';
 import {
   findPiSessionJsonlById,
   getPiSessionDirectory,
+  createPiSessionJsonlListCache,
   listPiSessionJsonlDirectory,
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
@@ -192,9 +193,11 @@ export function createSessionDaemon({
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
   sendOperationTtlMs = 10 * 60 * 1_000,
+  sessionListCache = createPiSessionJsonlListCache(),
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
     agentDir: sessionAgentDir,
+    cache: sessionListCache,
   }),
   createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir = agentDir, projectTrusted }) => SettingsManager.create(
     settingsCwd,
@@ -1253,6 +1256,16 @@ export function createSessionDaemon({
         serverNow,
       });
     }
+    // A resident runtime's SessionManager is authoritative for the name,
+    // including renames not yet flushed to disk and explicit clears.
+    const liveNameById = new Map();
+    for (const entry of activeEntries) {
+      const sessionId = entry?.session?.sessionId;
+      const getSessionName = entry?.session?.sessionManager?.getSessionName;
+      if (typeof sessionId !== 'string' || typeof getSessionName !== 'function') continue;
+      const liveName = getSessionName.call(entry.session.sessionManager);
+      liveNameById.set(sessionId, typeof liveName === 'string' ? liveName : undefined);
+    }
     const extra = [];
     for (const entry of activeEntries) {
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
@@ -1275,8 +1288,9 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session record.');
       }
       const safeFirstMessage = redactAttachmentPaths(session.firstMessage);
-      const title = typeof session.name === 'string' && session.name.trim().length > 0
-        ? redactAttachmentPaths(session.name.trim())
+      const name = liveNameById.has(session.id) ? liveNameById.get(session.id) : session.name;
+      const title = typeof name === 'string' && name.trim().length > 0
+        ? redactAttachmentPaths(name.trim())
         : deriveSessionTitle(safeFirstMessage);
       return {
         session: {
@@ -1323,12 +1337,12 @@ export function createSessionDaemon({
       || runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
     if (activeRuntime?.session) {
-      const manager = activeRuntime.session.sessionManager;
-      if (typeof manager?.appendSessionInfo !== 'function') {
+      if (typeof activeRuntime.session.setSessionName !== 'function') {
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
       }
-      manager.appendSessionInfo(title);
-      publish('session.updated', { title: redactAttachmentPaths(title) }, sessionId, targetDir);
+      // Pi appends `session_info` and emits `session_info_changed` to
+      // listeners and extensions; the subscriber publishes `session.updated`.
+      activeRuntime.session.setSessionName(title);
       return;
     }
 
@@ -3313,12 +3327,12 @@ export function createSessionDaemon({
       && registeredExtensionCommands.some((command) => typeof command?.invocationName === 'string'
         && command.invocationName.toLowerCase() === slashInvocation.toLowerCase()),
     );
-    // Auto-assign deterministic title on the first conversation prompt if the
-    // session manager still has no explicit or extension-owned name.
+    // Like the Pi CLI, never persist an auto-title. Lists derive the display
+    // title from the first user prompt; publish that derived title live (not
+    // persisted) so connected surfaces converge without waiting for a list.
     if (!isExtensionCommand && typeof payload.text === 'string' && payload.text.trim().length > 0 && !manager?.getSessionName?.()) {
       const derived = deriveSessionTitle(payload.text);
-      if (derived && typeof manager?.appendSessionInfo === 'function') {
-        manager.appendSessionInfo(derived);
+      if (derived) {
         publish('session.updated', { title: redactAttachmentPaths(derived) }, payload.sessionId, activeRuntime.cwd);
       }
     }
@@ -3895,8 +3909,10 @@ export function createSessionDaemon({
         void flushPendingRuntimeRecreation().catch(() => {});
         break;
       case 'session_info_changed': {
+        // An empty title means Pi cleared the name; clients fall back to
+        // the derived first-prompt title.
         const title = typeof event.name === 'string' ? event.name.trim() : '';
-        if (title) publish('session.updated', { title: redactAttachmentPaths(title).slice(0, 256) }, sessionId, directory);
+        publish('session.updated', { title: title ? redactAttachmentPaths(title).slice(0, 256) : '' }, sessionId, directory);
         break;
       }
       case 'model_select':

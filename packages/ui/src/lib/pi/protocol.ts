@@ -818,6 +818,8 @@ export type PiSessionLifecycleEvent = PiEventEnvelope<
 export type PiSessionUpdatedEvent = PiEventEnvelope<
   'session.updated',
   {
+    /** New display title. An empty string means Pi cleared the session
+     *  name; clients fall back to the title derived from the first prompt. */
     title: string;
   }
 >;
