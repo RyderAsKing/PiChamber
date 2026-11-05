@@ -617,6 +617,15 @@ describe('session daemon engines', () => {
     await subscriber.close().catch(() => {});
   });
 
+  it('validates Open requests and publishes nothing without a resident session', async () => {
+    await startDaemon({});
+    const health = await send('runtime.health');
+    expect(health.result.capabilities).toContain('openUrl.publish');
+    await expect(send('openUrl.publish', { url: 'file:///etc/passwd' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    const result = await send('openUrl.publish', { url: 'http://localhost:4000/review', sessionId: 'nobody' });
+    expect(result.result).toEqual({ published: false });
+  });
+
   it('advertises sessions.pendingInput in runtime.health', async () => {
     await startDaemon({});
     const health = await send('runtime.health');

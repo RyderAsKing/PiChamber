@@ -38,6 +38,7 @@ import {
   installExtensionGlobalTheme,
 } from './extension-tool-render.js';
 import { createExtensionMessageRenderer } from './extension-message-render.js';
+import { normalizeOpenRequestUrl, resolveOpenRequestSession } from './open-request.js';
 import { getBuiltinExtensionFactories } from './builtin-extensions.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
@@ -569,6 +570,9 @@ export function createSessionDaemon({
     },
   });
 
+  // The session that most recently produced an event: the carrier for an
+  // Open request nobody can attribute (see open-request.js).
+  let lastPublishedSession = null;
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
     const targetDirectory = directory || activeDirectory || cwd;
@@ -585,6 +589,7 @@ export function createSessionDaemon({
       },
     };
     const line = `${JSON.stringify(message)}\n`;
+    lastPublishedSession = { sessionId, directory: targetDirectory };
     // Live delivery stays full-fidelity even when the event is too large to
     // retain: retention evicts whole oldest events and never truncates content.
     replayLog.append(message.sequence, sessionId, line);
@@ -4029,6 +4034,7 @@ export function createSessionDaemon({
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
+              'openUrl.publish',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
             ...(typeof profileKey === 'string' && profileKey.length > 0 ? { profileKey } : {}),
@@ -4270,6 +4276,46 @@ export function createSessionDaemon({
                 ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
               })),
           },
+        });
+        return;
+      }
+      case 'openUrl.publish': {
+        // An Open request from the PiChamber server's intake. Not
+        // session-scoped on input: the daemon attributes it and publishes a
+        // `session.openUrl` event. It is never stored in a transcript; the
+        // replay log may resend it, and devices ignore stale ones by age.
+        const url = normalizeOpenRequestUrl(message.payload?.url);
+        if (!url) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'An http(s) URL is required.');
+        const residentRuntimes = new Set();
+        if (runtime?.session?.sessionId) residentRuntimes.add(runtime);
+        for (const tracked of runtimeRegistry?.listAll?.() ?? []) residentRuntimes.add(tracked);
+        const residents = [...residentRuntimes].map((tracked) => ({
+          sessionId: tracked?.session?.sessionId,
+          directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
+          busy: tracked?.session?.isStreaming === true
+            || tracked?.session?.isCompacting === true
+            || activeSessionInputs.has(tracked),
+        }));
+        const target = resolveOpenRequestSession({
+          requestedSessionId: typeof message.payload?.sessionId === 'string' ? message.payload.sessionId : undefined,
+          residents,
+          recent: lastPublishedSession,
+        });
+        if (target) {
+          publish('session.openUrl', {
+            id: `open-${randomUUID()}`,
+            url,
+            attributed: target.attributed,
+            createdAt: Date.now(),
+          }, target.sessionId, target.directory);
+        }
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: target
+            ? { published: true, sessionId: target.sessionId, attributed: target.attributed }
+            : { published: false },
         });
         return;
       }

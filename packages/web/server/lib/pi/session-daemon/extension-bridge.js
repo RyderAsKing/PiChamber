@@ -5,6 +5,7 @@ import {
   sanitizeExtensionFormFields,
   validateExtensionFormValues,
 } from '../extension-protocol.js';
+import { handleBrowserArguments, isHttpUrl } from '../../open-url/browser-handler.mjs';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 
@@ -394,6 +395,18 @@ export const createExtensionBridge = ({
             ? response.values
             : undefined),
         );
+      },
+      openUrl: async (url) => {
+        // PiChamber-specific (gate with isPiChamber(ctx)): show a URL to the
+        // person, attributed to exactly this session. Same path as `$BROWSER`
+        // (lib/open-url), so with no device connected it opens on the server
+        // machine instead. Resolves whether it was shown or opened.
+        if (process.platform === 'win32' || typeof url !== 'string' || !isHttpUrl(url)) return false;
+        const code = await handleBrowserArguments({
+          args: [url],
+          env: { ...process.env, PI_SESSION_ID: sessionId },
+        });
+        return code === 0;
       },
       editor: (title, prefill) => dialog(
         'editor',
