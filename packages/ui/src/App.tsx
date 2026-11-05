@@ -22,6 +22,7 @@ import { startModelPrefsAutoSave } from '@/lib/modelPrefsAutoSave';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { WindowTitleEffect } from '@/hooks/useWindowTitle';
 import { NeedsInputAlerts, NeedsInputBadge, NotificationOpenSessionBridge } from '@/components/chat/NeedsInputAlerts';
+import { OpenRequestAlerts } from '@/components/chat/OpenRequestAlerts';
 
 const AppInner: React.FC = () => {
   useAppFontEffects();
@@ -31,6 +32,7 @@ const AppInner: React.FC = () => {
       <SyncAppEffects embeddedBackgroundWorkEnabled />
       <WindowTitleEffect />
       <NeedsInputAlerts />
+      <OpenRequestAlerts />
       <NeedsInputBadge />
       <NotificationOpenSessionBridge />
       <MainLayout />

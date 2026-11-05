@@ -334,6 +334,9 @@ export const applyPiEvent = (
       }
       reduceError(session, event.payload.code, event.payload.message);
       break;
+    case 'session.openUrl':
+      // A device-side side effect (lib/pi/open-request.ts), not session state.
+      break;
     case 'session.interrupted':
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);

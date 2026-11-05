@@ -111,6 +111,7 @@ mock.module('@/components/chat/NeedsInputAlerts', () => ({
   NeedsInputBadge: () => null,
   NotificationOpenSessionBridge: () => null,
 }));
+mock.module('@/components/chat/OpenRequestAlerts', () => ({ OpenRequestAlerts: () => null }));
 mock.module('@/apps/pi-session-store', () => ({
   getPiSessionStore: () => ({
     getState: () => ({ directory: '/repo' }),

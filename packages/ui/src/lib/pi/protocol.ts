@@ -770,6 +770,7 @@ export type PiEventName =
   | 'session.compaction'
   | 'session.error'
   | 'session.interrupted'
+  | 'session.openUrl'
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
@@ -989,6 +990,27 @@ export type PiSessionInterruptedEvent = PiEventEnvelope<
     reason: 'daemon-restart' | 'daemon-crash' | 'runtime-change' | 'user-abort' | 'unknown';
     /** True when the message is mid-stream at interruption time. */
     streaming: boolean;
+  }
+>;
+
+/**
+ * An Open request: something on the server machine asked PiChamber to show
+ * the person a URL (an extension's review page, `$BROWSER`). Never part of
+ * the transcript; a device acts on it once, as a side effect.
+ */
+export type PiSessionOpenUrlEvent = PiEventEnvelope<
+  'session.openUrl',
+  {
+    id: string;
+    url: string;
+    /** False when the server could not tell which session asked; the event
+     *  then only rides on this session and must never open by itself. */
+    attributed: boolean;
+    /** Server wall clock (epoch ms) when the request was made. */
+    createdAt: number;
+    /** Server wall clock when this event was delivered; with `createdAt`
+     *  it tells a live request from a replayed one without device clocks. */
+    serverNow: number;
   }
 >;
 
@@ -1218,6 +1240,7 @@ export type PiSessionEvent =
   | PiSessionCompactionEvent
   | PiSessionErrorEvent
   | PiSessionInterruptedEvent
+  | PiSessionOpenUrlEvent
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
@@ -1259,6 +1282,7 @@ export const PI_EVENT_KINDS = [
   'session.compaction',
   'session.error',
   'session.interrupted',
+  'session.openUrl',
   'extension.entry',
   'extension.message',
   'extension.notify',

@@ -3,7 +3,11 @@ import * as React from 'react';
 import { AnsiText } from '@/components/chat/AnsiText';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
+import { openRequestOnDevice } from '@/components/chat/openRequestActions';
 import { Button } from '@/components/ui/button';
+import { describeOpenRequestUrl, extractOpenableUrls, resolveOpenRequestTarget } from '@/lib/pi/open-request';
+import { useUIStore } from '@/stores/useUIStore';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { cn } from '@/lib/utils';
 import {
     TOOL_NORMAL_TITLE_STYLE,
@@ -52,6 +56,14 @@ export const ExtensionNoticeRow: React.FC<ExtensionNoticeRowProps> = ({
         ? message
         : 'Extension notification';
     const lines = body.split('\n');
+    // Notices often carry a link ("Review ready at http://localhost:..."):
+    // offer to open it where it can load (see OpenRequestAlerts).
+    const urls = React.useMemo(() => extractOpenableUrls(body), [body]);
+    const directory = useSessionUIStore((state) => state.currentSessionDirectory);
+    const isMobile = useUIStore((state) => state.isMobile);
+    const openableUrls = urls.filter((url) => (
+        resolveOpenRequestTarget(url) === 'external' || (!isMobile && Boolean(directory))
+    ));
     const isClamped = lines.length > NOTICE_CLAMPED_LINES;
     const visibleLines = !isClamped || isExpanded ? lines : lines.slice(0, NOTICE_CLAMPED_LINES);
 
@@ -94,6 +106,24 @@ export const ExtensionNoticeRow: React.FC<ExtensionNoticeRowProps> = ({
                     </div>
                 ))}
             </div>
+
+            {openableUrls.length > 0 && (
+                <div className="flex min-w-0 flex-wrap gap-1">
+                    {openableUrls.map((url) => (
+                        <Button
+                            key={url}
+                            type="button"
+                            variant="ghost"
+                            size="xs"
+                            onClick={() => openRequestOnDevice(resolveOpenRequestTarget(url), url, directory ?? '')}
+                            title={url}
+                            className="h-5 min-w-0 max-w-full px-1.5 typography-micro font-medium normal-case text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+                        >
+                            <span className="truncate">Open {describeOpenRequestUrl(url)}</span>
+                        </Button>
+                    ))}
+                </div>
+            )}
 
             {isClamped && (
                 <Button
