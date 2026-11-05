@@ -2608,6 +2608,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   backgroundColor: currentTheme?.colors?.surface?.subtle,
                 }}
                 ref={dropZoneRef}
+                data-composer-card="true"
                 onDropCapture={handleDropCapture}
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}

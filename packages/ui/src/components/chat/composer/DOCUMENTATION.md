@@ -214,6 +214,9 @@ The server returns one authoritative transcript after Done. `ChatInput` pads it 
 
 ## Mobile
 
+The composer card exposes `data-composer-card` for opt-in Performance overlay
+layout measurements. The collector reads its bounds, not editor text or state.
+
 `state/useMobileComposerShell.ts` and `state/useMobileViewportPin.ts` are
 mostly not state machines but corrections for specific platform behaviors:
 mobile browsers dismissing the keyboard before a tap's click lands, iOS
