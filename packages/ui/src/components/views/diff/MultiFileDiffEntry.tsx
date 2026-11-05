@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
+import type { GitDiffSource } from '@/lib/api/types';
 import { useGitStore } from '@/stores/useGitStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { describeGitChange } from '../git/gitChangeDescriptors';
@@ -44,6 +45,7 @@ export interface MultiFileDiffEntryProps {
   showOpenInEditorAction?: boolean;
   isOpeningInEditor?: boolean;
   onOpenInEditor?: (filePath: string, diffData: DiffData | null) => void;
+  diffSource: GitDiffSource;
   staged?: boolean;
   showFileActions?: boolean;
   loadFullFiles?: boolean;
@@ -64,6 +66,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   showOpenInEditorAction = false,
   isOpeningInEditor = false,
   onOpenInEditor,
+  diffSource,
   staged = false,
   showFileActions = true,
   loadFullFiles = false,
@@ -97,11 +100,12 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
 
   const diffData = React.useMemo<DiffData | null>(() => {
     if (initialDiffData) return initialDiffData;
-    if (staged) return stagedDiffData;
+    if (diffSource === 'staged') return stagedDiffData;
     if (localDiffData) return localDiffData;
-    if (!cachedDiff) return null;
+    // The shared cache holds HEAD → working tree contents, so it only matches the head source.
+    if (diffSource !== 'head' || !cachedDiff) return null;
     return { original: cachedDiff.original, modified: cachedDiff.modified, isBinary: cachedDiff.isBinary, contextMode: 'full' };
-  }, [cachedDiff, initialDiffData, localDiffData, staged, stagedDiffData]);
+  }, [cachedDiff, diffSource, initialDiffData, localDiffData, stagedDiffData]);
 
   const diffDataMatchesContextMode = diffData?.contextMode === desiredContextMode;
 
@@ -119,15 +123,15 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   }, [file.path, onSelect]);
 
   React.useEffect(() => {
-    if (!staged) {
-      setLocalDiffData(null);
-    } else {
+    if (diffSource === 'staged') {
       setStagedDiffData(null);
+    } else {
+      setLocalDiffData(null);
     }
 
     setDiffLoadError(null);
     lastDiffRequestRef.current = null;
-  }, [fileStatusKey, staged]);
+  }, [diffSource, fileStatusKey]);
 
   React.useEffect(() => {
     if (!isExpanded || !isMounted) return;
@@ -137,7 +141,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
       return;
     }
 
-    const requestKey = `${directory}::${file.path}::${staged ? 'staged' : 'unstaged'}::${fileStatusKey}::${desiredContextMode}::${diffRetryNonce}`;
+    const requestKey = `${directory}::${file.path}::${diffSource}::${fileStatusKey}::${desiredContextMode}::${diffRetryNonce}`;
     if (lastDiffRequestRef.current === requestKey) {
       return;
     }
@@ -149,8 +153,8 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
     const runtimeKey = getRuntimeKey();
     const contextLines = loadFullFiles ? FULL_CONTEXT_DIFF_LINES : DEFAULT_CONTEXT_DIFF_LINES;
     const fetchPromise = isImageFile(file.path)
-      ? git.getGitFileDiff(directory, { path: file.path, staged })
-      : git.getGitDiff(directory, { path: file.path, staged, contextLines });
+      ? git.getGitFileDiff(directory, { path: file.path, staged: diffSource === 'staged' })
+      : git.getGitDiff(directory, { path: file.path, source: diffSource, contextLines });
     const timeoutMs = DIFF_REQUEST_TIMEOUT_MS;
     const timeoutPromise = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -162,7 +166,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
 
         if ('diff' in response) {
           const nextDiff = createTextDiffDataFromPatch(file.path, response.diff, desiredContextMode);
-          if (staged) {
+          if (diffSource === 'staged') {
             setStagedDiffData(nextDiff);
           } else {
             setLocalDiffData(nextDiff);
@@ -174,10 +178,12 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
             isBinary: response.isBinary,
             contextMode: 'full' as const,
           };
-          if (staged) {
+          if (diffSource === 'staged') {
             setStagedDiffData(nextDiff);
-          } else {
+          } else if (diffSource === 'head') {
             setDiff(directory, file.path, nextDiff, runtimeKey);
+          } else {
+            setLocalDiffData(nextDiff);
           }
         }
         setIsLoading(false);
@@ -195,7 +201,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
         lastDiffRequestRef.current = null;
       }
     };
-  }, [desiredContextMode, diffData, diffDataMatchesContextMode, diffRetryNonce, directory, file.path, fileStatusKey, git, initialDiffData, isExpanded, isMounted, loadFullFiles, setDiff, staged]);
+  }, [desiredContextMode, diffData, diffDataMatchesContextMode, diffRetryNonce, diffSource, directory, file.path, fileStatusKey, git, initialDiffData, isExpanded, isMounted, loadFullFiles, setDiff]);
 
   const handleToggle = React.useCallback(() => {
     handleOpenChange(!isExpanded);

@@ -11,6 +11,10 @@ export function isWorkingStatusFile(file: GitStatusFile): boolean {
   return Boolean(file.working_dir?.trim()) || file.index?.trim() === '?';
 }
 
+export function isStagedOnlyStatusFile(file: GitStatusFile): boolean {
+  return isStagedStatusFile(file) && !isWorkingStatusFile(file);
+}
+
 export function isNewStatusFile(file: GitStatusFile): boolean {
   const index = file.index?.trim();
   const working = file.working_dir?.trim();

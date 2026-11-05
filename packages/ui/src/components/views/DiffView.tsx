@@ -12,6 +12,7 @@ import { DiffViewToggle } from '@/components/chat/message/DiffViewToggle';
 import { Icon } from "@/components/icon/Icon";
 import { ChangeScopeSelector } from './diff/ChangeScopeSelector';
 import { FileList } from './diff/FileList';
+import { getFileDiffSelection } from './diff/diffSource';
 import { MultiFileDiffEntry } from './diff/MultiFileDiffEntry';
 import type { DiffScope } from './diff/diffTypes';
 import { useDiffViewState } from './diff/useDiffViewState';
@@ -95,7 +96,6 @@ export const DiffView: React.FC<DiffViewProps> = ({
     branchDiffLoading,
     diffWrapLines,
     setDiffWrapLines,
-    forcedStaged,
     displayFileStaged,
     displayFile,
     pinnedStackedTarget,
@@ -195,12 +195,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   const renderStackedDiffView = () => {
     if (!effectiveDirectory) return null;
 
-    const getFileStaged = (path: string) => {
-      if (forcedStaged !== null) {
-        return forcedStaged;
-      }
-      return displayFileStaged && path === displayFile;
-    };
+    const focusedFile = { path: displayFile, staged: displayFileStaged };
 
     return (
       <div className={cn('flex min-w-0 flex-1 min-h-0 h-full', flushContent ? 'gap-0' : 'gap-3 px-3 pb-3 pt-2')}>
@@ -228,7 +223,9 @@ export const DiffView: React.FC<DiffViewProps> = ({
             data-diff-virtual-root
           >
             <div className="flex flex-col [overflow-anchor:none]" data-diff-virtual-content>
-              {changedFiles.map((file) => (
+              {changedFiles.map((file) => {
+                const diffSelection = getFileDiffSelection(activeDiffScope, file, focusedFile);
+                return (
                 <MultiFileDiffEntry
                   key={`${file.path}:${fileDiffRefreshNonce.get(file.path) ?? 0}`}
                   directory={effectiveDirectory}
@@ -246,7 +243,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
                   onOpenInEditor={(filePath, diffData) => {
                     void openFileInEditorAtChange(filePath, diffData);
                   }}
-                  staged={getFileStaged(file.path)}
+                  diffSource={diffSelection.source}
+                  staged={diffSelection.staged}
                   showFileActions={activeDiffScope !== 'turn' && activeDiffScope !== 'branch'}
                   loadFullFiles={loadFullFiles}
                   initialDiffData={
@@ -257,7 +255,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
                       : null
                   }
                 />
-              ))}
+                );
+              })}
             </div>
             {/* Trailing space as a spacer, not padding: sticky bottom insets
                 respect scroll-container padding, which would float each

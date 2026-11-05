@@ -477,7 +477,6 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
     branchDiffLoading,
     diffWrapLines,
     setDiffWrapLines,
-    forcedStaged,
     displayFileStaged,
     displayFile,
     pinnedStackedTarget,

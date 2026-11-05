@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 
-import { isNewStatusFile, isStagedStatusFile, isWorkingStatusFile } from './gitStatusPredicates';
+import {
+  isNewStatusFile,
+  isStagedOnlyStatusFile,
+  isStagedStatusFile,
+  isWorkingStatusFile,
+} from './gitStatusPredicates';
 
 const file = (index: string, working_dir: string) => ({ path: 'file.ts', index, working_dir });
 
@@ -9,6 +14,14 @@ describe('git status predicates', () => {
     expect(isStagedStatusFile(file('M', ' '))).toBe(true);
     expect(isWorkingStatusFile(file(' ', 'M'))).toBe(true);
     expect(isStagedStatusFile(file(' ', 'M'))).toBe(false);
+  });
+
+  test('identifies files whose only changes are staged', () => {
+    expect(isStagedOnlyStatusFile(file('M', ' '))).toBe(true);
+    expect(isStagedOnlyStatusFile(file('A', ''))).toBe(true);
+    expect(isStagedOnlyStatusFile(file('M', 'M'))).toBe(false);
+    expect(isStagedOnlyStatusFile(file(' ', 'M'))).toBe(false);
+    expect(isStagedOnlyStatusFile(file('?', '?'))).toBe(false);
   });
 
   test('treats untracked files as working and new, not staged', () => {
