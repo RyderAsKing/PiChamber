@@ -127,6 +127,10 @@ export async function compactSession(sessionId: string, customInstructions?: str
   await store().compact(sessionId, customInstructions);
 }
 
+export async function abortShellCommand(sessionId: string): Promise<void> {
+  await store().abortBash(sessionId);
+}
+
 export function abortCurrentOperation(sessionId?: string): void {
   if (sessionId) void store().abort(sessionId);
 }

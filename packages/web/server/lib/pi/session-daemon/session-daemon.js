@@ -47,6 +47,7 @@ import {
   SESSION_DAEMON_PROTOCOL_VERSION as PROTOCOL_VERSION,
 } from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
+import { createUserBash, projectBashExecutionEntry, UserBashError, validateUserBashRequest } from './user-bash.js';
 import { createSessionReplayLog } from './session-replay.js';
 import {
   createSendOperationRegistry,
@@ -602,6 +603,13 @@ export function createSessionDaemon({
     publish,
     onHostedSessionSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
   });
+  // User shell commands (`!cmd` / `!!cmd`). A settled command re-arms the
+  // idle timer only when nothing else keeps the runtime busy.
+  const userBash = createUserBash({
+    publish,
+    redact: (value) => redactAttachmentPaths(value),
+    onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+  });
   const extensionBridge = createExtensionBridge({
     publish,
     resolveDirectory,
@@ -751,6 +759,7 @@ export function createSessionDaemon({
         ...(session.sessionId
           ? {
             inputState: { pending: pendingInput.summaryFor(session.sessionId) },
+            bashExecutions: userBash.snapshot(session.sessionId) ?? [],
           }
           : {}),
       },
@@ -1028,6 +1037,9 @@ export function createSessionDaemon({
     if (isValidIdleSessionId(sessionId) && pendingInput.hasHostedRequests(sessionId)) return false;
     if (isValidIdleSessionId(sessionId) && (activeSessionRequests.get(sessionId) ?? 0) > 0) return false;
     if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return false;
+    // A user shell command (`!cmd`) is live work from acceptance (before Pi
+    // reports `isBashRunning`) until it settles.
+    if (targetRuntime.session?.isBashRunning || userBash.isActive(sessionId)) return false;
     if (activeSessionInputs.has(targetRuntime)) return false;
     if (pendingResourceReloads.has(targetRuntime) || resourceReloadsByRuntime.has(targetRuntime)) return false;
     // A scheduled provider retry is still live work: agent_settled remains
@@ -1097,6 +1109,7 @@ export function createSessionDaemon({
         const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
         compactionStateBySession.delete(sessionId);
+        userBash.clearSession(sessionId);
         if (targetRuntime === runtime) runtime = undefined;
         // Publish only after a successful lease release so a
         // cross-daemon recreate cannot slip between release and event.
@@ -1206,6 +1219,8 @@ export function createSessionDaemon({
       case 'sessions.setModel':
       case 'sessions.setThinking':
       case 'sessions.compact':
+      case 'sessions.bash':
+      case 'sessions.abortBash':
       case 'sessions.delete':
       case 'sessions.rename': {
         const candidate = message?.payload?.sessionId;
@@ -1664,6 +1679,14 @@ export function createSessionDaemon({
         return [projected];
       }
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
+      // User shell commands (`!cmd`) recorded by Pi, including ones run from
+      // the Pi CLI, render as reserved `pichamber.bash` extension items.
+      const bashItem = projectBashExecutionEntry(entry, {
+        sessionId: session.sessionId,
+        directory: targetDir,
+        redact: redactAttachmentPaths,
+      });
+      if (bashItem) return [bashItem];
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
       if (entry.message.role === 'user') {
@@ -1935,6 +1958,7 @@ export function createSessionDaemon({
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
+      bashExecutions: userBash.snapshot(session.sessionId) ?? [],
     };
   };
 
@@ -3556,6 +3580,7 @@ export function createSessionDaemon({
       await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
       retryStateBySession.delete(sessionId);
       compactionStateBySession.delete(sessionId);
+      userBash.clearSession(sessionId);
       activeRunStartedAt.delete(sessionId);
       shutdownRequestedBySession.delete(sessionId);
       sendGenerationBySession.delete(sessionId);
@@ -4041,7 +4066,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
@@ -4485,6 +4510,35 @@ export function createSessionDaemon({
       case 'sessions.setThinking': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         applyThinking(activeRuntime, message.payload?.thinking, message.payload.sessionId, activeRuntime.cwd);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.bash': {
+        let request;
+        try {
+          request = validateUserBashRequest(message.payload);
+        } catch (error) {
+          throw new SessionDaemonProtocolError(error.code ?? 'INVALID_ARGUMENT', error.message);
+        }
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        let started;
+        try {
+          started = userBash.start({
+            sessionId: message.payload.sessionId,
+            directory: activeRuntime.cwd,
+            session: activeRuntime.session,
+            ...request,
+          });
+        } catch (error) {
+          if (error instanceof UserBashError) throw new SessionDaemonProtocolError(error.code, error.message);
+          throw error;
+        }
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { accepted: true, id: started.id } });
+        return;
+      }
+      case 'sessions.abortBash': {
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        userBash.abort(activeRuntime.session);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }

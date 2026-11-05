@@ -2187,6 +2187,79 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('runs user shell commands, publishes their recorded entry, and projects it in the transcript', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-bash-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-bash');
+    let finishBash;
+    session.sessionManager.getCwd = () => root;
+    session.sessionManager.appendMessage = (message) => {
+      const id = `bash-entry-${session.entries.length + 1}`;
+      session.entries.push({ type: 'message', id, parentId: null, timestamp: '2026-11-06T10:00:00.000Z', message });
+      return id;
+    };
+    session.extensionRunner = { emitUserBash: async () => undefined };
+    session.executeBash = (command, onChunk, options) => new Promise((resolve) => {
+      onChunk('hello\n');
+      finishBash = () => {
+        const result = { output: 'hello\n', exitCode: 0, cancelled: false, truncated: false };
+        session.sessionManager.appendMessage({ role: 'bashExecution', command, ...result, timestamp: 1, excludeFromContext: options?.excludeFromContext });
+        resolve(result);
+      };
+    });
+    session.abortBash = () => {};
+    daemon = createSessionDaemon({ endpoint, credential, cwd: root, createRuntime: async () => ({ session, async dispose() {} }) });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await client.request('sessions.create', { cwd: root });
+
+    // Request errors close the IPC connection, so each probe uses its own.
+    const expectRequestError = async (command, payload, code) => {
+      const probe = connectClient(endpoint);
+      await probe.authenticate();
+      const error = probe.next((frame) => frame.kind === 'error');
+      probe.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: `probe-${Math.random()}`, command, payload })}\n`);
+      await expect(error).resolves.toMatchObject({ error: { code } });
+      await probe.close().catch(() => {});
+    };
+    await expectRequestError('sessions.bash', { sessionId: session.sessionId, command: '   ' }, 'INVALID_ARGUMENT');
+
+    const running = client.next((frame) => frame.event === 'session.bash' && frame.payload.bash.phase === 'running');
+    const output = client.next((frame) => frame.event === 'session.bash.output');
+    const accepted = await client.request('sessions.bash', { sessionId: session.sessionId, command: 'echo hello', excludeFromContext: true });
+    expect(accepted).toMatchObject({ result: { accepted: true, id: expect.any(String) } });
+    const bashId = accepted.result.id;
+    await expect(running).resolves.toMatchObject({ payload: { sessionId: session.sessionId, bash: { id: bashId, command: 'echo hello', excludeFromContext: true } } });
+    await expect(output).resolves.toMatchObject({ payload: { id: bashId, delta: 'hello\n' } });
+
+    await expectRequestError('sessions.bash', { sessionId: session.sessionId, command: 'ls' }, 'SESSION_BUSY');
+    const detailWhileRunning = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(detailWhileRunning.result.bashExecutions).toEqual([expect.objectContaining({ id: bashId, phase: 'running', output: 'hello\n' })]);
+
+    const recorded = client.next((frame) => frame.event === 'session.bash.recorded');
+    finishBash();
+    await expect(recorded).resolves.toMatchObject({
+      payload: {
+        id: bashId,
+        message: { id: 'bash-entry-1', customType: 'pichamber.bash', details: { command: 'echo hello', output: 'hello\n', exitCode: 0, excludeFromContext: true } },
+      },
+    });
+
+    const detail = await client.request('sessions.open', { sessionId: session.sessionId });
+    expect(detail.result.bashExecutions).toEqual([]);
+    expect(detail.result.messages).toContainEqual({
+      message: expect.objectContaining({
+        id: 'bash-entry-1',
+        role: 'extension',
+        customType: 'pichamber.bash',
+        details: { command: 'echo hello', output: 'hello\n', exitCode: 0, excludeFromContext: true },
+      }),
+      parts: [],
+    });
+    await client.close();
+  });
+
   it('maps all core session event families to sequenced public-safe daemon frames', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -2752,7 +2825,7 @@ describe('Pi session daemon spike', () => {
       const health = await client.request('runtime.health');
       expect(health.result).toMatchObject({
         state: 'ready',
-        capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact']),
+        capabilities: expect.arrayContaining(['projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.rename', 'sessions.delete', 'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt', 'sessions.steer', 'sessions.followUp', 'sessions.abort', 'sessions.setModel', 'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash']),
       });
       const created = await client.request('sessions.create', { cwd });
       expect(created.result).toMatchObject({

@@ -1,5 +1,6 @@
 import { CowMap } from '../cow-map';
 import type {
+  PiBashExecution,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionPanelPayload,
@@ -170,6 +171,9 @@ export interface PiReducerSessionState {
   extensionWorking?: { message?: string; visible?: boolean };
   /** Whether the session daemon is tracking editor draft text for extensions. */
   extensionDraftTracked?: boolean;
+  /** User shell commands not yet recorded in the transcript, in start order.
+   *  Absent when there are none. */
+  bashExecutions?: PiBashExecution[];
   /**
    * Last message a part-level or structural write touched. Live-tail freeze
    * uses this instead of walking every historical part on each token.

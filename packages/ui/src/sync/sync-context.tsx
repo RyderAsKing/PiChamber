@@ -5,7 +5,7 @@ import { piProjectedToRecords, mapPart } from '@/lib/chat/pi-to-renderable';
 import type { Message, Part, Session, SessionStatus } from '@/lib/chat/types';
 import { projectSession, type PiReducerMessage, type PiReducerMessagePart, type PiReducerSessionState } from '@/lib/pi/event-reducer';
 import type { PiExtensionNotice } from '@/lib/pi/reducers/reducerTypes';
-import type { PiErrorCode, PiPendingInputSummary } from '@/lib/pi/protocol';
+import type { PiBashExecution, PiErrorCode, PiPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiCompactionInfo, PiRetryInfo } from '@/lib/pi/types';
 import { usePiSessionSnapshot, usePiSessionStore } from './pi-session-context';
 import {
@@ -17,7 +17,7 @@ import {
   type LiveSessionLifecycle,
   type SessionNeedingInput,
 } from './pi-session-catalog';
-import { selectAwaitingPromptEcho, selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
+import { hasSameTranscriptInputs, selectAwaitingPromptEcho, selectStreamingAssistantMessageId, shouldReuseSuspendedRecords, shouldReuseUserHistory } from './suspend-live-tail-records';
 
 const IDLE: SessionStatus = { type: 'idle' };
 const BUSY: SessionStatus = { type: 'busy' };
@@ -218,6 +218,20 @@ export function useSessionExtensionNotices(sessionID: string): PiExtensionNotice
   );
 }
 
+const EMPTY_BASH_EXECUTIONS: PiBashExecution[] = [];
+
+/**
+ * User shell commands (`!cmd`) not yet recorded in the transcript. The reducer
+ * replaces the list on every change, so reference equality is exact.
+ */
+export function useSessionBashExecutions(sessionID: string): PiBashExecution[] {
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.bashExecutions ?? EMPTY_BASH_EXECUTIONS : EMPTY_BASH_EXECUTIONS),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+}
+
 export function useSessions(): Session[] {
   // Directory pointer lives on `chrome`; the catalog-driven list comes
   // from `useCatalogUiSessions` on `catalog`. Both are needed because
@@ -370,6 +384,7 @@ export function useSessionMessageRecords(
     (state) => (sessionID ? state.reducer.bySession.get(sessionID) ?? null : null),
     (previous, next) => {
       if (Object.is(previous, next)) return true;
+      if (previous && next && hasSameTranscriptInputs(previous, next)) return true;
       if (!suspendPartUpdates || !previous || !next) return false;
       const suspendMessageId = explicitSuspendMessageId ?? selectStreamingAssistantMessageId(next);
       if (!suspendMessageId) return false;

@@ -257,6 +257,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const [inputMode, setInputMode] = React.useState<"normal" | "shell">(
     "normal",
   );
+  // `!!`: a second leading `!` in shell mode runs the command without
+  // sending it to the model. Leaving shell mode clears it.
+  const [shellExcludeFromContext, setShellExcludeFromContext] =
+    React.useState(false);
+  React.useEffect(() => {
+    if (inputMode === "normal") setShellExcludeFromContext(false);
+  }, [inputMode]);
   // At most one picker is open at a time; the prompt language decides which.
   const [openAutocomplete, setOpenAutocomplete] =
     React.useState<AutocompleteKind | null>(null);
@@ -1201,6 +1208,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
             ? { message: "", hasContent: false }
             : getCurrentInputSnapshot();
 
+      if (!queuedOnly && inputMode === "shell" && attachedFiles.length > 0) {
+        toast.error("Remove attachments to run a shell command.");
+        return;
+      }
+
       if (queuedOnly) {
         if (!currentSessionId) return;
       } else if (
@@ -1663,6 +1675,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         };
       }
 
+      if (!queuedOnly && inputMode === "shell") {
+        effectiveSendMessageOptions = {
+          ...effectiveSendMessageOptions,
+          ...(shellExcludeFromContext ? { shellExcludeFromContext: true } : {}),
+        };
+      }
+
       const sendPromise = sendMessage(
         primaryText,
         providerIdToSend,
@@ -2020,6 +2039,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   const handleKeyDown = useComposerKeyNavigation({
     inputMode,
     setInputMode,
+    shellExcludeFromContext,
+    setShellExcludeFromContext,
     message,
     setMessage,
     openAutocomplete,
@@ -2196,6 +2217,24 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     const inputSource: FileMentionAutocompleteInputSource = isPasteInput
       ? "paste"
       : "manual";
+
+    // In shell mode a second leading `!` (`!!`) excludes the command from
+    // the model context and is consumed the same way.
+    if (inputMode === "shell" && !shellExcludeFromContext && value.startsWith("!")) {
+      const shellCommand = value.slice(1);
+      const nextCursor = Math.max(0, selection.start - 1);
+      setShellExcludeFromContext(true);
+      setMessage(shellCommand);
+      const editor = composerRef.current;
+      if (editor && editor.getValue() !== shellCommand) {
+        editor.replaceRange(0, 1, "", nextCursor);
+      } else {
+        requestAnimationFrame(() =>
+          composerRef.current?.setSelection(nextCursor),
+        );
+      }
+      return;
+    }
 
     // A leading `!` switches the composer into shell mode and is consumed.
     if (inputMode === "normal" && value.startsWith("!")) {
@@ -2733,6 +2772,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                         isComposerExpanded && "flex flex-1 min-h-0 flex-col",
                       )}
                     >
+                      {inputMode === "shell" ? (
+                        <div
+                          className={cn(
+                            "typography-micro text-muted-foreground",
+                            isInlineComposer ? "px-1.5 pt-1" : "px-3 pt-2",
+                          )}
+                          data-testid="chat-input-shell-mode"
+                        >
+                          <span className="font-mono text-foreground">
+                            {shellExcludeFromContext ? "!!" : "!"}
+                          </span>{" "}
+                          {shellExcludeFromContext
+                            ? "Shell command, not sent to the model"
+                            : "Shell command, sent to the model"}
+                        </div>
+                      ) : null}
                       <div className="relative z-10">
                         <AttachedFilesList
                           onShowPopup={handleShowAttachmentPreview}
@@ -2779,7 +2834,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                               ? "Session is open elsewhere"
                               : currentSessionId || newSessionDraftOpen
                               ? inputMode === "shell"
-                                ? "Enter shell command..."
+                                ? shellExcludeFromContext
+                                  ? "Enter shell command..."
+                                  : "Enter shell command... (!! keeps it from the model)"
                                 : isNewSessionStackedComposer
                                   ? "Plan, build, / for skills, @ for context"
                                   : useCompactChatPlaceholder

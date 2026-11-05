@@ -1,4 +1,5 @@
 import type {
+  PiBashExecution,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionPanelPayload,
@@ -29,6 +30,7 @@ import type {
   ProjectSessionPrevious,
 } from './reducerTypes';
 import { createReducerState } from './reducerTypes';
+import { applyBashSnapshot } from './bashReducers';
 import {
   getOrCreateSession,
   resolveParentId,
@@ -276,6 +278,7 @@ export const hydrateSessionFromDetail = (
     extensionTitle?: string;
     extensionWorking?: { message?: string; visible?: boolean };
     extensionDraftTracked?: boolean;
+    bashExecutions?: PiBashExecution[];
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage | {
         id: string;
@@ -351,6 +354,7 @@ export const hydrateSessionFromDetail = (
   if (detail.extensionDraftTracked === true) {
     session.extensionDraftTracked = true;
   }
+  applyBashSnapshot(session, detail.bashExecutions);
 
   for (const { message, parts } of (detail.messages ?? [])) {
     const isExtension = message.role === 'extension';

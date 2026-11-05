@@ -2824,6 +2824,12 @@ export class PiSessionStore {
     sessionId,
     ...(customInstructions ? { customInstructions } : {}),
   }, this.scope());
+  runBash = (sessionId: string, command: string, options?: { excludeFromContext?: boolean }) => piClient.runBash({
+    sessionId,
+    command,
+    ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
+  }, this.scope());
+  abortBash = (sessionId: string) => piClient.abortBash({ sessionId }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());

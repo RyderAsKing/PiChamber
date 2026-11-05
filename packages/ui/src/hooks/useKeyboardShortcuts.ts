@@ -179,7 +179,11 @@ export const useKeyboardShortcuts = () => {
       }
 
       const sessionId = currentSessionId;
-      if (sessionPhase === 'idle' || !sessionId) {
+      // A running shell command (`!cmd`) is stopped before the agent turn,
+      // as in the Pi CLI; it can run while the session is otherwise idle.
+      const bashRunning = Boolean(sessionId && getPiSessionStore().getState().reducer.bySession
+        .get(sessionId)?.bashExecutions?.some((execution) => execution.phase === 'running'));
+      if ((sessionPhase === 'idle' && !bashRunning) || !sessionId) {
         resetAbortPriming();
         return;
       }
@@ -190,7 +194,13 @@ export const useKeyboardShortcuts = () => {
       if (primedUntil && now < primedUntil) {
         e.preventDefault();
         resetAbortPriming();
-        void abortCurrentOperation(sessionId);
+        if (bashRunning) {
+          void sessionActions.abortShellCommand(sessionId).catch(() => {
+            toast.error('Failed to stop the shell command');
+          });
+        } else {
+          void abortCurrentOperation(sessionId);
+        }
         return;
       }
 

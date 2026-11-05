@@ -55,6 +55,8 @@ export type SendMessageOptions = {
   worktreeCreationReceipt?: DraftWorktreeCreationReceipt;
   draftSnapshot?: NewSessionDraftState;
   initialInputKind?: 'extension-command';
+  /** Shell sends only: `!!cmd`, run without sending it to the model. */
+  shellExcludeFromContext?: boolean;
 };
 
 export type NewSessionDraftState = {

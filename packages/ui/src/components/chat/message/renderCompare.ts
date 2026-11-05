@@ -148,7 +148,10 @@ const areRenderRelevantMessageInfoEqual = (left: Message, right: Message): boole
     && ((left as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null) === ((right as { time?: { created?: unknown; completed?: unknown } }).time?.completed ?? null)
     // Extension message renders ride on `info` (not parts); without this a
     // late-arriving render for the same message id never re-renders the row.
-    && (left as { render?: unknown }).render === (right as { render?: unknown }).render;
+    && (left as { render?: unknown }).render === (right as { render?: unknown }).render
+    // Live shell rows ride on `info.bashExecution`; the reducer replaces the
+    // object on every output or phase change.
+    && (left as { bashExecution?: unknown }).bashExecution === (right as { bashExecution?: unknown }).bashExecution;
 };
 
 export const areRenderRelevantMessagesEqual = (left: MessageRecord, right: MessageRecord): boolean => {
