@@ -107,6 +107,24 @@ Pure code-reading or explanation does not require implementation skills unless n
 - For docs-only or isolated config changes, run the narrowest relevant validation.
 - Report exactly what was and was not validated. Static checks alone do not prove runtime, relay, performance, or platform correctness.
 
+## Screenshots
+
+`bun run screenshots [label] [page...]` captures named UI states with headless
+Chrome/Chromium (system install or the Playwright browser cache; override with
+`CHROME`). It writes `.screenshots/<label>/<page>-<viewport>-<theme>.png`.
+Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
+`THEME=light|dark`, and `OUT_DIR` as needed.
+
+Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
+`<dir>/repo` and a data directory in `<dir>/data` that opens it. Start the dev
+server with `PICHAMBER_DATA_DIR=<dir>/data` and a throwaway `HOME` so it never
+touches real `~/.pi` or `~/.config/pichamber` state.
+
+Pages: `diff-all` (Git panel, All scope, desktop only, with staged-only,
+staged-then-edited, and staged new files). For before/after, run a second dev
+server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
+`PICHAMBER_HMR_API_PORT`) and capture each with its own label.
+
 ## Pull Request Handoff
 
 Before creating or updating a pull request, read `CONTRIBUTING.md` and
