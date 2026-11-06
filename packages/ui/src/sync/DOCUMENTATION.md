@@ -15,7 +15,7 @@ This document covers the current client-side session/data architecture in `packa
 
 ### Viewport store (retired)
 
-`packages/ui/src/sync/viewport-store.ts` was deleted. It was an in-memory-only store and every value was write-only: scroll anchors and scrollbar snapshots were saved on scroll/session-switch but never read back, `isSyncing` had no readers, and the sole value reader (`isZombie`) had no writers that ever set it true. Current scroll ownership: `useChatAutoFollow` owns bottom-pin `restoreSnapshot`, entry-stick, rAF/timers, and following/released state with no save timer or side channel; `MessageList` owns scroll compensation via `messageId` + `offsetTop` anchors. The sidebar zombie branch was removed with no layout change.
+`packages/ui/src/sync/viewport-store.ts` was deleted. It was an in-memory-only store and every value was write-only: scroll anchors and scrollbar snapshots were saved on scroll/session-switch but never read back, `isSyncing` had no readers, and the sole value reader (`isZombie`) had no writers that ever set it true. Current scroll ownership: `useChatAutoFollow` owns bottom-pin `restoreSnapshot`, entry-stick, rAF/timers, and following/released state with no save timer or side channel. Resize growth is followed only while the session is working (or a user shell command is live); a row appended while idle (a higher message count or a new newest extension-notice id, since notices are capped) scrolls to the bottom and starts an entry stick, but only while the state is still `following`; `MessageList` owns scroll compensation via `messageId` + `offsetTop` anchors. The sidebar zombie branch was removed with no layout change.
 
 ### Global sessions cache (retired)
 
