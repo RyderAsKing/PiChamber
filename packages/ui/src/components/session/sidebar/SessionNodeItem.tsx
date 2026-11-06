@@ -5,6 +5,8 @@ import { ContextMenu } from '@base-ui/react/context-menu';
 import { cn } from '@/lib/utils';
 import { canUseElectronDesktopIPC, invokeDesktop } from '@/lib/desktop';
 import { Icon } from '@/components/icon/Icon';
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
+import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { DraggableSessionRow } from './sessionFolderDnd';
 import type { SessionNodeChildRenderExtras } from './sessionNodeItemUtils';
@@ -163,6 +165,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     prNumber,
     isActive,
     tooltipProjectLabel,
+    projectPath,
     tooltipBranchLabel,
     isGitRepo,
     subtaskCount,
@@ -276,7 +279,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
           className={metaIconClassName}
           style={prIconColor ? { color: prIconColor } : undefined}
         />
-        <span className="truncate">{tooltipBranchLabel}</span>
+        <MiddleTruncate value={tooltipBranchLabel} />
       </span>
     ) : isGitRepo ? (
       <span className="inline-flex shrink-0 items-center gap-1">
@@ -557,7 +560,11 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-xs leading-4 font-normal text-muted-foreground/80">
                       {showFolderLabel ? (
                         <span className={cn('inline-flex min-w-0 items-center gap-1', hasTrailingMeta ? 'max-w-[60%] shrink-0' : 'flex-1')}>
-                          <Icon name="folder" className={metaIconClassName} />
+                          {projectPath ? (
+                            <ProjectIcon directory={projectPath} label={tooltipProjectLabel ?? ''} className={metaIconClassName} />
+                          ) : (
+                            <Icon name="folder" className={metaIconClassName} />
+                          )}
                           <span className="truncate">{tooltipProjectLabel}</span>
                         </span>
                       ) : (

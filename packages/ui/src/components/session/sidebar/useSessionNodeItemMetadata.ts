@@ -63,6 +63,12 @@ export function useSessionNodeItemMetadata({
   );
   const tooltipProjectLabel =
     secondaryMeta?.projectLabel ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
+  const projectPath = useProjectsStore(
+    React.useCallback(
+      (state) => (projectId ? state.projects.find((entry) => entry.id === projectId)?.path ?? null : null),
+      [projectId],
+    ),
+  );
   const worktree = node.worktree;
   const resolvedBranchLabel =
     secondaryMeta?.branchLabel ??
@@ -153,6 +159,7 @@ export function useSessionNodeItemMetadata({
     prNumber: prSummary?.number ?? null,
     isActive,
     tooltipProjectLabel,
+    projectPath,
     tooltipBranchLabel,
     isGitRepo,
     subtaskCount,
