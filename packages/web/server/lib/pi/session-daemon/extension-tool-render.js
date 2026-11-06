@@ -1,3 +1,5 @@
+import { createExtensionKeybindingHints } from './extension-keybindings.js';
+
 export const TOOL_RENDER_WIDTH = 100;
 export const MAX_TOOL_RENDER_LINES = 200;
 export const MAX_TOOL_RENDER_LINE_CHARS = 2000;
@@ -48,6 +50,7 @@ export function createExtensionToolRenderer({
 } = {}) {
   const entries = new Map();
   const settledMemo = new WeakMap();
+  const { keyText, keyHint } = createExtensionKeybindingHints({ theme });
 
   const renderCallSlot = (entry, definition, args, cwd) => {
     if (typeof definition?.renderCall !== 'function') return undefined;
@@ -65,6 +68,8 @@ export function createExtensionToolRenderer({
         expanded: false,
         showImages: false,
         isError: false,
+        keyText,
+        keyHint,
       };
       const component = definition.renderCall(args, theme, context);
       if (entry.lastComponents) entry.lastComponents.call = component;
@@ -90,6 +95,8 @@ export function createExtensionToolRenderer({
         expanded,
         showImages: false,
         isError,
+        keyText,
+        keyHint,
       };
       const component = definition.renderResult(result, { expanded, isPartial }, theme, context);
       if (entry.lastComponents) entry.lastComponents[slot] = component;

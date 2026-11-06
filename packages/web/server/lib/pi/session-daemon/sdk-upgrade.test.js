@@ -54,7 +54,9 @@ describe('pinned SDK upgrade compatibility', () => {
     };
     const baseline = await ModelRuntime.create(options);
     expect(baseline.getModel('opencode', 'deepseek-v4-flash-free')).toBeUndefined();
-    const flash = baseline.getModel('opencode', 'deepseek-v4-flash');
+    // 1.5.0 (models.dev v2) replaces deepseek-v4-flash with deepseek-v4.1-flash.
+    expect(baseline.getModel('opencode', 'deepseek-v4-flash')).toBeUndefined();
+    const flash = baseline.getModel('opencode', 'deepseek-v4.1-flash');
     expect(flash).toBeDefined();
     const cached = { ...flash, id: 'upgrade-cached-model', name: 'Cached model' };
     await writeFile(options.modelsStorePath, JSON.stringify({
@@ -63,7 +65,7 @@ describe('pinned SDK upgrade compatibility', () => {
     const customConfig = JSON.stringify({ providers: { opencode: {
       baseUrl: flash.baseUrl,
       models: [{ id: 'upgrade-custom-model', name: 'My custom model', api: 'openai-completions', contextWindow: 8192, maxTokens: 1024 }],
-      modelOverrides: { 'deepseek-v4-flash': { name: 'My Flash override' } },
+      modelOverrides: { [flash.id]: { name: 'My Flash override' } },
     } } });
     await writeFile(options.modelsPath, customConfig);
     const models = await ModelRuntime.create(options);
@@ -140,7 +142,8 @@ describe('pinned SDK upgrade compatibility', () => {
 
     runtime = await createPiSessionRuntime({ cwd, agentDir, sessionFile });
     expect(runtime.session.sessionId).toBe(sessionId);
-    expect(runtime.session.model?.id).not.toBe('deepseek-v4-flash-free');
+    // Both IDs are gone from the bundled catalog; the saved selection must not resurrect them.
+    expect(runtime.session.model?.id).not.toBe(modelId);
     expect(runtime.session.messages.map((message) => message.content)).toEqual(['Existing question', [{ type: 'text', text: 'Existing answer' }]]);
     const manager = runtime.session.sessionManager;
     expect(manager.getSessionName()).toBe('Existing chat');
