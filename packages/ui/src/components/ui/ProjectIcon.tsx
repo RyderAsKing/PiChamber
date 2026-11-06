@@ -3,6 +3,7 @@ import React from 'react';
 import { useProjectIconUrl } from '@/lib/projectIcon';
 import { getProjectMark } from '@/lib/projectIdentity';
 import { cn } from '@/lib/utils';
+import { useProjectAgentActive } from '@/sync/live-project-activity';
 
 type ProjectIconProps = {
   /** Project directory used to look up the icon the project ships. */
@@ -15,11 +16,14 @@ type ProjectIconProps = {
 
 /**
  * The project's own icon (favicon, app icon, or logo) when it has one,
- * otherwise its first letter on a tint derived from its name.
+ * otherwise its first letter on a tint derived from its name. Shown in color
+ * only while an agent is working in the project; grayscale otherwise.
  */
 export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
   const url = useProjectIconUrl(directory);
+  const active = useProjectAgentActive(directory);
   const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
+  const stateClassName = active ? undefined : 'grayscale';
 
   if (url && url !== failedUrl) {
     return (
@@ -29,19 +33,23 @@ export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
         aria-hidden="true"
         draggable={false}
         onError={() => setFailedUrl(url)}
-        className={cn('size-4 shrink-0 rounded-[25%] object-contain', className)}
+        data-project-icon="image"
+        data-agent-active={active ? '' : undefined}
+        className={cn('size-4 shrink-0 rounded-[25%] object-contain', stateClassName, className)}
       />
     );
   }
 
-  return <ProjectMark label={label} className={className} />;
+  return <ProjectMark label={label} active={active} className={cn(stateClassName, className)} />;
 }
 
-function ProjectMark({ label, className }: { label: string; className?: string }) {
+function ProjectMark({ label, active, className }: { label: string; active: boolean; className?: string }) {
   const mark = React.useMemo(() => getProjectMark(label), [label]);
   return (
     <span
       aria-hidden="true"
+      data-project-icon="mark"
+      data-agent-active={active ? '' : undefined}
       className={cn('inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[25%]', className)}
       // The tint lives on the wrapper: global button styles strip fills from
       // SVG rects, which would erase a background drawn inside the SVG.
