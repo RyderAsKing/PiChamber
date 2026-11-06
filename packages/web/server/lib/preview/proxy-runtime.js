@@ -73,7 +73,11 @@ export const rewritePreviewRequestOriginHeaders = ({ headers, proxyReq, targetOr
     if (parsed.pathname === base || parsed.pathname.startsWith(`${base}/`)) {
       for (const param of PREVIEW_PROXY_QUERY_PARAMS) parsed.searchParams.delete(param);
       const search = parsed.searchParams.toString();
-      const upstream = new URL(`${parsed.pathname.slice(base.length) || '/'}${search ? `?${search}` : ''}`, targetOrigin);
+      // Set path and query on the target URL rather than resolving them
+      // against it: a path like `//other.host/x` would change the host.
+      const upstream = new URL(targetOrigin);
+      upstream.pathname = parsed.pathname.slice(base.length) || '/';
+      upstream.search = search ? `?${search}` : '';
       mapped = upstream.toString();
     }
   } catch {
@@ -1493,19 +1497,14 @@ export const createPreviewProxyRuntime = ({
     const proxy = createProxyMiddleware({
       target: 'http://127.0.0.1',
       changeOrigin: true,
-      ws: true,
+      // No `ws: true`: that registers the library's own `upgrade` listener
+      // on the HTTP server, which proxies before the origin and own-header
+      // checks below. WebSockets go only through `server.on('upgrade')`,
+      // which calls `proxy.upgrade` itself.
       selfHandleResponse: true,
-      // Restrict the proxy (especially its auto-attached `upgrade` listener,
-      // which is registered globally on the underlying HTTP server when
-      // `ws: true`) to preview paths. Without this, every WebSocket upgrade
-      // on the server (e.g. `/api/terminal/ws`) gets proxied to
-      // `http://127.0.0.1` and tears the socket down with ECONNREFUSED.
-      //
-      // We use a function so the same filter handles both cases:
-      //   - HTTP requests through Express, where `req.url` has been stripped
-      //     of the `/api/preview/proxy` mount-point, so we check `originalUrl`.
-      //   - Raw upgrade events from the HTTP server, where `req.url` still
-      //     contains the full path.
+      // Restrict the proxy to preview paths. HTTP requests through Express
+      // have `req.url` stripped of the `/api/preview/proxy` mount-point, so
+      // check `originalUrl`; the upgrade handler sets it to the full path.
       pathFilter: (pathname, req) => {
         const target = req?.originalUrl || pathname || req?.url || '';
         return target.startsWith('/api/preview/proxy/');

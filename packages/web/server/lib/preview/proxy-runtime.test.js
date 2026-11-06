@@ -611,6 +611,19 @@ describe('preview request Origin and Referer rewrite', () => {
     expect(proxyReq.headers.get('referer')).toBe(`${targetOrigin}/review?x=1`);
   });
 
+  it('keeps a referer path that starts with two slashes on the target host', () => {
+    const proxyReq = createProxyRequest();
+    rewritePreviewRequestOriginHeaders({
+      headers: { referer: `http://192.168.1.20:3000${proxyBasePath}//other.example/x` },
+      proxyReq,
+      targetOrigin,
+      proxyBasePath,
+      ownOrigin: false,
+      ownReferer: true,
+    });
+    expect(proxyReq.headers.get('referer')).toBe(`${targetOrigin}//other.example/x`);
+  });
+
   it('drops a PiChamber referer that is not inside this target', () => {
     const proxyReq = createProxyRequest();
     proxyReq.setHeader('referer', 'http://192.168.1.20:3000/');
@@ -664,8 +677,9 @@ describe('preview request Origin and Referer rewrite', () => {
     });
     expect(nextArgs).toEqual([]);
     const httpReq = createProxyRequest();
+    httpReq.setHeader('origin', 'http://pichamber.test');
     options.on.proxyReq(httpReq, request);
-    expect(httpReq.headers.has('origin')).toBe(false);
+    expect(httpReq.headers.get('origin')).toBe('http://pichamber.test');
   });
 
   it('does not rewrite requests from a foreign origin', async () => {
@@ -673,8 +687,10 @@ describe('preview request Origin and Referer rewrite', () => {
       headers: { origin: 'https://evil.example', referer: 'https://evil.example/x' },
     });
     const httpReq = createProxyRequest();
+    httpReq.setHeader('origin', 'https://evil.example');
+    httpReq.setHeader('referer', 'https://evil.example/x');
     options.on.proxyReq(httpReq, request);
-    expect(httpReq.headers.has('origin')).toBe(false);
-    expect(httpReq.headers.has('referer')).toBe(false);
+    expect(httpReq.headers.get('origin')).toBe('https://evil.example');
+    expect(httpReq.headers.get('referer')).toBe('https://evil.example/x');
   });
 });
