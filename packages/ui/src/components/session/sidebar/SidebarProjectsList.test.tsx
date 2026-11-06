@@ -570,8 +570,10 @@ describe('SidebarProjectsList view modes', () => {
     // Only the expanded folders (f1, f3) get a sticky header: a collapsed one has nothing to stick over
     expect(markupCollapsed.split('data-sidebar-sticky-header="true"').length - 1).toBe(2);
 
-    // The folder icon stays on every header and the collapse chevron is a separate, always-rendered marker
-    expect(markupCollapsed.split(iconHref('folder')).length - 1).toBe(4);
+    // Each project header shows its own icon (the name's first letter until an icon loads); only
+    // "No folder" keeps the folder glyph. The collapse chevron is a separate, always-rendered marker.
+    expect(markupCollapsed.split(iconHref('folder')).length - 1).toBe(1);
+    expect(markupCollapsed.split('>F</text>').length - 1).toBe(3);
     expect(markupCollapsed.split(iconHref('arrow-down-s')).length - 1).toBe(3);
     expect(markupCollapsed.split(iconHref('arrow-right-s')).length - 1).toBe(1);
 

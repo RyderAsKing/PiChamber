@@ -44,6 +44,7 @@ import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/setti
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
 import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
+import { ProjectIcon } from "@/components/ui/ProjectIcon";
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
 import { truncatePathMiddle } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
@@ -568,7 +569,7 @@ export const CommandPalette: React.FC = () => {
                           value={`project:${project.id}`}
                           onSelect={() => handleOpenProject(project.id, project.path)}
                         >
-                          <Icon name="folder" className="mr-2 h-4 w-4" />
+                          <ProjectIcon directory={project.path} label={displayName} className="mr-2 size-4" />
                           <span className="truncate">{displayName}</span>
                           <span className="ml-auto inline-flex items-center text-muted-foreground typography-meta truncate max-w-[160px]">
                             {project.path}

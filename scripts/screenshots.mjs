@@ -8,7 +8,7 @@ import { mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 
 import { encodePiSessionCwd } from '../packages/web/server/lib/pi/session-daemon/session-jsonl.js';
@@ -18,9 +18,11 @@ const HELP = `Usage: BASE_URL=http://127.0.0.1:5180 bun run screenshots [label] 
 
   label   Output subfolder, e.g. before or after (default: current)
   page    One or more page names (default: all)
-  --seed  Recreate <dir>/repo (a git repo with staged-only, staged-then-edited,
-          and staged new files), <dir>/data (a PICHAMBER_DATA_DIR that opens it),
-          and <dir>/home (a HOME whose Pi agent dir holds one demo session)
+  --seed  Recreate <dir>/repo (a git repo on a long branch with staged-only,
+          staged-then-edited, and staged new files), <dir>/folders (more
+          projects: one with a favicon, a monorepo, one without an icon),
+          <dir>/data (a PICHAMBER_DATA_DIR that opens them all), and <dir>/home
+          (a HOME whose Pi agent dir holds one demo session)
 
 Environment:
   BASE_URL   PiChamber UI origin (default: http://127.0.0.1:5180)
@@ -64,6 +66,17 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 <section>Refunds<b>3</b></section><section>Active users<b>1,204</b></section>
 </main></body></html>`;
 
+// The branch prefix: a middle-truncated label splits the full name across spans.
+const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'feature/session-sidebar'];
+// Three seeded folders ship an icon; wait until each has loaded. A build
+// without project icons renders no [data-project-icon], so it settles at once
+// and the same page captures a before shot.
+const PROJECT_ICONS_SETTLED = `(() => {
+  if (!document.querySelector('[data-project-icon]')) return true;
+  const icons = [...document.querySelectorAll('img[src^="blob:"]')];
+  return icons.length >= 3 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
+})()`;
+
 const PAGES = {
   'diff-all': {
     path: '/',
@@ -97,6 +110,25 @@ const PAGES = {
     // The transcript pins the latest turn to the top, so the rows follow it.
     readyText: [DEMO_REPLY],
     height: 1400,
+  },
+  'sidebar-projects': {
+    path: '/',
+    // Folder list and session card: project icons (favicon, monorepo favicon,
+    // and the fallback mark) plus the middle-truncated branch.
+    readyText: SIDEBAR_PROJECTS_TEXT,
+    // The mobile layout keeps the sidebar in a drawer; see sidebar-projects-mobile.
+    viewports: ['desktop'],
+    settledScript: PROJECT_ICONS_SETTLED,
+    idleRequestPrefix: '/api/fs/project-icon',
+  },
+  'sidebar-projects-mobile': {
+    path: '/',
+    // The header button opens the sessions drawer with the same folder list.
+    openSelector: '[aria-label="Open sessions and projects"]',
+    readyText: SIDEBAR_PROJECTS_TEXT,
+    viewports: ['mobile'],
+    settledScript: PROJECT_ICONS_SETTLED,
+    idleRequestPrefix: '/api/fs/project-icon',
   },
   'shell-composer': {
     path: DEMO_SESSION_PATH,
@@ -452,16 +484,23 @@ const writeDemoSession = async (home, repo) => {
   await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
 };
 
+// A flat square favicon with one white glyph.
+const demoIcon = (fill, glyph) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="${fill}"/><path d="${glyph}" fill="#fff"/></svg>`;
+
 // Synthetic repo: billing.ts staged only (M ), settings.ts staged then edited
 // (MM), retry.ts a staged new file (A ), plus one Pi session in that repo.
-// Safe to rerun; it replaces only <dir>/repo, <dir>/data, and <dir>/home and
-// leaves anything else in <dir> alone.
+// Extra folders give the sidebar a favicon, a monorepo, and no icon at all.
+// Safe to rerun; it replaces only <dir>/repo, <dir>/folders, <dir>/data, and
+// <dir>/home and leaves anything else in <dir> alone.
 const seed = async (dir) => {
   const root = resolve(dir);
   const repo = join(root, 'repo');
   const data = join(root, 'data');
   const home = join(root, 'home');
+  const folders = join(root, 'folders');
   await rm(repo, { recursive: true, force: true });
+  await rm(folders, { recursive: true, force: true });
   await rm(data, { recursive: true, force: true });
   await rm(home, { recursive: true, force: true });
   await mkdir(repo, { recursive: true });
@@ -482,8 +521,12 @@ const seed = async (dir) => {
     'export const defaults = {', "  theme: 'light',", '  fontSize: 14,', '  autosave: false,', '};', '',
     'export function loadSettings() {', '  return { ...defaults };', '}',
   ]);
+  await mkdir(join(repo, 'public'), { recursive: true });
+  await write('public/favicon.svg', [demoIcon('#2f6fde', 'M10 22V10h7a6 6 0 0 1 0 12z')]);
   git('add', '.');
   git('commit', '-qm', 'initial');
+  // Long enough that the session card has to shorten it.
+  git('checkout', '-q', '-b', 'feature/session-sidebar-branch-labels');
 
   await write('billing.ts', [
     'export interface Invoice {', '  id: string;', '  amount: number;', '  paidAt?: string;', '}', '',
@@ -508,9 +551,32 @@ const seed = async (dir) => {
   ]);
   git('add', 'retry.ts');
 
-  const id = `path_${Buffer.from(repo).toString('base64url')}`;
+  const extraFolders = [
+    { name: 'acme-web', label: 'Acme Web', files: { 'public/favicon.svg': demoIcon('#e5484d', 'M9 22V10h8a4 4 0 0 1 0 8h-4v4z') } },
+    { name: 'chamber-mono', label: 'Chamber Mono', files: {
+      'packages/docs/README.md': '# docs\n',
+      'packages/web/public/favicon.svg': demoIcon('#30a46c', 'M16 8l8 8-8 8-8-8z'),
+    } },
+    { name: 'dotfiles', label: 'Dotfiles', files: { 'README.md': '# dotfiles\n' } },
+  ];
+  for (const folder of extraFolders) {
+    for (const [file, content] of Object.entries(folder.files)) {
+      const target = join(folders, folder.name, file);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content);
+    }
+  }
+
+  const projectId = (path) => `path_${Buffer.from(path).toString('base64url')}`;
+  const id = projectId(repo);
   await writeFile(join(data, 'runtime-state.json'), `${JSON.stringify({
-    projects: [{ id, path: repo, label: 'demo-repo' }],
+    projects: [
+      { id, path: repo, label: 'demo-repo' },
+      ...extraFolders.map((folder) => {
+        const path = join(folders, folder.name);
+        return { id: projectId(path), path, label: folder.label };
+      }),
+    ],
     activeProjectId: id,
     lastDirectory: repo,
   }, null, 2)}\n`);

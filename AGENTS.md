@@ -116,8 +116,10 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 `THEME=light|dark`, and `OUT_DIR` as needed.
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
-`<dir>/repo`, a data directory in `<dir>/data` that opens it, and `<dir>/home`,
-a throwaway `HOME` whose Pi agent directory holds one demo session. Start the
+`<dir>/repo` (on a long branch, with a favicon), more folders in
+`<dir>/folders` (one with a favicon, a monorepo, one without an icon), a data
+directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
+`HOME` whose Pi agent directory holds one demo session. Start the
 dev server with `HOME=<dir>/home PICHAMBER_DATA_DIR=<dir>/data` so it never
 touches real `~/.pi` or `~/.config/pichamber` state.
 
@@ -125,12 +127,15 @@ Pages: `diff-all` (Git panel, All scope, desktop only, with staged-only,
 staged-then-edited, and staged new files); `shell-transcript` (the demo
 session's recorded `!cmd` shell rows: exit 0, a failing exit code, a `!!`
 command kept from the model, and truncated output); `shell-composer` (the same
-session with `!!git diff --stat` typed into the composer); `open-request` (an
-Open request for a server-local page arriving in the demo session; set
-`OPEN_URL_SOCKET` to the server's intake socket); `browser-page` (the Browser
-panel with a server-local demo site the script serves on port 4777 typed into
-its address bar, desktop only). Server-route captures need Chrome on the server:
-under the throwaway `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
+session with `!!git diff --stat` typed into the composer); `sidebar-projects`
+(desktop only: the folder list with project icons and the fallback mark, and
+session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
+same list in the mobile sessions drawer); `open-request` (an Open request for a
+server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
+server's intake socket); `browser-page` (the Browser panel with a server-local
+demo site the script serves on port 4777 typed into its address bar, desktop
+only). Server-route captures need Chrome on the server: under the throwaway
+`HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
 `PICHAMBER_HMR_API_PORT`) and capture each with its own label.

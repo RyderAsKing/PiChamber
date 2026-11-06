@@ -1554,3 +1554,77 @@ describe('/api/fs/pick-directory', () => {
   });
 });
 
+
+describe('/api/fs/project-icon', () => {
+  let projectRoot;
+
+  beforeEach(async () => {
+    const realFs = await import('node:fs/promises');
+    const os = await import('node:os');
+    projectRoot = await realFs.realpath(await realFs.mkdtemp(path.join(os.tmpdir(), 'project-icon-route-')));
+  });
+
+  afterEach(async () => {
+    const realFs = await import('node:fs/promises');
+    await realFs.rm(projectRoot, { recursive: true, force: true });
+  });
+
+  const registerProjectIcon = async (resolveProjectDirectory) => {
+    const realFs = await import('node:fs/promises');
+    const { app, getRoute } = createRouteRegistry();
+    registerFsRoutes(app, {
+      os: { homedir: () => '/home/user' },
+      path,
+      fsPromises: realFs.default,
+      spawn: vi.fn(),
+      crypto: { randomUUID: () => 'job-0' },
+      normalizeDirectoryPath: (p) => p,
+      resolveProjectDirectory: resolveProjectDirectory ?? (async () => ({ directory: projectRoot })),
+      buildAugmentedPath: () => '/usr/bin',
+      resolveGitBinaryForSpawn: () => 'git',
+      pichamberUserConfigRoot: '/home/user/.config',
+    });
+    return getRoute('GET', '/api/fs/project-icon');
+  };
+
+  it('requires an explicit directory instead of using the server cwd', async () => {
+    const resolveProjectDirectory = vi.fn(async () => ({ directory: projectRoot }));
+    const handler = await registerProjectIcon(resolveProjectDirectory);
+    const res = createMockResponse();
+    await handler({ query: {} }, res);
+    expect(res.statusCode).toBe(400);
+    expect(resolveProjectDirectory).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing directory as an error, not as "no icon"', async () => {
+    const handler = await registerProjectIcon(async () => ({ directory: null, error: 'Directory not found' }));
+    const res = createMockResponse();
+    await handler({ query: { directory: '/gone' } }, res);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('answers 204 when the project has no icon', async () => {
+    const handler = await registerProjectIcon();
+    const res = createMockResponse();
+    await handler({ query: { directory: projectRoot } }, res);
+    expect(res.statusCode).toBe(204);
+  });
+
+  it('sends the icon bytes with a sandboxing policy', async () => {
+    const realFs = await import('node:fs/promises');
+    await realFs.writeFile(path.join(projectRoot, 'favicon.svg'), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const handler = await registerProjectIcon();
+    const res = createMockResponse();
+    let type = null;
+    res.type = (value) => {
+      type = value;
+      return res;
+    };
+    await handler({ query: { directory: projectRoot } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(type).toBe('image/svg+xml');
+    expect(Buffer.from(res.body).toString()).toContain('<svg');
+    expect(res.getHeader('content-security-policy')).toContain('sandbox');
+    expect(res.getHeader('x-content-type-options')).toBe('nosniff');
+  });
+});

@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { createFsSearchRuntime } from './search.js';
 import { pickHostDirectory } from './pick-directory.js';
+import { createProjectIconResolver } from './project-icon.js';
 
 const EXEC_JOB_TTL_MS = 30 * 60 * 1000;
 const OUTSIDE_FILE_GRANT_TTL_MS = 10 * 60 * 1000;
@@ -520,6 +521,7 @@ export const registerFsRoutes = (app, dependencies) => {
     pichamberUserConfigRoot,
     pickDirectory = pickHostDirectory,
   } = dependencies;
+  const projectIcons = createProjectIconResolver({ fsPromises, path });
   const realpathCache = createRealpathCache({
     realpath: fsPromises.realpath.bind(fsPromises),
   });
@@ -1100,6 +1102,39 @@ export const registerFsRoutes = (app, dependencies) => {
       }
       console.error('Failed to read raw file:', error);
       return res.status(500).json({ error: (error && error.message) || 'Failed to read file' });
+    }
+  });
+
+  // The icon a project already ships (favicon, app icon, logo), or 204 when it
+  // has none. `directory` is required: this never falls back to the server cwd.
+  app.get('/api/fs/project-icon', async (req, res) => {
+    const requested = Array.isArray(req.query?.directory) ? req.query.directory[0] : req.query?.directory;
+    if (typeof requested !== 'string' || !requested.trim()) {
+      return res.status(400).json({ error: 'Directory is required' });
+    }
+
+    const resolvedProject = await resolveProjectDirectory(req);
+    if (!resolvedProject.directory) {
+      return res.status(404).json({ error: resolvedProject.error || 'Directory not found' });
+    }
+
+    try {
+      const icon = await projectIcons.resolve(resolvedProject.directory);
+      res.setHeader('Cache-Control', 'no-store');
+      if (!icon) {
+        return res.status(204).send();
+      }
+      const content = await fsPromises.readFile(icon.path);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      // An SVG opened directly must not run scripts with this origin's access.
+      res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
+      return res.type(icon.mime).send(content);
+    } catch (error) {
+      if (isOsPermissionError(error)) {
+        return sendOsPermissionDenied(res, 'Access to project icon denied');
+      }
+      console.error('Failed to read project icon:', error);
+      return res.status(500).json({ error: 'Failed to read project icon' });
     }
   });
 
