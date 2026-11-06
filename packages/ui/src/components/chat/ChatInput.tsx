@@ -2786,6 +2786,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                           {shellExcludeFromContext
                             ? "Shell command, not sent to the model"
                             : "Shell command, sent to the model"}
+                          {!isMobile || hasHardwareKeyboard ? (
+                            <span> · Esc to go back</span>
+                          ) : null}
                         </div>
                       ) : null}
                       <div className="relative z-10">
@@ -2887,9 +2890,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                   : attachedFiles.length > 0
                                     ? "pt-1.5 pb-2"
                                     : "pt-3 pb-2",
-                            inputMode === "shell"
-                              ? "font-mono"
-                              : "typography-markdown md:typography-ui-label",
+                            "typography-markdown md:typography-ui-label",
                           )}
                         />
                       </div>
