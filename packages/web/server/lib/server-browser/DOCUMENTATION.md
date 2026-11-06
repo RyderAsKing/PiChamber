@@ -111,10 +111,14 @@ reopens the tab at its last address.
 
 - **Server-network rule.** A public page cannot load a server-local or
   private address in the main frame or a subframe, by link, script, or
-  redirect. Loads the person asked for (typed address, back, forward,
-  reload) pass. A blocked load is cancelled (`Aborted`), the address shown
-  returns to the last committed one, and viewers get one
-  `blocked-server-network` notice. Subresource requests are not checked.
+  redirect. A public page's load of a name (not an IP address) is also
+  checked against every address the name resolves to. A name that resolves
+  differently on Chrome's own lookup (DNS rebinding) is not caught. Loads the
+  person asked for (typed address, back, forward, reload) pass until that
+  address commits; a later load from the page is checked again. A blocked
+  load is cancelled (`Aborted`), the address shown returns to the last
+  committed one, and viewers get one `blocked-server-network` notice.
+  Subresource requests are not checked.
 - **Popups** are held before they load anything (`Target.setAutoAttach`
   with `waitForDebuggerOnStart`). Their first document request is cancelled,
   the popup closes, and its address loads in the opener's tab under the same

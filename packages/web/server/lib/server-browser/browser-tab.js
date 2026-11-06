@@ -1,3 +1,6 @@
+import dns from 'node:dns';
+import net from 'node:net';
+
 import { isServerNetworkHost } from '../security/server-network-host.js';
 
 // Chrome sends a new screencast frame only after the previous one is acked.
@@ -117,6 +120,16 @@ export const isBlockedServerNetworkLoad = ({ url, from }) => {
   return !isServerNetworkHost(fromHost);
 };
 
+const isPublicPage = (url) => {
+  const host = url === null ? null : hostOf(url);
+  return Boolean(host) && !isServerNetworkHost(host);
+};
+
+const lookupAll = (host) => dns.promises.lookup(host, { all: true });
+
+// Document requests carry no fragment; history entries and typed addresses may.
+const sameDocument = (a, b) => typeof a === 'string' && typeof b === 'string' && a.split('#')[0] === b.split('#')[0];
+
 // Runs in an isolated world: the page's own scripts cannot see or alter it.
 const ELEMENT_METADATA_FUNCTION = `function (x, y) {
   let element = document.elementFromPoint(x, y);
@@ -200,7 +213,7 @@ const encodeFrame = (header, jpeg) => {
  * state changes; frames go to each viewer at the pace it acknowledges them,
  * and a viewer that falls behind gets only the newest frame.
  */
-export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty, log = () => {}, userAgent = null }) => {
+export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty, log = () => {}, userAgent = null, lookup = lookupAll }) => {
   const viewers = new Set();
   const state = {
     url: 'about:blank',
@@ -401,7 +414,7 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
     let from;
     if (redirectedRequestId && documentRequestUrls.has(redirectedRequestId)) {
       from = documentRequestUrls.get(redirectedRequestId);
-    } else if (frameId === targetId && userLoadPending && (userLoadPending.url === null || userLoadPending.url === url)) {
+    } else if (frameId === targetId && userLoadPending && sameDocument(userLoadPending.url, url)) {
       from = null;
       userLoadPending = null;
     } else {
@@ -409,15 +422,30 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
     }
     documentRequestUrls.set(params.networkId || requestId, url);
     if (documentRequestUrls.size > 64) documentRequestUrls.delete(documentRequestUrls.keys().next().value);
-    if (isBlockedServerNetworkLoad({ url, from })) {
+    const block = () => {
       // Cancel rather than fail: the current page stays, with no error page
       // standing in for the blocked address that Reload would then load.
       void send('Fetch.failRequest', { requestId, errorReason: 'Aborted' }).catch(() => {});
       if (frameId === targetId && setUrl(committedUrl)) emitState();
       broadcast({ type: 'notice', kind: 'blocked-server-network', url });
+    };
+    const proceed = () => { void send('Fetch.continueRequest', { requestId }).catch(() => {}); };
+    if (isBlockedServerNetworkLoad({ url, from })) {
+      block();
       return;
     }
-    void send('Fetch.continueRequest', { requestId }).catch(() => {});
+    // A public name can resolve to the server's network (127.0.0.1.nip.io).
+    // Chrome resolves the name again itself, so a name that changes its
+    // answer in between (DNS rebinding) is not caught.
+    const host = hostOf(url);
+    if (isPublicPage(from) && host && !net.isIP(host.replace(/^\[|\]$/g, ''))) {
+      void Promise.resolve()
+        .then(() => lookup(host))
+        .then((addresses) => addresses.some((entry) => isServerNetworkHost(entry.address)), () => false)
+        .then((blocked) => (blocked ? block() : proceed()));
+      return;
+    }
+    proceed();
   };
 
   const handleEvent = (method, params) => {
@@ -440,6 +468,9 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
         }
         // Error pages report an internal address; show the one that failed.
         committedUrl = params.frame.unreachableUrl || `${params.frame.url}${params.frame.urlFragment || ''}`;
+        // A history load restored from the back/forward cache sends no
+        // document request; once the person's load lands, forget it.
+        if (userLoadPending && sameDocument(userLoadPending.url, committedUrl)) userLoadPending = null;
         const changed = setUrl(committedUrl);
         if (state.crashed) state.crashed = false;
         if (changed) emitState();
@@ -449,6 +480,7 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
       }
       case 'Page.navigatedWithinDocument':
         if (params.frameId !== targetId) return;
+        if (userLoadPending && sameDocument(userLoadPending.url, params.url)) userLoadPending = null;
         committedUrl = params.url;
         if (setUrl(params.url)) emitState();
         void refreshHistory();
@@ -773,14 +805,14 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
       const history = await sendToPage('Page.getNavigationHistory').catch(() => null);
       const entry = history?.entries?.[history.currentIndex + offset];
       if (!entry) return;
-      userLoadPending = { url: null };
+      userLoadPending = { url: entry.url };
       await quietly(sendToPage('Page.navigateToHistoryEntry', { entryId: entry.id }));
       // A page restored from the back/forward cache may not report a load.
       await refreshHistory();
     },
 
     async reload() {
-      userLoadPending = { url: null };
+      userLoadPending = { url: state.url };
       if (state.crashed) {
         // A crashed page has no renderer to reload; load the address again.
         await quietly(sendToPage('Page.navigate', { url: state.url }));

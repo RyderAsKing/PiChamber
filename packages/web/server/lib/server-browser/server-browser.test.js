@@ -52,6 +52,45 @@ describe('server browser input', () => {
   });
 });
 
+describe('server browser server-network rule on a page', () => {
+  const publicTab = (lookup) => {
+    const sent = [];
+    const cdp = { closed: false, send: (method, params) => { sent.push({ method, ...params }); return Promise.resolve({}); } };
+    const tab = createServerBrowserTab({ key: 'k', cdp, targetId: 't', sessionId: 's', onEmpty: () => {}, lookup });
+    tab.handleEvent('Page.frameNavigated', { frame: { id: 't', url: 'https://public.example/' } });
+    const load = async (requestId, url) => {
+      tab.handleEvent('Fetch.requestPaused', { requestId, frameId: 't', request: { url } });
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    const outcome = (requestId) => sent.find((entry) => entry.requestId === requestId)?.method;
+    return { tab, load, outcome };
+  };
+
+  it('checks the addresses a public page\'s link resolves to', async () => {
+    const { load, outcome } = publicTab(async (host) => [{ address: host === 'rebind.example' ? '127.0.0.1' : '93.184.216.34', family: 4 }]);
+    await load('a', 'http://rebind.example:6379/');
+    await load('b', 'https://other.example/');
+    expect([outcome('a'), outcome('b')]).toEqual(['Fetch.failRequest', 'Fetch.continueRequest']);
+  });
+
+  it('forgets a reload once it lands, even without a document request', async () => {
+    const { tab, load, outcome } = publicTab(async () => [{ address: '93.184.216.34', family: 4 }]);
+    await tab.reload();
+    // Restored from the back/forward cache: the page commits with no request.
+    tab.handleEvent('Page.frameNavigated', { frame: { id: 't', url: 'https://public.example/' } });
+    await load('c', 'http://10.0.0.1/');
+    expect(outcome('c')).toBe('Fetch.failRequest');
+  });
+
+  it('keeps a typed address the person\'s while the page changes its own URL', async () => {
+    const { tab, load, outcome } = publicTab(async () => [{ address: '93.184.216.34', family: 4 }]);
+    await tab.navigate('http://localhost:3000/#top');
+    tab.handleEvent('Page.navigatedWithinDocument', { frameId: 't', url: 'https://public.example/#s2' });
+    await load('d', 'http://localhost:3000/');
+    expect(outcome('d')).toBe('Fetch.continueRequest');
+  });
+});
+
 describe('server browser wheel input', () => {
   // Chrome answers a wheel event only after the page handles it, which can
   // take longer than a trackpad waits between events.
