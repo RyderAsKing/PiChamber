@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type ProxyOptions } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,15 @@ const reactCompilerToggle = (process.env.VITE_REACT_COMPILER ?? '').toLowerCase(
 // release builds that want compiler memoization in the shipped bundle.
 const enableReactCompiler = reactCompilerToggle === '1' || reactCompilerToggle === 'true' || reactCompilerToggle === 'on' || reactCompilerToggle === 'yes';
 const themeDirectory = path.resolve(__dirname, '../ui/src/lib/theme/themes');
+
+// The development proxy points Host at the API. Forward the address the
+// browser used, so the server recognizes requests from its own UI as
+// same-site (the cross-site request check reads X-Forwarded-Host).
+const forwardBrowserHost: NonNullable<ProxyOptions['configure']> = (proxy) => {
+  proxy.on('proxyReq', (proxyReq, req) => {
+    if (req.headers.host) proxyReq.setHeader('x-forwarded-host', req.headers.host);
+  });
+};
 
 // Rollup's manualChunks module-graph accessors (the subset used here).
 type ChunkGraph = {
@@ -182,6 +191,7 @@ export default defineConfig({
       '/auth': {
         target: `http://127.0.0.1:${process.env.PICHAMBER_PORT || 3001}`,
         changeOrigin: true,
+        configure: forwardBrowserHost,
       },
       '/health': {
         target: `http://127.0.0.1:${process.env.PICHAMBER_PORT || 3001}`,
@@ -190,6 +200,7 @@ export default defineConfig({
       '/api': {
         target: `http://127.0.0.1:${process.env.PICHAMBER_PORT || 3001}`,
         changeOrigin: true,
+        configure: forwardBrowserHost,
         // The development proxy changes the upstream Host to the loopback API
         // target. Rewrite WebSocket Origin to the same target so authenticated
         // upgrade checks do not reject HMR clients running on a different port.

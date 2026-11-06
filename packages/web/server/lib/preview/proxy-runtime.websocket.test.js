@@ -55,6 +55,7 @@ describe('preview proxy WebSockets', () => {
       express,
       uiAuthController: null,
       isRequestOriginAllowed: async (req) => req.headers.origin === ownOrigin,
+      isCrossSiteRequest: async (req) => Boolean(req.headers.origin) && req.headers.origin !== ownOrigin,
       rejectWebSocketUpgrade: (socket) => socket.destroy(),
     });
 

@@ -29,6 +29,7 @@ describe('STT runtime upgrade', () => {
         ensureSessionToken: async () => 'client:thrower',
       },
       isRequestOriginAllowed: async () => true,
+      isCrossSiteRequest: async () => false,
       rejectWebSocketUpgrade: () => {},
       modelsDir: '/tmp/stt-test-models',
       configFile: '/tmp/stt-test-config.json',

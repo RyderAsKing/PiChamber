@@ -55,8 +55,10 @@ const resolveProjectDirectory = async (req) => {
   }
 };
 
-export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthController, dataDir, liveRevocation = null }) => {
-  const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
+export const registerWorkspaceIntegrations = ({
+  app, server, express, uiAuthController, dataDir, liveRevocation = null,
+  security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) }),
+}) => {
   registerGitRoutes(app);
   registerGitHubRoutes(app);
   registerFsRoutes(app, {
@@ -83,6 +85,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     searchPathFor,
     isExecutable,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
+    isCrossSiteRequest: security.isCrossSiteRequest,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
   });
   const sttRuntime = createSttRuntime({
@@ -92,6 +95,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     uiAuthController,
     liveRevocation,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
+    isCrossSiteRequest: security.isCrossSiteRequest,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
     modelsDir: path.join(dataDir, 'speech-models'),
     configFile: path.join(dataDir, 'stt', 'config.json'),
@@ -106,6 +110,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     express,
     uiAuthController,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
+    isCrossSiteRequest: security.isCrossSiteRequest,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
   });
   const serverBrowserRuntime = createServerBrowserRuntime({
@@ -116,6 +121,7 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     uiAuthController,
     liveRevocation,
     isRequestOriginAllowed: security.isRequestOriginAllowed,
+    isCrossSiteRequest: security.isCrossSiteRequest,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
   });
   return {

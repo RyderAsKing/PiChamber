@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import express from 'express';
 import { WebSocket } from 'ws';
 
+import { createRequestSecurityRuntime } from '../security/request-security.js';
 import { createTerminalRuntime } from './runtime.js';
 import { createTerminalWsControlFrame, readTerminalWsControlFrame } from './terminal-ws-protocol.js';
 
@@ -42,6 +43,7 @@ function createRuntime(server, overrides = {}) {
     searchPathFor: () => null,
     isExecutable: () => false,
     isRequestOriginAllowed: async () => true,
+    isCrossSiteRequest: async () => false,
     rejectWebSocketUpgrade() {},
     TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 30_000,
     TERMINAL_INPUT_WS_REBIND_WINDOW_MS: 1_000,
@@ -594,6 +596,45 @@ describe('terminal runtime', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
       expect(socket.destroyed).toBe(true);
       expect(handleUpgradeCalls).toBe(0);
+    } finally {
+      WebSocketServer.prototype.handleUpgrade = originalHandleUpgrade;
+      await runtime.shutdown();
+    }
+  });
+
+  it('refuses a WebSocket from another site while UI auth is off', async () => {
+    const { WebSocketServer } = await import('ws');
+    const originalHandleUpgrade = WebSocketServer.prototype.handleUpgrade;
+    const upgradedOrigins = [];
+    WebSocketServer.prototype.handleUpgrade = function (req) {
+      upgradedOrigins.push(req.headers.origin ?? null);
+      return undefined;
+    };
+    const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
+    const rejections = [];
+    const server = new EventEmitter();
+    const runtime = createRuntime(server, {
+      uiAuthController: null,
+      isRequestOriginAllowed: security.isRequestOriginAllowed,
+      isCrossSiteRequest: security.isCrossSiteRequest,
+      rejectWebSocketUpgrade: (_socket, status) => rejections.push(status),
+    });
+    const upgrade = async (origin) => {
+      const socket = new EventEmitter();
+      socket.destroyed = false;
+      socket.destroy = function () { this.destroyed = true; };
+      const headers = { host: '127.0.0.1:3001', ...(origin ? { origin } : {}) };
+      server.emit('upgrade', { url: '/api/terminal/ws', headers }, socket, Buffer.alloc(0));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    };
+    try {
+      await upgrade('https://evil.example.com');
+      expect(rejections).toEqual([403]);
+      expect(upgradedOrigins).toEqual([]);
+      await upgrade('http://127.0.0.1:3001');
+      await upgrade(null);
+      expect(rejections).toEqual([403]);
+      expect(upgradedOrigins).toEqual(['http://127.0.0.1:3001', null]);
     } finally {
       WebSocketServer.prototype.handleUpgrade = originalHandleUpgrade;
       await runtime.shutdown();

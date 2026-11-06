@@ -124,6 +124,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       dataDir,
       uiAuthController: null,
       isRequestOriginAllowed: async () => true,
+      isCrossSiteRequest: async () => false,
       rejectWebSocketUpgrade: (socket) => socket.destroy(),
       browser,
     });

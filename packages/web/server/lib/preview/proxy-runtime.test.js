@@ -80,6 +80,7 @@ const createAttachedPreviewRuntime = ({
     express: { json: () => (_req, _res, next) => next() },
     uiAuthController: null,
     isRequestOriginAllowed,
+    isCrossSiteRequest: async () => false,
     rejectWebSocketUpgrade() {},
   });
 
