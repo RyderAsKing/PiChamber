@@ -1,14 +1,18 @@
 /**
  * iOS standalone (Home Screen) web apps can get a web view that starts under
  * the status bar but is shorter than the screen by exactly the top inset
- * (WebKit bug 313800; iPhone 16 Pro: screen 874, innerHeight 812, top inset
- * 62). iOS paints the missing height as a strip below the page that the DOM
- * cannot draw into, and that strip already covers the home indicator. WebKit
- * still reports env(safe-area-inset-bottom) as 34px, so padding for it stacks
- * on top of the strip.
+ * (WebKit bugs 301108 / 313800; iPhone 16 Pro: screen 874, innerHeight 812,
+ * top inset 62). iOS draws the missing height as a strip below the page that
+ * the DOM cannot draw into. WebKit still reports env(safe-area-inset-bottom)
+ * as 34px, so padding for the home indicator would stack on top of the strip.
  *
- * This publishes the measured strip as --oc-viewport-bottom-strip on <html>;
- * mobile.css subtracts it from the bottom safe-area token.
+ * mobile.css grows <html> by the top inset, which is what restores the full
+ * viewport: iOS keeps the short viewport only while the page is no taller
+ * than it. This module is the fallback when iOS keeps it anyway. It publishes
+ * the measured strip as --oc-viewport-bottom-strip on <html>; mobile.css then
+ * shrinks <body> to the visible area and subtracts the strip from the bottom
+ * safe-area token. Once iOS restores the full viewport, the next resize
+ * measures no strip and removes the property.
  */
 
 const VIEWPORT_BOTTOM_STRIP_PROPERTY = '--oc-viewport-bottom-strip';
@@ -98,11 +102,13 @@ export function installStandaloneViewportInsets(): () => void {
   window.addEventListener('resize', update);
   window.addEventListener('orientationchange', update);
   window.addEventListener('pageshow', update);
+  window.visualViewport?.addEventListener('resize', update);
   return () => {
     document.removeEventListener('DOMContentLoaded', update);
     window.removeEventListener('resize', update);
     window.removeEventListener('orientationchange', update);
     window.removeEventListener('pageshow', update);
+    window.visualViewport?.removeEventListener('resize', update);
     root.style.removeProperty(VIEWPORT_BOTTOM_STRIP_PROPERTY);
   };
 }

@@ -25,16 +25,21 @@ try {
   const build = spawnSync('bun', ['build', fileURLToPath(new URL('../packages/ui/src/lib/perf/viewportLayout.ts', import.meta.url)), '--target=browser', '--format=cjs', '--outfile', collectorBundle], { encoding: 'utf8' });
   assert.equal(build.status, 0, build.stderr);
   const collectorSource = readFileSync(collectorBundle, 'utf8');
-  for (const { viewport, large, dynamic, strip } of [
-    { viewport: 874, large: 874, dynamic: 874, strip: 0 },
-    // Before standaloneViewportInsets has measured the short web view.
-    { viewport: 812, large: 874, dynamic: 812, strip: 0 },
-    // Measured: iOS draws a 62px strip below the page that already covers the
-    // home indicator, so the bottom inset must not be reserved again.
-    { viewport: 812, large: 874, dynamic: 812, strip: 62 },
+  for (const { viewport, large, dynamic, top, strip } of [
+    { viewport: 874, large: 874, dynamic: 874, top: 0, strip: 0 },
+    // Opaque status bar: no top inset, and lvh overstates the viewport
+    // (WebKit 316008). <html> must not grow past the viewport.
+    { viewport: 812, large: 874, dynamic: 812, top: 0, strip: 0 },
+    // Black-translucent after <html> grew by the top inset: iOS gives the
+    // full-screen viewport, so the composer reaches the home indicator.
+    { viewport: 874, large: 874, dynamic: 874, top: 62, strip: 0 },
+    // iOS kept the short viewport anyway: standaloneViewportInsets measured
+    // the 62px strip, <body> shrinks to the visible area, and the inset the
+    // strip already covers is not reserved again.
+    { viewport: 812, large: 874, dynamic: 812, top: 62, strip: 62 },
     // After keyboard dismissal, dvh can remain shrunk. The layout viewport
     // has recovered, so the shell must fill it without depending on dvh.
-    { viewport: 874, large: 874, dynamic: 500, strip: 0 },
+    { viewport: 874, large: 874, dynamic: 500, top: 62, strip: 0 },
   ]) {
     for (const safeBottom of [0, 21, 34]) {
       const css = mobileCss
@@ -43,7 +48,8 @@ try {
         .replaceAll('(-webkit-touch-callout: none)', '(display: block)')
         .replaceAll('100lvh', `${large}px`)
         .replaceAll('100dvh', `${dynamic}px`)
-        .replace(/env\(safe-area-inset-bottom,\s*0(?:px)?\)/g, `${safeBottom}px`);
+        .replace(/env\(safe-area-inset-bottom,\s*0(?:px)?\)/g, `${safeBottom}px`)
+        .replace(/env\(safe-area-inset-top,\s*0(?:px)?\)/g, `${top}px`);
       await client.send('Emulation.setDeviceMetricsOverride', { width: 402, height: viewport, deviceScaleFactor: 1, mobile: true });
       await client.send('Page.setDocumentContent', { frameId: frameTree.frame.id, html: `<!doctype html>
 <html class="device-mobile mobile-pointer"${strip ? ` style="--oc-viewport-bottom-strip: ${strip}px"` : ''}><head>
@@ -70,7 +76,9 @@ const footer = document.querySelector('.footer').getBoundingClientRect();
 const overlay = getComputedStyle(document.body, '::after');
 const card = document.querySelector('.card').getBoundingClientRect();
 document.querySelector('#result').textContent = JSON.stringify({
-  viewport: innerHeight, shellHeight: shell.height, footerBottom: footer.bottom,
+  viewport: innerHeight, htmlHeight: document.documentElement.getBoundingClientRect().height,
+  bodyHeight: document.body.getBoundingClientRect().height,
+  shellHeight: shell.height, footerBottom: footer.bottom,
   cardBottom: card.bottom, bottomGap: shell.bottom - card.bottom,
   overlayHeight: parseFloat(overlay.height) || 0
 });
@@ -78,7 +86,9 @@ document.querySelector('#result').textContent = JSON.stringify({
 </script></body></html>` });
       const result = await evaluateValue(client, "JSON.parse(document.querySelector('#result').textContent)");
       assert.equal(result.viewport, viewport, 'Fixture viewport must match the requested geometry');
-      console.log({ large, dynamic, strip, safeBottom, ...result });
+      console.log({ large, dynamic, top, strip, safeBottom, ...result });
+      assert.equal(result.htmlHeight, Math.min(large, viewport + top), '<html> must grow by the top inset, capped at lvh');
+      assert.equal(result.bodyHeight, result.htmlHeight - strip, '<body> must exclude a measured bottom strip');
       assert.equal(result.shellHeight, result.viewport, 'PWA shell must fit its layout viewport');
       assert.equal(result.bottomGap, Math.max(16, safeBottom - strip), 'Composer must reserve only the bottom safe area inside the web view, once');
       assert(result.footerBottom <= result.viewport - result.overlayHeight, 'Composer footer must remain above bottom clipping and overlay');

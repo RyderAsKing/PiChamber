@@ -729,6 +729,27 @@
     height: 100%;
   }
 
+  /* iOS 26+ gives a Home Screen app with the black-translucent status bar a
+     viewport short of the screen by the top inset (62px on iPhone 16 Pro)
+     while the page is no taller than that viewport, and draws the rest as an
+     unusable strip (WebKit bugs 301108 / 313800). A page as tall as the screen
+     gets the full viewport. Grow <html> by the top inset, capped at 100lvh:
+     with an opaque status bar the inset is 0 and lvh overstates the viewport
+     (WebKit 316008), so nothing changes there.
+     If iOS still keeps the short viewport, standaloneViewportInsets.ts
+     publishes the strip and <body> shrinks back to the visible area, so the
+     composer is never clipped. <html> stays grown so a later resize can still
+     restore the full viewport. */
+  @supports (-webkit-touch-callout: none) {
+    html:root:not(.oc-capacitor-app):not(.desktop-runtime) {
+      height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px)));
+    }
+
+    html:root:not(.oc-capacitor-app):not(.desktop-runtime) body {
+      height: calc(100% - var(--oc-viewport-bottom-strip, 0px));
+    }
+  }
+
   /* Top toasts: same offset the Capacitor shell already applies — without it
      they render under the clock / Dynamic Island. */
   :root:not(.oc-capacitor-app) [data-sonner-toaster][data-y-position='top'] {
