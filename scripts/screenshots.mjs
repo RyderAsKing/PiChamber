@@ -5,6 +5,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises';
+import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -25,6 +26,8 @@ Environment:
   BASE_URL   PiChamber UI origin (default: http://127.0.0.1:5180)
   CHROME     Chrome/Chromium executable (default: system Chrome, then the Playwright cache)
   OUT_DIR    Output root (default: .screenshots)
+  OPEN_URL_SOCKET  The server's Open request intake (open-request page), e.g.
+             $XDG_RUNTIME_DIR/pichamber/pi-daemons/web-dev-p<api port>/open-url.sock
   THEME      light or dark (default: light)
 
 Pages: ${'%PAGES%'}`;
@@ -43,6 +46,21 @@ const DEMO_SESSION_PATH = `/?session=${DEMO_SESSION_ID}`;
 // Text of the seeded assistant reply; it renders with or without shell rows,
 // so before and after captures wait on the same content.
 const DEMO_REPLY = 'autosave default changed to true';
+
+// A stand-in for a project's dev server, served by this script on a fixed
+// port while browser pages are captured.
+const DEMO_SITE_PORT = Number(process.env.DEMO_SITE_PORT || 4777);
+const DEMO_SITE_TITLE = 'Acme dashboard';
+const DEMO_SITE_HTML = `<!doctype html><html><head><title>${DEMO_SITE_TITLE}</title>
+<style>body{margin:0;font:15px system-ui,sans-serif;color:#1f2933;background:#f5f7fa}
+header{padding:16px 24px;background:#1f2933;color:#fff;font-weight:600}
+main{padding:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px}
+section{background:#fff;border:1px solid #d9e2ec;border-radius:8px;padding:16px}
+b{display:block;font-size:26px;margin-top:6px}</style></head>
+<body><header>Acme dashboard</header><main>
+<section>Orders today<b>128</b></section><section>Revenue<b>$9,412</b></section>
+<section>Refunds<b>3</b></section><section>Active users<b>1,204</b></section>
+</main></body></html>`;
 
 const PAGES = {
   'diff-all': {
@@ -84,6 +102,28 @@ const PAGES = {
     // `!` enters shell mode and a second `!` keeps the command out of the
     // model's context; each insert is a separate edit, like typing.
     typeIntoComposer: ['!', '!', 'git diff --stat'],
+  },
+  'open-request': {
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // Sent through the server's intake, as a tool calling $BROWSER would.
+    openRequest: `http://localhost:${DEMO_SITE_PORT}/`,
+    // Desktop asks; a phone has no PiChamber browser and only informs.
+    settledScript: `['Open this page?', 'A page is ready to view'].some((t) => document.body.innerText.includes(t))`,
+  },
+  'browser-page': {
+    path: '/',
+    // The right rail's Browser button opens the panel on a new page.
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Browser"]',
+    // Phone layouts have no Browser panel.
+    viewports: ['desktop'],
+    readyText: [],
+    // Typed into the page's address bar: a server-local dev server.
+    browserAddress: `http://localhost:${DEMO_SITE_PORT}/`,
+    // The Server route draws the page on a canvas named after its title; the
+    // This device route, and builds before routes, show an iframe.
+    settledScript: `Boolean(document.querySelector('[aria-label="Web page: ${DEMO_SITE_TITLE}"]')
+      || [...document.querySelectorAll('iframe')].some((frame) => frame.src.includes(':${DEMO_SITE_PORT}')))`,
   },
 };
 
@@ -235,6 +275,20 @@ const trackRequests = (client) => {
   };
 };
 
+const sendOpenRequest = (url) => new Promise((resolveSent, reject) => {
+  const socketPath = process.env.OPEN_URL_SOCKET;
+  if (!socketPath) {
+    reject(new Error('Set OPEN_URL_SOCKET to capture the open-request page.'));
+    return;
+  }
+  const req = httpRequest({ socketPath, path: '/open', method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+    res.resume();
+    res.on('end', resolveSent);
+  });
+  req.on('error', reject);
+  req.end(JSON.stringify({ url, sessionId: DEMO_SESSION_ID }));
+});
+
 const capture = async (client, network, baseUrl, pageName, page, viewport, theme, outDir) => {
   await client.send('Emulation.setDeviceMetricsOverride', {
     width: viewport.width,
@@ -273,6 +327,31 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     if (page.expandSelector) {
       await client.evaluate(`document.querySelectorAll(${JSON.stringify(page.expandSelector)}).forEach((el) => el.click())`);
     }
+    if (page.browserAddress) {
+      // The panel can close again while the app finishes starting; press its
+      // rail button until the address bar shows.
+      const opener = JSON.stringify(page.openSelector);
+      await waitFor(
+        () => client.evaluate(`(() => {
+          const input = document.querySelector('[aria-label="Browser address"]');
+          if (!input?.offsetParent) {
+            const control = document.querySelector(${opener});
+            if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+            return false;
+          }
+          input.focus();
+          input.select();
+          return document.activeElement === input;
+        })()`),
+        15_000,
+        `${pageName} address bar`,
+      );
+      await client.send('Input.insertText', { text: page.browserAddress });
+      for (const type of ['keyDown', 'keyUp']) {
+        await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+      }
+    }
+    if (page.openRequest) await sendOpenRequest(page.openRequest);
     if (page.settledScript) {
       await waitForSettled(client, page, network, `${pageName} settled`);
     }
@@ -467,6 +546,7 @@ const main = async () => {
   ], { stdio: 'ignore' });
 
   let client;
+  let demoSite;
   try {
     let target;
     await waitFor(async () => {
@@ -480,6 +560,16 @@ const main = async () => {
     await client.send('Runtime.enable');
     await client.send('Network.enable');
     const network = trackRequests(client);
+    if (pageNames.some((name) => PAGES[name].browserAddress)) {
+      demoSite = createHttpServer((_req, res) => {
+        res.setHeader('content-type', 'text/html');
+        res.end(DEMO_SITE_HTML);
+      });
+      await new Promise((resolveListen, reject) => {
+        demoSite.once('error', reject);
+        demoSite.listen(DEMO_SITE_PORT, '127.0.0.1', resolveListen);
+      });
+    }
 
     for (const name of pageNames) {
       const viewports = VIEWPORTS.filter((v) => !PAGES[name].viewports || PAGES[name].viewports.includes(v.name));
@@ -490,6 +580,9 @@ const main = async () => {
     }
   } finally {
     client?.close();
+    // The server browser keeps its page, and so its connection, open.
+    demoSite?.closeAllConnections();
+    demoSite?.close();
     chrome.kill('SIGTERM');
     await rm(profileDir, { recursive: true, force: true }).catch(() => {});
   }
