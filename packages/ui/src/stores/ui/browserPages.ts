@@ -88,6 +88,19 @@ export const sanitizeBrowserPages = (
   return { pages, activePageId: activeIdFor(pages, activePageId) };
 };
 
+/**
+ * A Browser tab's pages when it first opens: one page with a fresh id. The
+ * id keys the page's server tab, so it is never shared with a Browser tab
+ * opened before or on another device.
+ */
+export const createBrowserPages = (
+  input: { url: string | null; route: BrowserRoute | null },
+  createId: () => string = createBrowserPageId,
+): BrowserPages => {
+  const id = createId();
+  return { pages: [{ id, url: normalizeUrl(input.url), route: normalizeRoute(input.route), title: null }], activePageId: id };
+};
+
 export type BrowserPageTarget =
   /** A new page, or the active one when it is still empty. */
   | 'new'
