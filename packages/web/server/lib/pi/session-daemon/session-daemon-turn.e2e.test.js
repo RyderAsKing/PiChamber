@@ -79,10 +79,13 @@ export default function (pi) {
         render: () => [theme.style(\`[calling echo \${args.text}]\`, { fg: 'accent', bold: true })],
       };
     },
-    renderResult: (result, _options, theme) => {
+    renderResult: (result, _options, theme, ctx) => {
       const resText = result?.content?.[0]?.text ?? result?.text ?? (typeof result === 'string' ? result : JSON.stringify(result));
       return {
-        render: () => [theme.style(\`[echo result: \${resText}]\`, { fg: 'success' })],
+        render: () => [
+          theme.style(\`[echo result: \${resText}]\`, { fg: 'success' }),
+          ctx.keyHint('app.tools.expand', 'to expand'),
+        ],
       };
     },
   });
@@ -301,6 +304,8 @@ describe('session daemon agent turn end-to-end with real SDK', () => {
     expect(toolEnd.payload.render?.result).toBeDefined();
     expect(toolEnd.payload.render.result[0]).toContain('[echo result: echo:echo payload]');
     expect(toolEnd.payload.render.result[0]).toContain('\x1b[38;2;1;1;');
+    // Pi 1.5.0 `ctx.keyHint()` renders without the terminal key, which PiChamber does not bind.
+    expect(toolEnd.payload.render.result[1].replace(/\x1b\[[0-9;]*m/g, '')).toBe('to expand');
     await echoSettledPromise;
 
     // 7. Nested tool execution via ctx.executeTool() skips nested events

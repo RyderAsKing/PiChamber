@@ -51,10 +51,22 @@ describe('extension-message-render', () => {
     expect(render).toEqual({ message: ['short line'], messageExpanded: ['full line'] });
     expect(fn).toHaveBeenCalledTimes(2);
     expect(seen[0][0]).toBe(input);
-    expect(seen[0][1]).toEqual({ expanded: false, outputPad: 0 });
+    expect(seen[0][1]).toEqual({ expanded: false, outputPad: 0, keyText: expect.any(Function), keyHint: expect.any(Function) });
     expect(seen[0][2]).toBe(theme);
-    expect(seen[1][1]).toEqual({ expanded: true, outputPad: 0 });
+    expect(seen[1][1]).toEqual({ expanded: true, outputPad: 0, keyText: expect.any(Function), keyHint: expect.any(Function) });
     expect(widths).toEqual([TOOL_RENDER_WIDTH, TOOL_RENDER_WIDTH]);
+  });
+
+  it('gives renderers key hints without terminal keys', () => {
+    const renderer = createExtensionMessageRenderer({ theme: { fg: (color, text) => `<${color}>${text}` } });
+    const fn = vi.fn((_msg, options) => componentReturning([
+      `[${options.keyText('app.tools.expand')}] ${options.keyHint('app.tools.expand', options.expanded ? 'to collapse' : 'to expand')}`,
+    ]));
+
+    expect(renderer.renderMessage(sessionWith(fn), message())).toEqual({
+      message: ['[] <muted>to expand'],
+      messageExpanded: ['[] <muted>to collapse'],
+    });
   });
 
   it('trims trailing spaces and bounds line count and length', () => {
