@@ -29,6 +29,8 @@ Environment:
   OPEN_URL_SOCKET  The server's Open request intake (open-request page), e.g.
              $XDG_RUNTIME_DIR/pichamber/pi-daemons/web-dev-p<api port>/open-url.sock
   THEME      light or dark (default: light)
+  DEMO_SITE_PORT  Port of the demo site the browser-page page loads (default: 4777);
+             if it cannot start, that page fails and the others still capture
 
 Pages: ${'%PAGES%'}`;
 
@@ -547,6 +549,7 @@ const main = async () => {
 
   let client;
   let demoSite;
+  const failed = [];
   try {
     let target;
     await waitFor(async () => {
@@ -560,18 +563,31 @@ const main = async () => {
     await client.send('Runtime.enable');
     await client.send('Network.enable');
     const network = trackRequests(client);
+    // Only the pages that load the demo site need it; when it cannot start
+    // (its port is taken), those pages fail and the others still capture.
+    let demoSiteError = null;
     if (pageNames.some((name) => PAGES[name].browserAddress)) {
       demoSite = createHttpServer((_req, res) => {
         res.setHeader('content-type', 'text/html');
         res.end(DEMO_SITE_HTML);
       });
-      await new Promise((resolveListen, reject) => {
-        demoSite.once('error', reject);
-        demoSite.listen(DEMO_SITE_PORT, '127.0.0.1', resolveListen);
-      });
+      try {
+        await new Promise((resolveListen, reject) => {
+          demoSite.once('error', reject);
+          demoSite.listen(DEMO_SITE_PORT, '127.0.0.1', resolveListen);
+        });
+      } catch (error) {
+        demoSite = null;
+        demoSiteError = `the demo site could not start on port ${DEMO_SITE_PORT} (${error instanceof Error ? error.message : error}); set DEMO_SITE_PORT to a free port`;
+      }
     }
 
     for (const name of pageNames) {
+      if (PAGES[name].browserAddress && demoSiteError) {
+        console.error(`${name}: ${demoSiteError}`);
+        failed.push(name);
+        continue;
+      }
       const viewports = VIEWPORTS.filter((v) => !PAGES[name].viewports || PAGES[name].viewports.includes(v.name));
       for (const viewport of viewports) {
         const file = await capture(client, network, baseUrl, name, PAGES[name], viewport, theme, outDir);
@@ -586,6 +602,7 @@ const main = async () => {
     chrome.kill('SIGTERM');
     await rm(profileDir, { recursive: true, force: true }).catch(() => {});
   }
+  if (failed.length) throw new Error(`Not captured: ${failed.join(', ')}`);
 };
 
 main().catch((error) => {
