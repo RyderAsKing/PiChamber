@@ -39,7 +39,8 @@ without UI auth. `security/request-security.js` owns the rule:
 
 Browsers send `Sec-Fetch-Site` only to secure origins (HTTPS or localhost), so
 a proxy that rewrites `Host` on plain HTTP must set `X-Forwarded-Host`; the
-Vite development proxy does. DNS rebinding (another name resolving to the
+Vite development proxy does, on requests and WebSocket upgrades. A proxy must
+never rewrite `Origin` to the server's own: every page would then pass. DNS rebinding (another name resolving to the
 server, so `Origin` and `Host` agree) is not caught.
 
 ## Entrypoints and structure

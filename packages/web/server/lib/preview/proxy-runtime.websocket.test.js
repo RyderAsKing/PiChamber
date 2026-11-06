@@ -5,6 +5,7 @@ import express from 'express';
 import { createProxyMiddleware, responseInterceptor } from 'http-proxy-middleware';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createRequestSecurityRuntime } from '../security/request-security.js';
 import { createPreviewProxyRuntime } from './proxy-runtime.js';
 
 const listen = (server) => new Promise((resolve) => {
@@ -50,13 +51,14 @@ describe('preview proxy WebSockets', () => {
     servers.push(server);
     const port = await listen(server);
     const ownOrigin = `http://127.0.0.1:${port}`;
+    const security = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
     createPreviewProxyRuntime({ crypto, URL, createProxyMiddleware, responseInterceptor }).attach(app, {
       server,
       express,
       uiAuthController: null,
-      isRequestOriginAllowed: async (req) => req.headers.origin === ownOrigin,
-      isCrossSiteRequest: async (req) => Boolean(req.headers.origin) && req.headers.origin !== ownOrigin,
-      rejectWebSocketUpgrade: (socket) => socket.destroy(),
+      isRequestOriginAllowed: security.isRequestOriginAllowed,
+      isCrossSiteRequest: security.isCrossSiteRequest,
+      rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
     });
 
     const registered = await request(port, '/api/preview/targets', {
@@ -76,5 +78,12 @@ describe('preview proxy WebSockets', () => {
 
     expect(upgraded.status).toBe(101);
     expect(upgrades).toEqual([`http://127.0.0.1:${upstreamPort}`]);
+
+    // Without UI auth, another site's page is refused before the dev server.
+    const foreign = await request(port, path, {
+      headers: { connection: 'Upgrade', upgrade: 'websocket', origin: 'https://evil.example.com' },
+    });
+    expect(foreign.status).toBe(403);
+    expect(upgrades).toHaveLength(1);
   });
 });

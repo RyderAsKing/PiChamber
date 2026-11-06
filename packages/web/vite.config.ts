@@ -20,12 +20,15 @@ const enableReactCompiler = reactCompilerToggle === '1' || reactCompilerToggle =
 const themeDirectory = path.resolve(__dirname, '../ui/src/lib/theme/themes');
 
 // The development proxy points Host at the API. Forward the address the
-// browser used, so the server recognizes requests from its own UI as
-// same-site (the cross-site request check reads X-Forwarded-Host).
+// browser used, so the server judges the browser's real Origin against it:
+// its own UI passes the origin checks, and another site's page does not.
+// Origin is never rewritten; that would let any page through.
 const forwardBrowserHost: NonNullable<ProxyOptions['configure']> = (proxy) => {
-  proxy.on('proxyReq', (proxyReq, req) => {
+  const forward = (proxyReq: { setHeader: (name: string, value: string) => void }, req: { headers: { host?: string } }) => {
     if (req.headers.host) proxyReq.setHeader('x-forwarded-host', req.headers.host);
-  });
+  };
+  proxy.on('proxyReq', forward);
+  proxy.on('proxyReqWs', forward);
 };
 
 // Rollup's manualChunks module-graph accessors (the subset used here).
@@ -201,10 +204,6 @@ export default defineConfig({
         target: `http://127.0.0.1:${process.env.PICHAMBER_PORT || 3001}`,
         changeOrigin: true,
         configure: forwardBrowserHost,
-        // The development proxy changes the upstream Host to the loopback API
-        // target. Rewrite WebSocket Origin to the same target so authenticated
-        // upgrade checks do not reject HMR clients running on a different port.
-        rewriteWsOrigin: true,
         ws: true,
       },
     },
