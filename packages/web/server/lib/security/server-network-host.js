@@ -35,8 +35,9 @@ const isLocalIPv6 = (host) => {
   if ((g[0] & 0xfe00) === 0xfc00) return true;    // unique local fc00::/7
   if ((g[0] & 0xff00) === 0xff00) return true;    // multicast
   if (zeros(0, 5) && g[5] === 0xffff) return true; // IPv4-mapped
-  // Forms that carry an IPv4 address: IPv4-compatible (and :: / ::1),
-  // NAT64 64:ff9b::/96, and 6to4 2002::/16.
+  // Forms that carry an IPv4 address: IPv4-translated ::ffff:0:0/96,
+  // IPv4-compatible (and :: / ::1), NAT64 64:ff9b::/96, and 6to4 2002::/16.
+  if (zeros(0, 4) && g[4] === 0xffff && g[5] === 0) return isLocalIPv4(ipv4FromGroups(g[6], g[7]));
   if (zeros(0, 6)) return g[6] === 0 || isLocalIPv4(ipv4FromGroups(g[6], g[7]));
   if (g[0] === 0x64 && g[1] === 0xff9b && zeros(2, 6)) return isLocalIPv4(ipv4FromGroups(g[6], g[7]));
   if (g[0] === 0x2002) return isLocalIPv4(ipv4FromGroups(g[1], g[2]));
