@@ -34,7 +34,9 @@ Browser-owned URLs cannot attach the normal `Authorization` header. Use short-li
 - Strip legacy client-token query parameters before forwarding upstream.
 - Do not use `postMessage('*')`; target the known preview origin.
 - Preserve CSP where possible. If injecting a bridge, prefer a per-response nonce and remove only directives that block framing or the bridge.
+- `responseInterceptor` copies upstream headers to the response before the interceptor runs. Header edits made on `proxyRes.headers` reach the browser only because `proxy-runtime.js` syncs them afterwards (`applyEditedResponseHeaders`); keep that sync when changing the interceptor.
 - Re-resolve browser URLs after runtime switches; do not retain URLs minted for an old runtime.
+- The preview proxy serves `PreviewPane` only. The PiChamber browser's Server route streams a Chrome on the server over `/api/server-browser/ws` (URL-token and relay allowlisted) and never shares PiChamber's origin; see `packages/web/server/lib/server-browser/DOCUMENTATION.md`.
 
 ## Security Tests
 
