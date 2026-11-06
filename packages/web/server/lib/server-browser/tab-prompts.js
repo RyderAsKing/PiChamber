@@ -60,6 +60,18 @@ export const createTabPrompts = ({ broadcast, hasViewers, log = () => {} }) => {
       });
     },
 
+    /**
+     * The last viewer left: answer a waiting dialog as if nobody had been
+     * watching, so the page does not stall on it.
+     */
+    async viewersLeft() {
+      if (!dialog || hasViewers()) return;
+      const { handle, info } = dialog;
+      dialog = null;
+      broadcast({ type: 'dialog-closed' });
+      await answer(handle, { accept: info.kind === 'beforeunload' });
+    },
+
     /** What a newly attached viewer must see. */
     replay(viewer) {
       if (dialog) viewer.sendJson(dialogMessage());

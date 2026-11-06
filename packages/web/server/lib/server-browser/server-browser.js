@@ -57,7 +57,7 @@ export const createServerBrowser = ({
   findExecutable = () => findChromeExecutable({ env, platform }),
   installCommands = () => chromeInstallCommands({ platform }),
   launchChrome = defaultLaunchChrome,
-  readChromeVersion = (executable) => chromeVersion(executable, { env }),
+  readChromeVersion = (executable) => chromeVersion(executable, { env, platform }),
   createGuard = createNetworkGuard,
   // Extra Chrome flags, for tests (such as `--host-resolver-rules`).
   extraChromeArgs = [],

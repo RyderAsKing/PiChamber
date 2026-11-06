@@ -23,7 +23,10 @@ const MIME_TYPE = /^[\w.+-]+\/[\w.+-]+$/;
  */
 export const createUploadStore = () => {
   const uploads = new Map();
+  // Bytes of finished uploads, and of uploads still arriving: both are in
+  // memory, so both count against MAX_HELD_BYTES.
   let heldBytes = 0;
+  let arrivingBytes = 0;
 
   const drop = (id) => {
     const upload = uploads.get(id);
@@ -39,15 +42,32 @@ export const createUploadStore = () => {
     async save({ name, mimeType, lastModified, stream }) {
       const chunks = [];
       let received = 0;
-      for await (const data of stream) {
-        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        received += chunk.length;
-        if (received > MAX_CHOOSER_BYTES) throw tooLarge('Files for one upload must be under 50 MB together');
-        if (heldBytes + received > MAX_HELD_BYTES) throw tooLarge('Too many uploads are waiting for a page');
-        chunks.push(chunk);
+      // Released as soon as this upload fails: closing its stream takes a
+      // turn, and other uploads keep arriving meanwhile.
+      const release = () => {
+        arrivingBytes -= received;
+        received = 0;
+      };
+      try {
+        for await (const data of stream) {
+          const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+          if (received + chunk.length > MAX_CHOOSER_BYTES) {
+            release();
+            throw tooLarge('Files for one upload must be under 50 MB together');
+          }
+          if (heldBytes + arrivingBytes + chunk.length > MAX_HELD_BYTES) {
+            release();
+            throw tooLarge('Too many uploads are waiting for a page');
+          }
+          received += chunk.length;
+          arrivingBytes += chunk.length;
+          chunks.push(chunk);
+        }
+      } finally {
+        release();
       }
       const buffer = Buffer.concat(chunks);
-      if (heldBytes + buffer.byteLength > MAX_HELD_BYTES) throw tooLarge('Too many uploads are waiting for a page');
+      if (heldBytes + arrivingBytes + buffer.byteLength > MAX_HELD_BYTES) throw tooLarge('Too many uploads are waiting for a page');
       const id = crypto.randomUUID();
       const timer = setTimeout(() => drop(id), UPLOAD_HOLD_MS);
       timer.unref?.();

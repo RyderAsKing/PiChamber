@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createServerBrowserTab, normalizeServerBrowserUrl } from './browser-tab.js';
 import { findChromeExecutable } from './chrome-executable.js';
-import { classifyLaunchFailure, pageUserAgent } from './chrome-launch.js';
+import { chromeVersion, classifyLaunchFailure, pageUserAgent } from './chrome-launch.js';
 import { createNetworkGuard, isBlockedServerNetworkLoad } from './network-guard.js';
 import { createServerBrowser } from './server-browser.js';
 import { createTabInput, editingCommandsForKey } from './tab-input.js';
@@ -51,6 +51,20 @@ describe('Chrome launch', () => {
     'Call log:',
     ...stderr.map((line) => `  - [pid=42][err] ${line}`),
   ].join('\n');
+
+  it('reads the version from --version, but never runs it on Windows, where it opens a browser window', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chrome-version-'));
+    const marker = path.join(dir, 'ran');
+    const executable = path.join(dir, 'chrome');
+    fs.writeFileSync(executable, `#!/bin/sh\ntouch '${marker}'\necho 'Chromium 148.0.7778.1'\n`, { mode: 0o755 });
+    try {
+      expect(await chromeVersion(executable, { platform: 'win32' })).toBeNull();
+      expect(fs.existsSync(marker)).toBe(false);
+      expect(await chromeVersion(executable, { platform: 'linux' })).toBe('148.0.7778.1');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
 
   it('names the missing library from Chrome\'s output', () => {
     const failure = classifyLaunchFailure(launchError(['/opt/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file']));
@@ -529,6 +543,45 @@ describe('server browser tab', () => {
     expect(pages[0].session.sent.map(({ method }) => method)).toEqual(expect.arrayContaining(['Runtime.enable', 'Runtime.addBinding']));
   });
 
+  it('watches a frame again after its process changes and its session closes', async () => {
+    const frameSessions = [];
+    const frame = { parentFrame: () => ({}) };
+    let page;
+    const { pages } = await openTab({
+      openPage: async () => {
+        page = fakePage('T0');
+        const ownContext = page.context();
+        page.context = () => ({
+          newCDPSession: async (target) => {
+            if (target !== frame) return ownContext.newCDPSession(target);
+            const session = new EventEmitter();
+            session.send = async (method) => (method === 'Page.getFrameTree' ? { frameTree: { frame: { id: 'F' } } } : {});
+            frameSessions.push(session);
+            return session;
+          },
+        });
+        return page;
+      },
+    });
+    const navigated = async () => { page.emit('framenavigated', frame); await new Promise((resolve) => setImmediate(resolve)); };
+    await navigated();
+    await navigated();
+    expect(frameSessions).toHaveLength(1);
+    frameSessions[0].emit('close');
+    await navigated();
+    expect(frameSessions).toHaveLength(2);
+  });
+
+  it('judges loads by the committed address while a typed one is still loading', async () => {
+    const { tab, owner, commit } = await openTab();
+    commit('https://public.example/');
+    tab.navigate('http://localhost:3000/');
+    expect(tab.state.url).toBe('http://localhost:3000/');
+    expect(owner().sourceUrl()).toBe('https://public.example/');
+    commit('http://localhost:3000/');
+    expect(owner().sourceUrl()).toBe('http://localhost:3000/');
+  });
+
   it('shows the last committed address again when a load is blocked', async () => {
     const { tab, owner, commit, messages } = await openTab();
     commit('https://public.example/');
@@ -841,6 +894,26 @@ describe('server browser uploads', () => {
     await expect(uploads.save({ name: 'more', stream: megabytes(10) })).rejects.toMatchObject({ code: 'TOO_LARGE' });
   });
 
+  it('counts uploads still arriving against the memory all waiting uploads may take', async () => {
+    const uploads = createUploadStore();
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    // Each sends 45 MB, then waits: none has finished, so none is held yet.
+    const slow = async function* slow() {
+      for (let index = 0; index < 45; index += 1) yield Buffer.alloc(1024 * 1024);
+      await gate;
+    };
+    const settled = [];
+    const saves = Array.from({ length: 5 }, (_, index) => uploads.save({ name: `part${index}`, stream: slow() })
+      .then(() => 'saved', (error) => error.code)
+      .then((outcome) => { settled.push(outcome); return outcome; }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The fifth is refused while all five are still arriving.
+    expect(settled).toEqual(['TOO_LARGE']);
+    release();
+    expect((await Promise.all(saves)).sort()).toEqual(['TOO_LARGE', 'saved', 'saved', 'saved', 'saved']);
+  });
+
   it('lets an upload go after ten minutes without an answer', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const uploads = createUploadStore();
@@ -858,6 +931,28 @@ describe('server browser uploads', () => {
     const chooser = messages.find((message) => message.type === 'file-chooser');
     return { prompts, messages, chooser, setFiles };
   };
+
+  it('answers a waiting dialog when its last viewer leaves', async () => {
+    const page = new EventEmitter();
+    const messages = [];
+    let watching = true;
+    const prompts = createTabPrompts({ broadcast: (message) => messages.push(message), hasViewers: () => watching });
+    prompts.bindPage(page);
+    page.url = () => 'https://public.example/';
+    const dialog = (type) => ({ type: () => type, message: () => 'Sure?', defaultValue: () => '', accept: vi.fn(async () => {}), dismiss: vi.fn(async () => {}) });
+    const confirm = dialog('confirm');
+    page.emit('dialog', confirm);
+    watching = false;
+    await prompts.viewersLeft();
+    expect(confirm.dismiss).toHaveBeenCalled();
+    const leave = dialog('beforeunload');
+    watching = true;
+    page.emit('dialog', leave);
+    watching = false;
+    await prompts.viewersLeft();
+    expect(leave.accept).toHaveBeenCalled();
+    expect(messages.filter((message) => message.type === 'dialog-closed')).toHaveLength(2);
+  });
 
   it('gives the page the files a chooser answer names', async () => {
     const { prompts, chooser, setFiles } = chooserFor();

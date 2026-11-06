@@ -81,8 +81,17 @@ export const pageUserAgent = (version, platform = process.platform) => {
   return `Mozilla/5.0 (${UA_PLATFORMS[platform] || UA_PLATFORMS.linux}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
 };
 
-/** The executable's version from `--version`, or `null` (Chrome on Windows prints none). */
-export const chromeVersion = (executable, { env = process.env } = {}) => new Promise((resolve) => {
+/**
+ * The executable's version from `--version`, or `null`. Not asked on
+ * Windows: Chrome there prints nothing and may open a browser window, which
+ * would hold up the launch until the probe times out. The launch then
+ * learns the version from the running browser.
+ */
+export const chromeVersion = (executable, { env = process.env, platform = process.platform } = {}) => new Promise((resolve) => {
+  if (platform === 'win32') {
+    resolve(null);
+    return;
+  }
   execFile(executable, ['--version'], { env, timeout: VERSION_TIMEOUT_MS, windowsHide: true }, (error, stdout) => {
     resolve(error ? null : (/\d+\.\d+\.\d+\.\d+/.exec(String(stdout))?.[0] ?? null));
   });

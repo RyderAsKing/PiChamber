@@ -19,7 +19,8 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   none is found. PiChamber never downloads or installs a browser.
 - `chrome-launch.js`: starts that Chrome through `playwright-core` (a
   persistent context on the profile, headless, never a downloaded browser),
-  reads its version for the page user agent, and classifies launch failures
+  reads its version for the page user agent (`--version`; skipped on
+  Windows, where it prints nothing and may open a window), and classifies launch failures
   from Chrome's output (missing library, sandbox refused as root, no user
   namespaces, unknown).
 - `server-browser.js`: one Chrome per server, its profile, tabs keyed by the
@@ -32,7 +33,9 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   - `tab-stream.js`: the screencast, frame pacing, and per-viewer acks;
   - `tab-input.js`: mouse, keyboard, and text input, merged moves and wheel,
     editing commands, and keys and buttons a viewer still holds;
-  - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers;
+  - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers; a
+    waiting dialog is answered when its last viewer leaves (Leave for a
+    leave-page dialog, dismissed otherwise);
   - `page-scripts.js`: scripts in an isolated world (copy recording, title
     watching, inspect, cursor).
 - `downloads.js`: finished downloads, on disk.
@@ -63,7 +66,8 @@ site data), `downloads/`, and `settings.json`, all owner-only. An
   `file-chooser` answer names the ids; each can be taken once, and one not
   taken within 10 minutes is dropped. One answer's files must be under 50 MB
   together (Playwright's limit for files given from memory, checked on the
-  client first); waiting uploads may take four times that. The page then
+  client first); waiting uploads, and uploads still arriving, may take four
+  times that together. The page then
   holds the files itself, so a form sent later still has them, and nothing
   is written to the server's disk. A file the page cannot take sends an
   `upload-failed` notice.
@@ -146,7 +150,9 @@ reopens the tab at its last address.
   name that resolves differently on Chrome's own lookup (DNS rebinding) is
   not caught. Loads the
   person asked for (typed address, back, forward, reload) pass until that
-  address commits; a later load from the page is checked again. A blocked
+  address commits; a later load from the page is checked again, judged by
+  the address the page shows (its committed one), not one typed that has
+  not loaded yet. A blocked
   load is cancelled (`Aborted`), the address shown returns to the last
   committed one, and viewers get one `blocked-server-network` notice.
   Subresource requests are not checked.
@@ -154,7 +160,9 @@ reopens the tab at its last address.
   (`Fetch`, Request stage) on a browser-level session and finds its page
   through the frame: the page's own target, frames the page reports
   (`Page.frameAttached`), and out-of-process frames Chrome reports with their
-  parent (`Target.targetCreated`). A request whose page is still unknown
+  parent (`Target.targetCreated`). An out-of-process frame is watched again
+  when its session closes, so a frame that changes process stays linked. A
+  request whose page is still unknown
   waits up to a second for the link, then is judged as coming from a public
   page. Playwright's own request routing is not used: it turns off the HTTP
   cache and hides redirects. Chrome's Local Network Access permission is

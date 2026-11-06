@@ -199,7 +199,8 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
 
   // What the server-network rule needs to know about this page.
   const owner = {
-    sourceUrl: () => state.url,
+    // The page showing, not a typed address that has not loaded yet.
+    sourceUrl: () => committedUrl,
     consumeUserLoad(url) {
       if (!userLoadPending || !sameDocument(userLoadPending.url, url)) return false;
       userLoadPending = null;
@@ -240,6 +241,9 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       return; // In the page's own process: its session reports it.
     }
     watchedFrames.add(frame);
+    // A frame that moves into the page's process and out again keeps its
+    // Playwright frame but gets a new session; watch it again then.
+    frameSession.on('close', () => watchedFrames.delete(frame));
     frameSession.on('Page.frameAttached', ({ frameId, parentFrameId }) => guard.frameAttached(frameId, parentFrameId));
     try {
       await frameSession.send('Page.enable');
@@ -403,7 +407,10 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
         stream.removeViewer(viewer);
         void input.releaseViewer(viewer);
         tab.lastViewedAt = Date.now();
-        if (viewers.size === 0) onEmpty?.(tab);
+        if (viewers.size === 0) {
+          void prompts.viewersLeft();
+          onEmpty?.(tab);
+        }
       };
     },
 
