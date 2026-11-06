@@ -34,6 +34,8 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
   const keyboardRef = React.useRef<HTMLTextAreaElement | null>(null);
   const clickRef = React.useRef<{ at: number; x: number; y: number; count: number }>({ at: 0, x: 0, y: 0, count: 0 });
   const touchRef = React.useRef<{ id: number; startX: number; startY: number; lastX: number; lastY: number; moved: boolean } | null>(null);
+  // The mouse or pen press the page holds, so a cancelled pointer releases it.
+  const pressRef = React.useRef<{ id: number; button: string; point: Point } | null>(null);
   const areaHeightRef = React.useRef(areaHeight);
   areaHeightRef.current = areaHeight;
 
@@ -90,6 +92,7 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
     click.x = event.clientX;
     click.y = event.clientY;
     event.currentTarget.setPointerCapture(event.pointerId);
+    pressRef.current = { id: event.pointerId, button, point };
     send({ type: 'mouse', action: 'down', ...point, button, buttons: event.buttons, clickCount: click.count, modifiers: modifiersOf(event) });
   };
 
@@ -113,6 +116,7 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
       onInspectHover(point);
       return;
     }
+    if (pressRef.current?.id === event.pointerId) pressRef.current.point = point;
     send({ type: 'mouse', action: 'move', ...point, buttons: event.buttons, modifiers: modifiersOf(event) });
   };
 
@@ -123,11 +127,17 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
       const touch = touchRef.current;
       touchRef.current = null;
       if (!touch || touch.id !== event.pointerId || touch.moved) return;
+      // A tap while inspecting picks the element, as a click does.
+      if (inspecting) {
+        onInspectPick(point);
+        return;
+      }
       send({ type: 'mouse', action: 'down', ...point, button: 'left', buttons: 1, clickCount: 1 });
       send({ type: 'mouse', action: 'up', ...point, button: 'left', buttons: 0, clickCount: 1 });
       return;
     }
     if (inspecting || event.button === 3 || event.button === 4) return;
+    if (pressRef.current?.id === event.pointerId) pressRef.current = null;
     const button = BUTTON_NAMES[event.button] ?? 'left';
     send({ type: 'mouse', action: 'up', ...point, button, buttons: event.buttons, clickCount: clickRef.current.count || 1, modifiers: modifiersOf(event) });
   };
@@ -147,7 +157,14 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
     onPointerDown,
     onPointerMove,
     onPointerUp,
-    onPointerCancel: () => { touchRef.current = null; },
+    onPointerCancel: (event: React.PointerEvent<HTMLCanvasElement>) => {
+      touchRef.current = null;
+      const press = pressRef.current;
+      if (!press || press.id !== event.pointerId) return;
+      // The page saw the press; without a release it would hold the button.
+      pressRef.current = null;
+      send({ type: 'mouse', action: 'up', ...press.point, button: press.button, buttons: 0, clickCount: 1 });
+    },
     onMouseDown: (event: React.MouseEvent) => event.preventDefault(),
     onContextMenu: (event: React.MouseEvent) => event.preventDefault(),
   };

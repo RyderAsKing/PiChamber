@@ -132,7 +132,8 @@ const LOCAL_ADDRESS = /^(localhost|127(\.\d{1,3}){1,3}|0\.0\.0\.0|\[::1?\]|10(\.
 /** A page address's host, for notices and dialogs. */
 export const pageHost = (url: string): string => {
   try {
-    return new URL(url).host;
+    // about:blank and data: pages have no host; show the address itself.
+    return new URL(url).host || url;
   } catch {
     return url;
   }
