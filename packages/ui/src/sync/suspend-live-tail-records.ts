@@ -23,6 +23,26 @@ export const selectStreamingAssistantMessageId = (
   return streamingId;
 };
 
+/**
+ * True when every input of the transcript projection is reference-equal.
+ * Live side state (shell output, extension status, sequence cursors) replaces
+ * the session object without touching the transcript; consumers that only
+ * project messages must not re-walk the session for those updates.
+ */
+export const hasSameTranscriptInputs = (
+  previous: PiReducerSessionState,
+  next: PiReducerSessionState,
+): boolean => previous.sessionId === next.sessionId
+  && previous.directory === next.directory
+  && previous.messages === next.messages
+  && previous.parts === next.parts
+  && previous.partOrder === next.partOrder
+  && previous.streamingMessages === next.streamingMessages
+  && previous.lifecycle === next.lifecycle
+  && previous.model === next.model
+  && previous.thinking === next.thinking
+  && previous.queue === next.queue;
+
 /** Latest user message id in insertion order, or null when there is none. */
 const latestUserMessageId = (
   session: PiReducerSessionState,
@@ -57,6 +77,11 @@ export const shouldReuseUserHistory = (
   next: PiReducerSessionState,
 ): boolean => {
   if (previous === next) return true;
+  if (
+    previous.messages === next.messages
+    && previous.parts === next.parts
+    && previous.partOrder === next.partOrder
+  ) return true;
   if (previous.messages.size !== next.messages.size) return false;
   if (next.lastMutationKind === 'structure') return false;
   if (next.lastMutationKind === 'part' && next.lastMutatedMessageId) {

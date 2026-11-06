@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
+import { captureViewportLayout, type ViewportLayoutSnapshot } from '@/lib/perf/viewportLayout';
 import {
   applyPerfHudQueryParamOnce,
   isPerfHudEnabled,
@@ -118,6 +119,8 @@ const PerfHudPanel: React.FC = () => {
   const [collapsed, setCollapsed] = React.useState(false);
   const [position, setPosition] = React.useState<PerfHudPosition | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [layout, setLayout] = React.useState<ViewportLayoutSnapshot | null>(null);
+  const [captureStatus, setCaptureStatus] = React.useState<string | null>(null);
   const panelRef = React.useRef<HTMLElement>(null);
   const dragRef = React.useRef<PerfHudDrag | null>(null);
   const fpsRef = React.useRef<HTMLSpanElement>(null);
@@ -152,9 +155,11 @@ const PerfHudPanel: React.FC = () => {
     setPosition(nextPosition);
   }, []);
 
+  // Collapsing, the layout readout, and status text all change the panel
+  // height; re-clamp so a panel dragged near an edge stays on screen.
   React.useLayoutEffect(() => {
     if (position) constrainPosition(position);
-  }, [collapsed, constrainPosition, position]);
+  }, [captureStatus, collapsed, constrainPosition, layout, position]);
 
   React.useEffect(() => {
     if (!position || typeof window === 'undefined') return;
@@ -286,9 +291,35 @@ const PerfHudPanel: React.FC = () => {
     };
   }, []);
 
-  const handleCopy = React.useCallback(() => {
-    void copyTextToClipboard(`${JSON.stringify(snapshotRef.current, null, 2)}\n`);
+  const handleMeasureLayout = React.useCallback(() => {
+    try {
+      const measured = captureViewportLayout();
+      setLayout(measured);
+      setCaptureStatus(measured ? null : 'Layout measurements unavailable.');
+      return measured;
+    } catch {
+      setLayout(null);
+      setCaptureStatus('Layout measurement failed.');
+      return null;
+    }
   }, []);
+
+  const handleCopy = React.useCallback(() => {
+    const measured = handleMeasureLayout();
+    void copyTextToClipboard(`${JSON.stringify({ ...snapshotRef.current, layout: measured }, null, 2)}\n`)
+      .then((result) => {
+        if (!result.ok) {
+          setCollapsed(false);
+          setCaptureStatus('Copy failed. Use the displayed measurements if available.');
+          return;
+        }
+        setCaptureStatus(measured ? 'Snapshot copied.' : 'Performance snapshot copied. Layout measurements unavailable.');
+      })
+      .catch(() => {
+        setCollapsed(false);
+        setCaptureStatus('Copy failed. Use the displayed measurements if available.');
+      });
+  }, [handleMeasureLayout]);
 
   const handleReset = React.useCallback(() => {
     runtimeRef.current?.reset();
@@ -333,7 +364,8 @@ const PerfHudPanel: React.FC = () => {
         <Button
           variant="ghost"
           size="xs"
-          aria-label="Copy performance snapshot"
+          aria-label="Copy performance and layout snapshot"
+          onPointerDown={(event) => event.preventDefault()}
           onClick={handleCopy}
         >
           <Icon name="file-copy" className="size-3.5" />
@@ -383,6 +415,19 @@ const PerfHudPanel: React.FC = () => {
         >
           no counters yet
         </pre>
+      )}
+      {collapsed ? null : (
+        <div className="border-t border-border px-2 py-1.5">
+          <Button variant="ghost" size="xs" onPointerDown={(event) => event.preventDefault()} onClick={handleMeasureLayout}>
+            Measure layout
+          </Button>
+          {captureStatus ? <p role="status" className="typography-micro text-muted-foreground">{captureStatus}</p> : null}
+          {layout ? (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap font-mono typography-micro text-muted-foreground">
+              {JSON.stringify(layout, null, 2)}
+            </pre>
+          ) : null}
+        </div>
       )}
     </aside>
   );

@@ -167,6 +167,32 @@ describe('extension-tool-render', () => {
       expect(capturedResultContext.isPartial).toBe(false);
     });
 
+    it('gives renderCall and renderResult key hints without terminal keys', () => {
+      const theme = createExtensionTheme();
+      const renderer = createExtensionToolRenderer({ theme });
+      const strip = (lines) => lines?.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+
+      const definition = {
+        renderCall: (_args, _th, ctx) => ({ render: () => [`call [${ctx.keyText('app.tools.expand')}]`] }),
+        renderResult: (_result, opts, _th, ctx) => ({
+          render: () => [ctx.keyHint('app.tools.expand', opts.expanded ? 'to collapse' : 'to expand')],
+        }),
+      };
+
+      const render = renderer.renderSettled(definition, {
+        toolCallId: 't1',
+        args: {},
+        cwd: '/work',
+        result: { content: [] },
+        isError: false,
+      });
+
+      expect(render.call).toEqual(['call []']);
+      expect(strip(render.result)).toEqual(['to expand']);
+      expect(strip(render.resultExpanded)).toEqual(['to collapse']);
+      expect(render.result[0]).toBe(theme.fg('muted', 'to expand'));
+    });
+
     it('sanitizes line counts and line lengths', () => {
       const renderer = createExtensionToolRenderer({ theme: createExtensionTheme() });
       const longLine = 'x'.repeat(MAX_TOOL_RENDER_LINE_CHARS + 500);

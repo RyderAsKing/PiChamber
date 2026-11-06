@@ -45,5 +45,34 @@ Vite/HMR connection and module-transform behavior is not production evidence.
 
 ## Privacy
 
-Snapshots contain only aggregate counters, frame timings, and heap size.
+Snapshots contain only aggregate counters, frame timings, heap size, and
+on-demand viewport/layout geometry.
 They must not include session IDs, paths, credentials, or message content.
+
+## Layout diagnostics
+
+Use **Measure layout** in the expanded overlay after closing Settings to
+capture the affected screen. The copy button captures fresh layout measurements
+alongside the performance snapshot. No browser console or native build is
+required, so the same installed PWA can supply the measurements.
+
+`viewportLayout.ts` owns this read-only capture. It records screen, layout and
+visual viewport dimensions, resolved CSS viewport units and safe-area insets,
+the measured `--oc-viewport-bottom-strip` (`null` when unset),
+root/shell/composer/card/footer rectangles, composer padding and margin, and
+bottom pseudo-overlay dimensions plus explicit runtime/keyboard class flags.
+Absent elements produce `null`, not zero.
+The reported gaps compare DOM coordinates only; they do not infer which part of
+the physical display belongs to iOS. The numeric bottom margin includes any
+configured Input Bar Offset without exporting unrelated settings.
+
+There are no layout reads in the sampler or render loop. Captures run only on
+Measure/Copy, remove their invisible CSS probe even on error, and are held in
+memory until the overlay unmounts. They are not logged or sent to the server.
+The controls preserve the editor's pointer focus so tapping Measure does not
+itself request keyboard dismissal; real iOS keyboard behavior still needs device
+validation. Copy failures leave any captured measurements visible.
+
+`node scripts/test-pwa-layout.mjs --chrome /path/to/chrome` checks the collector
+in a real browser against the fixture geometry, missing-composer handling,
+probe cleanup on success/failure, and exclusion of prompt content.

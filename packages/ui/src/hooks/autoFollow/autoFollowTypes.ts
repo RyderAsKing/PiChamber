@@ -17,6 +17,10 @@ export interface UseChatAutoFollowOptions {
   currentSessionId: string | null;
   currentSessionKey: string | null;
   sessionMessageCount: number;
+  /** Id of the newest live-only row appended after the messages (extension
+   *  notices). Notices are capped, so their count can stay flat while the
+   *  newest id changes. */
+  latestTailEntryId?: string | null;
   sessionIsWorking: boolean;
   isMobile: boolean;
   onActiveTurnChange?: (turnId: string | null) => void;

@@ -331,6 +331,9 @@ export interface PiSessionSnapshot {
   /** Pending-input state at snapshot time. Absent means unknown (older
    *  server), never authoritatively empty — keep the current value. */
   inputState?: { pending: import('./protocol').PiPendingInputSummary | null };
+  /** Unrecorded user shell commands at snapshot time. Absent means unknown
+   *  (older server); present is authoritative and replaces the live list. */
+  bashExecutions?: import('./protocol').PiBashExecution[];
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */

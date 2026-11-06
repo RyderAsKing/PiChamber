@@ -273,16 +273,19 @@ export const createWebNotificationsAPI = (): NotificationsAPI => ({
   async close(tag: string): Promise<void> {
     if (typeof tag !== 'string' || tag.trim().length === 0) return;
     const trimmed = tag.trim();
-    // In Electron the shown notification lives in the main process; close it there.
+    // In Electron the shown notification lives in the main process; close it
+    // there. A desktop window showing a remote server rejects the local-only
+    // IPC, and `notify` then fell back to the web API, so fall through and
+    // close the page/service-worker notification instead.
     if (typeof window !== 'undefined') {
       const desktop = (window as unknown as { __PICHAMBER_DESKTOP__?: DesktopBridgeGlobal }).__PICHAMBER_DESKTOP__;
       if (desktop?.invoke) {
         try {
           await desktop.invoke('desktop_notification_close', { tag: trimmed });
+          return;
         } catch (error) {
           console.warn('Failed to close native notification (desktop)', error);
         }
-        return;
       }
     }
     const pageNotification = pageNotificationsByTag.get(trimmed);

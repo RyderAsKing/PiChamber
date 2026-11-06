@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { PiSessionStore, type PendingInputTransition } from '@/apps/pi-session-store';
 import { piClient } from '@/lib/pi/client';
+import { applyDirectoryListToCatalog, type PiSessionCatalogState } from '@/sync/pi-session-catalog';
 import type { PiSessionEvent } from '@/lib/pi/protocol';
 
 interface StoreInternal {
@@ -159,6 +160,64 @@ describe('pending-input transitions', () => {
     expect(seen).toHaveLength(0);
     internal.commitDeletion('s1', '/repo');
     expect(seen).toHaveLength(0);
+  });
+
+  /** A `/repo` listing that no longer includes any row: the catalog drops
+   *  them without a deletion. */
+  const dropRepoRows = (store: PiSessionStore): void => {
+    const target = store as unknown as { state: { catalog: PiSessionCatalogState } };
+    target.state = {
+      ...target.state,
+      catalog: applyDirectoryListToCatalog(target.state.catalog, '/repo', [], 0),
+    };
+  };
+
+  test('a live null for an opened session whose row dropped out still emits cleared', () => {
+    const { store, internal, seen } = freshStore();
+    internal.commitEvents([inputEvent('s1', 1, { count: 1, kind: 'input', since: 1_000 })]);
+    expect(seen).toHaveLength(1);
+    dropRepoRows(store);
+    expect(store.getState().catalog.byId.has('s1')).toBe(false);
+
+    internal.commitEvents([inputEvent('s1', 2, null)]);
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toEqual({ type: 'cleared', sessionId: 's1', directory: '/repo', pending: null });
+    // Authoritative empty still materializes no row, and a repeat is quiet.
+    expect(store.getState().catalog.byId.has('s1')).toBe(false);
+    internal.commitEvents([inputEvent('s1', 3, null)]);
+    expect(seen).toHaveLength(2);
+  });
+
+  test('a live null for a dropped row never reported opened emits nothing', () => {
+    const { store, internal, seen } = freshStore();
+    internal.commitEvents([inputEvent('s1', 1, { count: 1, kind: 'input', since: 1_000 })]);
+    internal.commitEvents([inputEvent('s1', 2, null)]);
+    expect(seen).toHaveLength(2);
+    dropRepoRows(store);
+
+    internal.commitEvents([inputEvent('s1', 3, null)]);
+    internal.commitEvents([inputEvent('s-other', 1, null)]);
+    expect(seen).toHaveLength(2);
+  });
+
+  test('a stale live null for a dropped row emits nothing', () => {
+    const { store, internal, seen } = freshStore();
+    internal.commitEvents([inputEvent('s1', 5, { count: 1, kind: 'input', since: 1_000 })]);
+    dropRepoRows(store);
+
+    // Older than the accepted open: the ordering gate rejects it.
+    internal.commitEvents([inputEvent('s1', 4, null)]);
+    expect(seen).toHaveLength(1);
+  });
+
+  test('verified epoch reset emits cleared for an opened session whose row dropped out', () => {
+    const { store, internal, seen } = freshStore();
+    internal.commitEvents([inputEvent('s1', 1, { count: 1, kind: 'input', since: 1_000 })]);
+    dropRepoRows(store);
+    seen.length = 0;
+
+    internal.resetForEpochChange();
+    expect(seen).toEqual([{ type: 'cleared', sessionId: 's1', directory: '/repo', pending: null }]);
   });
 
   test('snapshots never emit, even when they change the summary', () => {

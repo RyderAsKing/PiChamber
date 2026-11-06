@@ -12,6 +12,7 @@ import { useOlderHistoryDemand } from './hooks/useOlderHistoryDemand';
 import { applyCompactionOverlay } from './lib/turns/applyCompactionOverlay';
 import { applyRetryOverlay } from './lib/turns/applyRetryOverlay';
 import { applyExtensionNoticeOverlay } from './lib/turns/applyExtensionNoticeOverlay';
+import { applyBashExecutionOverlay } from './lib/turns/applyBashExecutionOverlay';
 import { buildStaticRenderEntries, type RenderEntry } from './lib/turns/staticRenderEntries';
 import { buildLiveStreamingEntry, type StreamingTailEntry } from './lib/turns/streamingTailEntry';
 import { revealTurnAssistantMessage } from './lib/turns/turnAssistantReveal';
@@ -21,7 +22,7 @@ import { hasPendingUserSendAnimation, consumePendingUserSendAnimation } from '@/
 import { streamPerfCount, streamPerfMark, streamPerfMeasure } from '@/stores/utils/streamDebug';
 import type { StreamPhase } from './message/types';
 import type { PiCompactionInfo } from '@/lib/pi/types';
-import { useSessionHistoryPagination, useSessionParts, useSessionExtensionNotices } from '@/sync/sync-context';
+import { useSessionBashExecutions, useSessionHistoryPagination, useSessionParts, useSessionExtensionNotices } from '@/sync/sync-context';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
 import {
     isUserShellMarkerMessage,
@@ -659,6 +660,7 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
     // bypasses the message-record freeze above so a notice that arrives
     // mid-turn shows immediately instead of waiting for the turn to settle.
     const sessionNotices = useSessionExtensionNotices(sessionKey);
+    const sessionBashExecutions = useSessionBashExecutions(sessionKey);
     const [revealedOlderCount, setRevealedOlderCount] = React.useState<number>(
         () => readRevealedOlderTurns(sessionKey),
     );
@@ -816,8 +818,9 @@ const MessageList = React.forwardRef<MessageListHandle, MessageListProps>(({
             compactionOverlay?.sessionId ?? null,
             compactionOverlay?.compaction ?? null,
         );
-        return applyExtensionNoticeOverlay(withCompaction, sessionNotices, sessionKey);
-    }), [baseDisplayMessages, compactionOverlay, retryOverlay, sessionNotices, sessionKey]);
+        const withNotices = applyExtensionNoticeOverlay(withCompaction, sessionNotices, sessionKey);
+        return applyBashExecutionOverlay(withNotices, sessionBashExecutions, sessionKey);
+    }), [baseDisplayMessages, compactionOverlay, retryOverlay, sessionBashExecutions, sessionNotices, sessionKey]);
 
     const { projection, staticTurns, streamingTurn } = useTurnRecords(displayMessages, {
         sessionKey,

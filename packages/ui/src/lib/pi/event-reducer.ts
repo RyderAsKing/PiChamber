@@ -82,6 +82,12 @@ import {
   reduceExtensionWorking,
 } from './reducers/extensionReducers';
 import {
+  applyBashSnapshot,
+  reduceBash,
+  reduceBashOutput,
+  reduceBashRecorded,
+} from './reducers/bashReducers';
+import {
   hydrateSessionFromDetail,
   markHydratedLiveActivity,
   projectSession,
@@ -220,6 +226,7 @@ export const applyPiEvent = (
         } else {
           delete session.extensionDraftTracked;
         }
+        applyBashSnapshot(session, event.payload.snapshot.bashExecutions);
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
@@ -321,6 +328,15 @@ export const applyPiEvent = (
     case 'session.input':
       // Pending-input state lives in the live catalog, not the transcript
       // reducer. Kept explicit so the exhaustive switch still compiles.
+      break;
+    case 'session.bash':
+      reduceBash(session, event.payload.bash);
+      break;
+    case 'session.bash.output':
+      reduceBashOutput(session, event.payload);
+      break;
+    case 'session.bash.recorded':
+      reduceBashRecorded(session, event.directory, event.sessionId, event.payload);
       break;
     case 'session.tree.updated':
       session.sessionTreeRevision = (session.sessionTreeRevision ?? 0) + 1;

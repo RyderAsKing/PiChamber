@@ -62,6 +62,7 @@ import {
   type PiAttachmentCreateResponse,
   type PiSetModelInput,
   type PiSetThinkingInput,
+  type PiBashInput,
   type PiCompactInput,
   type PiForkInput,
   type PiCloneInput,
@@ -812,6 +813,30 @@ export class PiService {
       { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
     if (result.accepted !== true) throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH');
+  }
+
+  /** Starts a user shell command. Acceptance is not completion: output and
+   *  the recorded result arrive as `session.bash*` events. */
+  async runBash(input: PiBashInput, scope?: PiClientScope): Promise<{ id: string }> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<Omit<PiBashInput, 'sessionId'>, { accepted: true; id: string }>(
+      `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/bash`,
+      {
+        method: 'POST',
+        body: { command: input.command, ...(input.excludeFromContext ? { excludeFromContext: true } : {}) },
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+    if (result?.accepted !== true || typeof result.id !== 'string') throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH');
+    return { id: result.id };
+  }
+
+  async abortBash(input: PiAbortInput, scope?: PiClientScope): Promise<void> {
+    assertRuntimeUnchanged(scope);
+    await jsonRequest<undefined, undefined>(
+      `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/bash/abort`,
+      { method: 'POST', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
   }
 
   // ----- Providers --------------------------------------------------------

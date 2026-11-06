@@ -1111,6 +1111,115 @@ describe('Pi runtime route', () => {
     await expect(response.json()).resolves.toEqual({ error: { code: 'INVALID_SESSION' } });
   });
 
+  it('projects user shell events and drops malformed ones', () => {
+    const frame = (event, payload) => ({
+      protocolVersion: 1,
+      kind: 'event',
+      event,
+      sequence: 3,
+      payload: { sessionId: 'pi-session-bash', directory: '/workspace', ...payload },
+    });
+    expect(projectEventFrame(frame('session.bash', {
+      bash: { id: 'bash-1', command: 'ls', phase: 'running', startedAt: 5, excludeFromContext: true, secret: 'x' },
+    }))).toMatchObject({
+      name: 'session.bash',
+      sessionId: 'pi-session-bash',
+      payload: { bash: { id: 'bash-1', command: 'ls', phase: 'running', startedAt: 5, excludeFromContext: true } },
+    });
+    expect(projectEventFrame(frame('session.bash', { bash: { id: 'bash-1', command: 'ls', phase: 'exploded', startedAt: 5 } }))).toBeNull();
+
+    expect(projectEventFrame(frame('session.bash.output', { id: 'bash-1', delta: 'a\n' })).payload)
+      .toEqual({ id: 'bash-1', delta: 'a\n' });
+    expect(projectEventFrame(frame('session.bash.output', { id: 'bash-1', output: 'tail', reset: true })).payload)
+      .toEqual({ id: 'bash-1', output: 'tail', reset: true });
+    expect(projectEventFrame(frame('session.bash.output', { id: 'bash-1', delta: '' }))).toBeNull();
+
+    expect(projectEventFrame(frame('session.bash.recorded', {
+      id: 'bash-1',
+      message: {
+        id: 'entry-1',
+        createdAt: 9,
+        customType: 'pichamber.bash',
+        details: { command: 'ls', output: 'a\n', exitCode: 0, fullOutputPath: '/tmp/out.log', extra: true },
+      },
+    })).payload).toEqual({
+      id: 'bash-1',
+      message: {
+        id: 'entry-1',
+        createdAt: 9,
+        customType: 'pichamber.bash',
+        details: { command: 'ls', output: 'a\n', exitCode: 0, fullOutputPath: '/tmp/out.log' },
+      },
+    });
+    expect(projectEventFrame(frame('session.bash.recorded', {
+      message: { id: 'entry-1', createdAt: 9, customType: 'other', details: { command: 'ls', output: '' } },
+    }))).toBeNull();
+  });
+
+  it('starts and aborts user shell commands through the daemon and validates the body', async () => {
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.bash', 'sessions.abortBash'] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.bash') return { accepted: true, id: 'bash-1', internal: 'drop' };
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-bash`;
+    const post = (path, body) => fetch(`${base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const started = await post('/bash', { command: 'ls -la', excludeFromContext: true, sessionId: 'other' });
+    expect(started.status).toBe(202);
+    await expect(started.json()).resolves.toEqual({ accepted: true, id: 'bash-1' });
+    expect(calls[0]).toEqual({
+      command: 'sessions.bash',
+      payload: { sessionId: 'pi-session-bash', command: 'ls -la', excludeFromContext: true },
+    });
+
+    for (const body of [{ command: '  ' }, { command: 42 }, { command: 'ls', excludeFromContext: 'yes' }]) {
+      const rejected = await post('/bash', body);
+      expect(rejected.status).toBe(400);
+      await expect(rejected.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
+    }
+    expect(calls).toHaveLength(1);
+
+    const aborted = await post('/bash/abort', {});
+    expect(aborted.status).toBe(204);
+    expect(calls[1]).toEqual({ command: 'sessions.abortBash', payload: { sessionId: 'pi-session-bash' } });
+  });
+
+  it('projects live shell executions on session details', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async () => ({
+        session: { id: 'pi-session-bash', directory: '/workspace', createdAt: 1, updatedAt: 2 },
+        messages: [],
+        lastSequence: 4,
+        bashExecutions: [
+          { id: 'bash-1', command: 'make', phase: 'running', startedAt: 3, output: 'building' },
+          { id: '', command: 'bad', phase: 'running', startedAt: 3 },
+        ],
+      }),
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-bash`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      bashExecutions: [{ id: 'bash-1', command: 'make', phase: 'running', startedAt: 3, output: 'building' }],
+    });
+  });
+
   it('renames a session through the daemon without accepting a body session identity', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['sessions.rename'] }),

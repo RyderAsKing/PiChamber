@@ -5,8 +5,10 @@ import ChatMessage from '../ChatMessage';
 import { ExtensionMessageCard } from '../message/parts/extension/ExtensionMessageCard';
 import { ExtensionNoteRow } from '../message/parts/extension/ExtensionNoteRow';
 import { ExtensionNoticeRow } from '../message/parts/extension/ExtensionNoticeRow';
+import { BashExecutionRow } from '../message/parts/extension/BashExecutionRow';
 import { EXTENSION_NOTICE_CUSTOM_TYPE } from '../lib/turns/applyExtensionNoticeOverlay';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
+import { PI_BASH_CUSTOM_TYPE, type PiBashExecution, type PiBashRecordedDetails } from '@/lib/pi/protocol';
 import type { PiExtensionMessageRender } from '@/lib/pi/types';
 import {
   areOptionalNeighborMessagesEqual,
@@ -70,6 +72,25 @@ export const MessageRow = React.memo<MessageRowProps>(
           />
         </div>
       );
+    }
+
+    // User shell commands (`!cmd`): a live execution (overlay) or the
+    // recorded entry that replaces it. Recorded details are validated by the
+    // server projection; anything else falls through to the generic row.
+    if (info.role === 'extension' && info.customType === PI_BASH_CUSTOM_TYPE) {
+      const execution = (info as { bashExecution?: PiBashExecution }).bashExecution;
+      const details = info.details as PiBashRecordedDetails | undefined;
+      if (execution || (details && typeof details.command === 'string' && typeof details.output === 'string')) {
+        return (
+          <div className="chat-message-column">
+            <BashExecutionRow
+              messageId={message.info.id}
+              sessionId={info.sessionID}
+              state={execution ? { kind: 'live', execution } : { kind: 'recorded', details: details! }}
+            />
+          </div>
+        );
+      }
     }
 
     // Extension-authored content renders through declarative UI cards when recognized,

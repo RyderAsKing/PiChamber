@@ -213,6 +213,7 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionWorking'
   | 'extensionDraftTracked'
   | 'inputState'
+  | 'bashExecutions'
 > {
   session: PiSession;
   messages: PiMessageView[];
@@ -438,6 +439,53 @@ export type PiSendReceiptResult =
 
 export interface PiAbortInput {
   sessionId: PiSessionId;
+}
+
+/** A user shell command (`!cmd`, or `!!cmd` with `excludeFromContext`). */
+export interface PiBashInput {
+  sessionId: PiSessionId;
+  command: string;
+  /** `!!`: run and record the command, but never send it to the model. */
+  excludeFromContext?: boolean;
+}
+
+/** Reserved extension custom type for recorded user shell commands. */
+export const PI_BASH_CUSTOM_TYPE = 'pichamber.bash' as const;
+
+/** Output kept for a live command and for recorded transcript rows. */
+export const PI_BASH_OUTPUT_MAX_CHARS = 64 * 1024;
+
+/** Recorded user shell command details (`pichamber.bash` transcript rows). */
+export interface PiBashRecordedDetails {
+  command: string;
+  /** Tail of the output; `truncated` means Pi kept only the last 50 KB. */
+  output: string;
+  exitCode?: number;
+  cancelled?: boolean;
+  truncated?: boolean;
+  excludeFromContext?: boolean;
+  /** Server-local file holding the full output when truncated. */
+  fullOutputPath?: string;
+}
+
+/**
+ * A user shell command that has not been recorded in the transcript yet.
+ * `completed`/`cancelled` executions wait for Pi to record them, which Pi
+ * defers until the running agent turn ends. `failed` never records.
+ */
+export interface PiBashExecution {
+  id: string;
+  command: string;
+  phase: 'running' | 'completed' | 'cancelled' | 'failed';
+  startedAt: number;
+  excludeFromContext?: boolean;
+  completedAt?: number;
+  exitCode?: number;
+  truncated?: boolean;
+  fullOutputPath?: string;
+  /** Live output tail, capped at `PI_BASH_OUTPUT_MAX_CHARS`. */
+  output?: string;
+  error?: string;
 }
 
 export interface PiSetModelInput {
@@ -757,6 +805,9 @@ export type PiEventName =
   | 'session.updated'
   | 'session.tree.updated'
   | 'session.input'
+  | 'session.bash'
+  | 'session.bash.output'
+  | 'session.bash.recorded'
   | 'assistant.message.start'
   | 'assistant.message.delta'
   | 'assistant.message.end'
@@ -819,7 +870,28 @@ export type PiSessionLifecycleEvent = PiEventEnvelope<
 export type PiSessionUpdatedEvent = PiEventEnvelope<
   'session.updated',
   {
+    /** New display title. An empty string means Pi cleared the session
+     *  name; clients fall back to the title derived from the first prompt. */
     title: string;
+  }
+>;
+
+/** A user shell command started or changed phase (full current view). */
+export type PiSessionBashEvent = PiEventEnvelope<'session.bash', { bash: PiBashExecution }>;
+
+/** Coalesced live output: append `delta`, or replace with `output` on `reset`. */
+export type PiSessionBashOutputEvent = PiEventEnvelope<
+  'session.bash.output',
+  { id: string; delta: string; output?: never; reset?: never } | { id: string; output: string; reset: true; delta?: never }
+>;
+
+/** Pi recorded a shell command in the session file. `id` names the live
+ *  execution it settles; the message is the authoritative transcript row. */
+export type PiSessionBashRecordedEvent = PiEventEnvelope<
+  'session.bash.recorded',
+  {
+    id?: string;
+    message: { id: string; createdAt: number; customType: typeof PI_BASH_CUSTOM_TYPE; details: PiBashRecordedDetails };
   }
 >;
 
@@ -1227,6 +1299,9 @@ export type PiSessionEvent =
   | PiSessionUpdatedEvent
   | PiSessionTreeUpdatedEvent
   | PiSessionInputEvent
+  | PiSessionBashEvent
+  | PiSessionBashOutputEvent
+  | PiSessionBashRecordedEvent
   | PiAssistantMessageStartEvent
   | PiAssistantMessageDeltaEvent
   | PiAssistantMessageEndEvent
@@ -1269,6 +1344,9 @@ export const PI_EVENT_KINDS = [
   'session.updated',
   'session.tree.updated',
   'session.input',
+  'session.bash',
+  'session.bash.output',
+  'session.bash.recorded',
   'assistant.message.start',
   'assistant.message.delta',
   'assistant.message.end',

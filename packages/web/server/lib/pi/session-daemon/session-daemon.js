@@ -48,6 +48,7 @@ import {
   SESSION_DAEMON_PROTOCOL_VERSION as PROTOCOL_VERSION,
 } from './ipc-protocol.js';
 import { createMessageEntryAliases } from './message-entry-aliases.js';
+import { createUserBash, projectBashExecutionEntry, UserBashError, validateUserBashRequest } from './user-bash.js';
 import { createSessionReplayLog } from './session-replay.js';
 import {
   createSendOperationRegistry,
@@ -63,6 +64,7 @@ import { withCrossProcessLock } from '../../server/cross-process-lock.js';
 import {
   findPiSessionJsonlById,
   getPiSessionDirectory,
+  createPiSessionJsonlListCache,
   listPiSessionJsonlDirectory,
   validatePiSessionJsonlDirectory,
   validatePiSessionJsonlFile,
@@ -193,9 +195,11 @@ export function createSessionDaemon({
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
   sendOperationTtlMs = 10 * 60 * 1_000,
+  sessionListCache = createPiSessionJsonlListCache(),
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
     agentDir: sessionAgentDir,
+    cache: sessionListCache,
   }),
   createSettingsManager = ({ cwd: settingsCwd, agentDir: settingsAgentDir = agentDir, projectTrusted }) => SettingsManager.create(
     settingsCwd,
@@ -604,6 +608,13 @@ export function createSessionDaemon({
     publish,
     onHostedSessionSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
   });
+  // User shell commands (`!cmd` / `!!cmd`). A settled command re-arms the
+  // idle timer only when nothing else keeps the runtime busy.
+  const userBash = createUserBash({
+    publish,
+    redact: (value) => redactAttachmentPaths(value),
+    onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+  });
   const extensionBridge = createExtensionBridge({
     publish,
     resolveDirectory,
@@ -753,6 +764,7 @@ export function createSessionDaemon({
         ...(session.sessionId
           ? {
             inputState: { pending: pendingInput.summaryFor(session.sessionId) },
+            bashExecutions: userBash.snapshot(session.sessionId) ?? [],
           }
           : {}),
       },
@@ -1030,6 +1042,9 @@ export function createSessionDaemon({
     if (isValidIdleSessionId(sessionId) && pendingInput.hasHostedRequests(sessionId)) return false;
     if (isValidIdleSessionId(sessionId) && (activeSessionRequests.get(sessionId) ?? 0) > 0) return false;
     if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return false;
+    // A user shell command (`!cmd`) is live work from acceptance (before Pi
+    // reports `isBashRunning`) until it settles.
+    if (targetRuntime.session?.isBashRunning || userBash.isActive(sessionId)) return false;
     if (activeSessionInputs.has(targetRuntime)) return false;
     if (pendingResourceReloads.has(targetRuntime) || resourceReloadsByRuntime.has(targetRuntime)) return false;
     // A scheduled provider retry is still live work: agent_settled remains
@@ -1099,6 +1114,7 @@ export function createSessionDaemon({
         const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
         compactionStateBySession.delete(sessionId);
+        userBash.clearSession(sessionId);
         if (targetRuntime === runtime) runtime = undefined;
         // Publish only after a successful lease release so a
         // cross-daemon recreate cannot slip between release and event.
@@ -1208,6 +1224,8 @@ export function createSessionDaemon({
       case 'sessions.setModel':
       case 'sessions.setThinking':
       case 'sessions.compact':
+      case 'sessions.bash':
+      case 'sessions.abortBash':
       case 'sessions.delete':
       case 'sessions.rename': {
         const candidate = message?.payload?.sessionId;
@@ -1258,6 +1276,16 @@ export function createSessionDaemon({
         serverNow,
       });
     }
+    // A resident runtime's SessionManager is authoritative for the name,
+    // including renames not yet flushed to disk and explicit clears.
+    const liveNameById = new Map();
+    for (const entry of activeEntries) {
+      const sessionId = entry?.session?.sessionId;
+      const getSessionName = entry?.session?.sessionManager?.getSessionName;
+      if (typeof sessionId !== 'string' || typeof getSessionName !== 'function') continue;
+      const liveName = getSessionName.call(entry.session.sessionManager);
+      liveNameById.set(sessionId, typeof liveName === 'string' ? liveName : undefined);
+    }
     const extra = [];
     for (const entry of activeEntries) {
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
@@ -1280,8 +1308,9 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid session record.');
       }
       const safeFirstMessage = redactAttachmentPaths(session.firstMessage);
-      const title = typeof session.name === 'string' && session.name.trim().length > 0
-        ? redactAttachmentPaths(session.name.trim())
+      const name = liveNameById.has(session.id) ? liveNameById.get(session.id) : session.name;
+      const title = typeof name === 'string' && name.trim().length > 0
+        ? redactAttachmentPaths(name.trim())
         : deriveSessionTitle(safeFirstMessage);
       return {
         session: {
@@ -1328,12 +1357,12 @@ export function createSessionDaemon({
       || runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
     if (activeRuntime?.session) {
-      const manager = activeRuntime.session.sessionManager;
-      if (typeof manager?.appendSessionInfo !== 'function') {
+      if (typeof activeRuntime.session.setSessionName !== 'function') {
         throw new SessionDaemonProtocolError('INVALID_SESSION', 'Pi returned an invalid active session.');
       }
-      manager.appendSessionInfo(title);
-      publish('session.updated', { title: redactAttachmentPaths(title) }, sessionId, targetDir);
+      // Pi appends `session_info` and emits `session_info_changed` to
+      // listeners and extensions; the subscriber publishes `session.updated`.
+      activeRuntime.session.setSessionName(title);
       return;
     }
 
@@ -1655,6 +1684,14 @@ export function createSessionDaemon({
         return [projected];
       }
       if (entry?.type !== 'message' || !entry.message || typeof entry.id !== 'string') return [];
+      // User shell commands (`!cmd`) recorded by Pi, including ones run from
+      // the Pi CLI, render as reserved `pichamber.bash` extension items.
+      const bashItem = projectBashExecutionEntry(entry, {
+        sessionId: session.sessionId,
+        directory: targetDir,
+        redact: redactAttachmentPaths,
+      });
+      if (bashItem) return [bashItem];
       const timestamp = Date.parse(entry.timestamp);
       const createdAt = Number.isFinite(timestamp) ? timestamp : 0;
       if (entry.message.role === 'user') {
@@ -1926,6 +1963,7 @@ export function createSessionDaemon({
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
+      bashExecutions: userBash.snapshot(session.sessionId) ?? [],
     };
   };
 
@@ -3318,12 +3356,12 @@ export function createSessionDaemon({
       && registeredExtensionCommands.some((command) => typeof command?.invocationName === 'string'
         && command.invocationName.toLowerCase() === slashInvocation.toLowerCase()),
     );
-    // Auto-assign deterministic title on the first conversation prompt if the
-    // session manager still has no explicit or extension-owned name.
+    // Like the Pi CLI, never persist an auto-title. Lists derive the display
+    // title from the first user prompt; publish that derived title live (not
+    // persisted) so connected surfaces converge without waiting for a list.
     if (!isExtensionCommand && typeof payload.text === 'string' && payload.text.trim().length > 0 && !manager?.getSessionName?.()) {
       const derived = deriveSessionTitle(payload.text);
-      if (derived && typeof manager?.appendSessionInfo === 'function') {
-        manager.appendSessionInfo(derived);
+      if (derived) {
         publish('session.updated', { title: redactAttachmentPaths(derived) }, payload.sessionId, activeRuntime.cwd);
       }
     }
@@ -3547,6 +3585,7 @@ export function createSessionDaemon({
       await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
       retryStateBySession.delete(sessionId);
       compactionStateBySession.delete(sessionId);
+      userBash.clearSession(sessionId);
       activeRunStartedAt.delete(sessionId);
       shutdownRequestedBySession.delete(sessionId);
       sendGenerationBySession.delete(sessionId);
@@ -3900,8 +3939,10 @@ export function createSessionDaemon({
         void flushPendingRuntimeRecreation().catch(() => {});
         break;
       case 'session_info_changed': {
+        // An empty title means Pi cleared the name; clients fall back to
+        // the derived first-prompt title.
         const title = typeof event.name === 'string' ? event.name.trim() : '';
-        if (title) publish('session.updated', { title: redactAttachmentPaths(title).slice(0, 256) }, sessionId, directory);
+        publish('session.updated', { title: title ? redactAttachmentPaths(title).slice(0, 256) : '' }, sessionId, directory);
         break;
       }
       case 'model_select':
@@ -4030,7 +4071,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
@@ -4515,6 +4556,35 @@ export function createSessionDaemon({
       case 'sessions.setThinking': {
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
         applyThinking(activeRuntime, message.payload?.thinking, message.payload.sessionId, activeRuntime.cwd);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.bash': {
+        let request;
+        try {
+          request = validateUserBashRequest(message.payload);
+        } catch (error) {
+          throw new SessionDaemonProtocolError(error.code ?? 'INVALID_ARGUMENT', error.message);
+        }
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        let started;
+        try {
+          started = userBash.start({
+            sessionId: message.payload.sessionId,
+            directory: activeRuntime.cwd,
+            session: activeRuntime.session,
+            ...request,
+          });
+        } catch (error) {
+          if (error instanceof UserBashError) throw new SessionDaemonProtocolError(error.code, error.message);
+          throw error;
+        }
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { accepted: true, id: started.id } });
+        return;
+      }
+      case 'sessions.abortBash': {
+        const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        userBash.abort(activeRuntime.session);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
         return;
       }

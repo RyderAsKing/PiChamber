@@ -214,12 +214,27 @@ The server returns one authoritative transcript after Done. `ChatInput` pads it 
 
 ## Mobile
 
+The composer card exposes `data-composer-card` for opt-in Performance overlay
+layout measurements. The collector reads its bounds, not editor text or state.
+
 `state/useMobileComposerShell.ts` and `state/useMobileViewportPin.ts` are
 mostly not state machines but corrections for specific platform behaviors:
 mobile browsers dismissing the keyboard before a tap's click lands, iOS
 refusing programmatic focus outside a gesture, WebKit leaving the layout
 viewport panned after the keyboard hides, overlay chains handing off through a
 frame where nothing is open.
+
+Installed iOS Home Screen apps with the black-translucent status bar get a
+viewport 62px short of the screen while the page is no taller than that
+viewport (WebKit bugs 301108 / 313800). iOS draws the rest as a strip the page
+cannot use. `mobile.css` grows `<html>` by the top inset, capped at `100lvh`,
+so the page is screen-tall and iOS restores the full viewport. If iOS keeps
+the short viewport anyway, `lib/standaloneViewportInsets.ts` (installed from
+the web entrypoint) publishes the strip as `--oc-viewport-bottom-strip`;
+`<body>` shrinks to the visible area and `--oc-safe-area-bottom` drops the
+inset the strip already covers, leaving the composer's 16px floor.
+`scripts/test-pwa-layout.mjs` covers both outcomes and the opaque-status-bar
+case, but Chromium cannot reproduce the iOS viewport resize itself.
 
 **Every timeout and `flushSync` in them has a reason recorded next to it, and
 none of them is verifiable outside a real device.** Change them only against

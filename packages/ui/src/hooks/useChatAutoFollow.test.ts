@@ -228,6 +228,72 @@ describe('useChatAutoFollow real hook transitions (simulated scroll element)', (
     expect(fakeEl.scrollTop).toBe(0);
   });
 
+  test('idle append follows to the bottom while following', async () => {
+    const fakeEl = createFakeScrollElement();
+    const { get, renderOptions } = await mountAutoFollow(baseOptions(), fakeEl);
+    await act(async () => {
+      await get().restoreSnapshot();
+    });
+    // A row lands while idle: the content grows, the scroll position does not.
+    fakeEl.scrollHeight = 1400;
+    fakeEl.scrollTop = 200;
+
+    await renderOptions(baseOptions({ sessionMessageCount: 3 }));
+    expect(get().state).toBe('following');
+    expect(fakeEl.scrollTop).toBe(1400 + 4096);
+
+    // A capped notice list keeps its length; a new newest id still follows.
+    fakeEl.scrollHeight = 1800;
+    fakeEl.scrollTop = 200;
+    await renderOptions(baseOptions({ sessionMessageCount: 3, latestTailEntryId: 'notice-1' }));
+    expect(fakeEl.scrollTop).toBe(1800 + 4096);
+  });
+
+  test('idle append does not move a reader who scrolled up', async () => {
+    const fakeEl = createFakeScrollElement();
+    const { get, renderOptions } = await mountAutoFollow(baseOptions(), fakeEl);
+    await act(async () => {
+      await get().restoreSnapshot();
+    });
+    fakeEl.scrollTop = 0;
+    await act(async () => {
+      getScrollHandler(fakeEl)();
+    });
+    expect(get().state).toBe('released');
+
+    fakeEl.scrollHeight = 1400;
+    await renderOptions(baseOptions({ sessionMessageCount: 3, latestTailEntryId: 'notice-1' }));
+    expect(get().state).toBe('released');
+    expect(fakeEl.scrollTop).toBe(0);
+  });
+
+  test('a scroll that releases following also ends the entry stick', async () => {
+    const fakeEl = createFakeScrollElement();
+    const { get, renderOptions } = await mountAutoFollow(baseOptions(), fakeEl);
+    await act(async () => {
+      await get().restoreSnapshot();
+    });
+    // The idle append starts an entry stick.
+    fakeEl.scrollHeight = 1400;
+    await renderOptions(baseOptions({ sessionMessageCount: 3 }));
+    expect(fakeEl.scrollTop).toBe(1400 + 4096);
+
+    // The reader scrolls up by a path the gesture helper did not see first.
+    fakeEl.scrollTop = 0;
+    await act(async () => {
+      getScrollHandler(fakeEl)();
+    });
+    expect(get().state).toBe('released');
+
+    // Later growth must not pull them back down.
+    fakeEl.scrollHeight = 1800;
+    await act(async () => {
+      get().notifyContentChange();
+    });
+    expect(get().state).toBe('released');
+    expect(fakeEl.scrollTop).toBe(0);
+  });
+
   test('unmount clears queued timers', async () => {
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;

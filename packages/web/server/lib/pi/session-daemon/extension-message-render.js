@@ -1,11 +1,14 @@
+import { createExtensionKeybindingHints } from './extension-keybindings.js';
 import { renderComponentLines } from './extension-tool-render.js';
 
 // Daemon-side rendering for `pi.registerMessageRenderer(customType, renderer)`.
 // Mirrors the Pi terminal: the renderer is called with the full custom message,
-// `{ expanded, outputPad: 0 }`, and the shared extension theme, once collapsed
-// and once expanded. A throwing/missing renderer never throws out of here; the
-// caller publishes the message with text/details as usual.
+// `{ expanded, outputPad: 0, keyText, keyHint }`, and the shared extension
+// theme, once collapsed and once expanded. A throwing/missing renderer never
+// throws out of here; the caller publishes the message with text/details as
+// usual.
 export const createExtensionMessageRenderer = ({ theme, redactAttachmentPaths = (value) => value } = {}) => {
+  const { keyText, keyHint } = createExtensionKeybindingHints({ theme });
   // Memoized per persisted entry object: one entry belongs to one history
   // item, so its renderer input never varies. The owning session is part of
   // the key so a session replacement re-renders instead of reusing stale lines.
@@ -25,7 +28,7 @@ export const createExtensionMessageRenderer = ({ theme, redactAttachmentPaths = 
 
   const renderSlot = (renderer, message, expanded) => {
     try {
-      const component = renderer(message, { expanded, outputPad: 0 }, theme);
+      const component = renderer(message, { expanded, outputPad: 0, keyText, keyHint }, theme);
       if (!component) return undefined;
       const lines = renderComponentLines(component);
       if (!lines || lines.length === 0) return undefined;

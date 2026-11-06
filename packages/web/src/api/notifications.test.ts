@@ -192,6 +192,40 @@ describe('web notifications close and attention count', () => {
     expect(invoke).toHaveBeenCalledWith('desktop_notification_close', { tag: 'pichamber:input:s1:333' });
   });
 
+  it('closes the page notification when the desktop IPC rejects (remote origin)', async () => {
+    // A desktop window on a remote server: the local-only IPC rejects, so
+    // notify falls back to a page notification and close must reach it.
+    const invoke = vi.fn(async () => {
+      throw new Error('IPC not available for this origin');
+    });
+    const storage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        __PICHAMBER_DESKTOP__: { invoke },
+        localStorage: {
+          getItem: (key: string) => storage.get(key) ?? null,
+          setItem: (key: string, value: string) => storage.set(key, value),
+          removeItem: (key: string) => storage.delete(key),
+        },
+      },
+    });
+    const created: Array<{ close: () => void }> = [];
+    installClosableNotificationMock(created);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { createWebNotificationsAPI } = await import('./notifications');
+    const api = createWebNotificationsAPI();
+
+    await expect(api.notify({ title: 'Input needed', body: 'Session', tag: 'pichamber:input:s1:444', kind: 'input' })).resolves.toBe(true);
+    expect(invoke).toHaveBeenCalledWith('desktop_notify', expect.anything());
+    expect(created).toHaveLength(1);
+
+    await api.close?.('pichamber:input:s1:444');
+    expect(invoke).toHaveBeenCalledWith('desktop_notification_close', { tag: 'pichamber:input:s1:444' });
+    expect(created[0]?.close).toHaveBeenCalledTimes(1);
+  });
+
   it('sends the attention count through desktop IPC when available', async () => {
     const invoke = vi.fn(async () => null);
     Object.defineProperty(globalThis, 'window', {
