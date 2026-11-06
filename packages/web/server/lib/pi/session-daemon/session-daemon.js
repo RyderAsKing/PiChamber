@@ -913,9 +913,11 @@ export function createSessionDaemon({
       pendingStart = startRuntime({
         cwd: requestedCwd,
         sessionFile,
-        // Only a daemon without an active runtime adopts what it starts. Reading
-        // another project's catalog leaves the user's active project untouched.
-        activate: !runtime,
+        // Only a start for the active directory, on a daemon without an active
+        // runtime, adopts what it starts. After idle disposal clears `runtime`,
+        // `activeDirectory` still names the user's project, so reading another
+        // project's catalog leaves that project and its dormant session intact.
+        activate: !runtime && requestedCwd === resolve(activeDirectory || cwd),
       }).finally(() => {
         if (runtimeStartPromises.get(requestedCwd) === pendingStart) {
           runtimeStartPromises.delete(requestedCwd);
@@ -2150,20 +2152,32 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
-  let refreshProvidersInflight = null;
+  // In-flight refreshes are shared per resolved directory, never across
+  // directories, so a concurrent refresh for another project cannot return
+  // this project's catalog. Refreshes for different directories still run one
+  // after another: each touches every resident ModelRuntime and installs
+  // temporary catalog keys, which must not interleave.
+  const refreshProvidersInflight = new Map();
+  let refreshProvidersQueue = Promise.resolve();
   const refreshProviders = async (requestedDirectory) => {
     try {
       await flushPendingRuntimeRecreation();
     } catch {
       // A failed rebuild stays queued for a later edge; the catalog refresh below retries startup.
     }
-    if (refreshProvidersInflight) return refreshProvidersInflight;
-    const task = (async () => {
+    const targetDir = resolve(await resolveDirectory(requestedDirectory));
+    const existing = refreshProvidersInflight.get(targetDir);
+    if (existing) return existing;
+    const task = refreshProvidersQueue.then(async () => {
       const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15_000) : undefined;
       // Refresh only live runtimes. Transient prompt-mutation services are never
-      // retained, so there are no orphan ModelRuntimes to refresh here; the
-      // returned catalog always comes from the active runtime via listProviders.
+      // retained, so there are no orphan ModelRuntimes to refresh here. The
+      // requested directory's runtime is always included (started if it is not
+      // resident) because the returned catalog comes from it via listProviders.
       const runtimes = new Set();
+      const target = await ensureRuntime(targetDir);
+      if (target?.session?.modelRuntime) runtimes.add(target.session.modelRuntime);
+      if (target?.services?.modelRuntime) runtimes.add(target.services.modelRuntime);
       if (runtime?.session?.modelRuntime) runtimes.add(runtime.session.modelRuntime);
       if (runtime?.services?.modelRuntime) runtimes.add(runtime.services.modelRuntime);
       if (runtimeRegistry?.listAll) {
@@ -2173,11 +2187,6 @@ export function createSessionDaemon({
             if (mr) runtimes.add(mr);
           }
         } catch {}
-      }
-      if (runtimes.size === 0) {
-        const active = await ensureRuntime(requestedDirectory ? await resolveDirectory(requestedDirectory) : undefined);
-        const mr = active?.session?.modelRuntime ?? active?.services?.modelRuntime;
-        if (mr) runtimes.add(mr);
       }
       const dummyMap = new Map();
       for (const mr of runtimes) {
@@ -2223,12 +2232,13 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
         }
       }
-      const catalog = await listProviders(requestedDirectory);
+      const catalog = await listProviders(targetDir);
       return catalog;
-    })().finally(() => {
-      refreshProvidersInflight = null;
+    }).finally(() => {
+      if (refreshProvidersInflight.get(targetDir) === task) refreshProvidersInflight.delete(targetDir);
     });
-    refreshProvidersInflight = task;
+    refreshProvidersInflight.set(targetDir, task);
+    refreshProvidersQueue = task.catch(() => {});
     return task;
   };
 

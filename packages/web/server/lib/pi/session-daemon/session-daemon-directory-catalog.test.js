@@ -27,7 +27,7 @@ function testDaemonEndpoint(root) {
  * extensions, commands, skills, prompts, and models are all tagged with that
  * directory so a catalog response can be attributed to exactly one project.
  */
-const createFakeRuntime = ({ cwd, tag, onDispose }) => {
+const createFakeRuntime = ({ cwd, tag, onDispose, onRefresh }) => {
   const session = {
     sessionId: `pi-session-${tag}`,
     isStreaming: false,
@@ -46,6 +46,11 @@ const createFakeRuntime = ({ cwd, tag, onDispose }) => {
       getModels: () => [{ provider: `${tag}-provider`, id: `${tag}-model`, name: `${tag} model` }],
       getProvider: (providerId) => ({ name: providerId }),
       getProviderAuthStatus: () => ({ configured: true }),
+      getProviders: () => [],
+      refresh: async () => {
+        onRefresh?.(tag);
+        return {};
+      },
     },
     extensionRunner: {
       getExtensionPaths: () => [join(cwd, '.pi', 'extensions', `${tag}-extension.ts`)],
@@ -163,7 +168,7 @@ describe('Pi session daemon directory-scoped catalogs', () => {
    * the resident runtime first, which is the state that made every catalog
    * request answer with beta's resources (issue #199).
    */
-  const startDaemonWithTwoProjects = async ({ idleTimeoutMs = 60_000 } = {}) => {
+  const startDaemonWithTwoProjects = async ({ idleTimeoutMs = 60_000, beforeCreate } = {}) => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-directory-catalog-'));
     const alphaDir = join(root, 'alpha');
     const betaDir = join(root, 'beta');
@@ -174,6 +179,7 @@ describe('Pi session daemon directory-scoped catalogs', () => {
 
     const created = [];
     const disposed = [];
+    const refreshed = [];
     const endpoint = testDaemonEndpoint(root);
     daemon = createSessionDaemon({
       endpoint,
@@ -185,14 +191,28 @@ describe('Pi session daemon directory-scoped catalogs', () => {
         const cwd = options.cwd;
         created.push(options);
         const tag = basename(cwd);
-        return createFakeRuntime({ cwd, tag, onDispose: (disposedTag) => disposed.push(disposedTag) });
+        await beforeCreate?.(tag);
+        return createFakeRuntime({
+          cwd,
+          tag,
+          onDispose: (disposedTag) => disposed.push(disposedTag),
+          onRefresh: (refreshedTag) => refreshed.push(refreshedTag),
+        });
       },
     });
     await daemon.start();
 
-    const client = connectClient(endpoint);
-    await client.authenticate();
-    return { client, alphaDir, betaDir, created, disposed };
+    const clients = [];
+    // Requests on one connection are handled in order, so concurrency tests
+    // open one connection per in-flight request.
+    const openClient = async () => {
+      const opened = connectClient(endpoint);
+      await opened.authenticate();
+      clients.push(opened);
+      return opened;
+    };
+    const client = await openClient();
+    return { client, openClient, alphaDir, betaDir, created, disposed, refreshed };
   };
 
   afterEach(async () => {
@@ -297,5 +317,65 @@ describe('Pi session daemon directory-scoped catalogs', () => {
     const alpha = (await client.request('extensions.list', { directory: alphaDir })).result;
     expect(commandNames(alpha)).toEqual(['alpha-only-command']);
     expect(created.filter((options) => samePath(options.cwd, alphaDir))).toHaveLength(2);
+  });
+  it('does not adopt another directory runtime while the active directory has no resident runtime', async () => {
+    // A fresh daemon has no runtime yet but already names beta as its active
+    // directory; the same state follows idle disposal of the active runtime.
+    const { client, alphaDir } = await startDaemonWithTwoProjects();
+
+    const alpha = (await client.request('extensions.list', { directory: alphaDir })).result;
+    expect(commandNames(alpha)).toEqual(['alpha-only-command']);
+
+    const active = (await client.request('extensions.list', {})).result;
+    expect(commandNames(active)).toEqual(['beta-only-command']);
+  });
+
+  it('shares a concurrent start per directory and never across directories', async () => {
+    const releases = new Map();
+    const gate = (tag) => new Promise((resolvePromise) => releases.set(tag, resolvePromise));
+    const { client, openClient, alphaDir, betaDir, created } = await startDaemonWithTwoProjects({ beforeCreate: gate });
+    const [second, third] = [await openClient(), await openClient()];
+
+    const alphaFirst = client.request('extensions.list', { directory: alphaDir });
+    const alphaSecond = second.request('resources.list', { directory: alphaDir });
+    const beta = third.request('extensions.list', { directory: betaDir });
+    await vi.waitFor(() => expect(releases.size).toBe(2), { timeout: 2_000, interval: 5 });
+
+    releases.get('beta')();
+    expect(commandNames((await beta).result)).toEqual(['beta-only-command']);
+    releases.get('alpha')();
+    expect(commandNames((await alphaFirst).result)).toEqual(['alpha-only-command']);
+    expect(skillNames((await alphaSecond).result)).toEqual(['alpha-skill']);
+
+    expect(created.filter((options) => samePath(options.cwd, alphaDir))).toHaveLength(1);
+    expect(created.filter((options) => samePath(options.cwd, betaDir))).toHaveLength(1);
+  });
+
+  it('refreshes and answers providers.refresh for a requested directory that is not resident', async () => {
+    const { client, alphaDir, betaDir, refreshed } = await startDaemonWithTwoProjects();
+
+    await client.request('extensions.list', { directory: betaDir });
+    const alpha = (await client.request('providers.refresh', { directory: alphaDir })).result;
+
+    expect(modelIds(alpha)).toEqual(['alpha-model']);
+    expect(refreshed).toContain('alpha');
+  });
+
+  it('keeps concurrent providers.refresh requests for different directories separate', async () => {
+    const releases = new Map();
+    const gate = (tag) => new Promise((resolvePromise) => releases.set(tag, resolvePromise));
+    const { client, openClient, alphaDir, betaDir } = await startDaemonWithTwoProjects({ beforeCreate: gate });
+    const second = await openClient();
+
+    const alpha = client.request('providers.refresh', { directory: alphaDir });
+    const beta = second.request('providers.refresh', { directory: betaDir });
+    // beta's refresh is queued behind alpha's, then starts its own runtime.
+    await vi.waitFor(() => expect(releases.has('alpha')).toBe(true), { timeout: 2_000, interval: 5 });
+    releases.get('alpha')();
+    await vi.waitFor(() => expect(releases.has('beta')).toBe(true), { timeout: 2_000, interval: 5 });
+    releases.get('beta')();
+
+    expect(modelIds((await alpha).result)).toEqual(['alpha-model']);
+    expect(modelIds((await beta).result)).toEqual(['beta-model']);
   });
 });

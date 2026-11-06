@@ -134,13 +134,16 @@ describe('Pi session daemon directory-scoped catalogs with the real SDK', () => 
 
     // Beta holds the resident runtime first, which is the state that answered
     // for every other directory.
+    // Pi also loads the developer's user-level skills (for example
+    // ~/.agents/skills), so assert on the two project resources only.
+    const projectNames = (items) => items.map((item) => item.name).filter((name) => name.startsWith('alpha') || name.startsWith('beta'));
     const beta = await client.request('resources.list', { directory: betaDir });
-    expect(beta.skills.map((skill) => skill.name)).toEqual(['betaskill']);
-    expect(beta.prompts.map((prompt) => prompt.name)).toEqual(['betaprompt']);
+    expect(projectNames(beta.skills)).toEqual(['betaskill']);
+    expect(projectNames(beta.prompts)).toEqual(['betaprompt']);
 
     const alpha = await client.request('resources.list', { directory: alphaDir });
-    expect(alpha.skills.map((skill) => skill.name)).toEqual(['alphaskill']);
-    expect(alpha.prompts.map((prompt) => prompt.name)).toEqual(['alphaprompt']);
+    expect(projectNames(alpha.skills)).toEqual(['alphaskill']);
+    expect(projectNames(alpha.prompts)).toEqual(['alphaprompt']);
 
     // Each catalog names the directory it was read from.
     const alphaExtensions = await client.request('extensions.list', { directory: alphaDir });
