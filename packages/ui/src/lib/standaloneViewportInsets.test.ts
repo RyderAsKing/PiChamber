@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { resolveViewportBottomStrip, type StandaloneViewportSample } from './standaloneViewportInsets';
+import {
+  installStandaloneViewportInsets,
+  resolveViewportBottomStrip,
+  type StandaloneViewportSample,
+} from './standaloneViewportInsets';
 
 // iPhone 16 Pro, portrait. Values from WebKit bug 313800 and the #203 screenshots.
 const iphone16Pro: StandaloneViewportSample = {
@@ -52,5 +56,132 @@ describe('resolveViewportBottomStrip', () => {
   test('invalid measurements are inconclusive', () => {
     expect(resolveViewportBottomStrip({ ...iphone16Pro, innerHeight: 0 })).toBeNull();
     expect(resolveViewportBottomStrip({ ...iphone16Pro, safeAreaTop: Number.NaN })).toBeNull();
+  });
+});
+
+type Listener = () => void;
+
+const createListenerTarget = () => {
+  const listeners = new Map<string, Set<Listener>>();
+  return {
+    addEventListener: (type: string, listener: Listener) => {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type)!.add(listener);
+    },
+    removeEventListener: (type: string, listener: Listener) => {
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch: (type: string) => {
+      for (const listener of [...(listeners.get(type) ?? [])]) listener();
+    },
+    count: () => [...listeners.values()].reduce((total, set) => total + set.size, 0),
+  };
+};
+
+// Minimal iOS standalone environment: just the globals the installer reads.
+const installFakeIosStandalone = (options: { capacitor?: boolean; standalone?: boolean } = {}) => {
+  const properties = new Map<string, string>();
+  const probes = new Set<object>();
+  const windowEvents = createListenerTarget();
+  const visualViewportEvents = createListenerTarget();
+  const documentEvents = createListenerTarget();
+  const geometry = { innerWidth: 402, innerHeight: 812, safeAreaTop: 62 };
+
+  const documentElement = {
+    classList: { contains: (name: string) => name === 'oc-capacitor-app' && options.capacitor === true },
+    style: {
+      setProperty: (name: string, value: string) => { properties.set(name, value); },
+      removeProperty: (name: string) => { properties.delete(name); },
+    },
+  };
+  const fakeDocument = {
+    documentElement,
+    body: {
+      appendChild: (node: object) => { probes.add(node); },
+    },
+    createElement: () => {
+      const probe = {
+        style: { cssText: '' },
+        setAttribute: () => {},
+        remove: () => { probes.delete(probe); },
+      };
+      return probe;
+    },
+    addEventListener: documentEvents.addEventListener,
+    removeEventListener: documentEvents.removeEventListener,
+  };
+  const fakeWindow = {
+    get innerWidth() { return geometry.innerWidth; },
+    get innerHeight() { return geometry.innerHeight; },
+    screen: { width: 402, height: 874 },
+    CSS: { supports: (property: string) => property === '-webkit-touch-callout' },
+    matchMedia: (query: string) => ({ matches: query === '(display-mode: standalone)' && options.standalone !== false }),
+    getComputedStyle: () => ({ paddingTop: `${geometry.safeAreaTop}px` }),
+    visualViewport: visualViewportEvents,
+    addEventListener: windowEvents.addEventListener,
+    removeEventListener: windowEvents.removeEventListener,
+  };
+
+  const globals = globalThis as Record<string, unknown>;
+  const previous = { window: globals.window, document: globals.document, navigator: globals.navigator };
+  globals.window = fakeWindow;
+  globals.document = fakeDocument;
+  Object.defineProperty(globalThis, 'navigator', { value: {}, configurable: true, writable: true });
+
+  return {
+    geometry,
+    properties,
+    probes,
+    listenerCount: () => windowEvents.count() + visualViewportEvents.count(),
+    resize: () => windowEvents.dispatch('resize'),
+    restore: () => {
+      globals.window = previous.window;
+      globals.document = previous.document;
+      Object.defineProperty(globalThis, 'navigator', { value: previous.navigator, configurable: true, writable: true });
+    },
+  };
+};
+
+describe('installStandaloneViewportInsets', () => {
+  test('publishes the strip, removes it once iOS restores the full viewport, and cleans up', () => {
+    const env = installFakeIosStandalone();
+    try {
+      const uninstall = installStandaloneViewportInsets();
+      expect(env.properties.get('--oc-viewport-bottom-strip')).toBe('62px');
+      expect(env.probes.size).toBe(0);
+
+      // Keyboard-sized resize is inconclusive: keep the last value.
+      env.geometry.innerHeight = 520;
+      env.resize();
+      expect(env.properties.get('--oc-viewport-bottom-strip')).toBe('62px');
+
+      // iOS grows the viewport once <html> is screen-tall.
+      env.geometry.innerHeight = 874;
+      env.resize();
+      expect(env.properties.has('--oc-viewport-bottom-strip')).toBe(false);
+
+      env.geometry.innerHeight = 812;
+      env.resize();
+      expect(env.properties.get('--oc-viewport-bottom-strip')).toBe('62px');
+
+      uninstall();
+      expect(env.properties.has('--oc-viewport-bottom-strip')).toBe(false);
+      expect(env.listenerCount()).toBe(0);
+    } finally {
+      env.restore();
+    }
+  });
+
+  test('does nothing outside an iOS Home Screen app', () => {
+    for (const options of [{ capacitor: true }, { standalone: false }]) {
+      const env = installFakeIosStandalone(options);
+      try {
+        installStandaloneViewportInsets()();
+        expect(env.properties.size).toBe(0);
+        expect(env.listenerCount()).toBe(0);
+      } finally {
+        env.restore();
+      }
+    }
   });
 });
