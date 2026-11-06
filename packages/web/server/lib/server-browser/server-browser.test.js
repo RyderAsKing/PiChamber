@@ -72,10 +72,13 @@ describe('server browser server-network rule on a page', () => {
   };
 
   it('checks the addresses a public page\'s link resolves to', async () => {
-    const { load, outcome } = publicTab(async (host) => [{ address: host === 'rebind.example' ? '127.0.0.1' : '93.184.216.34', family: 4 }]);
+    const answers = { 'rebind.example': '127.0.0.1', 'bench.example': '198.18.0.1', 'nat64.example': '64:ff9b::a00:1' };
+    const { load, outcome } = publicTab(async (host) => [{ address: answers[host] || '93.184.216.34' }]);
     await load('a', 'http://rebind.example:6379/');
     await load('b', 'https://other.example/');
-    expect([outcome('a'), outcome('b')]).toEqual(['Fetch.failRequest', 'Fetch.continueRequest']);
+    await load('c', 'http://bench.example/');
+    await load('d', 'http://nat64.example/');
+    expect(['a', 'b', 'c', 'd'].map(outcome)).toEqual(['Fetch.failRequest', 'Fetch.continueRequest', 'Fetch.failRequest', 'Fetch.failRequest']);
   });
 
   it('forgets a reload once it lands, even without a document request', async () => {
