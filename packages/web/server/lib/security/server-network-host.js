@@ -23,7 +23,7 @@ export const isServerNetworkHost = (hostname) => {
 
   if (host.includes(':')) {
     if (host === '::1' || host === '::') return true;           // loopback / unspecified
-    if (host.startsWith('fe80')) return true;                   // link-local
+    if (/^fe[89ab][0-9a-f]:/.test(host)) return true;          // link-local fe80::/10
     if (host.startsWith('fc') || host.startsWith('fd')) return true; // unique local fc00::/7
     if (host.includes('::ffff:')) return true;                       // IPv4-mapped (dotted or hex form)
     return false;

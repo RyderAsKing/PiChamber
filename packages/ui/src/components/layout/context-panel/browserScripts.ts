@@ -127,7 +127,7 @@ export const DESKTOP_BROWSER_SAME_WEBVIEW_NAVIGATION_SCRIPT = `(() => {
   }, true);
 })()`;
 
-const LOCAL_ADDRESS = /^(localhost|127(\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|[^/:?#]+\.(local|localhost))(?=[:/?#]|$)/i;
+const LOCAL_ADDRESS = /^(localhost|127(\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|10(\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2}|[^/:?#]+\.(local|localhost))(?=[:/?#]|$)/i;
 
 export const normalizeBrowserUrl = (value: string): string => {
   const trimmed = value.trim();

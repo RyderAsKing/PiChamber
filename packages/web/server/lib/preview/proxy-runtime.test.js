@@ -531,10 +531,15 @@ describe('proxy target normalization (SSRF guard)', () => {
       'http://[::1]/',
       'http://[fd00::1]/',
       'http://[fe80::1]/',
+      'http://[febf::1]/',
       'http://2130706433/', // decimal form of 127.0.0.1, normalized by WHATWG URL
     ]) {
       expect(normalizeProxyTargetUrl(url, { allowExternal: true }).ok, url).toBe(false);
     }
+  });
+
+  it('allows the address just past link-local', () => {
+    expect(normalizeProxyTargetUrl('http://[fec0::1]/', { allowExternal: true }).ok).toBe(true);
   });
 
   it('still blocks private hosts even via IPv4-mapped IPv6', () => {
