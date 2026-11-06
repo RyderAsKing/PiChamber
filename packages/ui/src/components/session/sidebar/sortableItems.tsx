@@ -10,6 +10,7 @@ import {
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Icon } from '@/components/icon/Icon';
+import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { cn } from '@/lib/utils';
 import { sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
@@ -22,6 +23,8 @@ export type SortableDragHandleProps = {
 type ProjectIdentityProps = {
   id: string;
   projectLabel: string;
+  /** Folder whose own icon is shown; without one the header shows a plain folder glyph. */
+  projectPath?: string | null;
 };
 
 type ProjectHeaderIdentityProps = ProjectIdentityProps & {
@@ -30,6 +33,7 @@ type ProjectHeaderIdentityProps = ProjectIdentityProps & {
 
 export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
   projectLabel,
+  projectPath = null,
   mobileVariant = false,
 }) => {
   const iconClassName = sidebarRowIconClass(mobileVariant);
@@ -38,7 +42,11 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
   return (
     <>
       <span className={cn('inline-flex shrink-0 items-center justify-center', iconClassName)}>
-        <Icon name="folder" className={cn(iconClassName, 'text-muted-foreground/80')} />
+        {projectPath ? (
+          <ProjectIcon directory={projectPath} label={projectLabel} className={iconClassName} />
+        ) : (
+          <Icon name="folder" className={cn(iconClassName, 'text-muted-foreground/80')} />
+        )}
       </span>
       <span className={cn(labelClassName, 'text-foreground')}>{projectLabel}</span>
     </>
@@ -81,6 +89,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   id,
   disabled = false,
   projectLabel,
+  projectPath = null,
   projectDescription,
   isCollapsed,
   hideDirectoryControls,
@@ -213,6 +222,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                     <ProjectHeaderIdentity
                       id={id}
                       projectLabel={projectLabel}
+                      projectPath={projectPath}
                       mobileVariant={mobileVariant}
                     />
                     {statusIndicator ? (

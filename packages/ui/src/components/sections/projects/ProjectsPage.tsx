@@ -3,6 +3,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/icon/Icon';
+import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
@@ -87,7 +88,7 @@ export const ProjectsPage: React.FC = () => {
             >
               <Icon name="arrow-left-s" className="size-4" />
             </Button>
-            <Icon name="folder" className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+            <ProjectIcon directory={selectedProject.path} label={label} className="size-5" />
             <span className="truncate">{label}</span>
           </span>
         }
