@@ -1,7 +1,8 @@
 import React from 'react';
 import { runtimeFetch } from '@/lib/runtime-fetch';
-import { isExternalHttpUrl, openExternalUrl } from '@/lib/url';
+import { isExternalHttpUrl } from '@/lib/url';
 import { useUIStore } from '@/stores/useUIStore';
+import { openChatLink } from '../openRequestActions';
 import type { EditorAPI } from '@/lib/api/types';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
@@ -67,7 +68,7 @@ export const useExternalLinkInteractions = ({
 
       event.preventDefault();
       event.stopPropagation();
-      void openExternalUrl(href);
+      openChatLink(href);
     };
 
     container.addEventListener('click', handleClick);

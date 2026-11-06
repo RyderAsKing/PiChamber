@@ -7,8 +7,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useInputStore } from '@/sync/input-store';
 import { toast } from '@/components/ui';
-import { runtimeFetch } from '@/lib/runtime-fetch';
-import { getRuntimeUrlResolver } from '@/lib/runtime-url';
 import { openExternalUrl } from '@/lib/url';
 import { invokeDesktopCommand } from '@/lib/desktopNative';
 import {
@@ -17,18 +15,8 @@ import {
   formatPreviewAnnotationMarkdown,
   renderPreviewScreenshot,
   desktopAnnotationToFile,
-  getCachedProxyTarget,
-  getBrowserProxyTargetKey,
-  previewProxyTargetCache,
 } from '@/lib/preview/screenshot-capture';
-import {
-  appendPendingSyntheticText,
-  parsePreviewProxyTargetResponse,
-  stripPreviewQueryParams,
-  type PreviewBridgeMessage,
-  type PreviewProxyState,
-} from './previewShared';
-import { usePreviewProxyAuthReadyKey } from './usePreviewProxyAuth';
+import { appendPendingSyntheticText } from './previewShared';
 import {
   DESKTOP_BROWSER_CANCEL_INSPECT_SCRIPT,
   DESKTOP_BROWSER_INSPECT_SCRIPT,
@@ -36,71 +24,97 @@ import {
   normalizeBrowserUrl,
   runIframeScript,
 } from './browserScripts';
+import { resolveBrowserRoute } from './browserRoute';
+import { ServerBrowserPane } from './ServerBrowserPane';
+import { SortableTabsStrip } from '@/components/ui/sortable-tabs-strip';
+import { closeServerBrowserTab, fetchFramePolicy } from '@/lib/serverBrowser/api';
+import { cn } from '@/lib/utils';
+import { browserPageLabel, type BrowserPage, type BrowserPages } from '@/stores/ui/browserPages';
+import type { BrowserRoute } from '@/stores/ui/contextPanel';
 
-type DesktopBrowserPaneProps = {
+type BrowserPaneProps = {
   initialUrl: string;
   directory: string;
-  tabID: string;
+  pageId: string;
+  /** The page is in an open panel and is its active page. */
+  onScreen: boolean;
+  routeToggle: React.ReactNode;
+  onRouteChange: (route: BrowserRoute) => void;
+};
+
+const hostOfUrl = (url: string): string => {
+  try {
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+};
+
+const BrowserRouteToggle: React.FC<{ route: BrowserRoute; onRouteChange: (route: BrowserRoute) => void }> = ({ route, onRouteChange }) => {
+  const isServer = route === 'server';
+  const title = isServer
+    ? 'Pages run in a browser on the PiChamber server, so localhost means the server. Switch to load them on this device.'
+    : 'Pages load on this device, so localhost means this device. Switch to run them on the PiChamber server.';
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="shrink-0 typography-micro"
+      onClick={() => onRouteChange(isServer ? 'device' : 'server')}
+      title={title}
+      aria-label={isServer ? 'Running on the server. Switch to this device' : 'Loading on this device. Switch to server'}
+    >
+      {isServer ? 'Server' : 'This device'}
+    </Button>
+  );
 };
 
 const isElectronBrowserRuntime = (): boolean => {
   return typeof window !== 'undefined' && Boolean(window.__PICHAMBER_ELECTRON__);
 };
 
-const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
+/** The web browser on the device route: an iframe loading pages directly. */
+const IframeBrowserPane: React.FC<BrowserPaneProps> = ({ initialUrl, directory, pageId, routeToggle, onRouteChange }) => {
   const iframeRef = React.useRef<HTMLIFrameElement | null>(null);
-  const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
+  const updateBrowserPage = useUIStore((state) => state.updateBrowserPage);
+  const [refused, setRefused] = React.useState<string | null>(null);
   const normalized = normalizeBrowserUrl(initialUrl);
   const startUrl = normalized !== 'about:blank' ? normalized : '';
   const [urlInput, setUrlInput] = React.useState(startUrl);
   const [currentUrl, setCurrentUrl] = React.useState(startUrl);
-  const [loadedUrl, setLoadedUrl] = React.useState(startUrl);
   const [history, setHistory] = React.useState<string[]>(() => startUrl ? [startUrl] : []);
   const [historyIndex, setHistoryIndex] = React.useState(() => startUrl ? 0 : -1);
   const [reloadNonce, bumpReload] = React.useReducer((value: number) => value + 1, 0);
   const [isLoading, setIsLoading] = React.useState(Boolean(startUrl));
   const [isInspecting, setIsInspecting] = React.useState(false);
-  const [hoverTarget, setHoverTarget] = React.useState<PreviewElementMetadata | null>(null);
-  const [proxyState, setProxyState] = React.useState<PreviewProxyState>({ status: 'idle' });
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
 
+  // The iframe cannot read another site's title; the strip shows the host.
   const persistUrl = React.useCallback((url: string) => {
-    if (!url || url === 'about:blank' || !directory || !tabID) return;
-    setContextPanelTabTargetPath(directory, tabID, url);
-  }, [directory, tabID, setContextPanelTabTargetPath]);
+    if (!url || url === 'about:blank' || !directory || !pageId) return;
+    updateBrowserPage(directory, pageId, { url });
+  }, [directory, pageId, updateBrowserPage]);
 
-  const applyUrl = React.useCallback((url: string, options?: { replaceHistory?: boolean; inFrame?: boolean }) => {
+  const applyUrl = React.useCallback((url: string) => {
     const normalizedUrl = normalizeBrowserUrl(url);
     const nextUrl = normalizedUrl !== 'about:blank' ? normalizedUrl : '';
     setCurrentUrl(nextUrl);
     setUrlInput(nextUrl);
-    if (!options?.inFrame) {
-      setLoadedUrl(nextUrl);
-      setIsLoading(Boolean(nextUrl));
-    } else {
-      setIsLoading(false);
-    }
+    setIsLoading(Boolean(nextUrl));
     persistUrl(nextUrl);
-
     setHistory((current) => {
       if (!nextUrl) {
         setHistoryIndex(-1);
         return [];
       }
-
-      if (options?.replaceHistory) {
-        return current;
-      }
-
       const kept = historyIndex >= 0 ? current.slice(0, historyIndex + 1) : [];
-      const previous = kept[kept.length - 1];
-      if (previous === nextUrl) {
+      if (kept[kept.length - 1] === nextUrl) {
         setHistoryIndex(kept.length - 1);
         return kept;
       }
-
       const nextHistory = [...kept, nextUrl];
       setHistoryIndex(nextHistory.length - 1);
       return nextHistory;
@@ -112,7 +126,6 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
     if (!nextUrl) return;
     setHistoryIndex(nextIndex);
     setCurrentUrl(nextUrl);
-    setLoadedUrl(nextUrl);
     setUrlInput(nextUrl);
     setIsLoading(true);
     persistUrl(nextUrl);
@@ -128,133 +141,29 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
     }
   }, [currentUrl]);
 
+  // An iframe cannot tell why a page stayed blank, so the server asks the
+  // site whether it refuses to be framed here. Only a definite refusal
+  // replaces the page; anything else leaves the iframe alone.
   React.useEffect(() => {
-    if (!loadedUrl) {
-      setProxyState({ status: 'idle' });
-      return;
-    }
+    if (!currentUrl) return;
+    const controller = new AbortController();
+    void fetchFramePolicy(currentUrl, window.location.origin, controller.signal)
+      .then((policy) => { if (policy.framing === 'refused') setRefused(currentUrl); })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [currentUrl]);
+  const refusedHost = refused && refused === currentUrl ? hostOfUrl(currentUrl) : null;
 
-    const proxyTargetKey = getBrowserProxyTargetKey(loadedUrl);
-    const cached = getCachedProxyTarget(proxyTargetKey);
-    if (cached?.previewToken) {
-      setProxyState({ status: 'ready', proxyBasePath: cached.proxyBasePath, previewToken: cached.previewToken, expiresAt: cached.expiresAt });
-      return;
-    }
-    if (cached) {
-      previewProxyTargetCache.delete(proxyTargetKey);
-    }
-
-    let cancelled = false;
-    setProxyState({ status: 'loading' });
-    setIsLoading(true);
-
-    void (async () => {
-      try {
-        const response = await runtimeFetch('/api/preview/targets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ url: loadedUrl, allowExternal: true }),
-        });
-
-        const result = await parsePreviewProxyTargetResponse(response);
-        if (!result.ok) {
-          if (!cancelled) setProxyState({ status: 'error', message: result.message });
-          return;
-        }
-
-        previewProxyTargetCache.set(proxyTargetKey, result.target);
-        if (!cancelled) setProxyState({ status: 'ready', ...result.target });
-      } catch (error) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : String(error);
-          setProxyState({ status: 'error', message });
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [loadedUrl]);
-
-  const proxyUrlAuthKey = loadedUrl && proxyState.status === 'ready'
-    ? `${proxyState.proxyBasePath}|${proxyState.previewToken || ''}|${reloadNonce}`
-    : '';
-
-  const urlAuthReadyKey = usePreviewProxyAuthReadyKey(proxyUrlAuthKey);
-
-  const proxySrc = React.useMemo(() => {
-    if (urlAuthReadyKey !== proxyUrlAuthKey) return '';
-    if (!loadedUrl || proxyState.status !== 'ready') return '';
-    try {
-      const parsed = new URL(loadedUrl);
-      const path = parsed.pathname || '/';
-      const searchParams = new URLSearchParams(parsed.search);
-      searchParams.delete('oc_url_token');
-      searchParams.delete('oc_client_token');
-      searchParams.set('ocPreview', String(reloadNonce));
-      searchParams.set('oc_preview_token', proxyState.previewToken || '');
-      const search = searchParams.toString();
-      return getRuntimeUrlResolver().authenticatedAsset(`${proxyState.proxyBasePath}${path}${search ? `?${search}` : ''}${parsed.hash}`);
-    } catch {
-      return '';
-    }
-  }, [loadedUrl, proxyState, proxyUrlAuthKey, reloadNonce, urlAuthReadyKey]);
-
-  const iframeSrc = proxySrc || (proxyState.status === 'error' ? loadedUrl : '');
-
-  const getCurrentUrlFromFrameUrl = React.useCallback((frameUrl: string): string => {
-    if (!frameUrl || !loadedUrl || proxyState.status !== 'ready') return '';
-    try {
-      const parsedFrameUrl = new URL(frameUrl, window.location.origin);
-      const proxyBasePath = proxyState.proxyBasePath.endsWith('/')
-        ? proxyState.proxyBasePath.slice(0, -1)
-        : proxyState.proxyBasePath;
-      if (parsedFrameUrl.origin !== window.location.origin || !parsedFrameUrl.pathname.startsWith(proxyBasePath)) {
-        return '';
-      }
-
-      const rest = parsedFrameUrl.pathname.slice(proxyBasePath.length) || '/';
-      const upstreamOrigin = new URL(loadedUrl).origin;
-      return stripPreviewQueryParams(new URL(`${rest}${parsedFrameUrl.search}${parsedFrameUrl.hash}`, upstreamOrigin).toString());
-    } catch {
-      return '';
-    }
-  }, [loadedUrl, proxyState]);
-
-  const getUpstreamUrlFromLocalFrameUrl = React.useCallback((frameUrl: string): string => {
-    if (!frameUrl || !loadedUrl || proxyState.status !== 'ready') return '';
-    try {
-      const parsedFrameUrl = new URL(frameUrl, window.location.origin);
-      const upstreamOrigin = new URL(loadedUrl).origin;
-      if (parsedFrameUrl.origin !== window.location.origin || upstreamOrigin === window.location.origin) {
-        return '';
-      }
-
-      const proxyBasePath = proxyState.proxyBasePath.endsWith('/')
-        ? proxyState.proxyBasePath.slice(0, -1)
-        : proxyState.proxyBasePath;
-      if (parsedFrameUrl.pathname.startsWith(proxyBasePath)) {
-        return '';
-      }
-
-      return stripPreviewQueryParams(new URL(`${parsedFrameUrl.pathname}${parsedFrameUrl.search}${parsedFrameUrl.hash}`, upstreamOrigin).toString());
-    } catch {
-      return '';
-    }
-  }, [loadedUrl, proxyState]);
-
-  const postInspectMode = React.useCallback((enabled: boolean) => {
-    const frameWindow = iframeRef.current?.contentWindow;
-    if (!frameWindow) return;
-    frameWindow.postMessage({
-      source: 'pichamber-preview-parent',
-      version: 1,
-      type: 'set-inspect-mode',
-      enabled,
-    }, window.location.origin);
-  }, []);
+  // A new address set from outside the pane (an Open request, or another
+  // caller of openContextBrowser) arrives as a changed page address. The pane
+  // persists its own navigations to the same field, so only a value that
+  // differs from what is showing counts as a navigation.
+  React.useEffect(() => {
+    if (!startUrl || startUrl === currentUrl) return;
+    applyUrl(startUrl);
+    // Only react to the incoming address, not to local navigation state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUrl]);
 
   const attachBrowserAnnotation = React.useCallback(async (target: PreviewElementMetadata) => {
     const sessionKey = currentSessionId ?? (newSessionDraftOpen ? 'draft' : null);
@@ -262,7 +171,6 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       toast.error("Open a chat session before attaching preview annotations");
       return;
     }
-
     const iframe = iframeRef.current;
     const frameWindow = iframe?.contentWindow;
     const rect = iframe?.getBoundingClientRect();
@@ -270,13 +178,11 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
       width: Number.isFinite(frameWindow?.innerWidth) ? frameWindow?.innerWidth ?? rect?.width ?? 0 : rect?.width ?? 0,
       height: Number.isFinite(frameWindow?.innerHeight) ? frameWindow?.innerHeight ?? rect?.height ?? 0 : rect?.height ?? 0,
     };
-
     const file = iframe ? await renderPreviewScreenshot(iframe, target) : null;
     const screenshotAttached = Boolean(file);
     if (file) {
       await addAttachedFile(file);
     }
-
     appendPendingSyntheticText(formatPreviewAnnotationMarkdown({
       pageUrl: currentUrl,
       viewport,
@@ -290,11 +196,9 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
 
   const cancelInspect = React.useCallback(() => {
     const iframe = iframeRef.current;
-    setHoverTarget(null);
-    postInspectMode(false);
     if (!iframe) return;
     void runIframeScript<unknown>(iframe, DESKTOP_BROWSER_CANCEL_INSPECT_SCRIPT).catch(() => {});
-  }, [postInspectMode]);
+  }, []);
 
   React.useEffect(() => {
     if (!isInspecting) return;
@@ -311,68 +215,16 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
 
   React.useEffect(() => () => cancelInspect(), [cancelInspect]);
 
-  React.useEffect(() => {
-    const handler = (event: MessageEvent<PreviewBridgeMessage>) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      const data = event.data;
-      if (!data || data.source !== 'pichamber-preview-bridge' || data.version !== 1) return;
-
-      if (data.type === 'ready') {
-        const frameUrl = typeof data.url === 'string' ? data.url : '';
-        const nextUrl = getCurrentUrlFromFrameUrl(frameUrl);
-        if (nextUrl && nextUrl !== currentUrl) {
-          applyUrl(nextUrl, { inFrame: true });
-        }
-        return;
-      }
-
-      if (data.type === 'hover') {
-        setHoverTarget(isPreviewElementMetadata(data.target) ? data.target : null);
-        return;
-      }
-
-      if (data.type === 'select' && isPreviewElementMetadata(data.target)) {
-        setHoverTarget(null);
-        setIsInspecting(false);
-        postInspectMode(false);
-        void attachBrowserAnnotation(data.target);
-        return;
-      }
-
-      if (data.type === 'navigate-preview') {
-        const nextUrl = typeof data.url === 'string' ? data.url : '';
-        const upstreamUrl = getUpstreamUrlFromLocalFrameUrl(nextUrl);
-        if (upstreamUrl) {
-          applyUrl(upstreamUrl);
-          return;
-        }
-        if (nextUrl) {
-          applyUrl(nextUrl);
-        }
-      }
-    };
-
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [applyUrl, attachBrowserAnnotation, currentUrl, getCurrentUrlFromFrameUrl, getUpstreamUrlFromLocalFrameUrl, postInspectMode]);
-
+  // Inspect reaches into the frame, so it works only for pages that share
+  // this app's origin; others say so.
   const handleInspect = React.useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe || !currentUrl) return;
-
     if (isInspecting) {
       setIsInspecting(false);
       cancelInspect();
       return;
     }
-
-    if (proxySrc) {
-      setHoverTarget(null);
-      setIsInspecting(true);
-      postInspectMode(true);
-      return;
-    }
-
     setIsInspecting(true);
     void (async () => {
       try {
@@ -382,49 +234,33 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         await attachBrowserAnnotation(target);
       } catch {
         setIsInspecting(false);
-        toast.error("This page cannot be inspected from the browser panel.");
+        toast.error("This page cannot be inspected on this device. Switch to Server to inspect it.");
       }
     })();
-  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting, postInspectMode, proxySrc]);
-
-  const handleIframeLoad = React.useCallback(() => {
-    try {
-      const frameUrl = iframeRef.current?.contentWindow?.location.href || '';
-      const upstreamUrl = getUpstreamUrlFromLocalFrameUrl(frameUrl);
-      if (upstreamUrl) {
-        applyUrl(upstreamUrl, { inFrame: true });
-        return;
-      }
-    } catch {
-      // Cross-origin direct iframe fallback; regular load handling still applies.
-    }
-
-    setIsLoading(false);
-    if (isInspecting && proxySrc) {
-      postInspectMode(true);
-    }
-  }, [applyUrl, getUpstreamUrlFromLocalFrameUrl, isInspecting, postInspectMode, proxySrc]);
+  }, [attachBrowserAnnotation, cancelInspect, currentUrl, isInspecting]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
       <div className="flex items-center gap-1 border-b border-border bg-[var(--surface-background)] px-2 py-1">
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={historyIndex <= 0} onClick={() => goToHistory(historyIndex - 1)}>
+        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={historyIndex <= 0} onClick={() => goToHistory(historyIndex - 1)} aria-label="Back" title="Back">
           <Icon name="arrow-left" className="h-3.5 w-3.5" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={historyIndex < 0 || historyIndex >= history.length - 1} onClick={() => goToHistory(historyIndex + 1)}>
+        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={historyIndex < 0 || historyIndex >= history.length - 1} onClick={() => goToHistory(historyIndex + 1)} aria-label="Forward" title="Forward">
           <Icon name="arrow-right" className="h-3.5 w-3.5" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!currentUrl} onClick={handleReload}>
+        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!currentUrl} onClick={handleReload} aria-label="Reload" title="Reload">
           <Icon name="refresh" className="h-3.5 w-3.5" />
         </Button>
         <form className="min-w-0 flex-1" onSubmit={(event) => { event.preventDefault(); applyUrl(urlInput); }}>
           <input
             value={urlInput}
             onChange={(event) => setUrlInput(event.target.value)}
+            placeholder="Enter an address"
             className="h-7 w-full rounded-md border border-border/50 bg-[var(--surface-elevated)] px-2 typography-micro text-foreground outline-none focus:border-[var(--interactive-focus-ring)]"
             aria-label={"Browser address"}
           />
         </form>
+        {routeToggle}
         <Button
           type="button"
           variant={isInspecting ? 'secondary' : 'ghost'}
@@ -437,50 +273,46 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
-        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!currentUrl} onClick={() => void openExternalUrl(currentUrl)}>
+        <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!currentUrl} onClick={() => void openExternalUrl(currentUrl)} title="Open in system browser" aria-label="Open in system browser">
           <Icon name="external-link" className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div className="relative min-h-0 flex-1 bg-background">
-        {iframeSrc ? (
-          <div className="absolute inset-0">
-            <iframe
-              key={`${tabID}:${reloadNonce}`}
-              ref={iframeRef}
-              src={iframeSrc}
-              title={"Web browser"}
-              className="absolute inset-0 h-full w-full border-0 bg-background"
-              allow="clipboard-read; clipboard-write; fullscreen"
-              allowFullScreen
-              onLoad={handleIframeLoad}
-            />
-            {isInspecting && hoverTarget ? (
-              <div
-                className="pointer-events-none absolute rounded-sm border-2 border-[var(--interactive-focus-ring)] bg-[var(--interactive-focus-ring)]/35"
-                style={{
-                  left: hoverTarget.bounds.x,
-                  top: hoverTarget.bounds.y,
-                  width: hoverTarget.bounds.width,
-                  height: hoverTarget.bounds.height,
-                }}
-              >
-                <div className="absolute -top-6 left-0 max-w-64 truncate rounded bg-[var(--surface-elevated)] px-2 py-0.5 typography-micro text-foreground shadow">
-                  {hoverTarget.tag}{hoverTarget.text ? ` · ${hoverTarget.text}` : ''}
-                </div>
-              </div>
-            ) : null}
-          </div>
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+        {currentUrl ? (
+          <iframe
+            key={`${pageId}:${reloadNonce}`}
+            ref={iframeRef}
+            src={currentUrl}
+            title={"Web browser"}
+            className="absolute inset-0 h-full w-full border-0 bg-background"
+            allow="clipboard-read; clipboard-write; fullscreen"
+            allowFullScreen
+            onLoad={() => setIsLoading(false)}
+          />
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
             <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
-            <span className="max-w-sm typography-micro text-muted-foreground">{"Enter an address above to start browsing the web"}</span>
-            <span className="max-w-md typography-micro leading-relaxed text-status-warning/70">{"Pages opened here run with full access to PiChamber — needed for inspect and screenshots. Only open sites you trust: a malicious page could read your data or act on your behalf."}</span>
+            <span className="max-w-sm typography-micro text-muted-foreground [text-wrap:pretty]">
+              {"Pages load on this device, so localhost addresses reach this device. Many sites refuse to load inside other pages here; Server opens them."}
+            </span>
           </div>
         )}
-        {isLoading ? (
+        {isLoading && !refusedHost ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
             {"Loading..."}
+          </div>
+        ) : null}
+        {refusedHost ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-background p-6 text-center">
+            <span className="max-w-sm typography-ui-header text-foreground [text-wrap:balance]">{`${refusedHost} can't be shown here`}</span>
+            <span className="max-w-sm typography-micro text-muted-foreground [text-wrap:pretty]">
+              {"This site doesn't allow being shown inside other pages. Use Server to open it in PiChamber, or open it in your system browser."}
+            </span>
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button type="button" size="sm" onClick={() => onRouteChange('server')}>{'Use Server'}</Button>
+              <Button type="button" size="sm" variant="outline" onClick={() => void openExternalUrl(currentUrl)}>{'Open in system browser'}</Button>
+            </div>
           </div>
         ) : null}
       </div>
@@ -488,50 +320,59 @@ const IframeBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dire
   );
 };
 
-const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, directory, tabID }) => {
+/**
+ * The web browser on the device route in the desktop app: a native webview
+ * in its own storage partition (`persist:pichamber-browser`), so pages never
+ * share PiChamber's cookies, storage, or preload bridges.
+ */
+const DesktopBrowserPane: React.FC<BrowserPaneProps> = ({ initialUrl, directory, pageId, routeToggle }) => {
   const webviewRef = React.useRef<WebviewElement | null>(null);
-  const setContextPanelTabTargetPath = useUIStore((state) => state.setContextPanelTabTargetPath);
+  const updateBrowserPage = useUIStore((state) => state.updateBrowserPage);
   const normalized = normalizeBrowserUrl(initialUrl);
   const startUrl = normalized !== 'about:blank' ? normalized : '';
-  const initialWebviewSrcRef = React.useRef(normalizeBrowserUrl(initialUrl));
   const [urlInput, setUrlInput] = React.useState(startUrl);
   const [currentUrl, setCurrentUrl] = React.useState(startUrl);
+  // Mounted once on the first address; later ones go through loadURL.
+  const [webviewSrc] = React.useState(normalized);
   const [isInspecting, setIsInspecting] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(true);
   const loadingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showLoading = isLoading;
 
   const persistUrl = React.useCallback((url: string) => {
-    if (!url || url === 'about:blank' || !directory || !tabID) return;
-    setContextPanelTabTargetPath(directory, tabID, url);
-  }, [directory, tabID, setContextPanelTabTargetPath]);
+    if (!url || url === 'about:blank' || !directory || !pageId) return;
+    updateBrowserPage(directory, pageId, { url });
+  }, [directory, pageId, updateBrowserPage]);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
+
+  const loadUrl = React.useCallback((value: string) => {
+    const webview = webviewRef.current;
+    if (typeof webview?.loadURL !== 'function') return;
+    try { webview.loadURL(normalizeBrowserUrl(value)); } catch { /* webview may not be ready */ }
+  }, []);
 
   // Listen to webview navigation events
   React.useEffect(() => {
     const webview = webviewRef.current;
     if (!webview) return;
 
+    const showUrl = (url: string) => {
+      if (!url || url === 'about:blank') return;
+      setCurrentUrl(url);
+      setUrlInput(url);
+      persistUrl(url);
+    };
+
     const syncUrl = () => {
       try {
-        const url = webview.getURL();
-        if (url && url !== 'about:blank') {
-          setCurrentUrl(url);
-          setUrlInput(url);
-          persistUrl(url);
-        }
+        showUrl(webview.getURL());
       } catch { /* webview not ready */ }
     };
 
     const onNavigate = (event: Event) => {
-      const detail = (event as CustomEvent<{ url: string }>).detail;
-      if (typeof detail?.url === 'string' && detail.url) {
-        setCurrentUrl(detail.url);
-        setUrlInput(detail.url);
-        persistUrl(detail.url);
-      }
+      const url = (event as Event & { url?: unknown }).url;
+      showUrl(typeof url === 'string' ? url : '');
     };
 
     const onStartLoading = () => {
@@ -548,11 +389,13 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
       const detail = (event as CustomEvent<{ url: string; disposition: string }>).detail;
       if (detail?.disposition === 'new-window' || detail?.disposition === 'foreground-tab' || detail?.disposition === 'background-tab') {
         event.preventDefault();
-        const w = webviewRef.current;
-        if (typeof w?.loadURL === 'function' && detail.url) {
-          w.loadURL(detail.url);
-        }
+        if (detail.url) loadUrl(detail.url);
       }
+    };
+
+    const onTitle = (event: Event) => {
+      const title = (event as Event & { title?: unknown }).title;
+      if (typeof title === 'string' && directory && pageId) updateBrowserPage(directory, pageId, { title });
     };
 
     const installSameWebviewNavigation = () => {
@@ -566,6 +409,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
     webview.addEventListener('did-start-loading', onStartLoading);
     webview.addEventListener('did-stop-loading', onStopLoading);
     webview.addEventListener('new-window', onNewWindow);
+    webview.addEventListener('page-title-updated', onTitle);
     webview.addEventListener('dom-ready', installSameWebviewNavigation);
 
     // Check current loading state imperatively — we may have missed the event
@@ -584,9 +428,10 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
       webview.removeEventListener('did-start-loading', onStartLoading);
       webview.removeEventListener('did-stop-loading', onStopLoading);
       webview.removeEventListener('new-window', onNewWindow);
+      webview.removeEventListener('page-title-updated', onTitle);
       webview.removeEventListener('dom-ready', installSameWebviewNavigation);
     };
-  }, [persistUrl]);
+  }, [directory, loadUrl, pageId, persistUrl, updateBrowserPage]);
 
   // Safety timeout: hide loading overlay after 30s even if events fire late
   React.useEffect(() => {
@@ -616,19 +461,21 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
       try {
         const url = webview?.getURL?.();
         if (url && url !== 'about:blank') {
-          setContextPanelTabTargetPath(directory, tabID, url);
+          updateBrowserPage(directory, pageId, { url });
         }
       } catch { /* webview not ready */ }
       try { webview?.executeJavaScript?.(DESKTOP_BROWSER_CANCEL_INSPECT_SCRIPT).catch(() => {}); } catch { /* webview not ready */ }
     };
-  }, [directory, tabID, setContextPanelTabTargetPath]);
+  }, [directory, pageId, updateBrowserPage]);
 
-  const loadUrl = React.useCallback((value: string) => {
-    const webview = webviewRef.current;
-    if (typeof webview?.loadURL !== 'function') return;
-    const nextUrl = normalizeBrowserUrl(value);
-    try { webview.loadURL(nextUrl); } catch { /* webview may not be ready */ }
-  }, []);
+  // Same contract as the iframe pane: an address that differs from what
+  // the webview shows was set from outside, so navigate to it.
+  React.useEffect(() => {
+    if (!startUrl || startUrl === currentUrl) return;
+    loadUrl(startUrl);
+    // Only react to the incoming address, not to local navigation state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialUrl]);
 
   const handleInspect = React.useCallback(() => {
     const webview = webviewRef.current;
@@ -705,6 +552,7 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
             aria-label={"Browser address"}
           />
         </form>
+        {routeToggle}
         <Button
           type="button"
           variant={isInspecting ? 'secondary' : 'ghost'}
@@ -720,21 +568,21 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
           <Icon name="external-link" className="h-3.5 w-3.5" />
         </Button>
       </div>
-      <div className="relative min-h-0 flex-1 bg-background">
+      <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
         <webview
           ref={webviewRef}
-          src={initialWebviewSrcRef.current}
+          src={webviewSrc}
           partition="persist:pichamber-browser"
           allowpopups
-          style={{ width: '100%', height: '100%', border: 'none' }}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
         />
-        {(!currentUrl || currentUrl === 'about:blank') && !isLoading ? (
+        {!currentUrl && !isLoading ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-6 bg-background p-6 text-center">
             <PiChamberLogo width={140} height={140} className="opacity-20" />
             <span className="typography-ui-header text-muted-foreground">{"Web browser"}</span>
           </div>
         ) : null}
-        {showLoading ? (
+        {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/70 typography-micro text-muted-foreground">
             {"Loading..."}
           </div>
@@ -744,8 +592,124 @@ const DesktopBrowserPane: React.FC<DesktopBrowserPaneProps> = ({ initialUrl, dir
   );
 };
 
+const PAGE_LABEL_MAX_CHARS = 28;
 
-export const ContextPanelBrowserPane: React.FC<DesktopBrowserPaneProps> = (props) => {
+const truncateLabel = (label: string): string => (
+  label.length > PAGE_LABEL_MAX_CHARS ? `${label.slice(0, PAGE_LABEL_MAX_CHARS - 1)}…` : label
+);
+
+/** One page of the browser, on its route. */
+const BrowserPageView: React.FC<{ page: BrowserPage; directory: string; route: BrowserRoute; onScreen: boolean }> = ({ page, directory, route, onScreen }) => {
+  const updateBrowserPage = useUIStore((state) => state.updateBrowserPage);
+  const setBrowserRoutePreference = useUIStore((state) => state.setBrowserRoutePreference);
+  const onRouteChange = React.useCallback((next: BrowserRoute) => {
+    updateBrowserPage(directory, page.id, { route: next });
+    // The desktop app remembers the route for new pages; elsewhere new pages
+    // always start on Server (see resolveBrowserRoute).
+    if (isElectronBrowserRuntime()) setBrowserRoutePreference(next);
+  }, [directory, page.id, setBrowserRoutePreference, updateBrowserPage]);
+  const routeToggle = <BrowserRouteToggle route={route} onRouteChange={onRouteChange} />;
+  const props = { initialUrl: page.url ?? '', directory, pageId: page.id, onScreen, routeToggle, onRouteChange };
+  // The server route streams a browser running on the server, on every
+  // runtime. The device route loads pages here: a native webview on desktop
+  // (storage separate from PiChamber's), an iframe elsewhere.
+  if (route === 'server') return <ServerBrowserPane key={route} {...props} />;
   const BrowserPane = isElectronBrowserRuntime() ? DesktopBrowserPane : IframeBrowserPane;
-  return <BrowserPane {...props} />;
+  return <BrowserPane key={route} {...props} />;
+};
+
+type ContextPanelBrowserPaneProps = {
+  directory: string;
+  browser: BrowserPages | null;
+  /** The panel is open on this Browser tab. A closed panel keeps its pages
+   *  mounted at full size (only clipped), so size alone cannot tell. */
+  onScreen: boolean;
+};
+
+/**
+ * The PiChamber browser: a strip of pages under the Browser header, and the
+ * pages themselves. Every page stays mounted so switching keeps its state;
+ * server pages stream only while on screen (see ServerBrowserPane).
+ */
+export const ContextPanelBrowserPane: React.FC<ContextPanelBrowserPaneProps> = ({ directory, browser, onScreen }) => {
+  const preference = useUIStore((state) => state.browserRoutePreference);
+  const openContextBrowser = useUIStore((state) => state.openContextBrowser);
+  const activateBrowserPage = useUIStore((state) => state.activateBrowserPage);
+  const closeBrowserPage = useUIStore((state) => state.closeBrowserPage);
+  const updateBrowserPage = useUIStore((state) => state.updateBrowserPage);
+  const pages = React.useMemo(() => browser?.pages ?? [], [browser]);
+  const activePageId = browser?.activePageId ?? null;
+
+  // A page without a route takes the default once and keeps it, so picking
+  // a route on another page later never moves it.
+  React.useEffect(() => {
+    for (const page of pages) {
+      if (!page.route) updateBrowserPage(directory, page.id, { defaultRoute: resolveBrowserRoute(null, preference) });
+    }
+  }, [directory, pages, preference, updateBrowserPage]);
+
+  const items = React.useMemo(() => pages.map((page) => {
+    const label = browserPageLabel(page);
+    return {
+      id: page.id,
+      label: truncateLabel(label),
+      title: page.url && page.url !== label ? `${label}\n${page.url}` : label,
+      closeLabel: `Close ${label}`,
+    };
+  }), [pages]);
+
+  const openNewPage = () => {
+    openContextBrowser(directory, '', { target: 'new', route: resolveBrowserRoute(null, preference) });
+  };
+
+  const closePage = (pageId: string) => {
+    // The page may be running on the server; close it there too instead of
+    // leaving it until it idles out.
+    closeServerBrowserTab(directory, pageId);
+    closeBrowserPage(directory, pageId);
+  };
+
+  return (
+    <div className="absolute inset-0 flex flex-col bg-background">
+      <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-[var(--surface-background)]">
+        <SortableTabsStrip
+          items={items}
+          activeId={activePageId}
+          onSelect={(pageId) => activateBrowserPage(directory, pageId)}
+          onClose={closePage}
+          layoutMode="scrollable"
+          variant="default"
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mx-1 my-auto h-7 w-7 shrink-0 p-0"
+          onClick={openNewPage}
+          title="New browser tab"
+          aria-label="New browser tab"
+        >
+          <Icon name="add" className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="relative min-h-0 flex-1">
+        {pages.map((page) => {
+          const route = resolveBrowserRoute(page.route, preference);
+          const active = page.id === activePageId;
+          // A desktop webview reloads when hidden with display: none, so
+          // inactive webviews are only made invisible.
+          const keepsLayout = route === 'device' && isElectronBrowserRuntime();
+          return (
+            <div
+              key={page.id}
+              className={cn('absolute inset-0', !active && (keepsLayout ? 'invisible pointer-events-none' : 'hidden'))}
+              aria-hidden={active ? undefined : true}
+            >
+              <BrowserPageView page={page} directory={directory} route={route} onScreen={onScreen && active} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };

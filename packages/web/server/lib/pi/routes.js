@@ -25,6 +25,7 @@ import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
 import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
+import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -919,6 +920,16 @@ export const projectEventFrame = (frame) => {
       if (typeof frame.payload.message !== 'string' || frame.payload.message.length === 0) return null;
       const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
       return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
+    }
+    case 'session.openUrl': {
+      // An Open request (lib/open-url). `serverNow` is stamped at delivery so
+      // a device can tell a live request from a replayed one using only the
+      // server's clock.
+      const { id, url, attributed, createdAt } = frame.payload;
+      if (typeof id !== 'string' || id.length === 0 || id.length > 128) return null;
+      const normalizedUrl = normalizeOpenRequestUrl(url);
+      if (!normalizedUrl || typeof attributed !== 'boolean' || !Number.isFinite(createdAt)) return null;
+      return { ...common, payload: { id, url: normalizedUrl, attributed, createdAt, serverNow: Date.now() } };
     }
     case 'extension.catalog': {
       const providers = frame.payload.providers === true;
@@ -2284,5 +2295,7 @@ export const registerPiRuntimeRoutes = (app, {
     dispose: () => attachmentStore.dispose?.(),
     /** End every live event stream (active or still opening) during shutdown. */
     closeEventStreams: () => eventStreamRegistry.closeAll(),
+    // Whether any device holds a live `/api/pi/events` stream (Open request delivery).
+    hasLiveEventStreams: () => eventStreamRegistry.size > 0,
   };
 };

@@ -127,11 +127,15 @@ export const DESKTOP_BROWSER_SAME_WEBVIEW_NAVIGATION_SCRIPT = `(() => {
   }, true);
 })()`;
 
+const LOCAL_ADDRESS = /^(localhost|127(\.\d{1,3}){1,3}|0\.0\.0\.0|\[::1?\]|10(\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2}|[^/:?#]+\.(local|localhost))(?=[:/?#]|$)/i;
+
 export const normalizeBrowserUrl = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return 'about:blank';
   try {
-    const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    // A typed local address is usually a dev server without TLS.
+    const scheme = LOCAL_ADDRESS.test(trimmed) ? 'http' : 'https';
+    const parsed = new URL(trimmed.includes('://') ? trimmed : `${scheme}://${trimmed}`);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return 'about:blank';
     return parsed.toString();
   } catch {

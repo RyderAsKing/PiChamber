@@ -16,6 +16,7 @@ declare global {
     goForward(): void;
     reload(): void;
     getURL(): string;
+    stop(): void;
     getTitle(): string;
     isLoading(): boolean;
     getWebContentsId(): number;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { PiChamberVisualSettings } from './PiChamberVisualSettings';
 import { AboutSettings } from './AboutSettings';
+import { BrowserSettings } from './BrowserSettings';
 import { SessionRetentionSettings } from './SessionRetentionSettings';
 import { DefaultsSettings } from './DefaultsSettings';
 import { GitSettings } from './GitSettings';
@@ -126,6 +127,7 @@ const GeneralSectionContent: React.FC = () => {
                 'terminalLoginShell',
                 'perfHud',
             ]} />
+            <BrowserSettings />
         </>
     );
 };

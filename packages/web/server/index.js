@@ -22,6 +22,7 @@ import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
+import { createOpenUrlIntake } from './lib/open-url/intake.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -324,6 +325,18 @@ export async function startWebUiServer(options = {}) {
       notify: options.onDesktopNotification,
     });
   }
+  // Open requests from `$BROWSER` children of the daemon (lib/open-url).
+  // Bound before the daemon starts so its first commands can reach it.
+  const openUrlIntake = createOpenUrlIntake({
+    socketPath: piSessionDaemonRuntime.paths.openUrlSocket,
+    publish: (payload) => piSessionDaemonRuntime.request('openUrl.publish', payload),
+    hasConnectedDevices: () => piRuntimeRoutes.hasLiveEventStreams(),
+  });
+  try {
+    await openUrlIntake.start();
+  } catch (error) {
+    console.warn(`[open-url] Intake unavailable: ${error?.code ?? 'UNKNOWN'}`);
+  }
   void piSessionDaemonRuntime.start()
     .catch((error) => {
       console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
@@ -353,6 +366,7 @@ export async function startWebUiServer(options = {}) {
       piRuntimeRoutes.closeEventStreams();
       await Promise.allSettled([
         notificationWatcher?.stop(),
+        openUrlIntake.stop(),
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
         tailscaleService.shutdown(),

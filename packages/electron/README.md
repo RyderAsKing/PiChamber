@@ -14,6 +14,10 @@ Settings → General → Diagnostics can enable local Electron process recording
 
 `process-performance-recorder.mjs` owns sampling and file output. The renderer may only get or set the enabled state through desktop IPC from the local Electron window, regardless of its active PiChamber runtime.
 
+## PiChamber browser webviews
+
+On the **This device** route the PiChamber browser shows pages in `<webview>` elements with the `persist:pichamber-browser` partition. `browser-webview.mjs` resolves a renderer-supplied `webContentsId` only to a webview hosted in a PiChamber window, never the window itself. The local-window-only `desktop_browser_capture_page` IPC command (inspect screenshots) uses it.
+
 ## Development
 
 ```bash

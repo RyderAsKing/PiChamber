@@ -175,6 +175,9 @@ const resolvePiSessionDaemonPaths = ({
     profileDir,
     runtimeDir: runtimeBaseDir,
     credentialFile: pathModule.join(profileDir, 'session-daemon.key'),
+    // Open request intake socket (lib/open-url). The server binds it; the
+    // daemon points `$BROWSER` children at it. Unused on Windows.
+    openUrlSocket: platform === 'win32' ? undefined : pathModule.join(runtimeBaseDir, 'open-url.sock'),
     stateFile: pathModule.join(profileDir, 'daemon-state.json'),
     lockFile: pathModule.join(profileDir, 'operation.lock'),
     logFile: pathModule.join(dataDir, 'logs', `pi-daemon-${profileKey}.log`),
@@ -557,6 +560,7 @@ export const createPiSessionDaemonSupervisor = ({
           '--runtime', paths.profileRuntime,
           '--build-id', paths.buildId,
           ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+          ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
         ], {
           cwd,
           detached: platform !== 'win32',

@@ -571,3 +571,18 @@ describe("extension notice live feed", () => {
     expect(merged.extensionNotices).toHaveLength(1)
   })
 })
+
+describe("open requests", () => {
+  test("advance the cursor without touching or creating session rows", () => {
+    const start = applyPiEvent(createReducerState(), baseEvent("extension.notify", 1, { message: "ready", level: "info" })).state
+    const request = { id: "o1", url: "http://localhost:3000/", attributed: true, createdAt: 1, serverNow: 1 }
+    const resident = applyPiEvent(start, baseEvent("session.openUrl", 2, request))
+    expect(resident.didApply).toBe(true)
+    expect(resident.state.bySession).toBe(start.bySession)
+    expect(resident.state.lastSequence.get("sess-1")).toBe(2)
+
+    const missing = applyPiEvent(resident.state, baseEvent("session.openUrl", 1, request, "sess-2"))
+    expect(missing.state.bySession.has("sess-2")).toBe(false)
+    expect(missing.state.lastSequence.get("sess-2")).toBe(1)
+  })
+})

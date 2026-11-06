@@ -8,6 +8,7 @@ import { registerFsRoutes } from '../fs/routes.js';
 import { registerGitRoutes } from '../git/routes.js';
 import { registerGitHubRoutes } from '../github/index.js';
 import { createPreviewProxyRuntime } from '../preview/proxy-runtime.js';
+import { createServerBrowserRuntime } from '../server-browser/runtime.js';
 import { createRequestSecurityRuntime } from '../security/request-security.js';
 import { mergePathValues } from '../server/path-utils.js';
 import { createTerminalRuntime } from '../terminal/runtime.js';
@@ -107,9 +108,19 @@ export const registerWorkspaceIntegrations = ({ app, server, express, uiAuthCont
     isRequestOriginAllowed: security.isRequestOriginAllowed,
     rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
   });
+  const serverBrowserRuntime = createServerBrowserRuntime({
+    app,
+    server,
+    express,
+    dataDir,
+    uiAuthController,
+    liveRevocation,
+    isRequestOriginAllowed: security.isRequestOriginAllowed,
+    rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
+  });
   return {
     shutdown: async () => {
-      await Promise.allSettled([terminalRuntime.shutdown(), sttRuntime.shutdown()]);
+      await Promise.allSettled([terminalRuntime.shutdown(), sttRuntime.shutdown(), serverBrowserRuntime.shutdown()]);
     },
   };
 };

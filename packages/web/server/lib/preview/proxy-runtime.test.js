@@ -1,3 +1,6 @@
+import { Readable } from 'node:stream';
+
+import { responseInterceptor as realResponseInterceptor } from 'http-proxy-middleware';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -11,6 +14,7 @@ import {
   rewritePreviewBody,
   rewritePreviewCspHeader,
   rewritePreviewRedirectLocation,
+  rewritePreviewRequestOriginHeaders,
 } from './proxy-runtime.js';
 
 const createResponse = () => {
@@ -36,7 +40,10 @@ const createResponse = () => {
   };
 };
 
-const createAttachedPreviewRuntime = () => {
+const createAttachedPreviewRuntime = ({
+  isRequestOriginAllowed = async () => true,
+  responseInterceptor = (handler) => handler,
+} = {}) => {
   let proxyOptions;
   const postRoutes = new Map();
   const useRoutes = new Map();
@@ -58,7 +65,7 @@ const createAttachedPreviewRuntime = () => {
       middleware.upgrade = () => {};
       return middleware;
     },
-    responseInterceptor: (handler) => handler,
+    responseInterceptor,
   });
   const app = {
     post(path, ...handlers) {
@@ -72,7 +79,7 @@ const createAttachedPreviewRuntime = () => {
     server: { on() {} },
     express: { json: () => (_req, _res, next) => next() },
     uiAuthController: null,
-    isRequestOriginAllowed: async () => true,
+    isRequestOriginAllowed,
     rejectWebSocketUpgrade() {},
   });
 
@@ -414,6 +421,49 @@ describe('preview redirect URL rewriting', () => {
   });
 });
 
+// Drives a registered target's upstream response through the real
+// http-proxy-middleware interceptor, which copies upstream headers to the
+// response before PiChamber's handler runs.
+const proxyUpstreamResponse = async ({ targetUrl, allowExternal = false, path = '/', status = 200, headers = {}, body = '' }) => {
+  const { postRoutes, proxyOptions } = createAttachedPreviewRuntime({ responseInterceptor: realResponseInterceptor });
+  const [, registerTarget] = postRoutes.get('/api/preview/targets');
+  const registration = createResponse();
+  await registerTarget({ body: { url: targetUrl, allowExternal }, secure: false }, registration);
+  const { id, previewToken } = registration.body;
+  const upstream = Object.assign(Readable.from([Buffer.from(body)]), { statusCode: status, statusMessage: '', headers });
+  const response = createResponse();
+  response.text = '';
+  const ended = new Promise((resolve) => {
+    response.write = (chunk) => { response.text += Buffer.from(chunk).toString('utf8'); };
+    response.end = () => resolve();
+  });
+  await proxyOptions().on.proxyRes(upstream, {
+    originalUrl: `/api/preview/proxy/${id}${path}?oc_preview_token=${previewToken}`,
+    headers: {},
+  }, response);
+  await ended;
+  return { id, response };
+};
+
+describe('preview proxy responses', () => {
+  it('removes frame-busting headers from the response the browser receives', async () => {
+    const { response } = await proxyUpstreamResponse({
+      targetUrl: 'http://127.0.0.1:4323/',
+      headers: {
+        'content-type': 'text/html',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "frame-ancestors 'none'; script-src 'self'",
+      },
+      body: '<html><head></head><body>hi</body></html>',
+    });
+    expect(response.headers.has('x-frame-options')).toBe(false);
+    const csp = response.headers.get('content-security-policy');
+    expect(csp).not.toContain('frame-ancestors');
+    expect(csp).toContain("'nonce-");
+  });
+
+});
+
 describe('preview navigation policy', () => {
   const currentUrl = 'http://127.0.0.1:57123/api/preview/proxy/f4af70b4261d77706743959516f9cecc/docs';
 
@@ -481,10 +531,15 @@ describe('proxy target normalization (SSRF guard)', () => {
       'http://[::1]/',
       'http://[fd00::1]/',
       'http://[fe80::1]/',
+      'http://[febf::1]/',
       'http://2130706433/', // decimal form of 127.0.0.1, normalized by WHATWG URL
     ]) {
       expect(normalizeProxyTargetUrl(url, { allowExternal: true }).ok, url).toBe(false);
     }
+  });
+
+  it('allows the address just past link-local', () => {
+    expect(normalizeProxyTargetUrl('http://[fec0::1]/', { allowExternal: true }).ok).toBe(true);
   });
 
   it('still blocks private hosts even via IPv4-mapped IPv6', () => {
@@ -527,5 +582,120 @@ describe('preview CSP rewrite', () => {
   it('returns empty/unset CSP values unchanged', () => {
     expect(rewritePreviewCspHeader('', 'abc123')).toBe('');
     expect(rewritePreviewCspHeader(undefined, 'abc123')).toBe(undefined);
+  });
+});
+
+const createProxyRequest = () => {
+  const headers = new Map();
+  return {
+    headers,
+    setHeader(name, value) {
+      headers.set(name.toLowerCase(), value);
+    },
+    removeHeader(name) {
+      headers.delete(name.toLowerCase());
+    },
+  };
+};
+
+describe('preview request Origin and Referer rewrite', () => {
+  const targetOrigin = 'http://127.0.0.1:19432';
+  const proxyBasePath = '/api/preview/proxy/abc123';
+
+  it('maps a PiChamber origin and same-target referer onto the target', () => {
+    const proxyReq = createProxyRequest();
+    rewritePreviewRequestOriginHeaders({
+      headers: { referer: `http://192.168.1.20:3000${proxyBasePath}/review?x=1&oc_preview_token=t&oc_url_token=u&ocPreview=2` },
+      proxyReq,
+      targetOrigin,
+      proxyBasePath,
+      ownOrigin: true,
+      ownReferer: true,
+    });
+    expect(proxyReq.headers.get('origin')).toBe(targetOrigin);
+    expect(proxyReq.headers.get('referer')).toBe(`${targetOrigin}/review?x=1`);
+  });
+
+  it('keeps a referer path that starts with two slashes on the target host', () => {
+    const proxyReq = createProxyRequest();
+    rewritePreviewRequestOriginHeaders({
+      headers: { referer: `http://192.168.1.20:3000${proxyBasePath}//other.example/x` },
+      proxyReq,
+      targetOrigin,
+      proxyBasePath,
+      ownOrigin: false,
+      ownReferer: true,
+    });
+    expect(proxyReq.headers.get('referer')).toBe(`${targetOrigin}//other.example/x`);
+  });
+
+  it('drops a PiChamber referer that is not inside this target', () => {
+    const proxyReq = createProxyRequest();
+    proxyReq.setHeader('referer', 'http://192.168.1.20:3000/');
+    rewritePreviewRequestOriginHeaders({
+      headers: { referer: 'http://192.168.1.20:3000/api/preview/proxy/other/' },
+      proxyReq,
+      targetOrigin,
+      proxyBasePath,
+      ownOrigin: false,
+      ownReferer: true,
+    });
+    expect(proxyReq.headers.has('referer')).toBe(false);
+    expect(proxyReq.headers.has('origin')).toBe(false);
+  });
+
+  const registerAndGuard = async ({ headers, isRequestOriginAllowed = async (req) => req.headers.origin === 'http://pichamber.test' }) => {
+    const { postRoutes, proxyOptions, useRoutes } = createAttachedPreviewRuntime({ isRequestOriginAllowed });
+    const [, registerTarget] = postRoutes.get('/api/preview/targets');
+    const registrationResponse = createResponse();
+    await registerTarget({ body: { url: `${targetOrigin}/` }, secure: false }, registrationResponse);
+    const { id, previewToken } = registrationResponse.body;
+    const request = {
+      originalUrl: `/api/preview/proxy/${id}/api/feedback?oc_preview_token=${previewToken}`,
+      headers: typeof headers === 'function' ? headers(id) : headers,
+    };
+    const [guard] = useRoutes.get('/api/preview/proxy');
+    const nextArgs = await new Promise((resolve) => guard(request, createResponse(), (...args) => resolve(args)));
+    return { id, request, options: proxyOptions(), nextArgs };
+  };
+
+  it('rewrites HTTP and WebSocket requests from the proxied page itself', async () => {
+    const { request, options } = await registerAndGuard({
+      headers: (id) => ({ origin: 'http://pichamber.test', referer: `http://pichamber.test/api/preview/proxy/${id}/` }),
+    });
+    const httpReq = createProxyRequest();
+    options.on.proxyReq(httpReq, request);
+    expect(httpReq.headers.get('origin')).toBe(targetOrigin);
+    expect(httpReq.headers.get('referer')).toBe(`${targetOrigin}/`);
+
+    const wsReq = createProxyRequest();
+    options.on.proxyReqWs(wsReq, request);
+    expect(wsReq.headers.get('origin')).toBe(targetOrigin);
+  });
+
+  it('forwards the request unchanged when the origin check fails', async () => {
+    const { request, options, nextArgs } = await registerAndGuard({
+      headers: { origin: 'http://pichamber.test' },
+      isRequestOriginAllowed: () => {
+        throw new Error('settings unavailable');
+      },
+    });
+    expect(nextArgs).toEqual([]);
+    const httpReq = createProxyRequest();
+    httpReq.setHeader('origin', 'http://pichamber.test');
+    options.on.proxyReq(httpReq, request);
+    expect(httpReq.headers.get('origin')).toBe('http://pichamber.test');
+  });
+
+  it('does not rewrite requests from a foreign origin', async () => {
+    const { request, options } = await registerAndGuard({
+      headers: { origin: 'https://evil.example', referer: 'https://evil.example/x' },
+    });
+    const httpReq = createProxyRequest();
+    httpReq.setHeader('origin', 'https://evil.example');
+    httpReq.setHeader('referer', 'https://evil.example/x');
+    options.on.proxyReq(httpReq, request);
+    expect(httpReq.headers.get('origin')).toBe('https://evil.example');
+    expect(httpReq.headers.get('referer')).toBe('https://evil.example/x');
   });
 });

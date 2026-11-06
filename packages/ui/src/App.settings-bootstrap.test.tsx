@@ -33,6 +33,7 @@ mock.module('@/components/chat/NeedsInputAlerts', () => ({
   NeedsInputBadge: () => null,
   NotificationOpenSessionBridge: () => null,
 }));
+mock.module('@/components/chat/OpenRequestAlerts', () => ({ OpenRequestAlerts: () => null }));
 mock.module('@/lib/runtime-switch', () => ({
   getRuntimeKey: () => 'local',
   getRuntimeApiBaseUrl: () => 'http://127.0.0.1:3000',

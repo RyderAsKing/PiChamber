@@ -201,6 +201,14 @@ describe('ui auth client credential seam', () => {
     };
     expect(await auth.ensureSessionToken(sttWsReq, createResponse())).toBe('client:device-1');
 
+    const serverBrowserWsReq = {
+      method: 'GET',
+      path: '/api/server-browser/ws',
+      url: `/api/server-browser/ws?tab=t&oc_url_token=${encodeURIComponent(urlToken)}`,
+      headers: { connection: 'Upgrade', upgrade: 'websocket' },
+    };
+    expect(await auth.ensureSessionToken(serverBrowserWsReq, createResponse())).toBe('client:device-1');
+
     const arbitraryWsReq = {
       method: 'GET',
       path: '/api/not-allowed/ws',
@@ -365,7 +373,7 @@ describe('ui auth live revocation', () => {
 
       // Revoke, then try to open with the token minted moments earlier.
       await remoteClientAuthRuntime.revokeClient(created.client.id);
-      for (const path of ['/api/terminal/ws', '/api/stt/ws']) {
+      for (const path of ['/api/terminal/ws', '/api/stt/ws', '/api/server-browser/ws']) {
         const openReq = {
           method: 'GET',
           path,

@@ -25,6 +25,26 @@ const close = (server) => new Promise((resolve, reject) => {
 describe('Pi runtime route', () => {
   let server;
 
+  it('projects Open requests with a delivery timestamp and drops invalid ones', () => {
+    const frame = (payload) => ({
+      protocolVersion: 1,
+      kind: 'event',
+      event: 'session.openUrl',
+      sequence: 9,
+      payload: { sessionId: 's-1', directory: '/workspace', ...payload },
+    });
+    const projected = projectEventFrame(frame({ id: 'open-1', url: 'http://localhost:4000/review', attributed: true, createdAt: 100 }));
+    expect(projected).toMatchObject({
+      name: 'session.openUrl',
+      sessionId: 's-1',
+      payload: { id: 'open-1', url: 'http://localhost:4000/review', attributed: true, createdAt: 100 },
+    });
+    expect(Number.isFinite(projected.payload.serverNow)).toBe(true);
+    expect(projectEventFrame(frame({ id: 'open-2', url: 'javascript:alert(1)', attributed: true, createdAt: 1 }))).toBeNull();
+    expect(projectEventFrame(frame({ id: 'open-3', url: 'http://x.test', attributed: 'yes', createdAt: 1 }))).toBeNull();
+    expect(projectEventFrame(frame({ url: 'http://x.test', attributed: false, createdAt: 1 }))).toBeNull();
+  });
+
   it('projects prompt-time files on a live user message start', () => {
     expect(projectEventFrame({
       protocolVersion: 1,

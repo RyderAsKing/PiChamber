@@ -130,7 +130,13 @@ command kept from the model, and truncated output); `shell-composer` (the same
 session with `!!git diff --stat` typed into the composer); `sidebar-projects`
 (desktop only: the folder list with project icons and the fallback mark, and
 session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
-same list in the mobile sessions drawer). For before/after, run a second dev
+same list in the mobile sessions drawer); `open-request` (an Open request for a
+server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
+server's intake socket); `browser-page` (the Browser panel with a server-local
+demo site the script serves on port 4777 typed into its address bar, desktop
+only). Server-route captures need Chrome on the server: under the throwaway
+`HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
+`PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,
 `PICHAMBER_HMR_API_PORT`) and capture each with its own label.
 

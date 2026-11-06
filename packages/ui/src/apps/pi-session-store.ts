@@ -18,7 +18,7 @@ import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
-import type { PiSessionEvent, PiSessionListItem, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
+import type { PiSessionEvent, PiSessionListItem, PiSessionOpenUrlEvent, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
 import { isValidPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
@@ -162,6 +162,17 @@ export interface PendingInputTransition {
 }
 
 export type PendingInputTransitionListener = (transition: PendingInputTransition) => void;
+
+export type OpenRequestListener = (event: PiSessionOpenUrlEvent) => void;
+
+/**
+ * Subscribe to Open requests (`session.openUrl`) accepted by the shared
+ * store, live or replayed; listeners judge freshness from the payload.
+ * Returns an unsubscribe function.
+ */
+export const subscribeOpenRequests = (
+  listener: OpenRequestListener,
+): (() => void) => getPiSessionStore().subscribeOpenRequests(listener);
 
 /**
  * Subscribe to live pending-input transitions on the shared store.
@@ -1086,6 +1097,22 @@ export class PiSessionStore {
       this.pendingInputTransitionListeners.delete(listener);
     };
   };
+  private openRequestListeners = new Set<OpenRequestListener>();
+  subscribeOpenRequests = (listener: OpenRequestListener): (() => void) => {
+    this.openRequestListeners.add(listener);
+    return () => {
+      this.openRequestListeners.delete(listener);
+    };
+  };
+  private emitOpenRequest(event: PiSessionOpenUrlEvent): void {
+    for (const listener of [...this.openRequestListeners]) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error('[pi-session-store] open-request listener failed', error);
+      }
+    }
+  }
   private emitPendingInputTransitions(transitions: readonly PendingInputTransition[]): void {
     for (const transition of transitions) {
       if (transition.type === 'opened') this.openedPendingInputById.set(transition.sessionId, transition.directory);
@@ -2939,8 +2966,10 @@ export class PiSessionStore {
         bySession: new Map(this.state.reducer.bySession),
         lastSequence: new Map(this.state.reducer.lastSequence),
       };
+      // The cursor stays: the row's own sequence can trail it (open
+      // requests advance only the cursor), and moving it back would let a
+      // replayed event apply twice.
       reducer.bySession.set(sessionId, merged);
-      reducer.lastSequence.set(sessionId, merged.lastSequence);
       this.state = { ...this.state, reducer };
       this.touchLastAccess(sessionId);
       this.emit([`session:${sessionId}`]);
@@ -3663,6 +3692,8 @@ export class PiSessionStore {
       this.promoteSession(event.sessionId, 'active');
     } else if (event.name === 'session.interrupted') {
       this.promoteSession(event.sessionId, 'settled');
+    } else if (event.name === 'session.openUrl') {
+      this.emitOpenRequest(event);
     } else if (event.name === 'session.error') {
       this.promoteSession(event.sessionId, 'settled', {
         notification: {

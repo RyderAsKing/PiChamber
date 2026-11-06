@@ -114,17 +114,3 @@ export const stripPreviewTokenFromUrl = (value: string): string => {
     return value;
   }
 };
-
-export const stripPreviewQueryParams = (value: string): string => {
-  if (!value) return value;
-  try {
-    const parsed = new URL(value);
-    parsed.searchParams.delete('ocPreview');
-    parsed.searchParams.delete('oc_preview_token');
-    parsed.searchParams.delete('oc_client_token');
-    parsed.searchParams.delete('oc_url_token');
-    return parsed.toString();
-  } catch {
-    return value;
-  }
-};

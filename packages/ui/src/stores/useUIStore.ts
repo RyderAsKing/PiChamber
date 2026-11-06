@@ -20,6 +20,8 @@ import {
   type ContextPanelTab,
   type ContextPanelTabDescriptor,
   type ContextPanelDirectoryState,
+  type BrowserRoute,
+  normalizeBrowserRoute,
   normalizeContextPanelDirectoryKey,
   clampContextPanelWidth,
   normalizeContextTargetPath,
@@ -31,7 +33,19 @@ import {
   setContextPanelTabTargetPath,
   sanitizeContextPanelByDirectory,
   clampContextPanelRoots,
+  BROWSER_TAB_DEDUPE_KEY,
+  BROWSER_TAB_ID,
+  updateBrowserTabPages,
 } from './ui/contextPanel';
+import {
+  activateBrowserPage,
+  closeBrowserPage as closeBrowserPageState,
+  openBrowserPage,
+  updateBrowserPage as updateBrowserPageState,
+  type BrowserPagePatch,
+  type BrowserPages,
+  type BrowserPageTarget,
+} from './ui/browserPages';
 import {
   sanitizeGitHubSelectionByDirectory,
   clampGitHubSelectionRoots,
@@ -49,6 +63,7 @@ export type {
 export { normalizeContextPanelDirectoryKey };
 
 type SessionRetentionAction = 'archive' | 'delete';
+export type ChatLinkTarget = 'system' | 'pichamber';
 export type TimeFormatPreference = 'auto' | '12h' | '24h';
 type WeekStartPreference = 'auto' | 'sunday' | 'monday';
 type FileEditorKeymap = 'default' | 'vim';
@@ -203,7 +218,23 @@ interface UIStore {
   openContextFileAtLine: (directory: string, filePath: string, line: number, column?: number) => void;
   openContextOverview: (directory: string) => void;
   openContextPreview: (directory: string, url: string) => void;
-  openContextBrowser: (directory: string, url?: string) => void;
+  /**
+   * Shows the PiChamber browser. With a URL it opens in a new page (or the
+   * active page while that is empty); `target: 'current'` loads it in the
+   * active page, and `target: 'new'` without a URL adds an empty page.
+   */
+  openContextBrowser: (directory: string, url?: string, options?: { route?: BrowserRoute; target?: BrowserPageTarget }) => void;
+  closeBrowserPage: (directory: string, pageId: string) => void;
+  activateBrowserPage: (directory: string, pageId: string) => void;
+  updateBrowserPage: (directory: string, pageId: string, patch: BrowserPagePatch) => void;
+  setBrowserRoutePreference: (route: BrowserRoute) => void;
+  // Desktop app only: the last route picked for a browser page; new pages
+  // start with it. null means the runtime default (see resolveBrowserRoute).
+  browserRoutePreference: BrowserRoute | null;
+  // Where a plain click on a web link in chat opens. Modifier and middle
+  // clicks always use the system browser.
+  chatLinkTarget: ChatLinkTarget;
+  setChatLinkTarget: (target: ChatLinkTarget) => void;
   setContextPanelTabTargetPath: (directory: string, tabID: string, targetPath: string) => void;
   setActiveContextPanelTab: (directory: string, tabID: string) => void;
   reorderContextPanelTabs: (directory: string, activeTabID: string, overTabID: string) => void;
@@ -317,6 +348,25 @@ interface UIStore {
 }
 
 
+// Calls `set` only when the browser pages change. The persist middleware saves
+// the whole store after every `set`, even one that returns the same state, and
+// server pages report their address and title repeatedly: a page that updates
+// its URL while scrolling would otherwise save the store several times per
+// change.
+const setBrowserTab = (
+  set: (partial: Partial<UIStore>) => void,
+  get: () => UIStore,
+  directory: string,
+  update: (pages: BrowserPages) => BrowserPages,
+): void => {
+  const state = get();
+  const current = state.contextPanelByDirectory[directory];
+  if (!current) return;
+  const next = updateBrowserTabPages(current, update);
+  if (next === current) return;
+  set({ contextPanelByDirectory: { ...state.contextPanelByDirectory, [directory]: next } });
+};
+
 export const useUIStore = create<UIStore>()(
   devtools(
     persist(
@@ -327,6 +377,8 @@ export const useUIStore = create<UIStore>()(
         sidebarWidth: LEFT_SIDEBAR_MIN_WIDTH,
         hasManuallyResizedLeftSidebar: false,
         contextPanelByDirectory: {},
+        browserRoutePreference: null,
+        chatLinkTarget: 'system',
         contextRailOrder: [],
         contextEditorTreeVisible: true,
         contextEditorTreeWidth: 240,
@@ -635,16 +687,55 @@ export const useUIStore = create<UIStore>()(
             label,
           });
         },
-        openContextBrowser: (directory, url = '') => {
+        openContextBrowser: (directory, url = '', options) => {
           const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
           if (!normalizedDirectory) return;
           const targetUrl = typeof url === 'string' && url.trim().length > 0 ? url.trim() : '';
+          const existed = Boolean(
+            get().contextPanelByDirectory[normalizedDirectory]?.tabs.some((tab) => tab.id === BROWSER_TAB_ID),
+          );
+          // A new Browser tab starts with this address as its first page.
           get().openContextPanelTab(normalizedDirectory, {
             mode: 'browser',
-            targetPath: targetUrl,
-            dedupeKey: 'desktop-browser',
+            targetPath: existed ? null : targetUrl,
+            dedupeKey: BROWSER_TAB_DEDUPE_KEY,
             label: 'Browser',
+            browserRoute: existed ? null : options?.route ?? null,
           });
+          if (!existed) return;
+          const target = options?.target ?? (targetUrl ? 'new' : null);
+          if (!target) return;
+          setBrowserTab(set, get, normalizedDirectory, (pages) => openBrowserPage(pages, {
+            url: targetUrl || null,
+            route: options?.route ?? null,
+            target,
+          }));
+        },
+
+        closeBrowserPage: (directory, pageId) => {
+          const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
+          if (!normalizedDirectory) return;
+          setBrowserTab(set, get, normalizedDirectory, (pages) => closeBrowserPageState(pages, pageId));
+        },
+
+        activateBrowserPage: (directory, pageId) => {
+          const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
+          if (!normalizedDirectory) return;
+          setBrowserTab(set, get, normalizedDirectory, (pages) => activateBrowserPage(pages, pageId));
+        },
+
+        updateBrowserPage: (directory, pageId, patch) => {
+          const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
+          if (!normalizedDirectory) return;
+          setBrowserTab(set, get, normalizedDirectory, (pages) => updateBrowserPageState(pages, pageId, patch));
+        },
+
+        setBrowserRoutePreference: (route) => {
+          set({ browserRoutePreference: normalizeBrowserRoute(route) });
+        },
+
+        setChatLinkTarget: (target) => {
+          set({ chatLinkTarget: target === 'pichamber' ? 'pichamber' : 'system' });
         },
 
         setContextPanelTabTargetPath: (directory, tabID, targetPath) => {
@@ -1726,6 +1817,8 @@ export const useUIStore = create<UIStore>()(
           isSidebarOpen: state.isSidebarOpen,
           sidebarWidth: state.sidebarWidth,
           contextPanelByDirectory: state.contextPanelByDirectory,
+          browserRoutePreference: state.browserRoutePreference,
+          chatLinkTarget: state.chatLinkTarget,
           contextRailOrder: state.contextRailOrder,
           contextEditorTreeVisible: state.contextEditorTreeVisible,
           contextEditorTreeWidth: state.contextEditorTreeWidth,

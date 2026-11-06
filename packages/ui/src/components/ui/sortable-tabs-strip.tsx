@@ -252,6 +252,42 @@ export const SortableTabsStrip: React.FC<SortableTabsStripProps> = ({
     };
   }, [isScrollable, items.length, updateOverflow]);
 
+  // A mouse wheel only scrolls vertically, so turn it into a sideways scroll
+  // while the tabs overflow. Trackpad swipes that are already sideways pass
+  // through untouched.
+  React.useEffect(() => {
+    if (!isScrollable) {
+      return;
+    }
+
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+      const maxScrollLeft = element.scrollWidth - element.clientWidth;
+      if (maxScrollLeft <= 0) {
+        return;
+      }
+      const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? event.deltaY * 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? event.deltaY * element.clientWidth
+          : event.deltaY;
+      event.preventDefault();
+      element.scrollLeft = Math.min(maxScrollLeft, Math.max(0, element.scrollLeft + delta));
+    };
+
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      element.removeEventListener('wheel', handleWheel);
+    };
+  }, [isScrollable]);
+
   React.useEffect(() => {
     if (!usesIndicator) {
       setPillRect(null);

@@ -1,3 +1,5 @@
+import { isServerNetworkHost as isBlockedExternalHost } from '../security/server-network-host.js';
+
 const DEFAULT_TARGET_TTL_MS = 30 * 60 * 1000;
 const TOKEN_COOKIE_NAME = 'oc_preview_token';
 const TOKEN_QUERY_PARAM = 'oc_preview_token';
@@ -43,6 +45,48 @@ export const applyPreviewPassthroughRequestHeaders = (req, proxyReq) => {
     if (value !== undefined) {
       proxyReq.setHeader(headerName, value);
     }
+  }
+};
+
+const PREVIEW_PROXY_QUERY_PARAMS = [TOKEN_QUERY_PARAM, CLIENT_TOKEN_QUERY_PARAM, URL_AUTH_TOKEN_QUERY_PARAM, 'ocPreview'];
+
+// Proxied pages are served from PiChamber's own origin, so the browser sends
+// PiChamber's origin in `Origin` and a proxy URL in `Referer`. Apps that reject
+// cross-origin writes (CSRF checks) would refuse every POST and WebSocket from
+// their own page. `ownOrigin`/`ownReferer` say whether those headers came from
+// PiChamber's origin; only then are they mapped onto the target. Requests from
+// any other site keep their headers so the target can still refuse them. A
+// PiChamber referer outside this target's proxy path is dropped rather than
+// forwarded, so the target never sees PiChamber URLs or preview tokens.
+export const rewritePreviewRequestOriginHeaders = ({ headers, proxyReq, targetOrigin, proxyBasePath, ownOrigin, ownReferer }) => {
+  if (!proxyReq || !targetOrigin) return;
+  if (ownOrigin) {
+    proxyReq.setHeader('origin', targetOrigin);
+  }
+  if (!ownReferer) return;
+
+  const referer = readHeader(headers, 'referer');
+  let mapped = '';
+  try {
+    const parsed = new URL(String(referer || ''));
+    const base = proxyBasePath.endsWith('/') ? proxyBasePath.slice(0, -1) : proxyBasePath;
+    if (parsed.pathname === base || parsed.pathname.startsWith(`${base}/`)) {
+      for (const param of PREVIEW_PROXY_QUERY_PARAMS) parsed.searchParams.delete(param);
+      const search = parsed.searchParams.toString();
+      // Set path and query on the target URL rather than resolving them
+      // against it: a path like `//other.host/x` would change the host.
+      const upstream = new URL(targetOrigin);
+      upstream.pathname = parsed.pathname.slice(base.length) || '/';
+      upstream.search = search ? `?${search}` : '';
+      mapped = upstream.toString();
+    }
+  } catch {
+    mapped = '';
+  }
+  if (mapped) {
+    proxyReq.setHeader('referer', mapped);
+  } else {
+    proxyReq.removeHeader('referer');
   }
 };
 
@@ -951,36 +995,6 @@ const buildCookie = ({
 // resolves to a private IP (DNS rebinding) is not caught and would need
 // resolve-time IP pinning. Loopback for local preview goes through the non-external
 // path (allowExternal=false), which is unaffected.
-const isBlockedExternalHost = (hostname) => {
-  if (!hostname) return true;
-  let host = hostname.toLowerCase();
-  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
-
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const a = Number(v4[1]);
-    const b = Number(v4[2]);
-    if (a === 0 || a === 127 || a === 10) return true;          // this-host / loopback / private
-    if (a === 169 && b === 254) return true;                    // link-local incl. cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;           // private
-    if (a === 192 && b === 168) return true;                    // private
-    if (a === 100 && b >= 64 && b <= 127) return true;          // carrier-grade NAT
-    return false;
-  }
-
-  if (host.includes(':')) {
-    if (host === '::1' || host === '::') return true;           // loopback / unspecified
-    if (host.startsWith('fe80')) return true;                   // link-local
-    if (host.startsWith('fc') || host.startsWith('fd')) return true; // unique local fc00::/7
-    if (host.includes('::ffff:')) return true;                       // IPv4-mapped (dotted or hex form)
-    return false;
-  }
-
-  return false;
-};
-
 export const normalizeProxyTargetUrl = (rawUrl, { allowExternal = false } = {}) => {
   let url;
   try {
@@ -1184,6 +1198,28 @@ export const rewritePreviewRedirectLocation = ({ location, proxyBasePath, target
   }
 };
 
+// http-proxy-middleware's responseInterceptor copies the upstream headers to
+// the response before it calls the interceptor, so edits made there to
+// `proxyRes.headers` never reach the browser on their own. Apply them.
+const applyEditedResponseHeaders = (res, before, after) => {
+  if (!res || res.headersSent || typeof res.setHeader !== 'function') return;
+  for (const key of Object.keys(before)) {
+    if (!(key in after)) res.removeHeader?.(key);
+  }
+  for (const [key, value] of Object.entries(after)) {
+    if (value !== undefined && before[key] !== value) res.setHeader(key, value);
+  }
+};
+
+const applyingHeaderEdits = (intercept) => async (responseBuffer, proxyRes, req, res) => {
+  const upstreamHeaders = { ...proxyRes.headers };
+  try {
+    return await intercept(responseBuffer, proxyRes, req, res);
+  } finally {
+    applyEditedResponseHeaders(res, upstreamHeaders, proxyRes.headers);
+  }
+};
+
 export const createPreviewProxyRuntime = ({
   crypto,
   URL,
@@ -1323,6 +1359,54 @@ export const createPreviewProxyRuntime = ({
   }) => {
     ensureSweeper();
 
+    // Whether a request's Origin/Referer came from PiChamber's own origin,
+    // decided before proxying because the origin check is async and the
+    // proxy's request hooks are not.
+    const ownHeaderFlags = new WeakMap();
+    const isOwnOrigin = async (req, origin) => {
+      if (typeof isRequestOriginAllowed !== 'function' || !origin) return false;
+      try {
+        return Boolean(await isRequestOriginAllowed({ ...req, headers: { ...req.headers, origin } }));
+      } catch {
+        return false;
+      }
+    };
+    // Returns undefined (no async work) when neither header is present, so
+    // the common header-less path stays synchronous.
+    const classifyOwnHeaders = (req) => {
+      const origin = readHeader(req?.headers, 'origin');
+      const referer = readHeader(req?.headers, 'referer');
+      if (typeof origin !== 'string' && typeof referer !== 'string') return undefined;
+      let refererOrigin = '';
+      try {
+        refererOrigin = typeof referer === 'string' ? new URL(referer).origin : '';
+      } catch {
+        refererOrigin = '';
+      }
+      return Promise.all([
+        typeof origin === 'string' ? isOwnOrigin(req, origin.trim()) : false,
+        refererOrigin && refererOrigin !== 'null' ? isOwnOrigin(req, refererOrigin) : false,
+      ]).then(([ownOrigin, ownReferer]) => {
+        ownHeaderFlags.set(req, { ownOrigin, ownReferer });
+      }).catch(() => {
+        // Unclassified headers are forwarded unchanged; never fail the request.
+      });
+    };
+    const applyOwnHeaderRewrite = (proxyReq, req) => {
+      const flags = ownHeaderFlags.get(req);
+      if (!flags) return;
+      const resolved = resolveTargetFromRequest(req);
+      if (!resolved.ok) return;
+      rewritePreviewRequestOriginHeaders({
+        headers: req.headers,
+        proxyReq,
+        targetOrigin: resolved.entry.origin,
+        proxyBasePath: `/api/preview/proxy/${resolved.id}`,
+        ownOrigin: flags.ownOrigin,
+        ownReferer: flags.ownReferer,
+      });
+    };
+
     const injectPreviewBridge = (bodyText, targetOrigin, bridgeNonce) => {
       if (typeof bodyText !== 'string' || bodyText.includes(PREVIEW_BRIDGE_SCRIPT_ID)) {
         return bodyText;
@@ -1413,19 +1497,14 @@ export const createPreviewProxyRuntime = ({
     const proxy = createProxyMiddleware({
       target: 'http://127.0.0.1',
       changeOrigin: true,
-      ws: true,
+      // No `ws: true`: that registers the library's own `upgrade` listener
+      // on the HTTP server, which proxies before the origin and own-header
+      // checks below. WebSockets go only through `server.on('upgrade')`,
+      // which calls `proxy.upgrade` itself.
       selfHandleResponse: true,
-      // Restrict the proxy (especially its auto-attached `upgrade` listener,
-      // which is registered globally on the underlying HTTP server when
-      // `ws: true`) to preview paths. Without this, every WebSocket upgrade
-      // on the server (e.g. `/api/terminal/ws`) gets proxied to
-      // `http://127.0.0.1` and tears the socket down with ECONNREFUSED.
-      //
-      // We use a function so the same filter handles both cases:
-      //   - HTTP requests through Express, where `req.url` has been stripped
-      //     of the `/api/preview/proxy` mount-point, so we check `originalUrl`.
-      //   - Raw upgrade events from the HTTP server, where `req.url` still
-      //     contains the full path.
+      // Restrict the proxy to preview paths. HTTP requests through Express
+      // have `req.url` stripped of the `/api/preview/proxy` mount-point, so
+      // check `originalUrl`; the upgrade handler sets it to the full path.
       pathFilter: (pathname, req) => {
         const target = req?.originalUrl || pathname || req?.url || '';
         return target.startsWith('/api/preview/proxy/');
@@ -1455,13 +1534,17 @@ export const createPreviewProxyRuntime = ({
       on: {
         proxyReq: (proxyReq, req) => {
           applyPreviewPassthroughRequestHeaders(req, proxyReq);
+          applyOwnHeaderRewrite(proxyReq, req);
           // Keep local dev servers from receiving PiChamber credentials.
           proxyReq.removeHeader('cookie');
           proxyReq.removeHeader('authorization');
           proxyReq.removeHeader('x-pichamber-ui-session');
           proxyReq.setHeader('accept-encoding', 'identity');
         },
-        proxyRes: responseInterceptor(async (responseBuffer, proxyRes, req, res) => {
+        proxyReqWs: (proxyReq, req) => {
+          applyOwnHeaderRewrite(proxyReq, req);
+        },
+        proxyRes: responseInterceptor(applyingHeaderEdits(async (responseBuffer, proxyRes, req, res) => {
           // This header is reserved for failures produced before proxying. Do
           // not let an upstream application response impersonate that signal.
           res.removeHeader?.(PREVIEW_TARGET_ERROR_HEADER);
@@ -1527,7 +1610,7 @@ export const createPreviewProxyRuntime = ({
             urlAuthToken,
           });
           return isHtml ? injectPreviewBridge(rewrittenBody, resolved.entry.origin, bridgeNonce) : rewrittenBody;
-        }),
+        })),
         error: (err, _req, res) => {
           const isDev = typeof process !== 'undefined'
             && process
@@ -1568,7 +1651,14 @@ export const createPreviewProxyRuntime = ({
         res.setHeader(PREVIEW_TARGET_ERROR_HEADER, resolved.code);
         return res.status(resolved.status).json({ error: resolved.error });
       }
-      next();
+      const pending = classifyOwnHeaders(req);
+      if (!pending) {
+        next();
+        return;
+      }
+      // Classification never rejects; continue without an error either way so
+      // a failed check cannot turn into an Express error response.
+      void pending.then(() => next());
     }, proxy);
 
     server.on('upgrade', (req, socket, head) => {
@@ -1586,6 +1676,7 @@ export const createPreviewProxyRuntime = ({
               return;
             }
           }
+          await classifyOwnHeaders(req);
 
           // Rewrite req.url to what the dev server expects.
           const rawUrl = req.url || '';

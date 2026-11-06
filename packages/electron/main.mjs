@@ -13,6 +13,7 @@ import updaterPkg from 'electron-updater';
 import { createTrayController } from './tray.mjs';
 import { createNotificationTagRegistry, isCloseableInputNotification } from './notification-tags.mjs';
 import { createDockBadgeAggregator, originOfUrl } from './dock-badge.mjs';
+import { findBrowserWebview } from './browser-webview.mjs';
 import {
   resolveDesktopHostRuntimeConfig,
   resolveStartupUrlProbePlan,
@@ -3875,10 +3876,7 @@ const handleInvoke = async (browserWindow, command, args = {}, senderContext) =>
     }
 
     case 'desktop_browser_capture_page': {
-      const wcId = Number.isFinite(args.webContentsId) ? Math.trunc(args.webContentsId) : null;
-      if (wcId === null || wcId < 0) throw new Error('webContentsId is required');
-      const wc = webContents.fromId(wcId);
-      if (!wc || wc.isDestroyed()) throw new Error('WebContents not found');
+      const wc = findBrowserWebview(webContents, BrowserWindow, args.webContentsId);
       const image = await wc.capturePage();
       const buffer = image.toJPEG(82);
       return {

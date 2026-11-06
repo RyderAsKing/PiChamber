@@ -1,7 +1,10 @@
 import { readFile, chmod, rename, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createSessionDaemon } from './session-daemon.js';
+import { ensureOpenUrlBrowser, watchOpenUrlBrowser } from '../../open-url/browser-env.js';
 import { sessionEngineFactories } from './engines/index.js';
 
 const DAEMON_ENTRYPOINT = fileURLToPath(import.meta.url);
@@ -22,6 +25,7 @@ const serverPid = Number(argument('--server-pid'));
 const daemonId = argument('--daemon-id');
 const daemonRuntime = argument('--runtime');
 const buildId = argument('--build-id');
+const openUrlSocket = argument('--open-url-socket');
 const startedAt = new Date().toISOString();
 
 // Pi's built-in MCP extension resolves mcp.json, mcp-auth.json, and mcp.log
@@ -108,6 +112,15 @@ if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !server
       await removeOwnState();
     }
   };
+  // Before any session starts, so every bash command and extension inherits
+  // the PiChamber `$BROWSER` (lib/open-url). Best effort: without it, URLs
+  // open the way they did before. The watchdog reinstalls the launcher if its
+  // directory is cleaned away while the daemon runs.
+  if (openUrlSocket) {
+    const openUrlOptions = { socketPath: openUrlSocket, privateDir: dirname(credentialFile), tmpdir: os.tmpdir() };
+    await ensureOpenUrlBrowser(openUrlOptions);
+    watchOpenUrlBrowser(openUrlOptions);
+  }
   try {
     const credential = (await readFile(credentialFile, 'utf8')).trim();
     daemon = createSessionDaemon({

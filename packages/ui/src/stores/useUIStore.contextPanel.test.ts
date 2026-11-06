@@ -178,3 +178,36 @@ describe('useUIStore contextRailOrder', () => {
     expect(ids).toHaveLength(CONTEXT_SURFACES.length);
   });
 });
+
+describe('useUIStore browser pages', () => {
+  const directory = '/repo';
+
+  // A server page reports its address and title many times (history, title,
+  // loading); repeats must not notify every subscriber or save the store.
+  test('an update that changes nothing leaves the store untouched', () => {
+    useUIStore.getState().openContextBrowser(directory, 'https://a.example');
+    const pageId = useUIStore.getState().contextPanelByDirectory[directory]?.tabs[0]?.browser?.activePageId ?? '';
+    useUIStore.getState().updateBrowserPage(directory, pageId, { url: 'https://a.example/', title: 'A' });
+
+    let notifications = 0;
+    let saves = 0;
+    const storage = useUIStore.persist.getOptions().storage;
+    if (!storage) throw new Error('ui-store has no persist storage');
+    const setItem = storage.setItem;
+    storage.setItem = (...args) => { saves += 1; return setItem(...args); };
+    const unsubscribe = useUIStore.subscribe(() => { notifications += 1; });
+    try {
+      useUIStore.getState().updateBrowserPage(directory, pageId, { url: 'https://a.example/', title: 'A' });
+      useUIStore.getState().updateBrowserPage(directory, 'missing', { url: 'https://b.example/' });
+      useUIStore.getState().activateBrowserPage(directory, pageId);
+      useUIStore.getState().updateBrowserPage('/elsewhere', pageId, { url: 'https://b.example/' });
+      expect({ notifications, saves }).toEqual({ notifications: 0, saves: 0 });
+
+      useUIStore.getState().updateBrowserPage(directory, pageId, { url: 'https://a.example/#next', title: 'A' });
+      expect({ notifications, saves }).toEqual({ notifications: 1, saves: 1 });
+    } finally {
+      unsubscribe();
+      storage.setItem = setItem;
+    }
+  });
+});

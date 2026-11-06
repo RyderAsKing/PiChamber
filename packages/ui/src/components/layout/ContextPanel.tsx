@@ -1,5 +1,6 @@
 import React from 'react';
 import { ContextPanelBrowserPane } from './context-panel/BrowserPane';
+import { closeServerBrowserTab } from '@/lib/serverBrowser/api';
 import { EditorTreeColumn } from './context-panel/EditorTreeColumn';
 import { PreviewPane } from './context-panel/PreviewPane';
 
@@ -536,6 +537,11 @@ export const ContextPanel: React.FC = () => {
             if (!directoryKey) {
               return;
             }
+            // A browser tab's pages may be running on the server; close them
+            // there too instead of leaving them until they idle out.
+            for (const page of tabs.find((tab) => tab.id === tabID)?.browser?.pages ?? []) {
+              closeServerBrowserTab(directoryKey, page.id);
+            }
             closeContextPanelTab(directoryKey, tabID);
           }}
           onReorder={(activeTabID, overTabID) => {
@@ -742,7 +748,7 @@ export const ContextPanel: React.FC = () => {
               activeTab?.id !== tab.id && 'hidden'
             )}
           >
-            <ContextPanelBrowserPane initialUrl={tab.targetPath ?? ''} directory={directoryKey} tabID={tab.id} />
+            <ContextPanelBrowserPane directory={directoryKey} browser={tab.browser} onScreen={isOpen && activeTab?.id === tab.id} />
           </div>
         ))}
         {isOpen ? diffTabs.filter((tab) => activeTab?.id === tab.id).map((tab) => (
