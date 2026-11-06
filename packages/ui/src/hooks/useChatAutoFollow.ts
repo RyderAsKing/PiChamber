@@ -331,8 +331,10 @@ export const useChatAutoFollow = ({
       return;
     }
 
-    stop();
-  }, [isAnimationGuardActive, isAuto, scrollToBottom, setStateValue, stop, updateOverflowAndButton]);
+    // A user scroll away from the bottom also ends an entry stick, or its
+    // forced follow would pull the reader back down on the next growth.
+    releaseFromUserIntent();
+  }, [isAnimationGuardActive, isAuto, releaseFromUserIntent, scrollToBottom, setStateValue, updateOverflowAndButton]);
 
   useAutoFollowKeyboardGestures({
     containerEl,

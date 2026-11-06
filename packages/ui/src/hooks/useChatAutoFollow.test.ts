@@ -267,6 +267,33 @@ describe('useChatAutoFollow real hook transitions (simulated scroll element)', (
     expect(fakeEl.scrollTop).toBe(0);
   });
 
+  test('a scroll that releases following also ends the entry stick', async () => {
+    const fakeEl = createFakeScrollElement();
+    const { get, renderOptions } = await mountAutoFollow(baseOptions(), fakeEl);
+    await act(async () => {
+      await get().restoreSnapshot();
+    });
+    // The idle append starts an entry stick.
+    fakeEl.scrollHeight = 1400;
+    await renderOptions(baseOptions({ sessionMessageCount: 3 }));
+    expect(fakeEl.scrollTop).toBe(1400 + 4096);
+
+    // The reader scrolls up by a path the gesture helper did not see first.
+    fakeEl.scrollTop = 0;
+    await act(async () => {
+      getScrollHandler(fakeEl)();
+    });
+    expect(get().state).toBe('released');
+
+    // Later growth must not pull them back down.
+    fakeEl.scrollHeight = 1800;
+    await act(async () => {
+      get().notifyContentChange();
+    });
+    expect(get().state).toBe('released');
+    expect(fakeEl.scrollTop).toBe(0);
+  });
+
   test('unmount clears queued timers', async () => {
     const originalSetTimeout = globalThis.setTimeout;
     const originalClearTimeout = globalThis.clearTimeout;
