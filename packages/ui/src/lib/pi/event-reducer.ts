@@ -146,6 +146,19 @@ export const applyPiEvent = (
     };
   }
 
+  // An open request is a device-side side effect (lib/pi/open-request.ts),
+  // not session state: advance the cursor without touching or creating the
+  // session row.
+  if (event.name === 'session.openUrl') {
+    const nextLastSequence = new Map(state.lastSequence);
+    nextLastSequence.set(event.sessionId, event.sequence);
+    return {
+      state: { bySession: state.bySession, lastSequence: nextLastSequence },
+      didApply: true,
+      sessionId: event.sessionId,
+    };
+  }
+
   const current = state.bySession.get(event.sessionId);
   const session: PiReducerSessionState = current
     ? {
@@ -349,9 +362,6 @@ export const applyPiEvent = (
         if (message) session.messages.set(messageId, { ...message });
       }
       reduceError(session, event.payload.code, event.payload.message);
-      break;
-    case 'session.openUrl':
-      // A device-side side effect (lib/pi/open-request.ts), not session state.
       break;
     case 'session.interrupted':
       session.messages = new Map(session.messages);
