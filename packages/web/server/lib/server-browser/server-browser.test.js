@@ -232,6 +232,9 @@ describe('isBlockedServerNetworkLoad', () => {
     expect(isBlockedServerNetworkLoad({ url: 'http://127.0.0.1:6379/', from: 'https://example.com/' })).toBe(true);
     expect(isBlockedServerNetworkLoad({ url: 'http://192.168.1.1/', from: 'https://example.com/' })).toBe(true);
     expect(isBlockedServerNetworkLoad({ url: 'http://169.254.169.254/latest', from: 'https://example.com/' })).toBe(true);
+    // A page at a public IPv4-mapped address is a public page.
+    expect(isBlockedServerNetworkLoad({ url: 'http://127.0.0.1/', from: 'http://[::ffff:8.8.8.8]/' })).toBe(true);
+    expect(isBlockedServerNetworkLoad({ url: 'http://[::ffff:8.8.8.8]/', from: 'https://example.com/' })).toBe(true);
   });
 
   it('allows what the person asked for, local pages, and public destinations', () => {

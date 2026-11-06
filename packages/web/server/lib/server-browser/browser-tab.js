@@ -1,7 +1,7 @@
 import dns from 'node:dns';
 import net from 'node:net';
 
-import { isServerNetworkHost } from '../security/server-network-host.js';
+import { isServerNetworkHost, isServerNetworkSource } from '../security/server-network-host.js';
 
 // Chrome sends a new screencast frame only after the previous one is acked.
 // Acking no sooner than these caps the stream near 60 frames per second
@@ -119,12 +119,12 @@ export const isBlockedServerNetworkLoad = ({ url, from }) => {
   const fromHost = hostOf(from);
   // A load from about:blank, data: or a local page is not a public page.
   if (!fromHost) return false;
-  return !isServerNetworkHost(fromHost);
+  return !isServerNetworkSource(fromHost);
 };
 
 const isPublicPage = (url) => {
   const host = url === null ? null : hostOf(url);
-  return Boolean(host) && !isServerNetworkHost(host);
+  return Boolean(host) && !isServerNetworkSource(host);
 };
 
 const lookupAll = (host) => dns.promises.lookup(host, { all: true });
