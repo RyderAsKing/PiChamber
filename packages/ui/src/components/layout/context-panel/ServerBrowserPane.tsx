@@ -46,6 +46,8 @@ type Props = {
   initialUrl: string;
   directory: string;
   pageId: string;
+  /** A popup the server is holding for this page; the first connection claims it. */
+  popupId: string | null;
   /** The page is in an open panel and is its active page. */
   onScreen: boolean;
   routeToggle: React.ReactNode;
@@ -82,10 +84,12 @@ const dialogText = (dialog: ServerBrowserDialog): { message: string; accept: str
  * PiChamber server, streamed to this device and driven from it. `localhost`
  * means the server. Pages never run in PiChamber's own origin.
  */
-export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, pageId, onScreen, routeToggle, onRouteChange }) => {
+export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, pageId, popupId, onScreen, routeToggle, onRouteChange }) => {
   // Each page has its own server page; devices showing the same page share it.
   const tabKey = React.useMemo(() => serverBrowserTabKey(directory, pageId), [directory, pageId]);
   const updateBrowserPage = useUIStore((state) => state.updateBrowserPage);
+  const openBrowserPopup = useUIStore((state) => state.openBrowserPopup);
+  const closeBrowserPage = useUIStore((state) => state.closeBrowserPage);
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const newSessionDraftOpen = useSessionUIStore((state) => state.newSessionDraft?.open);
   const addAttachedFile = useInputStore((state) => state.addAttachedFile);
@@ -116,6 +120,8 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
   const connectionRef = React.useRef<ServerBrowserConnection | null>(null);
   const frameHeaderRef = React.useRef<FrameHeader | null>(null);
   const lastUrlRef = React.useRef(startUrl);
+  const popupRef = React.useRef(popupId);
+  popupRef.current = popupId;
   const pendingNavigateRef = React.useRef<string | null>(null);
   const editingAddressRef = React.useRef(false);
   const seenDownloadsRef = React.useRef(new Map<string, string>());
@@ -255,6 +261,13 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
           toast.error(`Could not load ${hostOf(message.url)}`, { description: message.message });
         }
         return;
+      case 'popup':
+        if (!openBrowserPopup(directory, pageId, message.id)) {
+          toast.warning('A page opened a popup, but too many tabs are open', {
+            description: 'Close a tab, then try again.',
+          });
+        }
+        return;
       case 'download': {
         const seen = seenDownloadsRef.current;
         if (seen.get(message.id) === message.state) return;
@@ -312,12 +325,14 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
 
   // One connection per tab, kept for the life of the pane.
   React.useEffect(() => {
-    const connection = new ServerBrowserConnection(tabKey, () => pendingNavigateRef.current || lastUrlRef.current, {
+    const connection = new ServerBrowserConnection(tabKey, () => ({ url: pendingNavigateRef.current || lastUrlRef.current, popup: popupRef.current }), {
       onPhase: (next) => {
         setPhase(next);
         if (next === 'open') setStatus(null);
       },
       onOpen: () => {
+        // The server took the popup; later connections find the tab by key.
+        if (popupRef.current) useUIStore.getState().updateBrowserPage(directory, pageId, { popupId: null });
         drawRef.current = { busy: false, pending: null };
         inspectRef.current.inFlight = false;
         sendViewport();
@@ -347,7 +362,13 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
       connection.dispose();
       if (connectionRef.current === connection) connectionRef.current = null;
     };
-  }, [drawFrame, sendViewport, tabKey]);
+  }, [directory, drawFrame, pageId, sendViewport, tabKey]);
+
+  // The page closed itself (a sign-in popup that is done), so its tab
+  // closes here too.
+  React.useEffect(() => {
+    if (phase === 'closed') closeBrowserPage(directory, pageId);
+  }, [closeBrowserPage, directory, pageId, phase]);
 
   // Stream only while the page is on screen: the panel is open on it and the
   // window is visible. Hidden pages keep their page on the server and

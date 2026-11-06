@@ -70,6 +70,8 @@ export type ServerBrowserMessage =
   | { type: 'file-chooser-closed'; id: number }
   | { type: 'clipboard'; text: string }
   | ({ type: 'notice' } & ServerBrowserNotice)
+  /** The page opened a popup for this device to show; claim it with `id`. */
+  | { type: 'popup'; id: string }
   | ({ type: 'download' } & ServerBrowserDownload)
   | { type: 'inspect-hover'; requestId: number; target: PreviewElementMetadata | null }
   | { type: 'inspect-pick'; requestId: number; target: PreviewElementMetadata | null; screenshot: ServerBrowserScreenshot | null }
@@ -111,9 +113,11 @@ export const parseServerBrowserMessage = (data: string): ServerBrowserMessage | 
  * What a viewer does when its socket closes. Codes match `CLOSE_CODES` in
  * the server runtime.
  */
-export const closeAction = (code: number): 'reconnect' | 'unavailable' | 'stop' => {
+export const closeAction = (code: number): 'reconnect' | 'unavailable' | 'stop' | 'closed' => {
   if (code === 4003) return 'unavailable';
   if (code === 4004) return 'stop';
+  // The page closed itself, or the popup it was opened for is gone.
+  if (code === 4005) return 'closed';
   // 4000 closed elsewhere, 4001 Chrome exited, 4002 restarting, and network
   // drops all reopen the tab at its last address.
   return 'reconnect';

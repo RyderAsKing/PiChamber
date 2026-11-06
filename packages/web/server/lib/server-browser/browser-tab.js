@@ -59,10 +59,12 @@ const navigationError = (error) => {
  * The tab outlives its Chrome page: a crashed page is replaced under the same
  * key, and viewers stay connected. `openPage()` makes a new page in the
  * browser; `guard` is the server-network rule (`network-guard.js`).
+ * `onPopup(tab, page)` gets each page this one opens; `onClosed(tab)` is
+ * called when the page closes itself.
  *
  * Viewers are `{ sendJson(message), sendFrame(buffer), close(reason) }`.
  */
-export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed, onDownload = () => {}, log = () => {} }) => {
+export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed, onPopup = () => {}, onDownload = () => {}, log = () => {} }) => {
   const viewers = new Set();
   const state = {
     url: 'about:blank',
@@ -82,6 +84,8 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
   let committedUrl = 'about:blank';
   let initialUrl = null;
   let closed = false;
+  // The viewer whose input came last: the one a popup opens for.
+  let lastInputViewer = null;
 
   // Commands in flight on the current page, rejected when it crashes or is replaced.
   const inFlight = new Set();
@@ -205,7 +209,6 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       broadcast({ type: 'notice', kind: 'blocked-server-network', url });
     },
     titleChanged: (title) => tab.updateTitle(title),
-    openFromPage: (url) => tab.navigateFromPage(url),
   };
 
   const onFrameNavigated = ({ frame }) => {
@@ -301,6 +304,10 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       if (current()) onClosed?.(tab);
     });
     nextPage.on('download', (download) => onDownload(tab, download));
+    nextPage.on('popup', (popup) => {
+      if (current()) onPopup(tab, popup);
+      else void popup.close().catch(() => {});
+    });
     nextPage.on('framenavigated', (frame) => { if (current()) void watchFrame(frame, nextPage.context()); });
     prompts.bindPage(nextPage);
     guard.addPage(targetId, owner);
@@ -350,11 +357,27 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
     },
     lastViewedAt: Date.now(),
 
-    async init({ url } = {}) {
-      await bindPage(await openFreshPage());
-      // The first address loads once a viewer is attached, so it sees what
-      // the load does (a blocked redirect, a dialog).
-      initialUrl = url && url !== 'about:blank' ? url : null;
+    /**
+     * Opens the tab's page: `page` when given (a popup this tab now owns, already
+     * loading), else a new one that loads `url` once a viewer is attached, so
+     * it sees what the load does (a blocked redirect, a dialog).
+     */
+    async init({ url, page: adopted } = {}) {
+      if (!adopted) {
+        await bindPage(await openFreshPage());
+        initialUrl = url && url !== 'about:blank' ? url : null;
+        return;
+      }
+      await bindPage(adopted);
+      // It may have committed and started loading before the tab listened.
+      const shown = adopted.url();
+      if (shown && shown !== 'about:blank') {
+        committedUrl = shown;
+        setUrl(shown);
+      }
+      const readyState = await send('Runtime.evaluate', { expression: 'document.readyState', returnByValue: true }).catch(() => null);
+      if (readyState?.result?.value && readyState.result.value !== 'complete') state.loading = true;
+      await Promise.all([refreshTitle(), refreshHistory()]);
     },
 
     attachViewer(viewer) {
@@ -405,13 +428,6 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       load(page.goto(url, NAVIGATION), url);
     },
 
-    /** A load the page itself asked for (a popup), under the page's rules. */
-    navigateFromPage(rawUrl) {
-      const url = normalizeServerBrowserUrl(rawUrl);
-      if (!url || url === 'about:blank' || !page) return;
-      void page.goto(url, NAVIGATION).catch(() => {});
-    },
-
     updateTitle(title) {
       const next = typeof title === 'string' ? title.slice(0, 500) : '';
       if (next === state.title) return;
@@ -436,9 +452,24 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       await quietly(send('Page.stopLoading'));
     },
 
-    handleMouse: (message, viewer) => input.handleMouse(message, viewer),
-    handleKey: (message, viewer) => input.handleKey(message, viewer),
-    insertText: (text) => input.insertText(text),
+    handleMouse(message, viewer) {
+      if (viewer) lastInputViewer = viewer;
+      return input.handleMouse(message, viewer);
+    },
+    handleKey(message, viewer) {
+      if (viewer) lastInputViewer = viewer;
+      return input.handleKey(message, viewer);
+    },
+    insertText(text, viewer) {
+      if (viewer) lastInputViewer = viewer;
+      return input.insertText(text);
+    },
+
+    /** The viewer a popup from this page opens for, or null with none watching. */
+    popupViewer() {
+      if (lastInputViewer && viewers.has(lastInputViewer)) return lastInputViewer;
+      return viewers.values().next().value ?? null;
+    },
     respondDialog: (answer) => prompts.respondDialog(answer),
     respondFileChooser: (answer) => prompts.respondFileChooser(answer),
 

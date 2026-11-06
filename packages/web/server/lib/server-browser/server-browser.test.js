@@ -408,7 +408,13 @@ const fakePage = (targetId = 'T') => {
     reload: vi.fn(async () => null),
     goBack: vi.fn(async () => null),
     goForward: vi.fn(async () => null),
-    close: vi.fn(async () => { page.emit('close'); }),
+    closed: false,
+    close: vi.fn(async () => {
+      if (page.closed) return;
+      page.closed = true;
+      page.emit('close');
+    }),
+    isClosed: () => page.closed,
     url: () => '',
   });
   return page;
@@ -641,6 +647,101 @@ describe('server browser lifecycle', () => {
     await Promise.all([opened, reopened]);
     expect(first.closed).toBe(true);
     expect(launches).toEqual([false, false]);
+  });
+
+  const viewer = () => ({ messages: [], sendJson(message) { this.messages.push(message); }, sendFrame: () => {}, close: vi.fn() });
+  const offered = (target) => target.messages.filter((message) => message.type === 'popup').map((message) => message.id);
+
+  it('offers a popup to the device that used its opener last, whose tab then takes the page', async () => {
+    const context = fakeContext();
+    const { browser } = create(async () => context);
+    const opener = await browser.openTab('k');
+    const [first, second] = [viewer(), viewer()];
+    opener.attachViewer(first);
+    opener.attachViewer(second);
+    await opener.insertText('x', second);
+    const popup = fakePage('P');
+    context.pages[0].emit('popup', popup);
+    expect(offered(first)).toEqual([]);
+    const [id] = offered(second);
+    expect(id).toEqual(expect.any(String));
+    const tab = await browser.openTab('k2', { popup: id });
+    expect(tab).not.toBe(opener);
+    expect(context.pages).toHaveLength(1);
+    expect(popup.close).not.toHaveBeenCalled();
+    // One claim per popup.
+    await expect(browser.openTab('k3', { popup: id })).rejects.toMatchObject({ pageClosed: true });
+  });
+
+  it('closes a popup no device can show or claims in time', async () => {
+    const context = fakeContext();
+    const { browser } = create(async () => context);
+    const opener = await browser.openTab('k');
+    const unwatched = fakePage('P1');
+    context.pages[0].emit('popup', unwatched);
+    expect(unwatched.close).toHaveBeenCalled();
+
+    const watcher = viewer();
+    opener.attachViewer(watcher);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const unclaimed = fakePage('P2');
+    context.pages[0].emit('popup', unclaimed);
+    const nested = fakePage('P3');
+    unclaimed.emit('popup', nested);
+    expect(nested.close).toHaveBeenCalled();
+    vi.advanceTimersByTime(30_000);
+    expect(unclaimed.close).toHaveBeenCalled();
+    vi.useRealTimers();
+    await expect(browser.openTab('k2', { popup: offered(watcher)[0] })).rejects.toMatchObject({ pageClosed: true });
+    await expect(browser.openTab('k3', { popup: 'unknown' })).rejects.toMatchObject({ pageClosed: true });
+  });
+
+  it('keeps at most four popups waiting', async () => {
+    const context = fakeContext();
+    const { browser } = create(async () => context);
+    const opener = await browser.openTab('k');
+    const watcher = viewer();
+    opener.attachViewer(watcher);
+    const popups = Array.from({ length: 5 }, (_, index) => fakePage(`P${index}`));
+    for (const popup of popups) context.pages[0].emit('popup', popup);
+    expect(offered(watcher)).toHaveLength(4);
+    expect(popups.map((popup) => popup.close.mock.calls.length > 0)).toEqual([false, false, false, false, true]);
+  });
+
+  it('refuses to reopen a page that closed itself until its tab is closed', async () => {
+    const context = fakeContext();
+    const { browser } = create(async () => context);
+    const tab = await browser.openTab('k', { url: 'https://public.example/' });
+    const watcher = viewer();
+    tab.attachViewer(watcher);
+    await context.pages[0].close();
+    await vi.waitFor(() => expect(watcher.close).toHaveBeenCalledWith('page-closed'));
+    await expect(browser.openTab('k', { url: 'https://public.example/' })).rejects.toMatchObject({ pageClosed: true });
+    expect(context.pages).toHaveLength(1);
+    await browser.closeTab('k');
+    await browser.openTab('k', { url: 'https://public.example/' });
+    expect(context.pages).toHaveLength(2);
+  });
+
+  it('judges a popup\'s first load as its opener\'s link and closes it when blocked', async () => {
+    let guardOptions;
+    let guard;
+    const { browser } = create(async () => fakeContext(), {
+      createGuard: (options) => {
+        guardOptions = options;
+        guard = createNetworkGuard(options);
+        guard.closeTarget = vi.fn(async () => {});
+        return guard;
+      },
+    });
+    await browser.openTab('k');
+    const opener = fakeOwner('https://public.example/');
+    const owner = guardOptions.onPopupTarget({ targetId: 'P', opener });
+    expect(owner.sourceUrl()).toBe('https://public.example/');
+    expect(owner.consumeUserLoad('http://127.0.0.1/')).toBe(false);
+    owner.blocked('http://127.0.0.1/', { mainFrame: true });
+    expect(opener.blockedUrls).toEqual([{ url: 'http://127.0.0.1/', mainFrame: false }]);
+    expect(guard.closeTarget).toHaveBeenCalledWith('P');
   });
 
   it('removes uploads after an hour, with no later upload', async () => {

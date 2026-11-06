@@ -19,10 +19,11 @@ const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const PAGE = `<!doctype html><html><head><title>Test page</title></head><body style="margin:0">
 <input id="field" style="position:absolute;left:10px;top:10px;width:200px;height:30px">
 <p id="words" style="position:absolute;left:10px;top:60px;margin:0">copy these words</p>
-<a id="popup" href="/second" target="_blank" style="position:absolute;left:10px;top:100px">popup</a>
+<button id="popup" onclick="window.open('/popup-page')" style="position:absolute;left:10px;top:100px">popup</button>
 <input id="file" type="file" style="position:absolute;left:10px;top:140px">
 <a id="dl" href="/download" style="position:absolute;left:10px;top:180px">download</a>
 <script>
+addEventListener('message', (event) => { fetch('/opener-got?d=' + encodeURIComponent(event.data)); });
 document.getElementById('field').addEventListener('input', (event) => { fetch('/typed?v=' + encodeURIComponent(event.target.value)); });
 document.getElementById('file').addEventListener('change', async (event) => {
   const file = event.target.files[0];
@@ -81,6 +82,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       seen.push(req.url);
       userAgents.push(String(req.headers['user-agent'] || ''));
       if (req.url === '/') { res.setHeader('content-type', 'text/html'); res.end(PAGE); return; }
+      if (req.url === '/popup-page') { res.setHeader('content-type', 'text/html'); res.end('<title>Popup</title><button onclick="window.close()" style="position:absolute;left:0;top:0;width:300px;height:100px">close</button><script>window.opener.postMessage("from-popup", "*")</script>'); return; }
       if (req.url === '/second') { res.setHeader('content-type', 'text/html'); res.end('<title>Second</title><h1>second</h1>'); return; }
       if (req.url === '/alert') { res.setHeader('content-type', 'text/html'); res.end('<script>setTimeout(() => { alert("hello there"); fetch("/after-alert"); }, 50)</script>'); return; }
       if (req.url === '/download') { res.setHeader('content-disposition', 'attachment; filename="notes.txt"'); res.end('downloaded body'); return; }
@@ -150,8 +152,8 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     if (dataDir) fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  const connect = (tab, url) => {
-    const socket = new WebSocket(`ws://${base}/api/server-browser/ws?tab=${tab}&url=${encodeURIComponent(url)}`);
+  const connect = (tab, url, { popup } = {}) => {
+    const socket = new WebSocket(`ws://${base}/api/server-browser/ws?tab=${tab}&url=${encodeURIComponent(url)}${popup ? `&popup=${popup}` : ''}`);
     const messages = [];
     const frames = [];
     const waiters = [];
@@ -236,14 +238,42 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     page.socket.close();
   }, 30_000);
 
-  it('opens popups in the same tab and downloads files', async () => {
+  it('opens a popup as its own tab that can reach its opener, until it closes itself', async () => {
+    const page = connect('opener', `http://127.0.0.1:${upstreamPort}/`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Test page' && !m.loading, 'title');
+    await page.click(25, 108);
+    const { id } = await page.waitFor((m) => m.type === 'popup', 'popup');
+    expect(page.messages.find((m) => m.type === 'popup')).toEqual({ type: 'popup', id });
+
+    // The device opens a tab for it; its first connection claims the popup.
+    const popup = connect('opened-popup', '', { popup: id });
+    await popup.open;
+    popup.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await popup.waitFor((m) => m.type === 'state' && m.title === 'Popup' && m.url === `http://127.0.0.1:${upstreamPort}/popup-page`, 'popup page');
+    await page.waitForSeen(/^\/opener-got\?d=from-popup$/, 'message to the opener');
+    await popup.until(() => popup.frames.length > 0, 'popup frames');
+
+    // The popup closes itself; its tab closes, and stays closed.
+    await popup.click(50, 50);
+    expect(await popup.closed).toBe(4005);
+    const again = connect('opened-popup', '');
+    expect(await again.closed).toBe(4005);
+    // A claim is used once.
+    const reclaim = connect('another-popup', '', { popup: id });
+    expect(await reclaim.closed).toBe(4005);
+    page.socket.close();
+  }, 30_000);
+
+  it('goes back and downloads files', async () => {
     const page = connect('popup', `http://127.0.0.1:${upstreamPort}/`);
     await page.open;
     page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
-    await page.waitFor((m) => m.type === 'state' && m.title === 'Test page', 'title');
-    await page.click(25, 108);
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Test page' && !m.loading, 'title');
+    page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/second` });
     // Back is offered once Chrome has the new address in its history.
-    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/second` && m.canGoBack && !m.loading, 'popup address in this tab');
+    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/second` && m.canGoBack && !m.loading, 'second page');
 
     page.send({ type: 'back' });
     // Back loads the page again (no back/forward cache); click once it has.
@@ -319,6 +349,12 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     await page.click(50, 50);
     const notice = await page.waitFor((m) => m.type === 'notice' && m.kind === 'blocked-server-network', 'blocked notice');
     expect(notice.url).toBe(`http://127.0.0.1:${upstreamPort}/popup-secret`);
+    // The popup closed, possibly before it was offered to a device. Claiming
+    // it loads nothing, even with its address.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const offered = page.messages.find((m) => m.type === 'popup');
+    const claim = connect('blocked-popup', `http://127.0.0.1:${upstreamPort}/popup-secret`, { popup: offered?.id ?? 'unknown-popup' });
+    expect(await claim.closed).toBe(4005);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(seen).not.toContain('/popup-secret');
     page.socket.close();

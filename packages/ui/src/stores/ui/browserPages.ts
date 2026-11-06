@@ -13,6 +13,11 @@ export interface BrowserPage {
   route: BrowserRoute | null;
   /** The page's title when the pane can read it. */
   title: string | null;
+  /**
+   * A popup the server is holding for this page, until the page's first
+   * connection claims it. Not restored: a claim lasts seconds.
+   */
+  popupId?: string;
 }
 
 export interface BrowserPages {
@@ -121,6 +126,23 @@ export const openBrowserPage = (
 };
 
 /**
+ * Opens a server page for a popup next to the page that opened it. Returns
+ * null at the page limit: a popup never replaces a page.
+ */
+export const openBrowserPopup = (
+  state: BrowserPages,
+  input: { openerPageId: string; popupId: string },
+  createId: () => string = createBrowserPageId,
+): (BrowserPages & { pageId: string }) | null => {
+  if (state.pages.length >= MAX_BROWSER_PAGES) return null;
+  const page: BrowserPage = { id: createId(), url: null, route: 'server', title: null, popupId: input.popupId };
+  const openerIndex = state.pages.findIndex((entry) => entry.id === input.openerPageId);
+  const index = openerIndex === -1 ? state.pages.length - 1 : openerIndex;
+  const pages = [...state.pages.slice(0, index + 1), page, ...state.pages.slice(index + 1)];
+  return { pages, activePageId: page.id, pageId: page.id };
+};
+
+/**
  * Closes a page and shows its right neighbour, or the left one when it was
  * last. Closing the only page leaves one empty page.
  */
@@ -151,6 +173,8 @@ export type BrowserPagePatch = {
   route?: BrowserRoute;
   /** Sets the route only while the page has none, so it never overrides a pick. */
   defaultRoute?: BrowserRoute;
+  /** Drops the page's popup claim once its connection made it. */
+  popupId?: null;
 };
 
 /** Records what a page shows: its address, title, or route. */
@@ -171,7 +195,8 @@ export const updateBrowserPage = (
     if (patch.title !== undefined) next.title = normalizeTitle(patch.title);
     if (patch.route !== undefined) next.route = normalizeRoute(patch.route) ?? page.route;
     if (patch.defaultRoute !== undefined && next.route === null) next.route = normalizeRoute(patch.defaultRoute);
-    if (next.url !== page.url || next.title !== page.title || next.route !== page.route) changed = true;
+    if (patch.popupId === null) delete next.popupId;
+    if (next.url !== page.url || next.title !== page.title || next.route !== page.route || next.popupId !== page.popupId) changed = true;
     return changed ? next : page;
   });
   return changed ? { ...state, pages } : state;

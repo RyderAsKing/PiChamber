@@ -613,7 +613,7 @@ const BrowserPageView: React.FC<{ page: BrowserPage; directory: string; route: B
   // The server route streams a browser running on the server, on every
   // runtime. The device route loads pages here: a native webview on desktop
   // (storage separate from PiChamber's), an iframe elsewhere.
-  if (route === 'server') return <ServerBrowserPane key={route} {...props} />;
+  if (route === 'server') return <ServerBrowserPane key={route} {...props} popupId={page.popupId ?? null} />;
   const BrowserPane = isElectronBrowserRuntime() ? DesktopBrowserPane : IframeBrowserPane;
   return <BrowserPane key={route} {...props} />;
 };

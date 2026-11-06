@@ -14,7 +14,7 @@ const HEARTBEAT_MS = 30_000;
 // it is disconnected and reconnects to a fresh stream.
 const MAX_SOCKET_BUFFER_BYTES = 8 * 1024 * 1024;
 // Close codes viewers act on.
-const CLOSE_CODES = { closed: 4000, 'browser-exited': 4001, 'browser-restarting': 4002, unavailable: 4003, 'bad-request': 4004 };
+const CLOSE_CODES = { closed: 4000, 'browser-exited': 4001, 'browser-restarting': 4002, unavailable: 4003, 'bad-request': 4004, 'page-closed': 4005 };
 
 const parsePath = (url) => {
   try {
@@ -36,7 +36,8 @@ const parseMessage = (raw) => {
 /**
  * Routes and the viewer WebSocket for the server browser.
  *
- * Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>`; see
+ * Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>` (or
+ * `&popup=<id>` to claim a popup); see
  * `DOCUMENTATION.md` for the message protocol.
  */
 export const createServerBrowserRuntime = ({
@@ -126,6 +127,7 @@ export const createServerBrowserRuntime = ({
     const url = parsePath(req.url);
     const key = url?.searchParams.get('tab') || '';
     const startUrl = url?.searchParams.get('url') || '';
+    const popup = url?.searchParams.get('popup') || '';
     let detach = null;
     let tab = null;
     let closed = false;
@@ -173,7 +175,7 @@ export const createServerBrowserRuntime = ({
         case 'viewport': await tab.setViewport(message); return;
         case 'mouse': await tab.handleMouse(message, viewer); return;
         case 'key': await tab.handleKey(message, viewer); return;
-        case 'text': await tab.insertText(message.text); return;
+        case 'text': await tab.insertText(message.text, viewer); return;
         case 'navigate': tab.navigate(message.url); return;
         case 'back': await tab.goBack(); return;
         case 'forward': await tab.goForward(); return;
@@ -215,8 +217,12 @@ export const createServerBrowserRuntime = ({
 
     void (async () => {
       try {
-        tab = await browser.openTab(key, { url: startUrl });
+        tab = await browser.openTab(key, { url: startUrl, popup });
       } catch (error) {
+        if (error?.pageClosed) {
+          viewer.close('page-closed');
+          return;
+        }
         sendJson({ type: 'unavailable', status: error?.status ?? browser.status(), message: error?.status ? undefined : error?.message });
         viewer.close('unavailable');
         return;

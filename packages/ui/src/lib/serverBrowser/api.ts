@@ -110,11 +110,12 @@ export const saveServerBrowserDownload = async (id: string, filename: string): P
   }
 };
 
-export type ServerBrowserSocketOpener = (tab: string, url: string) => Promise<{ socket: RelayTunnelWebSocket; urlAuthToken: string }>;
+/** `popup` claims a popup the server offered as this tab's page. */
+export type ServerBrowserSocketOpener = (tab: string, url: string, popup: string | null) => Promise<{ socket: RelayTunnelWebSocket; urlAuthToken: string }>;
 
-export const openServerBrowserSocket: ServerBrowserSocketOpener = async (tab, url) => {
+export const openServerBrowserSocket: ServerBrowserSocketOpener = async (tab, url, popup) => {
   const urlAuthToken = await refreshRuntimeUrlAuthToken();
-  const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/server-browser/ws', { tab, url }, urlAuthToken));
+  const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/server-browser/ws', { tab, url, popup }, urlAuthToken));
   return { socket, urlAuthToken };
 };
 

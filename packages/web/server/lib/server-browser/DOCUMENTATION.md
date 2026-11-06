@@ -81,7 +81,9 @@ Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>` through
 `openRuntimeWebSocket` with a URL token; the path is on the URL-token and
 relay WebSocket allowlists. The tab key is derived from the directory and
 the Browser page id (`serverBrowserTabKey`), so every device viewing the
-same page shares one server page.
+same page shares one server page. A Browser page opened for a popup adds
+`&popup=<id>` until its first socket opens; the server makes the held popup
+that tab's page. An open tab with the key wins over the claim.
 
 Binary server messages are frames: a 4-byte big-endian header length, a JSON
 header (`seq`, `width`, `height`, `offsetTop`, `pageScaleFactor`), then a
@@ -99,7 +101,8 @@ a desktop browser.
 Text messages from the server: `state` (address, title, loading, history,
 crashed), `cursor`, `dialog` / `dialog-closed`, `file-chooser`
 / `file-chooser-closed`, `download`, `clipboard`, `inspect-hover`,
-`inspect-pick`, `notice`, and `unavailable`.
+`inspect-pick`, `notice`, `popup` (`id`, a page opened a popup for this
+device to show), and `unavailable`.
 
 Messages from the viewer: `viewport`, `mouse`, `key`, `text`,
 `navigate`, `back`, `forward`, `reload`, `stop`, `dialog`, `file-chooser`,
@@ -113,7 +116,8 @@ for the moves and wheel movement before it.
 
 Close codes: 4000 tab closed, 4001 Chrome exited, 4002 Chrome restarting,
 4003 unavailable (the client shows setup help), 4004 bad request (the client
-stops). The client reconnects after anything else with backoff; the server
+stops), 4005 page closed (the page closed itself, or the popup a claim names
+is gone; the client closes its Browser page). The client reconnects after anything else with backoff; the server
 reopens the tab at its last address.
 
 ## Invariants
@@ -139,10 +143,23 @@ reopens the tab at its last address.
   page. Playwright's own request routing is not used: it turns off the HTTP
   cache and hides redirects. Chrome's Local Network Access permission is
   denied for every page as well.
-- **Popups** are reported before their first request pauses. That request is
-  cancelled, the popup closes, and its address loads in the opener's tab
-  under the same rule as a followed link. The new page has no
+- **Popups** become tabs of their own and keep `window.opener`, so a sign-in
+  popup can report back to its page. The server holds the popup under a
+  random id and sends `popup` to the viewer that gave the opener input last
+  (or any of its viewers); that device opens a server Browser page whose
+  first connection claims it. A popup is closed instead when no viewer is
+  watching the opener, 4 popups already wait, or held popups and tabs reach
+  the 16-tab limit; also when no device claims it within 30 seconds. A
+  waiting popup's own popups are closed. A claim never loads an address, so
+  a popup the rule closed cannot be reopened as if typed. Until claimed, a
+  popup's loads are judged as links its opener followed; a blocked first
+  load closes the popup and the opener's viewers get the notice. Chrome
+  makes `target="_blank"` links noopener, so those open without
   `window.opener`.
+- **Self-closed pages.** A page that calls `window.close()` disconnects its
+  viewers with 4005, and its key is refused (4005) for 10 minutes so a
+  device that shows the page later closes it too instead of reopening it.
+  Closing the Browser page (`DELETE`) clears that memory.
 - **Navigation** commits are not awaited (`waitUntil: 'commit'`, 15-second
   timeout), so input keeps flowing while a page loads. Only a failure other
   than an abort sends a `navigation-failed` notice.

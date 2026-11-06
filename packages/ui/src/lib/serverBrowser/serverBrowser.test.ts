@@ -58,22 +58,22 @@ class FakeSocket implements RelayTunnelWebSocket {
   serverClose(code: number) { this.readyState = 3; this.onclose?.({ code, reason: '' }); }
 }
 
-const setup = () => {
+const setup = (popup: string | null = null) => {
   const sockets: FakeSocket[] = [];
-  const opened: Array<{ tab: string; url: string }> = [];
+  const opened: Array<{ tab: string; url: string; popup?: string }> = [];
   const forgotten: string[] = [];
   const timers: Array<() => void> = [];
   const phases: ServerBrowserConnectionPhase[] = [];
   const messages: unknown[] = [];
   let opens = 0;
-  const connection = new ServerBrowserConnection('tab-1', () => 'http://localhost:3000/', {
+  const connection = new ServerBrowserConnection('tab-1', () => ({ url: 'http://localhost:3000/', popup }), {
     onPhase: (phase) => phases.push(phase),
     onOpen: () => { opens += 1; },
     onMessage: (message) => messages.push(message),
     onFrame: () => {},
   }, {
-    open: async (tab, url) => {
-      opened.push({ tab, url });
+    open: async (tab, url, claim) => {
+      opened.push(claim ? { tab, url, popup: claim } : { tab, url });
       const socket = new FakeSocket();
       sockets.push(socket);
       return { socket, urlAuthToken: `token-${sockets.length}` };
@@ -120,6 +120,31 @@ describe('ServerBrowserConnection', () => {
     t.connection.retry();
     await t.flush();
     expect(t.sockets).toHaveLength(2);
+  });
+
+  test('claims a popup until a socket opens, then reconnects by tab alone', async () => {
+    const t = setup('popup-1');
+    t.connection.setActive(true);
+    await t.flush();
+    // A rejected upgrade claimed nothing.
+    t.sockets[0].serverClose(1006);
+    t.timers[0]();
+    await t.flush();
+    t.sockets[1].open();
+    t.sockets[1].serverClose(4001);
+    t.timers[1]();
+    await t.flush();
+    expect(t.opened.map((entry) => entry.popup ?? null)).toEqual(['popup-1', 'popup-1', null]);
+  });
+
+  test('stops when the page closed itself', async () => {
+    const t = setup();
+    t.connection.setActive(true);
+    await t.flush();
+    t.sockets[0].open();
+    t.sockets[0].serverClose(4005);
+    expect(t.phases.at(-1)).toBe('closed');
+    expect(t.timers).toHaveLength(0);
   });
 
   test('drops a URL token whose upgrade was rejected', async () => {

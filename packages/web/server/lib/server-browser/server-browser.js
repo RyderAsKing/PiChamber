@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -17,7 +18,13 @@ const BROWSER_IDLE_MS = 5 * 60 * 1000;
 const MAX_IDLE_TABS = 6;
 const MAX_TABS = 16;
 const MAX_REMEMBERED_URLS = 200;
-const POPUP_URL_WAIT_MS = 3_000;
+// A popup waits this long for the device it opened on to show it.
+const POPUP_CLAIM_MS = 30_000;
+// Popups waiting to be shown; more are closed, so a page cannot pile them up.
+const MAX_WAITING_POPUPS = 4;
+// A page that closed itself stays closed for this long: a device that
+// reconnects to it is told so instead of opening it again.
+const CLOSED_PAGE_MEMORY_MS = 10 * 60 * 1000;
 const CLOSE_TIMEOUT_MS = 5_000;
 // Playwright closes every page before it reports that Chrome exited; a page
 // that closed itself is told apart once Chrome had time to report that.
@@ -25,6 +32,9 @@ const SELF_CLOSE_SETTLE_MS = 250;
 const TAB_KEY_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
 
 export const isValidTabKey = (value) => typeof value === 'string' && TAB_KEY_PATTERN.test(value);
+
+/** Thrown when a viewer opens a page that closed itself or a popup that is gone. */
+const pageClosedError = (message) => Object.assign(new Error(message), { pageClosed: true });
 
 const readJson = (file) => {
   try {
@@ -70,6 +80,10 @@ export const createServerBrowser = ({
   const tabs = new Map();
   const opening = new Map();
   const lastUrls = new Map();
+  // Popups by claim id, until a viewer opens a tab for them.
+  const waitingPopups = new Map();
+  // Keys of pages that closed themselves, with when.
+  const closedPages = new Map();
   // Versions of executables that print none (Chrome on Windows), learned on
   // their first launch.
   const learnedVersions = new Map();
@@ -156,47 +170,80 @@ export const createServerBrowser = ({
     trimIdleTabs();
   };
 
-  // A page closed itself (`window.close()`).
+  const rememberClosedPage = (key) => {
+    closedPages.delete(key);
+    closedPages.set(key, Date.now());
+    if (closedPages.size > MAX_REMEMBERED_URLS) closedPages.delete(closedPages.keys().next().value);
+  };
+
+  const closedItself = (key) => {
+    const at = closedPages.get(key);
+    if (at === undefined) return false;
+    if (Date.now() - at < CLOSED_PAGE_MEMORY_MS) return true;
+    closedPages.delete(key);
+    return false;
+  };
+
+  // A page closed itself (`window.close()`, as a sign-in popup does when it
+  // is done). Its viewers close their tab for it.
   const onTabClosed = (tab) => {
     const timer = setTimeout(() => {
       const entry = entryOf(tab);
       if (!entry) return;
-      forgetTab(entry, 'closed');
+      lastUrls.delete(tab.key);
+      rememberClosedPage(tab.key);
+      forgetTab(entry, 'page-closed');
       scheduleBrowserIdle();
     }, SELF_CLOSE_SETTLE_MS);
     timer.unref?.();
   };
 
-  // A popup is never shown: its first document request names the address,
-  // which loads in the opener's tab instead, under the same rule as a link
-  // the page followed. The new page has no `window.opener`.
-  const popupOwner = (instance) => ({ targetId, opener }) => {
-    let settled = false;
-    const finish = (url) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      instance.guard.removePage(targetId);
-      void instance.guard.closeTarget(targetId);
-      if (url && url !== 'about:blank') opener.openFromPage(url);
-    };
-    const timer = setTimeout(() => finish(''), POPUP_URL_WAIT_MS);
-    timer.unref?.();
-    return {
-      sourceUrl: () => opener.sourceUrl(),
-      consumeUserLoad: () => false,
-      blocked: (url) => {
-        opener.blocked(url, { mainFrame: false });
-        finish('');
-      },
-      admit: (url, { mainFrame }) => {
-        if (!mainFrame) return true;
-        finish(url);
-        return false;
-      },
-      titleChanged: () => {},
-    };
+  const dropWaitingPopup = (id, { close }) => {
+    const waiting = waitingPopups.get(id);
+    if (!waiting) return null;
+    waitingPopups.delete(id);
+    clearTimeout(waiting.timer);
+    waiting.page.off('popup', waiting.closeNested);
+    if (close) void waiting.page.close().catch(() => {});
+    return waiting;
   };
+
+  // A page opened a popup: it becomes a tab of its own and keeps
+  // `window.opener`, so a sign-in popup can report back. The viewer that
+  // gave the opener input last is asked to show it; that device opens a
+  // browser tab, and its first connection claims the popup's page.
+  const onPopup = (opener, popup) => {
+    const viewer = opener.popupViewer();
+    if (!viewer || waitingPopups.size >= MAX_WAITING_POPUPS || tabs.size + waitingPopups.size >= MAX_TABS) {
+      void popup.close().catch(() => {});
+      return;
+    }
+    const id = crypto.randomUUID();
+    const waiting = {
+      page: popup,
+      timer: setTimeout(() => dropWaitingPopup(id, { close: true }), POPUP_CLAIM_MS),
+      // A popup nobody shows yet has no tab to open its own popups in.
+      closeNested: (nested) => void nested.close().catch(() => {}),
+    };
+    waiting.timer.unref?.();
+    waitingPopups.set(id, waiting);
+    popup.on('popup', waiting.closeNested);
+    popup.once('close', () => dropWaitingPopup(id, { close: false }));
+    viewer.sendJson({ type: 'popup', id });
+  };
+
+  // The network rule for a popup until its tab claims it: its first load is
+  // judged as a link its opener followed. A popup whose first load is
+  // blocked closes, and the notice goes to the opener.
+  const popupOwner = (instance) => ({ targetId, opener }) => ({
+    sourceUrl: () => opener.sourceUrl(),
+    consumeUserLoad: () => false,
+    blocked: (url, { mainFrame }) => {
+      opener.blocked(url, { mainFrame: false });
+      if (mainFrame) void instance.guard.closeTarget(targetId);
+    },
+    titleChanged: () => {},
+  });
 
   const stopInstance = async (instance) => {
     instance.stopping = true;
@@ -214,6 +261,7 @@ export const createServerBrowser = ({
     browser = null;
     clearTimeout(browserIdleTimer);
     browserIdleTimer = null;
+    for (const id of [...waitingPopups.keys()]) dropWaitingPopup(id, { close: false });
     for (const entry of [...tabs.values()]) forgetTab(entry, reason);
     if (current) await stopInstance(current);
   };
@@ -260,6 +308,7 @@ export const createServerBrowser = ({
         const reason = instance.stopping ? 'closed' : 'browser-exited';
         if (!instance.stopping) log('[server-browser] Chrome exited unexpectedly');
         void instance.guard.detach();
+        for (const id of [...waitingPopups.keys()]) dropWaitingPopup(id, { close: false });
         for (const entry of [...tabs.values()]) forgetTab(entry, reason);
       });
       try {
@@ -280,16 +329,20 @@ export const createServerBrowser = ({
     }
   };
 
-  const createTab = async (key, url) => {
+  const createTab = async (key, { url, page } = {}) => {
     const instance = await ensureBrowser();
     if (tabs.size >= MAX_TABS) trimIdleTabs();
-    if (tabs.size >= MAX_TABS) throw new Error('Too many server browser tabs are open');
+    if (tabs.size >= MAX_TABS) {
+      if (page) void page.close().catch(() => {});
+      throw new Error('Too many server browser tabs are open');
+    }
     const tab = createServerBrowserTab({
       key,
       openPage: () => instance.context.newPage(),
       guard: instance.guard,
       onEmpty: onTabEmpty,
       onClosed: onTabClosed,
+      onPopup,
       onDownload: (owner, download) => void downloads.add(owner, download),
       log,
     });
@@ -298,7 +351,7 @@ export const createServerBrowser = ({
     clearTimeout(browserIdleTimer);
     browserIdleTimer = null;
     try {
-      await tab.init({ url });
+      await tab.init({ url, page });
     } catch (error) {
       await closeTabEntry(entry, 'closed');
       throw error;
@@ -308,9 +361,12 @@ export const createServerBrowser = ({
 
   /**
    * The page for a PiChamber browser tab, opening it on `url` (or the address
-   * it last showed) when it is not open.
+   * it last showed) when it is not open. `popup` claims a waiting popup as
+   * the tab's page; a popup that is gone, like a page that closed itself,
+   * throws an error with `pageClosed`. A claim never loads an address, so a
+   * popup the network rule closed cannot be loaded as if it were typed.
    */
-  const openTab = async (key, { url } = {}) => {
+  const openTab = async (key, { url, popup } = {}) => {
     if (!isValidTabKey(key)) throw new Error('Invalid tab');
     const existing = tabs.get(key);
     if (existing) {
@@ -319,8 +375,16 @@ export const createServerBrowser = ({
       return existing.tab;
     }
     if (opening.has(key)) return opening.get(key);
-    const startUrl = normalizeServerBrowserUrl(url || '') ?? null;
-    const promise = createTab(key, startUrl && startUrl !== 'about:blank' ? startUrl : lastUrls.get(key));
+    if (closedItself(key)) throw pageClosedError('The page closed itself');
+    let promise;
+    if (popup) {
+      const waiting = dropWaitingPopup(popup, { close: false });
+      if (!waiting || waiting.page.isClosed()) throw pageClosedError('The popup closed');
+      promise = createTab(key, { page: waiting.page });
+    } else {
+      const startUrl = normalizeServerBrowserUrl(url || '') ?? null;
+      promise = createTab(key, { url: startUrl && startUrl !== 'about:blank' ? startUrl : lastUrls.get(key) });
+    }
     opening.set(key, promise);
     try {
       return await promise;
@@ -331,6 +395,7 @@ export const createServerBrowser = ({
 
   const closeTab = async (key) => {
     lastUrls.delete(key);
+    closedPages.delete(key);
     const entry = tabs.get(key);
     if (entry) await closeTabEntry(entry, 'closed');
   };

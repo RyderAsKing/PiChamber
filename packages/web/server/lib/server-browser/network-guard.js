@@ -193,6 +193,8 @@ export const createNetworkGuard = ({ lookup = lookupAll, onPopupTarget = () => n
       });
       session.on('Target.targetDestroyed', ({ targetId }) => {
         parents.delete(targetId);
+        // A popup that closed before a tab claimed it.
+        owners.delete(targetId);
       });
       await session.send('Target.setDiscoverTargets', { discover: true });
       await session.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] });
