@@ -1,11 +1,9 @@
-import { invokeDesktop } from '@/lib/desktop';
+import { hasDesktopInvoke, invokeDesktop } from '@/lib/desktop';
 import {
   formatPreviewAnnotationMarkdown,
-  getBrowserProxyTargetKey,
   getCachedProxyTarget,
   isPreviewElementMetadata,
   previewProxyTargetCache,
-  type CachedProxyTarget,
   type PreviewElementMetadata,
 } from './previewTypes';
 import {
@@ -24,13 +22,11 @@ import {
 } from './snapdomPlugins';
 
 export type {
-  CachedProxyTarget,
   PreviewElementMetadata,
 };
 
 export {
   formatPreviewAnnotationMarkdown,
-  getBrowserProxyTargetKey,
   getCachedProxyTarget,
   isPreviewElementMetadata,
   previewProxyTargetCache,
@@ -40,7 +36,9 @@ export const renderPreviewScreenshot = async (
   iframe: HTMLIFrameElement,
   target: PreviewElementMetadata,
 ): Promise<File | null> => {
-  if (typeof window !== 'undefined') {
+  // Web, hosted mobile, and Capacitor have no desktop bridge; they, and a
+  // failed desktop capture, capture the iframe's page in-process.
+  if (hasDesktopInvoke()) {
     try {
       const rect = iframe.getBoundingClientRect();
       const capture = await invokeDesktop<{ mime: string; base64: string; width: number; height: number }>('desktop_capture_page_rect', {
@@ -82,7 +80,6 @@ export const renderPreviewScreenshot = async (
       return new File([blob], `preview-annotation-${Date.now()}.jpg`, { type: 'image/jpeg' });
     } catch (error) {
       console.warn('[preview] failed to capture annotation screenshot:', error);
-      return null;
     }
   }
   return await captureIframeDomScreenshot(iframe, target);

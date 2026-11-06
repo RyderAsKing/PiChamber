@@ -102,11 +102,3 @@ export const getCachedProxyTarget = (url: string): CachedProxyTarget | null => {
   }
   return entry;
 };
-
-export const getBrowserProxyTargetKey = (url: string): string => {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return url;
-  }
-};
