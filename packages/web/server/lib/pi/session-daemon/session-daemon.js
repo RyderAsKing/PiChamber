@@ -296,7 +296,7 @@ export function createSessionDaemon({
   // are registered); every routing branch guards on `size > 0` so the
   // zero-engine path runs exactly the Pi-only code.
   let engineRegistry;
-  let runtimeStartPromise;
+  const runtimeStartPromises = new Map();
   let idleDisposeTimer;
   let dormantSession;
   let sequence = 0;
@@ -854,7 +854,7 @@ export function createSessionDaemon({
     }
   };
 
-  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile } = {}) => {
+  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile, activate = true } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
     const canonicalRuntimeCwd = sessionFile && dormantSession?.cwd
       ? dormantSession.cwd
@@ -880,21 +880,57 @@ export function createSessionDaemon({
       });
     }
     runtimeRegistry.register(newRuntime, { cwd: canonicalRuntimeCwd });
-    runtime = newRuntime;
-    activeDirectory = canonicalRuntimeCwd;
     rebuildSessionExtensionState(newRuntime);
-    rememberRuntimeSession();
+    if (activate) {
+      runtime = newRuntime;
+      activeDirectory = canonicalRuntimeCwd;
+      rememberRuntimeSession();
+      return newRuntime;
+    }
+    // A runtime started to answer for another directory stays non-active: it
+    // must not take over the daemon's active runtime or active directory, and
+    // it must not replace the dormant session belonging to the active project.
+    // It is view-only state, so it gets the same idle lifetime as any other
+    // browse-only session; reading many projects cannot accumulate runtimes.
+    touchIdleDisposal(newRuntime.session?.sessionId);
     return newRuntime;
   };
 
   const ensureRuntime = (targetCwd = activeDirectory || cwd) => {
-    if (runtime) return Promise.resolve(runtime);
-    if (!runtimeStartPromise) {
-      runtimeStartPromise = startRuntime({ cwd: targetCwd, sessionFile: dormantSession?.sessionFile }).finally(() => {
-        runtimeStartPromise = undefined;
+    const requestedCwd = resolve(targetCwd);
+    // Runtime state is owned per working directory. A request that names a
+    // directory is answered by a runtime resident in that directory, never by
+    // the active runtime of a different project, whose loaded extensions,
+    // skills, prompts, and models would then be reported for the wrong project.
+    const resident = runtimeRegistry?.listByDirectory?.(requestedCwd) ?? [];
+    const candidate = resident.includes(runtime) ? runtime : resident[0];
+    if (candidate) return Promise.resolve(candidate);
+
+    // Concurrent starts are shared per directory, never across directories.
+    let pendingStart = runtimeStartPromises.get(requestedCwd);
+    if (!pendingStart) {
+      // The last opened JSONL is reopened for the directory that owns it, and
+      // only there; a different directory starts its own Pi session.
+      const sessionFile = dormantSession?.sessionFile
+        && resolve(dormantSession.cwd || cwd) === requestedCwd
+        ? dormantSession.sessionFile
+        : undefined;
+      pendingStart = startRuntime({
+        cwd: requestedCwd,
+        sessionFile,
+        // Only a start for the active directory, on a daemon without an active
+        // runtime, adopts what it starts. After idle disposal clears `runtime`,
+        // `activeDirectory` still names the user's project, so reading another
+        // project's catalog leaves that project and its dormant session intact.
+        activate: !runtime && requestedCwd === resolve(activeDirectory || cwd),
+      }).finally(() => {
+        if (runtimeStartPromises.get(requestedCwd) === pendingStart) {
+          runtimeStartPromises.delete(requestedCwd);
+        }
       });
+      runtimeStartPromises.set(requestedCwd, pendingStart);
     }
-    return runtimeStartPromise;
+    return pendingStart;
   };
 
   const beginSessionInput = (targetRuntime) => {
@@ -2121,20 +2157,32 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
-  let refreshProvidersInflight = null;
+  // In-flight refreshes are shared per resolved directory, never across
+  // directories, so a concurrent refresh for another project cannot return
+  // this project's catalog. Refreshes for different directories still run one
+  // after another: each touches every resident ModelRuntime and installs
+  // temporary catalog keys, which must not interleave.
+  const refreshProvidersInflight = new Map();
+  let refreshProvidersQueue = Promise.resolve();
   const refreshProviders = async (requestedDirectory) => {
     try {
       await flushPendingRuntimeRecreation();
     } catch {
       // A failed rebuild stays queued for a later edge; the catalog refresh below retries startup.
     }
-    if (refreshProvidersInflight) return refreshProvidersInflight;
-    const task = (async () => {
+    const targetDir = resolve(await resolveDirectory(requestedDirectory));
+    const existing = refreshProvidersInflight.get(targetDir);
+    if (existing) return existing;
+    const task = refreshProvidersQueue.then(async () => {
       const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(15_000) : undefined;
       // Refresh only live runtimes. Transient prompt-mutation services are never
-      // retained, so there are no orphan ModelRuntimes to refresh here; the
-      // returned catalog always comes from the active runtime via listProviders.
+      // retained, so there are no orphan ModelRuntimes to refresh here. The
+      // requested directory's runtime is always included (started if it is not
+      // resident) because the returned catalog comes from it via listProviders.
       const runtimes = new Set();
+      const target = await ensureRuntime(targetDir);
+      if (target?.session?.modelRuntime) runtimes.add(target.session.modelRuntime);
+      if (target?.services?.modelRuntime) runtimes.add(target.services.modelRuntime);
       if (runtime?.session?.modelRuntime) runtimes.add(runtime.session.modelRuntime);
       if (runtime?.services?.modelRuntime) runtimes.add(runtime.services.modelRuntime);
       if (runtimeRegistry?.listAll) {
@@ -2144,11 +2192,6 @@ export function createSessionDaemon({
             if (mr) runtimes.add(mr);
           }
         } catch {}
-      }
-      if (runtimes.size === 0) {
-        const active = await ensureRuntime(requestedDirectory ? await resolveDirectory(requestedDirectory) : undefined);
-        const mr = active?.session?.modelRuntime ?? active?.services?.modelRuntime;
-        if (mr) runtimes.add(mr);
       }
       const dummyMap = new Map();
       for (const mr of runtimes) {
@@ -2194,12 +2237,13 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('PI_MODEL_CONFIG_INVALID', 'Pi models configuration is invalid.');
         }
       }
-      const catalog = await listProviders(requestedDirectory);
+      const catalog = await listProviders(targetDir);
       return catalog;
-    })().finally(() => {
-      refreshProvidersInflight = null;
+    }).finally(() => {
+      if (refreshProvidersInflight.get(targetDir) === task) refreshProvidersInflight.delete(targetDir);
     });
-    refreshProvidersInflight = task;
+    refreshProvidersInflight.set(targetDir, task);
+    refreshProvidersQueue = task.catch(() => {});
     return task;
   };
 
