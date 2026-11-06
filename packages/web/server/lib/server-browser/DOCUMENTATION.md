@@ -127,9 +127,10 @@ reopens the tab at its last address.
   such pages stay open and 16 in total. Chrome exits 5 minutes after its last
   page closes and restarts on demand. Reopened tabs load their remembered
   address.
-- **Sandbox.** As root, Chrome refuses its sandbox. PiChamber runs it
-  without the sandbox only after the person allows it in the setup panel
-  (`settings.json`) or `PICHAMBER_BROWSER_NO_SANDBOX=1` is set.
+- **Sandbox.** Chrome runs without its sandbox only after the person allows
+  it in the setup panel (`settings.json`) or `PICHAMBER_BROWSER_NO_SANDBOX=1`
+  is set. The panel offers it when Chrome refuses its sandbox as root or
+  cannot create one (no user namespaces).
 - **Downloads.** Headless Chrome has no PDF viewer, so PDFs arrive as
   downloads. The newest 50 downloads are kept.
 

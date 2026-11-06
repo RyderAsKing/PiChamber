@@ -80,7 +80,9 @@ export const createServerBrowser = ({
   const uploads = new Map();
   const pendingPopups = new Map();
 
-  const noSandbox = () => isRoot && (settings.allowNoSandbox === true || envNoSandbox);
+  // Root needs it (Chrome refuses its sandbox as root); elsewhere it is for
+  // servers where Chrome cannot create the sandbox (no user namespaces).
+  const noSandbox = () => settings.allowNoSandbox === true || envNoSandbox;
 
   const status = () => {
     const executable = findExecutable();
