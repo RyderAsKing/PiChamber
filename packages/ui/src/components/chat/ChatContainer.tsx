@@ -262,6 +262,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         currentSessionId,
         currentSessionKey,
         sessionMessageCount,
+        latestTailEntryId: sessionNotices.at(-1)?.id ?? null,
         sessionIsWorking: autoFollowActive,
         isMobile,
         onActiveTurnChange: handleActiveTurnChange,

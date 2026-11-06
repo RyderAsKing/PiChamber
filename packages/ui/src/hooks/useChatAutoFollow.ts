@@ -35,6 +35,7 @@ export const useChatAutoFollow = ({
   currentSessionId,
   currentSessionKey,
   sessionMessageCount,
+  latestTailEntryId = null,
   sessionIsWorking,
   isMobile,
   onActiveTurnChange,
@@ -385,6 +386,24 @@ export const useChatAutoFollow = ({
   React.useEffect(() => {
     updateOverflowAndButton();
   }, [sessionMessageCount, updateOverflowAndButton]);
+
+  // Rows can land while the session is idle: an extension notice or card from
+  // a timer, a recorded shell command, a message from another device. The
+  // resize path only follows during a turn, so follow an idle append here
+  // while the reader is still at the bottom. The entry stick keeps up with the
+  // row's async render growth; scrolling up releases it.
+  const tailRef = React.useRef<{ key: string | null; count: number; tailId: string | null } | null>(null);
+  React.useEffect(() => {
+    const previous = tailRef.current;
+    tailRef.current = { key: currentSessionKey, count: sessionMessageCount, tailId: latestTailEntryId };
+    if (!previous || !currentSessionKey || previous.key !== currentSessionKey) return;
+    const appended = sessionMessageCount > previous.count
+      || (latestTailEntryId !== null && latestTailEntryId !== previous.tailId);
+    if (!appended) return;
+    if (sessionIsWorkingRef.current || stateRef.current !== 'following') return;
+    scrollToBottom(true);
+    beginEntryStick();
+  }, [beginEntryStick, currentSessionKey, latestTailEntryId, scrollToBottom, sessionMessageCount]);
 
   const notifyContentChange = React.useCallback(
     (reason?: ContentChangeReason) => {
