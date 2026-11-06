@@ -325,6 +325,10 @@ export const createExtensionBridge = ({
     const tuiStub = createTuiStub(sessionId);
 
     const dialog = (method, fields, opts, parseResponse) => {
+      // An already-aborted signal never fires `abort`, so the dialog would
+      // never settle. Cancel up front like Pi's TUI: nothing is shown and no
+      // pending input is recorded.
+      if (opts?.signal?.aborted) return Promise.resolve(parseResponse({}));
       const requestId = randomUUID();
       return new Promise((resolve) => {
         const settle = (response, reason = 'answered') => {

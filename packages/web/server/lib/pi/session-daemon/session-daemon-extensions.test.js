@@ -1156,6 +1156,27 @@ describe('extension bridge pending-input failures', () => {
     return { bridge, published };
   };
 
+  it('cancels a dialog whose signal is already aborted without showing it', async () => {
+    const opened = [];
+    const { bridge, published } = makeBridge({
+      open: (entry) => { opened.push(entry); },
+      close: () => {},
+    });
+    const bindings = bridge.buildExtensionBindings({
+      sessionId: 's1',
+      sessionManager: {},
+      modelRuntime: undefined,
+    });
+    const controller = new AbortController();
+    controller.abort();
+    const ui = bindings.uiContext;
+    await expect(ui.confirm('Dangerous?', 'Allow?', { signal: controller.signal })).resolves.toBe(false);
+    await expect(ui.select('Pick', ['a', 'b'], { signal: controller.signal })).resolves.toBeUndefined();
+    await expect(ui.input('Name', 'placeholder', { signal: controller.signal })).resolves.toBeUndefined();
+    expect(published.filter((entry) => entry.event.startsWith('extension.dialog'))).toEqual([]);
+    expect(opened).toEqual([]);
+  });
+
   it('still delivers and settles a dialog when the pending-input index throws', async () => {
     const throwing = {
       open: () => { throw new Error('index exploded'); },
