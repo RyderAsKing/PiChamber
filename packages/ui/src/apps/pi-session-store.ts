@@ -2966,8 +2966,10 @@ export class PiSessionStore {
         bySession: new Map(this.state.reducer.bySession),
         lastSequence: new Map(this.state.reducer.lastSequence),
       };
+      // The cursor stays: the row's own sequence can trail it (open
+      // requests advance only the cursor), and moving it back would let a
+      // replayed event apply twice.
       reducer.bySession.set(sessionId, merged);
-      reducer.lastSequence.set(sessionId, merged.lastSequence);
       this.state = { ...this.state, reducer };
       this.touchLastAccess(sessionId);
       this.emit([`session:${sessionId}`]);
