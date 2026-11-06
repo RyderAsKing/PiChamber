@@ -417,12 +417,15 @@ export const createServerBrowser = ({
     return clearing;
   };
 
+  const removeUpload = (id) => {
+    const upload = uploads.get(id);
+    if (!upload) return;
+    uploads.delete(id);
+    clearTimeout(upload.timer);
+    void fs.promises.rm(path.dirname(upload.path), { recursive: true, force: true }).catch(() => {});
+  };
+
   const saveUpload = async ({ name, stream, maxBytes = Infinity }) => {
-    for (const upload of [...uploads.values()]) {
-      if (Date.now() - upload.createdAt < UPLOAD_TTL_MS) continue;
-      uploads.delete(upload.id);
-      await fs.promises.rm(path.dirname(upload.path), { recursive: true, force: true }).catch(() => {});
-    }
     const id = crypto.randomUUID();
     const dir = path.join(uploadsDir, id);
     await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
@@ -444,13 +447,18 @@ export const createServerBrowser = ({
       await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
       throw error;
     }
-    uploads.set(id, { id, path: file, createdAt: Date.now() });
+    const timer = setTimeout(() => removeUpload(id), UPLOAD_TTL_MS);
+    timer.unref?.();
+    uploads.set(id, { id, path: file, createdAt: Date.now(), timer });
     return { id };
   };
 
+  // The expiry timer can run late (a busy or suspended server); an expired
+  // upload is never handed to a page.
   const uploadPaths = (ids) => (Array.isArray(ids) ? ids : [])
-    .map((id) => uploads.get(id)?.path)
-    .filter((file) => typeof file === 'string');
+    .map((id) => uploads.get(id))
+    .filter((upload) => upload && Date.now() - upload.createdAt < UPLOAD_TTL_MS)
+    .map((upload) => upload.path);
 
   const getDownload = (id) => {
     const download = downloads.get(id);
@@ -460,6 +468,8 @@ export const createServerBrowser = ({
 
   const shutdown = async () => {
     await stopBrowser('closed');
+    for (const upload of uploads.values()) clearTimeout(upload.timer);
+    uploads.clear();
     await fs.promises.rm(uploadsDir, { recursive: true, force: true }).catch(() => {});
   };
 

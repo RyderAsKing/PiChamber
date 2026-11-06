@@ -360,14 +360,22 @@ describe('server browser lifecycle', () => {
     expect(launches).toEqual([false, false]);
   });
 
-  it('removes uploads after an hour', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
+  it('removes uploads after an hour, with no later upload', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
     const { browser } = create(async () => fakeChrome());
     const old = await browser.saveUpload({ name: 'old.txt', stream: Readable.from(['old']) });
     const [oldPath] = browser.uploadPaths([old.id]);
-    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
-    await browser.saveUpload({ name: 'new.txt', stream: Readable.from(['new']) });
+    expect(fs.existsSync(oldPath)).toBe(true);
+    await vi.advanceTimersByTimeAsync(61 * 60 * 1000);
+    await vi.waitFor(() => expect(fs.existsSync(oldPath)).toBe(false));
     expect(browser.uploadPaths([old.id])).toEqual([]);
-    expect(fs.existsSync(oldPath)).toBe(false);
+  });
+
+  it('never hands a page an upload past its hour, even before it is removed', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { browser } = create(async () => fakeChrome());
+    const upload = await browser.saveUpload({ name: 'late.txt', stream: Readable.from(['late']) });
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    expect(browser.uploadPaths([upload.id])).toEqual([]);
   });
 });
