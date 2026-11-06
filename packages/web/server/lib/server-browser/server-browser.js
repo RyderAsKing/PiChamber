@@ -67,7 +67,9 @@ export const createServerBrowser = ({
   const profileDir = path.join(root, 'profile');
   const settingsFile = path.join(root, 'settings.json');
   const downloads = createDownloadStore({ dir: path.join(root, 'downloads'), log });
-  const uploads = createUploadStore({ dir: path.join(root, 'uploads') });
+  const uploads = createUploadStore();
+  // Uploads were files here before they were held in memory.
+  void fs.promises.rm(path.join(root, 'uploads'), { recursive: true, force: true }).catch(() => {});
 
   let settings = { allowNoSandbox: false, ...(readJson(settingsFile) || {}) };
   const envNoSandbox = env.PICHAMBER_BROWSER_NO_SANDBOX === '1';
@@ -412,7 +414,7 @@ export const createServerBrowser = ({
 
   const shutdown = async () => {
     await stopBrowser('closed');
-    await uploads.clear();
+    uploads.clear();
   };
 
   return {
@@ -422,7 +424,7 @@ export const createServerBrowser = ({
     closeTab,
     clearData,
     saveUpload: (upload) => uploads.save(upload),
-    uploadPaths: (ids) => uploads.paths(ids),
+    takeUploads: (ids) => uploads.take(ids),
     getDownload: (id) => downloads.get(id),
     shutdown,
   };

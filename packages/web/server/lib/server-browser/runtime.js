@@ -5,10 +5,10 @@ import { WebSocketServer } from 'ws';
 import { createDevServerFinder } from './dev-servers.js';
 import { createFramePolicyChecker } from './frame-policy.js';
 import { createServerBrowser, isValidTabKey } from './server-browser.js';
+import { MAX_CHOOSER_BYTES } from './uploads.js';
 
 const SERVER_BROWSER_WS_PATH = '/api/server-browser/ws';
 const MAX_CLIENT_MESSAGE_BYTES = 2 * 1024 * 1024;
-const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 const HEARTBEAT_MS = 30_000;
 // A viewer whose socket holds this much unsent data is too slow to keep up:
 // it is disconnected and reconnects to a fresh stream.
@@ -102,9 +102,11 @@ export const createServerBrowserRuntime = ({
 
   app.post('/api/server-browser/uploads', async (req, res) => {
     const name = typeof req.query?.name === 'string' ? req.query.name : 'file';
-    if (Number(req.headers['content-length'] || 0) > MAX_UPLOAD_BYTES) return res.status(413).json({ error: 'File is too large' });
+    const mimeType = typeof req.query?.type === 'string' ? req.query.type : undefined;
+    const lastModified = Number(req.query?.lastModified);
+    if (Number(req.headers['content-length'] || 0) > MAX_CHOOSER_BYTES) return res.status(413).json({ error: 'Files for one upload must be under 50 MB together' });
     try {
-      res.json(await browser.saveUpload({ name, stream: req, maxBytes: MAX_UPLOAD_BYTES }));
+      res.json(await browser.saveUpload({ name, mimeType, lastModified, stream: req }));
     } catch (error) {
       if (res.headersSent) return;
       res.status(error?.code === 'TOO_LARGE' ? 413 : 500).json({ error: error?.message || 'Upload failed' });
@@ -183,7 +185,7 @@ export const createServerBrowserRuntime = ({
         case 'stop': await tab.stop(); return;
         case 'dialog': await tab.respondDialog({ accept: message.accept === true, text: message.text }); return;
         case 'file-chooser':
-          await tab.respondFileChooser({ id: message.id, files: browser.uploadPaths(message.uploadIds) });
+          await tab.respondFileChooser({ id: message.id, files: browser.takeUploads(message.uploadIds) });
           return;
         case 'inspect': {
           const target = await tab.inspectAt(message.x, message.y);

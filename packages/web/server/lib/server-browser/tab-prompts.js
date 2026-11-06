@@ -1,3 +1,5 @@
+import { MAX_CHOOSER_BYTES } from './uploads.js';
+
 const MAX_DIALOG_MESSAGE = 4_000;
 const MAX_PROMPT_TEXT = 10_000;
 
@@ -72,14 +74,25 @@ export const createTabPrompts = ({ broadcast, hasViewers, log = () => {} }) => {
       await answer(handle, { accept: accept === true, text: info.kind === 'prompt' ? text : undefined });
     },
 
-    /** Gives the page the files (paths on the server) for chooser `id`. */
+    /**
+     * Gives the page the files (`{ name, mimeType, buffer }`) for chooser
+     * `id`; none cancels it. Files the page cannot take send an
+     * `upload-failed` notice.
+     */
     async respondFileChooser({ id, files }) {
       if (!chooser || chooser.id !== id) return;
       const { handle, multiple } = chooser;
       closeChooser();
       if (!Array.isArray(files) || files.length === 0) return;
-      await handle.setFiles(multiple ? files : files.slice(0, 1)).catch((error) => {
+      const picked = multiple ? files : files.slice(0, 1);
+      const failed = (message) => broadcast({ type: 'notice', kind: 'upload-failed', message });
+      if (picked.reduce((total, file) => total + file.buffer.byteLength, 0) > MAX_CHOOSER_BYTES) {
+        failed('Files for one upload must be under 50 MB together');
+        return;
+      }
+      await handle.setFiles(picked).catch((error) => {
         log(`[server-browser] file chooser: ${error?.message || error}`);
+        failed('The page did not take the files');
       });
     },
 

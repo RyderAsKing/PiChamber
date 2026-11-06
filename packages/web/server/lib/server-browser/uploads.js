@@ -1,71 +1,78 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
 import { safeFileName } from './downloads.js';
 
-// A page reads an uploaded file when it submits, so files stay this long.
-const UPLOAD_TTL_MS = 60 * 60 * 1000;
+/**
+ * Files one file chooser answer can give a page, together. Playwright passes
+ * in-memory files to the page and refuses 50 MB or more in one call.
+ */
+export const MAX_CHOOSER_BYTES = 50 * 1024 * 1024 - 1;
+// Uploads wait here only between their upload and the chooser answer.
+const UPLOAD_HOLD_MS = 10 * 60 * 1000;
+// Memory all waiting uploads may take together.
+const MAX_HELD_BYTES = 4 * MAX_CHOOSER_BYTES;
+
+const tooLarge = (message) => Object.assign(new Error(message), { code: 'TOO_LARGE' });
+
+const MIME_TYPE = /^[\w.+-]+\/[\w.+-]+$/;
 
 /**
- * Files the person picked for a page's file chooser, stored under `dir`
- * (owner-only) until the page has had time to read them. `dir` is emptied on
- * start and on shutdown.
+ * Files the person picked for a page's file chooser, held in memory until
+ * the chooser answer takes them. The page then holds them itself, as files
+ * picked in a desktop browser; nothing is written to the server's disk.
  */
-export const createUploadStore = ({ dir }) => {
+export const createUploadStore = () => {
   const uploads = new Map();
-  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* unreadable; left alone */ }
+  let heldBytes = 0;
 
-  const remove = (id) => {
+  const drop = (id) => {
     const upload = uploads.get(id);
-    if (!upload) return;
+    if (!upload) return null;
     uploads.delete(id);
     clearTimeout(upload.timer);
-    void fs.promises.rm(path.dirname(upload.path), { recursive: true, force: true }).catch(() => {});
+    heldBytes -= upload.buffer.byteLength;
+    return upload;
   };
 
   return {
-    async save({ name, stream, maxBytes = Infinity }) {
-      const id = crypto.randomUUID();
-      const uploadDir = path.join(dir, id);
-      await fs.promises.mkdir(uploadDir, { recursive: true, mode: 0o700 });
-      const file = path.join(uploadDir, safeFileName(name));
+    /** Reads one file from `stream`; returns its id. */
+    async save({ name, mimeType, lastModified, stream }) {
+      const chunks = [];
       let received = 0;
-      const limit = new Transform({
-        transform(chunk, _encoding, callback) {
-          received += chunk.length;
-          if (received > maxBytes) {
-            callback(Object.assign(new Error('File is too large'), { code: 'TOO_LARGE' }));
-            return;
-          }
-          callback(null, chunk);
-        },
-      });
-      try {
-        await pipeline(stream, limit, fs.createWriteStream(file, { mode: 0o600 }));
-      } catch (error) {
-        await fs.promises.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
-        throw error;
+      for await (const data of stream) {
+        const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        received += chunk.length;
+        if (received > MAX_CHOOSER_BYTES) throw tooLarge('Files for one upload must be under 50 MB together');
+        if (heldBytes + received > MAX_HELD_BYTES) throw tooLarge('Too many uploads are waiting for a page');
+        chunks.push(chunk);
       }
-      const timer = setTimeout(() => remove(id), UPLOAD_TTL_MS);
+      const buffer = Buffer.concat(chunks);
+      if (heldBytes + buffer.byteLength > MAX_HELD_BYTES) throw tooLarge('Too many uploads are waiting for a page');
+      const id = crypto.randomUUID();
+      const timer = setTimeout(() => drop(id), UPLOAD_HOLD_MS);
       timer.unref?.();
-      uploads.set(id, { id, path: file, createdAt: Date.now(), timer });
+      heldBytes += buffer.byteLength;
+      uploads.set(id, {
+        name: safeFileName(name),
+        mimeType: typeof mimeType === 'string' && MIME_TYPE.test(mimeType) ? mimeType : undefined,
+        lastModifiedMs: Number.isFinite(lastModified) && lastModified > 0 ? lastModified : undefined,
+        buffer,
+        timer,
+      });
       return { id };
     },
 
-    // The expiry timer can run late (a busy or suspended server); an expired
-    // upload is never handed to a page.
-    paths: (ids) => (Array.isArray(ids) ? ids : [])
-      .map((id) => uploads.get(id))
-      .filter((upload) => upload && Date.now() - upload.createdAt < UPLOAD_TTL_MS)
-      .map((upload) => upload.path),
+    /**
+     * Takes the uploads `ids` names, for a chooser answer; each can be taken
+     * once. Unknown and expired ids are left out.
+     */
+    take: (ids) => (Array.isArray(ids) ? ids : [])
+      .map((id) => drop(id))
+      .filter(Boolean)
+      .map(({ name, mimeType, lastModifiedMs, buffer }) => ({ name, mimeType, lastModifiedMs, buffer })),
 
-    async clear() {
-      for (const upload of uploads.values()) clearTimeout(upload.timer);
-      uploads.clear();
-      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
+    clear() {
+      for (const id of [...uploads.keys()]) drop(id);
     },
   };
 };

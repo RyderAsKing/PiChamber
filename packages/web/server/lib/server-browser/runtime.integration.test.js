@@ -27,7 +27,7 @@ addEventListener('message', (event) => { fetch('/opener-got?d=' + encodeURICompo
 document.getElementById('field').addEventListener('input', (event) => { fetch('/typed?v=' + encodeURIComponent(event.target.value)); });
 document.getElementById('file').addEventListener('change', async (event) => {
   const file = event.target.files[0];
-  fetch('/uploaded?name=' + encodeURIComponent(file.name) + '&text=' + encodeURIComponent(await file.text()));
+  fetch('/uploaded?name=' + encodeURIComponent(file.name) + '&type=' + encodeURIComponent(file.type) + '&text=' + encodeURIComponent(await file.text()));
 });
 </script></body></html>`;
 
@@ -295,9 +295,9 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     await page.waitFor((m) => m.type === 'state' && m.title === 'Test page', 'title');
     await page.click(40, 150);
     const chooser = await page.waitFor((m) => m.type === 'file-chooser', 'file chooser');
-    const upload = await fetch(`http://${base}/api/server-browser/uploads?name=hello.txt`, { method: 'POST', body: 'file contents' }).then((r) => r.json());
+    const upload = await fetch(`http://${base}/api/server-browser/uploads?name=hello.txt&type=text%2Fmarkdown`, { method: 'POST', body: 'file contents' }).then((r) => r.json());
     page.send({ type: 'file-chooser', id: chooser.id, uploadIds: [upload.id] });
-    await page.waitForSeen(/^\/uploaded\?name=hello\.txt&text=file%20contents$/, 'uploaded file');
+    await page.waitForSeen(/^\/uploaded\?name=hello\.txt&type=text%2Fmarkdown&text=file%20contents$/, 'uploaded file');
     page.socket.close();
   }, 30_000);
 

@@ -35,7 +35,9 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers;
   - `page-scripts.js`: scripts in an isolated world (copy recording, title
     watching, inspect, cursor).
-- `downloads.js` and `uploads.js`: the download and upload stores.
+- `downloads.js`: finished downloads, on disk.
+- `uploads.js`: files picked for a page's file chooser, in memory until the
+  chooser answer takes them.
 - `dev-servers.js`: lists web servers listening on the server's loopback
   interface for the browser's blank page.
 - `frame-policy.js`: whether a public site refuses to be shown in an iframe
@@ -44,7 +46,8 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
 - `runtime.js`: HTTP routes and the viewer WebSocket.
 
 Files live under `<dataDir>/server-browser/`: `profile/` (cookies, logins,
-site data), `downloads/`, `uploads/`, and `settings.json`, all owner-only.
+site data), `downloads/`, and `settings.json`, all owner-only. An
+`uploads/` directory from older versions is deleted on start.
 
 ## Routes
 
@@ -55,8 +58,15 @@ site data), `downloads/`, `uploads/`, and `settings.json`, all owner-only.
   profile is gone. Viewers reconnect and their pages reload, signed out.
 - `DELETE /api/server-browser/tabs/:key`: closes a tab's page (the client
   calls this when a Browser page or the Browser panel tab closes).
-- `POST /api/server-browser/uploads?name=`: stores a file for a page's file
-  chooser (up to 512 MB); returns its id. Uploads are deleted after an hour.
+- `POST /api/server-browser/uploads?name=&type=&lastModified=`: holds a file
+  for a page's file chooser in memory and returns its id. The viewer's
+  `file-chooser` answer names the ids; each can be taken once, and one not
+  taken within 10 minutes is dropped. One answer's files must be under 50 MB
+  together (Playwright's limit for files given from memory, checked on the
+  client first); waiting uploads may take four times that. The page then
+  holds the files itself, so a form sent later still has them, and nothing
+  is written to the server's disk. A file the page cannot take sends an
+  `upload-failed` notice.
 - `GET /api/server-browser/downloads/:id`: a finished download.
 - `GET /api/server-browser/dev-servers?directory=`: web servers on the
   server, the project's own first. Each entry has the port, page title,

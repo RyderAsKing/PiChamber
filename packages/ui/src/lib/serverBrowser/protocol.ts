@@ -59,7 +59,8 @@ export type ServerBrowserScreenshot = {
 type ServerBrowserNotice =
   | { kind: 'blocked-server-network'; url: string }
   | { kind: 'unsupported-address'; url: string }
-  | { kind: 'navigation-failed'; url: string; message?: string };
+  | { kind: 'navigation-failed'; url: string; message?: string }
+  | { kind: 'upload-failed'; message: string };
 
 export type ServerBrowserMessage =
   | ({ type: 'state' } & ServerBrowserPageState)
@@ -122,6 +123,12 @@ export const closeAction = (code: number): 'reconnect' | 'unavailable' | 'stop' 
   // drops all reopen the tab at its last address.
   return 'reconnect';
 };
+
+/**
+ * Bytes one file chooser answer can carry, all files together. Matches
+ * `MAX_CHOOSER_BYTES` on the server: pages get the files from memory.
+ */
+export const MAX_SERVER_BROWSER_UPLOAD_BYTES = 50 * 1024 * 1024 - 1;
 
 export const RECONNECT_DELAYS_MS = [250, 1000, 2000, 4000, 8000];
 

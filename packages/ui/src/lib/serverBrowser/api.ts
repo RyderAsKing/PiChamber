@@ -80,7 +80,8 @@ export const closeServerBrowserTab = (directory: string, pageId: string): void =
 
 /** Sends a file to the server so a page's file input can use it. */
 export const uploadServerBrowserFile = async (file: File): Promise<string> => {
-  const response = await runtimeFetch(`/api/server-browser/uploads?name=${encodeURIComponent(file.name)}`, {
+  const query = new URLSearchParams({ name: file.name, type: file.type, lastModified: String(file.lastModified) });
+  const response = await runtimeFetch(`/api/server-browser/uploads?${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: file,

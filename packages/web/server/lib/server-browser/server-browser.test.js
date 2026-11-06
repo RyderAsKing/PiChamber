@@ -12,7 +12,9 @@ import { classifyLaunchFailure, pageUserAgent } from './chrome-launch.js';
 import { createNetworkGuard, isBlockedServerNetworkLoad } from './network-guard.js';
 import { createServerBrowser } from './server-browser.js';
 import { createTabInput, editingCommandsForKey } from './tab-input.js';
+import { createTabPrompts } from './tab-prompts.js';
 import { createTabStream } from './tab-stream.js';
+import { createUploadStore, MAX_CHOOSER_BYTES } from './uploads.js';
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 
@@ -752,23 +754,68 @@ describe('server browser lifecycle', () => {
     expect(opener.blockedUrls).toEqual([{ url: 'http://127.0.0.1/', mainFrame: false }]);
     expect(guard.closeTarget).toHaveBeenCalledWith('P');
   });
+});
 
-  it('removes uploads after an hour, with no later upload', async () => {
-    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
-    const { browser } = create(async () => fakeContext());
-    const old = await browser.saveUpload({ name: 'old.txt', stream: Readable.from(['old']) });
-    const [oldPath] = browser.uploadPaths([old.id]);
-    expect(fs.existsSync(oldPath)).toBe(true);
-    await vi.advanceTimersByTimeAsync(61 * 60 * 1000);
-    await vi.waitFor(() => expect(fs.existsSync(oldPath)).toBe(false));
-    expect(browser.uploadPaths([old.id])).toEqual([]);
+describe('server browser uploads', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const megabytes = (count) => Readable.from(Array.from({ length: count }, () => Buffer.alloc(1024 * 1024)));
+
+  it('holds a file in memory until one chooser answer takes it', async () => {
+    const uploads = createUploadStore();
+    const { id } = await uploads.save({ name: '../notes.txt', mimeType: 'text/plain', lastModified: 1_700_000_000_000, stream: Readable.from(['hello']) });
+    const [file] = uploads.take([id, 'unknown']);
+    expect(file).toEqual({ name: 'notes.txt', mimeType: 'text/plain', lastModifiedMs: 1_700_000_000_000, buffer: Buffer.from('hello') });
+    expect(uploads.take([id])).toEqual([]);
   });
 
-  it('never hands a page an upload past its hour, even before it is removed', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    const { browser } = create(async () => fakeContext());
-    const upload = await browser.saveUpload({ name: 'late.txt', stream: Readable.from(['late']) });
-    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
-    expect(browser.uploadPaths([upload.id])).toEqual([]);
+  it('ignores a type that is not a MIME type', async () => {
+    const uploads = createUploadStore();
+    const { id } = await uploads.save({ name: 'a.txt', mimeType: 'text/html; charset=x\r\nX: y', stream: Readable.from(['a']) });
+    expect(uploads.take([id])[0].mimeType).toBeUndefined();
+  });
+
+  it('refuses a file of 50 MB, and more waiting than four answers can take', async () => {
+    const uploads = createUploadStore();
+    await expect(uploads.save({ name: 'big.bin', stream: megabytes(50) })).rejects.toMatchObject({ code: 'TOO_LARGE' });
+    for (let index = 0; index < 4; index += 1) await uploads.save({ name: `part${index}`, stream: megabytes(49) });
+    await expect(uploads.save({ name: 'more', stream: megabytes(10) })).rejects.toMatchObject({ code: 'TOO_LARGE' });
+  });
+
+  it('lets an upload go after ten minutes without an answer', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const uploads = createUploadStore();
+    const { id } = await uploads.save({ name: 'late.txt', stream: Readable.from(['late']) });
+    vi.advanceTimersByTime(10 * 60 * 1000);
+    expect(uploads.take([id])).toEqual([]);
+  });
+
+  const chooserFor = ({ multiple = false, setFiles = vi.fn(async () => {}) } = {}) => {
+    const page = new EventEmitter();
+    const messages = [];
+    const prompts = createTabPrompts({ broadcast: (message) => messages.push(message), hasViewers: () => true });
+    prompts.bindPage(page);
+    page.emit('filechooser', { isMultiple: () => multiple, setFiles });
+    const chooser = messages.find((message) => message.type === 'file-chooser');
+    return { prompts, messages, chooser, setFiles };
+  };
+
+  it('gives the page the files a chooser answer names', async () => {
+    const { prompts, chooser, setFiles } = chooserFor();
+    const file = { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('a') };
+    await prompts.respondFileChooser({ id: chooser.id, files: [file, { ...file, name: 'b.txt' }] });
+    expect(setFiles).toHaveBeenCalledWith([file]);
+  });
+
+  it('tells viewers when files are too large together or the page refuses them', async () => {
+    const tooLarge = chooserFor({ multiple: true });
+    const half = { name: 'half.bin', buffer: Buffer.alloc(Math.ceil(MAX_CHOOSER_BYTES / 2) + 1) };
+    await tooLarge.prompts.respondFileChooser({ id: tooLarge.chooser.id, files: [half, half] });
+    expect(tooLarge.setFiles).not.toHaveBeenCalled();
+    expect(tooLarge.messages.at(-1)).toEqual({ type: 'notice', kind: 'upload-failed', message: 'Files for one upload must be under 50 MB together' });
+
+    const refused = chooserFor({ setFiles: vi.fn(async () => { throw new Error('Cannot set buffer'); }) });
+    await refused.prompts.respondFileChooser({ id: refused.chooser.id, files: [{ name: 'a.txt', buffer: Buffer.from('a') }] });
+    expect(refused.messages.at(-1)).toEqual({ type: 'notice', kind: 'upload-failed', message: 'The page did not take the files' });
   });
 });

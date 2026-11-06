@@ -22,6 +22,7 @@ import { ServerBrowserConnection, type ServerBrowserConnectionPhase } from '@/li
 import {
   fitDeviceViewport,
   isPasteShortcut,
+  MAX_SERVER_BROWSER_UPLOAD_BYTES,
   modifiersOf,
   serverBrowserTabKey,
   toPagePoint,
@@ -257,6 +258,8 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
           });
         } else if (message.kind === 'unsupported-address') {
           toast.warning('The server browser opens http and https addresses only');
+        } else if (message.kind === 'upload-failed') {
+          toast.error('Upload failed', { description: message.message });
         } else {
           toast.error(`Could not load ${hostOf(message.url)}`, { description: message.message });
         }
@@ -585,9 +588,17 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
   const chooseFiles = async (files: FileList | null) => {
     const chooser = fileChooser;
     if (!chooser || !files || files.length === 0) return;
+    const picked = chooser.multiple ? Array.from(files) : [files[0]];
+    // The page keeps them in memory, so one answer stays under 50 MB.
+    if (picked.reduce((total, file) => total + file.size, 0) > MAX_SERVER_BROWSER_UPLOAD_BYTES) {
+      toast.warning(picked.length === 1 ? 'The file is too large' : 'The files are too large together', {
+        description: 'The server browser uploads under 50 MB at a time.',
+      });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
     setUploading(true);
     try {
-      const picked = chooser.multiple ? Array.from(files) : [files[0]];
       const uploadIds = await Promise.all(picked.map((file) => uploadServerBrowserFile(file)));
       send({ type: 'file-chooser', id: chooser.id, uploadIds });
     } catch (error) {
