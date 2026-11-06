@@ -17,17 +17,25 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   then `CHROME`, then `PATH` and standard install locations, then the newest
   full Chromium in the Playwright cache) and the install commands shown when
   none is found. PiChamber never downloads or installs a browser.
-- `browser-process.js`: launches Chrome with `--remote-debugging-pipe` and
-  classifies launch failures (missing library, sandbox refused as root, no
-  user namespaces, unknown).
-- `cdp.js`: the DevTools protocol over the pipe (NUL-delimited JSON on fd 3/4)
-  with flat sessions and per-command timeouts.
+- `chrome-launch.js`: starts that Chrome through `playwright-core` (a
+  persistent context on the profile, headless, never a downloaded browser),
+  reads its version for the page user agent, and classifies launch failures
+  from Chrome's output (missing library, sandbox refused as root, no user
+  namespaces, unknown).
 - `server-browser.js`: one Chrome per server, its profile, tabs keyed by the
-  client's tab key, popups, downloads, uploads, idle shutdown, and the
-  sandbox setting (`settings.json`).
-- `browser-tab.js`: one page: screencast, input, navigation and history,
-  dialogs, file choosers, inspect, clipboard, and the
-  server-network rule.
+  client's tab key, popups, idle shutdown, and the sandbox setting
+  (`settings.json`).
+- `network-guard.js`: the server-network rule for every page, on one
+  browser-level DevTools session.
+- `browser-tab.js`: one page: navigation and history, page state, crash
+  recovery, and the viewers. It composes:
+  - `tab-stream.js`: the screencast, frame pacing, and per-viewer acks;
+  - `tab-input.js`: mouse, keyboard, and text input, merged moves and wheel,
+    editing commands, and keys and buttons a viewer still holds;
+  - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers;
+  - `page-scripts.js`: scripts in an isolated world (copy recording, inspect,
+    cursor).
+- `downloads.js` and `uploads.js`: the download and upload stores.
 - `dev-servers.js`: lists web servers listening on the server's loopback
   interface for the browser's blank page.
 - `frame-policy.js`: whether a public site refuses to be shown in an iframe
@@ -122,12 +130,43 @@ reopens the tab at its last address.
   load is cancelled (`Aborted`), the address shown returns to the last
   committed one, and viewers get one `blocked-server-network` notice.
   Subresource requests are not checked.
-- **Popups** are held before they load anything (`Target.setAutoAttach`
-  with `waitForDebuggerOnStart`). Their first document request is cancelled,
-  the popup closes, and its address loads in the opener's tab under the same
-  rule as a followed link. The new page has no `window.opener`.
-- **Page swaps.** Commands to a page retry for up to 3 seconds while Chrome
-  swaps its renderer ("Not attached to an active page").
+- **Request attribution.** The guard pauses every document request
+  (`Fetch`, Request stage) on a browser-level session and finds its page
+  through the frame: the page's own target, frames the page reports
+  (`Page.frameAttached`), and out-of-process frames Chrome reports with their
+  parent (`Target.targetCreated`). A request whose page is still unknown
+  waits up to a second for the link, then is judged as coming from a public
+  page. Playwright's own request routing is not used: it turns off the HTTP
+  cache and hides redirects. Chrome's Local Network Access permission is
+  denied for every page as well.
+- **Popups** are reported before their first request pauses. That request is
+  cancelled, the popup closes, and its address loads in the opener's tab
+  under the same rule as a followed link. The new page has no
+  `window.opener`.
+- **Navigation** commits are not awaited (`waitUntil: 'commit'`, 15-second
+  timeout), so input keeps flowing while a page loads. Only a failure other
+  than an abort sends a `navigation-failed` notice.
+- **Crashes.** A crashed page cannot load again, so Reload replaces it with a
+  new page at the same address. Viewers stay connected.
+- **Scale.** Chrome draws at twice the CSS pixel size
+  (`--force-device-scale-factor=2`), since its screencast ignores an emulated
+  device scale factor, and pages are emulated at the same scale, so every page
+  sees a `devicePixelRatio` of 2. Viewers at a lower pixel ratio get a
+  scaled-down stream. The two scales must match: while they differ, Chrome
+  places input at scaled coordinates.
+- **Frames.** A viewer that joins, and an inspect pick, get the newest
+  screencast frame. Chrome's screenshots are not used: taking one changes the
+  page's emulated scale for a moment, and a click in that moment misses. A
+  viewer whose socket holds more than 8 MB unsent is disconnected.
+- **Stuck commands.** A page command Chrome does not answer within 10 seconds
+  fails, and commands in flight fail at once when the page crashes or is
+  replaced, so one never holds up the viewer's later messages. A new page that
+  is not ready within 5 seconds (its renderer died while starting) is tried
+  once more; a page that turns up late is closed.
+- **History.** A tab's page starts on about:blank. Back is not offered to that
+  entry.
+- **Held input.** When a viewer disconnects, the keys and mouse buttons it
+  still held are released.
 - **Error pages** show the address that failed (`unreachableUrl`), not
   `chrome-error://`.
 - **Keyboard.** Paste uses the device's clipboard (sent as `text`); a copy in
@@ -145,6 +184,8 @@ reopens the tab at its last address.
 
 ## Limits
 
-No audio, no extensions, no DRM video. Pages see the running Chrome's user
-agent and client hints without the `HeadlessChrome` marker, which many sites
-refuse.
+No audio, no extensions, no DRM video. Pages see a regular Chrome user agent
+for the running major version (set for the whole context, so popups and
+out-of-process frames see it too) without the `HeadlessChrome` marker, which
+many sites refuse. Client hints carry Chrome's default brands. Navigation
+history has no back/forward cache, so Back reloads the page.

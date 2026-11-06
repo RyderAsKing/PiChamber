@@ -1,12 +1,12 @@
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { Transform } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
-import { ChromeLaunchError, launchChrome as defaultLaunchChrome } from './browser-process.js';
-import { createServerBrowserTab, normalizeServerBrowserUrl, pageUserAgent } from './browser-tab.js';
+import { createServerBrowserTab, normalizeServerBrowserUrl } from './browser-tab.js';
 import { chromeInstallCommands, findChromeExecutable } from './chrome-executable.js';
+import { ChromeLaunchError, chromeVersion, launchChrome as defaultLaunchChrome, pageUserAgent } from './chrome-launch.js';
+import { createDownloadStore } from './downloads.js';
+import { createNetworkGuard } from './network-guard.js';
+import { createUploadStore } from './uploads.js';
 
 // A tab nobody watches keeps running this long, then its page closes. Its
 // address is remembered, so opening it again reloads that address.
@@ -17,10 +17,11 @@ const BROWSER_IDLE_MS = 5 * 60 * 1000;
 const MAX_IDLE_TABS = 6;
 const MAX_TABS = 16;
 const MAX_REMEMBERED_URLS = 200;
-const MAX_DOWNLOADS = 50;
-const POPUP_URL_WAIT_MS = 3000;
-// A page reads an uploaded file when it submits, so files stay this long.
-const UPLOAD_TTL_MS = 60 * 60 * 1000;
+const POPUP_URL_WAIT_MS = 3_000;
+const CLOSE_TIMEOUT_MS = 5_000;
+// Playwright closes every page before it reports that Chrome exited; a page
+// that closed itself is told apart once Chrome had time to report that.
+const SELF_CLOSE_SETTLE_MS = 250;
 const TAB_KEY_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
 
 export const isValidTabKey = (value) => typeof value === 'string' && TAB_KEY_PATTERN.test(value);
@@ -33,15 +34,10 @@ const readJson = (file) => {
   }
 };
 
-const safeFileName = (value) => {
-  const base = path.basename(String(value || '')).replace(/[\u0000-\u001f<>:"/\\|?*]/g, '_').trim();
-  return (base || 'file').slice(0, 200);
-};
-
 /**
- * The server browser: one headless Chrome on the server, with a page per
- * PiChamber browser tab. People watch and drive pages through viewers; see
- * `DOCUMENTATION.md`.
+ * The server browser: one headless Chrome on the server (driven through
+ * Playwright), with a page per PiChamber browser tab. People watch and drive
+ * pages through viewers; see `DOCUMENTATION.md`.
  */
 export const createServerBrowser = ({
   dataDir,
@@ -51,20 +47,17 @@ export const createServerBrowser = ({
   findExecutable = () => findChromeExecutable({ env, platform }),
   installCommands = () => chromeInstallCommands({ platform }),
   launchChrome = defaultLaunchChrome,
+  readChromeVersion = (executable) => chromeVersion(executable, { env }),
+  createGuard = createNetworkGuard,
   // Extra Chrome flags, for tests (such as `--host-resolver-rules`).
   extraChromeArgs = [],
   log = (message) => console.warn(message),
 }) => {
   const root = path.join(dataDir, 'server-browser');
   const profileDir = path.join(root, 'profile');
-  const downloadsDir = path.join(root, 'downloads');
-  const uploadsDir = path.join(root, 'uploads');
   const settingsFile = path.join(root, 'settings.json');
-
-  // Files from an earlier run are not indexed, so they can never be served.
-  for (const dir of [downloadsDir, uploadsDir]) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* unreadable; left alone */ }
-  }
+  const downloads = createDownloadStore({ dir: path.join(root, 'downloads'), log });
+  const uploads = createUploadStore({ dir: path.join(root, 'uploads') });
 
   let settings = { allowNoSandbox: false, ...(readJson(settingsFile) || {}) };
   const envNoSandbox = env.PICHAMBER_BROWSER_NO_SANDBOX === '1';
@@ -73,15 +66,13 @@ export const createServerBrowser = ({
   let clearing = null;
   let lastFailure = null;
   let browserIdleTimer = null;
+  // Open tabs by key, each with its idle timer.
   const tabs = new Map();
   const opening = new Map();
-  const tabsBySession = new Map();
-  const tabsByTarget = new Map();
-  const tabIdleTimers = new Map();
   const lastUrls = new Map();
-  const downloads = new Map();
-  const uploads = new Map();
-  const popupSessions = new Map();
+  // Versions of executables that print none (Chrome on Windows), learned on
+  // their first launch.
+  const learnedVersions = new Map();
 
   // Root needs it (Chrome refuses its sandbox as root); elsewhere it is for
   // servers where Chrome cannot create the sandbox (no user namespaces).
@@ -93,11 +84,11 @@ export const createServerBrowser = ({
       running: Boolean(browser),
       isRoot,
       platform,
-      allowNoSandbox: settings.allowNoSandbox === true || envNoSandbox,
+      allowNoSandbox: noSandbox(),
       allowNoSandboxFromEnv: envNoSandbox,
       installCommands: installCommands(),
       executable: executable?.path ? { path: executable.path, source: executable.source } : null,
-      version: browser?.version?.product || null,
+      version: browser?.version || null,
     };
     if (!executable) return { ...base, available: false, problem: { kind: 'missing' } };
     if (!executable.path) return { ...base, available: false, problem: { kind: 'missing-env', envKey: executable.envKey } };
@@ -121,14 +112,11 @@ export const createServerBrowser = ({
     if (lastUrls.size > MAX_REMEMBERED_URLS) lastUrls.delete(lastUrls.keys().next().value);
   };
 
-  const forgetTab = (tab, reason) => {
-    rememberUrl(tab.key, tab.state.url);
-    tabs.delete(tab.key);
-    tabsBySession.delete(tab.sessionId);
-    tabsByTarget.delete(tab.targetId);
-    clearTimeout(tabIdleTimers.get(tab.key));
-    tabIdleTimers.delete(tab.key);
-    tab.detachAll(reason);
+  const forgetTab = (entry, reason) => {
+    rememberUrl(entry.tab.key, entry.tab.state.url);
+    if (tabs.get(entry.tab.key) === entry) tabs.delete(entry.tab.key);
+    clearTimeout(entry.idleTimer);
+    entry.tab.detachAll(reason);
   };
 
   const scheduleBrowserIdle = () => {
@@ -141,141 +129,84 @@ export const createServerBrowser = ({
     browserIdleTimer.unref?.();
   };
 
-  const closeTabTarget = async (tab, reason) => {
-    const current = browser;
-    forgetTab(tab, reason);
-    if (current) await current.cdp.send('Target.closeTarget', { targetId: tab.targetId }).catch(() => {});
+  const closeTabEntry = async (entry, reason) => {
+    forgetTab(entry, reason);
+    await entry.tab.close(reason);
     scheduleBrowserIdle();
   };
 
   const trimIdleTabs = () => {
-    const idle = [...tabs.values()].filter((tab) => tab.viewerCount === 0).sort((a, b) => a.lastViewedAt - b.lastViewedAt);
-    while (idle.length > MAX_IDLE_TABS) void closeTabTarget(idle.shift(), 'closed');
+    const idle = [...tabs.values()].filter((entry) => entry.tab.viewerCount === 0).sort((a, b) => a.tab.lastViewedAt - b.tab.lastViewedAt);
+    while (idle.length > MAX_IDLE_TABS) void closeTabEntry(idle.shift(), 'closed');
+  };
+
+  const entryOf = (tab) => {
+    const entry = tabs.get(tab.key);
+    return entry?.tab === tab ? entry : null;
   };
 
   const onTabEmpty = (tab) => {
-    clearTimeout(tabIdleTimers.get(tab.key));
-    const timer = setTimeout(() => {
-      tabIdleTimers.delete(tab.key);
-      if (tab.viewerCount === 0 && tabs.get(tab.key) === tab) void closeTabTarget(tab, 'closed');
+    const entry = entryOf(tab);
+    if (!entry) return;
+    clearTimeout(entry.idleTimer);
+    entry.idleTimer = setTimeout(() => {
+      if (tab.viewerCount === 0 && entryOf(tab) === entry) void closeTabEntry(entry, 'closed');
     }, TAB_IDLE_MS);
-    timer.unref?.();
-    tabIdleTimers.set(tab.key, timer);
+    entry.idleTimer.unref?.();
     trimIdleTabs();
   };
 
-  const tabForFrame = (frameId) => {
-    for (const tab of tabs.values()) if (tab.frameIds.has(frameId)) return tab;
-    return null;
+  // A page closed itself (`window.close()`).
+  const onTabClosed = (tab) => {
+    const timer = setTimeout(() => {
+      const entry = entryOf(tab);
+      if (!entry) return;
+      forgetTab(entry, 'closed');
+      scheduleBrowserIdle();
+    }, SELF_CLOSE_SETTLE_MS);
+    timer.unref?.();
   };
 
-  const publicDownload = (download) => ({
-    type: 'download',
-    id: download.id,
-    filename: download.filename,
-    state: download.state,
-    receivedBytes: download.receivedBytes,
-    totalBytes: download.totalBytes,
-  });
-
-  // A popup starts paused (auto-attach waits for the debugger), so it loads
-  // nothing before this runs. Its first document request names the address:
-  // that request fails here, the popup closes, and the address loads in the
-  // opener's tab, under the same rules as a link the page followed.
-  const handlePopup = (cdp, sessionId, targetInfo, opener) => {
+  // A popup is never shown: its first document request names the address,
+  // which loads in the opener's tab instead, under the same rule as a link
+  // the page followed. The new page has no `window.opener`.
+  const popupOwner = (instance) => ({ targetId, opener }) => {
     let settled = false;
-    const finish = async (url) => {
+    const finish = (url) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      popupSessions.delete(sessionId);
-      await cdp.send('Target.closeTarget', { targetId: targetInfo.targetId }).catch(() => {});
-      if (url && url !== 'about:blank') await opener.navigateFromPage(url);
+      instance.guard.removePage(targetId);
+      void instance.guard.closeTarget(targetId);
+      if (url && url !== 'about:blank') opener.openFromPage(url);
     };
-    const timer = setTimeout(() => void finish(''), POPUP_URL_WAIT_MS);
+    const timer = setTimeout(() => finish(''), POPUP_URL_WAIT_MS);
     timer.unref?.();
-    popupSessions.set(sessionId, (method, params) => {
-      if (method !== 'Fetch.requestPaused') return;
-      void cdp.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Aborted' }, sessionId).catch(() => {});
-      void finish(params.request?.url || '');
-    });
-    void (async () => {
-      await cdp.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, sessionId).catch(() => {});
-      await cdp.send('Runtime.runIfWaitingForDebugger', {}, sessionId).catch(() => {});
-    })();
+    return {
+      sourceUrl: () => opener.sourceUrl(),
+      consumeUserLoad: () => false,
+      blocked: (url) => {
+        opener.blocked(url, { mainFrame: false });
+        finish('');
+      },
+      admit: (url, { mainFrame }) => {
+        if (!mainFrame) return true;
+        finish(url);
+        return false;
+      },
+      titleChanged: () => {},
+    };
   };
 
-  const onBrowserEvent = (cdp, message) => {
-    const { method, params } = message;
-    if (message.sessionId) {
-      const popup = popupSessions.get(message.sessionId);
-      if (popup) popup(method, params);
-      else tabsBySession.get(message.sessionId)?.handleEvent(method, params);
-      return;
-    }
-    switch (method) {
-      case 'Target.attachedToTarget': {
-        // Every new page arrives here paused. Popups of a tab are held;
-        // anything else (the tabs PiChamber creates) is let go at once.
-        // PiChamber's own attachToTarget sessions arrive here too, unpaused.
-        const { sessionId, targetInfo: info } = params;
-        if (!params.waitingForDebugger) return;
-        const opener = info.openerId ? tabsByTarget.get(info.openerId) : null;
-        if (opener && !tabsByTarget.has(info.targetId)) {
-          handlePopup(cdp, sessionId, info, opener);
-          return;
-        }
-        void (async () => {
-          await cdp.send('Runtime.runIfWaitingForDebugger', {}, sessionId).catch(() => {});
-          await cdp.send('Target.detachFromTarget', { sessionId }).catch(() => {});
-        })();
-        return;
-      }
-      case 'Target.targetInfoChanged':
-        tabsByTarget.get(params.targetInfo.targetId)?.updateTitle(params.targetInfo.title);
-        return;
-      case 'Target.targetDestroyed': {
-        const tab = tabsByTarget.get(params.targetId);
-        if (tab) {
-          forgetTab(tab, 'closed');
-          scheduleBrowserIdle();
-        }
-        return;
-      }
-      case 'Browser.downloadWillBegin': {
-        const tab = tabForFrame(params.frameId);
-        if (downloads.size >= MAX_DOWNLOADS) {
-          const [oldest] = downloads.values();
-          downloads.delete(oldest.id);
-          void fs.promises.rm(oldest.path, { force: true }).catch(() => {});
-        }
-        const download = {
-          id: params.guid,
-          filename: safeFileName(params.suggestedFilename),
-          path: path.join(downloadsDir, params.guid),
-          url: params.url,
-          state: 'inProgress',
-          receivedBytes: 0,
-          totalBytes: 0,
-          tabKey: tab?.key || null,
-        };
-        downloads.set(download.id, download);
-        tab?.broadcast(publicDownload(download));
-        return;
-      }
-      case 'Browser.downloadProgress': {
-        const download = downloads.get(params.guid);
-        if (!download) return;
-        download.receivedBytes = params.receivedBytes;
-        download.totalBytes = params.totalBytes;
-        const changedState = download.state !== params.state;
-        download.state = params.state;
-        // Progress arrives often; viewers hear about state changes only.
-        if (changedState && download.tabKey) tabs.get(download.tabKey)?.broadcast(publicDownload(download));
-        return;
-      }
-      default:
-    }
+  const stopInstance = async (instance) => {
+    instance.stopping = true;
+    await instance.guard.detach();
+    let timer;
+    await Promise.race([
+      instance.context.close().catch(() => {}),
+      new Promise((resolve) => { timer = setTimeout(resolve, CLOSE_TIMEOUT_MS); timer.unref?.(); }),
+    ]);
+    clearTimeout(timer);
   };
 
   const stopBrowser = async (reason = 'closed') => {
@@ -283,21 +214,22 @@ export const createServerBrowser = ({
     browser = null;
     clearTimeout(browserIdleTimer);
     browserIdleTimer = null;
-    for (const tab of [...tabs.values()]) forgetTab(tab, reason);
+    for (const entry of [...tabs.values()]) forgetTab(entry, reason);
     if (current) await stopInstance(current);
   };
 
-  const stopInstance = async (current) => {
-    current.stopping = true;
-    await current.cdp.send('Browser.close').catch(() => {});
-    const exited = new Promise((resolve) => {
-      if (current.process.exitCode !== null || current.process.signalCode !== null) resolve();
-      else current.process.once('exit', resolve);
-    });
-    const timer = setTimeout(() => { try { current.process.kill('SIGKILL'); } catch { /* gone */ } }, 3000);
-    timer.unref?.();
-    await exited;
-    clearTimeout(timer);
+  const launch = async (executable) => {
+    const version = learnedVersions.get(executable) ?? await readChromeVersion(executable);
+    const options = { executable, userDataDir: profileDir, noSandbox: noSandbox(), extraArgs: extraChromeArgs, isRoot, env };
+    let context = await launchChrome({ ...options, userAgent: pageUserAgent(version, platform) });
+    const running = context.browser()?.version() || null;
+    if (!version && pageUserAgent(running, platform)) {
+      // The version was unknown until Chrome ran; start again with the user agent.
+      learnedVersions.set(executable, running);
+      await context.close().catch(() => {});
+      context = await launchChrome({ ...options, userAgent: pageUserAgent(running, platform) });
+    }
+    return { context, version: running };
   };
 
   const ensureBrowser = async () => {
@@ -311,41 +243,33 @@ export const createServerBrowser = ({
     }
     launching = (async () => {
       await fs.promises.mkdir(profileDir, { recursive: true, mode: 0o700 });
-      await fs.promises.mkdir(downloadsDir, { recursive: true, mode: 0o700 });
       let launched;
       try {
-        launched = await launchChrome({ executable: current.executable.path, userDataDir: profileDir, noSandbox: noSandbox(), extraArgs: extraChromeArgs, isRoot, env });
+        launched = await launch(current.executable.path);
       } catch (error) {
         const failure = error instanceof ChromeLaunchError ? error.failure : { kind: 'unknown', detail: error?.message || String(error) };
         lastFailure = { kind: 'launch-failed', reason: failure.kind, library: failure.library, detail: failure.detail };
         throw Object.assign(new Error('Server browser failed to start'), { status: status() });
       }
       lastFailure = null;
-      const instance = { ...launched, stopping: false };
-      instance.cdp.onEvent((message) => onBrowserEvent(instance.cdp, message));
-      instance.process.once('exit', () => {
+      const instance = { context: launched.context, version: launched.version, stopping: false, guard: null };
+      instance.guard = createGuard({ onPopupTarget: popupOwner(instance), log });
+      instance.context.on('close', () => {
         if (browser !== instance) return;
         browser = null;
         const reason = instance.stopping ? 'closed' : 'browser-exited';
         if (!instance.stopping) log('[server-browser] Chrome exited unexpectedly');
-        for (const tab of [...tabs.values()]) forgetTab(tab, reason);
+        void instance.guard.detach();
+        for (const entry of [...tabs.values()]) forgetTab(entry, reason);
       });
       try {
-        await instance.cdp.send('Target.setDiscoverTargets', { discover: true });
-        await instance.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'page' }] });
+        await instance.guard.attach(instance.context);
       } catch (error) {
         // Not tracked yet, so nothing else would stop it; a running Chrome
         // keeps the profile locked for the next launch.
         await stopInstance(instance);
         throw error;
       }
-      await instance.cdp.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: downloadsDir, eventsEnabled: true }).catch(() => {});
-      // Public pages may not reach the server's own network from scripts.
-      // Chrome's permission name changed over versions; unknown ones fail.
-      for (const name of ['local-network-access', 'local-network', 'loopback-network']) {
-        await instance.cdp.send('Browser.setPermission', { permission: { name }, setting: 'denied' }).catch(() => {});
-      }
-      instance.userAgent = pageUserAgent(await instance.cdp.send('Browser.getVersion').catch(() => null));
       browser = instance;
       return instance;
     })();
@@ -360,18 +284,23 @@ export const createServerBrowser = ({
     const instance = await ensureBrowser();
     if (tabs.size >= MAX_TABS) trimIdleTabs();
     if (tabs.size >= MAX_TABS) throw new Error('Too many server browser tabs are open');
-    const { targetId } = await instance.cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await instance.cdp.send('Target.attachToTarget', { targetId, flatten: true });
-    const tab = createServerBrowserTab({ key, cdp: instance.cdp, targetId, sessionId, onEmpty: onTabEmpty, log, userAgent: instance.userAgent });
-    tabs.set(key, tab);
-    tabsBySession.set(sessionId, tab);
-    tabsByTarget.set(targetId, tab);
+    const tab = createServerBrowserTab({
+      key,
+      openPage: () => instance.context.newPage(),
+      guard: instance.guard,
+      onEmpty: onTabEmpty,
+      onClosed: onTabClosed,
+      onDownload: (owner, download) => void downloads.add(owner, download),
+      log,
+    });
+    const entry = { tab, idleTimer: null };
+    tabs.set(key, entry);
     clearTimeout(browserIdleTimer);
     browserIdleTimer = null;
     try {
       await tab.init({ url });
     } catch (error) {
-      await closeTabTarget(tab, 'closed');
+      await closeTabEntry(entry, 'closed');
       throw error;
     }
     return tab;
@@ -385,9 +314,9 @@ export const createServerBrowser = ({
     if (!isValidTabKey(key)) throw new Error('Invalid tab');
     const existing = tabs.get(key);
     if (existing) {
-      clearTimeout(tabIdleTimers.get(key));
-      tabIdleTimers.delete(key);
-      return existing;
+      clearTimeout(existing.idleTimer);
+      existing.idleTimer = null;
+      return existing.tab;
     }
     if (opening.has(key)) return opening.get(key);
     const startUrl = normalizeServerBrowserUrl(url || '') ?? null;
@@ -402,8 +331,8 @@ export const createServerBrowser = ({
 
   const closeTab = async (key) => {
     lastUrls.delete(key);
-    const tab = tabs.get(key);
-    if (tab) await closeTabTarget(tab, 'closed');
+    const entry = tabs.get(key);
+    if (entry) await closeTabEntry(entry, 'closed');
   };
 
   /** Clears cookies, logins, and site data by starting over with an empty profile. */
@@ -417,60 +346,9 @@ export const createServerBrowser = ({
     return clearing;
   };
 
-  const removeUpload = (id) => {
-    const upload = uploads.get(id);
-    if (!upload) return;
-    uploads.delete(id);
-    clearTimeout(upload.timer);
-    void fs.promises.rm(path.dirname(upload.path), { recursive: true, force: true }).catch(() => {});
-  };
-
-  const saveUpload = async ({ name, stream, maxBytes = Infinity }) => {
-    const id = crypto.randomUUID();
-    const dir = path.join(uploadsDir, id);
-    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, safeFileName(name));
-    let received = 0;
-    const limit = new Transform({
-      transform(chunk, _encoding, callback) {
-        received += chunk.length;
-        if (received > maxBytes) {
-          callback(Object.assign(new Error('File is too large'), { code: 'TOO_LARGE' }));
-          return;
-        }
-        callback(null, chunk);
-      },
-    });
-    try {
-      await pipeline(stream, limit, fs.createWriteStream(file, { mode: 0o600 }));
-    } catch (error) {
-      await fs.promises.rm(dir, { recursive: true, force: true }).catch(() => {});
-      throw error;
-    }
-    const timer = setTimeout(() => removeUpload(id), UPLOAD_TTL_MS);
-    timer.unref?.();
-    uploads.set(id, { id, path: file, createdAt: Date.now(), timer });
-    return { id };
-  };
-
-  // The expiry timer can run late (a busy or suspended server); an expired
-  // upload is never handed to a page.
-  const uploadPaths = (ids) => (Array.isArray(ids) ? ids : [])
-    .map((id) => uploads.get(id))
-    .filter((upload) => upload && Date.now() - upload.createdAt < UPLOAD_TTL_MS)
-    .map((upload) => upload.path);
-
-  const getDownload = (id) => {
-    const download = downloads.get(id);
-    if (!download || download.state !== 'completed') return null;
-    return { path: download.path, filename: download.filename };
-  };
-
   const shutdown = async () => {
     await stopBrowser('closed');
-    for (const upload of uploads.values()) clearTimeout(upload.timer);
-    uploads.clear();
-    await fs.promises.rm(uploadsDir, { recursive: true, force: true }).catch(() => {});
+    await uploads.clear();
   };
 
   return {
@@ -479,9 +357,9 @@ export const createServerBrowser = ({
     openTab,
     closeTab,
     clearData,
-    saveUpload,
-    uploadPaths,
-    getDownload,
+    saveUpload: (upload) => uploads.save(upload),
+    uploadPaths: (ids) => uploads.paths(ids),
+    getDownload: (id) => downloads.get(id),
     shutdown,
   };
 };

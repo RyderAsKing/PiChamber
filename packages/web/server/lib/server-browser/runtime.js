@@ -10,6 +10,9 @@ const SERVER_BROWSER_WS_PATH = '/api/server-browser/ws';
 const MAX_CLIENT_MESSAGE_BYTES = 2 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 const HEARTBEAT_MS = 30_000;
+// A viewer whose socket holds this much unsent data is too slow to keep up:
+// it is disconnected and reconnects to a fresh stream.
+const MAX_SOCKET_BUFFER_BYTES = 8 * 1024 * 1024;
 // Close codes viewers act on.
 const CLOSE_CODES = { closed: 4000, 'browser-exited': 4001, 'browser-restarting': 4002, unavailable: 4003, 'bad-request': 4004 };
 
@@ -129,13 +132,20 @@ export const createServerBrowserRuntime = ({
     const heartbeat = setInterval(() => { try { socket.ping(); } catch { /* closing */ } }, HEARTBEAT_MS);
     heartbeat.unref?.();
 
-    const sendJson = (message) => {
-      if (socket.readyState === 1) socket.send(JSON.stringify(message));
+    const write = (data, options) => {
+      if (socket.readyState !== 1) return;
+      const bytes = typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+      if (socket.bufferedAmount + bytes > MAX_SOCKET_BUFFER_BYTES) {
+        socket.terminate();
+        return;
+      }
+      socket.send(data, options);
     };
+    const sendJson = (message) => write(JSON.stringify(message));
     const viewer = {
       sendJson,
       sendFrame(frame) {
-        if (socket.readyState === 1) socket.send(frame, { binary: true });
+        write(frame, { binary: true });
       },
       close(reason) {
         if (socket.readyState <= 1) socket.close(CLOSE_CODES[reason] ?? CLOSE_CODES.closed, reason);
@@ -161,17 +171,17 @@ export const createServerBrowserRuntime = ({
       if (!tab) return;
       switch (message.type) {
         case 'viewport': await tab.setViewport(message); return;
-        case 'mouse': await tab.handleMouse(message); return;
-        case 'key': await tab.handleKey(message); return;
+        case 'mouse': await tab.handleMouse(message, viewer); return;
+        case 'key': await tab.handleKey(message, viewer); return;
         case 'text': await tab.insertText(message.text); return;
-        case 'navigate': await tab.navigate(message.url); return;
+        case 'navigate': tab.navigate(message.url); return;
         case 'back': await tab.goBack(); return;
         case 'forward': await tab.goForward(); return;
         case 'reload': await tab.reload(); return;
         case 'stop': await tab.stop(); return;
         case 'dialog': await tab.respondDialog({ accept: message.accept === true, text: message.text }); return;
         case 'file-chooser':
-          await tab.respondFileChooser({ id: message.id, paths: browser.uploadPaths(message.uploadIds) });
+          await tab.respondFileChooser({ id: message.id, files: browser.uploadPaths(message.uploadIds) });
           return;
         case 'inspect': {
           const target = await tab.inspectAt(message.x, message.y);
@@ -179,7 +189,7 @@ export const createServerBrowserRuntime = ({
             sendJson({ type: 'inspect-hover', requestId: message.requestId, target });
             return;
           }
-          const screenshot = target ? await tab.captureViewport().catch(() => null) : null;
+          const screenshot = target ? tab.captureViewport() : null;
           sendJson({ type: 'inspect-pick', requestId: message.requestId, target, screenshot });
           return;
         }

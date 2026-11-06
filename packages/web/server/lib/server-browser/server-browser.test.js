@@ -2,14 +2,19 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { PassThrough, Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createServerBrowserTab, editingCommandsForKey, isBlockedServerNetworkLoad, normalizeServerBrowserUrl, pageUserAgent } from './browser-tab.js';
-import { createCdpConnection } from './cdp.js';
+import { createServerBrowserTab, normalizeServerBrowserUrl } from './browser-tab.js';
 import { findChromeExecutable } from './chrome-executable.js';
+import { classifyLaunchFailure, pageUserAgent } from './chrome-launch.js';
+import { createNetworkGuard, isBlockedServerNetworkLoad } from './network-guard.js';
 import { createServerBrowser } from './server-browser.js';
+import { createTabInput, editingCommandsForKey } from './tab-input.js';
+import { createTabStream } from './tab-stream.js';
+
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 describe('findChromeExecutable', () => {
   const linux = (files, env = {}) => findChromeExecutable({
@@ -35,6 +40,41 @@ describe('findChromeExecutable', () => {
   });
 });
 
+describe('Chrome launch', () => {
+  const launchError = (stderr) => [
+    'browserType.launchPersistentContext: Target page, context or browser has been closed',
+    'Browser logs:',
+    '<launching> /opt/chrome --disable-field-trial-config --no-sandbox --user-data-dir=/data/profile',
+    ...stderr.map((line) => `[pid=42][err] ${line}`),
+    'Call log:',
+    ...stderr.map((line) => `  - [pid=42][err] ${line}`),
+  ].join('\n');
+
+  it('names the missing library from Chrome\'s output', () => {
+    const failure = classifyLaunchFailure(launchError(['/opt/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file']));
+    expect(failure).toMatchObject({ kind: 'missing-library', library: 'libnss3.so' });
+    expect(failure.detail).toBe('/opt/chrome: error while loading shared libraries: libnss3.so: cannot open shared object file');
+  });
+
+  it('tells a sandbox Chrome cannot create apart from one refused as root', () => {
+    const playwrightSandbox = 'browserType.launchPersistentContext: Target page, context or browser has been closed\nBrowser logs:\nChromium sandboxing failed!';
+    expect(classifyLaunchFailure(playwrightSandbox).kind).toBe('sandbox-namespaces');
+    expect(classifyLaunchFailure(launchError(['No usable sandbox! Update your kernel'])).kind).toBe('sandbox-namespaces');
+    expect(classifyLaunchFailure(launchError(['Running as root without --no-sandbox is not supported'])).kind).toBe('sandbox-root');
+  });
+
+  it('does not read the quoted command line as a sandbox failure', () => {
+    expect(classifyLaunchFailure(launchError(['Something else broke']), { isRoot: true })).toMatchObject({ kind: 'unknown', detail: 'Something else broke' });
+  });
+
+  it('presents a regular Chrome of the running version to pages', () => {
+    expect(pageUserAgent('Google Chrome for Testing 156.0.8078.4', 'linux')).toBe('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36');
+    expect(pageUserAgent('156.0.8078.4', 'darwin')).toContain('(Macintosh; Intel Mac OS X 10_15_7)');
+    expect(pageUserAgent(null)).toBeNull();
+    expect(pageUserAgent('Chromium')).toBeNull();
+  });
+});
+
 describe('server browser input', () => {
   it('sends editing commands Chrome does not map itself', () => {
     expect(editingCommandsForKey({ key: 'c', modifiers: { ctrl: true } })).toEqual(['copy']);
@@ -55,102 +95,52 @@ describe('server browser input', () => {
     expect(normalizeServerBrowserUrl('javascript:alert(1)')).toBeNull();
     expect(normalizeServerBrowserUrl('not a url')).toBeNull();
   });
-});
 
-describe('server browser server-network rule on a page', () => {
-  const publicTab = (lookup) => {
-    const sent = [];
-    const cdp = { closed: false, send: (method, params) => { sent.push({ method, ...params }); return Promise.resolve({}); } };
-    const tab = createServerBrowserTab({ key: 'k', cdp, targetId: 't', sessionId: 's', onEmpty: () => {}, lookup });
-    tab.handleEvent('Page.frameNavigated', { frame: { id: 't', url: 'https://public.example/' } });
-    const load = async (requestId, url) => {
-      tab.handleEvent('Fetch.requestPaused', { requestId, frameId: 't', request: { url } });
-      await new Promise((resolve) => setImmediate(resolve));
-    };
-    const outcome = (requestId) => sent.find((entry) => entry.requestId === requestId)?.method;
-    return { tab, load, outcome, sent };
+  const inputWith = (send) => {
+    const input = createTabInput({ onInput: () => {}, cursorAt: async () => 'default', onCursor: () => {}, takeCopy: async () => '', onCopied: () => {} });
+    input.bind(send);
+    return input;
   };
 
-  it('checks the addresses a public page\'s link resolves to', async () => {
-    const answers = { 'rebind.example': '127.0.0.1', 'bench.example': '198.18.0.1', 'nat64.example': '64:ff9b::a00:1' };
-    const { load, outcome } = publicTab(async (host) => [{ address: answers[host] || '93.184.216.34' }]);
-    await load('a', 'http://rebind.example:6379/');
-    await load('b', 'https://other.example/');
-    await load('c', 'http://bench.example/');
-    await load('d', 'http://nat64.example/');
-    expect(['a', 'b', 'c', 'd'].map(outcome)).toEqual(['Fetch.failRequest', 'Fetch.continueRequest', 'Fetch.failRequest', 'Fetch.failRequest']);
-  });
-
-  it('refuses a public page\'s link when its name does not resolve in time', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const answers = {
-        'gone.example': () => Promise.reject(new Error('ENOTFOUND')),
-        'empty.example': async () => [],
-        'slow.example': () => new Promise(() => {}),
-      };
-      const { load, sent } = publicTab((host) => answers[host]());
-      await load('a', 'http://gone.example/');
-      await load('b', 'http://empty.example/');
-      await load('c', 'http://slow.example/');
-      expect(sent.some((entry) => entry.requestId === 'c')).toBe(false);
-      await vi.advanceTimersByTimeAsync(5_000);
-      const result = (requestId) => sent.filter((entry) => entry.requestId === requestId).map(({ method, errorReason }) => [method, errorReason]);
-      expect(['a', 'b', 'c'].map(result)).toEqual([
-        [['Fetch.failRequest', 'NameNotResolved']],
-        [['Fetch.failRequest', 'NameNotResolved']],
-        [['Fetch.failRequest', 'TimedOut']],
-      ]);
-      // Not the server network, so no notice says it was.
-      expect(sent.some((entry) => entry.method === 'Fetch.failRequest' && entry.errorReason === 'Aborted')).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('forgets a reload once it lands, even without a document request', async () => {
-    const { tab, load, outcome } = publicTab(async () => [{ address: '93.184.216.34', family: 4 }]);
-    await tab.reload();
-    // Restored from the back/forward cache: the page commits with no request.
-    tab.handleEvent('Page.frameNavigated', { frame: { id: 't', url: 'https://public.example/' } });
-    await load('c', 'http://10.0.0.1/');
-    expect(outcome('c')).toBe('Fetch.failRequest');
-  });
-
-  it('keeps a typed address the person\'s while the page changes its own URL', async () => {
-    const { tab, load, outcome } = publicTab(async () => [{ address: '93.184.216.34', family: 4 }]);
-    await tab.navigate('http://localhost:3000/#top');
-    tab.handleEvent('Page.navigatedWithinDocument', { frameId: 't', url: 'https://public.example/#s2' });
-    await load('d', 'http://localhost:3000/');
-    expect(outcome('d')).toBe('Fetch.continueRequest');
+  it('lets go of the keys and buttons a viewer held when it leaves', async () => {
+    const sent = [];
+    const input = inputWith(async (method, params) => { sent.push({ method, ...params }); });
+    const viewer = {};
+    await input.handleMouse({ action: 'down', x: 5, y: 6, button: 'left', clickCount: 1 }, viewer);
+    await input.handleKey({ action: 'down', key: 'Shift', code: 'ShiftLeft', keyCode: 16 }, viewer);
+    await input.handleKey({ action: 'down', key: 'a', code: 'KeyA', keyCode: 65 }, viewer);
+    await input.handleKey({ action: 'up', key: 'a', code: 'KeyA', keyCode: 65 }, viewer);
+    sent.length = 0;
+    await input.releaseViewer(viewer);
+    expect(sent.map(({ type, code, button }) => [type, code ?? button])).toEqual([['keyUp', 'ShiftLeft'], ['mouseReleased', 'left']]);
+    sent.length = 0;
+    await input.releaseViewer(viewer);
+    expect(sent).toEqual([]);
   });
 });
 
 describe('server browser wheel input', () => {
   // Chrome answers a wheel event only after the page handles it, which can
   // take longer than a trackpad waits between events.
-  const slowWheelTab = () => {
+  const slowWheelInput = () => {
     const sent = [];
     const answers = [];
-    const cdp = {
-      closed: false,
-      send: (method, params) => {
-        sent.push({ method, ...params });
-        if (params?.type !== 'mouseWheel') return Promise.resolve({});
-        return new Promise((resolve) => answers.push(resolve));
-      },
-    };
-    const tab = createServerBrowserTab({ key: 'k', cdp, targetId: 't', sessionId: 's', onEmpty: () => {} });
+    const input = createTabInput({ onInput: () => {}, cursorAt: async () => 'default', onCursor: () => {}, takeCopy: async () => '', onCopied: () => {} });
+    input.bind((method, params) => {
+      sent.push({ method, ...params });
+      if (params?.type !== 'mouseWheel') return Promise.resolve({});
+      return new Promise((resolve) => answers.push(resolve));
+    });
     const wheels = () => sent.filter((entry) => entry.type === 'mouseWheel').map(({ x, y, deltaX, deltaY }) => ({ x, y, deltaX, deltaY }));
-    const answerNext = async () => { answers.shift()?.({}); await new Promise((resolve) => setImmediate(resolve)); };
-    return { tab, sent, wheels, answerNext };
+    const answerNext = async () => { answers.shift()?.({}); await settle(); };
+    return { input, sent, wheels, answerNext };
   };
   const wheel = (deltaY, x = 10) => ({ action: 'wheel', x, y: 20, deltaX: 0, deltaY });
 
   it('adds up wheel events that arrive while Chrome is busy instead of queueing them', async () => {
-    const { tab, wheels, answerNext } = slowWheelTab();
+    const { input, wheels, answerNext } = slowWheelInput();
     // Each call returns before Chrome answers, so later input is never stuck behind it.
-    for (const deltaY of [10, 10, 10, 10]) await tab.handleMouse(wheel(deltaY, 10 + deltaY));
+    for (const deltaY of [10, 10, 10, 10]) await input.handleMouse(wheel(deltaY, 10 + deltaY));
     expect(wheels()).toEqual([{ x: 20, y: 20, deltaX: 0, deltaY: 10 }]);
     await answerNext();
     expect(wheels()).toEqual([{ x: 20, y: 20, deltaX: 0, deltaY: 10 }, { x: 20, y: 20, deltaX: 0, deltaY: 30 }]);
@@ -159,20 +149,20 @@ describe('server browser wheel input', () => {
   });
 
   it('keeps wheel events with different modifiers apart and in order', async () => {
-    const { tab, sent, answerNext } = slowWheelTab();
-    await tab.handleMouse(wheel(10));
-    await tab.handleMouse({ ...wheel(-5), modifiers: { ctrl: true } });
-    await tab.handleMouse(wheel(20));
-    await tab.handleMouse(wheel(20));
+    const { input, sent, answerNext } = slowWheelInput();
+    await input.handleMouse(wheel(10));
+    await input.handleMouse({ ...wheel(-5), modifiers: { ctrl: true } });
+    await input.handleMouse(wheel(20));
+    await input.handleMouse(wheel(20));
     for (let i = 0; i < 3; i++) await answerNext();
     expect(sent.map(({ modifiers, deltaY }) => [modifiers, deltaY])).toEqual([[0, 10], [2, -5], [0, 40]]);
   });
 
   it('delivers waiting wheel movement before a click', async () => {
-    const { tab, sent, answerNext } = slowWheelTab();
-    await tab.handleMouse(wheel(10));
-    await tab.handleMouse(wheel(15));
-    const click = tab.handleMouse({ action: 'down', x: 30, y: 40, button: 'left', clickCount: 1 });
+    const { input, sent, answerNext } = slowWheelInput();
+    await input.handleMouse(wheel(10));
+    await input.handleMouse(wheel(15));
+    const click = input.handleMouse({ action: 'down', x: 30, y: 40, button: 'left', clickCount: 1 });
     await answerNext();
     await answerNext();
     await click;
@@ -185,31 +175,29 @@ describe('server browser frame pacing', () => {
   afterEach(() => { vi.useRealTimers(); });
 
   // Chrome sends the next frame only after the last one is acknowledged.
-  const pacedTab = () => {
+  const pacedStream = async () => {
     const acks = [];
-    const cdp = {
-      closed: false,
-      send: (method) => {
-        if (method === 'Page.screencastFrameAck') acks.push(Date.now());
-        return Promise.resolve({});
-      },
-    };
-    const tab = createServerBrowserTab({ key: 'k', cdp, targetId: 't', sessionId: 's', onEmpty: () => {} });
+    const stream = createTabStream({ viewport: () => ({ width: 100, height: 100, dpr: 1 }) });
+    await stream.bind(async (method) => {
+      if (method === 'Page.screencastFrameAck') acks.push(Date.now());
+      return {};
+    });
+    await stream.addViewer({ sendFrame: () => {} });
     // Whether the second of two back-to-back frames is acknowledged within `ms`.
     const frameAckedAfter = (ms) => {
-      tab.handleEvent('Page.screencastFrame', { sessionId: 1, data: '', metadata: {} });
+      stream.onFrame({ sessionId: 1, data: '', metadata: {} });
       vi.advanceTimersByTime(0);
       const start = Date.now();
-      tab.handleEvent('Page.screencastFrame', { sessionId: 2, data: '', metadata: {} });
+      stream.onFrame({ sessionId: 2, data: '', metadata: {} });
       vi.advanceTimersByTime(ms);
       return acks.some((at) => at > start);
     };
-    return { tab, frameAckedAfter };
+    return { stream, frameAckedAfter };
   };
 
-  it('streams about 30 frames a second while nobody touches the page', () => {
+  it('streams about 30 frames a second while nobody touches the page', async () => {
     vi.useFakeTimers({ now: 100_000 });
-    const { frameAckedAfter } = pacedTab();
+    const { frameAckedAfter } = await pacedStream();
     vi.advanceTimersByTime(1_000);
     expect(frameAckedAfter(20)).toBe(false);
     vi.advanceTimersByTime(1_000);
@@ -218,12 +206,25 @@ describe('server browser frame pacing', () => {
 
   it('streams about 60 frames a second for a moment after input', async () => {
     vi.useFakeTimers({ now: 100_000 });
-    const { tab, frameAckedAfter } = pacedTab();
+    const { stream, frameAckedAfter } = await pacedStream();
     vi.advanceTimersByTime(1_000);
-    await tab.handleMouse({ action: 'wheel', x: 1, y: 1, deltaX: 0, deltaY: 10 });
+    stream.noteInput();
     expect(frameAckedAfter(17)).toBe(true);
     vi.advanceTimersByTime(2_000);
     expect(frameAckedAfter(20)).toBe(false);
+  });
+
+  it('sends a viewer that falls behind only the newest frame', async () => {
+    const stream = createTabStream({ viewport: () => ({ width: 100, height: 100, dpr: 1 }) });
+    await stream.bind(async () => ({}));
+    const received = [];
+    const viewer = { sendFrame: (frame) => received.push(JSON.parse(frame.subarray(4, 4 + frame.readUInt32BE(0)).toString()).seq) };
+    await stream.addViewer(viewer);
+    for (let i = 0; i < 5; i++) stream.onFrame({ sessionId: i, data: '', metadata: {} });
+    expect(received).toEqual([1, 2]);
+    stream.ack(viewer);
+    stream.ack(viewer);
+    expect(received).toEqual([1, 2, 5]);
   });
 });
 
@@ -245,57 +246,308 @@ describe('isBlockedServerNetworkLoad', () => {
   });
 });
 
-describe('createCdpConnection', () => {
-  const connect = () => {
-    const toChrome = new PassThrough();
-    const fromChrome = new PassThrough();
-    const written = [];
-    toChrome.on('data', (chunk) => written.push(...chunk.toString('utf8').split('\0').filter(Boolean).map((text) => JSON.parse(text))));
-    return { cdp: createCdpConnection({ writable: toChrome, readable: fromChrome, commandTimeoutMs: 1000 }), fromChrome, written };
+// A browser-level DevTools session that records what the guard answers.
+const fakeBrowserSession = () => {
+  const emitter = new EventEmitter();
+  const sent = [];
+  const session = {
+    on: (event, handler) => emitter.on(event, handler),
+    send: async (method, params) => { sent.push({ method, ...params }); return {}; },
+    detach: async () => {},
+  };
+  const context = { browser: () => ({ newBrowserCDPSession: async () => session }) };
+  return { context, sent, emit: (event, params) => emitter.emit(event, params) };
+};
+
+const fakeOwner = (url) => {
+  const owner = {
+    url,
+    blockedUrls: [],
+    userLoad: null,
+    sourceUrl: () => owner.url,
+    consumeUserLoad: (next) => {
+      if (owner.userLoad !== next) return false;
+      owner.userLoad = null;
+      return true;
+    },
+    blocked: (blocked, { mainFrame }) => owner.blockedUrls.push({ url: blocked, mainFrame }),
+    titleChanged: () => {},
+  };
+  return owner;
+};
+
+describe('server browser network guard', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const guarded = async ({ lookup = async () => [{ address: '93.184.216.34', family: 4 }], onPopupTarget } = {}) => {
+    const browser = fakeBrowserSession();
+    const guard = createNetworkGuard({ lookup, onPopupTarget });
+    await guard.attach(browser.context);
+    const page = fakeOwner('https://public.example/');
+    guard.addPage('T', page);
+    const load = async (requestId, url, frameId = 'T', extra = {}) => {
+      browser.emit('Fetch.requestPaused', { requestId, frameId, request: { url }, ...extra });
+      await settle();
+    };
+    const outcome = (requestId) => browser.sent.filter((entry) => entry.requestId === requestId).map(({ method, errorReason }) => (errorReason ? `${method}:${errorReason}` : method));
+    return { browser, guard, page, load, outcome };
   };
 
-  it('matches replies to commands across split and merged chunks', async () => {
-    const { cdp, fromChrome, written } = connect();
-    const events = [];
-    cdp.onEvent((event) => events.push(event));
-    const first = cdp.send('Browser.getVersion');
-    const second = cdp.send('Page.navigate', { url: 'about:blank' }, 'S1');
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(written).toEqual([
-      { id: 1, method: 'Browser.getVersion', params: {} },
-      { id: 2, method: 'Page.navigate', params: { url: 'about:blank' }, sessionId: 'S1' },
-    ]);
-    const payload = `${JSON.stringify({ id: 2, result: { frameId: 'F' } })}\0${JSON.stringify({ method: 'Page.loadEventFired', params: {}, sessionId: 'S1' })}\0${JSON.stringify({ id: 1, result: { product: 'Chrome' } })}\0`;
-    fromChrome.write(Buffer.from(payload.slice(0, 17)));
-    fromChrome.write(Buffer.from(payload.slice(17)));
-    await expect(second).resolves.toEqual({ frameId: 'F' });
-    await expect(first).resolves.toEqual({ product: 'Chrome' });
-    expect(events).toEqual([{ method: 'Page.loadEventFired', params: {}, sessionId: 'S1' }]);
+  it('watches every document request in the browser and denies local network access', async () => {
+    const { browser } = await guarded();
+    expect(browser.sent.map(({ method }) => method)).toContain('Fetch.enable');
+    expect(browser.sent.find(({ method }) => method === 'Fetch.enable').patterns).toEqual([{ resourceType: 'Document', requestStage: 'Request' }]);
+    expect(browser.sent.filter(({ method }) => method === 'Browser.setPermission').every(({ setting }) => setting === 'denied')).toBe(true);
   });
 
-  it('rejects errors and pending commands when the pipe closes', async () => {
-    const { cdp, fromChrome } = connect();
-    const failing = cdp.send('Page.reload');
-    const pending = cdp.send('Page.stopLoading');
-    fromChrome.write(`${JSON.stringify({ id: 1, error: { code: -32000, message: 'Not attached' } })}\0`);
-    await expect(failing).rejects.toThrow('Page.reload: Not attached');
-    fromChrome.destroy();
-    await expect(pending).rejects.toThrow('browser connection closed');
-    await expect(cdp.send('Page.enable')).rejects.toThrow('browser connection closed');
+  it('checks the addresses a public page\'s link resolves to', async () => {
+    const answers = { 'rebind.example': '127.0.0.1', 'bench.example': '198.18.0.1', 'nat64.example': '64:ff9b::a00:1' };
+    const { load, outcome, page } = await guarded({ lookup: async (host) => [{ address: answers[host] || '93.184.216.34' }] });
+    await load('a', 'http://rebind.example:6379/');
+    await load('b', 'https://other.example/');
+    await load('c', 'http://bench.example/');
+    await load('d', 'http://nat64.example/');
+    expect(['a', 'b', 'c', 'd'].map(outcome)).toEqual([['Fetch.failRequest:Aborted'], ['Fetch.continueRequest'], ['Fetch.failRequest:Aborted'], ['Fetch.failRequest:Aborted']]);
+    expect(page.blockedUrls).toHaveLength(3);
+    expect(page.blockedUrls[0]).toEqual({ url: 'http://rebind.example:6379/', mainFrame: true });
+  });
+
+  it('refuses a public page\'s link when its name does not resolve in time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const answers = {
+      'gone.example': () => Promise.reject(new Error('ENOTFOUND')),
+      'empty.example': async () => [],
+      'slow.example': () => new Promise(() => {}),
+    };
+    const { load, outcome, page } = await guarded({ lookup: (host) => answers[host]() });
+    await load('a', 'http://gone.example/');
+    await load('b', 'http://empty.example/');
+    await load('c', 'http://slow.example/');
+    expect(outcome('c')).toEqual([]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(['a', 'b', 'c'].map(outcome)).toEqual([['Fetch.failRequest:NameNotResolved'], ['Fetch.failRequest:NameNotResolved'], ['Fetch.failRequest:TimedOut']]);
+    // Not the server network, so no notice says it was.
+    expect(page.blockedUrls).toEqual([]);
+  });
+
+  it('lets the person\'s own load through, and checks where it redirects', async () => {
+    const { load, outcome, page } = await guarded();
+    page.userLoad = 'http://127.0.0.1:3000/';
+    await load('a', 'http://127.0.0.1:3000/');
+    // The redirect is judged by the public address that sent it, not the local page showing.
+    page.url = 'http://127.0.0.1:3000/';
+    page.userLoad = 'https://public.example/go';
+    await load('b', 'https://public.example/go');
+    await load('c', 'http://127.0.0.1:3000/admin', 'T', { redirectedRequestId: 'b' });
+    expect(['a', 'b', 'c'].map(outcome)).toEqual([['Fetch.continueRequest'], ['Fetch.continueRequest'], ['Fetch.failRequest:Aborted']]);
+  });
+
+  it('judges a frame by the page it is nested in', async () => {
+    const { guard, browser, load, outcome, page } = await guarded();
+    guard.frameAttached('F1', 'T');
+    browser.emit('Target.targetCreated', { targetInfo: { type: 'iframe', targetId: 'F2', parentFrameId: 'F1' } });
+    await load('a', 'http://10.0.0.1/', 'F2');
+    expect(outcome('a')).toEqual(['Fetch.failRequest:Aborted']);
+    expect(page.blockedUrls).toEqual([{ url: 'http://10.0.0.1/', mainFrame: false }]);
+    // A local page's frames may load local addresses.
+    page.url = 'http://localhost:3000/';
+    await load('b', 'http://10.0.0.1/', 'F2');
+    expect(outcome('b')).toEqual(['Fetch.continueRequest']);
+  });
+
+  it('waits for a frame Chrome reports late, and judges a frame it never links as public', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { browser, load, outcome } = await guarded();
+    await load('a', 'http://10.0.0.1/', 'LATE');
+    expect(outcome('a')).toEqual([]);
+    browser.emit('Target.targetCreated', { targetInfo: { type: 'iframe', targetId: 'LATE', parentFrameId: 'T' } });
+    await settle();
+    expect(outcome('a')).toEqual(['Fetch.failRequest:Aborted']);
+    await load('b', 'http://10.0.0.1/', 'NOBODY');
+    await load('c', 'https://example.com/', 'NOBODY');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(['b', 'c'].map(outcome)).toEqual([['Fetch.failRequest:Aborted'], ['Fetch.continueRequest']]);
+  });
+
+  it('hands a popup to its own owner before its first request', async () => {
+    const popup = { ...fakeOwner('https://public.example/'), admit: vi.fn(() => false) };
+    const onPopupTarget = vi.fn(() => popup);
+    const { browser, load, outcome } = await guarded({ onPopupTarget });
+    browser.emit('Target.targetCreated', { targetInfo: { type: 'page', targetId: 'P', openerId: 'T' } });
+    expect(onPopupTarget).toHaveBeenCalledWith(expect.objectContaining({ targetId: 'P' }));
+    await load('a', 'http://127.0.0.1/', 'P');
+    await load('b', 'https://example.com/next', 'P');
+    expect(['a', 'b'].map(outcome)).toEqual([['Fetch.failRequest:Aborted'], ['Fetch.failRequest:Aborted']]);
+    expect(popup.blockedUrls).toEqual([{ url: 'http://127.0.0.1/', mainFrame: true }]);
+    expect(popup.admit).toHaveBeenCalledWith('https://example.com/next', { mainFrame: true });
   });
 });
 
-describe('pageUserAgent', () => {
-  it('drops the headless marker from the user agent and its client hints', () => {
-    const agent = pageUserAgent({
-      product: 'HeadlessChrome/156.0.7000.1',
-      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.7000.1 Safari/537.36',
-    }, 'linux');
-    expect(agent.userAgent).toBe('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.7000.1 Safari/537.36');
-    expect(agent.userAgentMetadata).toMatchObject({ platform: 'Linux', fullVersion: '156.0.7000.1', mobile: false });
-    expect(agent.userAgentMetadata.brands).toContainEqual({ brand: 'Chromium', version: '156' });
-    expect(pageUserAgent({ userAgent: 'Mozilla/5.0 Chrome/156.0 Safari/537.36' })).toBeNull();
-    expect(pageUserAgent(null)).toBeNull();
+// A Playwright page with one DevTools session, enough for a tab.
+const fakePage = (targetId = 'T') => {
+  const page = new EventEmitter();
+  const session = new EventEmitter();
+  session.sent = [];
+  session.history = { currentIndex: 0, entries: [{ id: 1, url: 'https://public.example/' }] };
+  // Methods Chrome never answers, as for a renderer that was killed mid-command.
+  session.unanswered = new Set();
+  session.send = async (method, params) => {
+    session.sent.push({ method, ...params });
+    if (session.unanswered.has(method)) return new Promise(() => {});
+    if (method === 'Target.getTargetInfo') return { targetInfo: { targetId, title: '' } };
+    if (method === 'Page.getNavigationHistory') return session.history;
+    if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: targetId } } };
+    if (method === 'Page.createIsolatedWorld') return { executionContextId: 1 };
+    if (method === 'Runtime.evaluate') return { result: { value: '' } };
+    return {};
+  };
+  Object.assign(page, {
+    session,
+    context: () => ({ newCDPSession: async () => session }),
+    goto: vi.fn(async () => null),
+    reload: vi.fn(async () => null),
+    goBack: vi.fn(async () => null),
+    goForward: vi.fn(async () => null),
+    close: vi.fn(async () => { page.emit('close'); }),
+    url: () => '',
+  });
+  return page;
+};
+
+describe('server browser tab', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  const openTab = async ({ openPage } = {}) => {
+    const pages = [];
+    let owner = null;
+    const guard = { addPage: (_id, next) => { owner = next; }, removePage: () => {}, frameAttached: () => {} };
+    const tab = createServerBrowserTab({
+      key: 'k',
+      openPage: openPage ?? (async () => { pages.push(fakePage(`T${pages.length}`)); return pages.at(-1); }),
+      guard,
+      onEmpty: () => {},
+      onClosed: vi.fn(),
+    });
+    await tab.init();
+    const messages = [];
+    const frames = [];
+    tab.attachViewer({ sendJson: (message) => messages.push(message), sendFrame: (frame) => frames.push(frame) });
+    const commit = (url, page = pages.at(-1)) => page.session.emit('Page.frameNavigated', { frame: { id: 'T', url } });
+    return { tab, pages, owner: () => owner, messages, frames, commit };
+  };
+
+  it('treats a typed address as the person\'s until it commits, even as the page changes its own URL', async () => {
+    const { tab, owner, pages } = await openTab();
+    tab.navigate('http://localhost:3000/#top');
+    pages[0].session.emit('Page.navigatedWithinDocument', { frameId: 'T0', url: 'https://public.example/#s2' });
+    expect(owner().consumeUserLoad('http://localhost:3000/')).toBe(true);
+    expect(owner().consumeUserLoad('http://localhost:3000/')).toBe(false);
+  });
+
+  it('forgets a reload once it lands, even without a document request', async () => {
+    const { tab, owner, commit } = await openTab();
+    commit('https://public.example/');
+    await tab.reload();
+    // Restored from the back/forward cache: the page commits with no request.
+    commit('https://public.example/');
+    expect(owner().consumeUserLoad('https://public.example/')).toBe(false);
+  });
+
+  it('shows the last committed address again when a load is blocked', async () => {
+    const { tab, owner, commit, messages } = await openTab();
+    commit('https://public.example/');
+    tab.navigate('https://public.example/redirects');
+    owner().blocked('http://127.0.0.1/', { mainFrame: true });
+    expect(tab.state.url).toBe('https://public.example/');
+    expect(messages.at(-1)).toEqual({ type: 'notice', kind: 'blocked-server-network', url: 'http://127.0.0.1/' });
+  });
+
+  it('replaces a crashed page on reload and keeps its viewers', async () => {
+    const { tab, pages, commit, messages } = await openTab();
+    commit('https://public.example/');
+    pages[0].emit('crash');
+    expect(tab.state.crashed).toBe(true);
+    await tab.reload();
+    expect(pages).toHaveLength(2);
+    expect(pages[0].close).toHaveBeenCalled();
+    expect(pages[1].goto).toHaveBeenCalledWith('https://public.example/', expect.objectContaining({ waitUntil: 'commit' }));
+    commit('https://public.example/');
+    expect(messages.filter((m) => m.type === 'state').at(-1)).toMatchObject({ crashed: false, url: 'https://public.example/' });
+  });
+
+  it('does not wait for a navigation before taking more input', async () => {
+    const { tab, pages } = await openTab();
+    pages[0].goto.mockImplementation(() => new Promise(() => {}));
+    tab.navigate('https://slow.example/');
+    await tab.insertText('typed');
+    expect(pages[0].session.sent.some(({ method, text }) => method === 'Input.insertText' && text === 'typed')).toBe(true);
+  });
+
+  it('lets go of a command the crashed page will never answer', async () => {
+    const { tab, pages } = await openTab();
+    pages[0].session.unanswered.add('Runtime.evaluate');
+    const inspected = tab.inspectAt(10, 10);
+    await settle();
+    expect(pages[0].session.sent.at(-1).method).toBe('Runtime.evaluate');
+    pages[0].emit('crash');
+    await expect(inspected).resolves.toBeNull();
+  });
+
+  it('gives up on a command Chrome never answers, so later input is not held up', async () => {
+    const { tab, pages } = await openTab();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    pages[0].session.unanswered.add('Runtime.evaluate');
+    const inspected = tab.inspectAt(10, 10);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(inspected).resolves.toBeNull();
+  });
+
+  it('tries again when a new page never reports ready, and closes it if it turns up', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const late = fakePage('LATE');
+    let showLate;
+    const pages = [];
+    const openPage = vi.fn(() => {
+      if (openPage.mock.calls.length === 1) return new Promise((resolve) => { showLate = () => resolve(late); });
+      pages.push(fakePage('T1'));
+      return Promise.resolve(pages.at(-1));
+    });
+    const opened = openTab({ openPage });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const { tab } = await opened;
+    expect(openPage).toHaveBeenCalledTimes(2);
+    showLate();
+    await settle();
+    expect(late.close).toHaveBeenCalled();
+    tab.navigate('https://public.example/');
+    expect(pages[0].goto).toHaveBeenCalled();
+  });
+
+  it('never offers Back to the blank page a tab starts on', async () => {
+    const { tab, pages, commit, messages } = await openTab();
+    pages[0].session.history = { currentIndex: 1, entries: [{ id: 1, url: 'about:blank' }, { id: 2, url: 'https://public.example/' }] };
+    commit('https://public.example/');
+    await settle();
+    expect(messages.filter((m) => m.type === 'state').at(-1)).toMatchObject({ canGoBack: false });
+    await tab.goBack();
+    expect(pages[0].goBack).not.toHaveBeenCalled();
+    pages[0].session.history = { currentIndex: 2, entries: [...pages[0].session.history.entries, { id: 3, url: 'https://public.example/next' }] };
+    commit('https://public.example/next');
+    await settle();
+    expect(messages.filter((m) => m.type === 'state').at(-1)).toMatchObject({ canGoBack: true });
+    await tab.goBack();
+    expect(pages[0].goBack).toHaveBeenCalled();
+  });
+
+  it('shows a late viewer, and inspect, the newest frame without a screenshot', async () => {
+    const { tab, pages, frames } = await openTab();
+    pages[0].session.emit('Page.screencastFrame', { sessionId: 1, data: Buffer.from('jpeg').toString('base64'), metadata: { deviceWidth: 640, deviceHeight: 480 } });
+    expect(frames).toHaveLength(1);
+    const late = [];
+    tab.attachViewer({ sendJson: () => {}, sendFrame: (frame) => late.push(frame) });
+    expect(late).toEqual([frames[0]]);
+    expect(tab.captureViewport()).toMatchObject({ base64: Buffer.from('jpeg').toString('base64'), cssWidth: 640, cssHeight: 480 });
+    expect(pages[0].session.sent.some(({ method }) => method === 'Page.captureScreenshot')).toBe(false);
   });
 });
 
@@ -306,22 +558,17 @@ describe('server browser lifecycle', () => {
     for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  const fakeChrome = ({ failing } = {}) => {
-    const process = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
-    process.kill = () => { process.signalCode = 'SIGKILL'; process.emit('exit'); };
-    const cdp = {
-      closed: false,
-      onEvent: () => {},
-      send: (method) => {
-        if (method === 'Browser.close') { process.exitCode = 0; process.emit('exit'); }
-        if (method === failing) return Promise.reject(new Error(`${method} failed`));
-        return Promise.resolve({});
-      },
-    };
-    return { process, cdp };
+  const fakeContext = () => {
+    const context = new EventEmitter();
+    context.closed = false;
+    context.browser = () => ({ version: () => '156.0.8078.4', newBrowserCDPSession: async () => ({ on: () => {}, send: async () => ({}), detach: async () => {} }) });
+    context.pages = [];
+    context.newPage = async () => { context.pages.push(fakePage()); return context.pages.at(-1); };
+    context.close = vi.fn(async () => { context.closed = true; context.emit('close'); });
+    return context;
   };
 
-  const create = (launchChrome) => {
+  const create = (launchChrome, options = {}) => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-server-browser-'));
     dirs.push(dataDir);
     const profile = path.join(dataDir, 'server-browser', 'profile');
@@ -329,26 +576,59 @@ describe('server browser lifecycle', () => {
       dataDir,
       isRoot: false,
       findExecutable: () => ({ path: '/fake/chrome', source: 'env' }),
+      readChromeVersion: async () => '156.0.8078.4',
       launchChrome,
       log: () => {},
+      ...options,
     });
     return { browser, profile };
   };
 
   it('stops Chrome when its setup fails', async () => {
-    const chrome = fakeChrome({ failing: 'Target.setAutoAttach' });
-    const { browser } = create(async () => chrome);
-    await expect(browser.openTab('k')).rejects.toThrow('Target.setAutoAttach failed');
-    expect(chrome.process.exitCode ?? chrome.process.signalCode).not.toBeNull();
+    const context = fakeContext();
+    const { browser } = create(async () => context, {
+      createGuard: () => ({ attach: async () => { throw new Error('setup failed'); }, detach: async () => {} }),
+    });
+    await expect(browser.openTab('k')).rejects.toThrow('setup failed');
+    expect(context.closed).toBe(true);
+  });
+
+  it('starts Chrome with a user agent for its version, learning it from a first run when needed', async () => {
+    const launches = [];
+    const { browser } = create(async (options) => { launches.push(options.userAgent); return fakeContext(); }, { readChromeVersion: async () => null });
+    await browser.openTab('k');
+    expect(launches).toEqual([null, expect.stringContaining('Chrome/156.0.0.0')]);
+  });
+
+  it('reports a launch failure in the status', async () => {
+    const { ChromeLaunchError } = await import('./chrome-launch.js');
+    const { browser } = create(async () => { throw new ChromeLaunchError({ kind: 'missing-library', library: 'libnss3.so', detail: 'libnss3.so missing' }); });
+    await expect(browser.openTab('k')).rejects.toThrow('failed to start');
+    expect(browser.status().problem).toEqual({ kind: 'launch-failed', reason: 'missing-library', library: 'libnss3.so', detail: 'libnss3.so missing' });
+  });
+
+  it('tells viewers when Chrome exits, not that the page closed itself', async () => {
+    const context = fakeContext();
+    const { browser } = create(async () => context);
+    const tab = await browser.openTab('k');
+    const close = vi.fn();
+    tab.attachViewer({ sendJson: () => {}, sendFrame: () => {}, close });
+    // Playwright closes the pages before it reports the browser gone.
+    context.pages[0].emit('close');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    context.emit('close');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(close).toHaveBeenCalledWith('browser-exited');
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('deletes the profile only after a launch in progress stops, and launches after', async () => {
-    const first = fakeChrome();
+    const first = fakeContext();
     let finishLaunch;
     const launches = [];
     const { browser, profile } = create(({ userDataDir }) => {
       launches.push(fs.existsSync(path.join(userDataDir, 'Cookies')));
-      if (launches.length > 1) return Promise.resolve(fakeChrome());
+      if (launches.length > 1) return Promise.resolve(fakeContext());
       return new Promise((resolve) => { finishLaunch = () => resolve(first); });
     });
     const opened = browser.openTab('k').catch(() => {});
@@ -359,13 +639,13 @@ describe('server browser lifecycle', () => {
     finishLaunch();
     await cleared;
     await Promise.all([opened, reopened]);
-    expect(first.process.exitCode).toBe(0);
+    expect(first.closed).toBe(true);
     expect(launches).toEqual([false, false]);
   });
 
   it('removes uploads after an hour, with no later upload', async () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
-    const { browser } = create(async () => fakeChrome());
+    const { browser } = create(async () => fakeContext());
     const old = await browser.saveUpload({ name: 'old.txt', stream: Readable.from(['old']) });
     const [oldPath] = browser.uploadPaths([old.id]);
     expect(fs.existsSync(oldPath)).toBe(true);
@@ -376,7 +656,7 @@ describe('server browser lifecycle', () => {
 
   it('never hands a page an upload past its hour, even before it is removed', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
-    const { browser } = create(async () => fakeChrome());
+    const { browser } = create(async () => fakeContext());
     const upload = await browser.saveUpload({ name: 'late.txt', stream: Readable.from(['late']) });
     vi.setSystemTime(Date.now() + 61 * 60 * 1000);
     expect(browser.uploadPaths([upload.id])).toEqual([]);

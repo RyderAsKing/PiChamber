@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 
 import { findChromeExecutable } from './chrome-executable.js';
+import { createNetworkGuard } from './network-guard.js';
 import { createServerBrowser } from './server-browser.js';
 import { createServerBrowserRuntime } from './runtime.js';
 
@@ -28,6 +29,38 @@ document.getElementById('file').addEventListener('change', async (event) => {
   fetch('/uploaded?name=' + encodeURIComponent(file.name) + '&text=' + encodeURIComponent(await file.text()));
 });
 </script></body></html>`;
+
+// The pixel size of a JPEG, from its start-of-frame marker.
+const jpegSize = (bytes) => {
+  for (let at = 2; at + 9 < bytes.length;) {
+    const marker = bytes[at + 1];
+    if (marker >= 0xc0 && marker <= 0xc2) return { width: bytes.readUInt16BE(at + 7), height: bytes.readUInt16BE(at + 5) };
+    at += 2 + bytes.readUInt16BE(at + 2);
+  }
+  return null;
+};
+
+// Renderer processes under the Chrome that uses `profile`.
+const rendererPids = (profile) => {
+  const procs = fs.readdirSync('/proc').filter((entry) => /^\d+$/.test(entry)).map((pid) => {
+    try {
+      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+      const ppid = Number(fs.readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /, '').split(' ')[1]);
+      return { pid: Number(pid), ppid, cmdline };
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+  const roots = procs.filter((proc) => proc.cmdline.includes(`--user-data-dir=${profile}`) && !proc.cmdline.includes('--type=')).map((proc) => proc.pid);
+  const descends = (proc) => {
+    for (let current = proc, depth = 0; current && depth < 8; depth += 1) {
+      if (roots.includes(current.ppid)) return true;
+      current = procs.find((other) => other.pid === current.ppid);
+    }
+    return false;
+  };
+  return procs.filter((proc) => proc.cmdline.includes('--type=renderer') && descends(proc)).map((proc) => proc.pid);
+};
 
 const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
 
@@ -54,6 +87,16 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       if (req.url === '/popup-to-local') { res.setHeader('content-type', 'text/html'); res.end(`<a href="http://127.0.0.1:${upstreamPort}/popup-secret" target="_blank" style="position:absolute;left:0;top:0;width:300px;height:100px">open</a>`); return; }
       if (req.url === '/frame-public') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://public.example:${upstreamPort}/to-local"></iframe>`); return; }
       if (req.url === '/to-local') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${upstreamPort}/secret`); res.end(); return; }
+      if (req.url === '/nest') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://other.example:${upstreamPort}/nest-inner"></iframe>`); return; }
+      if (req.url === '/nest-inner') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://127.0.0.1:${upstreamPort}/nested-secret"></iframe>`); return; }
+      if (req.url === '/local-nest') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://127.0.0.1:${upstreamPort}/local-mid"></iframe>`); return; }
+      if (req.url === '/local-mid') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://127.0.0.1:${upstreamPort}/local-leaf"></iframe>`); return; }
+      if (req.url === '/stall') return; // Never answers.
+      if (req.url === '/buttons') {
+        res.setHeader('content-type', 'text/html');
+        res.end('<title>Buttons</title><body style="margin:0;height:100vh" onmousedown="fetch(\'/pressed\')" onmouseup="fetch(\'/released\')"></body>');
+        return;
+      }
       res.end('ok');
     });
     upstreamPort = await listen(upstream);
@@ -65,8 +108,10 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       dataDir,
       // Root always needs it; elsewhere keep the runner's own choice.
       env: { ...process.env, PICHAMBER_BROWSER_NO_SANDBOX: isRoot ? '1' : (process.env.PICHAMBER_BROWSER_NO_SANDBOX ?? '') },
-      // A public-looking name for this machine, to test public pages.
-      extraChromeArgs: ['--host-resolver-rules=MAP public.example 127.0.0.1'],
+      // Public-looking names for this machine, to test public pages.
+      extraChromeArgs: ['--host-resolver-rules=MAP *.example 127.0.0.1'],
+      // The rule's own lookup sees them as public addresses.
+      createGuard: (options) => createNetworkGuard({ ...options, lookup: async () => [{ address: '93.184.216.34', family: 4 }] }),
       log: (message) => logs.push(message),
     });
     runtime = createServerBrowserRuntime({
@@ -134,7 +179,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     const until = (predicate, label, timeoutMs = 8000) => new Promise((resolve, reject) => {
       const found = predicate();
       if (found) { resolve(found); return; }
-      const waiter = { predicate, resolve, timer: setTimeout(() => reject(new Error(`Timed out waiting for ${label}${logs.length ? `; server browser log:\n${logs.join('\n')}` : ''}`)), timeoutMs) };
+      const waiter = { predicate, resolve, timer: setTimeout(() => reject(new Error(`Timed out waiting for ${label}; last messages: ${JSON.stringify(messages.slice(-6))}${logs.length ? `; server browser log:\n${logs.join('\n')}` : ''}`)), timeoutMs) };
       waiters.push(waiter);
       // Requests the page makes arrive outside the socket; check them too.
       const poll = setInterval(check, 50);
@@ -197,10 +242,12 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
     await page.waitFor((m) => m.type === 'state' && m.title === 'Test page', 'title');
     await page.click(25, 108);
-    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/second`, 'popup address in this tab');
+    // Back is offered once Chrome has the new address in its history.
+    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/second` && m.canGoBack && !m.loading, 'popup address in this tab');
 
     page.send({ type: 'back' });
-    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/` && m.canGoForward, 'back');
+    // Back loads the page again (no back/forward cache); click once it has.
+    await page.waitFor((m) => m.type === 'state' && m.url === `http://127.0.0.1:${upstreamPort}/` && m.title === 'Test page' && m.canGoForward && !m.canGoBack && !m.loading, 'back');
     await page.click(30, 188);
     const done = await page.waitFor((m) => m.type === 'download' && m.state === 'completed', 'download');
     expect(done.filename).toBe('notes.txt');
@@ -267,12 +314,95 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     const page = connect('public-popup', `http://public.example:${upstreamPort}/popup-to-local`);
     await page.open;
     page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
-    await page.waitFor((m) => m.type === 'state' && m.url.endsWith('/popup-to-local') && !m.loading, 'public page');
+    // The page has no title of its own; its address stands in once it commits.
+    await page.waitFor((m) => m.type === 'state' && m.title.endsWith('/popup-to-local') && !m.loading, 'public page');
     await page.click(50, 50);
     const notice = await page.waitFor((m) => m.type === 'notice' && m.kind === 'blocked-server-network', 'blocked notice');
     expect(notice.url).toBe(`http://127.0.0.1:${upstreamPort}/popup-secret`);
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(seen).not.toContain('/popup-secret');
+    page.socket.close();
+  }, 30_000);
+
+  it('streams at the device pixel ratio', async () => {
+    const page = connect('hidpi', `http://127.0.0.1:${upstreamPort}/second`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 2 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Second', 'title');
+    // Frames from before the resize may still arrive; wait for the new size.
+    await page.until(() => page.frames.find((entry) => entry.header.width === 600 && entry.header.height === 400 && jpegSize(entry.jpeg)?.height === 800), 'a 2x frame');
+    expect(jpegSize(page.frames.findLast((entry) => entry.header.height === 400).jpeg)).toEqual({ width: 1200, height: 800 });
+    page.socket.close();
+  }, 30_000);
+
+  it('shows an idle page to a second viewer at once', async () => {
+    const first = connect('shared', `http://127.0.0.1:${upstreamPort}/second`);
+    await first.open;
+    first.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await first.waitFor((m) => m.type === 'state' && m.title === 'Second' && !m.loading, 'title');
+    await first.until(() => first.frames.length > 0, 'a frame');
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const second = connect('shared', '');
+    await second.open;
+    await second.until(() => second.frames.length > 0, 'a frame for the second viewer', 3000);
+    first.socket.close();
+    second.socket.close();
+  }, 30_000);
+
+  it('lets go of a disconnected viewer\'s mouse button', async () => {
+    const page = connect('buttons', `http://127.0.0.1:${upstreamPort}/buttons`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Buttons' && !m.loading, 'title');
+    page.send({ type: 'mouse', action: 'down', x: 50, y: 50, button: 'left', clickCount: 1 });
+    await page.waitForSeen(/^\/pressed$/, 'press');
+    page.socket.close();
+    await page.waitForSeen(/^\/released$/, 'release on disconnect');
+  }, 30_000);
+
+  it('takes input while a load is stalled', async () => {
+    const page = connect('stalled', `http://127.0.0.1:${upstreamPort}/`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Test page' && !m.loading, 'title');
+    await page.click(50, 25);
+    page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/stall` });
+    page.send({ type: 'text', text: 'still here' });
+    await page.waitForSeen(/^\/typed\?v=still%20here$/, 'text typed during the load');
+    page.socket.close();
+  }, 30_000);
+
+  it('blocks a frame nested in a public frame from the server network', async () => {
+    const page = connect('nested-public', `http://public.example:${upstreamPort}/nest`);
+    await page.open;
+    const notice = await page.waitFor((m) => m.type === 'notice' && m.kind === 'blocked-server-network', 'blocked notice');
+    expect(notice.url).toBe(`http://127.0.0.1:${upstreamPort}/nested-secret`);
+    expect(seen).not.toContain('/nested-secret');
+    page.socket.close();
+  }, 30_000);
+
+  it('loads frames nested in a local page\'s frames', async () => {
+    const page = connect('nested-local', `http://localhost:${upstreamPort}/local-nest`);
+    await page.open;
+    await page.waitForSeen(/^\/local-leaf$/, 'nested local frame');
+    expect(page.messages.some((m) => m.type === 'notice')).toBe(false);
+    page.socket.close();
+  }, 30_000);
+
+  it.skipIf(!fs.existsSync('/proc/self/cmdline'))('replaces a crashed page when the viewer reloads', async () => {
+    const page = connect('crashed', `http://127.0.0.1:${upstreamPort}/second`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Second' && !m.loading, 'title');
+    const pids = rendererPids(path.join(dataDir, 'server-browser', 'profile'));
+    expect(pids.length).toBeGreaterThan(0);
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+    await page.waitFor((m) => m.type === 'state' && m.crashed, 'crashed state');
+    const before = page.messages.length;
+    const frames = page.frames.length;
+    page.send({ type: 'reload' });
+    await page.until(() => page.messages.slice(before).find((m) => m.type === 'state' && !m.crashed && m.title === 'Second' && !m.loading), 'reloaded page');
+    await page.until(() => page.frames.length > frames, 'frames after the reload');
     page.socket.close();
   }, 30_000);
 
