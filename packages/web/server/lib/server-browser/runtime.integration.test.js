@@ -62,7 +62,8 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     appServer = http.createServer(app);
     const browser = createServerBrowser({
       dataDir,
-      env: { ...process.env, PICHAMBER_BROWSER_NO_SANDBOX: isRoot ? '1' : '' },
+      // Root always needs it; elsewhere keep the runner's own choice.
+      env: { ...process.env, PICHAMBER_BROWSER_NO_SANDBOX: isRoot ? '1' : (process.env.PICHAMBER_BROWSER_NO_SANDBOX ?? '') },
       // A public-looking name for this machine, to test public pages.
       extraChromeArgs: ['--host-resolver-rules=MAP public.example 127.0.0.1'],
       log: () => {},
@@ -259,7 +260,8 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     page.socket.close();
   }, 30_000);
 
-  it('reopens the last address after Chrome exits', async () => {
+  // Finds Chrome's processes through /proc.
+  it.skipIf(!fs.existsSync('/proc/self/cmdline'))('reopens the last address after Chrome exits', async () => {
     const page = connect('crash', `http://127.0.0.1:${upstreamPort}/second`);
     await page.open;
     await page.waitFor((m) => m.type === 'state' && m.title === 'Second', 'title');
