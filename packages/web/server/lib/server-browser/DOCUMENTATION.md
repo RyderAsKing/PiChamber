@@ -33,8 +33,8 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   - `tab-input.js`: mouse, keyboard, and text input, merged moves and wheel,
     editing commands, and keys and buttons a viewer still holds;
   - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers;
-  - `page-scripts.js`: scripts in an isolated world (copy recording, inspect,
-    cursor).
+  - `page-scripts.js`: scripts in an isolated world (copy recording, title
+    watching, inspect, cursor).
 - `downloads.js` and `uploads.js`: the download and upload stores.
 - `dev-servers.js`: lists web servers listening on the server's loopback
   interface for the browser's blank page.
@@ -163,6 +163,12 @@ reopens the tab at its last address.
 - **Navigation** commits are not awaited (`waitUntil: 'commit'`, 15-second
   timeout), so input keeps flowing while a page loads. Only a failure other
   than an abort sends a `navigation-failed` notice.
+- **Titles.** A tab reads its title after each load, and a watcher in the
+  isolated world reports later changes (`document.title` set by a script)
+  through a binding only that world has. Chrome reports no title changes
+  itself (`Target.targetInfoChanged` carries them only when the page
+  closes). The watcher observes the title element and its holders, not the
+  whole document.
 - **Crashes.** A crashed page cannot load again, so Reload replaces it with a
   new page at the same address. Viewers stay connected.
 - **Scale.** Chrome draws at twice the CSS pixel size

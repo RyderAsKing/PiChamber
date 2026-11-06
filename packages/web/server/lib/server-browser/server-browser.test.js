@@ -271,7 +271,6 @@ const fakeOwner = (url) => {
       return true;
     },
     blocked: (blocked, { mainFrame }) => owner.blockedUrls.push({ url: blocked, mainFrame }),
-    titleChanged: () => {},
   };
   return owner;
 };
@@ -457,6 +456,16 @@ describe('server browser tab', () => {
     // Restored from the back/forward cache: the page commits with no request.
     commit('https://public.example/');
     expect(owner().consumeUserLoad('https://public.example/')).toBe(false);
+  });
+
+  it('follows title changes the page\'s title watcher reports', async () => {
+    const { tab, pages, messages } = await openTab();
+    pages[0].session.emit('Runtime.bindingCalled', { name: 'someOtherBinding', payload: 'Ignored' });
+    expect(tab.state.title).toBe('');
+    pages[0].session.emit('Runtime.bindingCalled', { name: 'pichamberTitleChanged', payload: 'Inbox (3)' });
+    expect(tab.state.title).toBe('Inbox (3)');
+    expect(messages.at(-1)).toMatchObject({ type: 'state', title: 'Inbox (3)' });
+    expect(pages[0].session.sent.map(({ method }) => method)).toEqual(expect.arrayContaining(['Runtime.enable', 'Runtime.addBinding']));
   });
 
   it('shows the last committed address again when a load is blocked', async () => {

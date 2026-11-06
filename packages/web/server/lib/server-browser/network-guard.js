@@ -57,7 +57,6 @@ const remember = (map, key, value) => {
  * - `sourceUrl()`: the address loads in the page come from;
  * - `consumeUserLoad(url)`: whether a main-frame load is one the person asked for;
  * - `blocked(url, { mainFrame })`: a load was refused;
- * - `titleChanged(title)`;
  * - optional `admit(url, { mainFrame })`: return false to cancel an allowed load.
  *
  * A request is linked to its page through its frame: the page's own target,
@@ -187,9 +186,6 @@ export const createNetworkGuard = ({ lookup = lookupAll, onPopupTarget = () => n
             notify();
           }
         }
-      });
-      session.on('Target.targetInfoChanged', ({ targetInfo }) => {
-        owners.get(targetInfo.targetId)?.titleChanged?.(targetInfo.title);
       });
       session.on('Target.targetDestroyed', ({ targetId }) => {
         parents.delete(targetId);

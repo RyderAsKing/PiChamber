@@ -242,7 +242,6 @@ export const createServerBrowser = ({
       opener.blocked(url, { mainFrame: false });
       if (mainFrame) void instance.guard.closeTarget(targetId);
     },
-    titleChanged: () => {},
   });
 
   const stopInstance = async (instance) => {

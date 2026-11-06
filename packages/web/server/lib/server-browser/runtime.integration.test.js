@@ -83,6 +83,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       userAgents.push(String(req.headers['user-agent'] || ''));
       if (req.url === '/') { res.setHeader('content-type', 'text/html'); res.end(PAGE); return; }
       if (req.url === '/popup-page') { res.setHeader('content-type', 'text/html'); res.end('<title>Popup</title><button onclick="window.close()" style="position:absolute;left:0;top:0;width:300px;height:100px">close</button><script>window.opener.postMessage("from-popup", "*")</script>'); return; }
+      if (req.url === '/retitle') { res.setHeader('content-type', 'text/html'); res.end('<title>Before</title><script>setTimeout(() => { document.title = "After"; }, 600)</script>'); return; }
       if (req.url === '/second') { res.setHeader('content-type', 'text/html'); res.end('<title>Second</title><h1>second</h1>'); return; }
       if (req.url === '/alert') { res.setHeader('content-type', 'text/html'); res.end('<script>setTimeout(() => { alert("hello there"); fetch("/after-alert"); }, 50)</script>'); return; }
       if (req.url === '/download') { res.setHeader('content-disposition', 'attachment; filename="notes.txt"'); res.end('downloaded body'); return; }
@@ -384,6 +385,16 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     first.socket.close();
     second.socket.close();
   }, 30_000);
+
+  it('follows a title the page sets, also while nobody watches', async () => {
+    const first = connect('retitle', `http://127.0.0.1:${upstreamPort}/retitle`);
+    await first.waitFor((m) => m.type === 'state' && m.title === 'Before', 'first title');
+    first.socket.close();
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const second = connect('retitle', '');
+    await second.waitFor((m) => m.type === 'state' && m.title === 'After', 'changed title');
+    second.socket.close();
+  });
 
   it('lets go of a disconnected viewer\'s mouse button', async () => {
     const page = connect('buttons', `http://127.0.0.1:${upstreamPort}/buttons`);

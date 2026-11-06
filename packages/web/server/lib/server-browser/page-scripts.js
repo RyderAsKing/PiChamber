@@ -48,6 +48,40 @@ const COPY_RECORDER = `(() => {
   globalThis.takeCopy = () => { const text = copied; copied = ''; return text; };
 })()`;
 
+/** The binding the title watcher reports through; only the isolated world has it. */
+export const TITLE_BINDING = 'pichamberTitleChanged';
+
+/**
+ * Reports the main frame's title whenever the page changes it after loading
+ * (Chrome sends no event for that). It watches the title element and the
+ * elements that hold it, not the whole document, so busy pages pay nothing.
+ */
+const TITLE_WATCHER = `(() => {
+  if (globalThis.watchingTitle || window !== window.top) return;
+  const report = globalThis.${TITLE_BINDING};
+  if (typeof report !== 'function') return;
+  globalThis.watchingTitle = true;
+  let last = document.title;
+  let watched = [];
+  const check = () => {
+    const holders = [document, document.documentElement, document.head].filter(Boolean);
+    const title = document.querySelector('title');
+    const next = title ? [...holders, title] : holders;
+    if (next.length !== watched.length || next.some((node, index) => node !== watched[index])) {
+      observer.disconnect();
+      for (const node of next) observer.observe(node, node === title ? { childList: true, characterData: true, subtree: true } : { childList: true });
+      watched = next;
+    }
+    if (document.title === last) return;
+    last = document.title;
+    report(last);
+  };
+  const observer = new MutationObserver(check);
+  check();
+  // The head may not exist yet when this runs.
+  document.addEventListener('DOMContentLoaded', check, { once: true });
+})()`;
+
 /** What the element at a point is, for Inspect. */
 export const ELEMENT_METADATA_FUNCTION = `function (x, y) {
   let element = document.elementFromPoint(x, y);
@@ -150,7 +184,9 @@ export const createPageWorld = (send) => {
   return {
     async install(frameId) {
       mainFrameId = frameId;
+      await send('Runtime.addBinding', { name: TITLE_BINDING, executionContextName: WORLD_NAME });
       await send('Page.addScriptToEvaluateOnNewDocument', { source: COPY_RECORDER, worldName: WORLD_NAME, runImmediately: true });
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: TITLE_WATCHER, worldName: WORLD_NAME, runImmediately: true });
     },
 
     /** A frame navigated: its world is new. */

@@ -1,5 +1,5 @@
 import { CHROME_SCALE_FACTOR } from './chrome-launch.js';
-import { createPageWorld, CURSOR_FUNCTION, ELEMENT_METADATA_FUNCTION } from './page-scripts.js';
+import { createPageWorld, CURSOR_FUNCTION, ELEMENT_METADATA_FUNCTION, TITLE_BINDING } from './page-scripts.js';
 import { createTabInput } from './tab-input.js';
 import { createTabPrompts } from './tab-prompts.js';
 import { createTabStream } from './tab-stream.js';
@@ -208,7 +208,6 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       if (mainFrame && setUrl(committedUrl)) emitState();
       broadcast({ type: 'notice', kind: 'blocked-server-network', url });
     },
-    titleChanged: (title) => tab.updateTitle(title),
   };
 
   const onFrameNavigated = ({ frame }) => {
@@ -290,6 +289,10 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       state.loading = false;
       emitState();
     });
+    // Title changes after a load, from the page's title watcher.
+    nextSession.on('Runtime.bindingCalled', ({ name, payload }) => {
+      if (current() && name === TITLE_BINDING) tab.updateTitle(payload);
+    });
     nextPage.on('crash', () => {
       if (!current()) return;
       pageCrashed = true;
@@ -313,6 +316,8 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
     guard.addPage(targetId, owner);
     await Promise.all([
       nextSession.send('Page.enable'),
+      // Delivers the title watcher's binding calls.
+      nextSession.send('Runtime.enable'),
       world.install(targetId),
     ]);
     input.bind(send);
