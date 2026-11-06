@@ -139,7 +139,9 @@ export const getPiSessionStore = (): PiSessionStore => {
  * - `'opened'`: the session's catalog summary went from null/unknown to a
  *   non-null summary (a new blocking request is waiting on the user).
  * - `'cleared'`: the summary went from non-null to null, or the session row
- *   was deleted while non-null.
+ *   was deleted while non-null, or a live `null` arrived for a session this
+ *   store last reported `opened` whose row has since dropped out of the
+ *   catalog.
  *
  * Changes in count or `since` while staying non-null emit nothing. List
  * fetches, snapshots, and details never emit — only live `session.input`
@@ -575,6 +577,12 @@ export class PiSessionStore {
         directory: record.directory,
         pending: null,
       });
+    }
+    // Sessions opened live whose rows have since dropped out of the catalog
+    // have no row to walk, but their alerts are still up.
+    for (const [sessionId, directory] of this.openedPendingInputById) {
+      if (this.state.catalog.byId.has(sessionId)) continue;
+      epochCleared.push({ type: 'cleared', sessionId, directory, pending: null });
     }
     this.lifecycleSequenceById.clear();
     // The new daemon's sequence space is unrelated: drop every accepted
@@ -1055,6 +1063,13 @@ export class PiSessionStore {
   /** Live pending-input transition listeners (see `PendingInputTransition`).
    *  Cleared on runtime reset/switch alongside every other runtime-scoped map. */
   private pendingInputTransitionListeners = new Set<PendingInputTransitionListener>();
+  /** Session id -> directory for sessions whose latest emitted transition
+   *  is `opened`. A catalog row can
+   *  drop out (a directory listing that no longer includes it) while its
+   *  alert is still up; the live `null` that follows changes no row, so this
+   *  map is how the store still closes out what it opened. Cleared on
+   *  runtime reset. */
+  private openedPendingInputById = new Map<PiSessionId, string>();
   /**
    * Subscribe to live pending-input `opened`/`cleared` transitions.
    * Fires only for the LIVE `session.input` event path (and row deletion),
@@ -1072,6 +1087,10 @@ export class PiSessionStore {
     };
   };
   private emitPendingInputTransitions(transitions: readonly PendingInputTransition[]): void {
+    for (const transition of transitions) {
+      if (transition.type === 'opened') this.openedPendingInputById.set(transition.sessionId, transition.directory);
+      else this.openedPendingInputById.delete(transition.sessionId);
+    }
     if (transitions.length === 0 || this.pendingInputTransitionListeners.size === 0) return;
     for (const listener of [...this.pendingInputTransitionListeners]) {
       for (const transition of transitions) {
@@ -1106,6 +1125,7 @@ export class PiSessionStore {
     this.retiredStreamEpochs.clear();
     this.lifecycleSequenceById.clear();
     this.pendingInputSequenceById.clear();
+    this.openedPendingInputById.clear();
     this.pendingInputUnsupported = false;
     this.pendingInputFetchInFlight = null;
     this.pendingInputRefetchRequested = false;
@@ -4093,6 +4113,23 @@ export class PiSessionStore {
         }
       }
       this.state = { ...this.state, catalog: nextCatalog };
+    }
+    // A live `null` for a session this store reported `opened`, whose row
+    // has since dropped out of the catalog (a listing no longer includes
+    // it), changes no row, so the walk above never sees it. Still emit
+    // `cleared` so its alert surfaces close. Only the newest accepted
+    // `session.input` per session counts.
+    const lastInputBySession = new Map<PiSessionId, PiSessionEvent>();
+    for (const event of acceptedEvents) {
+      if (event.name === 'session.input') lastInputBySession.set(event.sessionId, event);
+    }
+    for (const [sessionId, event] of lastInputBySession) {
+      if ((event.payload as { pending?: unknown }).pending !== null) continue;
+      if (nextCatalog.byId.has(sessionId)) continue;
+      if (this.pendingInputSequenceById.get(sessionId) !== event.sequence) continue;
+      const directory = this.openedPendingInputById.get(sessionId);
+      if (directory === undefined) continue;
+      pendingInputTransitions.push({ type: 'cleared', sessionId, directory, pending: null });
     }
     const topics: string[] = [];
     // An epoch reset may already have settled carried-over catalog rows.

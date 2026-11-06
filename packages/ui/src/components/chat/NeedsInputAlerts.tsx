@@ -156,8 +156,9 @@ interface NeedingAlertCatalogEntry {
  * input. Only a known `null` dismisses the toast and OS notification:
  * unknown (`undefined`) is not cleared, and a missing row is left alone
  * because directory listings can drop rows without the session ending
- * (real deletions already emit `cleared` through the deletion path, and a
- * verified epoch change now emits `cleared` for previously-needing rows).
+ * (real deletions already emit `cleared` through the deletion path, a live
+ * `null` for a dropped row the store reported `opened` emits `cleared`, and
+ * a verified epoch change emits `cleared` for previously-needing sessions).
  * Other non-live paths (global refetch, list rows, snapshots, details)
  * never emit transitions, so without this the alert surfaces would linger
  * forever.
