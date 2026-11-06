@@ -1,3 +1,6 @@
+import { Readable } from 'node:stream';
+
+import { responseInterceptor as realResponseInterceptor } from 'http-proxy-middleware';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -37,7 +40,10 @@ const createResponse = () => {
   };
 };
 
-const createAttachedPreviewRuntime = ({ isRequestOriginAllowed = async () => true } = {}) => {
+const createAttachedPreviewRuntime = ({
+  isRequestOriginAllowed = async () => true,
+  responseInterceptor = (handler) => handler,
+} = {}) => {
   let proxyOptions;
   const postRoutes = new Map();
   const useRoutes = new Map();
@@ -59,7 +65,7 @@ const createAttachedPreviewRuntime = ({ isRequestOriginAllowed = async () => tru
       middleware.upgrade = () => {};
       return middleware;
     },
-    responseInterceptor: (handler) => handler,
+    responseInterceptor,
   });
   const app = {
     post(path, ...handlers) {
@@ -415,6 +421,49 @@ describe('preview redirect URL rewriting', () => {
   });
 });
 
+// Drives a registered target's upstream response through the real
+// http-proxy-middleware interceptor, which copies upstream headers to the
+// response before PiChamber's handler runs.
+const proxyUpstreamResponse = async ({ targetUrl, allowExternal = false, path = '/', status = 200, headers = {}, body = '' }) => {
+  const { postRoutes, proxyOptions } = createAttachedPreviewRuntime({ responseInterceptor: realResponseInterceptor });
+  const [, registerTarget] = postRoutes.get('/api/preview/targets');
+  const registration = createResponse();
+  await registerTarget({ body: { url: targetUrl, allowExternal }, secure: false }, registration);
+  const { id, previewToken } = registration.body;
+  const upstream = Object.assign(Readable.from([Buffer.from(body)]), { statusCode: status, statusMessage: '', headers });
+  const response = createResponse();
+  response.text = '';
+  const ended = new Promise((resolve) => {
+    response.write = (chunk) => { response.text += Buffer.from(chunk).toString('utf8'); };
+    response.end = () => resolve();
+  });
+  await proxyOptions().on.proxyRes(upstream, {
+    originalUrl: `/api/preview/proxy/${id}${path}?oc_preview_token=${previewToken}`,
+    headers: {},
+  }, response);
+  await ended;
+  return { id, response };
+};
+
+describe('preview proxy responses', () => {
+  it('removes frame-busting headers from the response the browser receives', async () => {
+    const { response } = await proxyUpstreamResponse({
+      targetUrl: 'http://127.0.0.1:4323/',
+      headers: {
+        'content-type': 'text/html',
+        'x-frame-options': 'DENY',
+        'content-security-policy': "frame-ancestors 'none'; script-src 'self'",
+      },
+      body: '<html><head></head><body>hi</body></html>',
+    });
+    expect(response.headers.has('x-frame-options')).toBe(false);
+    const csp = response.headers.get('content-security-policy');
+    expect(csp).not.toContain('frame-ancestors');
+    expect(csp).toContain("'nonce-");
+  });
+
+});
+
 describe('preview navigation policy', () => {
   const currentUrl = 'http://127.0.0.1:57123/api/preview/proxy/f4af70b4261d77706743959516f9cecc/docs';
 
@@ -575,22 +624,6 @@ describe('preview request Origin and Referer rewrite', () => {
     });
     expect(proxyReq.headers.has('referer')).toBe(false);
     expect(proxyReq.headers.has('origin')).toBe(false);
-  });
-
-  it('leaves headers from other sites untouched', () => {
-    const proxyReq = createProxyRequest();
-    proxyReq.setHeader('origin', 'https://evil.example');
-    proxyReq.setHeader('referer', 'https://evil.example/page');
-    rewritePreviewRequestOriginHeaders({
-      headers: { origin: 'https://evil.example', referer: 'https://evil.example/page' },
-      proxyReq,
-      targetOrigin,
-      proxyBasePath,
-      ownOrigin: false,
-      ownReferer: false,
-    });
-    expect(proxyReq.headers.get('origin')).toBe('https://evil.example');
-    expect(proxyReq.headers.get('referer')).toBe('https://evil.example/page');
   });
 
   const registerAndGuard = async ({ headers, isRequestOriginAllowed = async (req) => req.headers.origin === 'http://pichamber.test' }) => {

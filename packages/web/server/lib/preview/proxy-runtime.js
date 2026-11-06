@@ -1,3 +1,5 @@
+import { isServerNetworkHost as isBlockedExternalHost } from '../security/server-network-host.js';
+
 const DEFAULT_TARGET_TTL_MS = 30 * 60 * 1000;
 const TOKEN_COOKIE_NAME = 'oc_preview_token';
 const TOKEN_QUERY_PARAM = 'oc_preview_token';
@@ -916,9 +918,7 @@ const PREVIEW_BRIDGE_SCRIPT = String.raw`(() => {
   }, true);
   window.addEventListener('click', (event) => {
     const anchor = event.target && typeof event.target.closest === 'function' ? event.target.closest('a[href]') : null;
-    // Only a framed page hands navigation to its parent pane. A top-level
-    // page (the desktop webview) navigates natively; the pane re-routes it.
-    if (anchor && !inspectMode && window.parent !== window) {
+    if (anchor && !inspectMode) {
       const navigation = classifyNavigation(anchor.href);
       if (navigation.action === 'proxy' || navigation.action === 'external') {
         event.preventDefault();
@@ -991,36 +991,6 @@ const buildCookie = ({
 // resolves to a private IP (DNS rebinding) is not caught and would need
 // resolve-time IP pinning. Loopback for local preview goes through the non-external
 // path (allowExternal=false), which is unaffected.
-const isBlockedExternalHost = (hostname) => {
-  if (!hostname) return true;
-  let host = hostname.toLowerCase();
-  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
-
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (v4) {
-    const a = Number(v4[1]);
-    const b = Number(v4[2]);
-    if (a === 0 || a === 127 || a === 10) return true;          // this-host / loopback / private
-    if (a === 169 && b === 254) return true;                    // link-local incl. cloud metadata
-    if (a === 172 && b >= 16 && b <= 31) return true;           // private
-    if (a === 192 && b === 168) return true;                    // private
-    if (a === 100 && b >= 64 && b <= 127) return true;          // carrier-grade NAT
-    return false;
-  }
-
-  if (host.includes(':')) {
-    if (host === '::1' || host === '::') return true;           // loopback / unspecified
-    if (host.startsWith('fe80')) return true;                   // link-local
-    if (host.startsWith('fc') || host.startsWith('fd')) return true; // unique local fc00::/7
-    if (host.includes('::ffff:')) return true;                       // IPv4-mapped (dotted or hex form)
-    return false;
-  }
-
-  return false;
-};
-
 export const normalizeProxyTargetUrl = (rawUrl, { allowExternal = false } = {}) => {
   let url;
   try {
@@ -1221,6 +1191,28 @@ export const rewritePreviewRedirectLocation = ({ location, proxyBasePath, target
     return appendProxyAuthToProxyUrl(`${prefix}${parsed.pathname}${parsed.search}${parsed.hash}`, { previewToken, urlAuthToken });
   } catch {
     return location;
+  }
+};
+
+// http-proxy-middleware's responseInterceptor copies the upstream headers to
+// the response before it calls the interceptor, so edits made there to
+// `proxyRes.headers` never reach the browser on their own. Apply them.
+const applyEditedResponseHeaders = (res, before, after) => {
+  if (!res || res.headersSent || typeof res.setHeader !== 'function') return;
+  for (const key of Object.keys(before)) {
+    if (!(key in after)) res.removeHeader?.(key);
+  }
+  for (const [key, value] of Object.entries(after)) {
+    if (value !== undefined && before[key] !== value) res.setHeader(key, value);
+  }
+};
+
+const applyingHeaderEdits = (intercept) => async (responseBuffer, proxyRes, req, res) => {
+  const upstreamHeaders = { ...proxyRes.headers };
+  try {
+    return await intercept(responseBuffer, proxyRes, req, res);
+  } finally {
+    applyEditedResponseHeaders(res, upstreamHeaders, proxyRes.headers);
   }
 };
 
@@ -1553,7 +1545,7 @@ export const createPreviewProxyRuntime = ({
         proxyReqWs: (proxyReq, req) => {
           applyOwnHeaderRewrite(proxyReq, req);
         },
-        proxyRes: responseInterceptor(async (responseBuffer, proxyRes, req, res) => {
+        proxyRes: responseInterceptor(applyingHeaderEdits(async (responseBuffer, proxyRes, req, res) => {
           // This header is reserved for failures produced before proxying. Do
           // not let an upstream application response impersonate that signal.
           res.removeHeader?.(PREVIEW_TARGET_ERROR_HEADER);
@@ -1619,7 +1611,7 @@ export const createPreviewProxyRuntime = ({
             urlAuthToken,
           });
           return isHtml ? injectPreviewBridge(rewrittenBody, resolved.entry.origin, bridgeNonce) : rewrittenBody;
-        }),
+        })),
         error: (err, _req, res) => {
           const isDev = typeof process !== 'undefined'
             && process
