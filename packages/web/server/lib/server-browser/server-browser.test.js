@@ -68,7 +68,7 @@ describe('server browser server-network rule on a page', () => {
       await new Promise((resolve) => setImmediate(resolve));
     };
     const outcome = (requestId) => sent.find((entry) => entry.requestId === requestId)?.method;
-    return { tab, load, outcome };
+    return { tab, load, outcome, sent };
   };
 
   it('checks the addresses a public page\'s link resolves to', async () => {
@@ -79,6 +79,33 @@ describe('server browser server-network rule on a page', () => {
     await load('c', 'http://bench.example/');
     await load('d', 'http://nat64.example/');
     expect(['a', 'b', 'c', 'd'].map(outcome)).toEqual(['Fetch.failRequest', 'Fetch.continueRequest', 'Fetch.failRequest', 'Fetch.failRequest']);
+  });
+
+  it('refuses a public page\'s link when its name does not resolve in time', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const answers = {
+        'gone.example': () => Promise.reject(new Error('ENOTFOUND')),
+        'empty.example': async () => [],
+        'slow.example': () => new Promise(() => {}),
+      };
+      const { load, sent } = publicTab((host) => answers[host]());
+      await load('a', 'http://gone.example/');
+      await load('b', 'http://empty.example/');
+      await load('c', 'http://slow.example/');
+      expect(sent.some((entry) => entry.requestId === 'c')).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = (requestId) => sent.filter((entry) => entry.requestId === requestId).map(({ method, errorReason }) => [method, errorReason]);
+      expect(['a', 'b', 'c'].map(result)).toEqual([
+        [['Fetch.failRequest', 'NameNotResolved']],
+        [['Fetch.failRequest', 'NameNotResolved']],
+        [['Fetch.failRequest', 'TimedOut']],
+      ]);
+      // Not the server network, so no notice says it was.
+      expect(sent.some((entry) => entry.method === 'Fetch.failRequest' && entry.errorReason === 'Aborted')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('forgets a reload once it lands, even without a document request', async () => {

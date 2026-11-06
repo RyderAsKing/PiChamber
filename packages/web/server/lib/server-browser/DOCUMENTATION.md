@@ -113,8 +113,10 @@ reopens the tab at its last address.
 - **Server-network rule.** A public page cannot load a server-local or
   private address in the main frame or a subframe, by link, script, or
   redirect. A public page's load of a name (not an IP address) is also
-  checked against every address the name resolves to. A name that resolves
-  differently on Chrome's own lookup (DNS rebinding) is not caught. Loads the
+  checked against every address the name resolves to; a name that does not
+  resolve within 5 seconds does not load, and Chrome shows its error page. A
+  name that resolves differently on Chrome's own lookup (DNS rebinding) is
+  not caught. Loads the
   person asked for (typed address, back, forward, reload) pass until that
   address commits; a later load from the page is checked again. A blocked
   load is cancelled (`Aborted`), the address shown returns to the last

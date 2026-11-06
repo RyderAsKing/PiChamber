@@ -19,6 +19,8 @@ const MAX_VIEWPORT = 4096;
 const CURSOR_PROBE_INTERVAL_MS = 80;
 const ISOLATED_WORLD = 'pichamber-server-browser';
 const PAGE_SWAP_WAIT_MS = 3_000;
+// A page's load waits this long for the server-network check of its name.
+const NAME_CHECK_TIMEOUT_MS = 5_000;
 const NOT_ATTACHED = /Not attached to an active page/i;
 
 const MODIFIER_BITS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
@@ -430,19 +432,30 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
       broadcast({ type: 'notice', kind: 'blocked-server-network', url });
     };
     const proceed = () => { void send('Fetch.continueRequest', { requestId }).catch(() => {}); };
+    const fail = (errorReason) => { void send('Fetch.failRequest', { requestId, errorReason }).catch(() => {}); };
     if (isBlockedServerNetworkLoad({ url, from })) {
       block();
       return;
     }
     // A public name can resolve to the server's network (127.0.0.1.nip.io).
     // Chrome resolves the name again itself, so a name that changes its
-    // answer in between (DNS rebinding) is not caught.
+    // answer in between (DNS rebinding) is not caught. A name that cannot be
+    // checked does not load: Chrome shows its own error page for it.
     const host = hostOf(url);
     if (isPublicPage(from) && host && !net.isIP(host.replace(/^\[|\]$/g, ''))) {
-      void Promise.resolve()
-        .then(() => lookup(host))
-        .then((addresses) => addresses.some((entry) => isServerNetworkHost(entry.address)), () => false)
-        .then((blocked) => (blocked ? block() : proceed()));
+      let timer;
+      const timedOut = new Promise((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), NAME_CHECK_TIMEOUT_MS);
+        timer.unref?.();
+      });
+      void Promise.race([Promise.resolve().then(() => lookup(host)), timedOut])
+        .then((addresses) => {
+          if (addresses === 'timeout') fail('TimedOut');
+          else if (!Array.isArray(addresses) || addresses.length === 0) fail('NameNotResolved');
+          else if (addresses.some((entry) => isServerNetworkHost(entry.address))) block();
+          else proceed();
+        }, () => fail('NameNotResolved'))
+        .finally(() => clearTimeout(timer));
       return;
     }
     proceed();
