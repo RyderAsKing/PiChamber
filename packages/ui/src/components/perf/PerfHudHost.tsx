@@ -155,9 +155,11 @@ const PerfHudPanel: React.FC = () => {
     setPosition(nextPosition);
   }, []);
 
+  // Collapsing, the layout readout, and status text all change the panel
+  // height; re-clamp so a panel dragged near an edge stays on screen.
   React.useLayoutEffect(() => {
     if (position) constrainPosition(position);
-  }, [collapsed, constrainPosition, position]);
+  }, [captureStatus, collapsed, constrainPosition, layout, position]);
 
   React.useEffect(() => {
     if (!position || typeof window === 'undefined') return;
