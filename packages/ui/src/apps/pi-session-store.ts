@@ -2844,6 +2844,12 @@ export class PiSessionStore {
     sessionId,
     ...(customInstructions ? { customInstructions } : {}),
   }, this.scope());
+  runBash = (sessionId: string, command: string, options?: { excludeFromContext?: boolean }) => piClient.runBash({
+    sessionId,
+    command,
+    ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
+  }, this.scope());
+  abortBash = (sessionId: string) => piClient.abortBash({ sessionId }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
   tree = (sessionId: string) => piClient.getSessionTree(sessionId, this.scope());
@@ -4263,6 +4269,14 @@ export class PiSessionStore {
             title,
             existing?.updatedAt ?? Date.now(),
           );
+        } else {
+          // Empty title: Pi cleared the name. Fall back to the title the
+          // list derives from the first user prompt.
+          const existing = catalog.byId.get(event.sessionId);
+          if (existing) {
+            const derived = deriveSessionTitle(existing.preview ?? '');
+            catalog = applyTitleChange(catalog, event.sessionId, derived, existing.updatedAt);
+          }
         }
       }
       if (event.name === 'assistant.message.start' && event.payload.role === 'user') {

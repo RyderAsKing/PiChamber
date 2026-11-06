@@ -422,6 +422,7 @@ const projectSessionDetail = (value) => {
       : {}),
     ...projectExtensionSnapshotState(value),
     ...(inputState ? { inputState } : {}),
+    ...(projectBashExecutions(value.bashExecutions) ? { bashExecutions: projectBashExecutions(value.bashExecutions) } : {}),
   };
 };
 
@@ -647,6 +648,34 @@ export const projectExtensionList = (result) => {
   return { directory: result.directory, extensions, commands };
 };
 
+// User shell commands (`!cmd`). Command text is user-authored; output is a
+// bounded tail. Field caps mirror the daemon's live/recorded limits.
+const BASH_COMMAND_MAX_CHARS = 100_000;
+const BASH_OUTPUT_MAX_CHARS = 64 * 1024;
+const BASH_PHASES = ['running', 'completed', 'cancelled', 'failed'];
+
+const projectBashExecution = (value) => {
+  if (!value || typeof value !== 'object' || typeof value.id !== 'string' || value.id.length === 0 || value.id.length > 128) return null;
+  if (typeof value.command !== 'string' || !BASH_PHASES.includes(value.phase) || !Number.isFinite(value.startedAt)) return null;
+  return {
+    id: value.id,
+    command: value.command.slice(0, BASH_COMMAND_MAX_CHARS),
+    phase: value.phase,
+    startedAt: Math.floor(value.startedAt),
+    ...(value.excludeFromContext === true ? { excludeFromContext: true } : {}),
+    ...(Number.isFinite(value.completedAt) ? { completedAt: Math.floor(value.completedAt) } : {}),
+    ...(Number.isSafeInteger(value.exitCode) ? { exitCode: value.exitCode } : {}),
+    ...(value.truncated === true ? { truncated: true } : {}),
+    ...(typeof value.fullOutputPath === 'string' && value.fullOutputPath.length > 0 ? { fullOutputPath: value.fullOutputPath.slice(0, 4096) } : {}),
+    ...(typeof value.output === 'string' && value.output.length > 0 ? { output: value.output.slice(-BASH_OUTPUT_MAX_CHARS) } : {}),
+    ...(typeof value.error === 'string' && value.error.length > 0 ? { error: value.error.slice(0, 2000) } : {}),
+  };
+};
+
+const projectBashExecutions = (value) => (Array.isArray(value)
+  ? value.slice(0, 8).map(projectBashExecution).filter(Boolean)
+  : undefined);
+
 function projectExtensionSnapshotState(snapshot) {
   const extensionStatuses = Array.isArray(snapshot.extensionStatuses)
     ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
@@ -746,6 +775,7 @@ export const projectEventFrame = (frame) => {
         ...(snapshot.resync === true ? { resync: true } : {}),
         ...extensionSnapshot,
         ...(inputState ? { inputState } : {}),
+        ...(projectBashExecutions(snapshot.bashExecutions) ? { bashExecutions: projectBashExecutions(snapshot.bashExecutions) } : {}),
       } } };
     }
     case 'session.lifecycle': {
@@ -766,6 +796,46 @@ export const projectEventFrame = (frame) => {
       return { ...common, payload: { title } };
     }
     case 'session.tree.updated': return { ...common, payload: {} };
+    case 'session.bash': {
+      const bash = projectBashExecution(frame.payload.bash);
+      return bash ? { ...common, payload: { bash } } : null;
+    }
+    case 'session.bash.output': {
+      if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 128) return null;
+      if (frame.payload.reset === true) {
+        if (typeof frame.payload.output !== 'string') return null;
+        return { ...common, payload: { id: frame.payload.id, output: frame.payload.output.slice(-BASH_OUTPUT_MAX_CHARS), reset: true } };
+      }
+      if (typeof frame.payload.delta !== 'string' || frame.payload.delta.length === 0) return null;
+      return { ...common, payload: { id: frame.payload.id, delta: frame.payload.delta.slice(-BASH_OUTPUT_MAX_CHARS) } };
+    }
+    case 'session.bash.recorded': {
+      const message = frame.payload.message;
+      if (!message || typeof message.id !== 'string' || message.id.length === 0 || message.id.length > 512) return null;
+      if (!Number.isFinite(message.createdAt) || message.customType !== 'pichamber.bash') return null;
+      const details = message.details;
+      if (!details || typeof details !== 'object' || typeof details.command !== 'string' || typeof details.output !== 'string') return null;
+      return {
+        ...common,
+        payload: {
+          ...(typeof frame.payload.id === 'string' && frame.payload.id.length > 0 && frame.payload.id.length <= 128 ? { id: frame.payload.id } : {}),
+          message: {
+            id: message.id,
+            createdAt: message.createdAt,
+            customType: 'pichamber.bash',
+            details: {
+              command: details.command.slice(0, BASH_COMMAND_MAX_CHARS),
+              output: details.output.slice(-BASH_OUTPUT_MAX_CHARS),
+              ...(Number.isSafeInteger(details.exitCode) ? { exitCode: details.exitCode } : {}),
+              ...(details.cancelled === true ? { cancelled: true } : {}),
+              ...(details.truncated === true ? { truncated: true } : {}),
+              ...(details.excludeFromContext === true ? { excludeFromContext: true } : {}),
+              ...(typeof details.fullOutputPath === 'string' && details.fullOutputPath.length > 0 ? { fullOutputPath: details.fullOutputPath.slice(0, 4096) } : {}),
+            },
+          },
+        },
+      };
+    }
     case 'assistant.message.start': {
       const files = frame.payload.role === 'user' && Array.isArray(frame.payload.files)
         ? frame.payload.files
@@ -2109,6 +2179,32 @@ export const registerPiRuntimeRoutes = (app, {
       if (result !== undefined) res.status(204).end();
     });
   }
+
+  // User shell commands (`!cmd` / `!!cmd`). Acceptance is not completion:
+  // output and the recorded result arrive as `session.bash*` events.
+  app.post('/api/pi/sessions/:sessionId/bash', async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    if (typeof body.command !== 'string' || body.command.trim().length === 0 || body.command.length > BASH_COMMAND_MAX_CHARS
+      || (body.excludeFromContext !== undefined && typeof body.excludeFromContext !== 'boolean')) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.bash', {
+      command: body.command,
+      ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
+    });
+    if (result === undefined) return;
+    if (!result || result.accepted !== true || typeof result.id !== 'string') {
+      writeDaemonError(res, protocolMismatch());
+      return;
+    }
+    res.status(202).json({ accepted: true, id: result.id });
+  });
+
+  app.post('/api/pi/sessions/:sessionId/bash/abort', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.abortBash', {});
+    if (result !== undefined) res.status(204).end();
+  });
 
   app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});

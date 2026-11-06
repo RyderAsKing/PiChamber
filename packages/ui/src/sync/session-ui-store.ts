@@ -546,6 +546,33 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
     const draft = get().newSessionDraft
     const trimmedAgent = typeof agent === "string" && agent.trim().length > 0 ? agent.trim() : undefined
 
+    // ---- User shell command (`!cmd` / `!!cmd`) ----
+    // Runs through the session's shell endpoint, never as a prompt: no user
+    // message, no busy turn, no queue. A draft is materialized first, without
+    // a title derived from the command.
+    if (inputMode === "shell") {
+      let shellSessionId = capturedTarget?.sessionId ?? options?.sessionId ?? null
+      if (!shellSessionId && (options?.draftSnapshot?.open || draft?.open)) {
+        const createdDraftSession = await materializeOpenDraftSession({
+          providerID,
+          modelID,
+          agent: trimmedAgent,
+          variant,
+          branchCheckoutReceipt: options?.branchCheckoutReceipt,
+          worktreeCreationReceipt: options?.worktreeCreationReceipt,
+          draftSnapshot: options?.draftSnapshot,
+        })
+        if (!createdDraftSession) throw new Error("Failed to create session")
+        shellSessionId = createdDraftSession.sessionId
+      }
+      shellSessionId ??= get().currentSessionId
+      if (!shellSessionId) throw new Error("Select a session to run a shell command.")
+      await getPiSessionStore().runBash(shellSessionId, content, {
+        excludeFromContext: options?.shellExcludeFromContext === true,
+      })
+      return
+    }
+
     // ---- New session from draft ----
     if (!capturedTarget && !options?.sessionId && (options?.draftSnapshot?.open || draft?.open)) {
       const createdDraftSession = await materializeOpenDraftSession({

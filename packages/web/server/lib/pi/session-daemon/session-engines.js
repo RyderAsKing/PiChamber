@@ -92,6 +92,8 @@ export const ENGINE_SESSION_COMMANDS = Object.freeze(new Set([
   'sessions.setModel',
   'sessions.setThinking',
   'sessions.compact',
+  'sessions.bash',
+  'sessions.abortBash',
 ]));
 
 /**

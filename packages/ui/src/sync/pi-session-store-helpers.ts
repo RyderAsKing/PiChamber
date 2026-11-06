@@ -259,6 +259,7 @@ export const mergeHydratedSession = (
           extensionTitle: existing.extensionTitle,
           ...(existing.extensionWorking ? { extensionWorking: existing.extensionWorking } : {}),
           ...(existing.extensionDraftTracked ? { extensionDraftTracked: true } : {}),
+          bashExecutions: existing.bashExecutions,
         }
       : {}),
     ...localLiveState,

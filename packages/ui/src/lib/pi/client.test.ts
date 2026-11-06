@@ -67,6 +67,15 @@ describe("PiService", () => {
       if (url.pathname === "/api/pi/sessions/s1/compact" && call.init?.method === "POST") {
         return jsonResponse({ accepted: true }, { status: 202 })
       }
+      if (url.pathname === "/api/pi/sessions/s1/bash" && call.init?.method === "POST") {
+        return jsonResponse({ accepted: true, id: "bash-1" }, { status: 202 })
+      }
+      if (url.pathname === "/api/pi/sessions/s1/bash/abort" && call.init?.method === "POST") {
+        return new Response(null, { status: 204 })
+      }
+      if (url.pathname === "/api/pi/sessions/busy/bash" && call.init?.method === "POST") {
+        return jsonResponse({ error: { code: "SESSION_BUSY" } }, { status: 400 })
+      }
       return jsonResponse({ error: { code: "DAEMON_REQUEST_FAILED" } }, { status: 500 })
     })
   })
@@ -135,6 +144,28 @@ describe("PiService", () => {
       sessionId: "s1",
       customInstructions: "Keep open test failures",
     })
+  })
+
+  test("runBash starts a shell command and abortBash stops it", async () => {
+    const client = new PiService()
+    expect(await client.runBash({ sessionId: "s1", command: "ls -la", excludeFromContext: true })).toEqual({ id: "bash-1" })
+    const call = recordedCalls()[0]
+    expect(call.url).toBe("/api/pi/sessions/s1/bash")
+    expect(call.init?.method).toBe("POST")
+    expect(JSON.parse(call.init?.body as string)).toEqual({ command: "ls -la", excludeFromContext: true })
+
+    await client.runBash({ sessionId: "s1", command: "pwd" })
+    expect(JSON.parse(recordedCalls()[1].init?.body as string)).toEqual({ command: "pwd" })
+
+    await client.abortBash({ sessionId: "s1" })
+    expect(recordedCalls()[2].url).toBe("/api/pi/sessions/s1/bash/abort")
+  })
+
+  test("runBash surfaces a busy shell as an error instead of acceptance", async () => {
+    const client = new PiService()
+    const error = await client.runBash({ sessionId: "busy", command: "ls" }).then(() => null, (caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PiRequestError)
+    expect((error as PiRequestError).code).toBe("SESSION_BUSY")
   })
 
   test("createSession POSTs to /api/pi/sessions", async () => {

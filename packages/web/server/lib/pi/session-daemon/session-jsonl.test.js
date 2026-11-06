@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import {
+  createPiSessionJsonlListCache,
   encodePiSessionCwd,
   findPiSessionJsonlById,
   getPiSessionDirectory,
@@ -107,7 +108,7 @@ describe('Pi session JSONL validation', () => {
     await expect(findPiSessionJsonlById({ sessionId: '01a019b7-ce87-7be9-8fdd-missing', agentDir })).resolves.toBeNull();
   });
 
-  it('lists session metadata without reading a padded transcript body', async () => {
+  it('lists session metadata for a padded transcript', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-jsonl-'));
     const cwd = join(root, 'project');
     const agentDir = join(root, 'agent');
@@ -167,6 +168,109 @@ describe('Pi session JSONL validation', () => {
 
     await expect(listPiSessionJsonlDirectory({ cwd, agentDir })).rejects.toMatchObject({
       code: 'MALFORMED_SESSION_JSONL',
+    });
+  });
+
+  describe('cached incremental list metadata', () => {
+    const userLine = (text) => JSON.stringify({ type: 'message', message: { role: 'user', content: [{ type: 'text', text }] } });
+    const fillerLine = (index) => JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: `${index} ${'x'.repeat(10_000)}` },
+    });
+    const infoLine = (name) => JSON.stringify({ type: 'session_info', name });
+    const filler = (count) => Array.from({ length: count }, (_, index) => fillerLine(index)).join('\n');
+
+    const setup = async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-jsonl-cache-'));
+      const cwd = join(root, 'project');
+      const agentDir = join(root, 'agent');
+      const sessionDirectory = getPiSessionDirectory({ cwd, agentDir });
+      await mkdir(sessionDirectory, { recursive: true });
+      const file = join(sessionDirectory, '2026-01-01T00-00-00-000Z_session-one.jsonl');
+      const cache = createPiSessionJsonlListCache();
+      const list = () => listPiSessionJsonlDirectory({ cwd, agentDir, cache });
+      return { cwd, sessionDirectory, file, cache, list };
+    };
+
+    it('keeps a rename made far before the end of a large transcript', async () => {
+      const { cwd, file, list } = await setup();
+      // ~600KB after the rename: deeper than the old 128KB tail window in a >512KB file.
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), infoLine('Renamed early'), filler(60), ''].join('\n'));
+      const [row] = await list();
+      expect(row).toMatchObject({ name: 'Renamed early', firstMessage: 'first prompt' });
+    });
+
+    it('scans only appended bytes after growth and keeps the latest rename', async () => {
+      const { cwd, file, cache, list } = await setup();
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), infoLine('Before'), filler(60), ''].join('\n'));
+      await list();
+      const bytesAfterCold = cache.stats.bytesRead;
+      const appended = [filler(2), infoLine('After'), ''].join('\n');
+      await appendFile(file, appended);
+      const [row] = await list();
+      expect(row.name).toBe('After');
+      expect(cache.stats.incrementalScans).toBe(1);
+      expect(cache.stats.bytesRead - bytesAfterCold).toBe(Buffer.byteLength(appended));
+    });
+
+    it('carries a partial trailing line to the next scan', async () => {
+      const { cwd, file, list } = await setup();
+      const pending = infoLine('Split rename');
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), pending.slice(0, 10)].join('\n'));
+      expect((await list())[0].name).toBeUndefined();
+      await appendFile(file, `${pending.slice(10)}\n`);
+      expect((await list())[0].name).toBe('Split rename');
+    });
+
+    it('treats an empty session_info as an explicit clear', async () => {
+      const { cwd, file, list } = await setup();
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), infoLine('Named'), filler(60), ''].join('\n'));
+      expect((await list())[0].name).toBe('Named');
+      await appendFile(file, `${infoLine('   ')}\n`);
+      const [row] = await list();
+      expect(row.name).toBeUndefined();
+      expect(row.firstMessage).toBe('first prompt');
+    });
+
+    it('rescans a replaced or shrunk file from the start', async () => {
+      const { cwd, file, sessionDirectory, cache, list } = await setup();
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), infoLine('Old name'), filler(3), ''].join('\n'));
+      await list();
+      await writeFile(file, [validHeader(cwd), userLine('other prompt'), ''].join('\n'));
+      let [row] = await list();
+      expect(row.name).toBeUndefined();
+      expect(row.firstMessage).toBe('other prompt');
+      expect(cache.stats.fullScans).toBe(2);
+
+      const replacement = join(sessionDirectory, 'replacement.tmp');
+      await writeFile(replacement, [validHeader(cwd), userLine('other prompt'), infoLine('Replaced name'), filler(3), ''].join('\n'));
+      await rename(replacement, file);
+      [row] = await list();
+      expect(row.name).toBe('Replaced name');
+      expect(cache.stats.fullScans).toBe(3);
+    });
+
+    it('serves unchanged files from cache without reading them', async () => {
+      const { cwd, file, cache, list } = await setup();
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), infoLine('Named'), filler(60), ''].join('\n'));
+      const first = await list();
+      const snapshot = { ...cache.stats };
+      const second = await list();
+      expect(second).toEqual(first);
+      expect(cache.stats).toEqual(snapshot);
+    });
+
+    it('prunes cache entries for deleted files and still fails on a malformed header', async () => {
+      const { cwd, file, sessionDirectory, cache, list } = await setup();
+      await writeFile(file, [validHeader(cwd), userLine('first prompt'), ''].join('\n'));
+      await list();
+      expect(cache.entries.has(file)).toBe(true);
+      await rename(file, join(sessionDirectory, 'moved.txt'));
+      expect(await list()).toEqual([]);
+      expect(cache.entries.size).toBe(0);
+      await writeFile(join(sessionDirectory, 'bad.jsonl'), '{"type":"message"}\n');
+      await expect(list()).rejects.toMatchObject({ code: 'MALFORMED_SESSION_JSONL' });
+      expect(cache.entries.size).toBe(0);
     });
   });
 });

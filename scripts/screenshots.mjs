@@ -10,13 +10,16 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 
+import { encodePiSessionCwd } from '../packages/web/server/lib/pi/session-daemon/session-jsonl.js';
+
 const HELP = `Usage: BASE_URL=http://127.0.0.1:5180 bun run screenshots [label] [page...]
        bun run screenshots --seed <dir>
 
   label   Output subfolder, e.g. before or after (default: current)
   page    One or more page names (default: all)
   --seed  Recreate <dir>/repo (a git repo with staged-only, staged-then-edited,
-          and staged new files) and <dir>/data, a PICHAMBER_DATA_DIR that opens it
+          and staged new files), <dir>/data (a PICHAMBER_DATA_DIR that opens it),
+          and <dir>/home (a HOME whose Pi agent dir holds one demo session)
 
 Environment:
   BASE_URL   PiChamber UI origin (default: http://127.0.0.1:5180)
@@ -33,6 +36,14 @@ const VIEWPORTS = [
 
 // Each page opens a route and waits for text that only appears once real
 // content has rendered (not the loading shell).
+// The seeded Pi session (see seed): a conversation with recorded `!cmd`
+// shell commands. Its id is fixed so pages can open it by URL.
+const DEMO_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8e9f';
+const DEMO_SESSION_PATH = `/?session=${DEMO_SESSION_ID}`;
+// Text of the seeded assistant reply; it renders with or without shell rows,
+// so before and after captures wait on the same content.
+const DEMO_REPLY = 'autosave default changed to true';
+
 const PAGES = {
   'diff-all': {
     path: '/',
@@ -59,7 +70,29 @@ const PAGES = {
     })()`,
     idleRequestPrefix: '/api/git/',
   },
+  'shell-transcript': {
+    path: DEMO_SESSION_PATH,
+    // Recorded shell commands after the reply: a clean exit, a failing exit
+    // code, a command kept out of the model's context, and truncated output.
+    // The transcript pins the latest turn to the top, so the rows follow it.
+    readyText: [DEMO_REPLY],
+    height: 1400,
+  },
+  'shell-composer': {
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // `!` enters shell mode and a second `!` keeps the command out of the
+    // model's context; each insert is a separate edit, like typing.
+    typeIntoComposer: ['!', '!', 'git diff --stat'],
+  },
 };
+
+const COMPOSER_EDITOR_SELECTOR = [
+  '[data-testid="chat-input"] [contenteditable="true"]',
+  '[data-testid="chat-input"][contenteditable="true"]',
+  '[data-testid="chat-input"] textarea',
+  'textarea[data-testid="chat-input"]',
+].join(', ');
 
 const chromeCandidates = () => {
   const system = process.platform === 'darwin'
@@ -243,6 +276,22 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     if (page.settledScript) {
       await waitForSettled(client, page, network, `${pageName} settled`);
     }
+    if (page.typeIntoComposer) {
+      const selector = JSON.stringify(COMPOSER_EDITOR_SELECTOR);
+      await waitFor(
+        () => client.evaluate(`(() => {
+          const editor = document.querySelector(${selector});
+          editor?.focus();
+          return Boolean(editor) && editor.contains(document.activeElement);
+        })()`),
+        15_000,
+        `${pageName} composer focus`,
+      );
+      for (const text of page.typeIntoComposer) {
+        await client.send('Input.insertText', { text });
+        await wait(100);
+      }
+    }
   } catch (error) {
     // Keep what the page showed so a login screen or error page is easy to diagnose.
     const { data } = await client.send('Page.captureScreenshot', { format: 'png' });
@@ -263,15 +312,77 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
   return file;
 };
 
+// One Pi session in the repo, in Pi's JSONL format: a prompt, the reply, and
+// shell commands the user then ran with `!cmd` (bashExecution entries).
+const writeDemoSession = async (home, repo) => {
+  const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(repo));
+  await mkdir(sessionDir, { recursive: true });
+  const start = Date.parse('2026-11-01T10:00:00.000Z');
+  const usage = {
+    input: 1200, output: 80, cacheRead: 0, cacheWrite: 0, totalTokens: 1280,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+  const bash = (command, output, extra = {}) => ({
+    role: 'bashExecution', command, output, exitCode: 0, cancelled: false, truncated: false, ...extra,
+  });
+  const messages = [
+    { role: 'user', content: 'Why does the settings test fail?' },
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'The test expects the old value: the autosave default changed to true in settings.ts. Update the expectation or revert the default.' }],
+      api: 'anthropic-messages', provider: 'demo', model: 'demo-model', usage, stopReason: 'stop',
+    },
+    bash('git status --short', 'M  billing.ts\nMM settings.ts\nA  retry.ts\n'),
+    bash('node --test settings.test.js', [
+      '✖ loadSettings returns the defaults (1.2ms)',
+      '  AssertionError: expected autosave to be false',
+      '    at settings.test.js:8:10',
+      '',
+      'ℹ tests 3',
+      'ℹ pass 2',
+      'ℹ fail 1',
+      '',
+    ].join('\n'), { exitCode: 1 }),
+    bash('cat notes/scratch.md', 'Check the autosave default before the release.\n', { excludeFromContext: true }),
+    bash('git log --stat', [
+      ' settings.ts | 2 +-',
+      ' 1 file changed, 1 insertion(+), 1 deletion(-)',
+      '',
+      'commit 4f2a9c1',
+      'Author: Demo <demo@example.com>',
+      '',
+      '    initial',
+      '',
+      ' billing.ts  | 12 ++++++++++++',
+      ' settings.ts |  9 +++++++++',
+      ' 2 files changed, 21 insertions(+)',
+      '',
+    ].join('\n'), { truncated: true, fullOutputPath: '/tmp/pi-bash-demo.log' }),
+  ];
+  const lines = [{ type: 'session', version: 3, id: DEMO_SESSION_ID, timestamp: new Date(start).toISOString(), cwd: repo }];
+  let parentId = null;
+  messages.forEach((message, index) => {
+    const timestamp = start + (index + 1) * 1000;
+    const id = `demo${String(index).padStart(4, '0')}`;
+    lines.push({ type: 'message', id, parentId, timestamp: new Date(timestamp).toISOString(), message: { ...message, timestamp } });
+    parentId = id;
+  });
+  const file = join(sessionDir, `${new Date(start).toISOString().replace(/[:.]/g, '-')}_${DEMO_SESSION_ID}.jsonl`);
+  await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+};
+
 // Synthetic repo: billing.ts staged only (M ), settings.ts staged then edited
-// (MM), retry.ts a staged new file (A ). Safe to rerun; it replaces only
-// <dir>/repo and <dir>/data and leaves anything else in <dir> alone.
+// (MM), retry.ts a staged new file (A ), plus one Pi session in that repo.
+// Safe to rerun; it replaces only <dir>/repo, <dir>/data, and <dir>/home and
+// leaves anything else in <dir> alone.
 const seed = async (dir) => {
   const root = resolve(dir);
   const repo = join(root, 'repo');
   const data = join(root, 'data');
+  const home = join(root, 'home');
   await rm(repo, { recursive: true, force: true });
   await rm(data, { recursive: true, force: true });
+  await rm(home, { recursive: true, force: true });
   await mkdir(repo, { recursive: true });
   await mkdir(data, { recursive: true });
   const git = (...args) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' });
@@ -322,7 +433,8 @@ const seed = async (dir) => {
     activeProjectId: id,
     lastDirectory: repo,
   }, null, 2)}\n`);
-  console.log(`Seeded ${repo}\nStart the dev server with PICHAMBER_DATA_DIR=${data}`);
+  await writeDemoSession(home, repo);
+  console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`);
 };
 
 const main = async () => {

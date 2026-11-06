@@ -9,6 +9,9 @@ import type { ComposerEditorHandle } from '../editor/ComposerEditor';
 export interface UseComposerKeyNavigationOptions {
   inputMode: 'normal' | 'shell';
   setInputMode: (mode: 'normal' | 'shell') => void;
+  /** `!!` shell mode: the command is not sent to the model. */
+  shellExcludeFromContext?: boolean;
+  setShellExcludeFromContext?: (value: boolean) => void;
   message: string;
   setMessage: (message: string) => void;
   openAutocomplete: 'command' | 'snippet' | 'mention' | null;
@@ -78,6 +81,8 @@ export function tryExpandFencedCodeBlock(
 export function useComposerKeyNavigation({
   inputMode,
   setInputMode,
+  shellExcludeFromContext,
+  setShellExcludeFromContext,
   message,
   setMessage,
   openAutocomplete,
@@ -108,7 +113,9 @@ export function useComposerKeyNavigation({
 
       if (inputMode === 'shell' && e.key === 'Backspace' && message.length === 0) {
         e.preventDefault();
-        setInputMode('normal');
+        // Backspace undoes one `!` at a time: `!!` → `!` → normal.
+        if (shellExcludeFromContext && setShellExcludeFromContext) setShellExcludeFromContext(false);
+        else setInputMode('normal');
         return;
       }
 
@@ -254,6 +261,8 @@ export function useComposerKeyNavigation({
       sessionPhase,
       setInputMode,
       setMessage,
+      setShellExcludeFromContext,
+      shellExcludeFromContext,
       snippetRef,
       updateAutocompleteState,
     ]

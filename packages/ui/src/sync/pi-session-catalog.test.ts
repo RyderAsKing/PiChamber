@@ -1035,6 +1035,29 @@ describe('PiSessionStore catalog', () => {
     }
   });
 
+  test('an empty session.updated title clears the name back to the derived prompt title', async () => {
+    const stubs = stubDaemons({
+      listSessions: async () => ({ sessions: [listItem('named', '/repo-a', { title: 'Custom name', preview: 'Inspect this report\n\nDetails' })] }),
+    });
+    const store = new PiSessionStore();
+    try {
+      await store.refreshDirectoryCatalog('/repo-a');
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('named')?.title).toBe('Custom name');
+      const internal = store as unknown as { commitEvents: (events: PiSessionEvent[]) => void };
+      internal.commitEvents([sessionUpdatedEvent('named', '/repo-a', '', 1)]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.get('named')?.title).toBe('Inspect this report');
+      // A clear for an unknown session creates no stub row.
+      internal.commitEvents([sessionUpdatedEvent('unknown', '/repo-a', '', 2)]);
+      await tickMicrotasks();
+      expect(store.getState().catalog.byId.has('unknown')).toBe(false);
+    } finally {
+      stubs.restore();
+      store.dispose();
+    }
+  });
+
   test('a remote user prompt fills an empty stub title from the message text', async () => {
     const store = new PiSessionStore();
     try {
