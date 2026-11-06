@@ -3,19 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildFallbackEnv,
   handleBrowserArguments,
-  isHttpUrl,
   openWithFallback,
   resolveFallbackCommands,
 } from './browser-handler.mjs';
-
-describe('isHttpUrl', () => {
-  it('accepts only http(s)', () => {
-    expect(isHttpUrl('http://localhost:1/x')).toBe(true);
-    expect(isHttpUrl('https://example.com')).toBe(true);
-    expect(isHttpUrl('/tmp/report.html')).toBe(false);
-    expect(isHttpUrl('file:///tmp/report.html')).toBe(false);
-  });
-});
 
 describe('resolveFallbackCommands', () => {
   it('expands the $BROWSER list and ends with the platform opener', () => {

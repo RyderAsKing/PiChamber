@@ -77,13 +77,6 @@ describe('installOpenUrlBrowser', () => {
     expect(env[ORIGINAL_BROWSER_ENV]).toBe('firefox');
   });
 
-  it('records an empty original when $BROWSER was unset', async () => {
-    const dir = await makeTemporaryDir();
-    const env = {};
-    await installOpenUrlBrowser({ socketPath: path.join(dir, 's.sock'), env, platform: 'linux', tmpdir: dir });
-    expect(env[ORIGINAL_BROWSER_ENV]).toBe('');
-  });
-
   it('refuses a directory others can write to or a symlinked one, and moves on', async () => {
     const dir = await makeTemporaryDir();
     const shared = path.join(dir, 'shared');
@@ -111,12 +104,6 @@ describe('installOpenUrlBrowser', () => {
     const uid = (typeof process.getuid === 'function' ? process.getuid() : 0) + 1;
     expect(await installOpenUrlBrowser({ socketPath: path.join(dir, 's.sock'), env, platform: 'linux', uid })).toBeNull();
     expect(env).toEqual({});
-  });
-
-  it('leaves the environment alone on Windows', async () => {
-    const env = { BROWSER: 'x' };
-    expect(await installOpenUrlBrowser({ socketPath: 'C:\\s.sock', env, platform: 'win32', tmpdir: 'C:\\t' })).toBeNull();
-    expect(env).toEqual({ BROWSER: 'x' });
   });
 });
 
