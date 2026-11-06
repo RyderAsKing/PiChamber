@@ -228,3 +228,8 @@ for the running major version (set for the whole context, so popups and
 out-of-process frames see it too) without the `HeadlessChrome` marker, which
 many sites refuse. Client hints carry Chrome's default brands. Navigation
 history has no back/forward cache, so Back reloads the page.
+
+Frames stay JPEG. Streaming video (WebCodecs H.264 encoded in a hidden page)
+was measured and rejected: without a GPU it tied scroll mode on a LAN at more
+CPU and latency, and won only on slow links. See
+`docs/research/server-browser-video-streaming.md` before trying again.
