@@ -3,7 +3,6 @@ import { describe, expect, test } from 'bun:test';
 import {
   decideOpenRequest,
   describeOpenRequestPrompt,
-  describeOpenRequestUrl,
   extractOpenableUrls,
   OPEN_REQUEST_NOTICE_MS,
 } from './open-request';
@@ -30,35 +29,25 @@ describe('decideOpenRequest', () => {
 describe('describeOpenRequestPrompt', () => {
   const label = 'localhost:4000/review';
 
-  test('asks before opening, and warns when the page would share PiChamber\'s origin', () => {
-    const shared = describeOpenRequestPrompt(label, 'panel', { isMobile: false, isolatedBrowser: false });
-    expect(shared.canOpen).toBe(true);
-    expect(shared.title).toBe('Open this page?');
-    expect(shared.description).toContain('can act as you in PiChamber');
-
-    const isolated = describeOpenRequestPrompt(label, 'panel', { isMobile: false, isolatedBrowser: true });
-    expect(isolated.canOpen).toBe(true);
-    expect(isolated.description).not.toContain('act as you');
+  test('asks before opening a server-local page in the PiChamber browser', () => {
+    expect(describeOpenRequestPrompt(label, 'panel', { isMobile: false })).toEqual({
+      title: 'Open this page?',
+      description: 'localhost:4000/review. Opens in the PiChamber browser.',
+      canOpen: true,
+    });
   });
 
   test('only informs on a phone layout, which has no PiChamber browser', () => {
-    expect(describeOpenRequestPrompt(label, 'panel', { isMobile: true, isolatedBrowser: false }).canOpen).toBe(false);
+    expect(describeOpenRequestPrompt(label, 'panel', { isMobile: true }).canOpen).toBe(false);
   });
 
   test('offers the device browser for other pages, phone included', () => {
-    const prompt = describeOpenRequestPrompt('github.com/login/device', 'external', { isMobile: true, isolatedBrowser: false });
+    const prompt = describeOpenRequestPrompt('github.com/login/device', 'external', { isMobile: true });
     expect(prompt).toEqual({
       title: 'Open this page?',
       description: 'github.com/login/device. Opens in your browser.',
       canOpen: true,
     });
-  });
-});
-
-describe('describeOpenRequestUrl', () => {
-  test('shows host and path without the query', () => {
-    expect(describeOpenRequestUrl('http://localhost:4000/review?token=secret')).toBe('localhost:4000/review');
-    expect(describeOpenRequestUrl('https://example.com/')).toBe('example.com');
   });
 });
 

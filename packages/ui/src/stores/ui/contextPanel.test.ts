@@ -10,7 +10,6 @@ import {
   normalizeContextTabLabel,
   normalizeContextTargetPath,
   normalizePendingDiffScope,
-  normalizeBrowserRoute,
   reorderContextPanelTabs,
   sanitizeContextPanelTabs,
   resolveSharedContextPanelWidth,
@@ -186,35 +185,66 @@ describe('contextPanel domain logic', () => {
     });
   });
   describe('browser route', () => {
-    test('normalizes only known routes', () => {
-      expect(normalizeBrowserRoute('server')).toBe('server');
-      expect(normalizeBrowserRoute('device')).toBe('device');
-      expect(normalizeBrowserRoute('proxy')).toBeNull();
-      expect(normalizeBrowserRoute(undefined)).toBeNull();
+    test('a new browser tab starts with one page that keeps the tab id', () => {
+      const tab = createContextPanelTab({ mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com', browserRoute: 'device' });
+      expect(tab.targetPath).toBeNull();
+      expect(tab.browser).toEqual({
+        pages: [{ id: tab.id, url: 'https://example.com', route: 'device', title: null }],
+        activePageId: tab.id,
+      });
+      expect(createContextPanelTab({ mode: 'preview', targetPath: 'http://localhost:3000', browserRoute: 'device' }).browser).toBeNull();
     });
 
-    test('keeps a route only on browser tabs', () => {
-      expect(createContextPanelTab({ mode: 'browser', dedupeKey: 'desktop-browser', browserRoute: 'device' }).browserRoute).toBe('device');
-      expect(createContextPanelTab({ mode: 'preview', targetPath: 'http://localhost:3000', browserRoute: 'device' }).browserRoute).toBeNull();
-    });
-
-    test('an explicit route replaces the tab route and a missing one keeps it', () => {
+    test('reopening the browser tab keeps its pages', () => {
       const state = touchContextPanelState(undefined);
-      const opened = upsertContextPanelTab(state, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com', browserRoute: 'device' });
+      const opened = upsertContextPanelTab(state, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com' });
       const reopened = upsertContextPanelTab(opened, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.org' });
-      expect(reopened.tabs[0]?.browserRoute).toBe('device');
-      const forced = upsertContextPanelTab(reopened, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'http://localhost:19432', browserRoute: 'server' });
-      expect(forced.tabs[0]?.browserRoute).toBe('server');
-      expect(forced.tabs[0]?.targetPath).toBe('http://localhost:19432');
+      expect(reopened.tabs).toHaveLength(1);
+      expect(reopened.tabs[0]?.browser?.pages.map((page) => page.url)).toEqual(['https://example.com']);
     });
 
-    test('restores a persisted route and drops malformed values', () => {
-      const [valid, malformed] = sanitizeContextPanelTabs([
+    test('migrates a saved browser tab from before pages', () => {
+      const [legacy] = sanitizeContextPanelTabs([
         { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://a.example', browserRoute: 'server' },
-        { mode: 'browser', dedupeKey: 'other-browser', targetPath: 'https://b.example', browserRoute: 'tunnel' },
       ]);
-      expect(valid?.browserRoute).toBe('server');
-      expect(malformed?.browserRoute).toBeNull();
+      const [fromRail] = sanitizeContextPanelTabs([
+        { mode: 'browser', targetPath: 'https://b.example', browserRoute: 'tunnel' },
+      ]);
+      expect(legacy?.targetPath).toBeNull();
+      expect(legacy?.browser?.pages).toEqual([{ id: 'browser:desktop-browser', url: 'https://a.example', route: 'server', title: null }]);
+      // The page keeps the old tab id, so its server page reattaches.
+      expect(fromRail?.id).toBe('browser:desktop-browser');
+      expect(fromRail?.browser?.pages).toEqual([{ id: 'browser', url: 'https://b.example', route: null, title: null }]);
+    });
+
+    test('the rail and links open the same Browser tab', () => {
+      const state = touchContextPanelState(undefined);
+      const fromRail = upsertContextPanelTab(state, { mode: 'browser' });
+      const fromLink = upsertContextPanelTab(fromRail, { mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com' });
+      expect(fromLink.tabs.map((tab) => tab.id)).toEqual(['browser:desktop-browser']);
+    });
+
+    test('restores saved pages and drops malformed ones', () => {
+      const [tab] = sanitizeContextPanelTabs([{
+        mode: 'browser',
+        dedupeKey: 'desktop-browser',
+        browser: {
+          pages: [
+            { id: 'page-a', url: 'https://a.example', route: 'device', title: 'A' },
+            { id: 'bad id!', url: 'https://x.example' },
+            { id: 'page-a', url: 'https://dup.example' },
+            { id: 'page-b', url: 42, route: 'tunnel' },
+          ],
+          activePageId: 'page-b',
+        },
+      }]);
+      expect(tab?.browser).toEqual({
+        pages: [
+          { id: 'page-a', url: 'https://a.example', route: 'device', title: 'A' },
+          { id: 'page-b', url: null, route: null, title: null },
+        ],
+        activePageId: 'page-b',
+      });
     });
   });
 });

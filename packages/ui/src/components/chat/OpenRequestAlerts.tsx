@@ -2,7 +2,6 @@ import React from 'react';
 
 import { subscribeOpenRequests } from '@/apps/pi-session-store';
 import { toast } from '@/components/ui';
-import { isElectronShell } from '@/lib/desktopBridge';
 import { decideOpenRequest, describeOpenRequestPrompt, describeOpenRequestUrl } from '@/lib/pi/open-request';
 import type { PiSessionOpenUrlEvent } from '@/lib/pi/protocol';
 import { useUIStore } from '@/stores/useUIStore';
@@ -29,7 +28,6 @@ const handleOpenRequest = (event: PiSessionOpenUrlEvent): void => {
   const toastId = `open-request:${id}`;
   const prompt = describeOpenRequestPrompt(describeOpenRequestUrl(url), decision.target, {
     isMobile: useUIStore.getState().isMobile,
-    isolatedBrowser: isElectronShell(),
   });
   if (!prompt.canOpen) {
     toast.info(prompt.title, { id: toastId, description: prompt.description, duration: INFO_ONLY_DURATION_MS });

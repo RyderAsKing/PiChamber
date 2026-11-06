@@ -27,6 +27,12 @@ export const resolveDefaultBrowserRoute = (): BrowserRoute => {
   return isElectronShell() && isDesktopLocalOriginActive() ? 'device' : 'server';
 };
 
-export const resolveBrowserRoute = (tabRoute: unknown, preference: unknown): BrowserRoute => {
-  return normalizeBrowserRoute(tabRoute) ?? normalizeBrowserRoute(preference) ?? resolveDefaultBrowserRoute();
+// A page's own route wins. Without one, the desktop app uses the route last
+// picked; other runtimes always start on Server, because many sites refuse
+// to load in the iframe "This device" uses there. "This device" stays a
+// per-page fallback on those runtimes, never the default.
+export const resolveBrowserRoute = (pageRoute: unknown, preference: unknown): BrowserRoute => {
+  return normalizeBrowserRoute(pageRoute)
+    ?? (isElectronShell() ? normalizeBrowserRoute(preference) : null)
+    ?? resolveDefaultBrowserRoute();
 };

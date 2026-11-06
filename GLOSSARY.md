@@ -22,8 +22,12 @@ _Avoid_: local URL (ambiguous about which machine)
 The browser built into PiChamber's side panel.
 _Avoid_: webview, iframe, preview browser
 
+**Browser page**:
+One tab in the PiChamber browser's own tab strip, under the Browser panel tab. Each page has its own address, history, and Browser route.
+_Avoid_: browser tab (that is the panel tab holding the pages)
+
 **Browser route**:
-The network a PiChamber browser tab loads pages through: **Through server** (the server machine's network, so server-local addresses work from any device) or **This device** (the device's own network).
+Where a browser page runs: **Server** (a Chrome on the server machine, streamed to the device, so server-local addresses work from any device) or **This device** (the device's own network, in a webview or iframe).
 _Avoid_: proxy mode, proxy on/off
 
 **Open request**:

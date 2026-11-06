@@ -3,9 +3,8 @@ import { isLoopbackBrowserUrl } from '@/components/layout/context-panel/browserR
 /**
  * Open requests (`session.openUrl`): something on the server machine asked
  * PiChamber to show the person a URL. Nothing opens by itself: every device
- * asks first, because opening a page can give it access (a page loaded
- * through the server in the web app shares PiChamber's origin). Pure
- * decisions here; `OpenRequestAlerts` performs them.
+ * asks first, so a page nobody expected never loads unseen. Pure decisions
+ * here; `OpenRequestAlerts` performs them.
  */
 
 /** A request older than this (server clock) is not shown at all; it was missed. */
@@ -45,12 +44,6 @@ export const decideOpenRequest = (request: OpenRequestInput): OpenRequestDecisio
 interface OpenRequestPromptContext {
   /** A phone-sized layout, which has no PiChamber browser. */
   isMobile: boolean;
-  /**
-   * The PiChamber browser keeps pages apart from PiChamber's own storage
-   * (the desktop webview). Otherwise a page loaded through the server shares
-   * PiChamber's origin and can act as the signed-in person.
-   */
-  isolatedBrowser: boolean;
 }
 
 interface OpenRequestPrompt {
@@ -76,13 +69,7 @@ export const describeOpenRequestPrompt = (
       canOpen: false,
     };
   }
-  return {
-    title: 'Open this page?',
-    description: context.isolatedBrowser
-      ? `${label}. Opens in the PiChamber browser.`
-      : `${label}. It loads through the PiChamber server and can act as you in PiChamber. Open it only if you expected it.`,
-    canOpen: true,
-  };
+  return { title: 'Open this page?', description: `${label}. Opens in the PiChamber browser.`, canOpen: true };
 };
 
 /** A short label for a URL: host and path, without the query. */

@@ -215,6 +215,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     isAvailable: (ctx) => ctx.isDesktop && !ctx.isDesktopLocalOrigin,
   },
   {
+    id: 'general.chat-link-target',
+    page: 'general',
+    title: "Open chat links in",
+    description: "Open web links clicked in chat in the PiChamber browser or the system browser.",
+    keywords: ['browser', 'links', 'url', 'web', 'open', 'external', 'system browser'],
+  },
+  {
+    id: 'general.browser-data',
+    page: 'general',
+    title: "Clear browsing data",
+    description: "Sign out of every site in the server browser by deleting its cookies and site data.",
+    keywords: ['browser', 'cookies', 'logins', 'sign in', 'saved', 'clear', 'cache', 'web'],
+  },
+  {
     id: 'general.performance-overlay',
     page: 'general',
     title: "Performance overlay",

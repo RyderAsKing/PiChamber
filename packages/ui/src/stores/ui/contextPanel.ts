@@ -1,10 +1,12 @@
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 
+import { sanitizeBrowserPages, type BrowserPages } from './browserPages';
+
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
 export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'terminal' | 'pull-requests' | 'issues' | 'extensions';
-// Which network a PiChamber browser tab loads pages through: the server
-// machine's (through the preview proxy) or the device's own.
+// Where a PiChamber browser page runs: in the server's Chrome, streamed to
+// the device, or on the device itself (a webview or iframe).
 export type BrowserRoute = 'server' | 'device';
 
 export interface ContextPanelTab {
@@ -17,8 +19,9 @@ export interface ContextPanelTab {
   readOnly: boolean;
   stagedDiff: boolean;
   diffScope: PendingDiffScope | null;
-  // Browser tabs only; null means "use the remembered default".
-  browserRoute: BrowserRoute | null;
+  // Browser tabs only: the pages in the browser's tab strip. Browser tabs
+  // keep `targetPath` null; each page has its own address and route.
+  browser: BrowserPages | null;
   touchedAt: number;
 }
 
@@ -31,6 +34,7 @@ export interface ContextPanelTabDescriptor {
   readOnly?: boolean;
   stagedDiff?: boolean;
   diffScope?: PendingDiffScope | null;
+  // Browser tabs only: the first page's route; `targetPath` is its address.
   browserRoute?: BrowserRoute | null;
 }
 
@@ -162,6 +166,11 @@ export const normalizeContextPanelTabDedupeKey = (
     return mode;
   }
 
+  // One Browser tab per project, however it was opened (the rail or a link).
+  if (mode === 'browser') {
+    return BROWSER_TAB_DEDUPE_KEY;
+  }
+
   if (typeof dedupeKey === 'string') {
     const trimmed = dedupeKey.trim();
     if (trimmed) {
@@ -176,6 +185,27 @@ export const buildContextPanelTabID = (mode: ContextPanelMode, dedupeKey: string
   return dedupeKey === mode ? mode : `${mode}:${dedupeKey}`;
 };
 
+// The PiChamber browser is one panel tab per project; its pages are tabs
+// inside it.
+export const BROWSER_TAB_DEDUPE_KEY = 'desktop-browser';
+export const BROWSER_TAB_ID = `browser:${BROWSER_TAB_DEDUPE_KEY}`;
+
+/** Applies `update` to the Browser tab's pages; unchanged when there is none. */
+export const updateBrowserTabPages = (
+  current: ContextPanelDirectoryState,
+  update: (pages: BrowserPages) => BrowserPages,
+): ContextPanelDirectoryState => {
+  let changed = false;
+  const tabs = current.tabs.map((tab) => {
+    if (tab.id !== BROWSER_TAB_ID || !tab.browser) return tab;
+    const next = update(tab.browser);
+    if (next === tab.browser) return tab;
+    changed = true;
+    return { ...tab, browser: { pages: next.pages, activePageId: next.activePageId } };
+  });
+  return changed ? { ...current, tabs } : current;
+};
+
 export const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): ContextPanelTab => {
   const normalizedTargetPath = normalizeContextTargetPath(descriptor.targetPath);
   const dedupeKey = normalizeContextPanelTabDedupeKey(
@@ -183,17 +213,21 @@ export const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): Co
     normalizedTargetPath,
     descriptor.dedupeKey,
   );
+  const id = buildContextPanelTabID(descriptor.mode, dedupeKey);
+  const isBrowser = descriptor.mode === 'browser';
   return {
-    id: buildContextPanelTabID(descriptor.mode, dedupeKey),
+    id,
     mode: descriptor.mode,
-    targetPath: normalizedTargetPath,
+    targetPath: isBrowser ? null : normalizedTargetPath,
     dedupeKey,
     label: normalizeContextTabLabel(descriptor.label),
     sessionTitleFallback: normalizeContextTabLabel(descriptor.sessionTitleFallback),
     readOnly: descriptor.readOnly === true,
     stagedDiff: descriptor.stagedDiff === true,
     diffScope: normalizePendingDiffScope(descriptor.diffScope) ?? (descriptor.stagedDiff === true ? 'staged' : 'working'),
-    browserRoute: descriptor.mode === 'browser' ? normalizeBrowserRoute(descriptor.browserRoute) : null,
+    browser: isBrowser
+      ? sanitizeBrowserPages(null, { tabId: id, url: normalizedTargetPath, route: normalizeBrowserRoute(descriptor.browserRoute) })
+      : null,
     touchedAt: Date.now(),
   };
 };
@@ -241,6 +275,7 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       stagedDiff?: unknown;
       diffScope?: unknown;
       browserRoute?: unknown;
+      browser?: unknown;
       touchedAt?: unknown;
     };
 
@@ -273,10 +308,14 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
     }
 
     seen.add(id);
+    const isBrowser = candidate.mode === 'browser';
+    // Browser tabs saved before there was only one kept their own id, which
+    // also keys their page on the server; the first page keeps it.
+    const savedBrowserKey = typeof candidate.dedupeKey === 'string' && candidate.dedupeKey.trim() ? candidate.dedupeKey.trim() : 'browser';
     result.push({
       id,
       mode: candidate.mode,
-      targetPath,
+      targetPath: isBrowser ? null : targetPath,
       dedupeKey,
       label: normalizeContextTabLabel(typeof candidate.label === 'string' ? candidate.label : null),
       sessionTitleFallback: normalizeContextTabLabel(
@@ -287,7 +326,15 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       diffScope:
         normalizePendingDiffScope(candidate.diffScope) ??
         (candidate.stagedDiff === true ? 'staged' : 'working'),
-      browserRoute: candidate.mode === 'browser' ? normalizeBrowserRoute(candidate.browserRoute) : null,
+      // A browser tab saved before pages existed kept its address and route
+      // on the tab itself; they become its first page.
+      browser: isBrowser
+        ? sanitizeBrowserPages(candidate.browser, {
+          tabId: buildContextPanelTabID('browser', savedBrowserKey),
+          url: targetPath,
+          route: normalizeBrowserRoute(candidate.browserRoute),
+        })
+        : null,
       touchedAt:
         typeof candidate.touchedAt === 'number' && Number.isFinite(candidate.touchedAt)
           ? candidate.touchedAt
@@ -363,7 +410,9 @@ export const upsertContextPanelTab = (
                 sessionTitleFallback: nextTab.sessionTitleFallback || tab.sessionTitleFallback,
                 stagedDiff: nextTab.stagedDiff,
                 diffScope: nextTab.diffScope,
-                browserRoute: nextTab.browserRoute ?? tab.browserRoute,
+                // Reopening the browser keeps its pages; callers change them
+                // through the page actions.
+                browser: tab.browser ?? nextTab.browser,
                 readOnly: nextTab.readOnly,
                 touchedAt: Date.now(),
               }

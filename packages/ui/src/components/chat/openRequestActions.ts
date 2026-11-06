@@ -37,3 +37,18 @@ export const openRequestOnDevice = (
   ui.openContextBrowser(directory, url, { route: resolveDefaultBrowserRoute() });
   return true;
 };
+
+/**
+ * Opens a web link clicked in chat where the user chose: the PiChamber
+ * browser, or the system browser. Phones and pages without a project
+ * always use the system browser.
+ */
+export const openChatLink = (url: string): void => {
+  const ui = useUIStore.getState();
+  const directory = ui.chatLinkTarget === 'pichamber' && !ui.isMobile ? getDeviceDirectory() : undefined;
+  if (!directory) {
+    void openExternalUrl(url);
+    return;
+  }
+  ui.openContextBrowser(directory, url, { route: resolveDefaultBrowserRoute() });
+};
