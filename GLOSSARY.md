@@ -27,7 +27,7 @@ One tab in the PiChamber browser's own tab strip, under the Browser panel tab. E
 _Avoid_: browser tab (that is the panel tab holding the pages)
 
 **Browser route**:
-Where a browser page runs: **Server** (a Chrome on the server machine, streamed to the device, so server-local addresses work from any device) or **This device** (the device's own network, in a webview or iframe).
+Where a browser page runs: **Server** (a Chrome on the server machine, streamed to the device, so server-local addresses work from any device that has the Browser panel) or **This device** (the device's own network, in a webview or iframe).
 _Avoid_: proxy mode, proxy on/off
 
 **Open request**:
