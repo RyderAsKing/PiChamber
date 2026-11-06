@@ -31,5 +31,5 @@ Where a browser page runs: **Server** (a Chrome on the server machine, streamed 
 _Avoid_: proxy mode, proxy on/off
 
 **Open request**:
-A request, from a session or from something running on the server machine, to show the person a URL, for example a review page an extension started. It belongs to the session that asked, or to no session when that can't be determined, and is only shown live, never kept. Devices always ask before opening one.
+A request, from a session or from something running on the server machine, to show the person a URL, for example a review page an extension started. It belongs to the session that asked, or to no session when that can't be determined. A device that reconnects can still receive a recent one it missed, but requests are never kept in session history. Devices never open one by themselves.
 _Avoid_: open-URL event, browser launch
