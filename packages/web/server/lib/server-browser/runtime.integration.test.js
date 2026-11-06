@@ -51,6 +51,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       if (req.url === '/alert') { res.setHeader('content-type', 'text/html'); res.end('<script>setTimeout(() => { alert("hello there"); fetch("/after-alert"); }, 50)</script>'); return; }
       if (req.url === '/download') { res.setHeader('content-disposition', 'attachment; filename="notes.txt"'); res.end('downloaded body'); return; }
       if (req.url === '/popup-to-local') { res.setHeader('content-type', 'text/html'); res.end(`<a href="http://127.0.0.1:${upstreamPort}/popup-secret" target="_blank" style="position:absolute;left:0;top:0;width:300px;height:100px">open</a>`); return; }
+      if (req.url === '/frame-public') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://public.example:${upstreamPort}/to-local"></iframe>`); return; }
       if (req.url === '/to-local') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${upstreamPort}/secret`); res.end(); return; }
       res.end('ok');
     });
@@ -232,6 +233,16 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     // Typing the same address is the person's choice, so it loads.
     page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/secret` });
     await page.waitForSeen(/^\/secret$/, 'typed local address');
+    page.socket.close();
+  }, 30_000);
+
+  it('blocks a public frame from redirecting to the server network', async () => {
+    const before = seen.length;
+    const page = connect('public-frame', `http://127.0.0.1:${upstreamPort}/frame-public`);
+    await page.open;
+    const notice = await page.waitFor((m) => m.type === 'notice' && m.kind === 'blocked-server-network', 'blocked notice');
+    expect(notice.url).toBe(`http://127.0.0.1:${upstreamPort}/secret`);
+    expect(seen.slice(before)).not.toContain('/secret');
     page.socket.close();
   }, 30_000);
 

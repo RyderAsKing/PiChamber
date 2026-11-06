@@ -420,7 +420,7 @@ export const createServerBrowserTab = ({ key, cdp, targetId, sessionId, onEmpty,
     } else {
       from = state.url;
     }
-    documentRequestUrls.set(params.networkId || requestId, url);
+    documentRequestUrls.set(requestId, url);
     if (documentRequestUrls.size > 64) documentRequestUrls.delete(documentRequestUrls.keys().next().value);
     const block = () => {
       // Cancel rather than fail: the current page stays, with no error page
