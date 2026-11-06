@@ -185,13 +185,19 @@ describe('contextPanel domain logic', () => {
     });
   });
   describe('browser route', () => {
-    test('a new browser tab starts with one page that keeps the tab id', () => {
+    test('a new browser tab starts with one page of its own', () => {
       const tab = createContextPanelTab({ mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.com', browserRoute: 'device' });
       expect(tab.targetPath).toBeNull();
+      const pageId = tab.browser?.pages[0]?.id ?? '';
       expect(tab.browser).toEqual({
-        pages: [{ id: tab.id, url: 'https://example.com', route: 'device', title: null }],
-        activePageId: tab.id,
+        pages: [{ id: pageId, url: 'https://example.com', route: 'device', title: null }],
+        activePageId: pageId,
       });
+      // The page id keys its server page, so a Browser tab opened later or on
+      // another device must not land on this one's page.
+      expect(pageId).not.toBe(tab.id);
+      const again = createContextPanelTab({ mode: 'browser', dedupeKey: 'desktop-browser', targetPath: 'https://example.org' });
+      expect(again.browser?.pages[0]?.id).not.toBe(pageId);
       expect(createContextPanelTab({ mode: 'preview', targetPath: 'http://localhost:3000', browserRoute: 'device' }).browser).toBeNull();
     });
 

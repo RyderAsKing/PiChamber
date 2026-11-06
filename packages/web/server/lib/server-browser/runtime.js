@@ -5,13 +5,16 @@ import { WebSocketServer } from 'ws';
 import { createDevServerFinder } from './dev-servers.js';
 import { createFramePolicyChecker } from './frame-policy.js';
 import { createServerBrowser, isValidTabKey } from './server-browser.js';
+import { MAX_CHOOSER_BYTES } from './uploads.js';
 
 const SERVER_BROWSER_WS_PATH = '/api/server-browser/ws';
 const MAX_CLIENT_MESSAGE_BYTES = 2 * 1024 * 1024;
-const MAX_UPLOAD_BYTES = 512 * 1024 * 1024;
 const HEARTBEAT_MS = 30_000;
+// A viewer whose socket holds this much unsent data is too slow to keep up:
+// it is disconnected and reconnects to a fresh stream.
+const MAX_SOCKET_BUFFER_BYTES = 8 * 1024 * 1024;
 // Close codes viewers act on.
-const CLOSE_CODES = { closed: 4000, 'browser-exited': 4001, 'browser-restarting': 4002, unavailable: 4003, 'bad-request': 4004 };
+const CLOSE_CODES = { closed: 4000, 'browser-exited': 4001, 'browser-restarting': 4002, unavailable: 4003, 'bad-request': 4004, 'page-closed': 4005 };
 
 const parsePath = (url) => {
   try {
@@ -33,7 +36,8 @@ const parseMessage = (raw) => {
 /**
  * Routes and the viewer WebSocket for the server browser.
  *
- * Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>`; see
+ * Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>` (or
+ * `&popup=<id>` to claim a popup); see
  * `DOCUMENTATION.md` for the message protocol.
  */
 export const createServerBrowserRuntime = ({
@@ -98,9 +102,11 @@ export const createServerBrowserRuntime = ({
 
   app.post('/api/server-browser/uploads', async (req, res) => {
     const name = typeof req.query?.name === 'string' ? req.query.name : 'file';
-    if (Number(req.headers['content-length'] || 0) > MAX_UPLOAD_BYTES) return res.status(413).json({ error: 'File is too large' });
+    const mimeType = typeof req.query?.type === 'string' ? req.query.type : undefined;
+    const lastModified = Number(req.query?.lastModified);
+    if (Number(req.headers['content-length'] || 0) > MAX_CHOOSER_BYTES) return res.status(413).json({ error: 'Files for one upload must be under 50 MB together' });
     try {
-      res.json(await browser.saveUpload({ name, stream: req, maxBytes: MAX_UPLOAD_BYTES }));
+      res.json(await browser.saveUpload({ name, mimeType, lastModified, stream: req }));
     } catch (error) {
       if (res.headersSent) return;
       res.status(error?.code === 'TOO_LARGE' ? 413 : 500).json({ error: error?.message || 'Upload failed' });
@@ -123,19 +129,27 @@ export const createServerBrowserRuntime = ({
     const url = parsePath(req.url);
     const key = url?.searchParams.get('tab') || '';
     const startUrl = url?.searchParams.get('url') || '';
+    const popup = url?.searchParams.get('popup') || '';
     let detach = null;
     let tab = null;
     let closed = false;
     const heartbeat = setInterval(() => { try { socket.ping(); } catch { /* closing */ } }, HEARTBEAT_MS);
     heartbeat.unref?.();
 
-    const sendJson = (message) => {
-      if (socket.readyState === 1) socket.send(JSON.stringify(message));
+    const write = (data, options) => {
+      if (socket.readyState !== 1) return;
+      const bytes = typeof data === 'string' ? Buffer.byteLength(data) : data.byteLength;
+      if (socket.bufferedAmount + bytes > MAX_SOCKET_BUFFER_BYTES) {
+        socket.terminate();
+        return;
+      }
+      socket.send(data, options);
     };
+    const sendJson = (message) => write(JSON.stringify(message));
     const viewer = {
       sendJson,
       sendFrame(frame) {
-        if (socket.readyState === 1) socket.send(frame, { binary: true });
+        write(frame, { binary: true });
       },
       close(reason) {
         if (socket.readyState <= 1) socket.close(CLOSE_CODES[reason] ?? CLOSE_CODES.closed, reason);
@@ -161,17 +175,17 @@ export const createServerBrowserRuntime = ({
       if (!tab) return;
       switch (message.type) {
         case 'viewport': await tab.setViewport(message); return;
-        case 'mouse': await tab.handleMouse(message); return;
-        case 'key': await tab.handleKey(message); return;
-        case 'text': await tab.insertText(message.text); return;
-        case 'navigate': await tab.navigate(message.url); return;
+        case 'mouse': await tab.handleMouse(message, viewer); return;
+        case 'key': await tab.handleKey(message, viewer); return;
+        case 'text': await tab.insertText(message.text, viewer); return;
+        case 'navigate': tab.navigate(message.url); return;
         case 'back': await tab.goBack(); return;
         case 'forward': await tab.goForward(); return;
         case 'reload': await tab.reload(); return;
         case 'stop': await tab.stop(); return;
         case 'dialog': await tab.respondDialog({ accept: message.accept === true, text: message.text }); return;
         case 'file-chooser':
-          await tab.respondFileChooser({ id: message.id, paths: browser.uploadPaths(message.uploadIds) });
+          await tab.respondFileChooser({ id: message.id, files: browser.takeUploads(message.uploadIds) });
           return;
         case 'inspect': {
           const target = await tab.inspectAt(message.x, message.y);
@@ -179,7 +193,7 @@ export const createServerBrowserRuntime = ({
             sendJson({ type: 'inspect-hover', requestId: message.requestId, target });
             return;
           }
-          const screenshot = target ? await tab.captureViewport().catch(() => null) : null;
+          const screenshot = target ? tab.captureViewport() : null;
           sendJson({ type: 'inspect-pick', requestId: message.requestId, target, screenshot });
           return;
         }
@@ -205,8 +219,12 @@ export const createServerBrowserRuntime = ({
 
     void (async () => {
       try {
-        tab = await browser.openTab(key, { url: startUrl });
+        tab = await browser.openTab(key, { url: startUrl, popup });
       } catch (error) {
+        if (error?.pageClosed) {
+          viewer.close('page-closed');
+          return;
+        }
         sendJson({ type: 'unavailable', status: error?.status ?? browser.status(), message: error?.status ? undefined : error?.message });
         viewer.close('unavailable');
         return;

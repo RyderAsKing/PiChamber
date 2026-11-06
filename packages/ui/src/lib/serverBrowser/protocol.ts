@@ -59,7 +59,8 @@ export type ServerBrowserScreenshot = {
 type ServerBrowserNotice =
   | { kind: 'blocked-server-network'; url: string }
   | { kind: 'unsupported-address'; url: string }
-  | { kind: 'navigation-failed'; url: string; message?: string };
+  | { kind: 'navigation-failed'; url: string; message?: string }
+  | { kind: 'upload-failed'; message: string };
 
 export type ServerBrowserMessage =
   | ({ type: 'state' } & ServerBrowserPageState)
@@ -70,6 +71,8 @@ export type ServerBrowserMessage =
   | { type: 'file-chooser-closed'; id: number }
   | { type: 'clipboard'; text: string }
   | ({ type: 'notice' } & ServerBrowserNotice)
+  /** The page opened a popup for this device to show; claim it with `id`. */
+  | { type: 'popup'; id: string }
   | ({ type: 'download' } & ServerBrowserDownload)
   | { type: 'inspect-hover'; requestId: number; target: PreviewElementMetadata | null }
   | { type: 'inspect-pick'; requestId: number; target: PreviewElementMetadata | null; screenshot: ServerBrowserScreenshot | null }
@@ -111,13 +114,21 @@ export const parseServerBrowserMessage = (data: string): ServerBrowserMessage | 
  * What a viewer does when its socket closes. Codes match `CLOSE_CODES` in
  * the server runtime.
  */
-export const closeAction = (code: number): 'reconnect' | 'unavailable' | 'stop' => {
+export const closeAction = (code: number): 'reconnect' | 'unavailable' | 'stop' | 'closed' => {
   if (code === 4003) return 'unavailable';
   if (code === 4004) return 'stop';
+  // The page closed itself, or the popup it was opened for is gone.
+  if (code === 4005) return 'closed';
   // 4000 closed elsewhere, 4001 Chrome exited, 4002 restarting, and network
   // drops all reopen the tab at its last address.
   return 'reconnect';
 };
+
+/**
+ * Bytes one file chooser answer can carry, all files together. Matches
+ * `MAX_CHOOSER_BYTES` on the server: pages get the files from memory.
+ */
+export const MAX_SERVER_BROWSER_UPLOAD_BYTES = 50 * 1024 * 1024 - 1;
 
 export const RECONNECT_DELAYS_MS = [250, 1000, 2000, 4000, 8000];
 

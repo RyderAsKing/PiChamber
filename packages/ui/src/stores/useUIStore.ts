@@ -41,6 +41,7 @@ import {
   activateBrowserPage,
   closeBrowserPage as closeBrowserPageState,
   openBrowserPage,
+  openBrowserPopup as openBrowserPopupState,
   updateBrowserPage as updateBrowserPageState,
   type BrowserPagePatch,
   type BrowserPages,
@@ -224,6 +225,11 @@ interface UIStore {
    * active page, and `target: 'new'` without a URL adds an empty page.
    */
   openContextBrowser: (directory: string, url?: string, options?: { route?: BrowserRoute; target?: BrowserPageTarget }) => void;
+  /**
+   * Opens a server page for a popup the server is holding, next to the page
+   * that opened it. False at the page limit.
+   */
+  openBrowserPopup: (directory: string, openerPageId: string, popupId: string) => boolean;
   closeBrowserPage: (directory: string, pageId: string) => void;
   activateBrowserPage: (directory: string, pageId: string) => void;
   updateBrowserPage: (directory: string, pageId: string, patch: BrowserPagePatch) => void;
@@ -710,6 +716,18 @@ export const useUIStore = create<UIStore>()(
             route: options?.route ?? null,
             target,
           }));
+        },
+
+        openBrowserPopup: (directory, openerPageId, popupId) => {
+          const normalizedDirectory = normalizeDirectoryPathKey((directory || '').trim());
+          if (!normalizedDirectory) return false;
+          let opened = false;
+          setBrowserTab(set, get, normalizedDirectory, (pages) => {
+            const next = openBrowserPopupState(pages, { openerPageId, popupId });
+            opened = next !== null;
+            return next ?? pages;
+          });
+          return opened;
         },
 
         closeBrowserPage: (directory, pageId) => {

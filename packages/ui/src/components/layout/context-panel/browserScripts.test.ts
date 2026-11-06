@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { normalizeBrowserUrl } from './browserScripts';
+import { normalizeBrowserUrl, pageHost } from './browserScripts';
 
 describe('normalizeBrowserUrl', () => {
   test('uses http for typed local addresses and https elsewhere', () => {
@@ -19,5 +19,13 @@ describe('normalizeBrowserUrl', () => {
   test('rejects other schemes', () => {
     expect(normalizeBrowserUrl('file:///etc/passwd')).toBe('about:blank');
     expect(normalizeBrowserUrl('')).toBe('about:blank');
+  });
+});
+
+describe('pageHost', () => {
+  test('names a page by its host, or by its address when it has none', () => {
+    expect(pageHost('https://example.com:8443/a?b')).toBe('example.com:8443');
+    expect(pageHost('about:blank#popup')).toBe('about:blank#popup');
+    expect(pageHost('not a url')).toBe('not a url');
   });
 });

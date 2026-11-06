@@ -129,6 +129,16 @@ export const DESKTOP_BROWSER_SAME_WEBVIEW_NAVIGATION_SCRIPT = `(() => {
 
 const LOCAL_ADDRESS = /^(localhost|127(\.\d{1,3}){1,3}|0\.0\.0\.0|\[::1?\]|10(\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2}|[^/:?#]+\.(local|localhost))(?=[:/?#]|$)/i;
 
+/** A page address's host, for notices and dialogs. */
+export const pageHost = (url: string): string => {
+  try {
+    // about:blank and data: pages have no host; show the address itself.
+    return new URL(url).host || url;
+  } catch {
+    return url;
+  }
+};
+
 export const normalizeBrowserUrl = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return 'about:blank';

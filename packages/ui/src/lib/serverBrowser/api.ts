@@ -80,7 +80,8 @@ export const closeServerBrowserTab = (directory: string, pageId: string): void =
 
 /** Sends a file to the server so a page's file input can use it. */
 export const uploadServerBrowserFile = async (file: File): Promise<string> => {
-  const response = await runtimeFetch(`/api/server-browser/uploads?name=${encodeURIComponent(file.name)}`, {
+  const query = new URLSearchParams({ name: file.name, type: file.type, lastModified: String(file.lastModified) });
+  const response = await runtimeFetch(`/api/server-browser/uploads?${query}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: file,
@@ -110,11 +111,12 @@ export const saveServerBrowserDownload = async (id: string, filename: string): P
   }
 };
 
-export type ServerBrowserSocketOpener = (tab: string, url: string) => Promise<{ socket: RelayTunnelWebSocket; urlAuthToken: string }>;
+/** `popup` claims a popup the server offered as this tab's page. */
+export type ServerBrowserSocketOpener = (tab: string, url: string, popup: string | null) => Promise<{ socket: RelayTunnelWebSocket; urlAuthToken: string }>;
 
-export const openServerBrowserSocket: ServerBrowserSocketOpener = async (tab, url) => {
+export const openServerBrowserSocket: ServerBrowserSocketOpener = async (tab, url, popup) => {
   const urlAuthToken = await refreshRuntimeUrlAuthToken();
-  const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/server-browser/ws', { tab, url }, urlAuthToken));
+  const socket = openRuntimeWebSocket(getRuntimeUrlResolver().websocket('/api/server-browser/ws', { tab, url, popup }, urlAuthToken));
   return { socket, urlAuthToken };
 };
 

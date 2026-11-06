@@ -10,7 +10,11 @@ import {
   type ServerBrowserMessage,
 } from './protocol';
 
-export type ServerBrowserConnectionPhase = 'connecting' | 'open' | 'reconnecting' | 'unavailable' | 'failed' | 'idle';
+/** `closed`: the page closed itself, or the popup it was opened for is gone. */
+export type ServerBrowserConnectionPhase = 'connecting' | 'open' | 'reconnecting' | 'unavailable' | 'failed' | 'closed' | 'idle';
+
+/** Where a connection opens the tab: its address, and a popup to claim. */
+export type ServerBrowserStart = { url: string; popup?: string | null };
 
 export type ServerBrowserConnectionListener = {
   onPhase(phase: ServerBrowserConnectionPhase): void;
@@ -32,6 +36,8 @@ type Dependencies = {
  * One viewer's socket to a server browser tab. Reconnects after drops,
  * restarts, and Chrome exits (the server reopens the tab at its last
  * address); stops when the browser is unavailable or the request is bad.
+ * A popup is claimed only until the first socket opens: after that the
+ * server has the tab under its key, or reopens it at its last address.
  */
 export class ServerBrowserConnection {
   private socket: RelayTunnelWebSocket | null = null;
@@ -40,10 +46,11 @@ export class ServerBrowserConnection {
   private failures = 0;
   private retryTimer: unknown = null;
   private generation = 0;
+  private claimed = false;
 
   constructor(
     private readonly tab: string,
-    private readonly startUrl: () => string,
+    private readonly start: () => ServerBrowserStart,
     private readonly listener: ServerBrowserConnectionListener,
     private readonly deps: Dependencies,
   ) {}
@@ -122,7 +129,8 @@ export class ServerBrowserConnection {
     this.listener.onPhase(this.failures > 0 ? 'reconnecting' : 'connecting');
     let opened: Awaited<ReturnType<ServerBrowserSocketOpener>>;
     try {
-      opened = await this.deps.open(this.tab, this.startUrl());
+      const { url, popup } = this.start();
+      opened = await this.deps.open(this.tab, url, this.claimed ? null : popup ?? null);
     } catch {
       if (generation === this.generation) this.scheduleReconnect();
       return;
@@ -137,6 +145,7 @@ export class ServerBrowserConnection {
     let didOpen = false;
     socket.onopen = () => {
       didOpen = true;
+      this.claimed = true;
       this.failures = 0;
       this.listener.onPhase('open');
       this.listener.onOpen();
@@ -164,6 +173,10 @@ export class ServerBrowserConnection {
       }
       if (action === 'stop') {
         this.listener.onPhase('failed');
+        return;
+      }
+      if (action === 'closed') {
+        this.listener.onPhase('closed');
         return;
       }
       this.scheduleReconnect();

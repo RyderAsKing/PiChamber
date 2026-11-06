@@ -1,6 +1,6 @@
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 
-import { sanitizeBrowserPages, type BrowserPages } from './browserPages';
+import { createBrowserPages, sanitizeBrowserPages, type BrowserPages } from './browserPages';
 
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
@@ -226,7 +226,7 @@ export const createContextPanelTab = (descriptor: ContextPanelTabDescriptor): Co
     stagedDiff: descriptor.stagedDiff === true,
     diffScope: normalizePendingDiffScope(descriptor.diffScope) ?? (descriptor.stagedDiff === true ? 'staged' : 'working'),
     browser: isBrowser
-      ? sanitizeBrowserPages(null, { tabId: id, url: normalizedTargetPath, route: normalizeBrowserRoute(descriptor.browserRoute) })
+      ? createBrowserPages({ url: normalizedTargetPath, route: normalizeBrowserRoute(descriptor.browserRoute) })
       : null,
     touchedAt: Date.now(),
   };

@@ -17,17 +17,30 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
   then `CHROME`, then `PATH` and standard install locations, then the newest
   full Chromium in the Playwright cache) and the install commands shown when
   none is found. PiChamber never downloads or installs a browser.
-- `browser-process.js`: launches Chrome with `--remote-debugging-pipe` and
-  classifies launch failures (missing library, sandbox refused as root, no
-  user namespaces, unknown).
-- `cdp.js`: the DevTools protocol over the pipe (NUL-delimited JSON on fd 3/4)
-  with flat sessions and per-command timeouts.
+- `chrome-launch.js`: starts that Chrome through `playwright-core` (a
+  persistent context on the profile, headless, never a downloaded browser),
+  reads its version for the page user agent (`--version`; skipped on
+  Windows, where it prints nothing and may open a window), and classifies launch failures
+  from Chrome's output (missing library, sandbox refused as root, no user
+  namespaces, unknown).
 - `server-browser.js`: one Chrome per server, its profile, tabs keyed by the
-  client's tab key, popups, downloads, uploads, idle shutdown, and the
-  sandbox setting (`settings.json`).
-- `browser-tab.js`: one page: screencast, input, navigation and history,
-  dialogs, file choosers, inspect, clipboard, and the
-  server-network rule.
+  client's tab key, popups, idle shutdown, and the sandbox setting
+  (`settings.json`).
+- `network-guard.js`: the server-network rule for every page, on one
+  browser-level DevTools session.
+- `browser-tab.js`: one page: navigation and history, page state, crash
+  recovery, and the viewers. It composes:
+  - `tab-stream.js`: the screencast, frame pacing, and per-viewer acks;
+  - `tab-input.js`: mouse, keyboard, and text input, merged moves and wheel,
+    editing commands, and keys and buttons a viewer still holds;
+  - `tab-prompts.js`: dialogs and file choosers, replayed to late viewers; a
+    waiting dialog is answered when its last viewer leaves (Leave for a
+    leave-page dialog, dismissed otherwise);
+  - `page-scripts.js`: scripts in an isolated world (copy recording, title
+    watching, inspect, cursor).
+- `downloads.js`: finished downloads, on disk.
+- `uploads.js`: files picked for a page's file chooser, in memory until the
+  chooser answer takes them.
 - `dev-servers.js`: lists web servers listening on the server's loopback
   interface for the browser's blank page.
 - `frame-policy.js`: whether a public site refuses to be shown in an iframe
@@ -36,7 +49,8 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
 - `runtime.js`: HTTP routes and the viewer WebSocket.
 
 Files live under `<dataDir>/server-browser/`: `profile/` (cookies, logins,
-site data), `downloads/`, `uploads/`, and `settings.json`, all owner-only.
+site data), `downloads/`, and `settings.json`, all owner-only. An
+`uploads/` directory from older versions is deleted on start.
 
 ## Routes
 
@@ -47,8 +61,16 @@ site data), `downloads/`, `uploads/`, and `settings.json`, all owner-only.
   profile is gone. Viewers reconnect and their pages reload, signed out.
 - `DELETE /api/server-browser/tabs/:key`: closes a tab's page (the client
   calls this when a Browser page or the Browser panel tab closes).
-- `POST /api/server-browser/uploads?name=`: stores a file for a page's file
-  chooser (up to 512 MB); returns its id. Uploads are deleted after an hour.
+- `POST /api/server-browser/uploads?name=&type=&lastModified=`: holds a file
+  for a page's file chooser in memory and returns its id. The viewer's
+  `file-chooser` answer names the ids; each can be taken once, and one not
+  taken within 10 minutes is dropped. One answer's files must be under 50 MB
+  together (Playwright's limit for files given from memory, checked on the
+  client first); waiting uploads, and uploads still arriving, may take four
+  times that together. The page then
+  holds the files itself, so a form sent later still has them, and nothing
+  is written to the server's disk. A file the page cannot take sends an
+  `upload-failed` notice.
 - `GET /api/server-browser/downloads/:id`: a finished download.
 - `GET /api/server-browser/dev-servers?directory=`: web servers on the
   server, the project's own first. Each entry has the port, page title,
@@ -73,7 +95,9 @@ Viewers connect to `/api/server-browser/ws?tab=<key>&url=<start>` through
 `openRuntimeWebSocket` with a URL token; the path is on the URL-token and
 relay WebSocket allowlists. The tab key is derived from the directory and
 the Browser page id (`serverBrowserTabKey`), so every device viewing the
-same page shares one server page.
+same page shares one server page. A Browser page opened for a popup adds
+`&popup=<id>` until its first socket opens; the server makes the held popup
+that tab's page. An open tab with the key wins over the claim.
 
 Binary server messages are frames: a 4-byte big-endian header length, a JSON
 header (`seq`, `width`, `height`, `offsetTop`, `pageScaleFactor`), then a
@@ -84,14 +108,21 @@ is hidden (the window is in the background, the panel is closed, or another
 Browser page is active) and reconnects when it is shown; the server page stays
 open meanwhile. Chrome draws about 60 frames a second for a second after any
 viewer input and about 30 otherwise, so a page that animates on its own does
-not keep the server busy at the full rate. The server has no GPU: Chrome draws
+not keep the server busy at the full rate. While the page scrolls (a few
+frames follow a wheel or touch scroll closely), frames are half the size at
+JPEG quality 50 instead of 70, about a quarter of the bytes, so the stream
+keeps up over a slow network; a single wheel step stays sharp. The `width`
+and `height` in each header stay in CSS pixels, so input is unaffected. 200
+ms after the last scroll the screencast restarts at full size, and Chrome
+sends a sharp frame of the still page at once. The server has no GPU: Chrome draws
 on the CPU, and effects such as `backdrop-filter` cost far more there than in
 a desktop browser.
 
 Text messages from the server: `state` (address, title, loading, history,
 crashed), `cursor`, `dialog` / `dialog-closed`, `file-chooser`
 / `file-chooser-closed`, `download`, `clipboard`, `inspect-hover`,
-`inspect-pick`, `notice`, and `unavailable`.
+`inspect-pick`, `notice`, `popup` (`id`, a page opened a popup for this
+device to show), and `unavailable`.
 
 Messages from the viewer: `viewport`, `mouse`, `key`, `text`,
 `navigate`, `back`, `forward`, `reload`, `stop`, `dialog`, `file-chooser`,
@@ -105,7 +136,8 @@ for the moves and wheel movement before it.
 
 Close codes: 4000 tab closed, 4001 Chrome exited, 4002 Chrome restarting,
 4003 unavailable (the client shows setup help), 4004 bad request (the client
-stops). The client reconnects after anything else with backoff; the server
+stops), 4005 page closed (the page closed itself, or the popup a claim names
+is gone; the client closes its Browser page). The client reconnects after anything else with backoff; the server
 reopens the tab at its last address.
 
 ## Invariants
@@ -118,16 +150,70 @@ reopens the tab at its last address.
   name that resolves differently on Chrome's own lookup (DNS rebinding) is
   not caught. Loads the
   person asked for (typed address, back, forward, reload) pass until that
-  address commits; a later load from the page is checked again. A blocked
+  address commits; a later load from the page is checked again, judged by
+  the address the page shows (its committed one), not one typed that has
+  not loaded yet. A blocked
   load is cancelled (`Aborted`), the address shown returns to the last
   committed one, and viewers get one `blocked-server-network` notice.
   Subresource requests are not checked.
-- **Popups** are held before they load anything (`Target.setAutoAttach`
-  with `waitForDebuggerOnStart`). Their first document request is cancelled,
-  the popup closes, and its address loads in the opener's tab under the same
-  rule as a followed link. The new page has no `window.opener`.
-- **Page swaps.** Commands to a page retry for up to 3 seconds while Chrome
-  swaps its renderer ("Not attached to an active page").
+- **Request attribution.** The guard pauses every document request
+  (`Fetch`, Request stage) on a browser-level session and finds its page
+  through the frame: the page's own target, frames the page reports
+  (`Page.frameAttached`), and out-of-process frames Chrome reports with their
+  parent (`Target.targetCreated`). An out-of-process frame is watched again
+  when its session closes, so a frame that changes process stays linked. A
+  request whose page is still unknown
+  waits up to a second for the link, then is judged as coming from a public
+  page. Playwright's own request routing is not used: it turns off the HTTP
+  cache and hides redirects. Chrome's Local Network Access permission is
+  denied for every page as well.
+- **Popups** become tabs of their own and keep `window.opener`, so a sign-in
+  popup can report back to its page. The server holds the popup under a
+  random id and sends `popup` to the viewer that gave the opener input last
+  (or any of its viewers); that device opens a server Browser page whose
+  first connection claims it. A popup is closed instead when no viewer is
+  watching the opener, 4 popups already wait, or held popups and tabs reach
+  the 16-tab limit; also when no device claims it within 30 seconds. A
+  waiting popup's own popups are closed. A claim never loads an address, so
+  a popup the rule closed cannot be reopened as if typed. Until claimed, a
+  popup's loads are judged as links its opener followed; a blocked first
+  load closes the popup and the opener's viewers get the notice. Chrome
+  makes `target="_blank"` links noopener, so those open without
+  `window.opener`.
+- **Self-closed pages.** A page that calls `window.close()` disconnects its
+  viewers with 4005, and its key is refused (4005) for 10 minutes so a
+  device that shows the page later closes it too instead of reopening it.
+  Closing the Browser page (`DELETE`) clears that memory.
+- **Navigation** commits are not awaited (`waitUntil: 'commit'`, 15-second
+  timeout), so input keeps flowing while a page loads. Only a failure other
+  than an abort sends a `navigation-failed` notice.
+- **Titles.** A tab reads its title after each load, and a watcher in the
+  isolated world reports later changes (`document.title` set by a script)
+  through a binding only that world has. Chrome reports no title changes
+  itself (`Target.targetInfoChanged` carries them only when the page
+  closes). The watcher observes the title element and its holders, not the
+  whole document.
+- **Crashes.** A crashed page cannot load again, so Reload replaces it with a
+  new page at the same address. Viewers stay connected.
+- **Scale.** Chrome draws at twice the CSS pixel size
+  (`--force-device-scale-factor=2`), since its screencast ignores an emulated
+  device scale factor, and pages are emulated at the same scale, so every page
+  sees a `devicePixelRatio` of 2. Viewers at a lower pixel ratio get a
+  scaled-down stream. The two scales must match: while they differ, Chrome
+  places input at scaled coordinates.
+- **Frames.** A viewer that joins, and an inspect pick, get the newest
+  screencast frame. Chrome's screenshots are not used: taking one changes the
+  page's emulated scale for a moment, and a click in that moment misses. A
+  viewer whose socket holds more than 8 MB unsent is disconnected.
+- **Stuck commands.** A page command Chrome does not answer within 10 seconds
+  fails, and commands in flight fail at once when the page crashes or is
+  replaced, so one never holds up the viewer's later messages. A new page that
+  is not ready within 5 seconds (its renderer died while starting) is tried
+  once more; a page that turns up late is closed.
+- **History.** A tab's page starts on about:blank. Back is not offered to that
+  entry.
+- **Held input.** When a viewer disconnects, the keys and mouse buttons it
+  still held are released.
 - **Error pages** show the address that failed (`unreachableUrl`), not
   `chrome-error://`.
 - **Keyboard.** Paste uses the device's clipboard (sent as `text`); a copy in
@@ -145,6 +231,13 @@ reopens the tab at its last address.
 
 ## Limits
 
-No audio, no extensions, no DRM video. Pages see the running Chrome's user
-agent and client hints without the `HeadlessChrome` marker, which many sites
-refuse.
+No audio, no extensions, no DRM video. Pages see a regular Chrome user agent
+for the running major version (set for the whole context, so popups and
+out-of-process frames see it too) without the `HeadlessChrome` marker, which
+many sites refuse. Client hints carry Chrome's default brands. Navigation
+history has no back/forward cache, so Back reloads the page.
+
+Frames stay JPEG. Streaming video (WebCodecs H.264 encoded in a hidden page)
+was measured and rejected: without a GPU it tied scroll mode on a LAN at more
+CPU and latency, and won only on slow links. See
+`docs/research/server-browser-video-streaming.md` before trying again.
