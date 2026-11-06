@@ -1,10 +1,15 @@
-import { PassThrough } from 'node:stream';
+import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { PassThrough, Readable } from 'node:stream';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createServerBrowserTab, editingCommandsForKey, isBlockedServerNetworkLoad, normalizeServerBrowserUrl, pageUserAgent } from './browser-tab.js';
 import { createCdpConnection } from './cdp.js';
 import { findChromeExecutable } from './chrome-executable.js';
+import { createServerBrowser } from './server-browser.js';
 
 describe('findChromeExecutable', () => {
   const linux = (files, env = {}) => findChromeExecutable({
@@ -258,5 +263,81 @@ describe('pageUserAgent', () => {
     expect(agent.userAgentMetadata.brands).toContainEqual({ brand: 'Chromium', version: '156' });
     expect(pageUserAgent({ userAgent: 'Mozilla/5.0 Chrome/156.0 Safari/537.36' })).toBeNull();
     expect(pageUserAgent(null)).toBeNull();
+  });
+});
+
+describe('server browser lifecycle', () => {
+  const dirs = [];
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const fakeChrome = ({ failing } = {}) => {
+    const process = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+    process.kill = () => { process.signalCode = 'SIGKILL'; process.emit('exit'); };
+    const cdp = {
+      closed: false,
+      onEvent: () => {},
+      send: (method) => {
+        if (method === 'Browser.close') { process.exitCode = 0; process.emit('exit'); }
+        if (method === failing) return Promise.reject(new Error(`${method} failed`));
+        return Promise.resolve({});
+      },
+    };
+    return { process, cdp };
+  };
+
+  const create = (launchChrome) => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pichamber-server-browser-'));
+    dirs.push(dataDir);
+    const profile = path.join(dataDir, 'server-browser', 'profile');
+    const browser = createServerBrowser({
+      dataDir,
+      isRoot: false,
+      findExecutable: () => ({ path: '/fake/chrome', source: 'env' }),
+      launchChrome,
+      log: () => {},
+    });
+    return { browser, profile };
+  };
+
+  it('stops Chrome when its setup fails', async () => {
+    const chrome = fakeChrome({ failing: 'Target.setAutoAttach' });
+    const { browser } = create(async () => chrome);
+    await expect(browser.openTab('k')).rejects.toThrow('Target.setAutoAttach failed');
+    expect(chrome.process.exitCode ?? chrome.process.signalCode).not.toBeNull();
+  });
+
+  it('deletes the profile only after a launch in progress stops, and launches after', async () => {
+    const first = fakeChrome();
+    let finishLaunch;
+    const launches = [];
+    const { browser, profile } = create(({ userDataDir }) => {
+      launches.push(fs.existsSync(path.join(userDataDir, 'Cookies')));
+      if (launches.length > 1) return Promise.resolve(fakeChrome());
+      return new Promise((resolve) => { finishLaunch = () => resolve(first); });
+    });
+    const opened = browser.openTab('k').catch(() => {});
+    await vi.waitFor(() => expect(finishLaunch).toBeTypeOf('function'));
+    const cleared = browser.clearData();
+    const reopened = browser.openTab('k2').catch(() => {});
+    fs.writeFileSync(path.join(profile, 'Cookies'), 'signed in');
+    finishLaunch();
+    await cleared;
+    await Promise.all([opened, reopened]);
+    expect(first.process.exitCode).toBe(0);
+    expect(launches).toEqual([false, false]);
+  });
+
+  it('removes uploads after an hour', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { browser } = create(async () => fakeChrome());
+    const old = await browser.saveUpload({ name: 'old.txt', stream: Readable.from(['old']) });
+    const [oldPath] = browser.uploadPaths([old.id]);
+    vi.setSystemTime(Date.now() + 61 * 60 * 1000);
+    await browser.saveUpload({ name: 'new.txt', stream: Readable.from(['new']) });
+    expect(browser.uploadPaths([old.id])).toEqual([]);
+    expect(fs.existsSync(oldPath)).toBe(false);
   });
 });

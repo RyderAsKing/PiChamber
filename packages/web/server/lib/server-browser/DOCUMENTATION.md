@@ -42,12 +42,13 @@ site data), `downloads/`, `uploads/`, and `settings.json`, all owner-only.
 
 - `GET /api/server-browser/status`: whether Chrome is available, and why not.
 - `PUT /api/server-browser/settings`: `{ allowNoSandbox }`.
-- `POST /api/server-browser/clear-data`: stops Chrome and deletes the
-  profile. Viewers reconnect and their pages reload, signed out.
+- `POST /api/server-browser/clear-data`: stops Chrome (waiting for a launch
+  in progress) and deletes the profile; Chrome does not start again until the
+  profile is gone. Viewers reconnect and their pages reload, signed out.
 - `DELETE /api/server-browser/tabs/:key`: closes a tab's page (the client
   calls this when a Browser page or the Browser panel tab closes).
 - `POST /api/server-browser/uploads?name=`: stores a file for a page's file
-  chooser (up to 512 MB); returns its id.
+  chooser (up to 512 MB); returns its id. Uploads are deleted after an hour.
 - `GET /api/server-browser/downloads/:id`: a finished download.
 - `GET /api/server-browser/dev-servers?directory=`: web servers on the
   server, the project's own first. Each entry has the port, page title,
@@ -131,8 +132,8 @@ reopens the tab at its last address.
   the page sends `clipboard` to the device, since headless Chrome has none.
 - **Lifecycle.** A tab with no viewers stays open for 10 minutes; at most 6
   such pages stay open and 16 in total. Chrome exits 5 minutes after its last
-  page closes and restarts on demand. Reopened tabs load their remembered
-  address.
+  page closes and restarts on demand, and is stopped if its setup after launch
+  fails. Reopened tabs load their remembered address.
 - **Sandbox.** Chrome runs without its sandbox only after the person allows
   it in the setup panel (`settings.json`) or `PICHAMBER_BROWSER_NO_SANDBOX=1`
   is set. The panel offers it when Chrome refuses its sandbox as root or

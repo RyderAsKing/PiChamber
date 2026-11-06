@@ -19,6 +19,8 @@ const MAX_TABS = 16;
 const MAX_REMEMBERED_URLS = 200;
 const MAX_DOWNLOADS = 50;
 const POPUP_URL_WAIT_MS = 3000;
+// A page reads an uploaded file when it submits, so files stay this long.
+const UPLOAD_TTL_MS = 60 * 60 * 1000;
 const TAB_KEY_PATTERN = /^[A-Za-z0-9_.:-]{1,160}$/;
 
 export const isValidTabKey = (value) => typeof value === 'string' && TAB_KEY_PATTERN.test(value);
@@ -68,6 +70,7 @@ export const createServerBrowser = ({
   const envNoSandbox = env.PICHAMBER_BROWSER_NO_SANDBOX === '1';
   let browser = null;
   let launching = null;
+  let clearing = null;
   let lastFailure = null;
   let browserIdleTimer = null;
   const tabs = new Map();
@@ -281,7 +284,10 @@ export const createServerBrowser = ({
     clearTimeout(browserIdleTimer);
     browserIdleTimer = null;
     for (const tab of [...tabs.values()]) forgetTab(tab, reason);
-    if (!current) return;
+    if (current) await stopInstance(current);
+  };
+
+  const stopInstance = async (current) => {
     current.stopping = true;
     await current.cdp.send('Browser.close').catch(() => {});
     const exited = new Promise((resolve) => {
@@ -295,6 +301,8 @@ export const createServerBrowser = ({
   };
 
   const ensureBrowser = async () => {
+    // Never start Chrome on a profile that is being deleted.
+    while (clearing) await clearing.catch(() => {});
     if (browser) return browser;
     if (launching) return launching;
     const current = status();
@@ -322,8 +330,15 @@ export const createServerBrowser = ({
         if (!instance.stopping) log('[server-browser] Chrome exited unexpectedly');
         for (const tab of [...tabs.values()]) forgetTab(tab, reason);
       });
-      await instance.cdp.send('Target.setDiscoverTargets', { discover: true });
-      await instance.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'page' }] });
+      try {
+        await instance.cdp.send('Target.setDiscoverTargets', { discover: true });
+        await instance.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'page' }] });
+      } catch (error) {
+        // Not tracked yet, so nothing else would stop it; a running Chrome
+        // keeps the profile locked for the next launch.
+        await stopInstance(instance);
+        throw error;
+      }
       await instance.cdp.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: downloadsDir, eventsEnabled: true }).catch(() => {});
       // Public pages may not reach the server's own network from scripts.
       // Chrome's permission name changed over versions; unknown ones fail.
@@ -392,12 +407,22 @@ export const createServerBrowser = ({
   };
 
   /** Clears cookies, logins, and site data by starting over with an empty profile. */
-  const clearData = async () => {
-    await stopBrowser('browser-restarting');
-    await fs.promises.rm(profileDir, { recursive: true, force: true });
+  const clearData = () => {
+    clearing ??= (async () => {
+      // A launch in progress would assign Chrome after the stop below.
+      await launching?.catch(() => {});
+      await stopBrowser('browser-restarting');
+      await fs.promises.rm(profileDir, { recursive: true, force: true });
+    })().finally(() => { clearing = null; });
+    return clearing;
   };
 
   const saveUpload = async ({ name, stream, maxBytes = Infinity }) => {
+    for (const upload of [...uploads.values()]) {
+      if (Date.now() - upload.createdAt < UPLOAD_TTL_MS) continue;
+      uploads.delete(upload.id);
+      await fs.promises.rm(path.dirname(upload.path), { recursive: true, force: true }).catch(() => {});
+    }
     const id = crypto.randomUUID();
     const dir = path.join(uploadsDir, id);
     await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
