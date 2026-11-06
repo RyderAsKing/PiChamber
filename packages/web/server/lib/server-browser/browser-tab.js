@@ -147,6 +147,7 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
   const prompts = createTabPrompts({ broadcast, hasViewers: () => viewers.size > 0, log });
   const input = createTabInput({
     onInput: () => stream.noteInput(),
+    onScroll: () => stream.noteScroll(),
     cursorAt: (x, y) => world.call(CURSOR_FUNCTION, [x, y]),
     onCursor: (cursor) => {
       if (cursor === lastCursor) return;

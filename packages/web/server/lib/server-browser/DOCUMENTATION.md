@@ -104,7 +104,13 @@ is hidden (the window is in the background, the panel is closed, or another
 Browser page is active) and reconnects when it is shown; the server page stays
 open meanwhile. Chrome draws about 60 frames a second for a second after any
 viewer input and about 30 otherwise, so a page that animates on its own does
-not keep the server busy at the full rate. The server has no GPU: Chrome draws
+not keep the server busy at the full rate. While the page scrolls (a few
+frames follow a wheel or touch scroll closely), frames are half the size at
+JPEG quality 50 instead of 70, about a quarter of the bytes, so the stream
+keeps up over a slow network; a single wheel step stays sharp. The `width`
+and `height` in each header stay in CSS pixels, so input is unaffected. 200
+ms after the last scroll the screencast restarts at full size, and Chrome
+sends a sharp frame of the still page at once. The server has no GPU: Chrome draws
 on the CPU, and effects such as `backdrop-filter` cost far more there than in
 a desktop browser.
 

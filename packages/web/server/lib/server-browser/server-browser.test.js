@@ -230,6 +230,65 @@ describe('server browser frame pacing', () => {
   });
 });
 
+describe('server browser scrolling', () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  // The screencast settings Chrome was asked for, in order.
+  const scrollStream = async () => {
+    const starts = [];
+    const stream = createTabStream({ viewport: () => ({ width: 400, height: 300, dpr: 2 }) });
+    await stream.bind(async (method, params) => {
+      if (method === 'Page.startScreencast') starts.push({ quality: params.quality, maxWidth: params.maxWidth, maxHeight: params.maxHeight });
+      return {};
+    });
+    await stream.addViewer({ sendFrame: () => {} });
+    const frame = () => stream.onFrame({ sessionId: 1, data: '', metadata: { deviceWidth: 400, deviceHeight: 300 } });
+    return { stream, starts, frame };
+  };
+  const FULL = { quality: 70, maxWidth: 800, maxHeight: 600 };
+  const SMALL = { quality: 50, maxWidth: 400, maxHeight: 300 };
+
+  it('streams smaller frames while the page scrolls and full frames once it stops', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const { stream, starts, frame } = await scrollStream();
+    expect(starts).toEqual([FULL]);
+    for (let i = 0; i < 4; i++) {
+      stream.noteScroll();
+      frame();
+      await vi.advanceTimersByTimeAsync(30);
+    }
+    expect(starts).toEqual([FULL, SMALL]);
+    // Still scrolling: the stream stays small.
+    stream.noteScroll();
+    frame();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(starts).toEqual([FULL, SMALL]);
+    // No scroll and no frame for a moment: a sharp frame replaces the last small one.
+    await vi.advanceTimersByTimeAsync(250);
+    expect(starts).toEqual([FULL, SMALL, FULL]);
+  });
+
+  it('keeps full frames for a single wheel step', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const { stream, starts, frame } = await scrollStream();
+    stream.noteScroll();
+    frame();
+    frame();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(starts).toEqual([FULL]);
+  });
+
+  it('keeps full frames for a page that animates while nobody scrolls', async () => {
+    vi.useFakeTimers({ now: 100_000 });
+    const { starts, frame } = await scrollStream();
+    for (let i = 0; i < 20; i++) {
+      frame();
+      await vi.advanceTimersByTimeAsync(16);
+    }
+    expect(starts).toEqual([FULL]);
+  });
+});
+
 describe('isBlockedServerNetworkLoad', () => {
   it('blocks public pages from loading server-network addresses', () => {
     expect(isBlockedServerNetworkLoad({ url: 'http://127.0.0.1:6379/', from: 'https://example.com/' })).toBe(true);

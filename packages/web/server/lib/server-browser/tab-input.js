@@ -47,7 +47,7 @@ export const editingCommandsForKey = ({ key, modifiers }) => {
  * Each viewer's pressed buttons and keys are remembered, so a viewer that
  * disconnects mid-drag or mid-shortcut does not leave them held down.
  */
-export const createTabInput = ({ onInput, cursorAt, onCursor, takeCopy, onCopied }) => {
+export const createTabInput = ({ onInput, onScroll = () => {}, cursorAt, onCursor, takeCopy, onCopied }) => {
   let send = null;
   let closed = false;
   let pendingMove = null;
@@ -137,6 +137,7 @@ export const createTabInput = ({ onInput, cursorAt, onCursor, takeCopy, onCopied
     }
     await flushMove();
     if (message.action === 'wheel') {
+      onScroll();
       queueWheel({ type: 'mouseWheel', x, y, deltaX: clampWheel(Number(message.deltaX) || 0), deltaY: clampWheel(Number(message.deltaY) || 0), modifiers });
       return;
     }
