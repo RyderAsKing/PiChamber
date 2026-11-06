@@ -295,7 +295,7 @@ export function createSessionDaemon({
   // are registered); every routing branch guards on `size > 0` so the
   // zero-engine path runs exactly the Pi-only code.
   let engineRegistry;
-  let runtimeStartPromise;
+  const runtimeStartPromises = new Map();
   let idleDisposeTimer;
   let dormantSession;
   let sequence = 0;
@@ -849,7 +849,7 @@ export function createSessionDaemon({
     }
   };
 
-  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile } = {}) => {
+  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile, activate = true } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
     const canonicalRuntimeCwd = sessionFile && dormantSession?.cwd
       ? dormantSession.cwd
@@ -875,21 +875,55 @@ export function createSessionDaemon({
       });
     }
     runtimeRegistry.register(newRuntime, { cwd: canonicalRuntimeCwd });
-    runtime = newRuntime;
-    activeDirectory = canonicalRuntimeCwd;
     rebuildSessionExtensionState(newRuntime);
-    rememberRuntimeSession();
+    if (activate) {
+      runtime = newRuntime;
+      activeDirectory = canonicalRuntimeCwd;
+      rememberRuntimeSession();
+      return newRuntime;
+    }
+    // A runtime started to answer for another directory stays non-active: it
+    // must not take over the daemon's active runtime or active directory, and
+    // it must not replace the dormant session belonging to the active project.
+    // It is view-only state, so it gets the same idle lifetime as any other
+    // browse-only session; reading many projects cannot accumulate runtimes.
+    touchIdleDisposal(newRuntime.session?.sessionId);
     return newRuntime;
   };
 
   const ensureRuntime = (targetCwd = activeDirectory || cwd) => {
-    if (runtime) return Promise.resolve(runtime);
-    if (!runtimeStartPromise) {
-      runtimeStartPromise = startRuntime({ cwd: targetCwd, sessionFile: dormantSession?.sessionFile }).finally(() => {
-        runtimeStartPromise = undefined;
+    const requestedCwd = resolve(targetCwd);
+    // Runtime state is owned per working directory. A request that names a
+    // directory is answered by a runtime resident in that directory, never by
+    // the active runtime of a different project, whose loaded extensions,
+    // skills, prompts, and models would then be reported for the wrong project.
+    const resident = runtimeRegistry?.listByDirectory?.(requestedCwd) ?? [];
+    const candidate = resident.includes(runtime) ? runtime : resident[0];
+    if (candidate) return Promise.resolve(candidate);
+
+    // Concurrent starts are shared per directory, never across directories.
+    let pendingStart = runtimeStartPromises.get(requestedCwd);
+    if (!pendingStart) {
+      // The last opened JSONL is reopened for the directory that owns it, and
+      // only there; a different directory starts its own Pi session.
+      const sessionFile = dormantSession?.sessionFile
+        && resolve(dormantSession.cwd || cwd) === requestedCwd
+        ? dormantSession.sessionFile
+        : undefined;
+      pendingStart = startRuntime({
+        cwd: requestedCwd,
+        sessionFile,
+        // Only a daemon without an active runtime adopts what it starts. Reading
+        // another project's catalog leaves the user's active project untouched.
+        activate: !runtime,
+      }).finally(() => {
+        if (runtimeStartPromises.get(requestedCwd) === pendingStart) {
+          runtimeStartPromises.delete(requestedCwd);
+        }
       });
+      runtimeStartPromises.set(requestedCwd, pendingStart);
     }
-    return runtimeStartPromise;
+    return pendingStart;
   };
 
   const beginSessionInput = (targetRuntime) => {
