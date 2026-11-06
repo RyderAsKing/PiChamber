@@ -15,6 +15,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Icon } from '@/components/icon/Icon';
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
+import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import type { GitWorktree } from '@/lib/api/types';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import {
@@ -117,7 +119,11 @@ const WorktreeRow: React.FC<{
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <Icon name="git-branch" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
-          <span className={sidebarRowLabelClass(mobileVariant)}>{label}</span>
+          {worktree.branch ? (
+            <MiddleTruncate value={label} showTitle={false} className="typography-ui-label font-normal" />
+          ) : (
+            <span className={sidebarRowLabelClass(mobileVariant)}>{label}</span>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0 ml-1">
           {hasActive ? (
@@ -242,7 +248,7 @@ const SortableFolderRow: React.FC<{
               aria-label={canDrag ? `Reorder ${label}` : undefined}
               {...(canDrag ? listeners : {})}
             >
-              <Icon name="folder" className={cn(sidebarRowIconClass(mobileVariant), 'text-muted-foreground')} />
+              <ProjectIcon directory={project.normalizedPath} label={label} className={sidebarRowIconClass(mobileVariant)} />
             </span>
             <span className={sidebarRowLabelClass(mobileVariant)}>{label}</span>
           </div>

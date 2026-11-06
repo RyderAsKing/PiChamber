@@ -7,6 +7,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
 - `packages/web/server/lib/fs/routes.js`: route registration and runtime-owned state for `/api/fs/*` endpoints.
 - `packages/web/server/lib/fs/search.js`: bounded-concurrency fuzzy filesystem search runtime used by `GET /api/fs/find`.
 - `packages/web/server/lib/fs/atomic-write.js`: shared symlink-preserving atomic write for server-owned config and state files.
+- `packages/web/server/lib/fs/project-icon.js`: finds the icon a project already ships, for `GET /api/fs/project-icon`.
 
 ## Atomic config/state writes
 - `writeFileAtomic(file, data, { fs, encoding, mode = 0o600, dirMode = 0o700 })` and `writeFileAtomicSync(...)` write a temp file and rename it over the file's real target, then chmod that target (best effort, skipped on Windows; a chmod failure does not fail the write because the content is already in place). They return the written target path.
@@ -24,6 +25,7 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
     - `GET /api/fs/read`
     - `GET /api/fs/stat`
     - `GET /api/fs/raw`
+    - `GET /api/fs/project-icon`
     - `GET /api/fs/serve/:path(*)`
     - `POST /api/fs/write`
     - `POST /api/fs/delete`
@@ -40,6 +42,14 @@ Own filesystem API behavior for the web server runtime, including workspace-boun
   - Supports fuzzy file and directory matching, hidden-file handling, fixed build-output exclusions, and optional `git check-ignore` filtering.
   - Git-ignore checks use bounded directory concurrency and a positive configurable timeout (`PICHAMBER_GIT_CHECK_IGNORE_TIMEOUT_MS`, default 2500 ms). Concurrent searches share identical in-flight checks. A failed or timed-out check fails the search instead of returning files that may be ignored.
   - Search reads through canonical paths for boundary enforcement, but result paths stay in the caller's requested path space so symlinked workspaces remain navigable.
+
+## Project icons
+- `GET /api/fs/project-icon?directory=<dir>` returns the image a project already uses as its icon, or HTTP 204 when it has none. `directory` is required; the route never falls back to the server cwd or the `x-pichamber-directory` header alone. A missing directory is HTTP 404, distinct from "no icon".
+- Lookup order: well-known files at the project root (`favicon.*`, `public/`, `static/`, Next.js `app/` and `src/app/` icons, `assets/icon|logo`), then the icon declared in an HTML `<link rel="icon">` or a framework head config (`{ rel: 'icon', href }`) in `index.html` or a root route file, then the same search inside monorepo packages under `apps/*` and `packages/*` (`web`, `app`, `www`, `site`, `frontend`, `client`, `ui` first, at most 32 per parent).
+- Only `.svg`, `.ico`, `.png`, `.jpg`/`.jpeg`, `.webp`, and `.gif` files up to 1 MiB are served. Every candidate, including declared hrefs, must resolve (after `realpath`) inside the project directory; remote, `data:`, and escaping hrefs are ignored.
+- Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and a sandboxing CSP so an SVG opened directly cannot run script.
+- Results are cached in memory per canonical directory: found icons for 10 minutes (re-checked for existence on each hit), misses for 1 minute.
+- The UI (`packages/ui/src/lib/projectIcon.ts`) fetches through `runtimeFetch`, keeps object URLs keyed by runtime and directory, and on a failed request keeps any icon already shown instead of treating the failure as "no icon".
 
 ## File-save revisions (finding #8)
 - Revisions are opaque exact strings (`v1:<size>:<mtimeMs>[:<sha256>]`, 5 MiB hash ceiling). `null` means missing at read time; `undefined` means legacy/unknown and never guards a save.

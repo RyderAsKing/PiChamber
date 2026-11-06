@@ -1,6 +1,8 @@
 import React from 'react';
 
 import { Icon } from '@/components/icon/Icon';
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
+import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
@@ -62,12 +64,28 @@ export function ProjectLabel({
     maxCharacters?: number;
 }) {
     const rawLabel = getProjectDisplayLabel(project);
-    const label = maxCharacters ? truncateWithEllipsis(rawLabel, maxCharacters) : rawLabel;
     const isGlobal = project.id === '__home__' || project.ownerProjectId === '__home__';
+    const isWorktree = project.kind === 'worktree';
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5" title={rawLabel}>
-            <Icon name={project.kind === 'worktree' ? 'git-branch' : isGlobal ? 'home' : 'folder'} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-muted-foreground">{label}</span>
+            {isWorktree || isGlobal ? (
+                <Icon name={isWorktree ? 'git-branch' : 'home'} className="size-3.5 shrink-0 text-muted-foreground" />
+            ) : (
+                <ProjectIcon directory={project.path} label={rawLabel} className="size-3.5" />
+            )}
+            {isWorktree ? (
+                // Worktree labels are branch names; keep their distinctive end visible.
+                <MiddleTruncate
+                    value={rawLabel}
+                    showTitle={false}
+                    className="text-muted-foreground"
+                    style={maxCharacters ? { maxWidth: `${maxCharacters}ch` } : undefined}
+                />
+            ) : (
+                <span className="truncate text-muted-foreground">
+                    {maxCharacters ? truncateWithEllipsis(rawLabel, maxCharacters) : rawLabel}
+                </span>
+            )}
         </span>
     );
 }
@@ -114,7 +132,7 @@ const BranchValue = ({ label, startFrom = false }: { label: string | null; start
         <span className="inline-flex min-w-0 items-center gap-1.5" title={label ?? undefined}>
             <Icon name="git-branch" className="size-3.5 shrink-0 text-muted-foreground" />
             {startFrom && label ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
-            <span className="truncate">{displayLabel}</span>
+            {label ? <MiddleTruncate value={label} showTitle={false} /> : <span className="truncate">{displayLabel}</span>}
         </span>
     );
 };
@@ -258,9 +276,15 @@ export function MobileDraftTargetTriggers(
         theme,
         onOpenPicker,
     } = props;
-    const displayBranchLabel = selectedBranchLabel
-        ? truncateWithEllipsis(selectedBranchLabel, BRANCH_LABEL_MAX_LENGTH)
-        : null;
+    const branchLabel = selectedBranchLabel ? (
+        <MiddleTruncate
+            value={selectedBranchLabel}
+            showTitle={false}
+            style={{ maxWidth: `${BRANCH_LABEL_MAX_LENGTH}ch` }}
+        />
+    ) : (
+        <span className="truncate">Branch</span>
+    );
 
     return (
         <div className="mb-1.5 flex min-w-0 w-full flex-col gap-0.5 pl-2 pr-1">
@@ -293,8 +317,8 @@ export function MobileDraftTargetTriggers(
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
-                        <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
+                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+                        {branchLabel}
                         <Icon name="arrow-down-s" className="h-3 w-3 shrink-0 text-muted-foreground" />
                     </button>
                 ) : showBranchSelector ? (
@@ -303,8 +327,8 @@ export function MobileDraftTargetTriggers(
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
-                        {worktreeMode && displayBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
-                        <span className="truncate">{displayBranchLabel ?? 'Branch'}</span>
+                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+                        {branchLabel}
                         <BranchCopyButton branchName={selectedBranchName} />
                     </div>
                 ) : null}

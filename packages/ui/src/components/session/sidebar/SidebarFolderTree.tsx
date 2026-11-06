@@ -180,6 +180,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                 id={projectKey}
                 disabled={!canSort}
                 projectLabel={projectLabel}
+                projectPath={project.normalizedPath}
                 projectDescription={projectDescription}
                 isCollapsed={isCollapsed}
                 hideDirectoryControls={hideDirectoryControls}
