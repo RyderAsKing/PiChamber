@@ -41,6 +41,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
   let dataDir;
 
   const userAgents = [];
+  const logs = [];
 
   beforeAll(async () => {
     upstream = http.createServer((req, res) => {
@@ -66,7 +67,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       env: { ...process.env, PICHAMBER_BROWSER_NO_SANDBOX: isRoot ? '1' : (process.env.PICHAMBER_BROWSER_NO_SANDBOX ?? '') },
       // A public-looking name for this machine, to test public pages.
       extraChromeArgs: ['--host-resolver-rules=MAP public.example 127.0.0.1'],
-      log: () => {},
+      log: (message) => logs.push(message),
     });
     runtime = createServerBrowserRuntime({
       app,
@@ -79,7 +80,22 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       browser,
     });
     base = `127.0.0.1:${await listen(appServer)}`;
-  }, 30_000);
+
+    // Chrome's first start on a fresh CI machine has taken 13 to 30 seconds,
+    // longer than a test's waits, so start it before the tests (retrying a
+    // start that timed out).
+    const deadline = Date.now() + 90_000;
+    for (;;) {
+      try {
+        await browser.openTab('warmup');
+        break;
+      } catch (error) {
+        logs.push(`warm-up start failed: ${error?.status?.problem?.detail || error?.message}`);
+        if (Date.now() > deadline) throw new Error(logs.join('\n'));
+      }
+    }
+    await browser.closeTab('warmup');
+  }, 120_000);
 
   afterAll(async () => {
     await runtime?.shutdown();
@@ -118,7 +134,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     const until = (predicate, label, timeoutMs = 8000) => new Promise((resolve, reject) => {
       const found = predicate();
       if (found) { resolve(found); return; }
-      const waiter = { predicate, resolve, timer: setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), timeoutMs) };
+      const waiter = { predicate, resolve, timer: setTimeout(() => reject(new Error(`Timed out waiting for ${label}${logs.length ? `; server browser log:\n${logs.join('\n')}` : ''}`)), timeoutMs) };
       waiters.push(waiter);
       // Requests the page makes arrive outside the socket; check them too.
       const poll = setInterval(check, 50);
