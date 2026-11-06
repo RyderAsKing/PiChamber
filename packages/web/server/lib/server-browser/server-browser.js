@@ -78,7 +78,7 @@ export const createServerBrowser = ({
   const lastUrls = new Map();
   const downloads = new Map();
   const uploads = new Map();
-  const pendingPopups = new Map();
+  const popupSessions = new Map();
 
   // Root needs it (Chrome refuses its sandbox as root); elsewhere it is for
   // servers where Chrome cannot create the sandbox (no user namespaces).
@@ -175,49 +175,62 @@ export const createServerBrowser = ({
     totalBytes: download.totalBytes,
   });
 
-  const handlePopup = async (cdp, targetInfo, opener) => {
-    let url = targetInfo.url;
-    if (!url || url === 'about:blank') {
-      url = await new Promise((resolve) => {
-        const timer = setTimeout(() => {
-          pendingPopups.delete(targetInfo.targetId);
-          resolve('');
-        }, POPUP_URL_WAIT_MS);
-        timer.unref?.();
-        pendingPopups.set(targetInfo.targetId, (next) => {
-          clearTimeout(timer);
-          pendingPopups.delete(targetInfo.targetId);
-          resolve(next);
-        });
-      });
-    }
-    await cdp.send('Target.closeTarget', { targetId: targetInfo.targetId }).catch(() => {});
-    // The page opened it, so the same rules apply as for a link it followed.
-    if (url && url !== 'about:blank') await opener.navigateFromPage(url);
+  // A popup starts paused (auto-attach waits for the debugger), so it loads
+  // nothing before this runs. Its first document request names the address:
+  // that request fails here, the popup closes, and the address loads in the
+  // opener's tab, under the same rules as a link the page followed.
+  const handlePopup = (cdp, sessionId, targetInfo, opener) => {
+    let settled = false;
+    const finish = async (url) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      popupSessions.delete(sessionId);
+      await cdp.send('Target.closeTarget', { targetId: targetInfo.targetId }).catch(() => {});
+      if (url && url !== 'about:blank') await opener.navigateFromPage(url);
+    };
+    const timer = setTimeout(() => void finish(''), POPUP_URL_WAIT_MS);
+    timer.unref?.();
+    popupSessions.set(sessionId, (method, params) => {
+      if (method !== 'Fetch.requestPaused') return;
+      void cdp.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Aborted' }, sessionId).catch(() => {});
+      void finish(params.request?.url || '');
+    });
+    void (async () => {
+      await cdp.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, sessionId).catch(() => {});
+      await cdp.send('Runtime.runIfWaitingForDebugger', {}, sessionId).catch(() => {});
+    })();
   };
 
   const onBrowserEvent = (cdp, message) => {
     const { method, params } = message;
     if (message.sessionId) {
-      tabsBySession.get(message.sessionId)?.handleEvent(method, params);
+      const popup = popupSessions.get(message.sessionId);
+      if (popup) popup(method, params);
+      else tabsBySession.get(message.sessionId)?.handleEvent(method, params);
       return;
     }
     switch (method) {
-      case 'Target.targetCreated': {
-        const info = params.targetInfo;
-        if (info.type !== 'page' || !info.openerId) return;
-        const opener = tabsByTarget.get(info.openerId);
-        if (!opener || tabsByTarget.has(info.targetId)) return;
-        void handlePopup(cdp, info, opener);
+      case 'Target.attachedToTarget': {
+        // Every new page arrives here paused. Popups of a tab are held;
+        // anything else (the tabs PiChamber creates) is let go at once.
+        // PiChamber's own attachToTarget sessions arrive here too, unpaused.
+        const { sessionId, targetInfo: info } = params;
+        if (!params.waitingForDebugger) return;
+        const opener = info.openerId ? tabsByTarget.get(info.openerId) : null;
+        if (opener && !tabsByTarget.has(info.targetId)) {
+          handlePopup(cdp, sessionId, info, opener);
+          return;
+        }
+        void (async () => {
+          await cdp.send('Runtime.runIfWaitingForDebugger', {}, sessionId).catch(() => {});
+          await cdp.send('Target.detachFromTarget', { sessionId }).catch(() => {});
+        })();
         return;
       }
-      case 'Target.targetInfoChanged': {
-        const info = params.targetInfo;
-        const resolvePopup = pendingPopups.get(info.targetId);
-        if (resolvePopup && info.url && info.url !== 'about:blank') resolvePopup(info.url);
-        tabsByTarget.get(info.targetId)?.updateTitle(info.title);
+      case 'Target.targetInfoChanged':
+        tabsByTarget.get(params.targetInfo.targetId)?.updateTitle(params.targetInfo.title);
         return;
-      }
       case 'Target.targetDestroyed': {
         const tab = tabsByTarget.get(params.targetId);
         if (tab) {
@@ -310,6 +323,7 @@ export const createServerBrowser = ({
         for (const tab of [...tabs.values()]) forgetTab(tab, reason);
       });
       await instance.cdp.send('Target.setDiscoverTargets', { discover: true });
+      await instance.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true, filter: [{ type: 'page' }] });
       await instance.cdp.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: downloadsDir, eventsEnabled: true }).catch(() => {});
       // Public pages may not reach the server's own network from scripts.
       // Chrome's permission name changed over versions; unknown ones fail.

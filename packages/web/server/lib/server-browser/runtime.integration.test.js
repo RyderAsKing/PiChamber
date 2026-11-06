@@ -50,6 +50,7 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       if (req.url === '/second') { res.setHeader('content-type', 'text/html'); res.end('<title>Second</title><h1>second</h1>'); return; }
       if (req.url === '/alert') { res.setHeader('content-type', 'text/html'); res.end('<script>setTimeout(() => { alert("hello there"); fetch("/after-alert"); }, 50)</script>'); return; }
       if (req.url === '/download') { res.setHeader('content-disposition', 'attachment; filename="notes.txt"'); res.end('downloaded body'); return; }
+      if (req.url === '/popup-to-local') { res.setHeader('content-type', 'text/html'); res.end(`<a href="http://127.0.0.1:${upstreamPort}/popup-secret" target="_blank" style="position:absolute;left:0;top:0;width:300px;height:100px">open</a>`); return; }
       if (req.url === '/to-local') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${upstreamPort}/secret`); res.end(); return; }
       res.end('ok');
     });
@@ -231,6 +232,19 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     // Typing the same address is the person's choice, so it loads.
     page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/secret` });
     await page.waitForSeen(/^\/secret$/, 'typed local address');
+    page.socket.close();
+  }, 30_000);
+
+  it('blocks a popup from a public page before it reaches the server network', async () => {
+    const page = connect('public-popup', `http://public.example:${upstreamPort}/popup-to-local`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.url.endsWith('/popup-to-local') && !m.loading, 'public page');
+    await page.click(50, 50);
+    const notice = await page.waitFor((m) => m.type === 'notice' && m.kind === 'blocked-server-network', 'blocked notice');
+    expect(notice.url).toBe(`http://127.0.0.1:${upstreamPort}/popup-secret`);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(seen).not.toContain('/popup-secret');
     page.socket.close();
   }, 30_000);
 

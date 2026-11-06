@@ -115,8 +115,10 @@ reopens the tab at its last address.
   reload) pass. A blocked load is cancelled (`Aborted`), the address shown
   returns to the last committed one, and viewers get one
   `blocked-server-network` notice. Subresource requests are not checked.
-- **Popups** close and their address loads in the opener's tab, under the
-  same rule as a followed link. The new page has no `window.opener`.
+- **Popups** are held before they load anything (`Target.setAutoAttach`
+  with `waitForDebuggerOnStart`). Their first document request is cancelled,
+  the popup closes, and its address loads in the opener's tab under the same
+  rule as a followed link. The new page has no `window.opener`.
 - **Page swaps.** Commands to a page retry for up to 3 seconds while Chrome
   swaps its renderer ("Not attached to an active page").
 - **Error pages** show the address that failed (`unreachableUrl`), not
