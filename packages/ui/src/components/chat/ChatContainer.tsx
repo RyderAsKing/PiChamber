@@ -35,6 +35,7 @@ import {
     useSessionRenderable,
     useSessionStatus,
     useSessionCompaction,
+    useSessionHasLiveBashExecution,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
@@ -160,6 +161,10 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     }, [connection, currentSessionId, reducerStreamingMessageId, sessionMessages, sessionStatusForCurrent.type, transportUncertain]);
     const sessionIsWorking = sessionWorkingPresentation.isWorking;
     const sessionAwaitingRecovery = sessionWorkingPresentation.isAwaitingRecovery;
+    // A user shell command (`!cmd`) streams output while the session is idle,
+    // so the transcript follows it like a running turn.
+    const sessionHasLiveBash = useSessionHasLiveBashExecution(currentSessionId ?? '');
+    const autoFollowActive = sessionIsWorking || sessionHasLiveBash;
     const awaitingPromptEcho = useSessionAwaitingPromptEcho(currentSessionId ?? '');
     const activeRetryStatus = React.useMemo(() => {
         if (!currentSessionId || sessionStatusForCurrent.type !== 'retry') {
@@ -257,7 +262,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         currentSessionId,
         currentSessionKey,
         sessionMessageCount,
-        sessionIsWorking,
+        sessionIsWorking: autoFollowActive,
         isMobile,
         onActiveTurnChange: handleActiveTurnChange,
     });

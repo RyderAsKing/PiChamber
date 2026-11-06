@@ -81,6 +81,8 @@ const toView = (state: BashExecutionRowState): BashRowView => {
     };
 };
 
+const OUTPUT_END_TOLERANCE_PX = 8;
+
 /**
  * Transcript row for user shell commands (`!cmd`). The same row renders a
  * live execution and the recorded entry that replaces it, so the swap does
@@ -96,6 +98,21 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
     const view = toView(state);
     const [stopping, setStopping] = React.useState(false);
     const showOutputPath = Boolean(view.fullOutputPath) && isDesktopShell() && isDesktopLocalOriginActive();
+
+    // The output box keeps its newest lines in view, like a terminal, until
+    // the user scrolls up inside it; scrolling back to the end resumes that.
+    const outputRef = React.useRef<HTMLPreElement | null>(null);
+    const stickToEndRef = React.useRef(true);
+    const handleOutputScroll = React.useCallback(() => {
+        const el = outputRef.current;
+        if (!el) return;
+        stickToEndRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= OUTPUT_END_TOLERANCE_PX;
+    }, []);
+    React.useLayoutEffect(() => {
+        const el = outputRef.current;
+        if (!el || !stickToEndRef.current) return;
+        el.scrollTop = el.scrollHeight;
+    }, [view.output]);
 
     const handleStop = React.useCallback(() => {
         if (!sessionId || stopping) return;
@@ -151,6 +168,8 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
 
             {view.output.length > 0 ? (
                 <pre
+                    ref={outputRef}
+                    onScroll={handleOutputScroll}
                     className="my-1 max-h-80 overflow-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-micro leading-relaxed"
                     data-no-drawer-swipe="true"
                 >

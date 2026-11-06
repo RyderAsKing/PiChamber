@@ -232,6 +232,18 @@ export function useSessionBashExecutions(sessionID: string): PiBashExecution[] {
   );
 }
 
+/**
+ * Whether the session has a user shell command not yet recorded. Boolean so
+ * subscribers re-render when one starts or settles, not on every output delta.
+ */
+export function useSessionHasLiveBashExecution(sessionID: string): boolean {
+  return usePiSessionSnapshot(
+    (state) => Boolean(sessionID && state.reducer.bySession.get(sessionID)?.bashExecutions?.length),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+}
+
 export function useSessions(): Session[] {
   // Directory pointer lives on `chrome`; the catalog-driven list comes
   // from `useCatalogUiSessions` on `catalog`. Both are needed because
