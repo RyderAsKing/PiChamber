@@ -234,7 +234,11 @@
   :root.mobile-pointer:not(.desktop-runtime) {
     --oc-safe-area-top: env(safe-area-inset-top, 0);
     --oc-safe-area-right: env(safe-area-inset-right, 0);
-    --oc-safe-area-bottom: env(safe-area-inset-bottom, 0);
+    /* --oc-viewport-bottom-strip is set only for iOS Home Screen apps whose
+       web view stops short of the screen bottom (WebKit bug 313800). The
+       home indicator then sits in the OS-drawn strip below the page, so
+       subtract it. See lib/standaloneViewportInsets.ts. */
+    --oc-safe-area-bottom: max(0px, calc(env(safe-area-inset-bottom, 0px) - var(--oc-viewport-bottom-strip, 0px)));
     --oc-safe-area-bottom-visual: clamp(0px, calc(var(--oc-safe-area-bottom) * 0.35), 12px);
     --oc-safe-area-left: env(safe-area-inset-left, 0);
   }
@@ -690,10 +694,12 @@
    needs real top/bottom safe-area room of its own. */
 @media (display-mode: standalone) {
   /* Bottom: reserve home-indicator room under the composer while the keyboard
-     is down. The generic .bottom-safe-area token is intentionally capped at
-     4px (visual tuck under the gradient overlay), which is not enough to keep
-     controls clear of the indicator / rounded corners. A fixed floor is
-     required: iOS 26 standalone reports env(safe-area-inset-bottom) as 0.
+     is down. The generic .bottom-safe-area token is capped at 12px, which is
+     not enough to keep controls clear of the indicator / rounded corners.
+     Apply the inset once, without adding another spacing allowance above it.
+     Keep a 16px floor for iOS standalone versions reporting a zero inset, or
+     whose web view stops above the home indicator (the token subtracts
+     --oc-viewport-bottom-strip, WebKit bug 313800).
      Cancel the room while the keyboard is up (the indicator area is behind the
      keyboard, and the pinned form anchors by its offsetHeight). The class flip
      is deliberately delayed (tap race, see ChatInput onBlur) — the transition
@@ -703,7 +709,7 @@
   }
 
   :root:not(.oc-capacitor-app):not(.oc-browser-keyboard-open) .oc-mobile-composer {
-    padding-bottom: calc(0.75rem + max(16px, var(--oc-safe-area-bottom, env(safe-area-inset-bottom, 0px)))) !important;
+    padding-bottom: max(16px, var(--oc-safe-area-bottom, env(safe-area-inset-bottom, 0px))) !important;
   }
 
   /* Fullscreen composer: ChatInput pins the form to the visual viewport from
@@ -714,14 +720,34 @@
     padding-top: calc(var(--oc-safe-area-top, env(safe-area-inset-top, 0px)) + 0.5rem) !important;
   }
 
-  /* iOS standalone can leave 100dvh stuck at the keyboard-shrunk value after
-     the keyboard hides (WebKit doesn't reliably restore the dynamic viewport),
-     which shifted the whole shell up by that leftover. Standalone has no
-     collapsing browser chrome, so the dynamic and large viewports are the same
-     thing — pin the shell to 100lvh, which always reports full screen height.
-     Initial geometry is identical (lvh == dvh on load). */
+  /* iOS standalone can leave dvh keyboard-shrunk after dismissal, while
+     lvh can include status-bar space outside the usable layout viewport
+     (WebKit bugs 301994 / 313800). The root chain already has height: 100%;
+     inherit that layout viewport instead of either viewport unit so the
+     composer stays inside the page's overflow-hidden bounds. */
   :root:not(.oc-capacitor-app) .oc-mobile-app-shell {
-    height: 100lvh;
+    height: 100%;
+  }
+
+  /* iOS 26+ gives a Home Screen app with the black-translucent status bar a
+     viewport short of the screen by the top inset (62px on iPhone 16 Pro)
+     while the page is no taller than that viewport, and draws the rest as an
+     unusable strip (WebKit bugs 301108 / 313800). A page as tall as the screen
+     gets the full viewport. Grow <html> by the top inset, capped at 100lvh:
+     with an opaque status bar the inset is 0 and lvh overstates the viewport
+     (WebKit 316008), so nothing changes there.
+     If iOS still keeps the short viewport, standaloneViewportInsets.ts
+     publishes the strip and <body> shrinks back to the visible area, so the
+     composer is never clipped. <html> stays grown so a later resize can still
+     restore the full viewport. */
+  @supports (-webkit-touch-callout: none) {
+    html:root:not(.oc-capacitor-app):not(.desktop-runtime) {
+      height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px)));
+    }
+
+    html:root:not(.oc-capacitor-app):not(.desktop-runtime) body {
+      height: calc(100% - var(--oc-viewport-bottom-strip, 0px));
+    }
   }
 
   /* Top toasts: same offset the Capacitor shell already applies — without it
