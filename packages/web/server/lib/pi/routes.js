@@ -19,6 +19,11 @@ import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
 import {
   MAX_EXTENSION_APP_HTML_CHARS,
+  isValidCustomInputItems,
+  projectCustomDismiss,
+  projectCustomFrame,
+  projectCustomSurface,
+  projectCustomSurfaces,
   sanitizeExtensionFormFields,
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
@@ -124,6 +129,14 @@ const projectSession = (value) => {
   };
 };
 
+// The extension command a busy session is running without an agent turn
+// (`/name`). Clients queue new messages instead of steering while it runs.
+const projectRunningCommand = (lifecycle, value) => (
+  lifecycle === 'busy' && typeof value === 'string' && /^\/\S{1,127}$/.test(value)
+    ? { command: value }
+    : {}
+);
+
 // Resident-runtime lifecycle sampled by the daemon list. Optional: a
 // malformed value is dropped (unknown) rather than failing the row or the
 // directory, and only whitelisted fields cross the public boundary.
@@ -136,6 +149,7 @@ const projectListLiveStatus = (value) => {
     lifecycle: value.lifecycle,
     sequence: value.sequence,
     ...(retry ? { retry } : {}),
+    ...projectRunningCommand(value.lifecycle, value.command),
     ...(value.lifecycle !== 'idle' && Number.isFinite(value.runStartedAt) && value.runStartedAt >= 0 ? { runStartedAt: value.runStartedAt } : {}),
     ...(Number.isFinite(value.serverNow) && value.serverNow >= 0 ? { serverNow: value.serverNow } : {}),
   };
@@ -414,6 +428,7 @@ const projectSessionDetail = (value) => {
     lastSequence: value.lastSequence,
     isStreaming,
     lifecycle,
+    ...projectRunningCommand(lifecycle, value.command),
     ...(retry ? { retry } : {}),
     ...(compaction ? { compaction } : {}),
     ...(Number.isFinite(value.runStartedAt) ? { runStartedAt: Math.floor(value.runStartedAt) } : {}),
@@ -727,6 +742,7 @@ function projectExtensionSnapshotState(snapshot) {
       : {}),
     ...(extensionWorking && (extensionWorking.message !== undefined || extensionWorking.visible !== undefined) ? { extensionWorking } : {}),
     ...(snapshot.extensionDraftTracked === true ? { extensionDraftTracked: true } : {}),
+    ...(Array.isArray(snapshot.extensionSurfaces) ? { extensionSurfaces: projectCustomSurfaces(snapshot.extensionSurfaces) } : {}),
   };
 }
 
@@ -763,6 +779,7 @@ export const projectEventFrame = (frame) => {
       return { ...common, payload: { snapshot: {
         sessionId, directory, isStreaming: snapshot.isStreaming === true,
         lifecycle,
+        ...projectRunningCommand(lifecycle, snapshot.command),
         ...(retry ? { retry } : {}),
         ...(compaction ? { compaction } : {}),
         queue: { steering: Number.isSafeInteger(snapshot.queue?.steering) ? snapshot.queue.steering : 0, followUp: Number.isSafeInteger(snapshot.queue?.followUp) ? snapshot.queue.followUp : 0 },
@@ -787,7 +804,7 @@ export const projectEventFrame = (frame) => {
         return { ...common, name: 'session.deleted', payload: {} };
       }
       const retry = frame.payload.state === 'retry' ? projectRetryInfo(frame.payload) : null;
-      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
+      return { ...common, payload: { state: frame.payload.state, ...(retry ?? {}), ...projectRunningCommand(frame.payload.state, frame.payload.command), ...(Number.isFinite(frame.payload.runStartedAt) ? { runStartedAt: Math.floor(frame.payload.runStartedAt) } : {}), ...(Number.isFinite(frame.payload.serverNow) ? { serverNow: Math.floor(frame.payload.serverNow) } : {}) } };
     }
     case 'session.deleted': return { ...common, payload: {} };
     case 'session.updated': {
@@ -1039,6 +1056,18 @@ export const projectEventFrame = (frame) => {
           ...(typeof frame.payload.visible === 'boolean' ? { visible: frame.payload.visible } : {}),
         },
       };
+    }
+    case 'extension.custom': {
+      const payload = projectCustomSurface(frame.payload);
+      return payload ? { ...common, payload } : null;
+    }
+    case 'extension.custom.frame': {
+      const payload = projectCustomFrame(frame.payload);
+      return payload ? { ...common, payload } : null;
+    }
+    case 'extension.custom.dismiss': {
+      const payload = projectCustomDismiss(frame.payload);
+      return payload ? { ...common, payload } : null;
     }
     case 'extension.error': {
       if (typeof frame.payload.source !== 'string' || frame.payload.source.length === 0 || frame.payload.source.length > 512) return null;
@@ -2078,6 +2107,62 @@ export const registerPiRuntimeRoutes = (app, {
     } catch (error) {
       writeDaemonError(res, error);
     }
+  });
+
+  // `ctx.ui.custom()` surfaces: keys, the sender's viewport, Close, picking a
+  // panel in a tab stack, and a full-frame refresh after a missed patch. A surface that already closed
+  // answers 404 so the browser drops it without retrying.
+  const CUSTOM_SURFACE_ACTIONS = new Map([
+    ['input', 'extensions.custom.input'],
+    ['viewport', 'extensions.custom.viewport'],
+    ['close', 'extensions.custom.close'],
+    ['focus', 'extensions.custom.focus'],
+    ['refresh', 'extensions.custom.refresh'],
+  ]);
+  app.post('/api/pi/sessions/:sessionId/extensions/custom/:action', async (req, res) => {
+    const command = CUSTOM_SURFACE_ACTIONS.get(req.params.action);
+    const body = req.body;
+    if (!command || !body || typeof body !== 'object' || Array.isArray(body)) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const surfaceId = typeof body.surfaceId === 'string' && body.surfaceId.length > 0 && body.surfaceId.length <= 128 ? body.surfaceId : undefined;
+    const clientId = typeof body.clientId === 'string' && body.clientId.length > 0 && body.clientId.length <= 128 ? body.clientId : undefined;
+    const viewport = body.viewport && typeof body.viewport === 'object' && !Array.isArray(body.viewport)
+      && Number.isFinite(body.viewport.columns) && Number.isFinite(body.viewport.rows)
+      ? {
+        columns: body.viewport.columns,
+        rows: body.viewport.rows,
+        ...(Number.isFinite(body.viewport.screenColumns) ? { screenColumns: body.viewport.screenColumns } : {}),
+      }
+      : undefined;
+    let items;
+    if (command === 'extensions.custom.input') {
+      if (!surfaceId || !isValidCustomInputItems(body.items)) {
+        res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+        return;
+      }
+      items = body.items;
+    }
+    if ((command === 'extensions.custom.close' || command === 'extensions.custom.focus') && !surfaceId) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, {
+      ...(surfaceId ? { surfaceId } : {}),
+      ...(clientId ? { clientId } : {}),
+      ...(viewport ? { viewport } : {}),
+      ...(items ? { items } : {}),
+      ...(body.claim === true ? { claim: true } : {}),
+    });
+    if (result === undefined) return;
+    const ok = result && typeof result === 'object'
+      && (result.accepted === true || result.closed === true || result.focused === true || result.refreshed === true);
+    if (!ok) {
+      res.status(404).json({ error: { code: 'EXTENSION_SURFACE_NOT_OPEN' } });
+      return;
+    }
+    res.status(204).end();
   });
 
   app.get('/api/pi/sessions/:sessionId/tree', async (req, res) => {

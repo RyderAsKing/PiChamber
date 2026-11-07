@@ -20,6 +20,7 @@ import {
 
 import {
   MAX_EXTENSION_APP_HTML_CHARS,
+  isValidCustomInputItems,
   sanitizeExtensionFormFields,
   validateExtensionFormValues,
 } from '../extension-protocol.js';
@@ -76,6 +77,7 @@ import {
 } from './session-engines.js';
 import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
+import { createExtensionCustomHost } from './extension-custom-host.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -92,7 +94,8 @@ if (!globalThis.__PICHAMBER__) {
     globalThis.__PICHAMBER__ = Object.freeze({
       version: 1,
       protocol: 'pichamber-extension-ui',
-      mode: 'rpc',
+      // Matches `ctx.mode` (extension-bridge.js).
+      mode: 'tui',
     });
   } catch {}
 }
@@ -600,6 +603,25 @@ export function createSessionDaemon({
     for (const client of clients) writeLine(client, line);
   };
 
+  // Live-only events (`custom()` frames) skip the replay log: a 30 fps
+  // component would otherwise evict every useful event from it within
+  // seconds. Their sequence gaps are harmless, like snapshots'. A client
+  // that attaches by replay gets the current full frames instead
+  // (`writeCustomKeyframes`).
+  const publishTransient = (event, payload, sessionId, directory) => {
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return;
+    const message = {
+      protocolVersion: PROTOCOL_VERSION,
+      kind: 'event',
+      event,
+      streamEpoch,
+      sequence: ++sequence,
+      payload: { sessionId, directory: directory || activeDirectory || cwd, ...payload },
+    };
+    const line = `${JSON.stringify(message)}\n`;
+    for (const client of clients) writeLine(client, line);
+  };
+
   // Daemon-level pending-input state: whether a session is blocked waiting
   // for the user. Daemon-hosted blocking requests (extension dialogs) and
   // engine-reported summaries both feed it; every device learns it without
@@ -615,6 +637,54 @@ export function createSessionDaemon({
     redact: (value) => redactAttachmentPaths(value),
     onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
   });
+  // What opened a `custom()` surface, for its header: the running top-level
+  // tool, else the extension command being run. Pi's ctx.ui is shared per
+  // session and does not say which extension called it.
+  const runningToolsBySession = new Map();
+  const runningCommandBySession = new Map();
+  // The browser tab that sent each session's latest input (`clientId`, the
+  // same id it uses for custom() surfaces): surfaces that input opens are
+  // drawn at that tab's size.
+  const promptClientBySession = new Map();
+  /**
+   * The running extension command while it is the only thing running (no
+   * agent turn): the session is busy, as in Pi's interactive mode, which
+   * holds new input until the command returns. Steering applies only while
+   * the agent streams, so clients queue instead of steering then.
+   */
+  const commandOnlyRun = (sessionId, session) => {
+    if (session?.isStreaming === true) return undefined;
+    const name = runningCommandBySession.get(sessionId)?.name;
+    return name ? `/${name}` : undefined;
+  };
+  const describeCustomOrigin = (sessionId) => {
+    const tools = runningToolsBySession.get(sessionId);
+    const tool = tools ? [...tools.values()].at(-1) : undefined;
+    if (tool) return tool;
+    const command = runningCommandBySession.get(sessionId)?.name;
+    return command ? `/${command}` : undefined;
+  };
+  const findRuntimeForSession = (sessionId) => runtimeRegistry?.findBySessionId(sessionId)
+    || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+  const customHost = createExtensionCustomHost({
+    publish,
+    publishTransient,
+    pendingInput,
+    agentDir,
+    theme: extensionTheme,
+    directoryForSession: (sessionId) => findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd,
+    redactLine: (line) => redactAttachmentPaths(line),
+    describeOrigin: describeCustomOrigin,
+    openerClientFor: (sessionId) => promptClientBySession.get(sessionId),
+    onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+    onError: (sessionId, stage, error) => {
+      publish('extension.error', {
+        source: 'extension.custom',
+        event: stage,
+        message: String(error?.message ?? error ?? 'Extension component error.'),
+      }, sessionId, findRuntimeForSession(sessionId)?.cwd);
+    },
+  });
   const extensionBridge = createExtensionBridge({
     publish,
     resolveDirectory,
@@ -628,7 +698,58 @@ export function createSessionDaemon({
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
     pendingInput,
+    customHost,
   });
+  // `custom()` commands from browsers. Unknown or closed surfaces answer
+  // `accepted: false` instead of throwing, like stale dialog responses, so a
+  // late key from another device never tears down the daemon socket.
+  const handleCustomCommand = (command, payload) => {
+    const sessionId = payload?.sessionId;
+    if (typeof sessionId !== 'string' || sessionId.length === 0) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension surface request is invalid.');
+    }
+    const surfaceId = typeof payload.surfaceId === 'string' && payload.surfaceId.length > 0 && payload.surfaceId.length <= 128
+      ? payload.surfaceId
+      : undefined;
+    const clientId = typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128
+      ? payload.clientId
+      : undefined;
+    const viewport = payload.viewport && typeof payload.viewport === 'object' ? payload.viewport : undefined;
+    switch (command) {
+      case 'extensions.custom.input':
+        if (!surfaceId || !isValidCustomInputItems(payload.items)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension surface input is invalid.');
+        }
+        return customHost.input({ sessionId, surfaceId, clientId, viewport, items: payload.items });
+      case 'extensions.custom.viewport':
+        return customHost.reportViewport({ sessionId, clientId, viewport, claim: payload.claim === true });
+      case 'extensions.custom.close':
+        if (!surfaceId) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension surface is invalid.');
+        return customHost.close({ sessionId, surfaceId, clientId, viewport });
+      case 'extensions.custom.focus':
+        if (!surfaceId) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The extension surface is invalid.');
+        return customHost.focus({ sessionId, surfaceId, clientId, viewport });
+      default:
+        return customHost.refresh({ sessionId, surfaceId });
+    }
+  };
+
+  // Frames are live-only (`publishTransient`), so a client that attached by
+  // replay gets each open surface's current full frame. The sequence numbers
+  // are this client's alone; other clients see a gap, as with snapshots.
+  const writeCustomKeyframes = (socket, requestedSessionId) => {
+    for (const { sessionId, payload } of customHost.keyframes(requestedSessionId)) {
+      writeFrame(socket, {
+        protocolVersion: PROTOCOL_VERSION,
+        kind: 'event',
+        event: 'extension.custom.frame',
+        streamEpoch,
+        sequence: ++sequence,
+        payload: { sessionId, directory: findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd, ...payload },
+      });
+    }
+  };
+
   const {
     buildExtensionBindings,
     clearExtensionState,
@@ -739,7 +860,8 @@ export function createSessionDaemon({
         // this snapshot is a recovery baseline rather than a routine attach.
         ...(resync ? { resync: true } : {}),
         isStreaming: session.isStreaming ?? false,
-        lifecycle: retry ? 'retry' : session.isStreaming ? 'busy' : 'idle',
+        lifecycle: retry ? 'retry' : session.isStreaming || commandOnlyRun(session.sessionId, session) ? 'busy' : 'idle',
+        ...(!retry && commandOnlyRun(session.sessionId, session) ? { command: commandOnlyRun(session.sessionId, session) } : {}),
         ...(retry ? { retry } : {}),
         ...(compaction ? { compaction } : {}),
         queue: activeSession ? {
@@ -761,6 +883,7 @@ export function createSessionDaemon({
         ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
         ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
         ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
+        ...(extensionSnapshot.surfaces ? { extensionSurfaces: extensionSnapshot.surfaces } : {}),
         ...(session.sessionId
           ? {
             inputState: { pending: pendingInput.summaryFor(session.sessionId) },
@@ -1076,6 +1199,8 @@ export function createSessionDaemon({
     // away finds it still pending later. Deletion and daemon stop still
     // cancel dialogs as before.
     if (isValidIdleSessionId(sessionId) && pendingInput.hasHostedRequests(sessionId)) return false;
+    // An open custom() component is live, capturing or not.
+    if (isValidIdleSessionId(sessionId) && customHost.hasOpenSurfaces(sessionId)) return false;
     if (isValidIdleSessionId(sessionId) && (activeSessionRequests.get(sessionId) ?? 0) > 0) return false;
     if (targetRuntime.session?.isStreaming || targetRuntime.session?.isCompacting) return false;
     // A user shell command (`!cmd`) is live work from acceptance (before Pi
@@ -1129,6 +1254,7 @@ export function createSessionDaemon({
         // thread blocks forever on a disposed runtime.
         clearExtensionState(sessionId);
         extensionToolRenderer.clearSession(sessionId);
+        runningToolsBySession.delete(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
         // Positively determine ephemerality while the resident lease is
         // still held, before any release. A stat success means persisted;
@@ -1302,12 +1428,14 @@ export function createSessionDaemon({
       const sessionId = entry?.session?.sessionId;
       if (typeof sessionId !== 'string' || sessionId.length === 0) continue;
       const retry = retryStateBySession.get(sessionId);
-      const lifecycle = retry ? 'retry' : entry.session.isStreaming === true ? 'busy' : 'idle';
+      const command = retry ? undefined : commandOnlyRun(sessionId, entry.session);
+      const lifecycle = retry ? 'retry' : entry.session.isStreaming === true || command ? 'busy' : 'idle';
       const runStartedAt = lifecycle !== 'idle' ? activeRunStartedAt.get(sessionId) : undefined;
       liveById.set(sessionId, {
         lifecycle,
         sequence: observedSequence,
         ...(retry ? { retry } : {}),
+        ...(command ? { command } : {}),
         ...(Number.isFinite(runStartedAt) ? { runStartedAt } : {}),
         serverNow,
       });
@@ -1985,7 +2113,8 @@ export function createSessionDaemon({
       ...(page.hasMoreBefore ? { hasMoreBefore: true, beforeCursor: page.beforeCursor } : {}),
       lastSequence: sequence,
       isStreaming,
-      lifecycle: retry ? 'retry' : isStreaming ? 'busy' : 'idle',
+      lifecycle: retry ? 'retry' : isStreaming || commandOnlyRun(session.sessionId, session) ? 'busy' : 'idle',
+      ...(!retry && commandOnlyRun(session.sessionId, session) ? { command: commandOnlyRun(session.sessionId, session) } : {}),
       ...(retry ? { retry } : {}),
       ...(compaction ? { compaction } : {}),
       ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
@@ -1998,6 +2127,7 @@ export function createSessionDaemon({
       ...(extensionSnapshot.title ? { extensionTitle: extensionSnapshot.title } : {}),
       ...(extensionSnapshot.working ? { extensionWorking: extensionSnapshot.working } : {}),
       ...(extensionSnapshot.draftTracked ? { extensionDraftTracked: true } : {}),
+      ...(extensionSnapshot.surfaces ? { extensionSurfaces: extensionSnapshot.surfaces } : {}),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
       bashExecutions: userBash.snapshot(session.sessionId) ?? [],
     };
@@ -3373,6 +3503,12 @@ export function createSessionDaemon({
     if (!requestedDelivery && activeRuntime.session.isStreaming) {
       throw new SessionDaemonProtocolError('SESSION_BUSY', 'The Pi session already has an active run.');
     }
+    // Pi holds input while an extension command runs without an agent turn;
+    // steer and follow-up only queue behind a streaming turn, so they would
+    // start a second run here. Clients queue the message until idle.
+    if (commandOnlyRun(payload.sessionId, activeRuntime.session)) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
+    }
     beginSessionInput(activeRuntime);
     try {
     if (payload.model !== undefined) {
@@ -3388,8 +3524,15 @@ export function createSessionDaemon({
     // input that actually enters the transcript. Resolve this from Pi's live
     // registered-command catalog rather than trusting a browser hint.
     const manager = activeRuntime.session?.sessionManager;
-    const slashInvocation = typeof payload.text === 'string'
-      ? /^\/([^\s]+)/.exec(payload.text.trim())?.[1]
+    // Parsed exactly as Pi's `_tryExecuteExtensionCommand` does on the text
+    // it receives (attachments are appended below, so they are prepared
+    // first): case-sensitive, starting at the first character, name ending
+    // at the first space.
+    const attachments = await prepareAttachmentContent(payload.attachments);
+    const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
+    const isSlashPrompt = typeof text === 'string' && text.startsWith('/');
+    const slashInvocation = isSlashPrompt
+      ? (text.indexOf(' ') === -1 ? text.slice(1) : text.slice(1, text.indexOf(' ')))
       : undefined;
     const registeredExtensionCommands = typeof activeRuntime.session?.extensionRunner?.getRegisteredCommands === 'function'
       ? activeRuntime.session.extensionRunner.getRegisteredCommands()
@@ -3397,8 +3540,7 @@ export function createSessionDaemon({
     const isExtensionCommand = Boolean(
       slashInvocation
       && Array.isArray(registeredExtensionCommands)
-      && registeredExtensionCommands.some((command) => typeof command?.invocationName === 'string'
-        && command.invocationName.toLowerCase() === slashInvocation.toLowerCase()),
+      && registeredExtensionCommands.some((command) => command?.invocationName === slashInvocation),
     );
     // Like the Pi CLI, never persist an auto-title. Lists derive the display
     // title from the first user prompt; publish that derived title live (not
@@ -3410,10 +3552,13 @@ export function createSessionDaemon({
       }
     }
 
-    const attachments = await prepareAttachmentContent(payload.attachments);
-    const text = [payload.text, attachments.text].filter(Boolean).join('\n\n');
     const images = attachments.images.length > 0 ? attachments.images : undefined;
-    const isSlashPrompt = typeof text === 'string' && text.startsWith('/');
+    // Re-checked after the model and attachment awaits: a command another
+    // client dispatched meanwhile holds this input too. Nothing below awaits
+    // before the command marker is set.
+    if (commandOnlyRun(payload.sessionId, activeRuntime.session)) {
+      throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
+    }
     const messageId = typeof payload.messageId === 'string' && payload.messageId.length > 0
       ? payload.messageId
       : activeRuntime.session.sessionManager?.getLeafId?.() ?? `msg_${randomUUID()}`;
@@ -3438,6 +3583,15 @@ export function createSessionDaemon({
       ? { provider: activeRuntime.session.model.provider, id: activeRuntime.session.model.id }
       : null;
     let promptPromise;
+    // A command's custom() surfaces are titled with its name (see
+    // describeCustomOrigin). Cleared when the command settles.
+    const commandMarker = isExtensionCommand ? { name: slashInvocation } : undefined;
+    if (commandMarker) runningCommandBySession.set(payload.sessionId, commandMarker);
+    if (typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128) {
+      promptClientBySession.set(payload.sessionId, payload.clientId);
+    } else {
+      promptClientBySession.delete(payload.sessionId);
+    }
     // True SDK acceptance: await the prompt preflight signal, not the full
     // agent turn. In SDK 1.0.0, preflightResult is called on acceptance with
     // a PromptDisposition ("started" | "queued" | "handled"). Rejections
@@ -3469,13 +3623,46 @@ export function createSessionDaemon({
             ...(requestedDelivery ? { streamingBehavior: requestedDelivery } : {}),
             preflightResult: onPreflightResult,
           });
+      // Pi reports `handled` for a registered command only once its handler
+      // returns. A command waiting on custom() or a dialog would hold the
+      // browser's send (and the composer text) until it closes, so accept
+      // it once dispatched; Pi always runs a registered command.
+      if (isExtensionCommand) onPreflightResult('handled');
+      if (commandMarker && commandOnlyRun(payload.sessionId, activeRuntime.session)) {
+        if (!activeRunStartedAt.has(payload.sessionId)) activeRunStartedAt.set(payload.sessionId, Date.now());
+        publish('session.lifecycle', {
+          state: 'busy',
+          command: `/${commandMarker.name}`,
+          runStartedAt: activeRunStartedAt.get(payload.sessionId),
+          serverNow: Date.now(),
+        }, payload.sessionId, activeRuntime.cwd);
+      }
     } catch (error) {
       removeUserStart(payload.sessionId, generation);
+      if (commandMarker && runningCommandBySession.get(payload.sessionId) === commandMarker) runningCommandBySession.delete(payload.sessionId);
       throw error;
     }
     // A settlement without a preflight signal resolves the gate so a missing
     // callback cannot hang acceptance. Resolve implies acceptance; reject
     // implies preflight failure whose real error is propagated below.
+    if (commandMarker) {
+      // The command returning (or throwing) ends its busy run. This is the
+      // only edge that does: `agent_settled` for a turn the command started
+      // reports busy while the command still runs, and later sends (a steer
+      // into that turn) move the send generation on, so the generic
+      // settlement below cannot be relied on to publish idle here.
+      const settleCommand = () => {
+        if (runningCommandBySession.get(payload.sessionId) !== commandMarker) return;
+        runningCommandBySession.delete(payload.sessionId);
+        // A turn still streaming ends with its own agent_settled.
+        if (activeRuntime.session?.isStreaming) return;
+        settledSendGenerationBySession.set(payload.sessionId, sendGenerationBySession.get(payload.sessionId) ?? generation);
+        activeRunStartedAt.delete(payload.sessionId);
+        publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, payload.sessionId, activeRuntime.cwd);
+        completeRequestedShutdown(payload.sessionId);
+      };
+      Promise.resolve(promptPromise).then(settleCommand, settleCommand);
+    }
     Promise.resolve(promptPromise).then(
       () => {
         if (preflightOutcome === null) {
@@ -3518,7 +3705,6 @@ export function createSessionDaemon({
         removeUserStart(payload.sessionId, generation);
       }
       if (sendGenerationBySession.get(payload.sessionId) !== generation) return;
-      if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
       const curModel = activeRuntime.session?.model;
       if (
         curModel?.provider && curModel?.id
@@ -3528,8 +3714,10 @@ export function createSessionDaemon({
           model: { providerId: curModel.provider, modelId: curModel.id },
         }, payload.sessionId, activeRuntime.cwd);
       }
+      if (settledSendGenerationBySession.get(payload.sessionId) === generation) return;
       if (activeRuntime.session?.isStreaming) return;
       settledSendGenerationBySession.set(payload.sessionId, generation);
+      activeRunStartedAt.delete(payload.sessionId);
       // Extension commands can complete without starting an agent turn, so Pi
       // emits no agent_settled event. Close the optimistic browser lifecycle
       // when the command promise itself is the authoritative completion edge.
@@ -3545,6 +3733,7 @@ export function createSessionDaemon({
           : {}),
       }, payload.sessionId, activeRuntime.cwd);
       if (!activeRuntime.session?.isStreaming) {
+        // A command that threw already ended its busy run in settleCommand.
         completeRequestedShutdown(payload.sessionId);
         return;
       }
@@ -3629,6 +3818,9 @@ export function createSessionDaemon({
       await releaseResidentLease({ cwd: active?.cwd || targetDir, sessionId });
       retryStateBySession.delete(sessionId);
       compactionStateBySession.delete(sessionId);
+      runningToolsBySession.delete(sessionId);
+      runningCommandBySession.delete(sessionId);
+      promptClientBySession.delete(sessionId);
       userBash.clearSession(sessionId);
       activeRunStartedAt.delete(sessionId);
       shutdownRequestedBySession.delete(sessionId);
@@ -3785,6 +3977,11 @@ export function createSessionDaemon({
         if (typeof event.parentToolCallId === 'string' && event.parentToolCallId.length > 0) {
           break;
         }
+        if (typeof event.toolCallId === 'string' && typeof event.toolName === 'string') {
+          const tools = runningToolsBySession.get(sessionId) ?? new Map();
+          tools.set(event.toolCallId, event.toolName);
+          runningToolsBySession.set(sessionId, tools);
+        }
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const startedAt = Date.now();
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
@@ -3876,6 +4073,8 @@ export function createSessionDaemon({
         if (typeof event.parentToolCallId === 'string' && event.parentToolCallId.length > 0) {
           break;
         }
+        const runningTools = runningToolsBySession.get(sessionId);
+        if (runningTools?.delete(event.toolCallId) && runningTools.size === 0) runningToolsBySession.delete(sessionId);
         const messageId = streamingMessageIds.get(sessionId) ?? latestAssistantMessageIds.get(sessionId) ?? `assistant-${sessionId}`;
         const timingKey = toolTimingKey(sessionId, event.toolCallId);
         const startedAt = toolStartedAt.get(timingKey);
@@ -3974,7 +4173,22 @@ export function createSessionDaemon({
         toolInputBySession.delete(sessionId);
         clearToolTimingsForSession(sessionId, { keepCompleted: true });
         extensionToolRenderer.clearSession(sessionId);
-        publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
+        // A missed tool_execution_end must not title later surfaces.
+        runningToolsBySession.delete(sessionId);
+        {
+          // A turn the command started (sendUserMessage) ended while the
+          // command still runs: the session stays busy until it returns.
+          const command = commandOnlyRun(sessionId, owningRuntime?.session);
+          if (command) {
+            activeRunStartedAt.set(sessionId, Date.now());
+            publish('session.lifecycle', { state: 'busy', command, runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
+            // The command's own settlement publishes idle, completes a
+            // requested shutdown, and re-arms idle disposal and pending
+            // reloads; doing any of that now would end it mid-run.
+            break;
+          }
+          publish('session.lifecycle', { state: 'idle', serverNow: Date.now() }, sessionId, directory);
+        }
         if (!completeRequestedShutdown(sessionId)) {
           void flushPendingResourceReload(owningRuntime).then(() => {
             if (!shutdownRequestedBySession.has(sessionId)) scheduleIdleDisposal(sessionId);
@@ -4120,6 +4334,7 @@ export function createSessionDaemon({
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
               'openUrl.publish',
+              'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
             ...(typeof profileKey === 'string' && profileKey.length > 0 ? { profileKey } : {}),
@@ -4315,6 +4530,15 @@ export function createSessionDaemon({
       case 'extensions.respond': {
         const resolution = await resolveExtensionDialog(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: resolution });
+        return;
+      }
+      case 'extensions.custom.input':
+      case 'extensions.custom.viewport':
+      case 'extensions.custom.close':
+      case 'extensions.custom.focus':
+      case 'extensions.custom.refresh': {
+        const result = handleCustomCommand(message.command, message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'extensions.draft': {
@@ -4611,6 +4835,10 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError(error.code ?? 'INVALID_ARGUMENT', error.message);
         }
         const activeRuntime = await activateSession(message.payload?.sessionId, message.payload?.directory || message.payload?.cwd);
+        // Held like every other input while an extension command runs.
+        if (commandOnlyRun(message.payload.sessionId, activeRuntime.session)) {
+          throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
+        }
         let started;
         try {
           started = userBash.start({
@@ -4643,12 +4871,19 @@ export function createSessionDaemon({
         if (activeRuntime.session.isCompacting || currentCompaction?.phase === 'running' || currentCompaction?.phase === 'retrying') {
           throw new SessionDaemonProtocolError('SESSION_BUSY', 'This session is already compacting.');
         }
+        if (commandOnlyRun(message.payload.sessionId, activeRuntime.session)) {
+          throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
+        }
         if (message.payload?.model !== undefined) {
           await setSessionModel(activeRuntime, message.payload.model);
           publishSessionModel(activeRuntime.session, message.payload.sessionId, activeRuntime.cwd);
         }
         if (message.payload?.thinking !== undefined) {
           applyThinking(activeRuntime, message.payload.thinking, message.payload.sessionId, activeRuntime.cwd);
+        }
+        // Again after the model await, which a command dispatch can overtake.
+        if (commandOnlyRun(message.payload.sessionId, activeRuntime.session)) {
+          throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
         }
         Promise.resolve(activeRuntime.session.compact(message.payload?.customInstructions)).catch((error) => {
           const current = compactionStateBySession.get(message.payload.sessionId);
@@ -4755,6 +4990,7 @@ export function createSessionDaemon({
               // window, a daemon restart, or a cursor from a retired epoch.
               publishSnapshot(socket, requestedSessionId, { resync: fromSequence !== undefined || epochMismatch === true });
             }
+            writeCustomKeyframes(socket, requestedSessionId);
             continue;
           }
           requestChain = requestChain.then(() => handleRequest(socket, message)).catch((error) => reject(error));
@@ -4848,6 +5084,9 @@ export function createSessionDaemon({
       shutdownRequestedBySession.clear();
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
+      runningToolsBySession.clear();
+      runningCommandBySession.clear();
+      promptClientBySession.clear();
       pendingUserStartsBySession.clear();
       queueSizesBySession.clear();
       queueShrinkBySession.clear();

@@ -65,6 +65,7 @@ export const createExtensionBridge = ({
   renderExtensionMessage,
   requestSessionShutdown,
   pendingInput,
+  customHost,
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
@@ -223,7 +224,10 @@ export const createExtensionBridge = ({
     queryTerminalColorScheme: async () => undefined,
   });
 
-  const clearOneExtensionState = (sessionId) => {
+  const clearOneExtensionState = (sessionId, reason = 'session-closed') => {
+    // custom() surfaces end first: their promises resolve `undefined` and
+    // their dismiss events go out before the rest of the state is dropped.
+    customHost?.clear(sessionId, reason === 'reload' ? 'reload' : 'session-closed');
     const timer = extensionWidgetRenderTimersBySession.get(sessionId);
     if (timer) {
       clearTimeout(timer);
@@ -264,11 +268,12 @@ export const createExtensionBridge = ({
     cancelPendingExtensionDialogs(sessionId, 'session-closed');
   };
 
-  const clearExtensionState = (sessionId) => {
+  const clearExtensionState = (sessionId, reason) => {
     if (sessionId) {
-      clearOneExtensionState(sessionId);
+      clearOneExtensionState(sessionId, reason);
       return;
     }
+    customHost?.clear(undefined, 'daemon-stopped');
     const sessionIds = new Set([
       ...extensionStatusesBySession.keys(),
       ...extensionWidgetsBySession.keys(),
@@ -552,7 +557,9 @@ export const createExtensionBridge = ({
         else extensionTitlesBySession.delete(sessionId);
         publishForSession('extension.title', title ? { title } : {}, sessionId);
       },
-      custom: async () => undefined,
+      // Pi components render on the daemon; browsers show the lines and
+      // send keys back (extension-custom-host.js).
+      custom: (factory, options) => (customHost ? customHost.open(sessionId, factory, options) : Promise.resolve(undefined)),
       // The browser inserts pasted text at its selection; the mirror appends.
       // The revision is intentionally left unchanged (browser revisions are
       // client-clock based, so a daemon bump could reject a skewed client): any
@@ -608,7 +615,7 @@ export const createExtensionBridge = ({
   };
 
   const reloadSession = async (session) => {
-    clearExtensionState(session.sessionId);
+    clearExtensionState(session.sessionId, 'reload');
     const providerObserver = session.modelRuntime?.[PROVIDER_OBSERVER];
     if (providerObserver) providerObserver.suppress = true;
     try {
@@ -625,7 +632,10 @@ export const createExtensionBridge = ({
     installMutationObservers(session);
     return {
       uiContext: createExtensionUIContext(session.sessionId),
-      mode: 'rpc',
+      // PiChamber hosts `ctx.ui.custom()` components and draws them in the
+      // browser (extension-custom-host.js), so extensions see a TUI. Header,
+      // footer, editor and raw terminal input stay no-ops (plan 5.5).
+      mode: 'tui',
       commandContextActions: {
         waitForIdle: () => session.waitForIdle(),
         newSession: async (options) => {
@@ -882,6 +892,7 @@ export const createExtensionBridge = ({
       .map((pending) => pending.payload);
     const working = extensionWorkingBySession.get(sessionId);
     const draftTracked = extensionDraftTrackedSessions.has(sessionId);
+    const surfaces = customHost?.snapshot(sessionId);
     return {
       ...(statuses?.size ? { statuses: [...statuses.entries()].map(([key, text]) => ({ key, text })) } : {}),
       ...(widgets?.size ? { widgets: [...widgets.entries()].map(([key, widget]) => ({ key, ...widget })) } : {}),
@@ -891,6 +902,7 @@ export const createExtensionBridge = ({
       ...(title ? { title } : {}),
       ...(working ? { working: { ...working } } : {}),
       ...(draftTracked ? { draftTracked: true } : {}),
+      ...(surfaces ? { surfaces } : {}),
     };
   };
 

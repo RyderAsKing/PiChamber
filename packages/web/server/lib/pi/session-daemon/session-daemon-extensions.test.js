@@ -197,7 +197,7 @@ describe('Pi session daemon extension bridging', () => {
   it('binds extensions into every created runtime and resolves blocking dialogs via extensions.respond', async () => {
     const { client, session } = await startWithExtensibleSession();
     expect(session.boundBindings).toBeTruthy();
-    expect(session.boundBindings.mode).toBe('rpc');
+    expect(session.boundBindings.mode).toBe('tui');
 
     const confirmPromise = session.boundBindings.uiContext.confirm('Dangerous?', 'Allow rm -rf?');
     const dialogRequest = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');

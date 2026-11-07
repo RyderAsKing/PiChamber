@@ -322,6 +322,140 @@ describe('prompt preflight acceptance', () => {
     finishSlash();
   });
 
+  it('accepts a registered extension command before its handler returns', async () => {
+    const { session } = await startDaemonWithSession();
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'panel' }] };
+    let finishCommand;
+    const commandGate = new Promise((resolve) => { finishCommand = resolve; });
+    session.promptImpl = async (_text, options) => {
+      // Pi runs the handler (here: waiting on a custom() surface) and only
+      // then reports `handled`.
+      await commandGate;
+      options?.preflightResult?.('handled');
+    };
+    const response = await client.request('sessions.prompt', {
+      sessionId: 'session-1',
+      text: '/panel',
+      messageId: 'msg-panel',
+    });
+    expect(response.result).toEqual({ accepted: true, messageId: 'msg-panel' });
+    finishCommand();
+  });
+
+  it('keeps the session busy while a command runs and holds new input, as Pi does', async () => {
+    const { session } = await startDaemonWithSession();
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'panel' }] };
+    let finishCommand;
+    const commandGate = new Promise((resolve) => { finishCommand = resolve; });
+    session.promptImpl = async (text, options) => {
+      if (text !== '/panel') return;
+      await commandGate;
+      options?.preflightResult?.('handled');
+    };
+    const busy = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'busy');
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: '/panel', messageId: 'msg-panel' });
+    await expect(busy).resolves.toMatchObject({ payload: { state: 'busy', command: '/panel' } });
+
+    // Neither a prompt nor a steer may start a second run behind the command.
+    // (A request error ends that connection, so each uses its own.)
+    await expect(send('sessions.prompt', { sessionId: 'session-1', text: 'hello', messageId: 'msg-hello' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    await expect(send('sessions.steer', { sessionId: 'session-1', text: 'hello', messageId: 'msg-steer' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    expect(session.promptCalls.map((call) => call.text)).toEqual(['/panel']);
+
+    const idle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    finishCommand();
+    await expect(idle).resolves.toMatchObject({ payload: { state: 'idle' } });
+    await expect(client.request('sessions.prompt', { sessionId: 'session-1', text: 'hello', messageId: 'msg-after' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+  });
+
+  it('ends a command run when the command returns after the turn it started', async () => {
+    const { session } = await startDaemonWithSession();
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'panel' }] };
+    let finishCommand;
+    const commandGate = new Promise((resolve) => { finishCommand = resolve; });
+    session.promptImpl = async (text, options) => {
+      if (text !== '/panel') {
+        // A steer into the command's turn queues behind it.
+        options?.preflightResult?.('queued');
+        return;
+      }
+      // pi.sendUserMessage(): the command starts an agent turn, then keeps
+      // running after it (waitForIdle, a surface, its own work).
+      session.isStreaming = true;
+      session.emit({ type: 'agent_start' });
+      await commandGate;
+      options?.preflightResult?.('handled');
+    };
+    const commandBusy = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.command === '/panel');
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: '/panel', messageId: 'msg-panel' });
+    // The turn streams, so the command does not mark the session as held.
+    await expect(send('sessions.steer', { sessionId: 'session-1', text: 'steer', messageId: 'msg-steer' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+
+    // The turn ends while the command still runs: busy with the command again.
+    const heldAgain = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.command === '/panel');
+    session.isStreaming = false;
+    session.emit({ type: 'agent_settled' });
+    await expect(heldAgain).resolves.toMatchObject({ payload: { state: 'busy', command: '/panel' } });
+    await commandBusy.catch(() => {});
+
+    // The command returning is what ends the run, whatever the send generation.
+    const idle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    finishCommand();
+    await expect(idle).resolves.toMatchObject({ payload: { state: 'idle' } });
+    await expect(client.request('sessions.prompt', { sessionId: 'session-1', text: 'after', messageId: 'msg-after' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+  });
+
+  it('detects commands the way Pi does: case-sensitive, from the first character', async () => {
+    const { session } = await startDaemonWithSession();
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'panel' }] };
+    const pending = [];
+    session.promptImpl = async (_text, options) => {
+      // Pi runs these as ordinary prompts: accepted, still running.
+      options?.preflightResult?.('started');
+      await new Promise((resolve) => pending.push(resolve));
+    };
+    const lifecycle = [];
+    client.next((frame) => {
+      if (frame.event === 'session.lifecycle') lifecycle.push(frame.payload);
+      return false;
+    }).catch(() => {});
+    for (const text of ['/Panel', ' /panel', '/panelx']) {
+      await expect(send('sessions.prompt', { sessionId: 'session-1', text, messageId: `msg-${text.trim()}` }))
+        .resolves.toMatchObject({ result: { accepted: true } });
+    }
+    expect(lifecycle.some((payload) => payload.command)).toBe(false);
+    for (const resolve of pending) resolve();
+  });
+
+  it('holds shell commands and compaction while a command runs', async () => {
+    const { session } = await startDaemonWithSession();
+    session.extensionRunner = { getRegisteredCommands: () => [{ invocationName: 'panel' }] };
+    session.compact = async () => {};
+    let finishCommand;
+    const commandGate = new Promise((resolve) => { finishCommand = resolve; });
+    session.promptImpl = async (text, options) => {
+      await commandGate;
+      options?.preflightResult?.('handled');
+    };
+    const busy = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.command === '/panel');
+    await client.request('sessions.prompt', { sessionId: 'session-1', text: '/panel', messageId: 'msg-panel' });
+    await busy;
+    await expect(send('sessions.bash', { sessionId: 'session-1', command: 'echo hi' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    await expect(send('sessions.compact', { sessionId: 'session-1' }))
+      .rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    const idle = client.next((frame) => frame.event === 'session.lifecycle' && frame.payload?.state === 'idle');
+    finishCommand();
+    await idle;
+    await expect(send('sessions.compact', { sessionId: 'session-1' }))
+      .resolves.toMatchObject({ result: { accepted: true } });
+  });
+
   it('queued attachment metadata survives prompt resolution until the actual user start', async () => {
     const { session, root } = await startDaemonWithSession();
     const imageFile = join(root, 'queued.png');
