@@ -1,66 +1,34 @@
 import * as React from 'react';
-import { containsAnsiEscape, parseAnsiSegments, type AnsiSegment } from '@/lib/pi/ansi';
+import { containsAnsiEscape, parseAnsiSegments, renderSegmentStyle, safeHyperlink, type AnsiSegment } from '@/lib/pi/ansi';
 
 export interface AnsiTextProps {
   text?: string | null;
   className?: string;
   style?: React.CSSProperties;
+  /** Render OSC 8 hyperlinks (http and https only) as links. */
+  links?: boolean;
 }
 
-const renderSegmentStyle = (segment: AnsiSegment): React.CSSProperties | undefined => {
-  const segStyle: React.CSSProperties = {};
-  let hasStyle = false;
+const ANSI_LINK_CLASS = 'underline decoration-dotted underline-offset-2 hover:decoration-solid';
 
-  let fg = segment.fg;
-  let bg = segment.bg;
-
-  if (segment.inverse) {
-    // Swap foreground and background when inverse is requested
-    const temp = fg;
-    fg = bg ?? 'var(--surface-background, var(--background))';
-    bg = temp ?? 'var(--foreground)';
-    hasStyle = true;
-  }
-
-  if (fg) {
-    segStyle.color = fg;
-    hasStyle = true;
-  }
-  if (bg) {
-    segStyle.backgroundColor = bg;
-    hasStyle = true;
-  }
-  if (segment.bold) {
-    segStyle.fontWeight = 600;
-    hasStyle = true;
-  }
-  if (segment.dim) {
-    segStyle.opacity = 0.65;
-    hasStyle = true;
-  }
-  if (segment.italic) {
-    segStyle.fontStyle = 'italic';
-    hasStyle = true;
-  }
-  if (segment.underline && segment.strikethrough) {
-    segStyle.textDecoration = 'underline line-through';
-    hasStyle = true;
-  } else if (segment.underline) {
-    segStyle.textDecoration = 'underline';
-    hasStyle = true;
-  } else if (segment.strikethrough) {
-    segStyle.textDecoration = 'line-through';
-    hasStyle = true;
-  }
-
-  return hasStyle ? segStyle : undefined;
-};
+/** An OSC 8 hyperlink segment as a link that opens in a new tab. */
+export const AnsiLink: React.FC<{ segment: AnsiSegment; href: string; children: React.ReactNode }> = ({ segment, href, children }) => (
+  <a
+    href={href}
+    target="_blank"
+    rel="noopener noreferrer"
+    className={ANSI_LINK_CLASS}
+    style={renderSegmentStyle(segment)}
+  >
+    {children}
+  </a>
+);
 
 /**
  * Renders ANSI SGR-formatted text as structured React spans with semantic CSS variables.
  * Plain text without escape sequences renders directly with zero styling overhead.
  */
-export const AnsiText: React.FC<AnsiTextProps> = React.memo(({ text, className, style }) => {
+export const AnsiText: React.FC<AnsiTextProps> = React.memo(({ text, className, style, links = false }) => {
   if (text === undefined || text === null || text === '') {
     return null;
   }
@@ -77,7 +45,7 @@ export const AnsiText: React.FC<AnsiTextProps> = React.memo(({ text, className, 
     return null;
   }
 
-  if (segments.length === 1 && !renderSegmentStyle(segments[0]!)) {
+  if (segments.length === 1 && !renderSegmentStyle(segments[0]!) && !(links && segments[0]!.href)) {
     if (className || style) {
       return <span className={className} style={style}>{segments[0]!.text}</span>;
     }
@@ -87,6 +55,10 @@ export const AnsiText: React.FC<AnsiTextProps> = React.memo(({ text, className, 
   return (
     <span className={className} style={style}>
       {segments.map((seg, idx) => {
+        const href = links ? safeHyperlink(seg.href) : undefined;
+        if (href) {
+          return <AnsiLink key={idx} segment={seg} href={href}>{seg.text}</AnsiLink>;
+        }
         const segStyle = renderSegmentStyle(seg);
         if (!segStyle) {
           return <React.Fragment key={idx}>{seg.text}</React.Fragment>;

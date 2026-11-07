@@ -698,11 +698,14 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
   if (!target && othersNeedingInput.length === 0) return null;
 
   return (
-    <div className="chat-input-column mb-2 flex flex-col gap-2">
+    <div data-extension-prompt-dock className="chat-input-column relative mb-2 flex flex-col gap-2">
       {othersNeedingInput.length > 0 ? (
         <OtherSessionsNeedInputStrip sessions={othersNeedingInput} />
       ) : null}
       {target ? (
+      // Above the custom() overlay layer (z-30), which dims the rest of the
+      // pane: an overlay's own code can be waiting on this dialog. Only the
+      // dialog rises; the strip stays under the dim with the composer.
       <div
         ref={dockRef}
         role="dialog"
@@ -710,7 +713,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
         aria-describedby={target.request.message ? messageId : undefined}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="overflow-hidden rounded-xl border border-border/80 bg-card p-3 shadow-md transition-[opacity,transform] duration-150 outline-none"
+        className="relative z-40 overflow-hidden rounded-xl border border-border/80 bg-card p-3 shadow-md transition-[opacity,transform] duration-150 outline-none"
       >
         {/* Header */}
         <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-border/40 pb-2">

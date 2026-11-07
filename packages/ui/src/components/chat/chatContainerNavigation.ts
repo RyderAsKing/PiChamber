@@ -12,9 +12,17 @@ export const CHAT_SCROLL_STYLE = {
   overscrollBehaviorY: 'contain',
 } as const;
 
-export const composerBarClassName = (expanded: boolean) =>
+/**
+ * The composer bar sits above the timeline (z-10), except while a custom()
+ * overlay dims the pane: its z-index would then trap the extension prompt
+ * dock under the overlay layer, and the dim covers the timeline anyway.
+ */
+export const composerLayerClassName = (overlayDims: boolean) => (overlayDims ? 'relative' : 'relative z-10');
+
+export const composerBarClassName = (expanded: boolean, overlayDims = false) =>
   cn(
-    'relative z-10 flex flex-col gap-2 bg-background',
+    composerLayerClassName(overlayDims),
+    'flex flex-col gap-2 bg-background',
     expanded ? 'flex-1 min-h-0' : 'shrink-0'
   );
 

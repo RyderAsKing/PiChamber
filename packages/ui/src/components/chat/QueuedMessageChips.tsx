@@ -17,6 +17,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { createMessageQueueTarget, getMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { queryQueuedSendReceipt } from '@/stores/queuedSendReceipt';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { useSessionRunningCommand } from '@/sync/sync-context';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useInputStore } from '@/sync/input-store';
 import { Icon } from "@/components/icon/Icon";
@@ -29,12 +30,14 @@ interface QueuedMessageChipProps {
     target: MessageQueueTarget;
     sending: boolean;
     checking: boolean;
+    /** False while an extension command runs without an agent turn: there is nothing to steer. */
+    canSteer: boolean;
     onEdit: (message: QueuedMessage) => void;
     onSend: (message: QueuedMessage) => void;
     onCheck: (message: QueuedMessage) => void;
 }
 
-const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, onSend, onCheck }: QueuedMessageChipProps) => {
+const QueuedMessageChip = memo(({ message, target, sending, checking, canSteer, onEdit, onSend, onCheck }: QueuedMessageChipProps) => {
 
     const removeFromQueue = useMessageQueueStore((state) => state.removeFromQueue);
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: message.id });
@@ -101,7 +104,7 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, onEdit, on
                         <Icon name="refresh" className="h-3 w-3" aria-hidden="true" />
                         {"Check status"}
                     </Button>
-                ) : (
+                ) : !canSteer ? null : (
                     <Button
                         type="button"
                         variant="secondary"
@@ -153,6 +156,7 @@ const EMPTY_SENDING: string[] = [];
 export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: QueuedMessageChipsProps) => {
 
     const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+    const runningCommand = useSessionRunningCommand(currentSessionId ?? '');
     // Must use the same resolution the composer used to build the queue key —
     // reading currentSessionDirectory raw can key the chips to a different
     // directory than the one the messages were queued under.
@@ -291,7 +295,13 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
                             <span className="typography-ui-label font-medium text-foreground flex-shrink-0">
                                 {"Follow-up messages"} {queuedMessages.length}
                             </span>
-                            <Icon name="time" className="ml-auto h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                            {runningCommand ? (
+                                <span className="ml-auto min-w-0 truncate typography-meta text-muted-foreground">
+                                    {`Sends after ${runningCommand}`}
+                                </span>
+                            ) : (
+                                <Icon name="time" className="ml-auto h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                            )}
                         </div>
                         <DndContext
                             sensors={sensors}
@@ -310,6 +320,7 @@ export const QueuedMessageChips = memo(({ onEditMessage, onSendMessage }: Queued
                                             target={target}
                                             sending={sendingIds.includes(message.id)}
                                             checking={checkingIds.includes(message.id)}
+                                            canSteer={!runningCommand}
                                             onEdit={handleEdit}
                                             onSend={handleSend}
                                             onCheck={handleCheck}

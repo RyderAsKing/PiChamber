@@ -25,6 +25,8 @@ export interface UseComposerKeyNavigationOptions {
   hasContent: boolean;
   currentSessionId: string | null;
   sessionPhase: string;
+  /** An extension command is running without an agent turn: input queues. */
+  commandRunning?: boolean;
   followUpBehavior: 'queue' | 'steer';
   handleSubmit: (options?: { delivery?: 'steer' }) => void | Promise<void>;
   handleQueueMessage: () => Promise<void>;
@@ -96,6 +98,7 @@ export function useComposerKeyNavigation({
   hasContent,
   currentSessionId,
   sessionPhase,
+  commandRunning = false,
   followUpBehavior,
   handleSubmit,
   handleQueueMessage,
@@ -228,7 +231,11 @@ export function useComposerKeyNavigation({
         const canQueue =
           inputMode === 'normal' && hasContent && currentSessionId && sessionPhase !== 'idle';
 
-        if (followUpBehavior === 'queue') {
+        if (commandRunning && canQueue) {
+          // Like Pi, input waits for a running command; there is nothing to
+          // steer and sending now would start a second run.
+          void handleQueueMessage();
+        } else if (followUpBehavior === 'queue') {
           if (isCtrlEnter || !canQueue) {
             handleSubmit();
           } else {
@@ -246,6 +253,7 @@ export function useComposerKeyNavigation({
     },
     [
       commandRef,
+      commandRunning,
       composerRef,
       currentSessionId,
       followUpBehavior,

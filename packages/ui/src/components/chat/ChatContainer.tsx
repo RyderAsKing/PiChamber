@@ -5,6 +5,8 @@ import { ChatInput } from './ChatInput';
 import { ExtensionPromptDock } from './ExtensionPromptDock';
 import { ExtensionStatusStrip } from './ExtensionStatusWidgets';
 import { ComposerCommandTriggers } from './composer/ui/ComposerCommandTriggers';
+import { ExtensionSurfaceComposer, ExtensionSurfaceOverlays } from './extension/custom/ExtensionSurfaces';
+import { useExtensionOverlayDims } from './extension/custom/useOverlayDims';
 import { useUIStore } from '@/stores/useUIStore';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import ChatEmptyState from './ChatEmptyState';
@@ -36,6 +38,7 @@ import {
     useSessionStatus,
     useSessionCompaction,
     useSessionHasLiveBashExecution,
+    useSessionRunningCommand,
 } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { isMobileSurfaceRuntime } from '@/lib/runtimeSurface';
@@ -52,6 +55,7 @@ import {
     CHAT_FORCE_SCROLL_BOTTOM_EVENT,
     DEFAULT_RETRY_MESSAGE,
     composerBarClassName,
+    composerLayerClassName,
     shouldIgnoreChatNavigationTarget,
     shouldIgnoreChatNavigationForFocus,
     hasBlockingChatOverlay,
@@ -112,6 +116,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const hasRenderableSessionSnapshot = useSessionRenderable(currentSessionId ?? '', effectiveSessionDirectory);
     // Messages from sync system
     const sessionMessageRecords = useSessionMessageRecords(currentSessionId ?? '', effectiveSessionDirectory);
+    const overlayDims = useExtensionOverlayDims(currentSessionId);
     const sessionMessages = currentSessionId ? sessionMessageRecords : EMPTY_MESSAGES;
     // Live-only extension notices render as inline transcript rows (see the
     // notice overlay in MessageList). They must also lift an empty transcript
@@ -133,6 +138,9 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 
     // Session status from sync system
     const sessionStatusForCurrent = useSessionStatus(currentSessionId ?? '', effectiveSessionDirectory) ?? IDLE_SESSION_STATUS;
+    // An extension command with no agent turn keeps the session busy so new
+    // messages wait, but nothing is thinking: Pi shows no loader for it.
+    const runningCommand = useSessionRunningCommand(currentSessionId ?? '');
 
     const sessionWorkingPresentation = React.useMemo(() => {
         if (!currentSessionId) {
@@ -154,11 +162,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
         return resolveSessionWorkingPresentation({
             connection,
             transportUncertain,
-            authoritativeWorking: statusType === 'busy' || statusType === 'retry',
+            authoritativeWorking: (statusType === 'busy' && !runningCommand) || statusType === 'retry',
             hasPendingAssistant,
             hasRetainedStream: Boolean(reducerStreamingMessageId),
         });
-    }, [connection, currentSessionId, reducerStreamingMessageId, sessionMessages, sessionStatusForCurrent.type, transportUncertain]);
+    }, [connection, currentSessionId, reducerStreamingMessageId, runningCommand, sessionMessages, sessionStatusForCurrent.type, transportUncertain]);
     const sessionIsWorking = sessionWorkingPresentation.isWorking;
     const sessionAwaitingRecovery = sessionWorkingPresentation.isAwaitingRecovery;
     // A user shell command (`!cmd`) streams output while the session is idle,
@@ -560,7 +568,8 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 				{useCompactDraftLayout && !isDesktopExpandedInput ? <DraftWelcome /> : null}
 				<div
 					className={cn(
-						'relative z-10 flex min-h-0',
+						composerLayerClassName(overlayDims),
+						'flex min-h-0',
 						isDesktopExpandedInput
 							? 'flex-1 bg-background'
 							: useCompactDraftLayout
@@ -575,9 +584,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 					<div className="flex w-full min-w-0 flex-col gap-2">
 						<ExtensionPromptDock sessionId={currentSessionId} />
 						<ExtensionStatusStrip sessionId={currentSessionId} />
-						<ChatInput scrollToBottom={scrollToBottomOnSend} />
+						<ExtensionSurfaceComposer sessionId={currentSessionId}>
+							<ChatInput scrollToBottom={scrollToBottomOnSend} />
+						</ExtensionSurfaceComposer>
 					</div>
 				</div>
+				<ExtensionSurfaceOverlays key={currentSessionId} sessionId={currentSessionId} />
 			</div>
 		);
 	}
@@ -618,7 +630,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 onLoadEarlierPrompts={handleLoadOlderClick}
             />
 
-            <div className={composerBarClassName(isDesktopExpandedInput)}>
+            <div className={composerBarClassName(isDesktopExpandedInput, overlayDims)}>
                 {!isDesktopExpandedInput && sessionMessages.length > 0 && (
                     <ScrollToBottomButton
                         visible={timelineController.showScrollToBottom}
@@ -628,8 +640,11 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 <ComposerCommandTriggers sessionId={currentSessionId} />
                 <ExtensionPromptDock sessionId={currentSessionId} />
                 <ExtensionStatusStrip sessionId={currentSessionId} />
-                <ChatInput scrollToBottom={scrollToBottomOnSend} />
+                <ExtensionSurfaceComposer sessionId={currentSessionId}>
+                    <ChatInput scrollToBottom={scrollToBottomOnSend} />
+                </ExtensionSurfaceComposer>
             </div>
+            <ExtensionSurfaceOverlays key={currentSessionId} sessionId={currentSessionId} />
 
             <TimelineDialog
                 open={isTimelineDialogOpen}
