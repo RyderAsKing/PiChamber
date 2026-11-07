@@ -28,7 +28,7 @@ const trimHistory = (history) => {
 
 export function createTerminalRuntime({
   app, server, fs, path, uiAuthController, buildAugmentedPath, searchPathFor, isExecutable,
-  isRequestOriginAllowed, rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
+  isRequestOriginAllowed, isCrossSiteRequest, rejectWebSocketUpgrade, TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS,
   // Live-revocation owner for this transport: upgrades are tracked under the
   // authenticated principal so a later revocation or global invalidation
   // closes the socket. Lifetime is not tied to the 60-second URL token TTL
@@ -320,6 +320,9 @@ export function createTerminalRuntime({
           principal = await uiAuthController.ensureSessionToken(req, null);
           if (!principal) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
           if (!await isRequestOriginAllowed(req)) { rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return; }
+        } else if (await isCrossSiteRequest(req)) {
+          // Without UI auth, another site's page must not open this socket.
+          rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return;
         }
         if (!wsServer) { rejectWebSocketUpgrade(socket, 500, 'Terminal WebSocket unavailable'); return; }
         // Deterministic verify-registration barrier: generation was captured

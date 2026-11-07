@@ -47,6 +47,7 @@ export const createServerBrowserRuntime = ({
   dataDir,
   uiAuthController,
   isRequestOriginAllowed,
+  isCrossSiteRequest,
   rejectWebSocketUpgrade,
   liveRevocation = null,
   browser = createServerBrowser({ dataDir }),
@@ -269,6 +270,9 @@ export const createServerBrowserRuntime = ({
           principal = await uiAuthController.ensureSessionToken(req, null);
           if (!principal) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
           if (!await isRequestOriginAllowed(req)) { rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return; }
+        } else if (await isCrossSiteRequest(req)) {
+          // Without UI auth, another site's page must not open this socket.
+          rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return;
         }
         if (!wsServer) { rejectWebSocketUpgrade(socket, 503, 'Server browser unavailable'); return; }
         const tracked = trackUpgradePrincipal(socket, principal, generation);

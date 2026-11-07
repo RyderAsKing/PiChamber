@@ -6,7 +6,7 @@ import { SttStreamManager } from './stream-manager.js';
 
 const HEARTBEAT_MS = 30_000;
 
-export function createSttRuntime({ app, server, express, uiAuthController, isRequestOriginAllowed, rejectWebSocketUpgrade, modelsDir, configFile, liveRevocation = null }) {
+export function createSttRuntime({ app, server, express, uiAuthController, isRequestOriginAllowed, isCrossSiteRequest, rejectWebSocketUpgrade, modelsDir, configFile, liveRevocation = null }) {
   const service = createSttService({ modelsDir, configFile });
   const manager = new SttStreamManager({ createTranscriber: (providerConfigId) => service.createTranscriber(providerConfigId) });
 
@@ -122,6 +122,9 @@ export function createSttRuntime({ app, server, express, uiAuthController, isReq
           principal = await uiAuthController.ensureSessionToken(req, null);
           if (!principal) { rejectWebSocketUpgrade(socket, 401, 'UI authentication required'); return; }
           if (!await isRequestOriginAllowed(req)) { rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return; }
+        } else if (await isCrossSiteRequest(req)) {
+          // Without UI auth, another site's page must not open this socket.
+          rejectWebSocketUpgrade(socket, 403, 'Invalid origin'); return;
         }
         if (!wsServer) { rejectWebSocketUpgrade(socket, 503, 'STT WebSocket unavailable'); return; }
         // Deterministic verify-registration barrier, as in the terminal

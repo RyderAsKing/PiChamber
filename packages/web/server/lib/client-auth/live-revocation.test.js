@@ -166,6 +166,7 @@ describe('live credential revocation across transports', () => {
       searchPathFor: () => '/bin/sh',
       isExecutable: () => true,
       isRequestOriginAllowed: security.isRequestOriginAllowed,
+      isCrossSiteRequest: security.isCrossSiteRequest,
       rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
       TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 1000,
       loadPtyProvider: fakePtyProvider,
@@ -176,6 +177,7 @@ describe('live credential revocation across transports', () => {
       uiAuthController,
       liveRevocation,
       isRequestOriginAllowed: security.isRequestOriginAllowed,
+      isCrossSiteRequest: security.isCrossSiteRequest,
       rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
       modelsDir: path.join(dataDir, 'speech-models'),
       configFile: path.join(dataDir, 'stt', 'config.json'),
@@ -316,6 +318,7 @@ describe('live credential revocation across transports', () => {
       searchPathFor: () => '/bin/sh',
       isExecutable: () => true,
       isRequestOriginAllowed: security.isRequestOriginAllowed,
+      isCrossSiteRequest: security.isCrossSiteRequest,
       rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
       TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 1000,
       loadPtyProvider: async () => ({
@@ -422,6 +425,7 @@ describe('live credential revocation across transports', () => {
       searchPathFor: () => '/bin/sh',
       isExecutable: () => true,
       isRequestOriginAllowed: racingOriginGate,
+      isCrossSiteRequest: security.isCrossSiteRequest,
       rejectWebSocketUpgrade: security.rejectWebSocketUpgrade,
       TERMINAL_INPUT_WS_HEARTBEAT_INTERVAL_MS: 1000,
       loadPtyProvider: async () => ({

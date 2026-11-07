@@ -1355,6 +1355,7 @@ export const createPreviewProxyRuntime = ({
     express,
     uiAuthController,
     isRequestOriginAllowed,
+    isCrossSiteRequest,
     rejectWebSocketUpgrade,
   }) => {
     ensureSweeper();
@@ -1675,6 +1676,9 @@ export const createPreviewProxyRuntime = ({
               rejectWebSocketUpgrade(socket, 403, 'Invalid origin');
               return;
             }
+          } else if (await isCrossSiteRequest(req)) {
+            rejectWebSocketUpgrade(socket, 403, 'Invalid origin');
+            return;
           }
           await classifyOwnHeaders(req);
 

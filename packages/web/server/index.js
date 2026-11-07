@@ -29,6 +29,7 @@ import {
   isUnsafeUnauthenticatedLanAllowed,
 } from './lib/security/bind-host.js';
 import { applyUiCorsHeaders } from './lib/server/cors.js';
+import { createRequestSecurityRuntime } from './lib/security/request-security.js';
 import { createPairingTransportResolvers } from './lib/server/lan-addresses.js';
 import { parseServeCliOptions } from './lib/server/cli-options.js';
 import { runCliEntryIfMain } from './lib/server/cli-entry-runtime.js';
@@ -220,6 +221,8 @@ export async function startWebUiServer(options = {}) {
     if (applyUiCorsHeaders(req, res)) return res.status(204).end();
     next();
   });
+  const requestSecurity = createRequestSecurityRuntime({ readSettingsFromDiskMigrated: async () => ({}) });
+  app.use(requestSecurity.rejectCrossSiteRequests);
   app.use(compression({ filter: (req, res) => req.path === '/api/pi/events' || req.headers.accept?.includes('text/event-stream') ? false : compression.filter(req, res) }));
 
   registerServerStatusRoutes(app, {
@@ -286,7 +289,7 @@ export async function startWebUiServer(options = {}) {
     try { const status = await tunnelService.getStatus(); const checkResult = await tunnelService.check(); res.json({ ok: true, status, check: checkResult, query: req.query }); } catch (error) { res.status(500).json({ ok: false, error: error?.message || 'Doctor failed' }); }
   });
   registerTailscaleRoutes(app, { express, tailscaleService, uiAuthController });
-  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR, liveRevocation });
+  const workspaceRuntime = registerWorkspaceIntegrations({ app, server, express, uiAuthController, dataDir: PICHAMBER_DATA_DIR, liveRevocation, security: requestSecurity });
   registerStaticRoutes(app, { apiOnly });
 
   await listen(server, port, host);

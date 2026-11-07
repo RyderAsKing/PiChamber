@@ -15,6 +15,34 @@ Verify-registration barrier: `requireAuth` captures the coordinator generation (
 
 Signing-secret topology: the JWT secret is read once at startup (env override or persisted file) and cached in memory; `rotateJwtSecret` rewrites the file and rereads into memory synchronously, so new cookies and URL tokens bind to the new generation. Rotation is single-server only — the pairing CLI never rotates the secret and multi-server sharing is unsupported. While `PICHAMBER_JWT_SECRET` is set, `/auth/reset` returns 400 without side effects; global sign-out is unavailable.
 
+## Cross-site requests
+
+A page on another site must not drive PiChamber through the person's browser.
+WebSockets skip CORS, so without this rule any site the person visits (or a
+public page in the server browser) could open the terminal on a server
+without UI auth. `security/request-security.js` owns the rule:
+
+- `isCrossSiteRequest(req)` is true when the request names an `Origin` that is
+  not PiChamber's own (`Host`, `X-Forwarded-Host`), a packaged client's, or a
+  loopback page's (the origins CORS allows), and the browser does not mark it
+  `Sec-Fetch-Site: same-origin`. A request with no `Origin` is not a page's,
+  so it passes.
+- `rejectCrossSiteRequests`, registered right after CORS in `server/index.js`,
+  answers 403 `Invalid origin` to such POST, PUT, PATCH, and DELETE requests
+  in every auth mode. Reads pass (CORS keeps their responses from other
+  sites), and so does preview proxy traffic under `/api/preview/proxy/`,
+  which carries no PiChamber credentials and belongs to the dev server.
+- Without UI auth, the terminal, dictation, server browser, and preview proxy
+  WebSocket upgrades refuse cross-site requests with 403. With UI auth they
+  keep the stricter rule: an `Origin` is required and must pass
+  `isRequestOriginAllowed`.
+
+Browsers send `Sec-Fetch-Site` only to secure origins (HTTPS or localhost), so
+a proxy that rewrites `Host` on plain HTTP must set `X-Forwarded-Host`; the
+Vite development proxy does, on requests and WebSocket upgrades. A proxy must
+never rewrite `Origin` to the server's own: every page would then pass. DNS rebinding (another name resolving to the
+server, so `Origin` and `Host` agree) is not caught.
+
 ## Entrypoints and structure
 - `packages/web/server/lib/ui-auth/ui-auth.js`: UI auth controller runtime, cookie/session issuance, rate limiting, auth route handlers, and the auth-owning boundary where authenticated SSE event streams are registered for live revocation.
 - `packages/web/server/lib/ui-auth/ui-passkeys.js`: passkey store and WebAuthn registration/authentication verification helpers.
