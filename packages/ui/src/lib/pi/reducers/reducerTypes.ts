@@ -116,6 +116,9 @@ export interface PiReducerSessionState {
   lifecycle: PiSessionLifecycleState;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
+  /** While busy: the extension command (`/name`) running without an agent
+   *  turn. Messages queue instead of steering; Stop has nothing to stop. */
+  runningCommand?: string;
   /** Latest authoritative compaction progress or outcome. */
   compaction?: PiCompactionInfo;
   /** Active model/thinking the session is using. */
@@ -171,6 +174,8 @@ export interface PiReducerSessionState {
   extensionWorking?: { message?: string; visible?: boolean };
   /** Whether the session daemon is tracking editor draft text for extensions. */
   extensionDraftTracked?: boolean;
+  /** Open `ctx.ui.custom()` surfaces by id. Absent when none are open. */
+  extensionSurfaces?: Map<string, import('./customSurfaceReducers').PiExtensionSurfaceState>;
   /** User shell commands not yet recorded in the transcript, in start order.
    *  Absent when there are none. */
   bashExecutions?: PiBashExecution[];

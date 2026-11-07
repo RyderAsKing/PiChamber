@@ -148,6 +148,8 @@ export interface PiSessionListLiveStatus {
    *  observation; content deltas are not. */
   sequence: number;
   retry?: PiRetryInfo;
+  /** The extension command (`/name`) a busy session is running without an agent turn. New messages queue until it returns; there is nothing to steer. */
+  command?: string;
   /** Server authoritative run start. Present only while busy/retry. */
   runStartedAt?: number;
   /** Server wall clock at sampling time. */
@@ -212,6 +214,7 @@ export interface PiSessionDetailResponse extends Pick<
   | 'extensionTitle'
   | 'extensionWorking'
   | 'extensionDraftTracked'
+  | 'extensionSurfaces'
   | 'inputState'
   | 'bashExecutions'
 > {
@@ -231,6 +234,8 @@ export interface PiSessionDetailResponse extends Pick<
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */
   compaction?: PiCompactionInfo;
+  /** The extension command (`/name`) a busy session is running without an agent turn. New messages queue until it returns; there is nothing to steer. */
+  command?: string;
   /** Server authoritative run start for an active turn. Present only while busy/retry. */
   runStartedAt?: number;
   /** Server wall clock at the time the response was generated. */
@@ -400,6 +405,11 @@ export interface PiPromptInput {
    * read-only send-receipt lookup without replay across daemon lifetimes.
    */
   operationId?: string;
+  /**
+   * This tab's id (`getTabClientId`). A `custom()` surface this input opens
+   * is drawn at the size this tab reports for the session's surfaces.
+   */
+  clientId?: string;
 }
 
 export interface PiPromptResult {
@@ -836,6 +846,9 @@ export type PiEventName =
   | 'extension.app'
   | 'extension.working'
   | 'extension.editor.track'
+  | 'extension.custom'
+  | 'extension.custom.frame'
+  | 'extension.custom.dismiss'
   | 'extension.error';
 
 /** Common envelope for every public event. */
@@ -863,7 +876,13 @@ export type PiSessionSnapshotEvent = PiEventEnvelope<
 
 export type PiSessionLifecycleEvent = PiEventEnvelope<
   'session.lifecycle',
-  { state: PiSessionLifecycleState; runStartedAt?: number; serverNow?: number } & PiRetryInfo
+  {
+    state: PiSessionLifecycleState;
+    /** The extension command (`/name`) a busy session is running without an agent turn. New messages queue until it returns; there is nothing to steer. */
+    command?: string;
+    runStartedAt?: number;
+    serverNow?: number;
+  } & PiRetryInfo
 >;
 
 /** Catalog metadata from another client: create, first-prompt title, or rename. */
@@ -1292,6 +1311,102 @@ export type PiExtensionErrorEvent = PiEventEnvelope<
 >;
 
 /** Discriminated union of every event the public stream can publish. */
+// ---------------------------------------------------------------------------
+// ctx.ui.custom() surfaces
+//
+// Pi components render on the daemon; these events carry the rendered lines.
+// Inline surfaces replace the composer; overlays are laid out by Pi's own
+// rules on the chat pane ("screen"). Frames are live-only: a client that
+// reconnects gets full frames from the snapshot or a keyframe.
+
+/** Pi `custom({ blocked })`: what the session is blocked on. */
+export interface PiExtensionSurfaceBlocked {
+  kind: 'permission' | 'question' | 'auth';
+  message: string;
+}
+
+/** Surface metadata (`extension.custom`); latest wins per surfaceId. */
+export interface PiExtensionSurfaceMeta {
+  surfaceId: string;
+  /** Set for overlays a component opened itself (`tui.showOverlay`). */
+  parentId?: string;
+  /** What opened it: the running tool or command, else "Extension". */
+  title: string;
+  mode: 'inline' | 'overlay';
+  /** False for `nonCapturing` overlays: no focus, no dim, no pending input. */
+  capturing: boolean;
+  /** Hidden by the extension (`handle.setHidden`). */
+  hidden: boolean;
+  /** Holds the session's key focus. */
+  focused: boolean;
+  /** Stacking order; higher draws in front. */
+  z: number;
+  blocked?: PiExtensionSurfaceBlocked;
+}
+
+/** Overlay box on the screen, in cells. */
+export interface PiExtensionSurfaceLayout {
+  row: number;
+  col: number;
+  width: number;
+  height: number;
+}
+
+interface PiExtensionSurfaceFrameCommon {
+  surfaceId: string;
+  version: number;
+  /** Line count after this frame. */
+  length: number;
+  cursor: { row: number; col: number } | null;
+  /** Overlay placement; `null` for inline surfaces. */
+  layout: PiExtensionSurfaceLayout | null;
+  /** False when the overlay's `visible()` rejects the current size. */
+  visible: boolean;
+  /** Width the component rendered at. */
+  columns: number;
+  /** Screen the overlay layout used. */
+  screenColumns: number;
+  rows: number;
+}
+
+/** Pi cell width of every grapheme that is not one cell wide, by grapheme index. */
+export type PiExtensionSurfaceLineCells = Record<number, number>;
+
+export interface PiExtensionSurfaceFullFrame extends PiExtensionSurfaceFrameCommon {
+  lines: string[];
+  /** Line index -> wide cells, only for lines that have any. */
+  cells?: Record<number, PiExtensionSurfaceLineCells>;
+}
+
+export interface PiExtensionSurfacePatchFrame extends PiExtensionSurfaceFrameCommon {
+  /** The version this patch applies to. */
+  base: number;
+  changes: Array<{ index: number; line: string; cells?: PiExtensionSurfaceLineCells }>;
+}
+
+export type PiExtensionSurfaceFrame = PiExtensionSurfaceFullFrame | PiExtensionSurfacePatchFrame;
+
+export type PiExtensionSurfaceEvent = PiEventEnvelope<'extension.custom', PiExtensionSurfaceMeta>;
+export type PiExtensionSurfaceFrameEvent = PiEventEnvelope<'extension.custom.frame', PiExtensionSurfaceFrame>;
+export type PiExtensionSurfaceDismissEvent = PiEventEnvelope<
+  'extension.custom.dismiss',
+  { surfaceId: string; reason: 'done' | 'cancelled' | 'session-closed' | 'reload' | 'daemon-stopped' }
+>;
+
+/** Snapshot entry: metadata plus the current full frame. */
+export interface PiExtensionSurfaceSnapshot extends PiExtensionSurfaceMeta {
+  frame?: PiExtensionSurfaceFullFrame;
+}
+
+/** Terminal size a client reports for custom() surfaces. */
+export interface PiExtensionSurfaceViewport {
+  /** Composer column width, for inline surfaces. */
+  columns: number;
+  /** Chat pane width, the overlay "screen". */
+  screenColumns: number;
+  rows: number;
+}
+
 export type PiSessionEvent =
   | PiSessionSnapshotEvent
   | PiSessionLifecycleEvent
@@ -1330,6 +1445,9 @@ export type PiSessionEvent =
   | PiExtensionAppEvent
   | PiExtensionWorkingEvent
   | PiExtensionEditorTrackEvent
+  | PiExtensionSurfaceEvent
+  | PiExtensionSurfaceFrameEvent
+  | PiExtensionSurfaceDismissEvent
   | PiExtensionErrorEvent;
 
 // ---------------------------------------------------------------------------
@@ -1375,6 +1493,9 @@ export const PI_EVENT_KINDS = [
   'extension.app',
   'extension.working',
   'extension.editor.track',
+  'extension.custom',
+  'extension.custom.frame',
+  'extension.custom.dismiss',
   'extension.error',
 ] as const satisfies readonly PiEventName[];
 

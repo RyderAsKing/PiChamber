@@ -82,6 +82,13 @@ import {
   reduceExtensionWorking,
 } from './reducers/extensionReducers';
 import {
+  dropExtensionSurface,
+  reduceExtensionSurface,
+  reduceExtensionSurfaceDismiss,
+  reduceExtensionSurfaceFrame,
+  surfacesFromSnapshot,
+} from './reducers/customSurfaceReducers';
+import {
   applyBashSnapshot,
   reduceBash,
   reduceBashOutput,
@@ -112,6 +119,7 @@ export {
   createReducerPartMap,
   createReducerState,
   dismissExtensionDialog,
+  dropExtensionSurface,
   hydrateSessionFromDetail,
   projectSession,
 };
@@ -239,10 +247,15 @@ export const applyPiEvent = (
         } else {
           delete session.extensionDraftTracked;
         }
+        // Authoritative: the daemon omits the list when nothing is open.
+        const surfaces = surfacesFromSnapshot(event.payload.snapshot.extensionSurfaces);
+        if (surfaces) session.extensionSurfaces = surfaces;
+        else delete session.extensionSurfaces;
         applyBashSnapshot(session, event.payload.snapshot.bashExecutions);
         markHydratedLiveActivity(session, {
           isStreaming: event.payload.snapshot.isStreaming,
           lifecycle: session.lifecycle,
+          ...(event.payload.snapshot.command ? { command: event.payload.snapshot.command } : {}),
           ...(event.payload.snapshot.retry ? { retry: event.payload.snapshot.retry } : {}),
           settleWhenIdle: true,
         });
@@ -257,6 +270,7 @@ export const applyPiEvent = (
       // means the request started; keep the retry notice until actual output
       // arrives.
       session.lifecycle = session.retry ? 'retry' : 'busy';
+      delete session.runningCommand;
       session.messages = new Map(session.messages);
       session.streamingMessages = new Set(session.streamingMessages);
       if (event.payload.files?.length) {
@@ -430,6 +444,15 @@ export const applyPiEvent = (
     case 'extension.editor.track':
       if (event.payload.enabled) session.extensionDraftTracked = true;
       else delete session.extensionDraftTracked;
+      break;
+    case 'extension.custom':
+      reduceExtensionSurface(session, event.payload);
+      break;
+    case 'extension.custom.frame':
+      reduceExtensionSurfaceFrame(session, event.payload);
+      break;
+    case 'extension.custom.dismiss':
+      reduceExtensionSurfaceDismiss(session, event.payload);
       break;
     case 'extension.error':
       reduceExtensionError(session, event.payload);

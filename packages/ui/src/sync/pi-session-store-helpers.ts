@@ -259,11 +259,19 @@ export const mergeHydratedSession = (
           extensionTitle: existing.extensionTitle,
           ...(existing.extensionWorking ? { extensionWorking: existing.extensionWorking } : {}),
           ...(existing.extensionDraftTracked ? { extensionDraftTracked: true } : {}),
+          // Live surface events are newer than any detail response.
+          extensionSurfaces: existing.extensionSurfaces,
           bashExecutions: existing.bashExecutions,
         }
       : {}),
     ...localLiveState,
   };
+  // A running extension command is part of the lifecycle it arrived with:
+  // keeping one side's lifecycle and the other's command would show a busy
+  // session as a model turn (Stop, Steer, Thinking) or an idle one as held.
+  const runningCommand = preserveExisting ? existing.runningCommand : fetched.runningCommand;
+  if (runningCommand) session.runningCommand = runningCommand;
+  else delete session.runningCommand;
   if (preserveExisting || preservePagedHistory) {
     for (const [id, message] of existing.messages) {
       if (preserveExisting || !session.messages.has(id)) {

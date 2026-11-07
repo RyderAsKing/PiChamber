@@ -72,6 +72,7 @@ import {
   type PiAbortInput,
   type PiExtensionListResponse,
   type PiExtensionDialogResponseInput,
+  type PiExtensionSurfaceViewport,
   isValidPendingInputSummary,
 } from './protocol';
 import type {
@@ -1137,6 +1138,34 @@ export class PiService {
     await jsonRequest<PiExtensionDialogResponseInput, undefined>('/api/pi/extensions/respond', {
       method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  /**
+   * Sends one `ctx.ui.custom()` request: keys (`input`), this client's
+   * viewport (`viewport`, `claim` makes it drive the size), the host Close
+   * button (`close`), or a full-frame refresh after a missed patch
+   * (`refresh`). A surface that already closed rejects with
+   * `EXTENSION_SURFACE_NOT_OPEN`.
+   */
+  async sendExtensionSurface(
+    action: 'input' | 'viewport' | 'close' | 'focus' | 'refresh',
+    input: {
+      sessionId: string;
+      directory?: string;
+      surfaceId?: string;
+      clientId?: string;
+      viewport?: PiExtensionSurfaceViewport;
+      items?: string[];
+      claim?: boolean;
+    },
+    scope?: PiClientScope,
+  ): Promise<void> {
+    assertRuntimeUnchanged(scope);
+    const { sessionId, ...body } = input;
+    await jsonRequest<Omit<typeof input, 'sessionId'>, undefined>(
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/extensions/custom/${action}`,
+      { method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
   }
 
   /** Update extension editor draft mirror text for a session. */

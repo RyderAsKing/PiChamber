@@ -1,6 +1,7 @@
 import {
   applyPiEvent,
   dismissExtensionDialog,
+  dropExtensionSurface,
   hydrateSessionFromDetail,
   projectSession,
   createReducerPartMap,
@@ -13,12 +14,14 @@ import { mapWithConcurrency } from '@/lib/concurrency';
 import { bootstrapPiDirectory, type PiBootstrapHealth } from '@/lib/pi/bootstrap';
 import { recordMobileDiagnostic, recordMobileDiagnosticError } from '@/lib/mobile-error-log';
 import { createBrowserUuid } from '@/lib/uuid';
+import { getTabClientId } from '@/lib/pi/tab-client-id';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
 import { createPiEventStream, type PiStreamHandle } from '@/lib/pi/transport';
-import type { PiSessionEvent, PiSessionListItem, PiSessionOpenUrlEvent, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
+import type { PiExtensionSurfaceDismissEvent, PiSessionEvent, PiSessionListItem, PiSessionOpenUrlEvent, PiPendingInputListResponse, PiPendingInputSummary } from '@/lib/pi/protocol';
+import type { PiExtensionSurfaceState } from '@/lib/pi/reducers/customSurfaceReducers';
 import { isValidPendingInputSummary } from '@/lib/pi/protocol';
 import type { PiSession, PiSessionId, PiSessionLifecycleState, PiThinkingLevel } from '@/lib/pi/types';
 import { resolveCreateThinking } from '@/lib/pi/thinking';
@@ -173,6 +176,17 @@ export type OpenRequestListener = (event: PiSessionOpenUrlEvent) => void;
 export const subscribeOpenRequests = (
   listener: OpenRequestListener,
 ): (() => void) => getPiSessionStore().subscribeOpenRequests(listener);
+
+/**
+ * A `ctx.ui.custom()` surface this tab held, ended by an accepted
+ * `extension.custom.dismiss`. `surface` is the surface as it was just before.
+ */
+export interface ExtensionSurfaceDismissal {
+  sessionId: PiSessionId;
+  reason: PiExtensionSurfaceDismissEvent['payload']['reason'];
+  surface: PiExtensionSurfaceState;
+}
+export type ExtensionSurfaceDismissListener = (dismissal: ExtensionSurfaceDismissal) => void;
 
 /**
  * Subscribe to live pending-input transitions on the shared store.
@@ -1074,6 +1088,14 @@ export class PiSessionStore {
   /** Live pending-input transition listeners (see `PendingInputTransition`).
    *  Cleared on runtime reset/switch alongside every other runtime-scoped map. */
   private pendingInputTransitionListeners = new Set<PendingInputTransitionListener>();
+  private extensionSurfaceDismissListeners = new Set<ExtensionSurfaceDismissListener>();
+  /** Hears surfaces this tab held end (UI side effects such as toasts). */
+  subscribeExtensionSurfaceDismissals = (listener: ExtensionSurfaceDismissListener): (() => void) => {
+    this.extensionSurfaceDismissListeners.add(listener);
+    return () => {
+      this.extensionSurfaceDismissListeners.delete(listener);
+    };
+  };
   /** Session id -> directory for sessions whose latest emitted transition
    *  is `opened`. A catalog row can
    *  drop out (a directory listing that no longer includes it) while its
@@ -2635,7 +2657,15 @@ export class PiSessionStore {
     // the ID before publishing busy state so random-source failures cannot
     // strand a prompt that was never sent. Keep the existing UUID v4 format.
     const operationId = options?.operationId ?? createBrowserUuid();
-    const input = { sessionId, text, operationId, messageId: `msg_${operationId}`, ...(attachments?.length ? { attachments } : {}) };
+    const input = {
+      sessionId,
+      text,
+      operationId,
+      messageId: `msg_${operationId}`,
+      // custom() surfaces this input opens are drawn at this tab's size.
+      clientId: getTabClientId(),
+      ...(attachments?.length ? { attachments } : {}),
+    };
     const nextSession: PiReducerSessionState = existing
       ? { ...existing, lifecycle: 'busy' }
       : {
@@ -2910,6 +2940,14 @@ export class PiSessionStore {
     if (nextReducer === this.state.reducer) return;
     this.state = { ...this.state, reducer: nextReducer };
     this.emit([`session:${sessionId}`, TOPIC_DIALOGS]);
+  }
+
+  /** Drop a custom() surface the server reports as no longer open (no-op if absent). */
+  dropExtensionSurface(sessionId: PiSessionId, surfaceId: string): void {
+    const nextReducer = dropExtensionSurface(this.state.reducer, sessionId, surfaceId);
+    if (nextReducer === this.state.reducer) return;
+    this.state = { ...this.state, reducer: nextReducer };
+    this.emit([`session:${sessionId}`]);
   }
 
   private sessionFromDetail(detail: Awaited<ReturnType<typeof piClient.getSession>>) {
@@ -3873,6 +3911,7 @@ export class PiSessionStore {
     // Events accepted this batch mirror into the catalog; rejected, skipped,
     // and tombstoned events must not (see applyCatalogFromEvents).
     const acceptedEvents: PiSessionEvent[] = [];
+    const surfaceDismissals: ExtensionSurfaceDismissal[] = [];
     const deletedIds = new Map<PiSessionId, string>();
     const deletedInBatchByEpoch = new Map<string | undefined, Set<PiSessionId>>();
     for (const event of events) {
@@ -3953,10 +3992,16 @@ export class PiSessionStore {
       if (deletedInBatchByEpoch.get(eventEpoch)?.has(event.sessionId)) continue;
       const missingBefore = !working.bySession.has(event.sessionId);
       const hadCursor = (working.lastSequence.get(event.sessionId) ?? -1) >= 0;
+      const dismissed = event.name === 'extension.custom.dismiss'
+        ? working.bySession.get(event.sessionId)?.extensionSurfaces?.get(event.payload.surfaceId)
+        : undefined;
       const result = applyPiEvent(working, event);
       working = result.state;
       if (!result.didApply) continue;
       acceptedEvents.push(event);
+      if (dismissed && event.name === 'extension.custom.dismiss') {
+        surfaceDismissals.push({ sessionId: event.sessionId, reason: event.payload.reason, surface: dismissed });
+      }
       if (missingBefore && hadCursor) restoreIds.add(event.sessionId);
       if (event.name === 'session.snapshot') restoreIds.add(event.sessionId);
       applied = true;
@@ -4177,6 +4222,15 @@ export class PiSessionStore {
     for (const id of touchedSessionIds) topics.push(`session:${id}`);
     if (topics.length > 0) this.emit(topics);
     this.emitPendingInputTransitions(pendingInputTransitions);
+    for (const dismissal of surfaceDismissals) {
+      for (const listener of [...this.extensionSurfaceDismissListeners]) {
+        try {
+          listener(dismissal);
+        } catch (error) {
+          console.error('[pi-session-store] surface dismiss listener failed', error);
+        }
+      }
+    }
     if (acceptedEvents.some((event) => event.name === 'session.input')) {
       this.requestNeedingSessionMetadataBackfill(
         acceptedEvents
@@ -4353,6 +4407,9 @@ export class PiSessionStore {
       // authoritatively empty and unknown needs nothing — only non-null
       // protects).
       if (session.extensionDialogs.length > 0) protectedIds.add(sessionId);
+      // An open custom() surface is live keyboard state the daemon keeps
+      // until it closes; dropping it would hide a surface that still waits.
+      if (session.extensionSurfaces && session.extensionSurfaces.size > 0) protectedIds.add(sessionId);
       if (this.state.catalog.byId.get(sessionId)?.pendingInput != null) protectedIds.add(sessionId);
     }
     for (const sessionId of this.pendingPromptById) protectedIds.add(sessionId);

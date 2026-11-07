@@ -14,6 +14,8 @@
  * packages/web/server/lib/pi/session-daemon/extension-theme.js on the server side.
  */
 
+import type { CSSProperties } from 'react';
+
 export const THEME_COLORS = Object.freeze([
   'accent',
   'border',
@@ -202,6 +204,20 @@ const ANSI_PATTERN = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\
 // eslint-disable-next-line no-control-regex
 const ANSI_TRUECOLOR_FG_PATTERN = /\u001b\[38;2;(\d+);(\d+);(\d+)m/;
 
+/**
+ * The URL to open for an OSC 8 hyperlink, or undefined when it is not an
+ * http(s) URL. Programs choose these targets, so nothing else is linked.
+ */
+export function safeHyperlink(href: string | undefined): string | undefined {
+  if (!href) return undefined;
+  try {
+    const url = new URL(href);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Remove every ANSI escape sequence (colors, cursor moves, resets, OSC/APC). */
 export function stripAnsi(text: string): string {
   return text.replace(ANSI_PATTERN, '');
@@ -238,11 +254,14 @@ export interface AnsiSegment {
   underline?: boolean;
   strikethrough?: boolean;
   inverse?: boolean;
+  /** Target of an OSC 8 hyperlink around this text, as the program sent it. */
+  href?: string;
 }
 
 interface StyleState {
   fg?: string;
   bg?: string;
+  href?: string;
   bold: boolean;
   dim: boolean;
   italic: boolean;
@@ -291,7 +310,8 @@ export function parseAnsiSegments(text: string): AnsiSegment[] {
         Boolean(prev.italic) === style.italic &&
         Boolean(prev.underline) === style.underline &&
         Boolean(prev.strikethrough) === style.strikethrough &&
-        Boolean(prev.inverse) === style.inverse
+        Boolean(prev.inverse) === style.inverse &&
+        prev.href === style.href
       ) {
         prev.text += chunk;
         return;
@@ -306,6 +326,7 @@ export function parseAnsiSegments(text: string): AnsiSegment[] {
     if (style.underline) seg.underline = true;
     if (style.strikethrough) seg.strikethrough = true;
     if (style.inverse) seg.inverse = true;
+    if (style.href) seg.href = style.href;
     segments.push(seg);
   };
 
@@ -317,6 +338,16 @@ export function parseAnsiSegments(text: string): AnsiSegment[] {
 
     const paramsStr = match[1];
     const finalByte = match[2];
+
+    // OSC 8 hyperlink: ESC ] 8 ; params ; URI ST. An empty URI ends the link.
+    // SGR resets leave it alone, as in a terminal.
+    if (match[0].startsWith('\u001b]8;')) {
+      // eslint-disable-next-line no-control-regex
+      const body = match[0].slice(4).replace(/(?:\u0007|\u001b\\)$/, '');
+      const uri = body.slice(body.indexOf(';') + 1);
+      style.href = uri || undefined;
+      continue;
+    }
 
     // Only CSI SGR ('m') modifies style state when parameter string contains only digits and ';'. Non-SGR CSI or other escapes are stripped.
     if (finalByte === 'm' && (!paramsStr || /^[0-9;]*$/.test(paramsStr))) {
@@ -445,3 +476,53 @@ export function parseAnsiSegments(text: string): AnsiSegment[] {
 
   return segments;
 }
+
+/** Inline style for one parsed ANSI segment; `undefined` when unstyled. */
+export const renderSegmentStyle = (segment: AnsiSegment): CSSProperties | undefined => {
+  const segStyle: CSSProperties = {};
+  let hasStyle = false;
+
+  let fg = segment.fg;
+  let bg = segment.bg;
+
+  if (segment.inverse) {
+    // Swap foreground and background when inverse is requested
+    const temp = fg;
+    fg = bg ?? 'var(--surface-background, var(--background))';
+    bg = temp ?? 'var(--foreground)';
+    hasStyle = true;
+  }
+
+  if (fg) {
+    segStyle.color = fg;
+    hasStyle = true;
+  }
+  if (bg) {
+    segStyle.backgroundColor = bg;
+    hasStyle = true;
+  }
+  if (segment.bold) {
+    segStyle.fontWeight = 600;
+    hasStyle = true;
+  }
+  if (segment.dim) {
+    segStyle.opacity = 0.65;
+    hasStyle = true;
+  }
+  if (segment.italic) {
+    segStyle.fontStyle = 'italic';
+    hasStyle = true;
+  }
+  if (segment.underline && segment.strikethrough) {
+    segStyle.textDecoration = 'underline line-through';
+    hasStyle = true;
+  } else if (segment.underline) {
+    segStyle.textDecoration = 'underline';
+    hasStyle = true;
+  } else if (segment.strikethrough) {
+    segStyle.textDecoration = 'line-through';
+    hasStyle = true;
+  }
+
+  return hasStyle ? segStyle : undefined;
+};
