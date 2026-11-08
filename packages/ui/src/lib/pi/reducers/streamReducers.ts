@@ -20,8 +20,12 @@ import {
 
 export const reduceLifecycle = (
   session: PiReducerSessionState,
-  payload: { state: PiSessionLifecycleState } & PiRetryInfo,
+  payload: { state: PiSessionLifecycleState; command?: string } & PiRetryInfo,
 ): void => {
+  // Only a busy frame names a running command; any other frame (a turn
+  // starting, retry, idle) ends the command-only run.
+  if (payload.state === 'busy' && typeof payload.command === 'string') session.runningCommand = payload.command;
+  else delete session.runningCommand;
   if (payload.state === 'retry') {
     session.lifecycle = 'retry';
     session.retry = {

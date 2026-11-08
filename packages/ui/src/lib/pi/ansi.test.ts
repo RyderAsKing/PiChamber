@@ -4,6 +4,7 @@ import {
   containsAnsiEscape,
   extractAnsiTruecolor,
   parseAnsiSegments,
+  safeHyperlink,
   stripAnsi,
   THEME_BG_COLORS,
   THEME_COLORS,
@@ -246,5 +247,34 @@ describe("parseAnsiSegments", () => {
       { text: " " },
       { text: "ThemeToken", fg: "var(--status-success)" },
     ])
+  })
+})
+
+describe("OSC 8 hyperlinks", () => {
+  test("carry the link target on the text they wrap, with either terminator", () => {
+    const st = "\x1b]8;;https://auth.example/authorize?x=1\x1b\\open\x1b]8;;\x1b\\ after"
+    expect(parseAnsiSegments(st)).toEqual([
+      { text: "open", href: "https://auth.example/authorize?x=1" },
+      { text: " after" },
+    ])
+    const bel = "\x1b]8;id=a;https://x.example/\x07link\x1b]8;;\x07"
+    expect(parseAnsiSegments(bel)).toEqual([{ text: "link", href: "https://x.example/" }])
+  })
+
+  test("survive SGR resets inside the link, as in a terminal", () => {
+    const text = "\x1b]8;;https://x.example/\x07\x1b[36mab\x1b[0mcd\x1b]8;;\x07"
+    expect(parseAnsiSegments(text)).toEqual([
+      { text: "ab", fg: "var(--status-info)", href: "https://x.example/" },
+      { text: "cd", href: "https://x.example/" },
+    ])
+  })
+
+  test("only http and https targets are linkable", () => {
+    expect(safeHyperlink("https://x.example/a b")).toBe("https://x.example/a%20b")
+    expect(safeHyperlink("http://127.0.0.1:3000/")).toBe("http://127.0.0.1:3000/")
+    expect(safeHyperlink("javascript:alert(1)")).toBeUndefined()
+    expect(safeHyperlink("file:///etc/passwd")).toBeUndefined()
+    expect(safeHyperlink("not a url")).toBeUndefined()
+    expect(safeHyperlink(undefined)).toBeUndefined()
   })
 })

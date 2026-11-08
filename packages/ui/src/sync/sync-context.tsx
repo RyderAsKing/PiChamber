@@ -202,6 +202,19 @@ export function useSessionCompaction(sessionID: string): PiCompactionInfo | null
   );
 }
 
+/**
+ * The extension command (`/name`) a busy session is running without an agent
+ * turn, or null. Like Pi, new messages wait for it: they queue instead of
+ * steering, and Stop has no turn to stop.
+ */
+export function useSessionRunningCommand(sessionID: string): string | null {
+  return usePiSessionSnapshot(
+    (state) => (sessionID ? state.reducer.bySession.get(sessionID)?.runningCommand ?? null : null),
+    undefined,
+    sessionID ? sessionTopic(sessionID) : '*',
+  );
+}
+
 const EMPTY_EXTENSION_NOTICES: PiExtensionNotice[] = [];
 
 /**

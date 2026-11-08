@@ -22,7 +22,8 @@ On top of that compatibility layer, extensions can render rich UI directly insid
 | `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
 | `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
 | `registerMessageRenderer()` (custom message renderers) | Rendered lines shown as the message body; expanded lines behind Show more, raw text under Raw message (see below) |
-| TUI-only surfaces (`custom()`, `setHeader`/`setFooter`, `onTerminalInput`, `setEditorComponent`, autocomplete providers, theme switching) | Intentional no-ops; use the GUI protocol instead |
+| `ctx.ui.custom()` | Drawn in the chat: inline components take the composer's place, overlays float over the chat. Keys, clicks, drags and the mouse wheel go to the component (Shift+drag selects text). On a phone or tablet a tap is a click, a swipe scrolls, and a key bar adds Esc, Tab, the arrows, Enter and the on-screen keyboard. `ctx.mode` is `"tui"`, so extensions that check for it run |
+| Other TUI-only surfaces (`setHeader`/`setFooter`, `onTerminalInput`, `setEditorComponent`, autocomplete providers, theme switching) | Intentional no-ops; use the GUI protocol instead |
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
 
@@ -39,19 +40,18 @@ only adds an optional enhancement when the extension opts in.
 
 ## Detecting PiChamber (optional)
 
-Do not make PiChamber a hard dependency. Check at runtime inside a handler
-where `ctx` is available:
+Do not make PiChamber a hard dependency. Check at runtime. `ctx.mode` does
+not tell PiChamber apart: it is `"tui"`, as in the pi CLI.
 
 ```ts
-const isPiChamber = (ctx: { mode: string; hasUI: boolean }): boolean => {
+const isPiChamber = (): boolean => {
   const marker = (globalThis as Record<string, unknown>).__PICHAMBER__ as { version?: number } | undefined;
   if (marker?.version) return true;
-  try { if (typeof process !== 'undefined' && process.env.PICHAMBER === '1') return true; } catch {}
-  return ctx.mode === 'rpc' && ctx.hasUI === true;
+  try { return typeof process !== 'undefined' && process.env.PICHAMBER === '1'; } catch { return false; }
 };
 
 pi.on('session_start', async (_event, ctx) => {
-  if (isPiChamber(ctx)) ctx.ui.setStatus('my-ext', 'PiChamber mode');
+  if (isPiChamber()) ctx.ui.setStatus('my-ext', 'PiChamber mode');
 });
 ```
 
@@ -177,7 +177,7 @@ returns the current text, including an empty string. Cancel returns
 ### Structured form dialogs
 
 PiChamber extends pi's UI bridge with `ctx.ui.form(title, fields)` (gate with
-`isPiChamber(ctx)`; plain pi has no `form` method):
+`isPiChamber()`; plain pi has no `form` method):
 
 ```ts
 const values = await (ctx.ui as any).form("Spawn agent", [

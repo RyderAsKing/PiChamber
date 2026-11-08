@@ -218,6 +218,7 @@ export const reconnectPiSession = async (
           isStreaming: detail.isStreaming === true,
           queue: { steering: 0, followUp: 0 },
           lifecycle: detail.lifecycle ?? (detail.isStreaming ? 'busy' : 'idle'),
+          ...(detail.command ? { command: detail.command } : {}),
           ...(detail.retry ? { retry: detail.retry } : {}),
           ...(detail.compaction ? { compaction: detail.compaction } : {}),
           ...(Number.isFinite(detail.runStartedAt) ? { runStartedAt: detail.runStartedAt } : {}),

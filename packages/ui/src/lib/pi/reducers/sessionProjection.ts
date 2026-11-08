@@ -2,6 +2,7 @@ import type {
   PiBashExecution,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
+  PiExtensionSurfaceSnapshot,
   PiExtensionPanelPayload,
   PiToolRender,
 } from '../protocol';
@@ -31,6 +32,7 @@ import type {
 } from './reducerTypes';
 import { createReducerState } from './reducerTypes';
 import { applyBashSnapshot } from './bashReducers';
+import { surfacesFromSnapshot } from './customSurfaceReducers';
 import {
   getOrCreateSession,
   resolveParentId,
@@ -192,11 +194,28 @@ export const markHydratedLiveActivity = (
   options?: {
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
+    /** Busy only because this extension command runs (no agent turn). */
+    command?: string;
     inferFromRunningTools?: boolean;
     settleWhenIdle?: boolean;
     retry?: PiRetryInfo;
   },
 ): void => {
+  delete session.runningCommand;
+  if (options?.lifecycle === 'busy' && options.command && options.isStreaming !== true) {
+    // A command with no agent turn: busy, but no assistant message is live.
+    session.lifecycle = 'busy';
+    session.retry = undefined;
+    session.runningCommand = options.command;
+    if (options.settleWhenIdle) {
+      session.streamingMessages = new Set();
+      session.messages = new Map(session.messages);
+      for (const [messageId, message] of session.messages) {
+        if (message.streaming) session.messages.set(messageId, { ...message, streaming: false });
+      }
+    }
+    return;
+  }
   const runningMessageIds: string[] = [];
   const runningPartIds: string[] = [];
   for (const [partId, part] of session.parts) {
@@ -266,6 +285,7 @@ export const hydrateSessionFromDetail = (
     beforeCursor?: string;
     isStreaming?: boolean;
     lifecycle?: PiSessionLifecycleState;
+    command?: string;
     retry?: PiRetryInfo;
     /** Server wall clock sampled for the timestamps in this detail. */
     serverNow?: number;
@@ -278,6 +298,7 @@ export const hydrateSessionFromDetail = (
     extensionTitle?: string;
     extensionWorking?: { message?: string; visible?: boolean };
     extensionDraftTracked?: boolean;
+    extensionSurfaces?: PiExtensionSurfaceSnapshot[];
     bashExecutions?: PiBashExecution[];
     messages: Array<{
       message: PiUserMessage | PiAssistantMessage | {
@@ -354,6 +375,8 @@ export const hydrateSessionFromDetail = (
   if (detail.extensionDraftTracked === true) {
     session.extensionDraftTracked = true;
   }
+  const surfaces = surfacesFromSnapshot(detail.extensionSurfaces);
+  if (surfaces) session.extensionSurfaces = surfaces;
   applyBashSnapshot(session, detail.bashExecutions);
 
   for (const { message, parts } of (detail.messages ?? [])) {
@@ -448,6 +471,7 @@ export const hydrateSessionFromDetail = (
   markHydratedLiveActivity(session, {
     ...(detail.isStreaming !== undefined ? { isStreaming: detail.isStreaming } : {}),
     ...(detail.lifecycle ? { lifecycle: detail.lifecycle } : {}),
+    ...(detail.command ? { command: detail.command } : {}),
     ...(detail.retry ? { retry: detail.retry } : {}),
     inferFromRunningTools: true,
   });

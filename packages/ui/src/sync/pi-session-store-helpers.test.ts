@@ -240,4 +240,42 @@ describe('pi-session-store-helpers', () => {
 
     expect(merged.extensionStatuses.get('mode')).toBe('mode:balance/max');
   });
+
+  test('keeps a running command with the lifecycle it arrived with', () => {
+    const live = hydrateSessionFromDetail({
+      session: { id: 'session-1', directory: '/dir' },
+      lastSequence: 7,
+      lifecycle: 'busy',
+      command: '/panel',
+      messages: [],
+    }).session;
+    expect(live.runningCommand).toBe('/panel');
+    const older = hydrateSessionFromDetail({
+      session: { id: 'session-1', directory: '/dir' },
+      lastSequence: 5,
+      lifecycle: 'busy',
+      messages: [],
+    }).session;
+
+    // An older detail must not turn the command run into a model turn.
+    const kept = mergeHydratedSession(older, live);
+    expect(kept.lifecycle).toBe('busy');
+    expect(kept.runningCommand).toBe('/panel');
+
+    // A newer idle detail settles both together.
+    const settled = mergeHydratedSession(hydrateSessionFromDetail({
+      session: { id: 'session-1', directory: '/dir' },
+      lastSequence: 9,
+      lifecycle: 'idle',
+      messages: [],
+    }).session, live);
+    expect(settled.lifecycle).toBe('idle');
+    expect(settled.runningCommand).toBeUndefined();
+
+    // A live idle session newer than a busy command detail stays idle.
+    const idle = { ...older, lifecycle: 'idle' as const, lastSequence: 11 };
+    const stale = mergeHydratedSession(live, idle);
+    expect(stale.lifecycle).toBe('idle');
+    expect(stale.runningCommand).toBeUndefined();
+  });
 });

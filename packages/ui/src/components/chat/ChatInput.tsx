@@ -39,7 +39,7 @@ import {
   type AttachedFile,
 } from "@/stores/types/sessionTypes";
 import * as sessionActions from "@/sync/session-actions";
-import { useUserMessageHistory } from "@/sync/sync-context";
+import { useSessionRunningCommand, useUserMessageHistory } from "@/sync/sync-context";
 import { useSnippetsStore } from "@/stores/useSnippetsStore";
 import {
   getRuntimeKey,
@@ -159,6 +159,7 @@ import {
 } from "./composer/ui/DraftTargetSelectors";
 import { DraftBranchCheckoutDialog } from "./composer/ui/DraftBranchCheckoutDialog";
 import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePopups";
+import { useExtensionOverlayDims } from "./extension/custom/useOverlayDims";
 import { ComposerFooter } from "./composer/ui/ComposerFooter";
 import { RevertedMessageDock } from "./composer/ui/RevertedMessageDock";
 import { ComposerDragOverlay } from "./composer/ui/ComposerDragOverlay";
@@ -336,6 +337,12 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ),
   ).current;
   const currentSessionId = useSessionUIStore((s) => s.currentSessionId);
+  // A capturing custom() overlay dims the pane and owns the keyboard; a
+  // menu left open from before (a half-typed "/") must not float over it.
+  const overlayDims = useExtensionOverlayDims(currentSessionId);
+  React.useEffect(() => {
+    if (overlayDims) closeAutocomplete();
+  }, [overlayDims, closeAutocomplete]);
   const sessionLoadErrorCode = usePiSessionSnapshot(
     (state) =>
       currentSessionId
@@ -1027,7 +1034,10 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // `handlePickLocalFiles` so callback gating cannot drift.
   const isAttachmentDisabled = (!currentSessionId && !newSessionDraftOpen) || isComposerLocked;
 
-  const canAbort = sessionPhase !== "idle";
+  // A command running without an agent turn has nothing Stop can stop;
+  // messages queue until it returns (see useSessionRunningCommand).
+  const runningCommand = useSessionRunningCommand(currentSessionId ?? "");
+  const canAbort = sessionPhase !== "idle" && !runningCommand;
 
   const getCurrentInputSnapshot = React.useCallback(() => {
     const currentMessage = composerRef.current?.getValue() ?? message;
@@ -1908,7 +1918,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
       inputSnapshot.hasContent &&
       currentSessionId &&
       sessionPhase !== "idle";
-    if (followUpBehavior === "queue" && canQueue) {
+    if ((followUpBehavior === "queue" || runningCommand) && canQueue) {
       void handleQueueMessage();
     } else if (followUpBehavior === "steer" && canQueue) {
       void handleSubmitRef.current({ delivery: "steer" });
@@ -1920,6 +1930,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     getCurrentInputSnapshot,
     currentSessionId,
     sessionPhase,
+    runningCommand,
     followUpBehavior,
     handleQueueMessage,
   ]);
@@ -2054,6 +2065,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     hasContent,
     currentSessionId,
     sessionPhase,
+    commandRunning: Boolean(runningCommand),
     followUpBehavior,
     handleSubmit,
     handleQueueMessage,

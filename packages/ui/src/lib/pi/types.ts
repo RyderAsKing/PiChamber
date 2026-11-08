@@ -328,6 +328,9 @@ export interface PiSessionSnapshot {
   extensionWorking?: { message?: string; visible?: boolean };
   /** Whether the session daemon is tracking editor draft text for extensions. */
   extensionDraftTracked?: boolean;
+  /** Open `ctx.ui.custom()` surfaces with their current frames. Absent means
+   *  none are open; present replaces the live surface stack. */
+  extensionSurfaces?: Array<import('./protocol').PiExtensionSurfaceSnapshot>;
   /** Pending-input state at snapshot time. Absent means unknown (older
    *  server), never authoritatively empty — keep the current value. */
   inputState?: { pending: import('./protocol').PiPendingInputSummary | null };
@@ -338,6 +341,8 @@ export interface PiSessionSnapshot {
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */
   compaction?: PiCompactionInfo;
+  /** The extension command (`/name`) a busy session is running without an agent turn. New messages queue until it returns; there is nothing to steer. */
+  command?: string;
   /** Server authoritative run start for an active turn. */
   runStartedAt?: number;
   /** Server wall clock at snapshot time. */

@@ -273,4 +273,18 @@ describe('pinned SDK upgrade compatibility', () => {
     }
     expect(getBuiltinExtensionFactories({})).toEqual([]);
   });
+
+  it('keeps MCP sign-in from opening a browser on the daemon host', () => {
+    const calls = [];
+    const record = (name) => (...args) => { calls.push({ name, args }); return () => {}; };
+    getBuiltinExtensionFactories({
+      createCodemodeExtension: record('codemode'),
+      createToolSearchExtension: record('tool-search'),
+      createMcpExtension: record('mcp'),
+    });
+    expect(calls.map((call) => [call.name, call.args.length])).toEqual([['codemode', 0], ['tool-search', 0], ['mcp', 1]]);
+    const { openUrl } = calls[2].args[0];
+    expect(typeof openUrl).toBe('function');
+    expect(openUrl('https://auth.example/authorize')).toBeUndefined();
+  });
 });

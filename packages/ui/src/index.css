@@ -2048,3 +2048,59 @@ html.desktop-runtime [class*="cursor-pointer"] {
 html.desktop-runtime .markdown-content [data-pichamber-file-link="true"] {
   cursor: default;
 }
+
+/* Extension custom() surfaces: entrance and exit only, transform and opacity
+   only, so frame updates (typing, games) never animate and nothing re-lays out.
+   Reduced motion keeps a 1ms run so `animationend` still unmounts leaving
+   overlays. */
+@keyframes pi-surface-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes pi-surface-pop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+
+@keyframes pi-surface-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes pi-surface-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.pi-surface-rise {
+  animation: pi-surface-rise 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.pi-surface-pop {
+  animation: pi-surface-pop 160ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.pi-surface-out {
+  animation: pi-surface-out 120ms ease-in both;
+}
+
+.pi-surface-fade {
+  animation: pi-surface-fade 140ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-surface-rise,
+  .pi-surface-pop,
+  .pi-surface-out,
+  .pi-surface-fade {
+    animation-duration: 1ms;
+  }
+}

@@ -295,12 +295,24 @@ describe('session daemon MCP and built-in extensions end-to-end with real SDK', 
     const errors = client.events.filter((m) => m.event === 'session.error');
     expect(errors).toHaveLength(0);
 
-    // `/mcp` takes its non-TUI path and reports server status as a notification.
+    // Extensions see `ctx.mode === "tui"`, so `/mcp` opens Pi's MCP manager
+    // as a custom() surface. Its frame lists the server; Close ends it.
     const seq1 = client.lastSequence();
-    const statusPromise = client.next((m) => m.sequence > seq1 && m.event === 'extension.notify');
+    const openedPromise = client.next((m) => m.sequence > seq1 && m.event === 'extension.custom');
     await client.request('sessions.prompt', { sessionId, text: '/mcp' });
-    const status = await statusPromise;
-    expect(status.payload.message).toContain('fixture: connected, 1 tools (direct)');
+    const opened = await openedPromise;
+    const { surfaceId } = opened.payload;
+    expect(opened.payload).toMatchObject({ title: '/mcp', capturing: true });
+    // eslint-disable-next-line no-control-regex
+    const plain = (lines) => lines.map((line) => line.replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\))/g, '')).join('\n');
+    const frame = await client.next((m) => m.event === 'extension.custom.frame'
+      && m.payload.surfaceId === surfaceId
+      && Array.isArray(m.payload.lines)
+      && plain(m.payload.lines).includes('fixture'));
+    expect(plain(frame.payload.lines)).toContain('fixture');
+    const dismissed = client.next((m) => m.event === 'extension.custom.dismiss' && m.payload.surfaceId === surfaceId);
+    await client.request('extensions.custom.close', { sessionId, surfaceId });
+    await dismissed;
     expect(client.events.filter((m) => m.event === 'session.error')).toHaveLength(0);
 
     // Stop daemon and verify child process pid has exited

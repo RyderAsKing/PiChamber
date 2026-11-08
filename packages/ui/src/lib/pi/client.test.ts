@@ -497,6 +497,26 @@ describe("send retry safety", () => {
     expect(attempt).toBe(2)
   })
 
+  test("custom-surface key input is attempted once; other surface actions retry", async () => {
+    let attempt = 0
+    installFetchMock(() => {
+      attempt += 1
+      return jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 })
+    })
+    const client = new PiService()
+    await expect(client.sendExtensionSurface("input", { sessionId: "s1", surfaceId: "x", items: ["\r"] })).rejects.toThrow()
+    expect(attempt).toBe(1)
+
+    attempt = 0
+    installFetchMock(() => {
+      attempt += 1
+      if (attempt === 1) return jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 })
+      return new Response(null, { status: 204 })
+    })
+    await client.sendExtensionSurface("refresh", { sessionId: "s1", surfaceId: "x" })
+    expect(attempt).toBe(2)
+  })
+
   test("definite 4xx stays PiRequestError without receipt lookup or retry", async () => {
     installFetchMock(() => jsonResponse({ error: { code: "INVALID_PROMPT" } }, { status: 400 }))
     const client = new PiService()
