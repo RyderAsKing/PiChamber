@@ -178,8 +178,9 @@ Implemented:
 - **Touch:** a tap is a left press and release (the host adds the click);
   a vertical swipe past 10 px is the wheel, one report per 18 px, finger up
   scrolling down as on a page. Surfaces take swipes with
-  `touch-action: none`; an inline surface taller than its box (60vh) keeps
-  native scrolling (`pan-y`) instead. On touch-only devices
+  `touch-action: none`; an inline surface taller than its box (the chat
+  pane less the card header and footer, see 4.1) keeps native scrolling
+  (`pan-y`) instead. On touch-only devices
   (`hasTouchOnlyPointer`) a key bar (`SurfaceKeyBar.tsx`) sends Esc, Tab,
   the arrows and Enter: in the inline surface's footer, and at the bottom
   of the pane under a capturing overlay, which reports three fewer rows so
@@ -367,7 +368,7 @@ only the MCP extension (and llama.cpp, which PiChamber skips) branches on it:
 |---|---|---|---|
 | Web desktop | Composer card | Pane layer | Keyboard |
 | Electron | Same as web | Same as web | Keyboard |
-| Hosted mobile | Composer card, full width | Pane layer; `visible()` strip | View and Close only (step 4) |
+| Hosted mobile | Composer card, full width | Pane layer; `visible()` strip | Touch: taps, swipes, the key bar and the phone keyboard |
 | Capacitor | Same as hosted mobile | Same as hosted mobile | Same |
 
 ## 7. Delivery
