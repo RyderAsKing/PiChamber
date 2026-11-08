@@ -392,6 +392,40 @@ describe('createExtensionCustomHost', () => {
     expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
   });
 
+  it('never shows an overlay a command opens after it ended', async () => {
+    // An extension may keep its tui and call showOverlay from a timer after
+    // done(). The overlay would point at a removed parent: unreachable, and
+    // focusing it walked a parent chain that never ends.
+    const harness = createHarness();
+    let tuiRef;
+    let finish;
+    const result = harness.host.open(SESSION, (tui, _theme, _kb, done) => {
+      tuiRef = tui;
+      finish = done;
+      return listComponent(['a'], done);
+    }, { overlay: true });
+    await flushPromises();
+    finish('a');
+    await expect(result).resolves.toBe('a');
+    const before = harness.opened().length;
+
+    const late = tuiRef.showOverlay({ render: () => ['late'], invalidate: vi.fn() }, { width: 10 });
+    expect(harness.opened()).toHaveLength(before);
+    expect(late.isFocused()).toBe(false);
+    expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+
+    // The same for a factory that called done() while it was constructing.
+    let early;
+    await harness.host.open(SESSION, (tui, _theme, _kb, done) => {
+      done('early');
+      early = tui;
+      return listComponent(['b'], done);
+    });
+    early.showOverlay({ render: () => ['late'], invalidate: vi.fn() }, { width: 10 });
+    expect(harness.opened()).toHaveLength(before);
+    expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+  });
+
   it('lets one client drive the size: the last one that acted', async () => {
     const harness = createHarness();
     void harness.host.open(SESSION, (_t, _th, _kb, done) => listComponent(['a'], done));

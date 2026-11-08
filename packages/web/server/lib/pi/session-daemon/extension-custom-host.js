@@ -746,9 +746,11 @@ export const createExtensionCustomHost = ({
       },
       getFocusedComponent: () => state.focus?.component ?? null,
       showOverlay: (component, options) => {
-        // After the session closed, a late overlay is never shown; the
-        // handle stays callable as one for a removed overlay.
-        if (!isLive(state)) return makeHandle(state, { hidden: false, frame: null });
+        // After the session closed, or after this command ended (an
+        // extension may keep its tui and call this from a timer), a late
+        // overlay is never shown: its parent is gone. The handle stays
+        // callable as one for a removed overlay.
+        if (!isLive(state) || owner.settled) return makeHandle(state, { hidden: false, frame: null });
         const surface = addSurface(state, {
           component,
           overlay: true,
@@ -807,13 +809,12 @@ export const createExtensionCustomHost = ({
     const title = typeof origin === 'string' && origin.trim().length > 0
       ? origin.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, MAX_TITLE_CHARS)
       : 'Extension';
-    const owner = { surface: null, early: [] };
+    const owner = { surface: null, early: [], settled: false };
     return new Promise((resolve, reject) => {
-      let settled = false;
       let component;
       const finish = (result, reason) => {
-        if (settled) return;
-        settled = true;
+        if (owner.settled) return;
+        owner.settled = true;
         const surface = owner.surface;
         if (surface) removeSurface(state, surface, reason);
         else dropEarlyOverlays(state, owner, reason);
@@ -828,7 +829,7 @@ export const createExtensionCustomHost = ({
         .then((created) => {
           component = created;
           // done() called during construction: Pi never shows the component.
-          if (settled) {
+          if (owner.settled) {
             disposeComponent(component);
             return;
           }
@@ -836,7 +837,7 @@ export const createExtensionCustomHost = ({
           // state is gone, so the surface would be unreachable. Resolve as
           // the session closing would have.
           if (!component || typeof component.render !== 'function' || !isLive(state)) {
-            settled = true;
+            owner.settled = true;
             if (isLive(state)) dropEarlyOverlays(state, owner, 'cancelled');
             if (component && !isLive(state)) disposeComponent(component);
             resolve(undefined);
@@ -865,8 +866,8 @@ export const createExtensionCustomHost = ({
           }
         })
         .catch((error) => {
-          if (settled) return;
-          settled = true;
+          if (owner.settled) return;
+          owner.settled = true;
           if (owner.surface) removeSurface(state, owner.surface, 'cancelled');
           else dropEarlyOverlays(state, owner, 'cancelled');
           onError(sessionId, 'factory', error);
@@ -1176,8 +1177,14 @@ export const createExtensionCustomHost = ({
     surface.z = state.z;
     focusSurface(state, surface);
     publishMeta(state, surface);
+    // Bounded, and stops at a missing parent, so a broken chain cannot hang
+    // the daemon.
     let root = surface;
-    while (root.parentId) root = state.surfaces.find((candidate) => candidate.id === root.parentId) ?? root;
+    for (let depth = 0; root.parentId && depth <= state.surfaces.length; depth += 1) {
+      const parent = state.surfaces.find((candidate) => candidate.id === root.parentId);
+      if (!parent) break;
+      root = parent;
+    }
     for (const candidate of state.surfaces) {
       if (candidate === root || isWithin(state, candidate, root)) scheduleRender(state, candidate);
     }
