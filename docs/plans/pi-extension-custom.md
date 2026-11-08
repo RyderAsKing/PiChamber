@@ -162,7 +162,7 @@ Implemented:
   block there. Pi's fake-cursor markers become reverse video.
 
 - **Mouse:** mouse and pen presses, drags with a button held, releases and
-  the wheel go as SGR reports (`encodeMouseReport`, `useSurfaceMouse.ts`).
+  the wheel go as SGR reports (`encodeMouseReport`, `useSurfacePointer.ts`).
   The cell comes from the surface's position and a measured `ch` width and
   is clamped to the surface, so a drag past the edge stays on it. Moves with
   no button held are not sent, as pi-tui's default button-motion tracking.

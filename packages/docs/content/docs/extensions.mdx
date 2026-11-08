@@ -177,7 +177,7 @@ returns the current text, including an empty string. Cancel returns
 ### Structured form dialogs
 
 PiChamber extends pi's UI bridge with `ctx.ui.form(title, fields)` (gate with
-`isPiChamber(ctx)`; plain pi has no `form` method):
+`isPiChamber()`; plain pi has no `form` method):
 
 ```ts
 const values = await (ctx.ui as any).form("Spawn agent", [
