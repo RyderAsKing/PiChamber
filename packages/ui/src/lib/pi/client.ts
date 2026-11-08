@@ -100,7 +100,9 @@ interface JsonRequestInit<TBody> {
    * are disabled and the request is attempted exactly once. Sends
    * (prompt/steer/followUp) must pass `false`: an accepted send whose reply
    * was lost cannot be retried across a daemon restart without risking a
-   * duplicate turn. All other callers keep the default transient retry.
+   * duplicate turn. Custom-surface key input must pass `false` too: a
+   * replayed batch would type the same keys twice. All other callers keep
+   * the default transient retry.
    */
   retry?: boolean;
 }
@@ -1164,7 +1166,14 @@ export class PiService {
     const { sessionId, ...body } = input;
     await jsonRequest<Omit<typeof input, 'sessionId'>, undefined>(
       `/api/pi/sessions/${encodeURIComponent(sessionId)}/extensions/custom/${action}`,
-      { method: 'POST', body, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      {
+        method: 'POST',
+        body,
+        // Keys are not idempotent: a batch the daemon handled but whose reply
+        // was lost must not be sent again. Failed keys are dropped.
+        ...(action === 'input' ? { retry: false } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
     );
   }
 
