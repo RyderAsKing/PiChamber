@@ -466,8 +466,10 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
               {isTree ? (
                 // Same width as the folder header icon, so the title starts under the folder label.
                 // The working indicator is centered in it.
+                // A session waiting on the user shows its needs-input dot at
+                // the trailing edge instead.
                 <span data-session-row-gutter className="inline-flex size-4 shrink-0 items-center justify-center">
-                  {isStreaming ? (
+                  {isStreaming && !showNeedsInput ? (
                     <AgentThinkingLoader
                       variant="inline"
                       text={null}
@@ -675,25 +677,33 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   showQuickArchiveAction && 'group-hover:opacity-0 group-focus-within:opacity-0',
                 )}
               >
-                {/* A soft glow breathing in from the edge marks the row as live. */}
-                <span
-                  aria-hidden="true"
-                  className="oc-session-row-working-aura absolute inset-y-0 right-0 w-24 rounded-r-[inherit] bg-gradient-to-l from-primary/15 to-transparent"
-                />
+                {/* A soft glow breathing in from the edge marks the row as live.
+                    A session waiting on the user is not working, so it has none. */}
+                {showNeedsInput ? null : (
+                  <span
+                    aria-hidden="true"
+                    className="oc-session-row-working-aura absolute inset-y-0 right-0 w-24 rounded-r-[inherit] bg-gradient-to-l from-primary/15 to-transparent"
+                  />
+                )}
                 {/* Stacked on the row's two lines: the indicator stands where the
-                    timestamp is, the turn time where the details line ends. */}
+                    timestamp is, the turn time where the details line ends. The
+                    needs-input dot takes the spinner's place, in a box its size,
+                    so the turn time under it stays put. */}
                 <span className="relative flex flex-col items-end gap-1">
-                  <span className="flex h-5 items-center gap-1.5">
-                    {showNeedsInput && needsInputLabel ? (
-                      <SessionNeedsInputIndicator label={needsInputLabel} />
-                    ) : null}
-                    <AgentThinkingLoader
-                      variant="inline"
-                      text={null}
-                      animationType="spinner"
-                      speedMs={80}
-                      className="text-primary text-xs shrink-0"
-                    />
+                  <span className="flex h-5 items-center">
+                    {showNeedsInput ? (
+                      <span className="inline-flex size-3 shrink-0 items-center justify-center">
+                        <SessionNeedsInputIndicator label={needsInputLabel ?? 'Needs input'} />
+                      </span>
+                    ) : (
+                      <AgentThinkingLoader
+                        variant="inline"
+                        text={null}
+                        animationType="spinner"
+                        speedMs={80}
+                        className="text-primary text-xs shrink-0"
+                      />
+                    )}
                   </span>
                   {showActivityDuration ? (
                     <SessionActivityDuration
