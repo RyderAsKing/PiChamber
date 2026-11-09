@@ -183,8 +183,8 @@ const PAGES = {
     })()`,
   },
   'files-panel-file': {
-    // The same panel with billing.ts open: the editor, its header, and the
-    // tree's selection and change markers together.
+    // The same panel with billing.ts open. The panel is narrow, so the tree
+    // folds away and the file gets the width.
     path: DEMO_SESSION_PATH,
     openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
     viewports: ['desktop'],
@@ -217,8 +217,9 @@ const PAGES = {
     })()`,
   },
   'files-panel-nested': {
-    // src/lib/dates.ts opened from a search, then the search cleared: the
-    // path bar shows its folder and the tree has opened src/lib to it.
+    // src/lib/dates.ts opened from a search, the folded tree shown again, and
+    // the search cleared: the path bar shows its folder and the tree has
+    // opened src/lib to it.
     path: DEMO_SESSION_PATH,
     openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
     viewports: ['desktop'],
@@ -239,6 +240,9 @@ const PAGES = {
         else if (input.value !== 'dates') type('dates');
         return false;
       }
+      // A narrow panel folds the tree when a file opens; bring it back.
+      const treeToggle = document.querySelector('button[aria-label="Toggle file tree"]');
+      if (treeToggle && treeToggle.getAttribute('aria-pressed') !== 'true') { treeToggle.click(); return false; }
       if (input.value) { type(''); return false; }
       return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'));
     })()`,
@@ -323,7 +327,15 @@ const PAGES = {
     // Project rows with icons, paths, and actions.
     path: '/?settings=projects',
     readyText: ['Acme Web', 'Night Shift'],
-    settledScript: PROJECT_ICONS_SETTLED,
+    // The mobile app does not open settings from the URL.
+    viewports: ['desktop'],
+    // The sidebar lists the same projects, so wait for the settings page's
+    // own project grid before checking the icons.
+    settledScript: `(() => {
+      const grid = document.querySelector('[data-settings-item="projects.browse"]');
+      if (!grid || !grid.innerText.includes('Night Shift')) return false;
+      return ${PROJECT_ICONS_SETTLED};
+    })()`,
     idleRequestPrefix: '/api/fs/project-icon',
   },
   'command-palette': {

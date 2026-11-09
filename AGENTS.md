@@ -148,7 +148,7 @@ expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
 first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
-`settings-projects` (project cards with their icons); `command-palette`
+`settings-projects` (project cards with their icons, desktop only); `command-palette`
 (opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
