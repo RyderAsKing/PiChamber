@@ -51,6 +51,11 @@ const getCfgSnapshot = () => ({
 let shellMounts = 0;
 let shellUnmounts = 0;
 let buttonMounts = 0;
+let lastActiveSession: { sessionId: string; directory: string } | null = null;
+let fullScreenLogosMounted = 0;
+let bannerProps: { state: 'reconnecting' | 'unreachable'; label: string; onRetry: () => void; onUseAnotherServer: () => void } | null = null;
+// Latest rendered button per visible label, so tests can press banner actions.
+const buttonsByLabel = new Map<string, () => void>();
 let welcomeMounts = 0;
 const welcomeNotices: Array<{ kind: string; label: string } | null> = [];
 const syncPropsHistory: boolean[] = [];
@@ -81,11 +86,35 @@ mock.module('@/components/update/MobileAppUpdateToast', () => ({ MobileAppUpdate
 mock.module('@/components/ui/button', () => ({
   Button: (props: { children?: React.ReactNode; onClick?: () => void }) => {
     buttonMounts += 1;
+    if (typeof props.children === 'string' && props.onClick) buttonsByLabel.set(props.children, props.onClick);
     return React.createElement('button', { onClick: props.onClick }, props.children);
   },
 }));
 mock.module('@/components/icon/Icon', () => ({ Icon: () => null }));
-mock.module('@/components/ui/PiChamberLogo', () => ({ PiChamberLogo: () => null }));
+mock.module('@/components/ui/PiChamberLogo', () => ({
+  // Full-screen splash/overlay logos are 120px; count the mounted ones so a
+  // test can tell whether a loader covers the shell.
+  PiChamberLogo: (props: { width?: number }) => {
+    React.useEffect(() => {
+      if (props.width !== 120) return undefined;
+      fullScreenLogosMounted += 1;
+      return () => {
+        fullScreenLogosMounted -= 1;
+      };
+    }, [props.width]);
+    return null;
+  },
+}));
+type BannerProps = { state: 'reconnecting' | 'unreachable'; label: string; onRetry: () => void; onUseAnotherServer: () => void };
+mock.module('@/apps/mobile/MobileConnectionRecoveryBanner', () => ({
+  MobileConnectionRecoveryBanner: (props: BannerProps) => {
+    bannerProps = props;
+    React.useEffect(() => () => {
+      bannerProps = null;
+    }, []);
+    return null;
+  },
+}));
 mock.module('@/components/ui/ErrorBoundary', () => ({
   ErrorBoundary: ({ children }: React.PropsWithChildren) => children,
 }));
@@ -137,11 +166,16 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({
   resolveGlobalSessionDirectory: () => null,
 }));
 mock.module('@/sync/last-session-cache', () => ({
-  readLastActiveSession: () => null,
+  readLastActiveSession: () => lastActiveSession,
   clearLastActiveSession: () => {
     clearLastActiveCalls += 1;
   },
   persistLastActiveSession: () => undefined,
+}));
+// The restore's catalog read never settles here, so only the restore overlay's
+// own gating decides whether its logo shows.
+mock.module('@/sync/session-catalog-access', () => ({
+  loadSessionCatalog: () => new Promise(() => undefined),
 }));
 mock.module('@/stores/useConfigStore', () => ({
   useConfigStore: Object.assign((selector: (s: ReturnType<typeof getCfgSnapshot>) => unknown) => selector(getCfgSnapshot()), {
@@ -563,6 +597,10 @@ const resetControls = () => {
   shellMounts = 0;
   shellUnmounts = 0;
   buttonMounts = 0;
+  buttonsByLabel.clear();
+  fullScreenLogosMounted = 0;
+  bannerProps = null;
+  lastActiveSession = null;
   welcomeMounts = 0;
   welcomeNotices.length = 0;
   syncPropsHistory.length = 0;
@@ -605,6 +643,14 @@ async function resumeViaNative() {
   expect(resume).not.toBeNull();
   await act(async () => {
     resume?.();
+    await Promise.resolve();
+  });
+  await flush();
+}
+
+async function wakeOnline(harness: { dispatchOnline: () => void }) {
+  await act(async () => {
+    harness.dispatchOnline();
     await Promise.resolve();
   });
   await flush();
@@ -837,5 +883,133 @@ describe('MobileApp recovery wiring (mounted)', () => {
     expect(isMobileConnectionUncertain()).toBe(false);
     expect(welcomeMounts).toBeGreaterThan(0);
     expect(shellMounts).toBe(0);
+  });
+
+  test('cold launch with an unreachable persisted endpoint shows recovery status, not an endless full-screen loader', async () => {
+    // A saved LAN address that only works on another network: the cold-launch
+    // probe fails and the app never connects in this launch.
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    cfgInitialized = false;
+    reprobeHandler = async () => 'unreachable';
+    await mountMobileApp();
+
+    expect(shellMounts).toBe(1);
+    // The last-session restore overlay only waits on a live connection; it
+    // must not cover the recovering shell with a spinner forever.
+    expect(fullScreenLogosMounted).toBe(0);
+    expect(bannerProps).toMatchObject({ state: 'reconnecting', label: 'Device A' });
+  });
+
+  test('a second failed probe turns the reconnect pill into an unreachable notice; retry probes again', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    const { harness } = await mountMobileApp();
+    expect(reprobeCalls).toBe(1);
+    expect(bannerProps?.state).toBe('reconnecting');
+
+    // The next paced attempt fails too (woken by a network change instead of
+    // waiting out the backoff timer).
+    await wakeOnline(harness);
+    expect(reprobeCalls).toBe(2);
+    expect(bannerProps?.state).toBe('unreachable');
+    // Endpoint, shell, and uncertainty are retained while retrying.
+    expect(apiBaseUrl).toBe('https://server.example');
+    expect(isMobileConnectionUncertain()).toBe(true);
+    expect(shellUnmounts).toBe(0);
+
+    // Manual retry probes immediately, without waiting out the backoff.
+    const gate = deferred<'switched' | 'unchanged' | 'unreachable' | 'needs-login' | 'no-connection'>();
+    reprobeHandler = () => gate.promise;
+    await act(async () => {
+      bannerProps?.onRetry();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(reprobeCalls).toBe(3);
+    expect(bannerProps?.state).toBe('reconnecting');
+
+    // The server comes back: recovery settles and the banner goes away.
+    cfgConnected = true;
+    cfgPhase = 'connected';
+    await act(async () => {
+      gate.resolve('unchanged');
+      await Promise.resolve();
+    });
+    await flush();
+    expect(bannerProps).toBeNull();
+    expect(isMobileConnectionUncertain()).toBe(false);
+  });
+
+  test('unreachable notice offers a way back to the server list', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    const { harness } = await mountMobileApp();
+    await wakeOnline(harness);
+    expect(bannerProps?.state).toBe('unreachable');
+
+    await act(async () => {
+      bannerProps?.onUseAnotherServer();
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(switchCalls[switchCalls.length - 1]).toMatchObject({
+      apiBaseUrl: '',
+      runtimeKey: 'mobile-disconnected',
+    });
+    expect(isMobileConnectionUncertain()).toBe(false);
+    expect(welcomeMounts).toBeGreaterThan(0);
+
+    // Recovery was cancelled: a later network change does not probe the old server.
+    const probesAfterLeaving = reprobeCalls;
+    await wakeOnline(harness);
+    expect(reprobeCalls).toBe(probesAfterLeaving);
+  });
+
+  test('retry after the bounded cycle is exhausted restarts it with an immediate probe', async () => {
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    const { harness } = await mountMobileApp();
+
+    // Fail every attempt of the bounded cycle.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await wakeOnline(harness);
+    }
+    const probesWhenExhausted = reprobeCalls;
+    expect(probesWhenExhausted).toBe(9);
+    expect(bannerProps?.state).toBe('unreachable');
+
+    await act(async () => {
+      bannerProps?.onRetry();
+      await Promise.resolve();
+    });
+    await flush();
+    expect(reprobeCalls).toBe(probesWhenExhausted + 1);
+    expect(isMobileConnectionUncertain()).toBe(true);
+  });
+
+  test('a connect that ends recovery does not cover the shell with the restore overlay', async () => {
+    // A last session is saved, so the first connect would normally hold the
+    // restore overlay while it checks that session still exists.
+    lastActiveSession = { sessionId: 'session-1', directory: '/repo' };
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    const { harness } = await mountMobileApp();
+    expect(bannerProps?.state).toBe('reconnecting');
+    expect(fullScreenLogosMounted).toBe(0);
+
+    // The user moves to the right network and recovery succeeds.
+    cfgConnected = true;
+    cfgPhase = 'connected';
+    reprobeHandler = async () => 'unchanged';
+    await wakeOnline(harness);
+
+    expect(bannerProps).toBeNull();
+    expect(fullScreenLogosMounted).toBe(0);
   });
 });
