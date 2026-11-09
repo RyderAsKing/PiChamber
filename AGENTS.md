@@ -117,7 +117,8 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
 `<dir>/repo` (on a long branch, with a favicon), more folders in
-`<dir>/folders` (one with a favicon, a monorepo, one without an icon), a data
+`<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
+a dark logo on a transparent background), a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
 `HOME` whose Pi agent directory holds one demo session. Start the
 dev server with `HOME=<dir>/home PICHAMBER_DATA_DIR=<dir>/data` so it never
@@ -134,7 +135,9 @@ same list in the mobile sessions drawer); `open-request` (an Open request for a
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
-only). Server-route captures need Chrome on the server: under the throwaway
+only); `settings-appearance` (a dense settings page, desktop only);
+`settings-projects` (project cards with their icons); `command-palette`
+(opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,

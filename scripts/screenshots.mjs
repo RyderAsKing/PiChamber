@@ -67,14 +67,14 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 </main></body></html>`;
 
 // The branch prefix: a middle-truncated label splits the full name across spans.
-const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'feature/session-sidebar'];
-// Three seeded folders ship an icon; wait until each has loaded. A build
+const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'Night Shift', 'feature/session-sidebar'];
+// Four seeded folders ship an icon; wait until each has loaded. A build
 // without project icons renders no [data-project-icon], so it settles at once
 // and the same page captures a before shot.
 const PROJECT_ICONS_SETTLED = `(() => {
   if (!document.querySelector('[data-project-icon]')) return true;
   const icons = [...document.querySelectorAll('img[src^="blob:"]')];
-  return icons.length >= 3 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
+  return icons.length >= 4 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
 })()`;
 
 const PAGES = {
@@ -136,6 +136,29 @@ const PAGES = {
     // `!` enters shell mode and a second `!` keeps the command out of the
     // model's context; each insert is a separate edit, like typing.
     typeIntoComposer: ['!', '!', 'git diff --stat'],
+  },
+  'settings-appearance': {
+    // A dense settings page: navigation, section titles, field labels,
+    // descriptions, and every control type.
+    path: '/?settings=appearance',
+    readyText: ['Appearance'],
+    viewports: ['desktop'],
+  },
+  'settings-projects': {
+    // Project rows with icons, paths, and actions.
+    path: '/?settings=projects',
+    readyText: ['Acme Web', 'Night Shift'],
+    settledScript: PROJECT_ICONS_SETTLED,
+    idleRequestPrefix: '/api/fs/project-icon',
+  },
+  'command-palette': {
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // Ctrl+P (the default palette shortcut on Linux and Windows), pressed once the page is ready.
+    shortcut: { key: 'p', code: 'KeyP', modifiers: 2 },
+    // Phones open the palette from a button, not a shortcut.
+    viewports: ['desktop'],
+    settledScript: `Boolean(document.querySelector('input[placeholder^="Search files"]'))`,
   },
   'open-request': {
     path: DEMO_SESSION_PATH,
@@ -386,6 +409,13 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       }
     }
     if (page.openRequest) await sendOpenRequest(page.openRequest);
+    if (page.shortcut) {
+      const { key, code, modifiers } = page.shortcut;
+      const keyCode = key.toUpperCase().charCodeAt(0);
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await client.send('Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: keyCode });
+      }
+    }
     if (page.settledScript) {
       await waitForSettled(client, page, network, `${pageName} settled`);
     }
@@ -558,6 +588,10 @@ const seed = async (dir) => {
       'packages/web/public/favicon.svg': demoIcon('#30a46c', 'M16 8l8 8-8 8-8-8z'),
     } },
     { name: 'dotfiles', label: 'Dotfiles', files: { 'README.md': '# dotfiles\n' } },
+    // A dark logo on a transparent background: the case a dark theme must keep visible.
+    { name: 'night-shift', label: 'Night Shift', files: {
+      'public/favicon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M20 4a12 12 0 1 0 8 20A10 10 0 0 1 20 4z" fill="#14141a"/></svg>',
+    } },
   ];
   for (const folder of extraFolders) {
     for (const [file, content] of Object.entries(folder.files)) {
