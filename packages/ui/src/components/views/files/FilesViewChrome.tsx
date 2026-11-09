@@ -51,7 +51,7 @@ export const OpenInAppListIcon = ({ label, iconDataUrl }: { label: string; iconD
   );
 };
 
-export const FileIcon: React.FC<{ filePath: string; extension?: string }> = ({ filePath, extension }) => (
+const FileIcon: React.FC<{ filePath: string; extension?: string }> = ({ filePath, extension }) => (
   <FileTypeIcon filePath={filePath} extension={extension} />
 );
 

@@ -35,6 +35,7 @@ type MobileFilesChromeProps = {
   query: string;
   searchResults: MobileFilesChromeEntry[];
   isSearching: boolean;
+  searchFailed: boolean;
   directoryError: string | null;
   refreshing: boolean;
   editorPath: string | null;
@@ -74,6 +75,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
   query,
   searchResults,
   isSearching,
+  searchFailed,
   directoryError,
   refreshing,
   editorPath,
@@ -187,6 +189,7 @@ export const MobileFilesChrome: React.FC<MobileFilesChromeProps> = ({
             root={root}
             results={searchResults}
             isSearching={isSearching}
+            failed={searchFailed}
             onOpenFile={onOpenFile}
           />
         ) : entries === undefined ? (
@@ -257,9 +260,11 @@ const MobileSearchResults: React.FC<{
   root: string;
   results: MobileFilesChromeEntry[];
   isSearching: boolean;
+  failed: boolean;
   onOpenFile: (path: string) => void;
-}> = ({ root, results, isSearching, onOpenFile }) => {
+}> = ({ root, results, isSearching, failed, onOpenFile }) => {
   if (isSearching) return <MobileFilesState loading message="Loading..." />;
+  if (failed) return <MobileFilesState message="Search failed. Edit the search to try again." />;
   if (results.length === 0) return <MobileFilesState message="No files found." />;
 
   return (

@@ -25,7 +25,6 @@ import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitStatus } from '@/stores/useGitStore';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { cn } from '@/lib/utils';
 import { listLocalDirectory } from '@/lib/fsApi';
 import { Icon } from "@/components/icon/Icon";
 import { isBrowserClientRuntime } from '@/lib/desktop';
@@ -33,6 +32,7 @@ import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useFileOperations } from '@/components/views/files/useFileOperations';
 import { useFilesViewSearch } from '@/components/views/files/useFilesViewSearch';
 import {
+  getAncestorPaths,
   getDisplayPath,
   isAbsolutePath,
   isAlwaysHiddenEntryName,
@@ -47,8 +47,9 @@ import {
   dropCacheForRoot,
 } from './sidebar/fileTreeCache';
 import { MemoizedFileRow } from './sidebar/SidebarFileRow';
+import { FileListRow } from '@/components/views/files/FileListRow';
 import { useOpenContextEditorFile } from './context-panel/useOpenContextEditorFile';
-import { getFileIcon, type FileStatus } from './sidebar/sidebarFileRowHelpers';
+import type { FileStatus } from './sidebar/sidebarFileRowHelpers';
 
 
 // --- Main component ---
@@ -63,7 +64,8 @@ export const SidebarFilesTree: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const { results: searchResults, searching } = useFilesViewSearch({
+  const searchActive = searchQuery.trim().length > 0;
+  const { results: searchResults, searching, failed: searchFailed } = useFilesViewSearch({
     directory: currentDirectory,
     query: searchQuery,
     chrome: 'desktop',
@@ -449,6 +451,33 @@ export const SidebarFilesTree: React.FC = () => {
   const openEditorFile = useOpenContextEditorFile(root);
   const handleOpenFile = React.useCallback((node: FileNode) => openEditorFile(node.path), [openEditorFile]);
 
+  // Reveal the selected file wherever it was opened from (search, the changed
+  // files list, a link in chat): expand its folders, then bring its row into
+  // view once it renders. Only a new selection reveals, so folders the user
+  // collapses afterwards stay collapsed.
+  const expandPaths = useFilesViewTabsStore((state) => state.expandPaths);
+  const treeListRef = React.useRef<HTMLUListElement | null>(null);
+  const pendingRevealRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!root || !selectedPath) return;
+    pendingRevealRef.current = selectedPath;
+    const ancestors = getAncestorPaths(selectedPath, root);
+    if (ancestors.length === 0) return;
+    expandPaths(root, ancestors);
+    for (const path of ancestors) void loadDirectory(path);
+    // loadDirectory changes with the gitignored setting; that is not a new selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandPaths, root, selectedPath]);
+  React.useEffect(() => {
+    const target = pendingRevealRef.current;
+    const list = treeListRef.current;
+    if (!target || !list) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(target)}"]`);
+    if (!row) return;
+    pendingRevealRef.current = null;
+    row.scrollIntoView({ block: 'nearest' });
+  }, [childrenByDir, expandedPaths, searchActive]);
+
   const toggleDirectory = React.useCallback(async (dirPath: string) => {
     const normalized = normalizeDirectoryPathKey(dirPath);
     if (!root) return;
@@ -470,7 +499,7 @@ export const SidebarFilesTree: React.FC = () => {
       const isActive = selectedPath === node.path;
 
       return (
-        <li key={node.path} className="relative">
+        <li key={node.path} className="relative" data-tree-path={node.path}>
           <MemoizedFileRow
             node={node}
             root={root}
@@ -602,41 +631,32 @@ export const SidebarFilesTree: React.FC = () => {
       </div>
 
       <ScrollableOverlay outerClassName="flex-1 min-h-0" className="px-1 py-2">
-        <ul className="flex flex-col">
-          {searching ? (
+        <ul ref={treeListRef} className="flex flex-col">
+          {searchActive && searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
-              <Icon name="loader-4" className="h-4 w-4 animate-spin" />
+              <Icon name="loader-4" className="size-4 animate-spin" />
               {"Searching..."}
             </li>
-          ) : searchResults.length > 0 ? (
+          ) : searchActive && searchFailed ? (
+            <li className="px-2 py-1 typography-meta text-[var(--status-error)]">{"Search failed. Edit the search to try again."}</li>
+          ) : searchActive && searchResults.length === 0 ? (
+            <li className="px-2 py-1 typography-meta text-muted-foreground text-pretty">{`No files match “${searchQuery.trim()}”.`}</li>
+          ) : searchActive ? (
             searchResults.map((node) => {
-              const isActive = selectedPath === node.path;
+              const relativePath = node.relativePath || getDisplayPath(root ?? '', node.path);
               return (
                 <li key={node.path}>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFile(node)}
-                    draggable
+                  <FileListRow
+                    path={relativePath || node.path}
+                    status={getFileStatus(node.path)}
+                    active={selectedPath === node.path}
+                    onClick={() => void handleOpenFile(node)}
                     onDragStart={(e) => {
-                      const path = node.relativePath || getDisplayPath(root ?? '', node.path);
-                      if (!path || path === '.') return;
-                      e.dataTransfer.setData('application/x-pichamber-file-path', path);
+                      if (!relativePath || relativePath === '.') return;
+                      e.dataTransfer.setData('application/x-pichamber-file-path', relativePath);
                       e.dataTransfer.effectAllowed = 'copy';
                     }}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors cursor-grab active:cursor-grabbing',
-                      isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40'
-                    )}
-                    title={node.path}
-                  >
-                    {getFileIcon(node.path, node.extension)}
-                    <span
-                      className="min-w-0 flex-1 truncate typography-meta"
-                      style={{ direction: 'rtl', textAlign: 'left' }}
-                    >
-                      {node.relativePath ?? node.path}
-                    </span>
-                  </button>
+                  />
                 </li>
               );
             })

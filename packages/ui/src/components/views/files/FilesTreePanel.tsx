@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { FileIcon, FileRow, type FileStatus } from './FilesViewChrome';
-import type { FileNode } from './filesViewModel';
+import { FileRow, type FileStatus } from './FilesViewChrome';
+import { FileListRow } from './FileListRow';
+import { getDisplayPath, type FileNode } from './filesViewModel';
 import { createExpansionSet } from './fileTreeStatus';
 
 export interface FilesTreePanelProps {
@@ -17,6 +18,7 @@ export interface FilesTreePanelProps {
   onSearchQueryChange: (query: string) => void;
   searchInputRef: React.RefObject<HTMLInputElement | null>;
   searching: boolean;
+  searchFailed: boolean;
   searchResults: FileNode[];
   selectedFile: FileNode | null;
   onSelectFile: (file: FileNode) => void;
@@ -57,6 +59,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
   onSearchQueryChange,
   searchInputRef,
   searching,
+  searchFailed,
   searchResults,
   selectedFile,
   onSelectFile,
@@ -81,6 +84,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
   refreshDirectory,
 }) => {
   const hasTree = Boolean(root && childrenByDir[root]);
+  const searchActive = searchQuery.trim().length > 0;
   const rootLoadError = root ? loadErrorsByDir[root] : null;
   // One O(expanded) build per snapshot, then O(1) membership per row
   // instead of an `includes` scan per rendered node.
@@ -252,36 +256,26 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
         className={cn('py-2', isMobile ? 'px-3' : 'px-2')}
       >
         <ul className="flex flex-col">
-          {searching ? (
+          {searchActive && searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
               <Icon name="loader-4" className="size-4 animate-spin" />
               Searching...
             </li>
-          ) : searchResults.length > 0 ? (
-            searchResults.map((node) => {
-              const isActive = selectedFile?.path === node.path;
-              return (
-                <li key={node.path}>
-                  <button
-                    type="button"
-                    onClick={() => void onSelectFile(node)}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors',
-                      isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40',
-                    )}
-                  >
-                    <FileIcon filePath={node.path} extension={node.extension} />
-                    <span
-                      className="min-w-0 flex-1 truncate typography-meta"
-                      style={{ direction: 'rtl', textAlign: 'left' }}
-                      title={node.path}
-                    >
-                      {node.relativePath ?? node.path}
-                    </span>
-                  </button>
-                </li>
-              );
-            })
+          ) : searchActive && searchFailed ? (
+            <li className="px-2 py-1 typography-meta text-[var(--status-error)]">Search failed. Edit the search to try again.</li>
+          ) : searchActive && searchResults.length === 0 ? (
+            <li className="px-2 py-1 typography-meta text-muted-foreground text-pretty">{`No files match “${searchQuery.trim()}”.`}</li>
+          ) : searchActive ? (
+            searchResults.map((node) => (
+              <li key={node.path}>
+                <FileListRow
+                  path={node.relativePath || getDisplayPath(root, node.path) || node.path}
+                  status={getFileStatus(node.path)}
+                  active={selectedFile?.path === node.path}
+                  onClick={() => void onSelectFile(node)}
+                />
+              </li>
+            ))
           ) : rootLoadError ? (
             <li className="flex flex-col gap-2 px-2 py-1 typography-meta text-muted-foreground">
               <span className="text-[var(--status-error)]">{rootLoadError}</span>

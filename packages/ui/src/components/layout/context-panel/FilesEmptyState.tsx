@@ -1,12 +1,9 @@
 import React from 'react';
 
-import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
-import { FileChangeMark } from '@/components/views/files/FileChangeMark';
-import { fileChangeTextClass } from '@/components/views/files/fileChange';
+import { FileListRow } from '@/components/views/files/FileListRow';
 import { classifyGitFileStatus } from '@/components/views/files/fileTreeStatus';
 import { useGitStatus } from '@/stores/useGitStore';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
-import { cn } from '@/lib/utils';
 import { useOpenContextEditorFile } from './useOpenContextEditorFile';
 
 /**
@@ -48,26 +45,11 @@ export const FilesEmptyState: React.FC<{ directory: string }> = ({ directory }) 
                 {changed.length === 1 ? '1 changed file' : `${changed.length} changed files`}
               </h3>
               <ul className="mt-1 flex flex-col">
-                {changed.map(({ path, status }) => {
-                  const slash = path.lastIndexOf('/');
-                  const name = path.slice(slash + 1);
-                  const folder = slash >= 0 ? path.slice(0, slash) : '';
-                  return (
-                    <li key={path}>
-                      <button
-                        type="button"
-                        onClick={() => void openFile(`${root}/${path}`)}
-                        className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-interactive-hover/40"
-                        title={path}
-                      >
-                        <FileTypeIcon filePath={path} />
-                        <span className={cn('shrink-0 typography-meta text-foreground', fileChangeTextClass(status))}>{name}</span>
-                        <span className="min-w-0 flex-1 truncate typography-meta text-subtle-foreground">{folder}</span>
-                        <FileChangeMark status={status} />
-                      </button>
-                    </li>
-                  );
-                })}
+                {changed.map(({ path, status }) => (
+                  <li key={path}>
+                    <FileListRow path={path} status={status} onClick={() => void openFile(`${root}/${path}`)} />
+                  </li>
+                ))}
               </ul>
             </section>
           ) : null}

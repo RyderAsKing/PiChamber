@@ -436,7 +436,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, [activeRuntimeKey]);
 
   const searchDirectory = mobileChrome ? mobileDirectory : currentDirectory;
-  const { results: searchResults, searching } = useFilesViewSearch({
+  const { results: searchResults, searching, failed: searchFailed } = useFilesViewSearch({
     directory: searchDirectory,
     query: searchQuery,
     chrome,
@@ -1118,11 +1118,17 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     return getDisplayPath(root, selectedFilePath);
   }, [selectedFilePath, root]);
 
-  const selectedFileChange = React.useMemo(() => {
-    if (!displaySelectedPath || !gitStatus?.files) return null;
-    const file = gitStatus.files.find((entry) => entry.path === displaySelectedPath);
-    return file ? classifyGitFileStatus(file) : null;
-  }, [displaySelectedPath, gitStatus?.files]);
+  const selectedGitFile = React.useMemo(
+    () => (displaySelectedPath && gitStatus?.files?.find((entry) => entry.path === displaySelectedPath)) || null,
+    [displaySelectedPath, gitStatus?.files],
+  );
+  const selectedFileChange = selectedGitFile ? classifyGitFileStatus(selectedGitFile) : null;
+  const handleShowSelectedFileChanges = React.useCallback(() => {
+    if (!selectedGitFile || !root) return;
+    // Staged-only changes have an empty working diff; open the staged one.
+    const stagedOnly = selectedGitFile.index !== ' ' && selectedGitFile.index !== '?' && selectedGitFile.working_dir === ' ';
+    useUIStore.getState().openContextDiff(root, selectedGitFile.path, stagedOnly);
+  }, [root, selectedGitFile]);
 
   const canCopy = Boolean(selectedFile && (!isSelectedImage || isSelectedSvg) && !isSelectedPdf && !isUnsupportedBinary && fileContent.length > 0);
   const canCopyPath = Boolean(selectedFile && displaySelectedPath.length > 0);
@@ -1654,6 +1660,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           <FilePathBar
             path={displaySelectedPath}
             status={selectedFileChange}
+            // Diffs open in the context panel, which only sits beside the editor-only host.
+            onShowChanges={mode === 'editor-only' && selectedFileChange !== 'git-deleted' ? handleShowSelectedFileChanges : undefined}
             className={cn(showEditorTabsRow && 'border-t border-border/40')}
           >
             {settingsExpandedEditorToolbar ? (
@@ -1746,6 +1754,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       onSearchQueryChange={setSearchQuery}
       searchInputRef={searchInputRef}
       searching={searching}
+      searchFailed={searchFailed}
       searchResults={searchResults}
       selectedFile={selectedFile}
       onSelectFile={handleSelectFile}
@@ -1799,6 +1808,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         query={searchQuery}
         searchResults={searchResults}
         isSearching={searching}
+        searchFailed={searchFailed}
         directoryError={(mobileDirectory || root) ? loadErrorsByDir[mobileDirectory || root] ?? null : null}
         refreshing={mobileRefreshing}
         editorPath={showMobilePageContent ? selectedFile?.path ?? null : null}
