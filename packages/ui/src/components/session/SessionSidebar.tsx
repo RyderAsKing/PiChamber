@@ -68,7 +68,6 @@ import { type SessionGroup, type SessionNode } from './sidebar/types';
 import { autoSettleDaysFromSetting } from '@/lib/sessionShelf';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
-  formatProjectLabel,
   normalizePath,
   selectExpandedParentKeysForContext,
   toggleExpandedParentKey,
@@ -1462,11 +1461,11 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
             type="button"
             variant="default"
             size="lg"
-            className="pointer-events-auto w-full shadow-lg"
+            className="pointer-events-auto w-full"
             onClick={handleOpenNewSessionDraftFromHeader}
-            aria-label="New session"
           >
             <Icon name="chat-new" className="size-4" />
+            {"New session"}
           </Button>
         </div>
       ) : null}

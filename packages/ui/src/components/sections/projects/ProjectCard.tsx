@@ -1,4 +1,5 @@
 import React from 'react';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
 import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
@@ -12,7 +13,7 @@ interface ProjectCardProps {
 
 /** Grid card for project browse. Mirrors Provider/Skill/Snippet cards. */
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) => {
-  const label = project.label?.trim() || project.path.split('/').pop()?.trim() || project.path;
+  const label = getProjectDisplayLabel(project);
   const hasCustomLabel = Boolean(project.label?.trim());
 
   return (

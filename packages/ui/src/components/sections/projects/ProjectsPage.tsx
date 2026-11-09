@@ -1,4 +1,5 @@
 import React from 'react';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,7 +73,7 @@ export const ProjectsPage: React.FC = () => {
 
   // ── Detail view ──────────────────────────────────────────────────────────
   if (selectedProject) {
-    const label = selectedProject.label?.trim() || selectedProject.path.split('/').pop()?.trim() || selectedProject.path;
+    const label = getProjectDisplayLabel(selectedProject);
 
     return (
       <SettingsPageLayout

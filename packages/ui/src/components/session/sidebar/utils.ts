@@ -1,5 +1,5 @@
 import type { Session } from '@/lib/chat/types';
-import { formatDirectoryName } from '@/lib/utils';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { normalizePath } from '@/lib/pathNormalization';
 export { normalizePath };
 
@@ -149,22 +149,10 @@ export const resolveArchivedFolderName = (session: Session, projectRoot: string 
   return segments[segments.length - 1] ?? 'unassigned';
 };
 
-export const formatProjectLabel = (label: string): string => {
-  return label
-    .replace(/[-_]/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-};
-
 export const getProjectLabel = (
   project: { label?: string; normalizedPath: string },
   homeDirectory: string | null,
-): string => (
-  formatProjectLabel(
-    project.label?.trim()
-    || formatDirectoryName(project.normalizedPath, homeDirectory)
-    || project.normalizedPath,
-  )
-);
+): string => getProjectDisplayLabel({ label: project.label, path: project.normalizedPath }, homeDirectory);
 
 /** Where sidebar content starts, from either edge: the shared column gutter (`px-2`) plus a row's own padding (`px-3`), following the user's padding scale like those classes do. The session scroller itself stays full-width so the overlay scrollbar can sit on the sidebar edge. */
 export const sidebarContentInsetX = 'calc(1.25rem * var(--padding-scale, 1))';

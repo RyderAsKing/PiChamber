@@ -2,7 +2,6 @@ import React from 'react';
 
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import type { ProjectEntry } from '@/lib/api/types';
-import { formatDirectoryName } from '@/lib/utils';
 import { getRuntimeKey } from '@/lib/runtime-switch';
 import { resolveProjectForSessionDirectory } from '@/lib/projectResolution';
 import { useGitBranches, useGitStore, useIsGitRepo } from '@/stores/useGitStore';
@@ -22,10 +21,9 @@ import {
 
 export type { DraftTargetProject } from './draftTargetProjects';
 
-/** A project's display name, falling back to its directory name. */
-export function getProjectDisplayLabel(project: { label?: string; path: string }): string {
-    return project.label?.trim() || formatDirectoryName(project.path);
-}
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
+
+export { getProjectDisplayLabel };
 
 export function useDraftTarget(enabled: boolean) {
     const registeredProjects = useProjectsStore((state) => state.projects);

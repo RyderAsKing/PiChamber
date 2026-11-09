@@ -329,7 +329,7 @@ describe('SidebarProjectsList view modes', () => {
     // Folder labels passed
     expect(markup).toContain('data-project-label="Alpha Project"');
     expect(markup).toContain('data-project-label="Beta Project"');
-    expect(markup).toContain('data-project-label="No Folder"');
+    expect(markup).toContain('data-project-label="No folder"');
     expect(markup).toContain('data-show-folder-label="1"');
   });
 
