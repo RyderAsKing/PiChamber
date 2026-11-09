@@ -74,7 +74,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
         <SettingsTwoColumn>
           {shouldShow('fontSize') && (
             <SettingsStackedField
-              label={'Interface Font'}
+              label={'Interface font'}
               settingsItem="appearance.interface-font-size"
               controlClassName="w-full"
             >
@@ -114,7 +114,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
             </SettingsStackedField>
           )}
           {shouldShow('terminalFontSize') && (
-            <SettingsStackedField label={'Code Font'} controlClassName="w-full">
+            <SettingsStackedField label={'Code font'} controlClassName="w-full">
               <Select
                 value={monoFont}
                 onValueChange={(value) => setMonoFont(value as MonoFontOption)}
@@ -159,7 +159,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
         <SettingsTwoColumn>
           {shouldShow('fontSize') && (
             <SettingsStackedField
-              label={'Interface Font Size'}
+              label={'Interface font size'}
               settingsItem="appearance.interface-font-size"
               controlClassName="w-full"
             >
@@ -190,7 +190,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('terminalFontSize') && (
             <SettingsStackedField
-              label={'Terminal Font Size'}
+              label={'Terminal font size'}
               settingsItem="appearance.terminal-font-size"
               controlClassName="w-full"
             >
@@ -220,7 +220,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('editorFontSize') && (
             <SettingsStackedField
-              label={'Editor Font Size'}
+              label={'Editor font size'}
               settingsItem="appearance.editor-font-size"
               controlClassName="w-full"
             >
@@ -255,7 +255,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
         <SettingsTwoColumn>
           {shouldShow('spacing') && (
             <SettingsStackedField
-              label={'Spacing Density'}
+              label={'Spacing density'}
               settingsItem="appearance.spacing-density"
               controlClassName="w-full"
             >
@@ -285,7 +285,7 @@ export const DensityAndTypeSection: React.FC<DensityAndTypeSectionProps> = ({
           )}
           {shouldShow('inputBarOffset') && isMobile && (
             <SettingsStackedField
-              label={'Input Bar Offset'}
+              label={'Input bar offset'}
               info={'Raise input bar to avoid OS-level screen obstructions like home bars.'}
               settingsItem="appearance.input-bar-offset"
               controlClassName="w-full"

@@ -74,7 +74,7 @@ export const DesktopPasswordFields: React.FC<{ lan: DesktopLanAccessState }> = (
       settingsItem="sessions.desktop-ui-password"
       label={(
         <label htmlFor="desktop-ui-password">
-          {'Desktop UI Password'}
+          {'Desktop UI password'}
         </label>
       )}
       info={'PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login.'}

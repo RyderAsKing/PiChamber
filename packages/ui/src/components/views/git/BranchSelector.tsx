@@ -210,7 +210,7 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
                       <Icon name="arrow-left" className="size-4" />
                     </button>
                     <span className="typography-meta text-muted-foreground">
-                      {"Push To Prefix"} <span className="text-foreground font-medium">{sanitizedNewBranch}</span> {"Push To Suffix"}
+                      {"Push"} <span className="text-foreground font-medium">{sanitizedNewBranch}</span> {"to"}
                     </span>
                   </div>
                   <div className="flex flex-col gap-1">

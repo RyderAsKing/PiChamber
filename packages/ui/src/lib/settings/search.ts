@@ -33,13 +33,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.time-format',
     page: 'appearance',
-    title: "Time Format",
+    title: "Time format",
     keywords: ['clock', '12h', '24h'],
   },
   {
     id: 'appearance.week-start',
     page: 'appearance',
-    title: "Week Starts On",
+    title: "Week starts on",
     keywords: ['calendar', 'monday', 'sunday'],
   },
   {
@@ -51,13 +51,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.light-theme',
     page: 'appearance',
-    title: "Light Theme",
+    title: "Light theme",
     keywords: ['theme', 'color', 'light mode'],
   },
   {
     id: 'appearance.dark-theme',
     page: 'appearance',
-    title: "Dark Theme",
+    title: "Dark theme",
     keywords: ['theme', 'color', 'dark mode'],
   },
   {
@@ -73,7 +73,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.pwa-install-name',
     page: 'appearance',
-    title: "Install App Name",
+    title: "Install app name",
     description: "Used by PWA installation process.",
     keywords: ['pwa', 'installed app'],
     isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
@@ -81,7 +81,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.pwa-orientation',
     page: 'appearance',
-    title: "Install Orientation",
+    title: "Install orientation",
     description: "Used by the installed web app. Reinstall the PWA after changing this.",
     keywords: ['pwa', 'portrait', 'landscape'],
     isAvailable: (ctx) => ctx.isWeb && !ctx.isDesktop,
@@ -89,7 +89,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.mobile-keyboard-mode',
     page: 'appearance',
-    title: "Mobile Keyboard Behavior",
+    title: "Mobile keyboard behavior",
     description: "Default browser behavior is safest. Resize content asks supported browsers to shrink the app when the on-screen keyboard opens.",
     keywords: ['mobile', 'keyboard', 'resize'],
     isAvailable: (ctx) => ctx.isMobile && ctx.isWeb && !ctx.isDesktop,
@@ -97,38 +97,38 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.interface-font-size',
     page: 'appearance',
-    title: "Interface Font Size",
+    title: "Interface font size",
     keywords: ['font', 'text size', 'ui scale'],
   },
   {
     id: 'appearance.terminal-font-size',
     page: 'appearance',
-    title: "Terminal Font Size",
+    title: "Terminal font size",
     keywords: ['terminal', 'font', 'text size'],
   },
   {
     id: 'appearance.terminal-shell',
     page: 'general',
-    title: "Terminal Shell",
+    title: "Terminal shell",
     description: "Restart the terminal to apply this change to the current session.",
     keywords: ['terminal', 'shell', 'bash', 'zsh', 'fish', 'pwsh', 'powershell'],
   },
   {
     id: 'appearance.editor-font-size',
     page: 'appearance',
-    title: "Editor Font Size",
+    title: "Editor font size",
     keywords: ['editor', 'font', 'text size', 'code'],
   },
   {
     id: 'appearance.spacing-density',
     page: 'appearance',
-    title: "Spacing Density",
+    title: "Spacing density",
     keywords: ['density', 'compact', 'comfortable', 'spacing'],
   },
   {
     id: 'appearance.input-bar-offset',
     page: 'appearance',
-    title: "Input Bar Offset",
+    title: "Input bar offset",
     description: "Raise input bar to avoid OS-level screen obstructions like home bars.",
     keywords: ['input', 'home bar', 'offset'],
     // Only the mobile composer applies this offset (ChatInput gates on isMobile).
@@ -163,7 +163,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.terminal-quick-keys',
     page: 'general',
-    title: "Terminal Quick Keys",
+    title: "Terminal quick keys",
     description: "Show Esc, Ctrl, Arrows in terminal view",
     keywords: ['terminal', 'keyboard', 'esc', 'ctrl', 'arrows'],
   },
@@ -246,7 +246,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'chat.draft-starters-visible',
     page: 'chat',
-    title: "Show Starters on New Session Screen",
+    title: "Show starters on new session screen",
     keywords: ['starter', 'starters', 'new session', 'welcome', 'suggestions'],
   },
   {
@@ -259,13 +259,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'sessions.default-model',
     page: 'sessions',
-    title: "Default Model",
+    title: "Default model",
     keywords: ['model', 'provider', 'new sessions', 'picker'],
   },
   {
     id: 'sessions.default-thinking',
     page: 'sessions',
-    title: "Default Thinking",
+    title: "Default thinking",
     keywords: ['thinking', 'reasoning', 'variant', 'new sessions', 'per model'],
   },
   {
@@ -285,34 +285,34 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'sessions.deletion-dialog',
     page: 'sessions',
-    title: "Show Deletion Dialog",
+    title: "Show deletion dialog",
     keywords: ['delete', 'confirmation'],
   },
   {
     id: 'sessions.small-model',
     page: 'sessions',
-    title: "Small Model",
+    title: "Small model",
     description: "A cheap model for quick utility tasks like short recaps and summaries.",
     keywords: ['small model', 'utility', 'summary', 'recap', 'cheap', 'override', 'picker'],
   },
   {
     id: 'sessions.walkthrough-model',
     page: 'sessions',
-    title: "Changes Walkthrough Model",
+    title: "Changes walkthrough model",
     description: "The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used.",
     keywords: ['walkthrough', 'diff', 'review', 'changes', 'structured output', 'model', 'override', 'picker'],
   },
   {
     id: 'sessions.auto-cleanup',
     page: 'sessions',
-    title: "Enable Auto-Cleanup",
+    title: "Enable auto-cleanup",
     description: "Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions.",
     keywords: ['retention', 'archive', 'delete'],
   },
   {
     id: 'sessions.retention-period',
     page: 'sessions',
-    title: "Retention Period",
+    title: "Retention period",
     keywords: ['days', 'cleanup', 'retention'],
   },
   {
@@ -364,7 +364,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'sessions.desktop-ui-password',
     page: 'remote-access',
-    title: "Desktop UI Password",
+    title: "Desktop UI password",
     description: "PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login.",
     keywords: ['desktop', 'password', 'auth', 'login', 'remote access', 'security'],
     isAvailable: (ctx) => ctx.isDesktopLocalOrigin,
@@ -407,13 +407,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'git.changes-view',
     page: 'git',
-    title: "Changes View",
+    title: "Changes view",
     keywords: ['changes', 'flat list', 'tree view'],
   },
   {
     id: 'git.gitignored-files',
     page: 'git',
-    title: "Display Gitignored Files",
+    title: "Display gitignored files",
     keywords: ['ignored', 'files', 'gitignore'],
   },
   {
@@ -546,7 +546,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'providers.connect',
     page: 'providers',
-    title: "Connect Provider",
+    title: "Connect provider",
     keywords: ['add provider', 'connect provider', 'credentials'],
   },
   {
@@ -565,13 +565,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'providers.connection-details',
     page: 'providers',
-    title: "Connection Details",
+    title: "Connection details",
     keywords: ['config', 'source', 'disconnect'],
   },
   {
     id: 'providers.models',
     page: 'providers',
-    title: "Available Models",
+    title: "Available models",
     description: "Hide models you do not want in the composer or session default pickers.",
     keywords: ['models', 'hide', 'show'],
   },
@@ -584,7 +584,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'shortcuts.keyboard-shortcuts',
     page: 'shortcuts',
-    title: "Keyboard Shortcuts",
+    title: "Keyboard shortcuts",
     description: "Capture a new key combo, save it, and bindings will update immediately.",
     keywords: ['keyboard', 'hotkeys', 'bindings'],
   },
@@ -631,7 +631,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'tunnel.start',
     page: 'tunnel',
-    title: "Start Tunnel",
+    title: "Start tunnel",
     description: "Connect links are one-time and are revoked when tunnel stops or connect-link TTL expires.",
     keywords: ['connect link', 'qr code', 'public url', 'remote access'],
   },

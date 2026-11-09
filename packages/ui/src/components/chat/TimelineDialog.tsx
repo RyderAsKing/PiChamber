@@ -357,7 +357,7 @@ const TimelineDialogContent: React.FC<TimelineDialogProps> = ({
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Icon name="time" className="h-5 w-5" />
-                        {"Conversation Timeline"}
+                        {"Conversation timeline"}
                     </DialogTitle>
                     <DialogDescription>
                         {isMobile ? "Tap a message, then Revert or Fork" : "Arrow keys to move • Enter to jump"}

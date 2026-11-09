@@ -374,13 +374,13 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {isJson &&
         withTooltip(
-          jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View',
+          jsonViewMode === 'tree' ? 'Switch to text view' : 'Switch to tree view',
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleJsonViewMode}
             className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-            title={jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View'}
+            title={jsonViewMode === 'tree' ? 'Switch to text view' : 'Switch to tree view'}
           >
             {jsonViewMode === 'tree' ? (
               <Icon name="code-sslash" className="size-4" />

@@ -199,7 +199,7 @@ export const FileRow: React.FC<FileRowProps> = ({
           toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy" className="mr-2 size-4" /> {"Copy Path"}
+        <Icon name="file-copy" className="mr-2 size-4" /> {"Copy path"}
       </Item>
       <Item onClick={(e: React.MouseEvent) => {
         e.stopPropagation();
@@ -212,7 +212,7 @@ export const FileRow: React.FC<FileRowProps> = ({
           toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy-2" className="mr-2 size-4" /> {"Copy Relative Path"}
+        <Icon name="file-copy-2" className="mr-2 size-4" /> {"Copy relative path"}
       </Item>
       {!isDir && downloadFile && (
         <Item onClick={(e: React.MouseEvent) => {
@@ -235,12 +235,12 @@ export const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           {canCreateFile && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 size-4" /> {"New File"}
+              <Icon name="file-add" className="mr-2 size-4" /> {"New file"}
             </Item>
           )}
           {canCreateFolder && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 size-4" /> {"New Folder"}
+              <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
             </Item>
           )}
         </>

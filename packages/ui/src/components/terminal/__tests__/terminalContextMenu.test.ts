@@ -40,12 +40,12 @@ describe('terminal right-click copy/paste menu', () => {
     expect(viewportSource).toContain('copyTerminalSelection(selection)');
   });
 
-  test('pastes clipboard text through xterm and offers Select All', () => {
+  test('pastes clipboard text through xterm and offers Select all', () => {
     expect(viewportSource).toContain('readClipboardText()');
     expect(viewportSource).toContain('terminal.paste(text)');
     expect(viewportSource).toContain('terminal?.selectAll()');
     expect(viewportSource).toContain("{'Paste'}");
-    expect(viewportSource).toContain("{'Select All'}");
+    expect(viewportSource).toContain("{'Select all'}");
   });
 
   test('leaves keyboard paste to the native xterm paste event', () => {

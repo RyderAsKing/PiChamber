@@ -1281,7 +1281,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <HeaderIconActionButton
             visible={showMiniChatHeaderAction}
-            title={isNewSessionDraftOpen ? "New Mini Chat Window" : "Open Session in Mini Chat"}
+            title={isNewSessionDraftOpen ? "New Mini Chat window" : "Open session in Mini Chat"}
             ariaLabel={isNewSessionDraftOpen ? "Open a new Mini Chat window" : "Open current session in Mini Chat"}
             onClick={handleOpenCurrentMiniChat}
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}

@@ -197,8 +197,8 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                     onOpenDialog('createFile', { path: currentDirectory, type: 'directory' })
                   }
                   className="size-8 p-0 flex-shrink-0"
-                  title="New File"
-                  aria-label="New File"
+                  title="New file"
+                  aria-label="New file"
                 >
                   <Icon name="file-add" className="size-4" />
                 </Button>
@@ -218,8 +218,8 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                     onOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })
                   }
                   className="size-8 p-0 flex-shrink-0"
-                  title="New Folder"
-                  aria-label="New Folder"
+                  title="New folder"
+                  aria-label="New folder"
                 >
                   <Icon name="folder-add" className="size-4" />
                 </Button>

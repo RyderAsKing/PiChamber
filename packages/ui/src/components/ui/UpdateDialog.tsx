@@ -475,7 +475,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--status-success)] text-white hover:opacity-90 transition-opacity"
               >
                 <Icon name="restart" className="h-4 w-4" />
-                {"Restart to Update"}
+                {"Restart to update"}
               </button>
             )}
 

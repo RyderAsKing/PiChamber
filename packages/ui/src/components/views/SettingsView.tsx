@@ -198,11 +198,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       case "projects":
         return "Projects";
       case "remote-access":
-        return "Remote Access";
+        return "Remote access";
       case "servers":
         return "Servers";
       case "remote-instances":
-        return "Remote Access";
+        return "Remote access";
       case "providers":
         return "Providers";
       case "behavior":
@@ -228,7 +228,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       case "notifications":
         return "Notifications";
       case "tunnel":
-        return "External Tunnel";
+        return "External tunnel";
       case "about":
         return "About";
       case "home":
@@ -306,7 +306,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const showOpenPageSidebarButton =
     mobileStage === "page-content" && activePageMeta?.kind === "split";
   const mobileBackButtonLabel = showBackButton
-    ? "Back to Settings"
+    ? "Back to settings"
     : "Close settings";
   const shortcutKey = getModifierLabel();
 

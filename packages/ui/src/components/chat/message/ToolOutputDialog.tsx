@@ -161,7 +161,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                     return (
                                         renderTodoOutput(popup.content, {
                                             total: "Total",
-                                            inProgress: "In Progress",
+                                            inProgress: "In progress",
                                             pending: "Pending",
                                             completed: "Completed",
                                             cancelled: "Cancelled",

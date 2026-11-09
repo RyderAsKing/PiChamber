@@ -41,11 +41,11 @@ export const HelpDialog: React.FC = () => {
 
   const shortcuts: ShortcutSection[] = [
     {
-      categoryKey: "Navigation & Commands",
+      categoryKey: "Navigation & commands",
       items: [
         {
           id: 'open_command_palette',
-          descriptionKey: "Open Command Palette",
+          descriptionKey: "Open command palette",
           icon: "command",
           keys: '',
         },
@@ -57,19 +57,19 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'toggle_sidebar',
-          descriptionKey: "Toggle Session Sidebar",
+          descriptionKey: "Toggle session sidebar",
           icon: "layout-left",
           keys: '',
         },
         {
           id: 'add_selection_to_chat',
-          descriptionKey: "Add Selection to Chat",
+          descriptionKey: "Add selection to chat",
           icon: "add",
           keys: '',
         },
         {
           id: 'open_model_selector',
-          descriptionKey: "Open Model Selector",
+          descriptionKey: "Open model selector",
           icon: "ai-generate-2",
           keys: '',
         },
@@ -97,15 +97,15 @@ export const HelpDialog: React.FC = () => {
       ],
     },
     {
-      categoryKey: "Session Management",
+      categoryKey: "Session management",
       items: [
         {
           id: 'new_chat',
-          descriptionKey: "Create New Session",
+          descriptionKey: "Create new session",
           icon: "add",
           keys: '',
         },
-        { id: 'focus_input', descriptionKey: "Focus Chat Input", icon: "text", keys: '' },
+        { id: 'focus_input', descriptionKey: "Focus chat input", icon: "text", keys: '' },
         {
           id: 'cycle_session_folder',
           descriptionKey: "Cycle session folder",
@@ -171,7 +171,7 @@ export const HelpDialog: React.FC = () => {
         },
         {
           id: 'open_settings',
-          descriptionKey: "Open Settings",
+          descriptionKey: "Open settings",
           icon: "settings-3",
           keys: '',
         },
@@ -185,7 +185,7 @@ export const HelpDialog: React.FC = () => {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Icon name="command" className="h-5 w-5" />
-            {"Keyboard Shortcuts"}
+            {"Keyboard shortcuts"}
           </DialogTitle>
           <DialogDescription>
             {"Use these keyboard shortcuts to navigate PiChamber efficiently"}

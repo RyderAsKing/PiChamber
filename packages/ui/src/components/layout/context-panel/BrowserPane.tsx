@@ -310,7 +310,7 @@ const IframeBrowserPane: React.FC<BrowserPaneProps> = ({ initialUrl, directory, 
               {"This site doesn't allow being shown inside other pages. Use Server to open it in PiChamber, or open it in your system browser."}
             </span>
             <div className="flex flex-wrap justify-center gap-2">
-              <Button type="button" size="sm" onClick={() => onRouteChange('server')}>{'Use Server'}</Button>
+              <Button type="button" size="sm" onClick={() => onRouteChange('server')}>{'Use server'}</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => void openExternalUrl(currentUrl)}>{'Open in system browser'}</Button>
             </div>
           </div>

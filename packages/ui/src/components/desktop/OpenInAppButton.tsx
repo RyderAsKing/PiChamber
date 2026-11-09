@@ -173,7 +173,7 @@ export const OpenInAppButton = ({ directory, className }: OpenInAppButtonProps) 
         >
           <DropdownMenuItem className="flex items-center gap-2" onClick={() => void handleCopyPath()}>
             <Icon name="file-copy" className="h-4 w-4" />
-            <span className="typography-ui-label text-foreground">{"Copy Path"}</span>
+            <span className="typography-ui-label text-foreground">{"Copy path"}</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {availableApps.map((app) => {
@@ -202,7 +202,7 @@ export const OpenInAppButton = ({ directory, className }: OpenInAppButtonProps) 
               onClick={() => void loadInstalledApps(true)}
             >
               <Icon name="refresh" className="h-4 w-4" />
-              <span className="typography-ui-label text-foreground">{"Refresh Apps"}</span>
+              <span className="typography-ui-label text-foreground">{"Refresh apps"}</span>
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

@@ -17,33 +17,33 @@ export interface ToolMetadata {
 
 const TOOL_METADATA: Record<string, ToolMetadata> = {
   read: {
-    displayName: 'Read File',
+    displayName: 'Read file',
     category: 'file',
     outputLanguage: 'auto',
     inputFields: [
-      { key: 'filePath', label: 'File Path', type: 'file' },
-      { key: 'offset', label: 'Start Line', type: 'text' },
-      { key: 'limit', label: 'Lines to Read', type: 'text' },
+      { key: 'filePath', label: 'File path', type: 'file' },
+      { key: 'offset', label: 'Start line', type: 'text' },
+      { key: 'limit', label: 'Lines to read', type: 'text' },
     ],
   },
   write: {
-    displayName: 'Write File',
+    displayName: 'Write file',
     category: 'file',
     outputLanguage: 'auto',
     inputFields: [
-      { key: 'filePath', label: 'File Path', type: 'file' },
+      { key: 'filePath', label: 'File path', type: 'file' },
       { key: 'content', label: 'Content', type: 'code' },
     ],
   },
   edit: {
-    displayName: 'Edit File',
+    displayName: 'Edit file',
     category: 'file',
     outputLanguage: 'diff',
     inputFields: [
-      { key: 'filePath', label: 'File Path', type: 'file' },
+      { key: 'filePath', label: 'File path', type: 'file' },
       { key: 'oldString', label: 'Find', type: 'code' },
       { key: 'newString', label: 'Replace', type: 'code' },
-      { key: 'replaceAll', label: 'Replace All', type: 'text' },
+      { key: 'replaceAll', label: 'Replace all', type: 'text' },
     ],
   },
   multiedit: {
@@ -51,12 +51,12 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
     category: 'file',
     outputLanguage: 'diff',
     inputFields: [
-      { key: 'filePath', label: 'File Path', type: 'file' },
+      { key: 'filePath', label: 'File path', type: 'file' },
       { key: 'edits', label: 'Edits', type: 'code', language: 'json' },
     ],
   },
   apply_patch: {
-    displayName: 'Apply Patch',
+    displayName: 'Apply patch',
     category: 'file',
     outputLanguage: 'diff',
     inputFields: [
@@ -65,7 +65,7 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
   },
 
   bash: {
-    displayName: 'Shell Command',
+    displayName: 'Shell command',
     category: 'system',
     outputLanguage: 'text',
     inputFields: [
@@ -76,17 +76,17 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
   },
 
   grep: {
-    displayName: 'Search Files',
+    displayName: 'Search files',
     category: 'search',
     outputLanguage: 'text',
     inputFields: [
       { key: 'pattern', label: 'Pattern', type: 'pattern' },
       { key: 'path', label: 'Directory', type: 'file' },
-      { key: 'include', label: 'Include Pattern', type: 'pattern' },
+      { key: 'include', label: 'Include pattern', type: 'pattern' },
     ],
   },
   glob: {
-    displayName: 'Find Files',
+    displayName: 'Find files',
     category: 'search',
     outputLanguage: 'text',
     inputFields: [
@@ -95,23 +95,23 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
     ],
   },
   list: {
-    displayName: 'List Directory',
+    displayName: 'List directory',
     category: 'file',
     outputLanguage: 'text',
     inputFields: [
       { key: 'path', label: 'Directory', type: 'file' },
-      { key: 'ignore', label: 'Ignore Patterns', type: 'pattern' },
+      { key: 'ignore', label: 'Ignore patterns', type: 'pattern' },
     ],
   },
 
   task: {
-    displayName: 'Agent Task',
+    displayName: 'Agent task',
     category: 'ai',
     outputLanguage: 'markdown',
     inputFields: [
       { key: 'description', label: 'Task', type: 'text' },
       { key: 'prompt', label: 'Instructions', type: 'text' },
-      { key: 'subagent_type', label: 'Agent Type', type: 'text' },
+      { key: 'subagent_type', label: 'Agent type', type: 'text' },
     ],
   },
 
@@ -127,35 +127,35 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
   },
 
   websearch: {
-    displayName: 'Web Search',
+    displayName: 'Web search',
     category: 'web',
     outputLanguage: 'markdown',
     inputFields: [
-      { key: 'query', label: 'Search Query', type: 'text' },
-      { key: 'numResults', label: 'Results Count', type: 'text' },
-      { key: 'type', label: 'Search Type', type: 'text' },
+      { key: 'query', label: 'Search query', type: 'text' },
+      { key: 'numResults', label: 'Results count', type: 'text' },
+      { key: 'type', label: 'Search type', type: 'text' },
     ],
   },
   codesearch: {
-    displayName: 'Code Search',
+    displayName: 'Code search',
     category: 'web',
     outputLanguage: 'markdown',
     inputFields: [
-      { key: 'query', label: 'Search Query', type: 'text' },
+      { key: 'query', label: 'Search query', type: 'text' },
       { key: 'tokensNum', label: 'Tokens', type: 'text' },
     ],
   },
 
   todowrite: {
-    displayName: 'Update Todo List',
+    displayName: 'Update todo list',
     category: 'system',
     outputLanguage: 'json',
     inputFields: [
-      { key: 'todos', label: 'Todo Items', type: 'code', language: 'json' },
+      { key: 'todos', label: 'Todo items', type: 'code', language: 'json' },
     ],
   },
   todoread: {
-    displayName: 'Read Todo List',
+    displayName: 'Read todo list',
     category: 'system',
     outputLanguage: 'json',
     inputFields: [],
@@ -165,7 +165,7 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
     category: 'ai',
     outputLanguage: 'markdown',
     inputFields: [
-      { key: 'name', label: 'Skill Name', type: 'text' },
+      { key: 'name', label: 'Skill name', type: 'text' },
     ],
   },
   question: {
@@ -183,7 +183,7 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
     outputLanguage: 'json',
     inputFields: [
       { key: 'operation', label: 'Operation', type: 'text' },
-      { key: 'filePath', label: 'File Path', type: 'file' },
+      { key: 'filePath', label: 'File path', type: 'file' },
       { key: 'line', label: 'Line', type: 'text' },
       { key: 'character', label: 'Character', type: 'text' },
       { key: 'query', label: 'Query', type: 'text' },
@@ -198,28 +198,28 @@ const TOOL_METADATA: Record<string, ToolMetadata> = {
   },
 
   plan_enter: {
-    displayName: 'Plan Mode',
+    displayName: 'Plan mode',
     category: 'ai',
     outputLanguage: 'text',
     inputFields: [],
   },
 
   plan_exit: {
-    displayName: 'Build Mode',
+    displayName: 'Build mode',
     category: 'ai',
     outputLanguage: 'text',
     inputFields: [],
   },
 
   StructuredOutput: {
-    displayName: 'Structured Output',
+    displayName: 'Structured output',
     category: 'ai',
     outputLanguage: 'json',
     inputFields: [],
   },
 
   structuredoutput: {
-    displayName: 'Structured Output',
+    displayName: 'Structured output',
     category: 'ai',
     outputLanguage: 'json',
     inputFields: [],

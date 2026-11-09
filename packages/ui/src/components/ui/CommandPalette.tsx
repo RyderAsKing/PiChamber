@@ -159,10 +159,10 @@ export const CommandPalette: React.FC = () => {
     const list: CommandEntry[] = [
       {
         id: 'new-session',
-        title: "New Session",
+        title: "New session",
         icon: <Icon name="add" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_chat',
-        searchText: "New Session",
+        searchText: "New session",
         onSelect: run(() => {
           setActiveMainTab('chat');
           setSessionSwitcherOpen(false);
@@ -171,9 +171,9 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'add-project',
-        title: "Add Project",
+        title: "Add folder",
         icon: <Icon name="folder-add" className="mr-2 h-4 w-4" />,
-        searchText: "Add Project",
+        searchText: "Add folder",
         onSelect: run(() => {
           sessionEvents.requestDirectoryDialog();
         }),
@@ -181,13 +181,13 @@ export const CommandPalette: React.FC = () => {
       {
         id: 'toggle-sidebar',
         title: isMobile
-          ? "Show Session Switcher"
-          : "Toggle Sidebar",
+          ? "Show session switcher"
+          : "Toggle sidebar",
         icon: <Icon name="layout-left" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_sidebar',
         searchText: isMobile
-          ? "Show Session Switcher"
-          : "Toggle Sidebar",
+          ? "Show session switcher"
+          : "Toggle sidebar",
         onSelect: run(() => {
           if (isMobile) {
             const { isSessionSwitcherOpen } = useUIStore.getState();
@@ -209,29 +209,29 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'context-usage',
-        title: "Show Context Usage",
+        title: "Show context usage",
         icon: <Icon name="pie-chart" className="mr-2 h-4 w-4" />,
-        searchText: "Show Context Usage",
+        searchText: "Show context usage",
         onSelect: run(() => {
           if (currentDirectory) openContextOverview(currentDirectory);
         }),
       },
       {
         id: 'open-settings',
-        title: "Open Settings...",
+        title: "Open settings…",
         icon: <Icon name="settings-3" className="mr-2 h-4 w-4" />,
         shortcutId: 'open_settings',
-        searchText: "Open Settings...",
+        searchText: "Open settings…",
         onSelect: run(() => setSettingsDialogOpen(true)),
       },
     ];
     if (canUseElectronDesktopIPC()) {
       list.splice(1, 0, {
         id: 'new-mini-chat',
-        title: "New Mini Chat Window",
+        title: "New Mini Chat window",
         icon: <Icon name="window" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_mini_chat',
-        searchText: "New Mini Chat Window",
+        searchText: "New Mini Chat window",
         onSelect: run(() => {
           void invokeDesktop('desktop_open_draft_mini_chat_window', {
             directory: normalizePath(currentDirectory || activeProject?.path || ''),
@@ -462,7 +462,7 @@ export const CommandPalette: React.FC = () => {
   return (
     <Dialog open={isCommandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{"Command Palette"}</DialogTitle>
+        <DialogTitle>{"Command palette"}</DialogTitle>
         <DialogDescription>{"Search files, sessions, and commands."}</DialogDescription>
       </DialogHeader>
       <DialogContent className="overflow-hidden p-0" showCloseButton>

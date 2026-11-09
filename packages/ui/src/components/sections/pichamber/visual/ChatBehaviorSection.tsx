@@ -50,7 +50,7 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
           {/* Flat 2×2 grid so row headers share a baseline (not stacked columns). */}
           <SettingsTwoColumn className="lg:gap-y-6">
             {shouldShow('diffLayout') && (
-              <SettingsControlGroup title={'Diff Layout'}>
+              <SettingsControlGroup title={'Diff layout'}>
                 <SettingsRadioGroup aria-label={'Diff layout'}>
                   {DIFF_LAYOUT_OPTIONS.map((option) => (
                     <SettingsRadioOption
@@ -95,7 +95,7 @@ export const ChatBehaviorSection: React.FC<ChatBehaviorSectionProps> = ({
         <SettingsCheckboxRow
           checked={draftStartersVisible}
           onChange={onDraftStartersVisibleChange}
-          label={'Show Starters on New Session Screen'}
+          label={'Show starters on new session screen'}
           ariaLabel={'Show starters on the new session screen'}
           settingsItem="chat.draft-starters-visible"
         />

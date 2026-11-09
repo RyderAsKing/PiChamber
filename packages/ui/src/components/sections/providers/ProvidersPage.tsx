@@ -152,7 +152,7 @@ export const ProvidersPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-4 py-1.5">
-              <SettingsFieldRow label="API Key">
+              <SettingsFieldRow label="API key">
                 <div className="flex w-full max-w-[24rem] gap-2">
                   <Input
                     type="password"
@@ -162,7 +162,7 @@ export const ProvidersPage: React.FC = () => {
                     autoComplete="off"
                   />
                   <Button size="sm" onClick={() => void startLogin('api_key')} disabled={busy || apiKey.trim().length === 0}>
-                    {busy ? 'Saving...' : 'Save Key'}
+                    {busy ? 'Saving...' : 'Save key'}
                   </Button>
                 </div>
               </SettingsFieldRow>
@@ -191,7 +191,7 @@ export const ProvidersPage: React.FC = () => {
         </SettingsSection>
 
         <SettingsSection
-          title="Available Models"
+          title="Available models"
           settingsItem="providers.models"
           titleAccessory={
             <Button

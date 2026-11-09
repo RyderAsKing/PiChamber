@@ -129,7 +129,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
                 {'Stopping...'}
               </>
             ) : (
-              'Stop Tunnel'
+              'Stop tunnel'
             )}
           </Button>
         </div>

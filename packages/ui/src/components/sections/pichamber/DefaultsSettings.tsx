@@ -158,7 +158,7 @@ export const DefaultsSettings: React.FC = () => {
 
   if (loadState === 'failed' && !pichamber) {
     return (
-      <SettingsSection title="Session Defaults" divider={false}>
+      <SettingsSection title="Session defaults" divider={false}>
         <p className="typography-meta text-[var(--status-error)]">{"Session defaults are unavailable."}</p>
       </SettingsSection>
     );
@@ -176,14 +176,14 @@ export const DefaultsSettings: React.FC = () => {
 
   return (
     <SettingsSection
-      title="Session Defaults"
+      title="Session defaults"
       divider={false}
       info="New sessions use these models. Leave a picker on its fallback to keep Pi's own default."
     >
       <div className={SETTINGS_FIELDS_STACK_CLASS}>
         <SettingsFieldRow
           settingsItem="sessions.default-model"
-          label="Default Model"
+          label="Default model"
           info="The model new sessions start with. Unset keeps Pi's default."
         >
           <SettingsModelPicker
@@ -197,7 +197,7 @@ export const DefaultsSettings: React.FC = () => {
         {showDefaultThinking && pichamber?.defaultModel ? (
           <SettingsFieldRow
             settingsItem="sessions.default-thinking"
-            label="Default Thinking"
+            label="Default thinking"
             info="Thinking level for new sessions that start with the default model. Unset keeps Pi's default for that model."
           >
             <Select
@@ -230,7 +230,7 @@ export const DefaultsSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.small-model"
-          label="Small Model"
+          label="Small model"
           info="A cheap model for quick utility tasks like short recaps and summaries."
         >
           <SettingsModelPicker
@@ -243,7 +243,7 @@ export const DefaultsSettings: React.FC = () => {
 
         <SettingsFieldRow
           settingsItem="sessions.walkthrough-model"
-          label="Changes Walkthrough Model"
+          label="Changes walkthrough model"
           info="The AI review of your changes needs structured output and room for a whole diff, which a cheap small model often cannot give. Models the catalog reports as unable to produce structured output are hidden from this picker. Leave it unset and the small model is used."
         >
           <SettingsModelPicker
@@ -284,7 +284,7 @@ export const DefaultsSettings: React.FC = () => {
             settingsItem="sessions.deletion-dialog"
             checked={showDeletionDialog}
             onChange={setShowDeletionDialog}
-            label="Show Deletion Dialog"
+            label="Show deletion dialog"
             ariaLabel="Show deletion dialog"
           />
         </SettingsInset>

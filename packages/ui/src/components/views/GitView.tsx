@@ -499,7 +499,7 @@ export const GitView: React.FC<GitViewProps> = ({
       const message =
         err instanceof Error
           ? err.message
-          : `${action === 'sync' ? 'Sync Changes' : action === 'pull' ? 'Pull' : action} failed`;
+          : `${action === 'sync' ? 'Sync changes' : action === 'pull' ? 'Pull' : action} failed`;
       toast.error(message);
     } finally {
       setSyncAction(null);

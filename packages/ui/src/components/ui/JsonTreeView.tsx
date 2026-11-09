@@ -69,7 +69,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
           className="gap-1 text-xs text-muted-foreground"
         >
           <Icon name="arrow-down-s" className="h-3 w-3" />
-          {"Expand All"}
+          {"Expand all"}
         </Button>
         <Button
           variant="ghost"
@@ -78,7 +78,7 @@ const JsonTreeView = React.memo(function JsonTreeView({
           className="gap-1 text-xs text-muted-foreground"
         >
           <Icon name="arrow-up-s" className="h-3 w-3" />
-          {"Collapse All"}
+          {"Collapse all"}
         </Button>
       </div>
       <div

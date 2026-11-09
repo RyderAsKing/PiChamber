@@ -589,12 +589,12 @@ export const SidebarFilesTree: React.FC = () => {
             <DropdownMenuContent align="end" side="bottom">
               {canCreateFile ? (
                 <DropdownMenuItem onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}>
-                  <Icon name="file-add" className="mr-2 size-4" /> {"New File"}
+                  <Icon name="file-add" className="mr-2 size-4" /> {"New file"}
                 </DropdownMenuItem>
               ) : null}
               {canCreateFolder ? (
                 <DropdownMenuItem onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}>
-                  <Icon name="folder-add" className="mr-2 size-4" /> {"New Folder"}
+                  <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
                 </DropdownMenuItem>
               ) : null}
             </DropdownMenuContent>
@@ -681,8 +681,8 @@ export const SidebarFilesTree: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {activeDialog === 'createFile' && "Create File"}
-              {activeDialog === 'createFolder' && "Create Folder"}
+              {activeDialog === 'createFile' && "Create file"}
+              {activeDialog === 'createFolder' && "Create folder"}
               {activeDialog === 'rename' && "Rename"}
               {activeDialog === 'delete' && "Delete"}
             </DialogTitle>

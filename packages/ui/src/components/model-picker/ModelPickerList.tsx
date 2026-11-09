@@ -394,7 +394,7 @@ export const ModelPickerList: React.FC<ModelPickerListProps> = ({
                   rowClassName,
                 )}
               >
-                <span className="font-medium text-muted-foreground">{labels.notSelected || 'Not Selected'}</span>
+                <span className="font-medium text-muted-foreground">{labels.notSelected || 'Not selected'}</span>
                 {!selectedModel ? <Icon name="check" className="h-4 w-4 text-primary ml-auto flex-shrink-0" /> : null}
               </button>
             </div>

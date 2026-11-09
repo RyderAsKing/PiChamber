@@ -537,7 +537,7 @@ export const TerminalView: React.FC<TerminalViewProps> = ({ visible, onCloseView
                 title={'Force kill and create fresh session'}
                 type="button"
               >
-                {'Hard Restart'}
+                {'Hard restart'}
               </Button>
             )}
           </div>

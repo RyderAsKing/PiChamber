@@ -149,7 +149,7 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           <SettingsCheckboxRow
             checked={showTerminalQuickKeysOnDesktop}
             onChange={setShowTerminalQuickKeysOnDesktop}
-            label={'Terminal Quick Keys'}
+            label={'Terminal quick keys'}
             ariaLabel={'Terminal quick keys'}
             settingsItem="appearance.terminal-quick-keys"
             info={'Show Esc, Ctrl, Arrows in terminal view'}
@@ -157,7 +157,7 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
         )}
         {showTerminalShellSetting && (
           <SettingsStackedField
-            label={'Terminal Shell'}
+            label={'Terminal shell'}
             info={'Restart the terminal to apply this change to the current session.'}
             settingsItem="appearance.terminal-shell"
             className="pt-2"

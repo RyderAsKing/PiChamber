@@ -72,9 +72,9 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
   setDockBadgeEnabled,
 }) => {
   return (
-    <SettingsSection title={'Color mode & Theme'} divider={false} contentClassName="space-y-4">
+    <SettingsSection title={'Color mode & theme'} divider={false} contentClassName="space-y-4">
       <SettingsControlGroup title={'Color mode'}>
-        <SettingsRadioGroup aria-label={'Color Mode'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
+        <SettingsRadioGroup aria-label={'Color mode'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
           {THEME_MODE_OPTIONS.map((option) => (
             <SettingsPreviewOption
               key={option.value}
@@ -95,7 +95,7 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
       </SettingsControlGroup>
 
       {showMobileLayoutSetting && (
-        <SettingsStackedField label={'Mobile Layout'}>
+        <SettingsStackedField label={'Mobile layout'}>
           <SettingsChipGroup
             value={mobileLayoutPreference}
             options={MOBILE_LAYOUT_OPTIONS.map((option) => ({
@@ -103,14 +103,14 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
               label: option.label,
             }))}
             onChange={onMobileLayoutPreferenceChange}
-            aria-label={'Mobile Layout'}
+            aria-label={'Mobile layout'}
           />
         </SettingsStackedField>
       )}
 
       <SettingsTwoColumn className="gap-4 @md:grid-cols-2 @md:gap-8 @3xl:gap-10">
         <SettingsStackedField
-          label={'Light Theme'}
+          label={'Light theme'}
           settingsItem="appearance.light-theme"
         >
           <Select
@@ -149,7 +149,7 @@ export const ColorModeAndThemeSection: React.FC<ColorModeAndThemeSectionProps> =
         </SettingsStackedField>
 
         <SettingsStackedField
-          label={'Dark Theme'}
+          label={'Dark theme'}
           settingsItem="appearance.dark-theme"
         >
           <Select

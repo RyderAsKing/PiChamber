@@ -235,7 +235,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
               onClick={onSaveNewPreset}
               disabled={disabled}
             >
-              {'Save Changes'}
+              {'Save changes'}
             </Button>
             <Button
               variant="ghost"

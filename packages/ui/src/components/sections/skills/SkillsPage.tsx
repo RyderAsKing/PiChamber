@@ -170,7 +170,7 @@ export const SkillsPage: React.FC = () => {
           </SettingsSection>
 
           <SettingsSection
-            title="Skill Guide"
+            title="Skill guide"
             settingsItem="skills.content"
             info={isEditingSkill ? "Markdown supported. Preview your changes before saving." : "Rendered from the SKILL.md markdown file discovered by Pi."}
             headerAction={
@@ -193,7 +193,7 @@ export const SkillsPage: React.FC = () => {
                     Cancel
                   </Button>
                   <Button size="xs" onClick={() => void handleSaveSkill()} disabled={isSavingSkill || !isDirty}>
-                    {isSavingSkill ? "Saving..." : "Save Changes"}
+                    {isSavingSkill ? "Saving..." : "Save changes"}
                   </Button>
                 </div>
               </>

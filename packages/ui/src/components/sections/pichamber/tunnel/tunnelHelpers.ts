@@ -37,7 +37,7 @@ export const TUNNEL_MODE_OPTIONS: Array<{
 }> = [
   {
     value: 'managed-remote',
-    label: 'Managed Remote',
+    label: 'Managed remote',
     tooltip:
       'Managed Remote uses your Cloudflare account and hostname for long-lived access.',
   },

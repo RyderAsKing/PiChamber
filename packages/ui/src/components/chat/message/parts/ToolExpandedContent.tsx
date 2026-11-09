@@ -612,7 +612,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
 
         const todoOutput = renderTodoOutput(todoContent, {
             total: "Total",
-            inProgress: "In Progress",
+            inProgress: "In progress",
             pending: "Pending",
             completed: "Completed",
             cancelled: "Cancelled",

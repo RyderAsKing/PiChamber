@@ -64,7 +64,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
             onClick={onCommit}
             disabled={!canCommit}
             className="commit-actions__btn whitespace-nowrap"
-            aria-label={"Commit  aria label"}
+            aria-label={"Commit"}
           >
             {commitAction === 'commit' ? (
               <>

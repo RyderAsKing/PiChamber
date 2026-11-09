@@ -60,7 +60,7 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
     <SettingsSection title={'App install'} divider={false} className="pb-0" contentClassName={SETTINGS_FIELDS_STACK_CLASS}>
       {showPwaInstallNameSetting && (
         <SettingsFieldRow
-          label={'Install App Name'}
+          label={'Install app name'}
           info={'Used by PWA installation process.'}
           settingsItem="appearance.pwa-install-name"
           alignEnd={false}
@@ -101,7 +101,7 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
 
       {showPwaOrientationSetting && (
         <SettingsFieldRow
-          label={'Install Orientation'}
+          label={'Install orientation'}
           description={'Used by the installed web app. Reinstall the PWA after changing this.'}
           settingsItem="appearance.pwa-orientation"
           alignEnd={false}
@@ -150,7 +150,7 @@ export const AppInstallSection: React.FC<AppInstallSectionProps> = ({
 
       {showMobileKeyboardModeSetting && (
         <SettingsFieldRow
-          label={'Mobile Keyboard Behavior'}
+          label={'Mobile keyboard behavior'}
           info={
             'Default browser behavior is safest. Resize content asks supported browsers to shrink the app when the on-screen keyboard opens.'
           }

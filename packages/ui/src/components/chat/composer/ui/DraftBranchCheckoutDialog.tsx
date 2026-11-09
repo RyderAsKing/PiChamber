@@ -100,8 +100,8 @@ export function DraftBranchCheckoutDialog(props: {
                             {checking
                                 ? 'Checking out...'
                                 : state?.phase === 'retryable-error'
-                                    ? 'Try Again'
-                                    : 'Check Out and Send'}
+                                    ? 'Try again'
+                                    : 'Check out and send'}
                         </Button>
                     ) : null}
                 </DialogFooter>

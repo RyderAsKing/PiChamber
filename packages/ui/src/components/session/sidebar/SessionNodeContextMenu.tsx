@@ -119,7 +119,7 @@ function renderSessionMenuItems(
           className="[&>svg]:mr-1"
         >
           <Icon name="window" className="mr-1 h-4 w-4" />
-          <span className="truncate">{'Open in Mini Chat Window'}</span>
+          <span className="truncate">{'Open in Mini Chat window'}</span>
         </Item>
       ) : null}
 

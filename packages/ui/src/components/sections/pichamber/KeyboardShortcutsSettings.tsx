@@ -204,7 +204,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
   return (
     <SettingsSection
       settingsItem="shortcuts.keyboard-shortcuts"
-      title={"Keyboard Shortcuts"}
+      title={"Keyboard shortcuts"}
       divider={false}
       info={"Capture a new key combo, save it, and bindings will update immediately."}
       headerAction={(
@@ -222,7 +222,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
             setWarningText('');
           }}
         >
-          {"Reset All"}
+          {"Reset all"}
         </Button>
       )}
     >
@@ -325,7 +325,7 @@ export const KeyboardShortcutsSettings: React.FC = () => {
                   }}
                   disabled={!hasDraft}
                 >
-                  {"Save Changes"}
+                  {"Save changes"}
                 </Button>
                 <Button type="button" size="xs" className="!font-normal" variant="ghost" onClick={() => resetOne(action.id)}>
                   {"Reset"}
