@@ -976,6 +976,14 @@ html:not(.dark) .chat-scroll {
   }
 }
 
+/* Assistant message footer on a phone: the prompt above already shows the
+   time, and dropping it here keeps the actions on the same line. */
+@container message-footer (max-width: 30rem) {
+  .message-footer__timestamp {
+    display: none;
+  }
+}
+
 /* Assistant message footer: collapse text labels only on very narrow layouts. */
 @container message-footer (max-width: 16rem) {
   .message-footer__label {

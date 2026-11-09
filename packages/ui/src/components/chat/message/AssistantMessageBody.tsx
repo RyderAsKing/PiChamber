@@ -329,7 +329,7 @@ export const AssistantMessageBody = React.memo(
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span
-                        className={footerTimestampClassName}
+                        className={cn(footerTimestampClassName, 'message-footer__timestamp')}
                         aria-label={`Message time: ${footerTimestamp}`}
                       >
                         <Icon name="time" className="h-3.5 w-3.5" />

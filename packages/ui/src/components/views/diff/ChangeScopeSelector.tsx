@@ -65,7 +65,10 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           aria-label={"Select change mode"}
         >
           <span className="whitespace-nowrap font-medium">
-            {currentLabel}<span className="diff-toolbar__scope-count">: {currentCount}</span>
+            {currentLabel}{' '}
+            <span className="diff-toolbar__scope-count font-normal text-muted-foreground">
+              {currentCount === 1 ? '1 file' : `${currentCount} files`}
+            </span>
           </span>
           <Icon name="arrow-down-s" className="size-4 flex-shrink-0 opacity-60" />
         </Button>

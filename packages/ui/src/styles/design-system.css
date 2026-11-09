@@ -251,9 +251,11 @@
     0 6px 6px -3px rgb(0 0 0 / 0.16);
 }
 
+/* A light blur: the page behind a dialog stays readable enough to keep your
+   place, and the dim does most of the separating. */
 .oc-glass-backdrop {
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
