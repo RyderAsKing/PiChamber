@@ -23,18 +23,15 @@ import {
 import {
   type BrowseEntry,
   type BrowseRow,
-  focusPathInput,
   resolveFreshFilesystemHome,
 } from './directoryExplorerTypes';
 
 export function useDirectoryBrowser({
   open,
   addedProjectPaths,
-  shouldSuppressAutoFocus,
 }: {
   open: boolean;
   addedProjectPaths: Set<string>;
-  shouldSuppressAutoFocus: boolean;
 }) {
   const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const { canRequestAccess, startAccessing } = useFileSystemAccess();
@@ -64,24 +61,19 @@ export function useDirectoryBrowser({
     setShowHidden(false);
     previousBrowsePathRef.current = '~/';
     setFolderEnterFrom('right');
-    if (!shouldSuppressAutoFocus) {
-      requestAnimationFrame(() => focusPathInput(inputRef.current));
-    }
+    // Focus is the dialog's: each step focuses its own first field.
 
     let cancelled = false;
     const resolveHome = async () => {
       const resolved = await resolveFreshFilesystemHome();
       if (cancelled) return;
       setDialogHomeDirectory(resolved || homeDirectory || '');
-      if (!shouldSuppressAutoFocus) {
-        requestAnimationFrame(() => focusPathInput(inputRef.current));
-      }
     };
     void resolveHome();
     return () => {
       cancelled = true;
     };
-  }, [homeDirectory, open, shouldSuppressAutoFocus]);
+  }, [homeDirectory, open]);
 
   const browseDirectoryDisplayPath = React.useMemo(() => getBrowseDirectoryPath(query), [query]);
   const browseFilterQuery = React.useMemo(
@@ -179,9 +171,11 @@ export function useDirectoryBrowser({
     return nextRows;
   }, [addedProjectPaths, browseDirectoryAbsolutePath, currentFolderName, filteredEntries, parentPath, query]);
 
+  // Start on the first folder inside, not on the way up, so Enter goes in.
+  const startsWithParent = rows[0]?.type === 'parent';
   React.useEffect(() => {
-    setHighlightedIndex(0);
-  }, [query, rows.length]);
+    setHighlightedIndex(startsWithParent && rows.length > 1 ? 1 : 0);
+  }, [query, rows.length, startsWithParent]);
 
   const targetPath = React.useMemo(() => {
     if (!explorerRootDirectory) return '';
@@ -304,6 +298,7 @@ export function useDirectoryBrowser({
     browseDirectoryDisplayPath,
     browseDirectoryAbsolutePath,
     browseFilterQuery,
+    entries,
     filteredEntries,
     rows,
     targetPath,
