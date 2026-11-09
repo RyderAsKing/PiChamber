@@ -538,14 +538,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 >
                   <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
                     <div
-                      className={cn(
-                        'block min-w-0 flex-1 truncate font-normal typography-ui-label',
-                        needsAttention
-                          ? 'text-foreground'
-                          : isTree && !isActive
-                            ? 'text-muted-foreground transition-colors group-hover:text-foreground'
-                            : 'text-foreground',
-                      )}
+                      // Titles are the content here, so full strength in every
+                      // view; grey stays for labels, times, and actions.
+                      className="block min-w-0 flex-1 truncate font-normal typography-ui-label text-foreground"
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                     </div>
