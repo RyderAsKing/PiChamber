@@ -212,6 +212,31 @@ const PAGES = {
       return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'));
     })()`,
   },
+  'files-panel-changes': {
+    // billing.ts opened in the Files panel, then its path bar's Changes
+    // button: the Git panel opens on the file's scope with it expanded.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const panel = document.querySelector('[data-diff-virtual-content]');
+      if (panel) {
+        const header = [...panel.querySelectorAll('div[role="button"]')]
+          .find((node) => node.textContent.includes('billing.ts'));
+        return Boolean(header && header.parentElement?.parentElement?.children.length > 1)
+          && !panel.innerText.includes('Loading diff')
+          && !panel.querySelector('.h-40');
+      }
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const changes = document.querySelector('button[title="Show this file\\'s changes"]');
+      if (changes) { changes.click(); return false; }
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+    idleRequestPrefix: '/api/git/',
+  },
   'settings-appearance': {
     // A dense settings page: navigation, section titles, field labels,
     // descriptions, and every control type.

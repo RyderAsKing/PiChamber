@@ -141,7 +141,9 @@ change marks and the no-file state listing changed files, desktop only);
 desktop only); `files-panel-search` (`.ts` typed into the tree's search:
 name, folder, and change mark per hit, desktop only); `files-panel-nested`
 (`src/lib/dates.ts` opened from search, then the search cleared, so the tree
-has opened to it, desktop only); `settings-appearance` (a dense settings page, desktop only);
+has opened to it, desktop only); `files-panel-changes` (`billing.ts` open,
+then its path bar's Changes button: the Git panel on the file's scope with it
+expanded, desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons); `command-palette`
 (opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
