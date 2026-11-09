@@ -33,7 +33,9 @@ const CardRow: React.FC<{
   title: string;
   details: string;
   selected?: boolean;
-}> = ({ title, details, selected = false }) => (
+  /** Snoozed and settled rows have quieter titles. */
+  quiet?: boolean;
+}> = ({ title, details, selected = false, quiet = false }) => (
   <div
     className={cn(
       'flex flex-col gap-[3px] rounded-[3px] px-[3px] py-[3px]',
@@ -41,7 +43,7 @@ const CardRow: React.FC<{
     )}
   >
     <div className="flex items-center">
-      <Bar tone="bg-foreground/60" width={title} />
+      <Bar tone={quiet ? 'bg-foreground/35' : 'bg-foreground/60'} width={title} />
       <div className="ml-auto h-[3px] w-[5px] shrink-0 rounded-full bg-foreground/20" />
     </div>
     <Bar tone="bg-foreground/20" width={details} />
@@ -62,10 +64,11 @@ const TreeRow: React.FC<{
   </div>
 );
 
-const ShelfRow: React.FC<{ width: string }> = ({ width }) => (
-  <div className="flex items-center gap-[4px] border-t border-border px-[3px] pt-[3px]">
-    <Bar tone="bg-foreground/35" width={width} />
-    <div className="ml-auto h-[3px] w-[3px] shrink-0 rounded-full bg-foreground/20" />
+/** A collapsible section heading: label, then the count and chevron beside it. */
+const ShelfHeading: React.FC<{ width: string }> = ({ width }) => (
+  <div className="mx-[3px] flex shrink-0 items-center gap-[3px]">
+    <div className={cn('h-[2px] rounded-full bg-foreground/35', width)} />
+    <div className="h-[2px] w-[3px] rounded-full bg-foreground/20" />
   </div>
 );
 
@@ -105,13 +108,11 @@ export const SidebarViewPreview: React.FC<{ mode: SidebarViewMode }> = ({ mode }
         )}
         {mode === 'threads' && (
           <>
+            <div className="mx-[3px] h-[2px] w-[30%] shrink-0 rounded-full bg-foreground/35" />
             <CardRow title="w-[75%]" details="w-[50%]" selected />
             <CardRow title="w-[60%]" details="w-[45%]" />
-            <CardRow title="w-[70%]" details="w-[40%]" />
-            <div className="mt-auto flex flex-col gap-[4px]">
-              <ShelfRow width="w-[38%]" />
-              <ShelfRow width="w-[30%]" />
-            </div>
+            <ShelfHeading width="w-[32%]" />
+            <CardRow title="w-[55%]" details="w-[35%]" quiet />
           </>
         )}
       </div>

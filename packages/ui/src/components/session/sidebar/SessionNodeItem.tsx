@@ -226,6 +226,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const snoozedUntil = useSessionShelfStore(
     React.useCallback((state) => (shelfSection === 'snoozed' ? state.entries[session.id]?.snoozedUntil ?? null : null), [shelfSection, session.id]),
   );
+  const isPutAway = shelfSection === 'snoozed' || shelfSection === 'settled';
   const showWoke = shelfSection !== null && shelfSection !== 'snoozed' && Boolean(shelfRowState?.wokeIds.has(session.id));
   const shelfActions = React.useMemo<SessionShelfMenuActions | null>(() => {
     if (!shelfSection) return null;
@@ -587,11 +588,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       // The open session's title is a step heavier, so the selection
                       // reads without relying on the row tint alone.
                       // By folder keeps the other titles a step quieter under
-                      // their folder headers.
+                      // their folder headers, and snoozed and settled sessions
+                      // are quieter in every view: they are put away.
                       className={cn(
                         'block min-w-0 flex-1 truncate typography-ui-label',
                         isActive ? 'font-medium text-foreground' : 'font-normal',
-                        !isActive && (isTree ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
+                        !isActive && (isTree || isPutAway ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
                       )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}

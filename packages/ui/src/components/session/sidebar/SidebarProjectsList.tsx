@@ -3,7 +3,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
 import { getProjectLabel } from './utils';
-import { SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
 import type { MainTab } from '@/stores/useUIStore';
@@ -265,7 +265,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       outerClassName="flex-1 min-h-0"
       className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-32')}
     >
-      <div className={cn(isThreads && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
+      <div className="space-y-1 px-2">
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">
@@ -368,16 +368,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                     aria-label={label}
                     data-timeline-bucket={group.id}
                   >
-                    <div
-                      role="heading"
-                      aria-level={3}
-                      className={cn(
-                        'select-none px-3 pb-1 text-xs leading-4 font-medium text-muted-foreground',
-                        index === 0 ? 'pt-1' : 'pt-3',
-                      )}
-                    >
-                      {label}
-                    </div>
+                    <SidebarSectionHeading label={label} first={index === 0} />
                     {group.items.map(({ node, project, projectLabel, globalSession }) => {
                       const groupDirectory = node.session.directory ?? project.normalizedPath;
                       return (

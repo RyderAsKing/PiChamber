@@ -17,7 +17,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import type { MainTab } from '@/stores/useUIStore';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
 import { ProjectHeaderIdentity, ProjectHeaderChevron, SortableProjectItem, type SortableDragHandleProps } from './sortableItems';
-import { SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
 import { getProjectLabel } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
 import type { SessionShelves } from './sessionShelves';
@@ -212,6 +212,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     <div className="space-y-2">
       {shelves && shelves.pinned.length > 0 ? (
         <section aria-label={'Pinned'} data-session-shelf="pinned">
+          <SidebarSectionHeading label={'Pinned'} first />
           {shelves.pinned.map(renderShelfItem)}
         </section>
       ) : null}
@@ -388,7 +389,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
           renderItem={renderShelfItem}
           hasSessionSearchQuery={hasSessionSearchQuery}
           mobileVariant={mobileVariant}
-          className="pt-2"
         />
       ) : null}
     </div>

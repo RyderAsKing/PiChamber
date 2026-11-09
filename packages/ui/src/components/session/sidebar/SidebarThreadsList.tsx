@@ -11,7 +11,6 @@ import {
   type DragStartEvent,
 } from '@dnd-kit/core';
 
-import { Icon } from '@/components/icon/Icon';
 import type { SessionShelfSection } from '@/lib/sessionShelf';
 import { cn } from '@/lib/utils';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
@@ -20,7 +19,7 @@ import { useSessionUIStore } from '@/sync/session-ui-store';
 import { updateSessionShelf } from './hooks/useSessionShelves';
 import type { SessionShelves, ShelfListItem } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
-import { SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
 import type { ProjectSection, SessionNode } from './types';
 
 export interface ThreadsListItem {
@@ -32,11 +31,10 @@ export interface ThreadsListItem {
   globalSession: boolean;
 }
 
-export type ShelfId = 'working' | 'snoozed' | 'settled';
+export type ShelfId = 'snoozed' | 'settled';
 type DropTarget = 'pinned' | 'active' | 'settled';
 
 const SHELF_LABELS: Record<ShelfId, string> = {
-  working: 'Working',
   snoozed: 'Snoozed',
   settled: 'Settled',
 };
@@ -50,7 +48,7 @@ const readExpandedShelves = (): Set<ShelfId> => {
     const raw = getDeferredSafeStorage().getItem(EXPANDED_SHELVES_STORAGE_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is ShelfId => id === 'working' || id === 'snoozed' || id === 'settled'));
+    return new Set(parsed.filter((id): id is ShelfId => id === 'snoozed' || id === 'settled'));
   } catch {
     return new Set();
   }
@@ -106,33 +104,12 @@ const DropZone: React.FC<{
   );
 };
 
-const ShelfHeader: React.FC<{
-  id: ShelfId;
-  count: number;
-  expanded: boolean;
-  onToggle: () => void;
-}> = ({ id, count, expanded, onToggle }) => (
-  <button
-    type="button"
-    aria-expanded={expanded}
-    onClick={onToggle}
-    className="flex w-full items-center gap-1.5 rounded-lg px-3 py-1.5 text-left typography-ui-label text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-  >
-    <span className="font-medium">{SHELF_LABELS[id]}</span>
-    <span className="typography-micro text-subtle-foreground tabular-nums">{count}</span>
-    <Icon
-      name={expanded ? 'arrow-down-s' : 'arrow-right-s'}
-      className="ml-auto size-3.5 shrink-0"
-    />
-  </button>
-);
-
-const THREADS_SHELVES: readonly ShelfId[] = ['working', 'snoozed', 'settled'];
+const THREADS_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
 
 /**
- * The collapsible shelves at the bottom of the Threads and By folder views.
- * A collapsed shelf still shows the open session, so the selection never
- * disappears; Settled pages its rows.
+ * The collapsible Snoozed and Settled sections below the Threads list and the
+ * By folder tree. A collapsed section still shows the open session, so the
+ * selection never disappears; Settled pages its rows.
  */
 export const SessionShelfStack = <T extends ShelfListItem>({
   shelfIds,
@@ -176,14 +153,14 @@ export const SessionShelfStack = <T extends ShelfListItem>({
   if (visibleIds.length === 0) return null;
 
   return (
-    <div className={cn('space-y-0.5', className)}>
+    <div className={className}>
       {visibleIds.map((id) => {
         const rows = shelves[id];
         const shelfExpanded = isExpanded(id);
         const body = (
           <>
-            <ShelfHeader
-              id={id}
+            <SidebarSectionHeading
+              label={SHELF_LABELS[id]}
               count={rows.length}
               expanded={shelfExpanded}
               onToggle={() => {
@@ -204,7 +181,7 @@ export const SessionShelfStack = <T extends ShelfListItem>({
           </>
         );
         return (
-          <section key={id} aria-label={SHELF_LABELS[id]} data-session-shelf={id} className="border-t border-border/60 pt-0.5">
+          <section key={id} aria-label={SHELF_LABELS[id]} data-session-shelf={id}>
             {id === 'settled' && droppable ? (
               <DropZone target="settled" dragging={dragging}>{body}</DropZone>
             ) : body}
@@ -226,10 +203,10 @@ interface SidebarThreadsListProps {
 }
 
 /**
- * The Threads view: pinned sessions, then every other session by when it was
- * last active, then Working, Snoozed, and Settled shelves at the bottom. On
- * desktop a session can be dragged to Pinned, back to the list, or to
- * Settled.
+ * The Threads view: Pinned, then sessions running now, then every other
+ * session by when it was last active, then the collapsible Snoozed and
+ * Settled sections. On desktop a session can be dragged to Pinned, back to
+ * the list, or to Settled.
  */
 const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
   items,
@@ -286,25 +263,38 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
     return <>{hasSessionSearchQuery ? searchEmptyState : emptyState}</>;
   }
 
+  const isDragging = Boolean(dragging);
+  const showPinned = shelves.pinned.length > 0 || isDragging;
+  const showWorking = shelves.working.length > 0;
+  // "Recent" only needs a name when another section sits beside it.
+  const showRecentHeading = showPinned || showWorking
+    || shelves.snoozed.length > 0 || shelves.settled.length > 0;
+
   const list = (
-    <div className="flex min-h-full flex-1 flex-col" data-sidebar-threads="">
-      {shelves.pinned.length > 0 || dragging ? (
-        <DropZone target="pinned" dragging={Boolean(dragging)}>
-          {dragging ? (
-            <div className="px-3 pb-0.5 pt-1 typography-micro font-medium text-muted-foreground">{'Pinned'}</div>
-          ) : null}
+    <div data-sidebar-threads="">
+      {showPinned ? (
+        <DropZone target="pinned" dragging={isDragging}>
+          <SidebarSectionHeading label={'Pinned'} first />
           {shelves.pinned.map(renderItem)}
-          {dragging && shelves.pinned.length === 0 ? (
+          {isDragging && shelves.pinned.length === 0 ? (
             <div className="px-3 py-2 typography-micro text-subtle-foreground">{'Drop here to pin'}</div>
           ) : null}
         </DropZone>
       ) : null}
 
-      <DropZone target="active" dragging={Boolean(dragging)} className={cn(shelves.pinned.length > 0 && 'mt-1')}>
+      {showWorking ? (
+        <section aria-label={'Working'} data-session-shelf="working">
+          <SidebarSectionHeading label={'Working'} first={!showPinned} />
+          {shelves.working.map(renderItem)}
+        </section>
+      ) : null}
+
+      <DropZone target="active" dragging={isDragging}>
+        {showRecentHeading ? <SidebarSectionHeading label={'Recent'} first={!showPinned && !showWorking} /> : null}
         {shelves.active.map(renderItem)}
         {shelves.active.length === 0 && !hasSessionSearchQuery ? (
-          <div className="px-3 py-2 typography-micro text-subtle-foreground">
-            {'Nothing active. Settled sessions are below.'}
+          <div className="px-3 py-1.5 typography-micro text-subtle-foreground">
+            {isDragging ? 'Drop here to keep it in the list' : 'Nothing recent. Settled sessions are below.'}
           </div>
         ) : null}
       </DropZone>
@@ -315,9 +305,8 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         renderItem={renderItem}
         hasSessionSearchQuery={hasSessionSearchQuery}
         mobileVariant={mobileVariant}
-        dragging={Boolean(dragging)}
+        dragging={isDragging}
         droppable={!mobileVariant}
-        className="mt-auto pt-3"
       />
     </div>
   );

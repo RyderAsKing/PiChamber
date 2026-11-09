@@ -236,8 +236,10 @@ describe('Threads and By folder shelves', () => {
     // alpha-old (90 days idle) settled; its shelf starts collapsed, so only the header shows.
     expect(sessionIds(markup)).toEqual(['alpha-today', 'home-today', 'beta-yesterday']);
     expect(markup).toContain('data-session-shelf="settled"');
-    expect(/Settled<\/span><span[^>]*>1<\/span>/.test(markup)).toBe(true);
+    expect(/Settled<span[^>]*>1<\/span>/.test(markup)).toBe(true);
     expect(markup).not.toContain('data-session-shelf="working"');
+    // With another section present the list is named.
+    expect(markup).toContain('>Recent</div>');
   });
 
   test('By folder takes settled sessions out of their folder and keeps the folder listed', () => {
@@ -255,6 +257,7 @@ describe('Threads and By folder shelves', () => {
       const markup = render({ viewMode, sections: [alpha, beta], autoSettleAfterDays: null });
       expect([...sessionIds(markup)].sort()).toEqual(['alpha-old', 'alpha-today', 'beta-yesterday', 'home-today']);
       expect(markup).not.toContain('data-session-shelf="settled"');
+      expect(markup).not.toContain('>Recent</div>');
     }
   });
 });
