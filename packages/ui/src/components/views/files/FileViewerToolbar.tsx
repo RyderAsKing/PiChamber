@@ -245,7 +245,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           {openInCacheStale ? (
             <DropdownMenuItem className="flex items-center gap-2" onClick={() => void onRefreshOpenInApps()}>
               <Icon name="refresh" className="size-4" />
-              <span className="typography-ui-label text-foreground">Refresh Apps</span>
+              <span className="typography-ui-label text-foreground">Refresh apps</span>
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>

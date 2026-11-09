@@ -43,7 +43,7 @@ export const TUNNEL_MODE_OPTIONS: Array<{
   },
   {
     value: 'managed-local',
-    label: 'Managed Local',
+    label: 'Managed local',
     tooltip: 'Managed Local uses your local cloudflared configuration file.',
   },
 ];

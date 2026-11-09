@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { cn } from '@/lib/utils';
 import type { ProjectEntry } from '@/lib/api/types';
@@ -32,11 +33,11 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) =
 
       <div className="min-w-0 flex-1">
         <div className="truncate typography-ui-label font-medium text-foreground">{label}</div>
-        {hasCustomLabel ? (
-          <div className="truncate font-mono typography-micro text-muted-foreground">{project.path}</div>
-        ) : (
-          <div className="truncate typography-micro text-muted-foreground">{project.path}</div>
-        )}
+        {/* Elide the middle: a path's useful part is its end. */}
+        <MiddleTruncate
+          value={project.path}
+          className={cn('flex typography-micro text-muted-foreground', hasCustomLabel && 'font-mono')}
+        />
       </div>
     </button>
   );

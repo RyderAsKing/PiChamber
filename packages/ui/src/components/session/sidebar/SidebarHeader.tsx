@@ -128,12 +128,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={handleOpenDirectoryDialog}
                     className={actionClassName}
-                    aria-label={"Add project"}
+                    aria-label={"Add folder"}
                   >
                     <Icon name="folder-add" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Add folder"}</p></TooltipContent>
               </Tooltip>
             ) : null}
 

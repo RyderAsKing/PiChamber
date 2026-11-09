@@ -63,7 +63,7 @@ export const Radio = React.memo<RadioProps>(function Radio({
     // fill driven from props so first paint is correct
     checked
       ? 'bg-[color-mix(in_srgb,var(--primary-base)_80%,transparent)] shadow-none'
-      : 'bg-[var(--surface-muted)] shadow-[inset_0_0_0_1px_var(--interactive-border)]',
+      : 'bg-background shadow-[inset_0_0_0_1px_var(--interactive-border-hover)]',
   );
 
   if (decorative) {

@@ -503,7 +503,7 @@ export const SettingsRadioOption: React.FC<SettingsRadioOptionProps> = ({
         <span
           className={cn(
             'typography-settings-field-label font-normal',
-            selected ? 'text-foreground' : 'text-foreground/50',
+            'text-foreground',
           )}
         >
           {label}
@@ -581,7 +581,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
         <span
           className={cn(
             'min-w-0 truncate typography-settings-field-label font-normal',
-            selected ? 'text-foreground' : 'text-foreground/50',
+            'text-foreground',
           )}
         >
           {label}
