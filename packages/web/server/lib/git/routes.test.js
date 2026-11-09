@@ -13,6 +13,7 @@ const gitLibraries = {
   getWorktreeBootstrapStatus: vi.fn(),
   getDiff: vi.fn(),
   resolveDiffSource: vi.fn(),
+  initRepository: vi.fn(),
 };
 
 vi.mock('./index.js', () => ({
@@ -28,6 +29,7 @@ vi.mock('./index.js', () => ({
   getWorktreeBootstrapStatus: gitLibraries.getWorktreeBootstrapStatus,
   getDiff: gitLibraries.getDiff,
   resolveDiffSource: gitLibraries.resolveDiffSource,
+  initRepository: gitLibraries.initRepository,
 }));
 
 const { registerGitRoutes } = await import('./routes.js');
@@ -462,5 +464,40 @@ describe('git routes diff', () => {
     expect(response.statusCode).toBe(400);
     expect(response.body).toEqual({ error: 'Invalid diff source: bogus' });
     expect(gitLibraries.getDiff).not.toHaveBeenCalled();
+  });
+});
+
+describe('git routes init', () => {
+  beforeEach(() => {
+    gitLibraries.initRepository.mockReset();
+  });
+
+  it('initializes the folder named by the directory query', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+    gitLibraries.initRepository.mockResolvedValue({ created: true });
+    const response = createMockResponse();
+
+    await getRoute('POST', '/api/git/init')({ query: { directory: '/projects/demo' } }, response);
+
+    expect(gitLibraries.initRepository).toHaveBeenCalledWith('/projects/demo');
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toEqual({ created: true });
+  });
+
+  it('requires a directory and reports failures instead of success', async () => {
+    const { app, getRoute } = createRouteRegistry();
+    registerGitRoutes(app);
+
+    const missing = createMockResponse();
+    await getRoute('POST', '/api/git/init')({ query: {} }, missing);
+    expect(missing.statusCode).toBe(400);
+    expect(gitLibraries.initRepository).not.toHaveBeenCalled();
+
+    gitLibraries.initRepository.mockRejectedValueOnce(new Error('Folder does not exist'));
+    const failed = createMockResponse();
+    await getRoute('POST', '/api/git/init')({ query: { directory: '/nope' } }, failed);
+    expect(failed.statusCode).toBe(400);
+    expect(failed.body).toEqual({ error: 'Folder does not exist' });
   });
 });
