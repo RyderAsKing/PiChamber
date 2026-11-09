@@ -137,6 +137,7 @@ const BranchValue = ({ label, startFrom = false }: { label: string | null; start
     );
 };
 
+/** Copies the branch name; the mobile composer row is where a phone shows the branch. */
 function BranchCopyButton({ branchName }: { branchName: string | null }) {
     const { value: copied, show } = useTransientValue(false, 2000);
     const handleCopy = React.useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -172,7 +173,7 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
     );
 }
 
-/** Desktop project selector and branch target. Existing sessions render a read-only branch label. */
+/** Desktop project selector and branch picker for a new session; an existing session's branch shows in the header. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
     const {
         projects,
@@ -239,11 +240,6 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                             </SelectGroup>
                         </SelectContent>
                     </Select>
-                ) : showBranchSelector ? (
-                    <div className="inline-flex h-7 min-w-0 items-center gap-0.5 px-1.5 typography-meta text-muted-foreground">
-                        <BranchValue label={selectedBranchLabel} startFrom={worktreeMode} />
-                        <BranchCopyButton branchName={selectedBranchName} />
-                    </div>
                 ) : null}
 
                 {showWorktreeSelector ? (

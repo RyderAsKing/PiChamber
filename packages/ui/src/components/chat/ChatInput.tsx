@@ -1010,9 +1010,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // Normal/steering submits carry only the composer; pending follow-ups are
   // distinct entries dispatched via their own claim, so the send gate ignores
   // them here. Each chip sends its own follow-up explicitly.
+  // A shell command in an existing session runs without the model; a new
+  // session still needs one to be created.
+  const shellRunsWithoutModel =
+    inputMode === "shell" && Boolean(currentSessionId) && !newSessionDraftOpen;
   const canSend =
     hasContent &&
-    hasUsableModel &&
+    (hasUsableModel || shellRunsWithoutModel) &&
     attachmentsReady &&
     !isConnectionUncertain;
 
@@ -1247,7 +1251,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         ? capturedSendConfig?.variant
         : currentVariant;
 
-      if (!providerIdToSend || !modelIdToSend) {
+      if ((!providerIdToSend || !modelIdToSend) && !(shellRunsWithoutModel && !queuedOnly)) {
         console.warn("Cannot send message: provider or model not selected");
         toast.error("Select a provider and model before sending a message.");
         return;
@@ -1694,8 +1698,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       const sendPromise = sendMessage(
         primaryText,
-        providerIdToSend,
-        modelIdToSend,
+        providerIdToSend ?? "",
+        modelIdToSend ?? "",
         agentNameToSend,
         primaryAttachments,
         undefined,
@@ -2590,7 +2594,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 branchOptions={draftBranchItems}
                 branchInteractive={newSessionDraftOpen}
                 branchLoading={isDiscoveringDraftBranches}
-                showBranchSelector={shouldShowDraftBranchSelector}
+                // An existing session's branch is already in the header; the
+                // row keeps only the pending-changes summary.
+                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
                 showProjectSelector={newSessionDraftOpen}
                 showWorktreeSelector={
                   newSessionDraftOpen && shouldShowDraftBranchSelector
@@ -2758,6 +2764,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   stopIconSizeClass={stopIconSizeClass}
                   canSend={canSend && !isComposerLocked}
                   isSending={isSendingNewSession}
+                  isShellMode={inputMode === "shell"}
                   isAttachmentDisabled={isAttachmentDisabled}
                   disabledReason={attachmentGateMessage}
                   canAbort={canAbort}

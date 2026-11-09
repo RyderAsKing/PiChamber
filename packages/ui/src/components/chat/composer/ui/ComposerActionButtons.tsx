@@ -25,6 +25,8 @@ type ComposerActionButtonsProps = {
     newSessionDraftOpen: boolean;
     /** True while a new-session send is in flight: show pending, block input. */
     isSending?: boolean;
+    /** Shell mode runs the command instead of sending a prompt, so the button says Run. */
+    isShellMode?: boolean;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
@@ -43,6 +45,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         currentSessionId,
         newSessionDraftOpen,
         isSending = false,
+        isShellMode = false,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
@@ -68,12 +71,12 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                     : 'opacity-30',
                 isSending && 'animate-pulse'
             )}
-            aria-label={isSending ? "Creating session…" : disabledReason || "Send message"}
-            title={isSending ? "Creating session…" : disabledReason || undefined}
+            aria-label={isSending ? "Creating session…" : disabledReason || (isShellMode ? "Run command" : "Send message")}
+            title={isSending ? "Creating session…" : disabledReason || (isShellMode ? "Run command" : undefined)}
         >
             {isSending
                 ? <Icon name="loader-4" className={cn(sendIconSizeClass, 'animate-spin')} />
-                : <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />}
+                : <Icon name={isShellMode ? 'play' : 'send-plane-2'} className={cn(sendIconSizeClass)} />}
         </button>
     );
 
@@ -129,6 +132,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.currentSessionId === next.currentSessionId
     && prev.newSessionDraftOpen === next.newSessionDraftOpen
     && prev.isSending === next.isSending
+    && prev.isShellMode === next.isShellMode
     && prev.onPrimaryAction === next.onPrimaryAction
     && prev.onQueueMessage === next.onQueueMessage
     && prev.onAbort === next.onAbort

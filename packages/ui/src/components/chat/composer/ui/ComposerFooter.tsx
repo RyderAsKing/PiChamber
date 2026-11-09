@@ -43,6 +43,8 @@ export interface ComposerFooterProps {
     hasContent: boolean;
     /** True while a new-session send is in flight: lock pickers/attachments. */
     isSending?: boolean;
+    /** Shell mode: the primary action runs the command. */
+    isShellMode?: boolean;
     /**
      * Disable the attach trigger when the composer cannot accept input.
      * Computed once in `ChatInput` from no session/draft or locked and
@@ -82,6 +84,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         canAbort,
         hasContent,
         isSending = false,
+        isShellMode = false,
         isAttachmentDisabled,
         onOpenSettings,
         onPickLocalFiles,
@@ -115,6 +118,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
             canAbort={canAbort}
             hasContent={hasContent}
             isSending={isSending}
+            isShellMode={isShellMode}
             currentSessionId={currentSessionId}
             newSessionDraftOpen={newSessionDraftOpen}
             onPrimaryAction={onPrimaryAction}
