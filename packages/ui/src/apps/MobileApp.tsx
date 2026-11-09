@@ -755,6 +755,13 @@ export function MobileApp({ apis }: MobileAppProps) {
   // manual wake restarts a fresh bounded cycle); otherwise
   // synced (or initial connecting/reconnecting).
   const inTemporaryRecovery = isNativeMobileApp && hasRuntimeEndpoint && recoveryPhase !== 'idle';
+  // Recovery shows the retained shell. Once the user has seen it, a later
+  // successful connect must not cover it with the restore overlay; the
+  // restore itself still runs on connect and only selects the last session
+  // when nothing is open.
+  React.useEffect(() => {
+    if (inTemporaryRecovery) setLastSessionRestorePending(false);
+  }, [inTemporaryRecovery]);
   // Hold a logo splash until the UI web font is loaded, so the first UI the user sees
   // already uses the real font instead of flashing the fallback and reflowing (FOUT).
   if (!fontsReady) {
@@ -866,7 +873,8 @@ export function MobileApp({ apis }: MobileAppProps) {
                     shell (and sync) still mounts and warms up underneath.
                     The restore only runs while connected, so the overlay never
                     covers a shell that is recovering or waiting to reconnect:
-                    it would otherwise spin forever over an unreachable server. */}
+                    it would otherwise spin forever over an unreachable server.
+                    Entering recovery also drops it for good (see above). */}
                 {isNativeMobileApp && lastSessionRestorePending && isConnected && !inTemporaryRecovery ? (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
                     <PiChamberLogo width={120} height={120} isAnimated />

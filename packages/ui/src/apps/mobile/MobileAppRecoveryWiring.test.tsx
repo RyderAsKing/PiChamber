@@ -51,6 +51,7 @@ const getCfgSnapshot = () => ({
 let shellMounts = 0;
 let shellUnmounts = 0;
 let buttonMounts = 0;
+let lastActiveSession: { sessionId: string; directory: string } | null = null;
 let fullScreenLogosMounted = 0;
 let bannerProps: { state: 'reconnecting' | 'unreachable'; label: string; onRetry: () => void; onUseAnotherServer: () => void } | null = null;
 // Latest rendered button per visible label, so tests can press banner actions.
@@ -165,11 +166,16 @@ mock.module('@/stores/useGlobalSessionsStore', () => ({
   resolveGlobalSessionDirectory: () => null,
 }));
 mock.module('@/sync/last-session-cache', () => ({
-  readLastActiveSession: () => null,
+  readLastActiveSession: () => lastActiveSession,
   clearLastActiveSession: () => {
     clearLastActiveCalls += 1;
   },
   persistLastActiveSession: () => undefined,
+}));
+// The restore's catalog read never settles here, so only the restore overlay's
+// own gating decides whether its logo shows.
+mock.module('@/sync/session-catalog-access', () => ({
+  loadSessionCatalog: () => new Promise(() => undefined),
 }));
 mock.module('@/stores/useConfigStore', () => ({
   useConfigStore: Object.assign((selector: (s: ReturnType<typeof getCfgSnapshot>) => unknown) => selector(getCfgSnapshot()), {
@@ -594,6 +600,7 @@ const resetControls = () => {
   buttonsByLabel.clear();
   fullScreenLogosMounted = 0;
   bannerProps = null;
+  lastActiveSession = null;
   welcomeMounts = 0;
   welcomeNotices.length = 0;
   syncPropsHistory.length = 0;
@@ -983,5 +990,26 @@ describe('MobileApp recovery wiring (mounted)', () => {
     await flush();
     expect(reprobeCalls).toBe(probesWhenExhausted + 1);
     expect(isMobileConnectionUncertain()).toBe(true);
+  });
+
+  test('a connect that ends recovery does not cover the shell with the restore overlay', async () => {
+    // A last session is saved, so the first connect would normally hold the
+    // restore overlay while it checks that session still exists.
+    lastActiveSession = { sessionId: 'session-1', directory: '/repo' };
+    cfgConnected = false;
+    cfgPhase = 'connecting';
+    reprobeHandler = async () => 'unreachable';
+    const { harness } = await mountMobileApp();
+    expect(bannerProps?.state).toBe('reconnecting');
+    expect(fullScreenLogosMounted).toBe(0);
+
+    // The user moves to the right network and recovery succeeds.
+    cfgConnected = true;
+    cfgPhase = 'connected';
+    reprobeHandler = async () => 'unchanged';
+    await wakeOnline(harness);
+
+    expect(bannerProps).toBeNull();
+    expect(fullScreenLogosMounted).toBe(0);
   });
 });

@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 
-export type MobileConnectionRecoveryBannerState = 'reconnecting' | 'unreachable';
+type MobileConnectionRecoveryBannerState = 'reconnecting' | 'unreachable';
 
 type MobileConnectionRecoveryBannerProps = {
   state: MobileConnectionRecoveryBannerState;
