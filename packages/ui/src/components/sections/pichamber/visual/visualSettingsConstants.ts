@@ -151,6 +151,7 @@ export const SIDEBAR_VIEW_MODE_OPTIONS: Option<SidebarViewMode>[] = [
   { id: 'workspace', label: 'Workspace' },
   { id: 'folder', label: 'By folder' },
   { id: 'timeline', label: 'Timeline' },
+  { id: 'threads', label: 'Threads' },
 ];
 
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [

@@ -20,12 +20,38 @@ import { ProjectHeaderIdentity, ProjectHeaderChevron, SortableProjectItem, type 
 import { SidebarSessionLikeButton } from './sidebarRowChrome';
 import { getProjectLabel } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
+import type { SessionShelves } from './sessionShelves';
+import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
+import { SessionShelfStack, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
+
+const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
+
+/**
+ * Takes pinned, snoozed, and settled sessions out of their folders; they show
+ * once, above or below the folder list. Archived groups are left alone.
+ */
+const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<string>): ProjectSection => {
+  let changed = false;
+  const groups = section.groups.map((group) => {
+    if (group.isArchivedBucket) return group;
+    const sessions = group.sessions.filter((node) => !hidden.has(node.session.id));
+    if (sessions.length === group.sessions.length) return group;
+    changed = true;
+    return { ...group, sessions };
+  });
+  return changed ? { ...section, groups } : section;
+};
+
+const countSessions = (section: ProjectSection): number =>
+  section.groups.reduce((total, group) => (group.isArchivedBucket ? total : total + group.sessions.length), 0);
 
 // Rows keep the full sidebar width; the `tree` session row variant indents
 // its own content under the folder label.
 const folderBodyClassName = 'pt-0.5 pb-1';
 
 interface SidebarFolderTreeProps {
+  /** Shelf partition; null while searching, when sessions stay in their folders. */
+  shelves?: SessionShelves<ThreadsListItem> | null;
   sections: ProjectSection[];
   homeSection?: ProjectSection | null;
   homeDirectory: string | null;
@@ -74,8 +100,9 @@ interface SidebarFolderTreeProps {
 }
 
 const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
-  sections,
-  homeSection,
+  shelves = null,
+  sections: allSections,
+  homeSection: allHomeSection,
   homeDirectory,
   collapsedProjects,
   toggleProject,
@@ -104,6 +131,38 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   emptyState,
   searchEmptyState,
 }) => {
+  const hiddenIds = React.useMemo(() => {
+    if (!shelves) return null;
+    const ids = new Set<string>();
+    for (const item of [...shelves.pinned, ...shelves.snoozed, ...shelves.settled]) ids.add(item.node.session.id);
+    return ids;
+  }, [shelves]);
+  const sections = React.useMemo(
+    () => (hiddenIds ? allSections.map((section) => withoutShelvedSessions(section, hiddenIds)) : allSections),
+    [allSections, hiddenIds],
+  );
+  const homeSection = React.useMemo(
+    () => (hiddenIds && allHomeSection ? withoutShelvedSessions(allHomeSection, hiddenIds) : allHomeSection),
+    [allHomeSection, hiddenIds],
+  );
+  const rowState = React.useMemo<SessionShelfRowState | null>(
+    () => (shelves ? { sectionById: shelves.sectionById, wokeIds: shelves.wokeIds } : null),
+    [shelves],
+  );
+  const renderShelfItem = (item: ThreadsListItem) => (
+    <React.Fragment key={item.node.session.id}>
+      {renderSessionNode?.(
+        item.node,
+        0,
+        item.node.session.directory ?? item.project.normalizedPath,
+        item.project.id,
+        false,
+        { projectLabel: item.projectLabel, globalSession: item.globalSession },
+        'project',
+      )}
+    </React.Fragment>
+  );
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
@@ -137,7 +196,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
       .flatMap((group) => group.sessions);
   }, [homeSection]);
 
-  const visibleHomeSessions = hasSessionSearchQuery
+  const visibleHomeSessions = hasSessionSearchQuery || shelves
     ? allHomeSessions
     : allHomeSessions.slice(0, homeLimit);
 
@@ -149,7 +208,14 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   }
 
   return (
+    <SessionShelfRowContext.Provider value={rowState}>
     <div className="space-y-2">
+      {shelves && shelves.pinned.length > 0 ? (
+        <section aria-label={'Pinned'} data-session-shelf="pinned">
+          {shelves.pinned.map(renderShelfItem)}
+        </section>
+      ) : null}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -188,6 +254,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                 alwaysShowActions={alwaysShowActions}
                 stickyHeader={stickyFolderHeaders}
                 statusIndicator={isCollapsed ? renderProjectStatusIndicator?.(projectKey, section.groups) : null}
+                sessionCount={isCollapsed ? countSessions(section) : null}
                 onToggle={() => toggleProject(projectKey)}
                 onNewSession={() => {
                   if (projectKey !== activeProjectId) {
@@ -313,7 +380,19 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
           {"Add folder"}
         </SidebarSessionLikeButton>
       ) : null}
+
+      {shelves ? (
+        <SessionShelfStack
+          shelfIds={FOLDER_SHELVES}
+          shelves={shelves}
+          renderItem={renderShelfItem}
+          hasSessionSearchQuery={hasSessionSearchQuery}
+          mobileVariant={mobileVariant}
+          className="pt-2"
+        />
+      ) : null}
     </div>
+    </SessionShelfRowContext.Provider>
   );
 };
 

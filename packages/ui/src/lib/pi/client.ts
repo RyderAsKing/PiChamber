@@ -69,6 +69,11 @@ import {
   type PiRenameInput,
   type PiDeleteInput,
   type PiArchiveInput,
+  type PiSessionShelfEntry,
+  type PiSessionShelfInput,
+  type PiSessionShelfResponse,
+  isValidSessionShelfEntry,
+  isValidSessionShelfResponse,
   type PiAbortInput,
   type PiExtensionListResponse,
   type PiExtensionDialogResponseInput,
@@ -592,6 +597,38 @@ export class PiService {
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );
+  }
+
+  /** Every session's sidebar shelf state on this server (PiChamber metadata). */
+  async getSessionShelf(scope?: PiClientScope): Promise<PiSessionShelfResponse> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, PiSessionShelfResponse>('/api/pi/session-shelf', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    if (!isValidSessionShelfResponse(result)) {
+      throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed session shelf');
+    }
+    return result;
+  }
+
+  /** Settle, keep active, snooze, or wake a session. Returns its entry after the write. */
+  async setSessionShelf(input: PiSessionShelfInput, scope?: PiClientScope): Promise<PiSessionShelfEntry | null> {
+    assertRuntimeUnchanged(scope);
+    const { sessionId, ...patch } = input;
+    const result = await jsonRequest<Omit<PiSessionShelfInput, 'sessionId'> & { directory?: string }, { entry: unknown }>(
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/shelf`,
+      {
+        method: 'POST',
+        body: { ...patch, ...(scope?.directory ? { directory: scope.directory } : {}) },
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+    const entry = result?.entry;
+    if (entry !== null && !isValidSessionShelfEntry(entry)) {
+      throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed session shelf entry');
+    }
+    return entry;
   }
 
   async getSessionTree(sessionId: PiSessionId, scope?: PiClientScope): Promise<PiSessionTreeResponse> {

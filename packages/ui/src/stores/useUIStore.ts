@@ -12,6 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { DEFAULT_AUTO_SETTLE_AFTER_DAYS, isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
   type MainTab,
@@ -198,6 +199,8 @@ interface UIStore {
   timeFormatPreference: TimeFormatPreference;
   weekStartPreference: WeekStartPreference;
   sidebarViewMode: SidebarViewMode;
+  /** Days without activity before a session moves to Settled; 0 turns it off. */
+  sidebarAutoSettleAfterDays: number;
   expandedEditorToolbar: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
@@ -342,6 +345,7 @@ interface UIStore {
   setTimeFormatPreference: (value: TimeFormatPreference) => void;
   setWeekStartPreference: (value: WeekStartPreference) => void;
   setSidebarViewMode: (value: SidebarViewMode) => void;
+  setSidebarAutoSettleAfterDays: (value: number) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
@@ -467,6 +471,7 @@ export const useUIStore = create<UIStore>()(
         timeFormatPreference: 'auto',
         weekStartPreference: 'auto',
         sidebarViewMode: DEFAULT_SIDEBAR_VIEW_MODE,
+        sidebarAutoSettleAfterDays: DEFAULT_AUTO_SETTLE_AFTER_DAYS,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
         isExpandedInput: false,
@@ -1537,6 +1542,10 @@ export const useUIStore = create<UIStore>()(
         setSidebarViewMode: (value) => {
           set({ sidebarViewMode: value });
         },
+        setSidebarAutoSettleAfterDays: (value) => {
+          if (!isAutoSettleAfterDaysSetting(value)) return;
+          set({ sidebarAutoSettleAfterDays: value });
+        },
         setExpandedEditorToolbar: (value: boolean) => {
           set({ expandedEditorToolbar: value });
         },
@@ -1891,6 +1900,7 @@ export const useUIStore = create<UIStore>()(
           timeFormatPreference: state.timeFormatPreference,
           weekStartPreference: state.weekStartPreference,
           sidebarViewMode: state.sidebarViewMode,
+          sidebarAutoSettleAfterDays: state.sidebarAutoSettleAfterDays,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,

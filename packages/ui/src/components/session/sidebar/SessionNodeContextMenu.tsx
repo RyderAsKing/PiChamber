@@ -17,6 +17,16 @@ import {
 } from '@/components/ui/dropdown-menu.styles';
 import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
+import { resolveSnoozePresets, type SessionShelfSection } from '@/lib/sessionShelf';
+
+/** Settle and snooze actions for rows in the Threads and By folder views. */
+export interface SessionShelfMenuActions {
+  section: SessionShelfSection;
+  onSettle: () => void;
+  onUnsettle: () => void;
+  onSnooze: (snoozedUntil: number) => void;
+  onWake: () => void;
+}
 
 export interface SessionNodeMenuItemsProps {
   session: Session;
@@ -37,6 +47,7 @@ export interface SessionNodeMenuItemsProps {
     source?: { archivedBucket?: boolean; hardDelete?: boolean; skipConfirm?: boolean }
   ) => void;
   handleRestoreSession: (session: Session) => void;
+  shelfActions?: SessionShelfMenuActions | null;
 }
 
 function renderSessionMenuItems(
@@ -63,8 +74,9 @@ function renderSessionMenuItems(
     handleOpenMiniChatWindow,
     handleDeleteSession,
     handleRestoreSession,
+    shelfActions,
   } = props;
-  const { Item, Separator } = components;
+  const { Item, Separator, Sub, SubTrigger, SubContent } = components;
 
   return (
     <>
@@ -101,6 +113,43 @@ function renderSessionMenuItems(
         )}
         {isPinnedSession ? 'Unpin session' : 'Pin session'}
       </Item>
+
+      {shelfActions && !archivedBucket ? (
+        <>
+          {shelfActions.section === 'settled' ? (
+            <Item onClick={shelfActions.onUnsettle} className="[&>svg]:mr-1">
+              <Icon name="arrow-go-back" className="mr-1 h-4 w-4" />
+              {'Un-settle session'}
+            </Item>
+          ) : (
+            <Item onClick={shelfActions.onSettle} className="[&>svg]:mr-1">
+              <Icon name="check" className="mr-1 h-4 w-4" />
+              {'Settle session'}
+            </Item>
+          )}
+          {shelfActions.section === 'snoozed' ? (
+            <Item onClick={shelfActions.onWake} className="[&>svg]:mr-1">
+              <Icon name="alarm" className="mr-1 h-4 w-4" />
+              {'Wake session'}
+            </Item>
+          ) : (
+            <Sub>
+              <SubTrigger className="[&>svg:first-child]:mr-1">
+                <Icon name="alarm" className="mr-1 h-4 w-4" />
+                {'Snooze'}
+              </SubTrigger>
+              <SubContent className="min-w-[200px]">
+                {resolveSnoozePresets(new Date()).map((preset) => (
+                  <Item key={preset.id} onClick={() => shelfActions.onSnooze(preset.snoozedUntil)}>
+                    <span className="flex-1">{preset.label}</span>
+                    <span className="ml-4 typography-micro text-muted-foreground tabular-nums">{preset.whenLabel}</span>
+                  </Item>
+                ))}
+              </SubContent>
+            </Sub>
+          )}
+        </>
+      ) : null}
 
       <Item
         onClick={() => {

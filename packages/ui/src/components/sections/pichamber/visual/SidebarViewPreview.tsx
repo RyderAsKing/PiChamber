@@ -62,6 +62,13 @@ const TreeRow: React.FC<{
   </div>
 );
 
+const ShelfRow: React.FC<{ width: string }> = ({ width }) => (
+  <div className="flex items-center gap-[4px] border-t border-border px-[3px] pt-[3px]">
+    <Bar tone="bg-foreground/35" width={width} />
+    <div className="ml-auto h-[3px] w-[3px] shrink-0 rounded-full bg-foreground/20" />
+  </div>
+);
+
 /** Schematic of the session sidebar in a view mode for the Settings picker; sizes are fixed px on purpose so it ignores the padding scale. */
 export const SidebarViewPreview: React.FC<{ mode: SidebarViewMode }> = ({ mode }) => {
   return (
@@ -94,6 +101,17 @@ export const SidebarViewPreview: React.FC<{ mode: SidebarViewMode }> = ({ mode }
             <CardRow title="w-[60%]" details="w-[45%]" />
             <div className="mx-[3px] h-[2px] w-[36%] shrink-0 rounded-full bg-foreground/35" />
             <CardRow title="w-[70%]" details="w-[40%]" />
+          </>
+        )}
+        {mode === 'threads' && (
+          <>
+            <CardRow title="w-[75%]" details="w-[50%]" selected />
+            <CardRow title="w-[60%]" details="w-[45%]" />
+            <CardRow title="w-[70%]" details="w-[40%]" />
+            <div className="mt-auto flex flex-col gap-[4px]">
+              <ShelfRow width="w-[38%]" />
+              <ShelfRow width="w-[30%]" />
+            </div>
           </>
         )}
       </div>

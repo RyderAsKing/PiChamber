@@ -65,6 +65,7 @@ import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { type SessionGroup, type SessionNode } from './sidebar/types';
+import { autoSettleDaysFromSetting } from '@/lib/sessionShelf';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   formatProjectLabel,
@@ -260,6 +261,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ? 'workspace'
       : storedSidebarViewMode;
   const weekStartPreference = useUIStore((state) => state.weekStartPreference);
+  const autoSettleAfterDays = autoSettleDaysFromSetting(useUIStore((state) => state.sidebarAutoSettleAfterDays));
   const timelineWeekStart = React.useMemo(() => resolveTimelineWeekStart(weekStartPreference), [weekStartPreference]);
   const timelineBoundaries = useTimelineBoundaries(isVisible && sidebarViewMode === 'timeline', timelineWeekStart);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
@@ -1423,6 +1425,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
         pinnedSessionIds={pinnedSessionIds}
+        autoSettleAfterDays={autoSettleAfterDays}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}

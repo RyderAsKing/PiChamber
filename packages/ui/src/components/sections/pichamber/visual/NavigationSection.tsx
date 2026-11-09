@@ -1,11 +1,14 @@
 import React from 'react';
 
 import {
+  SETTINGS_NUMBER_STEPPER_ROW_CLASS,
+  SETTINGS_NUMBER_UNIT_CLASS,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsCheckboxRow,
   SettingsControlGroup,
+  SettingsFieldRow,
   SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsRadioOption,
@@ -22,6 +25,12 @@ import {
 import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import { NumberInput } from '@/components/ui/number-input';
+import {
+  DEFAULT_AUTO_SETTLE_AFTER_DAYS,
+  MAX_AUTO_SETTLE_AFTER_DAYS,
+  MIN_AUTO_SETTLE_AFTER_DAYS,
+} from '@/lib/sessionShelf';
 import { SidebarViewPreview } from './SidebarViewPreview';
 import {
   SIDEBAR_VIEW_MODE_OPTIONS,
@@ -32,6 +41,9 @@ export interface NavigationSectionProps {
   shouldShow: (setting: VisibleSetting) => boolean;
   sidebarViewMode: SidebarViewMode;
   onSidebarViewModeChange: (mode: SidebarViewMode) => void;
+  /** 0 is off. */
+  sidebarAutoSettleAfterDays: number;
+  onSidebarAutoSettleAfterDaysChange: (days: number) => void;
   fileEditorKeymap: 'default' | 'vim';
   setFileEditorKeymap: (keymap: 'default' | 'vim') => void;
   autoSaveEnabled: boolean;
@@ -55,6 +67,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   shouldShow,
   sidebarViewMode,
   onSidebarViewModeChange,
+  sidebarAutoSettleAfterDays,
+  onSidebarAutoSettleAfterDaysChange,
   fileEditorKeymap,
   setFileEditorKeymap,
   autoSaveEnabled,
@@ -78,10 +92,10 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
       {shouldShow('sidebarViewMode') && (
         <SettingsControlGroup
           title={'Sidebar view'}
-          info={'Workspace opens one folder at a time. By folder lists every folder with its sessions underneath. Timeline groups sessions from every folder by when they were last active. Applies to every device connected to this server.'}
+          info={'Workspace opens one folder at a time. By folder lists every folder with its sessions underneath. Timeline groups sessions from every folder by when they were last active. Threads lists every session in one place, with shelves for working, snoozed, and settled sessions. Applies to every device connected to this server.'}
           settingsItem="appearance.sidebar-view"
         >
-          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
+          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[40rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-4 @xl:gap-3">
             {SIDEBAR_VIEW_MODE_OPTIONS.map((option) => (
               <SettingsPreviewOption
                 key={option.id}
@@ -94,6 +108,31 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
             ))}
           </SettingsRadioGroup>
         </SettingsControlGroup>
+      )}
+      {shouldShow('sidebarViewMode') && (
+        <SettingsFieldRow
+          label={'Settle idle sessions'}
+          info={'In the Threads and By folder views, a session with no activity for this many days moves to Settled. Pinned, working, and snoozed sessions stay put, and sending a message brings a session back. Leave empty to settle only by hand.'}
+          settingsItem="appearance.auto-settle"
+        >
+          <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
+            <NumberInput
+              value={sidebarAutoSettleAfterDays === 0 ? undefined : sidebarAutoSettleAfterDays}
+              fallbackValue={DEFAULT_AUTO_SETTLE_AFTER_DAYS}
+              onValueChange={onSidebarAutoSettleAfterDaysChange}
+              onClear={() => onSidebarAutoSettleAfterDaysChange(0)}
+              emptyLabel={'Off'}
+              min={MIN_AUTO_SETTLE_AFTER_DAYS}
+              max={MAX_AUTO_SETTLE_AFTER_DAYS}
+              step={1}
+              aria-label={'Days before an idle session settles'}
+              className="w-20 tabular-nums"
+            />
+            <span className={SETTINGS_NUMBER_UNIT_CLASS}>
+              {sidebarAutoSettleAfterDays === 1 ? 'day' : 'days'}
+            </span>
+          </div>
+        </SettingsFieldRow>
       )}
       {shouldShow('fileEditorKeymap') && (
         <SettingsControlGroup

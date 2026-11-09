@@ -46,7 +46,14 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'appearance.sidebar-view',
     page: 'appearance',
     title: "Sidebar view",
-    keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'layout', 'group'],
+    keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'threads', 'layout', 'group'],
+  },
+  {
+    id: 'appearance.auto-settle',
+    page: 'appearance',
+    title: "Settle idle sessions",
+    description: "Move sessions with no recent activity to the Settled shelf.",
+    keywords: ['settled', 'settle', 'idle', 'inactive', 'days', 'threads', 'shelf', 'archive'],
   },
   {
     id: 'appearance.light-theme',

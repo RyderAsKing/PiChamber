@@ -30,6 +30,12 @@ import { useSessionNodeItemMetadata } from './useSessionNodeItemMetadata';
 import { useGitHubSelectedRepo } from '@/stores/useGitHubScopeStore';
 import { openPullRequestInSurface } from '@/components/views/github/openPullRequestInSurface';
 import { SessionRowVariantContext, treeRowGapClassName, treeRowSpacingClassName } from './sessionRowVariant';
+import { SessionShelfRowContext } from './sessionShelfRowContext';
+import { useSessionShelfStore } from '@/stores/useSessionShelfStore';
+import { formatSnoozeWake } from '@/lib/sessionShelf';
+import { updateSessionShelf } from './hooks/useSessionShelves';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { SessionShelfMenuActions } from './SessionNodeContextMenu';
 
 /** Clickable PR badge: opens the PR in the Pull requests surface (§6.6). */
 const PrBadgeButton: React.FC<{
@@ -213,6 +219,37 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
   const [isContextMenuOpen, setIsContextMenuOpen] = React.useState(false);
 
+  // Shelf state applies to top-level rows in the Threads and By folder views;
+  // subsessions follow their parent.
+  const shelfRowState = React.useContext(SessionShelfRowContext);
+  const shelfSection = depth === 0 && !archivedBucket ? shelfRowState?.sectionById.get(session.id) ?? null : null;
+  const snoozedUntil = useSessionShelfStore(
+    React.useCallback((state) => (shelfSection === 'snoozed' ? state.entries[session.id]?.snoozedUntil ?? null : null), [shelfSection, session.id]),
+  );
+  const showWoke = shelfSection !== null && shelfSection !== 'snoozed' && Boolean(shelfRowState?.wokeIds.has(session.id));
+  const shelfActions = React.useMemo<SessionShelfMenuActions | null>(() => {
+    if (!shelfSection) return null;
+    const directory = sessionDirectory ?? null;
+    return {
+      section: shelfSection,
+      onSettle: () => {
+        // Settled sessions leave Pinned, as they do when dragged to Settled.
+        if (isPinnedSession && directory) togglePinnedSession({ directory, sessionId: session.id });
+        updateSessionShelf(session.id, { settled: 'settled' }, directory, 'Could not settle the session');
+      },
+      onUnsettle: () => updateSessionShelf(session.id, { settled: 'active' }, directory, 'Could not un-settle the session'),
+      onSnooze: (until) => updateSessionShelf(session.id, { snoozedUntil: until }, directory, 'Could not snooze the session'),
+      onWake: () => updateSessionShelf(session.id, { snoozedUntil: null }, directory, 'Could not wake the session'),
+    };
+  }, [shelfSection, session.id, sessionDirectory, isPinnedSession, togglePinnedSession]);
+  const shelfQuickAction = shelfActions
+    ? shelfActions.section === 'snoozed'
+      ? { label: 'Wake', icon: 'alarm' as const, run: shelfActions.onWake }
+      : shelfActions.section === 'settled'
+        ? { label: 'Un-settle', icon: 'arrow-go-back' as const, run: shelfActions.onUnsettle }
+        : { label: 'Settle', icon: 'check' as const, run: shelfActions.onSettle }
+    : null;
+
   const handleOpenMiniChatWindow = React.useCallback(() => {
     if (!sessionDirectory) return;
     void invokeDesktop('desktop_open_session_mini_chat_window', {
@@ -255,6 +292,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     ? formatNeedsInputLabel(pendingInput.kind, pendingInput.count)
     : null;
   const showUnreadCompleteDot = attention === 'unread';
+  // A snoozed row shows when it wakes; one back from a snooze says so until opened.
+  const trailingLabel = snoozedUntil !== null
+    ? formatSnoozeWake(snoozedUntil, Date.now())
+    : showWoke
+      ? 'Woke'
+      : sessionCompactUpdatedLabel;
   const showActivityDuration = isStreaming && hasActivityDuration;
   // Quick actions own the trailing edge whenever they are pinned visible.
   const trailingStatusHidden = showQuickArchiveAction && (alwaysShowActions || isContextMenuOpen);
@@ -417,6 +460,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     handleOpenMiniChatWindow,
     handleDeleteSession,
     handleRestoreSession,
+    shelfActions,
   };
 
   const contextMenuContent = <SessionNodeContextMenuContent {...menuItemsProps} />;
@@ -540,16 +584,38 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     <div
                       // Titles are the content here, so full strength in every
                       // view; grey stays for labels, times, and actions.
-                      className="block min-w-0 flex-1 truncate font-normal typography-ui-label text-foreground"
+                      // The open session's title is a step heavier, so the selection
+                      // reads without relying on the row tint alone.
+                      // By folder keeps the other titles a step quieter under
+                      // their folder headers.
+                      className={cn(
+                        'block min-w-0 flex-1 truncate typography-ui-label',
+                        isActive ? 'font-medium text-foreground' : 'font-normal',
+                        !isActive && (isTree ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
+                      )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                     </div>
                     {isPinnedSession ? <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" /> : null}
                     {/* Reserves the title-line width of the trailing status, which is
                         positioned over the row so the details line can use the full width. */}
-                    <span aria-hidden="true" className="invisible ml-1 min-w-6 shrink-0 whitespace-nowrap typography-micro">
-                      {showUnreadCompleteDot ? null : sessionCompactUpdatedLabel}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'invisible ml-1 min-w-6 shrink-0 whitespace-nowrap typography-micro',
+                        // Room for the alarm icon and its gap.
+                        (snoozedUntil !== null || showWoke) && !showUnreadCompleteDot && 'pl-4',
+                      )}
+                    >
+                      {showUnreadCompleteDot ? null : trailingLabel}
                     </span>
+                    {/* A second hover action needs room the time label does not reserve. */}
+                    {shelfQuickAction && showQuickArchiveAction ? (
+                      <span
+                        aria-hidden="true"
+                        className={cn('w-6 shrink-0', alwaysShowActions || isContextMenuOpen ? 'block' : 'hidden group-hover:block group-focus-within:block')}
+                      />
+                    ) : null}
                   </div>
 
                   {/* By-folder rows are a single line: title and time only. */}
@@ -635,6 +701,14 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   <SessionNeedsInputIndicator label={needsInputLabel ?? 'Needs input'} />
                 ) : showUnreadCompleteDot ? (
                   <SessionUnreadDot label={'Session complete'} />
+                ) : snoozedUntil !== null || showWoke ? (
+                  <span
+                    className="inline-flex items-center gap-1 typography-micro text-muted-foreground whitespace-nowrap"
+                    title={snoozedUntil !== null ? `Snoozed until ${new Date(snoozedUntil).toLocaleString()}` : 'Back from snooze'}
+                  >
+                    <Icon name="alarm" className="size-3 shrink-0" />
+                    {trailingLabel}
+                  </span>
                 ) : (
                   <span className="typography-micro text-subtle-foreground whitespace-nowrap">
                     {sessionCompactUpdatedLabel}
@@ -650,6 +724,31 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100',
                   )}
                 >
+                  {shelfQuickAction ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={shelfQuickAction.label}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                          onPointerDown={handleQuickArchivePointerDown}
+                          onMouseDown={handleQuickArchiveMouseDown}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setOpenSidebarMenuKey(null);
+                            shelfQuickAction.run();
+                          }}
+                        >
+                          <Icon name={shelfQuickAction.icon} className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={6}>
+                        {shelfQuickAction.label}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                   <QuickSessionAction
                     archiveLabel={'Archive'}
                     deleteLabel={'Delete'}

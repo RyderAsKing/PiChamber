@@ -83,6 +83,8 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   setOpenSidebarMenuKey: (key: string | null) => void;
   /** Aggregated activity/attention indicator shown while the project is collapsed. */
   statusIndicator?: React.ReactNode;
+  /** Sessions in the folder, shown while it is collapsed; null hides the count. */
+  sessionCount?: number | null;
 }
 
 export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
@@ -106,6 +108,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   openSidebarMenuKey,
   setOpenSidebarMenuKey,
   statusIndicator = null,
+  sessionCount = null,
 }) => {
   const {
     listeners,
@@ -225,6 +228,14 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       projectPath={projectPath}
                       mobileVariant={mobileVariant}
                     />
+                    {sessionCount ? (
+                      <span
+                        className="shrink-0 typography-micro text-subtle-foreground tabular-nums"
+                        aria-label={sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+                      >
+                        {sessionCount}
+                      </span>
+                    ) : null}
                     {statusIndicator ? (
                       <span className="ml-1 inline-flex flex-shrink-0 items-center">{statusIndicator}</span>
                     ) : null}
