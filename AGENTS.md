@@ -145,7 +145,7 @@ name, folder, and change mark per hit, desktop only); `files-panel-nested`
 has opened to it, desktop only); `files-panel-changes` (`billing.ts` open,
 then its path bar's Changes button: the Git panel on the file's scope with it
 expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
-first question, desktop only); `add-folder-browse`, `add-folder-clone`, and
+first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons); `command-palette`

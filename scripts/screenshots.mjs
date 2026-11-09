@@ -77,28 +77,33 @@ const PROJECT_ICONS_SETTLED = `(() => {
   return icons.length >= 4 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
 })()`;
 
-// Opens the sidebar's Add folder dialog, goes to `step` (a source title), and
-// fills each field named by its aria-label or id, one per poll, until `done`.
-const addFolderSettled = (step, fields, done) => `(() => {
+// Opens the sidebar's Add folder dialog and walks `plan`: pick the source
+// titled `plan.source`, then fill each field (named by the dialog's field
+// label) and press Continue where asked, one action per poll, until `done`.
+// The dialog keeps one field; its label says which step is showing.
+const addFolderSettled = (plan, done) => `(() => {
   const dialog = document.querySelector('[data-slot="dialog-content"]');
   if (!dialog) {
     [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add folder')?.click();
     return false;
   }
-  const step = ${JSON.stringify(step)};
-  if (step && !dialog.querySelector('[aria-label="Back to sources"]')) {
-    [...dialog.querySelectorAll('button')].find((button) => button.textContent.includes(step))?.click();
+  const input = dialog.querySelector('input[role="combobox"]');
+  if (!input) return false;
+  const plan = ${JSON.stringify(plan)};
+  const label = input.getAttribute('aria-label');
+  const field = plan.fields.find((entry) => entry.label === label);
+  if (plan.source && !field) {
+    [...dialog.querySelectorAll('[role="option"]')].find((row) => row.textContent.includes(plan.source))?.click();
     return false;
   }
-  const fields = ${JSON.stringify(fields)};
-  for (const [name, value] of fields) {
-    const input = dialog.querySelector('input[aria-label="' + name + '"], input#' + name);
-    if (!input) return false;
-    if (input.value !== value) {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return false;
-    }
+  if (field && input.value !== field.value) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, field.value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return false;
+  }
+  if (field?.continue) {
+    [...dialog.querySelectorAll('button')].find((button) => /continue/i.test(button.textContent))?.click();
+    return false;
   }
   return ${done};
 })()`;
@@ -264,40 +269,48 @@ const PAGES = {
     idleRequestPrefix: '/api/git/',
   },
   'add-folder': {
-    // The Add folder dialog's first question: where the project comes from.
+    // The Add folder dialog's first step: where the project comes from.
     path: '/',
     viewports: ['desktop'],
     readyText: ['Add folder'],
-    settledScript: addFolderSettled(null, [], `document.body.innerText.includes('Where does the project come from?')`),
+    settledScript: addFolderSettled({ fields: [] }, `dialog.innerText.includes('New project')`),
   },
   'add-folder-browse': {
     // Folder on this server, browsing ~/code: the path field, its folders,
-    // and the footer naming the folder Add folder will add.
+    // and the key hints.
     path: '/',
     viewports: ['desktop'],
     readyText: ['Add folder'],
-    settledScript: addFolderSettled('Folder on this server', [['Folder path', '~/code/']],
-      `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Adds')`),
+    settledScript: addFolderSettled(
+      { source: 'Folder on this server', fields: [{ label: 'Folder path', value: '~/code/' }] },
+      `dialog.innerText.includes('design-notes')`,
+    ),
   },
   'add-folder-clone': {
-    // Clone a repository: a URL, the location ~/code, and the folder it makes.
+    // Clone a repository: the URL, then the location ~/code and the folder it makes.
     path: '/',
     viewports: ['desktop'],
     readyText: ['Add folder'],
-    settledScript: addFolderSettled('Clone a repository', [
-      ['add-folder-remote-url', 'https://github.com/acme/billing-service.git'],
-      ['Location', '~/code/'],
-    ], `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Clones into')`),
+    settledScript: addFolderSettled({
+      source: 'Clone a repository',
+      fields: [
+        { label: 'Repository URL', value: 'https://github.com/acme/billing-service.git', continue: true },
+        { label: 'Location', value: '~/code/' },
+      ],
+    }, `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Clones into')`),
   },
   'add-folder-new': {
-    // New project: a name, the Git option, the location, and what it creates.
+    // New project: the name, then the Git option, the location, and what it creates.
     path: '/',
     viewports: ['desktop'],
     readyText: ['Add folder'],
-    settledScript: addFolderSettled('New project', [
-      ['add-folder-project-name', 'invoice-worker'],
-      ['Location', '~/code/'],
-    ], `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Creates a Git repository at')`),
+    settledScript: addFolderSettled({
+      source: 'New project',
+      fields: [
+        { label: 'Project name', value: 'invoice-worker', continue: true },
+        { label: 'Location', value: '~/code/' },
+      ],
+    }, `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Creates')`),
   },
   'settings-appearance': {
     // A dense settings page: navigation, section titles, field labels,
