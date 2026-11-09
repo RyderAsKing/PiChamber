@@ -2,6 +2,7 @@ import React from 'react';
 
 import { useProjectIconUrl } from '@/lib/projectIcon';
 import { getProjectMark } from '@/lib/projectIdentity';
+import { getCachedIconTone, measureIconTone, type ProjectIconTone } from '@/lib/projectIconTone';
 import { cn } from '@/lib/utils';
 import { useProjectAgentActive } from '@/sync/live-project-activity';
 
@@ -17,13 +18,17 @@ type ProjectIconProps = {
 /**
  * The project's own icon (favicon, app icon, or logo) when it has one,
  * otherwise its first letter on a tint derived from its name. Shown in color
- * only while an agent is working in the project; grayscale otherwise.
+ * only while an agent is working in the project; grayscale otherwise. An icon
+ * that is almost all dark (or all light) gets a plate in the theme's text
+ * color so it stays visible on a background of the same tone.
  */
 export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
   const url = useProjectIconUrl(directory);
   const active = useProjectAgentActive(directory);
   const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
+  const [measured, setMeasured] = React.useState<{ url: string; tone: ProjectIconTone } | null>(null);
   const stateClassName = active ? undefined : 'grayscale';
+  const tone = url ? (measured?.url === url ? measured.tone : getCachedIconTone(url)) : undefined;
 
   if (url && url !== failedUrl) {
     return (
@@ -33,7 +38,12 @@ export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
         aria-hidden="true"
         draggable={false}
         onError={() => setFailedUrl(url)}
+        onLoad={(event) => {
+          if (tone) return;
+          setMeasured({ url, tone: measureIconTone(event.currentTarget, url) });
+        }}
         data-project-icon="image"
+        data-icon-tone={tone && tone !== 'mixed' ? tone : undefined}
         data-agent-active={active ? '' : undefined}
         className={cn('size-4 shrink-0 rounded-[25%] object-contain', stateClassName, className)}
       />
