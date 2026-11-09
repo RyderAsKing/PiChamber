@@ -2,70 +2,122 @@ import React from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
 import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
-import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { Icon } from '@/components/icon/Icon';
 import type { IconName } from '@/components/icon/icons';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { childDisplayPath, folderNameProblem, repositoryFolderName } from './addFolderNames';
-import { DirectoryBrowserPane } from './DirectoryBrowserPane';
-import { normalizeDirectoryPath, trimTrailingSeparators } from './directoryExplorerPaths';
-import { type DirectoryExplorerDialogProps, focusPathInput, isPrimaryModifierPressed } from './directoryExplorerTypes';
+import { type KeyHint, Kbd, KeyHints, PaletteRow } from './AddFolderPaletteParts';
+import { normalizeDirectoryPath, normalizeSeparators, trimTrailingSeparators } from './directoryExplorerPaths';
+import {
+  type BrowseRow,
+  type DirectoryExplorerDialogProps,
+  focusPathInput,
+  isPrimaryModifierPressed,
+  primaryModifierLabel,
+} from './directoryExplorerTypes';
 import { useAddFolderSubmit } from './useAddFolderSubmit';
 import { useDirectoryBrowser } from './useDirectoryBrowser';
 
-type Step = 'source' | 'folder' | 'clone' | 'new';
+/**
+ * The dialog keeps one frame, a field over a list over key hints, and each
+ * step only changes what the field holds and what the list shows. Clone and
+ * New project ask their question first, then pick the location.
+ */
+type Step = 'source' | 'folder' | 'clone-url' | 'clone-location' | 'new-name' | 'new-location';
+type BrowseStep = Extract<Step, 'folder' | 'clone-location' | 'new-location'>;
 
-const SOURCES: ReadonlyArray<{ step: Exclude<Step, 'source'>; icon: IconName; title: string; description: string }> = [
+const PREVIOUS_STEP: Record<Exclude<Step, 'source'>, Step> = {
+  folder: 'source',
+  'clone-url': 'source',
+  'clone-location': 'clone-url',
+  'new-name': 'source',
+  'new-location': 'new-name',
+};
+
+const isBrowseStep = (step: Step): step is BrowseStep =>
+  step === 'folder' || step === 'clone-location' || step === 'new-location';
+
+const SOURCES: ReadonlyArray<{ step: Step; icon: IconName; title: string; description: string }> = [
   {
     step: 'folder',
     icon: 'folder-6',
     title: 'Folder on this server',
-    description: 'Add a folder that’s already here.',
+    description: 'Pick a folder that’s already here.',
   },
   {
-    step: 'clone',
+    step: 'clone-url',
     icon: 'git-repository',
     title: 'Clone a repository',
     description: 'Copy a Git repository from a URL.',
   },
   {
-    step: 'new',
+    step: 'new-name',
     icon: 'folder-add',
     title: 'New project',
-    description: 'Create an empty folder, with Git if you want it.',
+    description: 'Start an empty folder, with Git if you want it.',
   },
 ];
 
-const STEP_TEXT: Record<Step, { title: string; description: string }> = {
-  source: { title: 'Add folder', description: 'Where does the project come from?' },
-  folder: {
-    title: 'Folder on this server',
-    description: 'Pick a folder or type its path. A folder that doesn’t exist yet is created.',
-  },
-  clone: {
-    title: 'Clone a repository',
-    description: 'The repository is cloned into a new folder inside the location you pick.',
-  },
-  new: { title: 'New project', description: 'The project gets a new folder inside the location you pick.' },
+const STEP_DESCRIPTION: Record<Step, string> = {
+  source: 'Choose where the project comes from, type a folder path, or paste a Git URL.',
+  folder: 'Pick a folder on this server or type its path.',
+  'clone-url': 'Paste the URL of the repository to clone.',
+  'clone-location': 'Pick the folder the repository is cloned into.',
+  'new-name': 'Name the new project.',
+  'new-location': 'Pick the folder the new project goes in.',
 };
 
-/** What the footer says about the step: the outcome, a hint, or what's wrong. */
-type Outcome = { tone: 'outcome' | 'hint' | 'problem'; text: string; path?: string };
+const INPUT_LABEL: Record<Step, string> = {
+  source: 'Filter sources, type a folder path, or paste a Git URL',
+  folder: 'Folder path',
+  'clone-url': 'Repository URL',
+  'clone-location': 'Location',
+  'new-name': 'Project name',
+  'new-location': 'Location',
+};
+
+const INPUT_PLACEHOLDER: Record<Step, string> = {
+  source: 'Choose a source, type a path, or paste a Git URL',
+  folder: '~/',
+  'clone-url': 'https://github.com/owner/repo.git',
+  'clone-location': '~/',
+  'new-name': 'Project name',
+  'new-location': '~/',
+};
+
+/** Typing one of these into the first step skips straight to that source. */
+const looksLikePath = (value: string) => /^(~|\/|[a-zA-Z]:[\\/])/.test(value);
+const looksLikeGitUrl = (value: string) =>
+  /^(https?:\/\/|ssh:\/\/|git:\/\/|git@)/i.test(value) || /^[\w.-]+@[\w.-]+:/.test(value);
+
+type Item = {
+  key: string;
+  kind: 'source' | 'toggle' | 'parent' | 'directory';
+  select: () => void;
+  content: React.ReactNode;
+  ariaLabel?: string;
+  ariaChecked?: boolean;
+};
+
+const folderNameOf = (path: string) => trimTrailingSeparators(normalizeSeparators(path)).split('/').pop() ?? '';
 
 export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = ({ open, onOpenChange }) => {
   const projects = useProjectsStore((s) => s.projects);
   const { isMobile, isTablet } = useDeviceInfo();
-  const shouldSuppressAutoFocus = isMobile || isTablet;
+  const isTouchLayout = isMobile || isTablet;
 
   const [step, setStep] = React.useState<Step>('source');
+  const [sourceFilter, setSourceFilter] = React.useState('');
   const [remoteUrl, setRemoteUrl] = React.useState('');
   const [projectName, setProjectName] = React.useState('');
   const [initGit, setInitGit] = React.useState(true);
-  const sourceRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const [highlightKey, setHighlightKey] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const rowRefs = React.useRef(new Map<string, HTMLDivElement>());
+  const listId = React.useId();
 
   const addedProjectPaths = React.useMemo(
     () =>
@@ -89,9 +141,11 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   React.useEffect(() => {
     if (!open) return;
     setStep('source');
+    setSourceFilter('');
     setRemoteUrl('');
     setProjectName('');
     setInitGit(true);
+    setHighlightKey(null);
   }, [open]);
 
   // An error answers the input that caused it; editing anything retires it.
@@ -99,72 +153,88 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     clearError();
   }, [browser.query, clearError, projectName, remoteUrl, step]);
 
+  // The field stays put across steps; each step hands it focus again. On a
+  // touch screen only the steps that need typing raise the keyboard.
   React.useLayoutEffect(() => {
-    if (!open || step !== 'source' || shouldSuppressAutoFocus) return;
-    sourceRefs.current[0]?.focus({ preventScroll: true });
-  }, [open, shouldSuppressAutoFocus, step]);
+    if (!open) return;
+    if (isTouchLayout && step !== 'clone-url' && step !== 'new-name') return;
+    focusPathInput(inputRef.current);
+  }, [isTouchLayout, open, step]);
+
+  const goTo = React.useCallback((next: Step) => {
+    setStep(next);
+    setHighlightKey(null);
+  }, []);
 
   const goBack = React.useCallback(() => {
-    if (pending) return;
-    setStep('source');
-  }, [pending]);
+    if (pending || step === 'source') return;
+    goTo(PREVIOUS_STEP[step]);
+  }, [goTo, pending, step]);
 
+  const { navigate } = browser;
+  const openRow = React.useCallback(
+    (row: BrowseRow) => {
+      // Going up lands on the folder just left, so Enter goes back into it.
+      const landOn = row.type === 'parent' ? `dir:${folderNameOf(row.path)}` : null;
+      void navigate(row.target).then((committed) => {
+        if (committed) setHighlightKey(landOn);
+      });
+    },
+    [navigate],
+  );
+
+  // What the step would do, and whether it can.
   const existingNames = React.useMemo(() => new Set(browser.entries.map((entry) => entry.name)), [browser.entries]);
   const location = browser.browseDirectoryDisplayPath;
   const locationProblem: string | null = browser.browseErrorReason === 'not-found'
-    ? 'Pick a location that exists.'
+    ? 'This folder doesn’t exist. Pick a location that does.'
     : browser.browseErrorReason
       ? 'PiChamber can’t read this location.'
       : null;
-  const browsing = browser.isLoading || browser.isPickingLocation;
+  const browsing = !browser.isSettled || browser.isPickingLocation;
 
   const cloneName = repositoryFolderName(remoteUrl);
   const newName = projectName.trim();
   const newNameProblem = newName ? folderNameProblem(newName) : null;
 
-  let outcome: Outcome | null = null;
   let canSubmit = false;
+  let submitVerb = '';
+  let pendingLabel = '';
+  /** Location steps: what finishing does, or why it can't. */
+  let summary: { tone: 'outcome' | 'problem'; text: string; path?: string } | null = null;
+
   if (step === 'folder') {
-    const display = trimTrailingSeparators(browser.query.trim());
-    if (!browser.targetPath) {
-      outcome = { tone: 'hint', text: 'Type a folder path.' };
-    } else if (browser.isAlreadyAdded) {
-      outcome = { tone: 'hint', text: 'Already added:', path: display };
-    } else if (browser.browseErrorReason && browser.browseErrorReason !== 'not-found') {
-      outcome = { tone: 'problem', text: 'PiChamber can’t read this folder.' };
+    pendingLabel = 'Adding…';
+    if (browser.isAlreadyAdded) {
+      submitVerb = 'Added';
     } else {
-      outcome = { tone: 'outcome', text: browser.shouldCreateTarget ? 'Creates and adds' : 'Adds', path: display };
-      canSubmit = !browsing;
+      submitVerb = browser.shouldCreateTarget ? 'Create and add' : 'Add';
+      const unreadable = browser.browseErrorReason && browser.browseErrorReason !== 'not-found';
+      canSubmit = Boolean(browser.targetPath) && !unreadable && !browsing;
     }
-  } else if (step === 'clone') {
-    if (!remoteUrl.trim()) {
-      outcome = { tone: 'hint', text: 'Paste the repository’s HTTPS or SSH URL.' };
-    } else if (!cloneName) {
-      outcome = { tone: 'problem', text: 'This URL doesn’t name a repository.' };
-    } else if (locationProblem) {
-      outcome = { tone: 'problem', text: locationProblem };
+  } else if (step === 'clone-location') {
+    submitVerb = 'Clone';
+    pendingLabel = 'Cloning…';
+    const target = childDisplayPath(location, cloneName);
+    if (locationProblem) {
+      summary = { tone: 'problem', text: locationProblem };
     } else if (existingNames.has(cloneName)) {
-      outcome = { tone: 'problem', text: 'Already exists:', path: childDisplayPath(location, cloneName) };
+      summary = { tone: 'problem', text: 'Already exists:', path: target };
     } else {
-      outcome = { tone: 'outcome', text: 'Clones into', path: childDisplayPath(location, cloneName) };
-      canSubmit = !browsing;
+      summary = { tone: 'outcome', text: 'Clones into', path: target };
+      canSubmit = Boolean(cloneName) && !browsing;
     }
-  } else if (step === 'new') {
-    if (!newName) {
-      outcome = { tone: 'hint', text: 'Name the project.' };
-    } else if (newNameProblem) {
-      outcome = { tone: 'problem', text: newNameProblem };
-    } else if (locationProblem) {
-      outcome = { tone: 'problem', text: locationProblem };
+  } else if (step === 'new-location') {
+    submitVerb = 'Create';
+    pendingLabel = 'Creating…';
+    const target = childDisplayPath(location, newName);
+    if (locationProblem) {
+      summary = { tone: 'problem', text: locationProblem };
     } else if (existingNames.has(newName)) {
-      outcome = { tone: 'problem', text: 'Already exists:', path: childDisplayPath(location, newName) };
+      summary = { tone: 'problem', text: 'Already exists:', path: target };
     } else {
-      outcome = {
-        tone: 'outcome',
-        text: initGit ? 'Creates a Git repository at' : 'Creates',
-        path: childDisplayPath(location, newName),
-      };
-      canSubmit = !browsing;
+      summary = { tone: 'outcome', text: 'Creates', path: target };
+      canSubmit = Boolean(newName) && !newNameProblem && !browsing;
     }
   }
   canSubmit = canSubmit && pending === null;
@@ -176,208 +246,455 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         create: browser.shouldCreateTarget,
         location: browser.browseDirectoryAbsolutePath,
       });
-    } else if (step === 'clone') {
+    } else if (step === 'clone-location') {
       void cloneRepository(remoteUrl, browser.browseDirectoryAbsolutePath);
-    } else if (step === 'new') {
+    } else if (step === 'new-location') {
       void createProject(browser.browseDirectoryAbsolutePath, newName, initGit);
     }
   };
 
-  const submitLabel = step === 'clone'
-    ? pending ? 'Cloning…' : 'Clone and add'
-    : step === 'new'
-      ? pending ? 'Creating…' : 'Create project'
-      : pending
-        ? 'Adding…'
-        : browser.shouldCreateTarget ? 'Create and add' : 'Add folder';
-  const submitHint = step === 'clone' ? 'Clone' : step === 'new' ? 'Create' : 'Add';
-
-  // In the URL and name fields Enter moves on to the location; the modifier
-  // plus Enter finishes, as it does in the path field.
-  const handleFieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== 'Enter') return;
-    event.preventDefault();
-    if (isPrimaryModifierPressed(event)) submit();
-    else focusPathInput(browser.inputRef.current);
+  const canContinue = step === 'clone-url'
+    ? Boolean(cloneName)
+    : step === 'new-name'
+      ? Boolean(newName) && !newNameProblem
+      : false;
+  const continueToLocation = () => {
+    if (!canContinue) return;
+    goTo(step === 'clone-url' ? 'clone-location' : 'new-location');
   };
 
-  const handleSourceKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const buttons = sourceRefs.current.filter((button): button is HTMLButtonElement => Boolean(button));
-    const index = buttons.findIndex((button) => button === document.activeElement);
-    const next = event.key === 'ArrowDown'
-      ? Math.min(buttons.length - 1, index + 1)
-      : Math.max(0, index - 1);
-    buttons[next]?.focus();
-  };
-
-  const sourceList = (
-    <div className="-mx-2 flex flex-col gap-0.5" onKeyDown={handleSourceKeyDown}>
-      {SOURCES.map((source, index) => (
-        <button
-          key={source.step}
-          ref={(node) => {
-            sourceRefs.current[index] = node;
-          }}
-          type="button"
-          onClick={() => setStep(source.step)}
-          className="flex w-full items-center gap-3 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-interactive-hover/50 focus-visible:bg-interactive-hover/50 focus-visible:outline-none"
-        >
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-[var(--surface-muted)] text-muted-foreground">
-            <Icon name={source.icon} className="size-4" />
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col">
-            <span className="typography-ui-label font-medium text-foreground">{source.title}</span>
-            <span className="typography-meta text-muted-foreground">{source.description}</span>
-          </span>
-          <Icon name="arrow-right-s" className="size-4 shrink-0 text-subtle-foreground" />
-        </button>
-      ))}
-    </div>
-  );
-
-  const pane = (inputLabel: string, autoFocus: boolean) => (
-    <DirectoryBrowserPane
-      browser={browser}
-      inputLabel={inputLabel}
-      submitHint={submitHint}
-      onSubmit={submit}
-      onBack={goBack}
-      autoFocus={autoFocus && !shouldSuppressAutoFocus}
-      disabled={pending !== null}
-    />
-  );
-
-  const fieldLabelClass = 'typography-meta font-medium text-foreground';
-
-  let body: React.ReactNode;
+  // The list: sources, or the folders under the path field.
+  const items: Item[] = [];
   if (step === 'source') {
-    body = sourceList;
-  } else if (step === 'folder') {
-    body = pane('Folder path', true);
-  } else if (step === 'clone') {
-    body = (
-      <>
-        <label htmlFor="add-folder-remote-url" className={fieldLabelClass}>{'Repository URL'}</label>
-        <Input
-          id="add-folder-remote-url"
-          value={remoteUrl}
-          onChange={(event) => setRemoteUrl(event.target.value)}
-          onKeyDown={handleFieldKeyDown}
-          placeholder={'https://github.com/owner/repo.git'}
-          autoFocus={!shouldSuppressAutoFocus}
-          disabled={pending !== null}
-          aria-invalid={outcome?.tone === 'problem' && !cloneName ? true : undefined}
-          className="mt-1.5 font-mono md:typography-meta typography-meta"
-        />
-        <div className={cn(fieldLabelClass, 'mb-1.5 mt-4')}>{'Clone into'}</div>
-        {pane('Location', false)}
-      </>
-    );
+    const filter = sourceFilter.trim().toLowerCase();
+    for (const source of SOURCES) {
+      if (filter && !`${source.title} ${source.description}`.toLowerCase().includes(filter)) continue;
+      items.push({
+        key: `source:${source.step}`,
+        kind: 'source',
+        select: () => goTo(source.step),
+        content: (
+          <>
+            <Icon name={source.icon} className="size-4 shrink-0 text-muted-foreground" />
+            <span className="flex min-w-0 flex-1 flex-col py-0.5">
+              <span className="truncate">{source.title}</span>
+              <span className="truncate typography-meta text-muted-foreground">{source.description}</span>
+            </span>
+          </>
+        ),
+      });
+    }
+  } else if (isBrowseStep(step)) {
+    if (step === 'new-location') {
+      items.push({
+        key: 'toggle:git',
+        kind: 'toggle',
+        select: () => setInitGit((value) => !value),
+        ariaChecked: initGit,
+        ariaLabel: 'Initialize a Git repository',
+        content: (
+          <>
+            <span className="pointer-events-none flex size-4 shrink-0 items-center justify-center">
+              <Checkbox checked={initGit} onChange={setInitGit} />
+            </span>
+            <span className="flex-1 truncate">{'Initialize a Git repository'}</span>
+          </>
+        ),
+      });
+    }
+    for (const row of browser.rows) {
+      const isParent = row.type === 'parent';
+      items.push({
+        key: isParent ? 'browse:up' : `dir:${row.name}`,
+        kind: isParent ? 'parent' : 'directory',
+        select: () => openRow(row),
+        ariaLabel: isParent
+          ? `Up to ${row.target}`
+          : `${row.name}${row.alreadyAdded ? ', already added' : ''}`,
+        content: (
+          <>
+            <Icon
+              name={isParent ? 'arrow-up-s' : 'folder-6'}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
+            {isParent ? (
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className="shrink-0">{'Up to'}</span>
+                <MiddleTruncate value={row.target} className="min-w-0 font-mono typography-meta text-muted-foreground" />
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1 truncate">{row.name}</span>
+            )}
+            {!isParent && row.alreadyAdded ? (
+              <span className="shrink-0 typography-micro text-muted-foreground">{'Added'}</span>
+            ) : null}
+          </>
+        ),
+      });
+    }
+  }
+
+  const defaultIndex = isBrowseStep(step)
+    ? items.findIndex((item) => item.kind === 'directory')
+    : items.length > 0 ? 0 : -1;
+  const explicitIndex = highlightKey ? items.findIndex((item) => item.key === highlightKey) : -1;
+  const activeIndex = explicitIndex >= 0 ? explicitIndex : defaultIndex;
+  const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
+  const activeKey = activeItem?.key;
+  const optionId = (index: number) => `${listId}-option-${index}`;
+
+  React.useLayoutEffect(() => {
+    if (!activeKey) return;
+    rowRefs.current.get(activeKey)?.scrollIntoView({ block: 'nearest' });
+  }, [activeKey]);
+
+  const moveHighlight = (delta: number) => {
+    if (items.length === 0) return;
+    const from = activeIndex >= 0 ? activeIndex : delta > 0 ? -1 : items.length;
+    const next = Math.min(items.length - 1, Math.max(0, from + delta));
+    setHighlightKey(items[next]?.key ?? null);
+  };
+
+  const inputValue = step === 'source'
+    ? sourceFilter
+    : step === 'clone-url'
+      ? remoteUrl
+      : step === 'new-name'
+        ? projectName
+        : browser.query;
+
+  const handleChange = (value: string) => {
+    setHighlightKey(null);
+    if (step === 'source') {
+      const typed = value.trimStart();
+      if (looksLikeGitUrl(typed)) {
+        setSourceFilter('');
+        setRemoteUrl(typed);
+        goTo('clone-url');
+        return;
+      }
+      if (looksLikePath(typed)) {
+        setSourceFilter('');
+        browser.setQuery(typed === '~' ? '~/' : normalizeSeparators(typed));
+        goTo('folder');
+        return;
+      }
+      setSourceFilter(value);
+      return;
+    }
+    if (step === 'clone-url') {
+      setRemoteUrl(value);
+      return;
+    }
+    if (step === 'new-name') {
+      setProjectName(value);
+      return;
+    }
+    browser.setQuery(normalizeSeparators(value).replace(/\/{2,}/g, '/'));
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (items.length === 0) return;
+      event.preventDefault();
+      moveHighlight(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (pending) return;
+      if (isBrowseStep(step) && isPrimaryModifierPressed(event)) {
+        submit();
+        return;
+      }
+      if (step === 'clone-url' || step === 'new-name') {
+        continueToLocation();
+        return;
+      }
+      if (activeItem) activeItem.select();
+      else if (isBrowseStep(step)) submit();
+      return;
+    }
+    if (event.key === 'Tab' && !event.shiftKey && activeItem?.kind === 'directory') {
+      // Tab completes the path to the highlighted folder.
+      event.preventDefault();
+      activeItem.select();
+      return;
+    }
+    if (event.key === 'Backspace' && inputValue === '' && step !== 'source') {
+      event.preventDefault();
+      goBack();
+    }
+  };
+
+  // Key hints say what the keys do right now.
+  const mod = primaryModifierLabel();
+  const hints: KeyHint[] = [];
+  if (items.length > 1) hints.push({ keys: ['↑', '↓'], label: 'Navigate' });
+  if (step === 'source') {
+    if (activeItem) hints.push({ keys: ['↵'], label: 'Select' });
+  } else if (step === 'clone-url' || step === 'new-name') {
+    hints.push({ keys: ['↵'], label: 'Continue' });
+  } else if (activeItem) {
+    hints.push({ keys: ['↵'], label: activeItem.kind === 'toggle' ? 'Toggle' : 'Open' });
+    hints.push({ keys: [mod, '↵'], label: submitVerb });
   } else {
-    body = (
-      <>
-        <label htmlFor="add-folder-project-name" className={fieldLabelClass}>{'Name'}</label>
-        <Input
-          id="add-folder-project-name"
-          value={projectName}
-          onChange={(event) => setProjectName(event.target.value)}
-          onKeyDown={handleFieldKeyDown}
-          placeholder={'my-project'}
-          autoFocus={!shouldSuppressAutoFocus}
-          disabled={pending !== null}
-          aria-invalid={newNameProblem ? true : undefined}
-          className="mt-1.5"
-        />
-        <label className="mt-2.5 flex w-fit cursor-pointer items-center gap-2 typography-meta text-muted-foreground">
-          <Checkbox checked={initGit} onChange={setInitGit} disabled={pending !== null} />
-          {'Initialize a Git repository'}
-        </label>
-        <div className={cn(fieldLabelClass, 'mb-1.5 mt-4')}>{'Location'}</div>
-        {pane('Location', false)}
-      </>
+    hints.push({ keys: ['↵'], label: submitVerb });
+  }
+  if (step !== 'source' && inputValue === '') hints.push({ keys: ['⌫'], label: 'Back' });
+  hints.push({ keys: ['Esc'], label: 'Close' });
+
+  const submitKeys = isBrowseStep(step) && activeItem ? [mod, '↵'] : ['↵'];
+
+  let actionButton: React.ReactNode = null;
+  if (isBrowseStep(step)) {
+    actionButton = (
+      <Button
+        variant="outline"
+        size="xs"
+        className="shrink-0 gap-1.5"
+        disabled={!canSubmit}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={submit}
+      >
+        {pending ? pendingLabel : submitVerb}
+        {!isMobile && !pending && canSubmit ? (
+          <span className="flex items-center gap-0.5">
+            {submitKeys.map((key) => (
+              <Kbd key={key}>{key}</Kbd>
+            ))}
+          </span>
+        ) : null}
+      </Button>
     );
+  } else if (step === 'clone-url' || step === 'new-name') {
+    actionButton = (
+      <Button
+        variant="outline"
+        size="xs"
+        className="shrink-0 gap-1.5"
+        disabled={!canContinue}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={continueToLocation}
+      >
+        {'Continue'}
+        {!isMobile && canContinue ? <Kbd>{'↵'}</Kbd> : null}
+      </Button>
+    );
+  }
+
+  // What the list area says when it has no rows, or after the last folder.
+  let notice: { tone: 'quiet' | 'problem'; text: React.ReactNode; actions?: React.ReactNode } | null = null;
+  const directoryCount = items.filter((item) => item.kind === 'directory').length;
+  if (step === 'source' && items.length === 0) {
+    notice = { tone: 'quiet', text: 'Nothing matches. Type a folder path, or paste a Git URL.' };
+  } else if (step === 'clone-url') {
+    if (!remoteUrl.trim()) {
+      notice = { tone: 'quiet', text: 'Paste the repository’s HTTPS or SSH URL, then press Enter to choose where it goes.' };
+    } else if (!cloneName) {
+      notice = { tone: 'problem', text: 'This URL doesn’t name a repository.' };
+    } else {
+      notice = { tone: 'quiet', text: <>{'Clones as '}<span className="font-mono text-foreground">{cloneName}</span>{'. Press Enter to choose where it goes.'}</> };
+    }
+  } else if (step === 'new-name') {
+    if (!newName) {
+      notice = { tone: 'quiet', text: 'Name the project, then press Enter to choose where it goes.' };
+    } else if (newNameProblem) {
+      notice = { tone: 'problem', text: newNameProblem };
+    } else {
+      notice = { tone: 'quiet', text: <>{'Press Enter to choose where '}<span className="font-mono text-foreground">{newName}</span>{' goes.'}</> };
+    }
+  } else if (isBrowseStep(step)) {
+    if (browser.browseErrorReason === 'not-found') {
+      notice = step === 'folder'
+        ? { tone: 'quiet', text: 'This folder doesn’t exist yet. Adding it creates it.' }
+        : { tone: 'problem', text: 'This folder doesn’t exist. Pick a location that does.' };
+    } else if (browser.browseErrorReason) {
+      notice = {
+        tone: 'problem',
+        text: browser.browseErrorReason === 'os-permission'
+          ? 'PiChamber needs access to this folder.'
+          : 'Couldn’t read this folder.',
+        actions: (
+          <>
+            {browser.browseErrorReason === 'os-permission' && browser.canRequestAccess ? (
+              <Button size="xs" onClick={() => void browser.handleBrowseLocation()} disabled={browser.isPickingLocation}>
+                {'Grant access'}
+              </Button>
+            ) : null}
+            <Button variant="outline" size="xs" onClick={browser.reload}>
+              {'Try again'}
+            </Button>
+          </>
+        ),
+      };
+    } else if (browser.showLoading && directoryCount === 0) {
+      notice = { tone: 'quiet', text: 'Loading folders…' };
+    } else if (browser.isSettled && directoryCount === 0) {
+      notice = {
+        tone: 'quiet',
+        text: browser.browseFilterQuery
+          ? step === 'folder'
+            ? <>{'No folder named '}<span className="font-mono text-foreground">{browser.browseFilterQuery}</span>{' here. Adding it creates it.'}</>
+            : 'No folders match.'
+          : 'No folders in here.',
+      };
+    }
   }
 
   const status = error ? (
-    <p role="alert" className="min-w-0 flex-1 typography-meta text-[var(--status-error)] text-pretty">{error}</p>
-  ) : outcome ? (
-    <p
-      className={cn(
-        'flex min-w-0 flex-1 items-baseline gap-1.5 typography-meta',
-        outcome.tone === 'problem' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
-      )}
-    >
-      <span className="shrink-0">{outcome.text}</span>
-      {outcome.path ? (
-        <MiddleTruncate value={outcome.path} className="min-w-0 font-mono text-foreground" />
-      ) : null}
+    <p role="alert" className="border-b border-border/60 px-4 py-2 typography-meta text-[var(--status-error)] text-pretty">
+      {error}
     </p>
   ) : null;
 
-  const submitButton = (
-    <Button
-      size={isMobile ? 'sm' : 'default'}
-      onClick={submit}
-      disabled={!canSubmit}
-      className={cn('shrink-0', isMobile && 'w-full')}
-    >
-      {submitLabel}
-    </Button>
-  );
-
-  const text = STEP_TEXT[step];
-  const backButton = step !== 'source' ? (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="-ml-1.5 size-7 shrink-0"
-      onClick={goBack}
-      disabled={pending !== null}
-      aria-label={'Back to sources'}
-      title={'Back'}
-    >
-      <Icon name="arrow-left-s" className="size-4" />
-    </Button>
+  const summaryStrip = summary ? (
+    <div className="flex flex-col gap-0.5 border-b border-border/60 px-4 py-2">
+      <p
+        className={cn(
+          'flex min-w-0 items-baseline gap-1.5 typography-meta',
+          summary.tone === 'problem' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
+        )}
+      >
+        <span className="shrink-0">{summary.text}</span>
+        {summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
+      </p>
+      {step === 'clone-location' ? (
+        <MiddleTruncate value={remoteUrl.trim()} className="min-w-0 font-mono typography-micro text-subtle-foreground" />
+      ) : null}
+    </div>
   ) : null;
 
-  if (isMobile) {
-    return (
-      <MobileOverlayPanel
-        open={open}
-        onClose={handleClose}
-        title={text.title}
-        className="h-[88dvh] max-h-[720px]"
-        contentMaxHeightClassName="flex-1"
-        footer={step !== 'source' ? <div className="flex flex-col gap-2">{status}{submitButton}</div> : undefined}
-      >
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="mb-3 flex items-start gap-1.5">
-            {backButton}
-            <p className="typography-meta text-muted-foreground text-pretty">{text.description}</p>
-          </div>
-          {body}
-        </div>
-      </MobileOverlayPanel>
-    );
-  }
+  const usesMono = step !== 'source' && step !== 'new-name';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-full max-w-xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[85vh]" initialFocus={false}>
-        <div className="flex items-start gap-1.5 px-5 pb-3 pt-4">
-          {backButton ? <div className="pt-0.5">{backButton}</div> : null}
-          <div className="min-w-0 flex-1 pr-6">
-            <DialogTitle className="typography-ui-header leading-7">{text.title}</DialogTitle>
-            <DialogDescription className="typography-meta text-pretty">{text.description}</DialogDescription>
-          </div>
+      <DialogContent
+        showCloseButton={false}
+        initialFocus={isTouchLayout ? false : inputRef}
+        className={cn(
+          'group/palette w-full max-w-xl gap-0 self-start overflow-hidden rounded-2xl p-0',
+          // Anchored near the top: when the list grows, only the bottom edge moves.
+          'mt-[max(env(safe-area-inset-top),0.25rem)] max-h-[calc(100%-0.5rem)] sm:mt-[10vh] sm:max-h-[80vh]',
+        )}
+      >
+        <DialogTitle className="sr-only">{'Add folder'}</DialogTitle>
+        <DialogDescription className="sr-only">{STEP_DESCRIPTION[step]}</DialogDescription>
+
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border/60 pl-2.5 pr-2">
+          {step === 'source' ? (
+            <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+              <Icon name="folder-add" className="size-4" />
+            </span>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={goBack}
+              disabled={pending !== null}
+              aria-label={'Back'}
+              title={'Back'}
+            >
+              <Icon name="arrow-left-s" className="size-4" />
+            </Button>
+          )}
+          <input
+            ref={inputRef}
+            value={inputValue}
+            onChange={(event) => handleChange(event.target.value)}
+            onKeyDown={handleKeyDown}
+            readOnly={pending !== null}
+            aria-busy={pending !== null || undefined}
+            aria-label={INPUT_LABEL[step]}
+            placeholder={INPUT_PLACEHOLDER[step]}
+            role="combobox"
+            aria-expanded={items.length > 0}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
+            aria-invalid={notice?.tone === 'problem' && !isBrowseStep(step) ? true : undefined}
+            spellCheck={false}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            className={cn(
+              'h-full min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground',
+              'typography-markdown md:typography-ui-label',
+              usesMono && 'font-mono',
+            )}
+          />
+          {actionButton}
         </div>
-        <div className={cn('flex min-h-0 flex-1 flex-col px-5', step === 'source' ? 'pb-4' : 'pb-3')}>{body}</div>
-        {step !== 'source' ? (
-          <div className="flex items-center gap-3 border-t border-border/60 px-5 py-3">
-            {status ?? <span className="flex-1" />}
-            {submitButton}
+
+        {summaryStrip}
+        {status}
+
+        <div className="min-h-0 overflow-y-auto overscroll-contain sm:max-h-[min(24rem,52vh)]">
+          {items.length > 0 ? (
+            <div id={listId} role="listbox" aria-label={step === 'source' ? 'Sources' : 'Folders'} className="flex flex-col gap-px p-1.5">
+              {items.map((item, index) => (
+                <React.Fragment key={item.key}>
+                  {index > 0 && items[index - 1]?.kind === 'toggle' ? (
+                    <div role="presentation" className="mx-2.5 my-1 h-px bg-border/60" />
+                  ) : null}
+                  <PaletteRow
+                    ref={(node) => {
+                      if (node) rowRefs.current.set(item.key, node);
+                      else rowRefs.current.delete(item.key);
+                    }}
+                    id={optionId(index)}
+                    active={index === activeIndex}
+                    onSelect={item.select}
+                    onHover={() => setHighlightKey(item.key)}
+                    ariaLabel={item.ariaLabel}
+                    ariaChecked={item.ariaChecked}
+                    className={item.kind === 'source' ? 'py-2' : undefined}
+                  >
+                    {item.content}
+                  </PaletteRow>
+                </React.Fragment>
+              ))}
+            </div>
+          ) : null}
+          {notice ? (
+            <div className={cn('flex flex-col items-center gap-3 px-6 text-center', items.length > 0 ? 'pb-6 pt-3' : 'py-8')}>
+              <p
+                className={cn(
+                  'typography-meta text-balance',
+                  notice.tone === 'problem' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
+                )}
+              >
+                {notice.text}
+              </p>
+              {notice.actions ? <div className="flex items-center gap-2">{notice.actions}</div> : null}
+            </div>
+          ) : null}
+        </div>
+
+        {!isMobile || isBrowseStep(step) ? (
+          <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-[var(--surface-muted)]/40 px-3 py-2 typography-micro text-muted-foreground">
+            {!isMobile ? <KeyHints hints={hints} /> : <span />}
+            {isBrowseStep(step) ? (
+              <span className="flex shrink-0 items-center gap-3">
+                <label className="flex cursor-pointer items-center gap-1.5">
+                  <Checkbox checked={browser.showHidden} onChange={browser.setShowHidden} ariaLabel={'Show hidden folders'} />
+                  {'Hidden'}
+                </label>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={pending !== null || browser.isPickingLocation}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => void browser.handleBrowseLocation()}
+                  title={'Pick a folder with the system dialog'}
+                >
+                  {browser.isPickingLocation ? 'Opening…' : 'Browse…'}
+                </Button>
+              </span>
+            ) : null}
           </div>
         ) : null}
       </DialogContent>

@@ -11,9 +11,15 @@ export type BrowseEntry = {
   path: string;
 };
 
-export type BrowseRow =
-  | { type: 'parent'; value: 'browse:up'; name: string; path: string; alreadyAdded: boolean }
-  | { type: 'directory'; value: string; name: string; path: string; alreadyAdded: boolean };
+/** A row in a folder listing. `target` is the path field's value after opening it. */
+export type BrowseRow = {
+  type: 'parent' | 'directory';
+  value: string;
+  name: string;
+  path: string;
+  target: string;
+  alreadyAdded: boolean;
+};
 
 const isApplePlatform = (): boolean =>
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
