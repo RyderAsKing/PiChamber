@@ -137,6 +137,37 @@ const PAGES = {
     // model's context; each insert is a separate edit, like typing.
     typeIntoComposer: ['!', '!', 'git diff --stat'],
   },
+  'files-panel': {
+    path: DEMO_SESSION_PATH,
+    // The right rail's Files button opens the tree beside the session.
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    // The panel can close again while the app finishes starting; press its
+    // rail button until the tree's toolbar shows.
+    settledScript: `(() => {
+      if (document.querySelector('input[aria-label="Search files"]')) return true;
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+      return false;
+    })()`,
+  },
+  'files-panel-file': {
+    // The same panel with billing.ts open: the editor, its header, and the
+    // tree's selection and change markers together.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      if (document.body.innerText.includes('Intl.NumberFormat')) return true;
+      const row = document.querySelector('span[title$="/billing.ts"]')?.closest('button');
+      if (row) { row.click(); return false; }
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+      return false;
+    })()`,
+  },
   'settings-appearance': {
     // A dense settings page: navigation, section titles, field labels,
     // descriptions, and every control type.
@@ -158,7 +189,7 @@ const PAGES = {
     shortcut: { key: 'p', code: 'KeyP', modifiers: 2 },
     // Phones open the palette from a button, not a shortcut.
     viewports: ['desktop'],
-    settledScript: `Boolean(document.querySelector('input[placeholder^="Search files"]'))`,
+    settledScript: `Boolean(document.querySelector('input[placeholder^="Search files, sessions"]'))`,
   },
   'open-request': {
     path: DEMO_SESSION_PATH,
@@ -551,6 +582,10 @@ const seed = async (dir) => {
     'export const defaults = {', "  theme: 'light',", '  fontSize: 14,', '  autosave: false,', '};', '',
     'export function loadSettings() {', '  return { ...defaults };', '}',
   ]);
+  await mkdir(join(repo, 'src/lib'), { recursive: true });
+  await write('src/index.ts', ["export { total, formatAmount } from '../billing';", "export { loadSettings } from '../settings';"]);
+  await write('src/lib/dates.ts', ['export const isoDate = (date: Date) => date.toISOString().slice(0, 10);']);
+  await write('README.md', ['# demo-repo', '', 'Billing and settings helpers.']);
   await mkdir(join(repo, 'public'), { recursive: true });
   await write('public/favicon.svg', [demoIcon('#2f6fde', 'M10 22V10h7a6 6 0 0 1 0 12z')]);
   git('add', '.');

@@ -116,7 +116,7 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 `THEME=light|dark`, and `OUT_DIR` as needed.
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
-`<dir>/repo` (on a long branch, with a favicon), more folders in
+`<dir>/repo` (on a long branch, with a favicon and an unchanged `src/` folder), more folders in
 `<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
 a dark logo on a transparent background), a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
@@ -135,7 +135,10 @@ same list in the mobile sessions drawer); `open-request` (an Open request for a
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
-only); `settings-appearance` (a dense settings page, desktop only);
+only); `files-panel` (the Files panel beside the demo session: the tree's
+change marks and the no-file state listing changed files, desktop only);
+`files-panel-file` (the same panel with `billing.ts` open under its path bar,
+desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons); `command-palette`
 (opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
