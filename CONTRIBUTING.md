@@ -244,7 +244,8 @@ after Apple distribution signing and App Store Connect credentials are configure
 
 The release workflow creates a draft, checks the changelog and package
 versions, verifies updater manifests, and publishes the draft after the desktop
-jobs and any enabled Android build succeed. The Docker image builds on native
+jobs and any enabled Android build succeed. The packaged web UI is built once
+on Linux and shared with all six desktop jobs. The Docker image builds on native
 amd64 and arm64 runners, and a final job joins the two into one tagged image.
 Review the draft assets before making the release public.
 
