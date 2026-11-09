@@ -61,15 +61,27 @@ export const desktopClientAuthMetadata = (): { clientKind?: string; dedupeKey?: 
   };
 };
 
+// An unreachable host (a LAN address from another network, a dead tunnel) can
+// leave a request pending until the OS gives up on the TCP connect, which can
+// take minutes. Bound it so the gate leaves its loading screen and the caller's
+// retry/error path runs.
+const STATUS_CHECK_TIMEOUT_MS = 15_000;
+
 export const fetchSessionStatus = async (): Promise<Response> => {
-  const response = await runtimeFetch(STATUS_CHECK_ENDPOINT, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-  return response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STATUS_CHECK_TIMEOUT_MS);
+  try {
+    return await runtimeFetch(STATUS_CHECK_ENDPOINT, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 export const readStoredTrustDevice = (): boolean => {
