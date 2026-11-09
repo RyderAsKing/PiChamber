@@ -230,10 +230,9 @@ jobs:
           async function verify() {
             let lastError;
             // npm reports "Your package is being processed and may take a few
-            // minutes to become available" after publish, so give the registry
-            // a grace period before the first read instead of burning retries.
-            await sleep(30_000);
-            for (let attempt = 1; attempt <= 30; attempt += 1) {
+            // minutes to become available" after publish. Poll every 10s for up
+            // to 10 minutes so the job moves on as soon as the version appears.
+            for (let attempt = 1; attempt <= 60; attempt += 1) {
               try {
                 const output = execFileSync('npm', ['view', packageSpec, 'dist', '--json'], { encoding: 'utf8' });
                 const dist = JSON.parse(output);
@@ -256,8 +255,8 @@ jobs:
                 return;
               } catch (error) {
                 lastError = error;
-                console.log(`Integrity check ${attempt}/30 is not ready: ${error.message}`);
-                if (attempt < 30) await sleep(20_000);
+                console.log(`Integrity check ${attempt}/60 is not ready: ${error.message}`);
+                if (attempt < 60) await sleep(10_000);
               }
             }
             throw lastError;
@@ -315,13 +314,26 @@ jobs:
           echo "Failed to upload $TARBALL after 3 bounded attempts." >&2
           exit 1
 
-  publish-docker:
+  # Each architecture builds on a native runner and pushes an untagged image by
+  # digest. Building arm64 under QEMU on an amd64 runner took about 10 minutes.
+  build-docker:
+    name: build-docker (${{ matrix.arch }})
     needs: create-release
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-      actions: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -332,10 +344,90 @@ jobs:
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           echo "name=ghcr.io/${owner}/pichamber" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GitHub Container Registry
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          labels: |
+            org.opencontainers.image.title=PiChamber
+            org.opencontainers.image.description=PiChamber server
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
+
+      # No layer cache: release builds change the source every time, and
+      # exporting a mode=max cache took longer than the build it skipped.
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=${{ github.event.inputs.dry_run != 'true' }}
+          provenance: false
+          sbom: false
+
+      - name: Export image digest
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Unexpected image digest: '$DIGEST'" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload image digest
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Joins the per-architecture images into one tagged multi-arch image.
+  publish-docker:
+    needs: [create-release, build-docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set image name
+        id: image
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/pichamber" >> "$GITHUB_OUTPUT"
+
+      - name: Download image digests
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: docker-digest-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
 
       - name: Set up Docker Buildx
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GitHub Container Registry
@@ -355,25 +447,30 @@ jobs:
             type=raw,value=${{ needs.create-release.outputs.version }}
             type=raw,value=latest,enable=${{ needs.create-release.outputs.is_prerelease != 'true' }}
             type=raw,value=rc,enable=${{ needs.create-release.outputs.is_prerelease == 'true' }}
-          labels: |
-            org.opencontainers.image.title=PiChamber
-            org.opencontainers.image.description=PiChamber server
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.create-release.outputs.version }}
 
-      - name: Build and push
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event.inputs.dry_run != 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-          sbom: false
+      - name: Create and push multi-arch image
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ needs.create-release.outputs.version }}
+          METADATA: ${{ steps.meta.outputs.json }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/digests"
+          mapfile -t digests < <(ls)
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "Expected 2 image digests (amd64, arm64), found ${#digests[@]}." >&2
+            exit 1
+          fi
+          mapfile -t tag_args < <(jq -r '.tags[] | "--tag=" + .' <<< "$METADATA")
+          sources=()
+          for digest in "${digests[@]}"; do
+            sources+=("${IMAGE}@sha256:${digest}")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect "${IMAGE}:${VERSION}"
+          docker buildx imagetools inspect --raw "${IMAGE}:${VERSION}" \
+            | jq -e '[.manifests[].platform | "\(.os)/\(.architecture)"] | sort == ["linux/amd64", "linux/arm64"]' >/dev/null
 
   build-desktop-electron-macos:
     needs: create-release
