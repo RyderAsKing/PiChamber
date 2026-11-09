@@ -138,6 +138,11 @@ bun run build
 scoped type-check and lint scripts, while native builds are validated through
 the mobile workflows or platform tools.
 
+Pull request checks run these four commands as parallel jobs, alongside the
+runtime smoke matrix. A new push cancels the run for the previous commit, and
+pull requests that change only Markdown, `docs/`, `packages/docs/`, or
+`.agents/` skip them.
+
 Useful focused commands include:
 
 ```bash
@@ -239,7 +244,10 @@ after Apple distribution signing and App Store Connect credentials are configure
 
 The release workflow creates a draft, checks the changelog and package
 versions, verifies updater manifests, and publishes the draft after the desktop
-jobs and any enabled Android build succeed. Review the draft assets before making the release public.
+jobs and any enabled Android build succeed. The packaged web UI is built once
+on Linux and shared with all six desktop jobs. The Docker image builds on native
+amd64 and arm64 runners, and a final job joins the two into one tagged image.
+Review the draft assets before making the release public.
 
 ### Release candidates
 
