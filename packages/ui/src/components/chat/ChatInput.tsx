@@ -2716,8 +2716,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   directory={currentSessionDirectoryForSync ?? currentDirectory}
                   newSessionDraftOpen={newSessionDraftOpen}
                   messageLength={message.length}
+                  // A shell command runs without the model, so its picker steps aside.
                   leadingExtra={
-                    isDesktopStackedComposer || isMobile ? (
+                    inputMode !== "shell" && (isDesktopStackedComposer || isMobile) ? (
                       <MemoModelControls
                         keepLabels
                         className="w-max shrink-0"
@@ -2795,19 +2796,20 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                       {inputMode === "shell" ? (
                         <div
                           className={cn(
-                            "typography-micro text-muted-foreground",
+                            "flex items-center gap-1.5 typography-micro text-muted-foreground",
                             isInlineComposer ? "px-1.5 pt-1" : "px-3 pt-2",
                           )}
                           data-testid="chat-input-shell-mode"
                         >
-                          <span className="font-mono text-foreground">
-                            {shellExcludeFromContext ? "!!" : "!"}
-                          </span>{" "}
-                          {shellExcludeFromContext
-                            ? "Shell command, not sent to the model"
-                            : "Shell command, sent to the model"}
+                          <Icon name="terminal-box" className="size-3.5 shrink-0 text-foreground" />
+                          <span className="font-medium text-foreground">{"Shell"}</span>
+                          <span className="min-w-0 truncate">
+                            {shellExcludeFromContext
+                              ? "Output not sent to the model"
+                              : "Output sent to the model"}
+                          </span>
                           {!isMobile || hasHardwareKeyboard ? (
-                            <span> · Esc to go back</span>
+                            <span className="ml-auto shrink-0">{"Esc to exit"}</span>
                           ) : null}
                         </div>
                       ) : null}
@@ -2864,7 +2866,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                   ? "Plan, build, / for skills, @ for context"
                                   : useCompactChatPlaceholder
                                     ? "Use @ / ! # for helpers"
-                                    : "@ for files; / for commands, skills, and prompts; ! for shell; # for snippets"
+                                    : "Ask anything. @ files, / commands, ! shell, # snippets"
                               : "Select or create a session to start chatting"
                           }
                           editable={
@@ -2911,6 +2913,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                     ? "pt-1.5 pb-2"
                                     : "pt-3 pb-2",
                             "typography-markdown md:typography-ui-label",
+                            inputMode === "shell" && "font-mono",
                           )}
                         />
                       </div>
@@ -2920,7 +2923,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               </div>
             </>
           </div>
-          {isDesktopStackedComposer || isMobile ? null : (
+          {isDesktopStackedComposer || isMobile || inputMode === "shell" ? null : (
             <div
               className={cn(
                 "mt-1.5 flex w-full shrink-0 items-center pl-2",

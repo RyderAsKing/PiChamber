@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FileChangeMark } from './FileChangeMark';
 import { fileChangeTextClass, type FileStatus } from './fileChange';
@@ -42,14 +43,16 @@ export const FilePathBar: React.FC<FilePathBarProps> = ({ path, status, classNam
         {status && status !== 'open' ? <FileChangeMark status={status} /> : null}
       </div>
       {onShowChanges && status && status !== 'open' ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="xs"
           onClick={onShowChanges}
-          className="shrink-0 rounded-md px-1.5 py-0.5 typography-meta text-muted-foreground transition-colors hover:bg-interactive-hover/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--interactive-focus-ring)]"
+          className="shrink-0"
           title={"Show this file's changes"}
         >
           {"Changes"}
-        </button>
+        </Button>
       ) : null}
       {children ? <div className="flex shrink-0 items-center gap-0.5">{children}</div> : null}
     </div>

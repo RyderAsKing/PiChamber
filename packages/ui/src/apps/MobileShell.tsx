@@ -331,7 +331,7 @@ export const MobileShell: React.FC<MobileShellProps> = ({ onActiveConnectionDele
     rightOpen: workspaceOpen,
     leftWidth: () => {
       if (isTabletLayout) return leftResize.width;
-      return phoneLeftDrawerRef.current?.offsetWidth || window.innerWidth * 0.72;
+      return phoneLeftDrawerRef.current?.offsetWidth || window.innerWidth * 0.85;
     },
     rightWidth: () => {
       if (isTabletLayout) return rightResize.width;

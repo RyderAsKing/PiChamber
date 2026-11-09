@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 import { abortShellCommand } from '@/sync/session-actions';
 import {
     TOOL_NORMAL_ICON_STYLE,
-    TOOL_NORMAL_TITLE_STYLE,
     TOOL_ROW_DESCRIPTION_CLASS,
     TOOL_ROW_TITLE_CLASS,
 } from '../toolPartStyles';
@@ -130,23 +129,26 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 <span className="inline-flex h-5 shrink-0 items-center" style={TOOL_NORMAL_ICON_STYLE}>
                     <Icon name="terminal-box" className="size-3.5" aria-hidden="true" />
                 </span>
-                <span className={cn(TOOL_ROW_TITLE_CLASS, 'shrink-0')} style={TOOL_NORMAL_TITLE_STYLE}>
+                {/* The command is what the user typed, so it leads; "Shell" only names the row. */}
+                <span className={cn(TOOL_ROW_TITLE_CLASS, 'shrink-0 font-normal')} style={{ color: 'var(--tools-description)' }}>
                     Shell
                 </span>
                 <span
-                    className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'min-w-0 truncate')}
-                    style={{ color: 'var(--tools-description)' }}
+                    className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'min-w-0 truncate text-foreground')}
                     title={view.command}
                 >
                     {view.command}
                 </span>
                 {view.status ? (
-                    <span
-                        className="shrink-0 typography-micro"
-                        style={{ color: view.status.tone === 'error' ? 'var(--status-error)' : 'var(--tools-description)' }}
-                    >
-                        {view.status.text}
-                    </span>
+                    view.status.tone === 'error' ? (
+                        <span className="shrink-0 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-1.5 typography-micro font-medium text-[var(--status-error)]">
+                            {view.status.text}
+                        </span>
+                    ) : (
+                        <span className="shrink-0 typography-micro" style={{ color: 'var(--tools-description)' }}>
+                            {view.status.text}
+                        </span>
+                    )
                 ) : null}
                 {view.excludeFromContext ? (
                     <span className="shrink-0 typography-micro text-muted-foreground">Not sent to the model</span>

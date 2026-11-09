@@ -12,8 +12,10 @@ const EDITOR_MIN_WIDTH = 280;
 const EDITOR_TREE_FIT_MIN_WIDTH = 160;
 
 // The editor surface's file-tree column: docked on the right, resizable from
-// its left edge, and animated open/closed like the app sidebars.
-export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) => {
+// its left edge, and animated open/closed like the app sidebars. In a panel
+// too narrow to share with an open file, `overlay` lays it over the editor's
+// right edge instead, so the file keeps its full width underneath.
+export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }> = ({ visible, overlay = false }) => {
   const width = useUIStore((state) => state.contextEditorTreeWidth);
   const setWidth = useUIStore((state) => state.setContextEditorTreeWidth);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -44,8 +46,10 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
   // file stays readable, and grows back when the panel widens.
   const fitTreeWidth = React.useCallback((value: number) => {
     if (rowWidth === null) return value;
+    // Over the editor the tree may take most of the row: the file is behind it.
+    if (overlay) return Math.max(EDITOR_TREE_FIT_MIN_WIDTH, Math.min(value, rowWidth - 48));
     return Math.max(EDITOR_TREE_FIT_MIN_WIDTH, Math.min(value, rowWidth - EDITOR_MIN_WIDTH));
-  }, [rowWidth]);
+  }, [overlay, rowWidth]);
   const fittedWidth = fitTreeWidth(width);
 
   const applyLiveTreeWidth = React.useCallback((nextWidth: number) => {
@@ -109,7 +113,8 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
     <div
       ref={columnRef}
       className={cn(
-        'relative h-full flex-shrink-0 overflow-hidden border-l border-border bg-background will-change-[width] motion-reduce:transition-none',
+        'h-full flex-shrink-0 overflow-hidden border-l border-border bg-background will-change-[width] motion-reduce:transition-none',
+        overlay ? 'absolute inset-y-0 right-0 z-20' : 'relative',
         !visible && 'border-l-0',
       )}
       style={{

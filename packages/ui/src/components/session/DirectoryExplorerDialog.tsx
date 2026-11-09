@@ -454,7 +454,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     actionButton = (
       <Button
         variant="default"
-        size="xs"
+        size="sm"
         className="shrink-0 gap-1.5"
         disabled={!canSubmit}
         onMouseDown={(event) => event.preventDefault()}
@@ -471,17 +471,18 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       </Button>
     );
   } else if (step === 'clone-url' || step === 'new-name') {
+    // The only way forward from this step, so it is primary as well.
     actionButton = (
       <Button
-        variant="outline"
-        size="xs"
+        variant="default"
+        size="sm"
         className="shrink-0 gap-1.5"
         disabled={!canContinue}
         onMouseDown={(event) => event.preventDefault()}
         onClick={continueToLocation}
       >
         {'Continue'}
-        {!isMobile && canContinue ? <Kbd>{'↵'}</Kbd> : null}
+        {!isMobile && canContinue ? <Kbd className="border-current/30 bg-transparent text-current">{'↵'}</Kbd> : null}
       </Button>
     );
   }

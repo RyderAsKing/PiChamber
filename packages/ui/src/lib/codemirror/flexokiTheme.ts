@@ -103,7 +103,8 @@ export function createFlexokiCodeMirrorTheme(
     },
     '.cm-gutters': {
       backgroundColor: 'var(--background)',
-      color: highlights.lineNumber || theme.colors.syntax.base.comment,
+      // Tertiary text, not the comment color: some themes' comments are too faint to read numbers by.
+      color: highlights.lineNumber || 'var(--subtle-foreground)',
       borderRight: `1px solid ${theme.colors.interactive.border}`,
       position: 'sticky',
       left: 0,

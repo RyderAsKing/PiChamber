@@ -144,7 +144,7 @@ function CommandShortcut({
     if (normalized === 'ctrl' || normalized === 'control') {
       return (
         <span className="text-xs font-medium">
-          ctrl
+          Ctrl
         </span>
       );
     }
@@ -182,7 +182,7 @@ function CommandShortcut({
       {tokens.length > 0
         ? tokens.map((token, index) => (
             <React.Fragment key={`${token}-${index}`}>
-              {index > 0 && <span className="opacity-60 text-xs">+</span>}
+              {index > 0 && <span className="text-xs text-subtle-foreground">+</span>}
               {renderKey(token)}
             </React.Fragment>
           ))

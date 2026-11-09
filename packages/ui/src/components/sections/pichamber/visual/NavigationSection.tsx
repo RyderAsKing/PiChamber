@@ -112,7 +112,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
       {shouldShow('sidebarViewMode') && (
         <SettingsFieldRow
           label={'Settle idle sessions'}
-          info={'In the Threads and By folder views, a session with no activity for this many days moves to Settled. Pinned, working, and snoozed sessions stay put, and sending a message brings a session back. Leave empty to settle only by hand.'}
+          description={'Threads and By folder move a session to Settled after this many days without activity. Sending a message brings it back.'}
+          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand.'}
           settingsItem="appearance.auto-settle"
         >
           <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>

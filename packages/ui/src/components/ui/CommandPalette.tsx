@@ -563,14 +563,15 @@ export const CommandPalette: React.FC = () => {
                           onSelect={() => handleOpenSession(session)}
                         >
                           <Icon name="chat-ai-3" className="mr-2 h-4 w-4" />
-                          <span className="truncate">{title}</span>
+                          <span className="min-w-0 flex-1 truncate">{title}</span>
+                          {/* Folder and branch give way before the title does. */}
                           {projectName || branch ? (
-                            <span className="ml-auto inline-flex min-w-0 shrink-0 items-center gap-1.5 text-muted-foreground typography-meta">
-                              {projectName ? <span className="max-w-[140px] truncate">{projectName}</span> : null}
+                            <span className="ml-auto inline-flex min-w-0 max-w-[45%] shrink items-center gap-1.5 text-muted-foreground typography-meta">
+                              {projectName ? <span className="min-w-0 max-w-[140px] shrink-0 truncate">{projectName}</span> : null}
                               {branch ? (
                                 <span className="inline-flex min-w-0 items-center gap-1">
-                                  <Icon name="git-branch" className="h-3 w-3" />
-                                  <MiddleTruncate value={branch} className="max-w-[160px]" />
+                                  <Icon name="git-branch" className="h-3 w-3 shrink-0" />
+                                  <MiddleTruncate value={branch} className="min-w-0 max-w-[120px]" />
                                 </span>
                               ) : null}
                             </span>

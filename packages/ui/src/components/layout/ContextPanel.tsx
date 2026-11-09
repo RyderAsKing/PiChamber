@@ -527,8 +527,9 @@ export const ContextPanel: React.FC = () => {
   const treeCrowdsFile = Boolean(
     hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
   );
-  // While crowded, the tree shows only when asked for, and folds again when
-  // the next file opens so that file gets the room.
+  // While crowded, the tree shows only when asked for, laid over the file
+  // rather than beside it, and folds again when the next file opens or the
+  // file is clicked.
   const [crowdedTreeShown, setCrowdedTreeShown] = React.useState(false);
   React.useEffect(() => {
     setCrowdedTreeShown(false);
@@ -752,14 +753,18 @@ export const ContextPanel: React.FC = () => {
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', isResizing && 'pointer-events-none')}>
         {hasFileTabs ? (
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
-            <div className="h-full min-w-0 flex-1">
+            {/* A tree laid over the file closes when the file is used again. */}
+            <div
+              className="h-full min-w-0 flex-1"
+              onPointerDown={treeCrowdsFile && editorTreeShown ? () => setCrowdedTreeShown(false) : undefined}
+            >
               {hasOpenEditorFile ? (
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
               ) : (
                 <FilesEmptyState directory={effectiveDirectory} />
               )}
             </div>
-            <EditorTreeColumn visible={editorTreeShown} />
+            <EditorTreeColumn visible={editorTreeShown} overlay={treeCrowdsFile} />
           </div>
         ) : null}
         {browserTabs.map((tab) => (
