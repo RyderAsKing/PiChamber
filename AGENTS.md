@@ -138,7 +138,10 @@ demo site the script serves on port 4777 typed into its address bar, desktop
 only); `files-panel` (the Files panel beside the demo session: the tree's
 change marks and the no-file state listing changed files, desktop only);
 `files-panel-file` (the same panel with `billing.ts` open under its path bar,
-desktop only); `settings-appearance` (a dense settings page, desktop only);
+desktop only); `files-panel-search` (`.ts` typed into the tree's search:
+name, folder, and change mark per hit, desktop only); `files-panel-nested`
+(`src/lib/dates.ts` opened from search, then the search cleared, so the tree
+has opened to it, desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons); `command-palette`
 (opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root

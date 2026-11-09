@@ -146,10 +146,9 @@ const PAGES = {
     // The panel can close again while the app finishes starting; press its
     // rail button until the tree's toolbar shows.
     settledScript: `(() => {
-      if (document.querySelector('input[aria-label="Search files"]')) return true;
       const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
-      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
-      return false;
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      return Boolean(document.querySelector('input[aria-label="Search files"]'));
     })()`,
   },
   'files-panel-file': {
@@ -160,12 +159,57 @@ const PAGES = {
     viewports: ['desktop'],
     readyText: [DEMO_REPLY],
     settledScript: `(() => {
-      if (document.body.innerText.includes('Intl.NumberFormat')) return true;
-      const row = document.querySelector('span[title$="/billing.ts"]')?.closest('button');
-      if (row) { row.click(); return false; }
       const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
-      if (control?.getAttribute('aria-pressed') !== 'true') control?.click();
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      if (document.body.innerText.includes('Intl.NumberFormat')) return true;
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
       return false;
+    })()`,
+  },
+  'files-panel-search': {
+    // A search in the Files tree: hits show name, folder, and change mark.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      if (input.value !== '.ts') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '.ts');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return false;
+      }
+      return Boolean(document.querySelector('button[title="src/lib/dates.ts"]'));
+    })()`,
+  },
+  'files-panel-nested': {
+    // src/lib/dates.ts opened from a search, then the search cleared: the
+    // path bar shows its folder and the tree has opened src/lib to it.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      const type = (value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const opened = document.body.innerText.includes('isoDate');
+      if (!opened) {
+        const hit = document.querySelector('button[title="src/lib/dates.ts"]');
+        if (hit) hit.click();
+        else if (input.value !== 'dates') type('dates');
+        return false;
+      }
+      if (input.value) { type(''); return false; }
+      return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'));
     })()`,
   },
   'settings-appearance': {
