@@ -40,6 +40,12 @@ const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_DEFAULT_WIDTH = 600;
 const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
+/**
+ * Below this panel width an open file and the file tree don't both fit
+ * readably, so the tree folds away while a file is open. The tree toggle
+ * still brings it back until another file opens.
+ */
+const EDITOR_WITH_TREE_MIN_WIDTH = 720;
 
 const clampWidth = (width: number): number => {
   if (!Number.isFinite(width)) {
@@ -516,6 +522,25 @@ export const ContextPanel: React.FC = () => {
     () => tabs.some((tab) => tab.mode === 'file' && tab.targetPath),
     [tabs],
   );
+  const openEditorFilePath = activeTab?.mode === 'file' ? (activeTab.targetPath ?? null) : null;
+  const panelContentWidth = isExpanded ? availablePanelAreaWidth : width;
+  const treeCrowdsFile = Boolean(
+    hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
+  );
+  // While crowded, the tree shows only when asked for, and folds again when
+  // the next file opens so that file gets the room.
+  const [crowdedTreeShown, setCrowdedTreeShown] = React.useState(false);
+  React.useEffect(() => {
+    setCrowdedTreeShown(false);
+  }, [openEditorFilePath]);
+  const editorTreeShown = treeCrowdsFile ? crowdedTreeShown : contextEditorTreeVisible;
+  const handleToggleEditorTree = React.useCallback(() => {
+    if (treeCrowdsFile) {
+      setCrowdedTreeShown((shown) => !shown);
+      return;
+    }
+    toggleContextEditorTree();
+  }, [toggleContextEditorTree, treeCrowdsFile]);
 
   const isFileTabActive = activeTab?.mode === 'file';
   const isTerminalPanelActive = activeTab?.mode === 'terminal';
@@ -603,11 +628,11 @@ export const ContextPanel: React.FC = () => {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={toggleContextEditorTree}
+            onClick={handleToggleEditorTree}
             className="h-8 w-8 p-0"
             title={"Toggle file tree"}
             aria-label={"Toggle file tree"}
-            aria-pressed={contextEditorTreeVisible}
+            aria-pressed={editorTreeShown}
           >
             <Icon name="layout-right" className="size-4" />
           </Button>
@@ -734,7 +759,7 @@ export const ContextPanel: React.FC = () => {
                 <FilesEmptyState directory={effectiveDirectory} />
               )}
             </div>
-            <EditorTreeColumn visible={contextEditorTreeVisible} />
+            <EditorTreeColumn visible={editorTreeShown} />
           </div>
         ) : null}
         {browserTabs.map((tab) => (
