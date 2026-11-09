@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.6-rc.3] - 2026-11-10
+
+No app changes since 1.0.6-rc.2. This candidate tests the faster release pipeline from #220 on a real release.
+
+- **Faster releases and pull request checks (#220).** The Docker image builds on native amd64 and arm64 runners instead of under emulation, and a final job joins the two into one tagged image. The desktop web UI is built once and shared by all six desktop jobs. Pull request checks run as parallel jobs and finish in about 80 seconds instead of 3–4 minutes.
+
 ## [1.0.6-rc.2] - 2026-11-09
 
 The first 1.0.6 candidate on GitHub: 1.0.6-rc.1 reached npm and Docker only, because its Linux desktop builds failed. This candidate includes every change listed under 1.0.6-rc.1 below, plus the fix for those builds.
