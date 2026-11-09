@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.6-rc.2] - 2026-11-09
+
+The first 1.0.6 candidate on GitHub: 1.0.6-rc.1 reached npm and Docker only, because its Linux desktop builds failed. This candidate includes every change listed under 1.0.6-rc.1 below, plus the fix for those builds.
+
+- **AppImage desktop entry keeps `--no-sandbox` (#218).** electron-builder 26.18.1 stopped adding `--no-sandbox` to the AppImage desktop entry for the static runtime PiChamber uses, so the entry read `Exec=AppRun %U` and the Linux release jobs failed their AppImage check. The flag is set in the build config again, and the entry matches 1.0.5. The AppImage launcher already passed the flag, so launching was not affected. deb and rpm packages keep the Chromium sandbox.
+
 ## [1.0.6-rc.1] - 2026-11-09
 
 Extension UI in the chat, open requests and the Server browser, cross-site request protection, project icons, and session, diff and mobile fixes since 1.0.5.
