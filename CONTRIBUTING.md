@@ -138,6 +138,11 @@ bun run build
 scoped type-check and lint scripts, while native builds are validated through
 the mobile workflows or platform tools.
 
+Pull request checks run these four commands as parallel jobs, alongside the
+runtime smoke matrix. A new push cancels the run for the previous commit, and
+pull requests that change only Markdown, `docs/`, `packages/docs/`, or
+`.agents/` skip them.
+
 Useful focused commands include:
 
 ```bash
