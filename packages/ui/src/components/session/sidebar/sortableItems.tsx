@@ -85,6 +85,8 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   statusIndicator?: React.ReactNode;
   /** Sessions in the folder, shown while it is collapsed; null hides the count. */
   sessionCount?: number | null;
+  /** Nothing to show under the header (every session is on a shelf): no chevron. */
+  isEmpty?: boolean;
 }
 
 export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
@@ -109,6 +111,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   setOpenSidebarMenuKey,
   statusIndicator = null,
   sessionCount = null,
+  isEmpty = false,
 }) => {
   const {
     listeners,
@@ -245,6 +248,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       mobileVariant={mobileVariant}
                       className={cn(
                         'transition-[padding]',
+                        isEmpty && 'invisible',
                         // Touch layouts keep the actions visible, and their 36px touch targets need the wider slot.
                         alwaysShowActions
                           ? 'pl-16'

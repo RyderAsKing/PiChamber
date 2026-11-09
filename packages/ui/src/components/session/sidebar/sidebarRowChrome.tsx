@@ -65,8 +65,10 @@ export const SidebarSectionHeading = ({
   onToggle?: () => void;
 }) => {
   const spacing = first ? 'pt-1' : 'pt-3';
+  // A heading that opens its section reads as a control: the count and
+  // chevron sit one text level up from a plain heading's count.
   const countLabel = typeof count === 'number' ? (
-    <span className="font-normal text-subtle-foreground tabular-nums">{count}</span>
+    <span className={cn('font-normal tabular-nums', onToggle ? 'text-muted-foreground' : 'text-subtle-foreground')}>{count}</span>
   ) : null;
   if (!onToggle) {
     return (
@@ -84,14 +86,14 @@ export const SidebarSectionHeading = ({
         onClick={onToggle}
         className={cn(
           sectionHeadingClassName,
-          'group/heading flex w-full items-center gap-1.5 rounded-md pt-0 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+          'group/heading flex w-full items-center gap-1.5 rounded-md pt-0 text-left text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
         )}
       >
         {label}
         {countLabel}
         <Icon
           name="arrow-right-s"
-          className={cn('size-3.5 shrink-0 text-subtle-foreground transition-transform group-hover/heading:text-foreground', expanded && 'rotate-90')}
+          className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/heading:text-foreground', expanded && 'rotate-90')}
         />
       </button>
     </div>

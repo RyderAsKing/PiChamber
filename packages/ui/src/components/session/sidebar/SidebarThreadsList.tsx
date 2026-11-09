@@ -307,7 +307,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         mobileVariant={mobileVariant}
         dragging={isDragging}
         droppable={!mobileVariant}
-        className="mt-auto pt-3"
+        className="mt-auto border-t border-border pt-1"
       />
     </div>
   );

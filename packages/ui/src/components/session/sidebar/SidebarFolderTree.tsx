@@ -18,6 +18,7 @@ import type { MainTab } from '@/stores/useUIStore';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
 import { ProjectHeaderIdentity, ProjectHeaderChevron, SortableProjectItem, type SortableDragHandleProps } from './sortableItems';
 import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SessionRowVariantContext } from './sessionRowVariant';
 import { getProjectLabel } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
 import type { SessionShelves } from './sessionShelves';
@@ -149,6 +150,8 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     () => (shelves ? { sectionById: shelves.sectionById, wokeIds: shelves.wokeIds } : null),
     [shelves],
   );
+  // Pinned, Snoozed, and Settled mix folders, so their rows are cards that
+  // name the folder, as in Threads.
   const renderShelfItem = (item: ThreadsListItem) => (
     <React.Fragment key={item.node.session.id}>
       {renderSessionNode?.(
@@ -157,7 +160,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
         item.node.session.directory ?? item.project.normalizedPath,
         item.project.id,
         false,
-        { projectLabel: item.projectLabel, globalSession: item.globalSession },
+        { projectLabel: item.projectLabel, showFolderLabel: true, globalSession: item.globalSession },
         'project',
       )}
     </React.Fragment>
@@ -209,12 +212,14 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
 
   return (
     <SessionShelfRowContext.Provider value={rowState}>
-    <div className="space-y-2">
+    <div className={shelves ? 'flex min-h-full flex-1 flex-col gap-2' : 'space-y-2'}>
       {shelves && shelves.pinned.length > 0 ? (
-        <section aria-label={'Pinned'} data-session-shelf="pinned">
-          <SidebarSectionHeading label={'Pinned'} first />
-          {shelves.pinned.map(renderShelfItem)}
-        </section>
+        <SessionRowVariantContext.Provider value="card">
+          <section aria-label={'Pinned'} data-session-shelf="pinned">
+            <SidebarSectionHeading label={'Pinned'} first />
+            {shelves.pinned.map(renderShelfItem)}
+          </section>
+        </SessionRowVariantContext.Provider>
       ) : null}
 
       <DndContext
@@ -256,6 +261,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                 stickyHeader={stickyFolderHeaders}
                 statusIndicator={isCollapsed ? renderProjectStatusIndicator?.(projectKey, section.groups) : null}
                 sessionCount={isCollapsed ? countSessions(section) : null}
+                isEmpty={Boolean(shelves) && countSessions(section) === 0}
                 onToggle={() => toggleProject(projectKey)}
                 onNewSession={() => {
                   if (projectKey !== activeProjectId) {
@@ -383,13 +389,16 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
       ) : null}
 
       {shelves ? (
-        <SessionShelfStack
-          shelfIds={FOLDER_SHELVES}
-          shelves={shelves}
-          renderItem={renderShelfItem}
-          hasSessionSearchQuery={hasSessionSearchQuery}
-          mobileVariant={mobileVariant}
-        />
+        <SessionRowVariantContext.Provider value="card">
+          <SessionShelfStack
+            shelfIds={FOLDER_SHELVES}
+            shelves={shelves}
+            renderItem={renderShelfItem}
+            hasSessionSearchQuery={hasSessionSearchQuery}
+            mobileVariant={mobileVariant}
+            className="mt-auto border-t border-border pt-1"
+          />
+        </SessionRowVariantContext.Provider>
       ) : null}
     </div>
     </SessionShelfRowContext.Provider>
