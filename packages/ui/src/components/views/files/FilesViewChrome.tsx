@@ -21,6 +21,8 @@ import { Icon } from '@/components/icon/Icon';
 import { cn, getRevealLabel } from '@/lib/utils';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { getDisplayPath, type FileNode } from './filesViewModel';
+import { FileChangeMark, FolderChangeMark } from './FileChangeMark';
+import { fileChangeTextClass, type FileStatus } from './fileChange';
 
 export const OpenInAppListIcon = ({ label, iconDataUrl }: { label: string; iconDataUrl?: string }) => {
   const [failed, setFailed] = React.useState(false);
@@ -53,19 +55,7 @@ export const FileIcon: React.FC<{ filePath: string; extension?: string }> = ({ f
   <FileTypeIcon filePath={filePath} extension={extension} />
 );
 
-export type FileStatus = 'open' | 'modified' | 'git-modified' | 'git-added' | 'git-deleted';
-
-const FileStatusDot: React.FC<{ status: FileStatus }> = ({ status }) => {
-  const color = {
-    open: 'var(--status-info)',
-    modified: 'var(--status-warning)',
-    'git-modified': 'var(--status-warning)',
-    'git-added': 'var(--status-success)',
-    'git-deleted': 'var(--status-error)',
-  }[status];
-
-  return <span className="size-2 rounded-full" style={{ backgroundColor: color }} />;
-};
+export type { FileStatus } from './fileChange';
 
 export const ScrollingFileName: React.FC<{ name: string }> = ({ name }) => {
   const containerRef = React.useRef<HTMLSpanElement | null>(null);
@@ -277,7 +267,10 @@ export const FileRow: React.FC<FileRowProps> = ({
         onClick={handleInteraction}
         onContextMenu={!isMobile ? handleContextMenu : undefined}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors pr-8 select-none',
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors select-none',
+          // Touch layouts keep the menu button showing, so its space stays reserved.
+          hasMenuActions && alwaysShowActions && 'pr-8',
+          hasMenuActions && !alwaysShowActions && 'group-hover:pr-8 group-focus-within:pr-8',
           isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40'
         )}
       >
@@ -291,17 +284,22 @@ export const FileRow: React.FC<FileRowProps> = ({
           <FileIcon filePath={node.path} extension={node.extension} />
         )}
         <span
-          className="min-w-0 flex-1 truncate typography-meta"
+          className={cn('min-w-0 flex-1 truncate typography-meta', fileChangeTextClass(status))}
           title={node.path}
         >
           {node.name}
         </span>
-        {!isDir && status && <FileStatusDot status={status} />}
+        {!isDir && status && (
+          <FileChangeMark
+            status={status}
+            className={hasMenuActions && !alwaysShowActions ? 'group-hover:invisible group-focus-within:invisible' : undefined}
+          />
+        )}
         {isDir && badge && (
-          <span className="text-xs flex items-center gap-1 ml-auto mr-1">
-            {badge.modified > 0 && <span className="text-[var(--status-warning)]">M{badge.modified}</span>}
-            {badge.added > 0 && <span className="text-[var(--status-success)]">+{badge.added}</span>}
-          </span>
+          <FolderChangeMark
+            badge={badge}
+            className={hasMenuActions && !alwaysShowActions ? 'group-hover:invisible group-focus-within:invisible' : undefined}
+          />
         )}
       </button>
       {hasMenuActions && (

@@ -2,6 +2,7 @@ import React from 'react';
 import { ContextPanelBrowserPane } from './context-panel/BrowserPane';
 import { closeServerBrowserTab } from '@/lib/serverBrowser/api';
 import { EditorTreeColumn } from './context-panel/EditorTreeColumn';
+import { FilesEmptyState } from './context-panel/FilesEmptyState';
 import { PreviewPane } from './context-panel/PreviewPane';
 
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -730,11 +731,7 @@ export const ContextPanel: React.FC = () => {
               {hasOpenEditorFile ? (
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
               ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Icon name="file-code" className="h-12 w-12 text-subtle-foreground" />
-                  <div className="typography-ui-header text-foreground">{"No file open"}</div>
-                  <div className="max-w-sm typography-micro text-muted-foreground">{"Pick a file from the tree to start editing."}</div>
-                </div>
+                <FilesEmptyState directory={effectiveDirectory} />
               )}
             </div>
             <EditorTreeColumn visible={contextEditorTreeVisible} />

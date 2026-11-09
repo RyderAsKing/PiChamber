@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
-import { normalizePath, shouldIgnorePath, type FileNode } from './filesViewModel';
+import { isAlwaysHiddenPath, normalizePath, shouldIgnorePath, type FileNode } from './filesViewModel';
 
 type FilesViewSearchOptions = {
   directory: string;
@@ -53,6 +53,7 @@ export function useFilesViewSearch({
       .then((hits) => {
         if (cancelled) return;
         setResults(hits
+          .filter((hit) => !isAlwaysHiddenPath(hit.relativePath ?? hit.path))
           .filter((hit) => showGitignored || !shouldIgnorePath(hit.path))
           .map((hit) => ({
             name: hit.name,

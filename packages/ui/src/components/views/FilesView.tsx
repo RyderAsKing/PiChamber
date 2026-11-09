@@ -68,7 +68,8 @@ import { FileTabsRow } from './files/FileTabsRow';
 import { FileViewerToolbar } from './files/FileViewerToolbar';
 import { UnsavedChangesDialog } from './files/UnsavedChangesDialog';
 import { FilesTreePanel } from './files/FilesTreePanel';
-import { createFileTreeStatusIndex } from './files/fileTreeStatus';
+import { FilePathBar } from './files/FilePathBar';
+import { classifyGitFileStatus, createFileTreeStatusIndex } from './files/fileTreeStatus';
 
 interface FilesViewProps {
   mode?: 'full' | 'editor-only';
@@ -1117,6 +1118,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     return getDisplayPath(root, selectedFilePath);
   }, [selectedFilePath, root]);
 
+  const selectedFileChange = React.useMemo(() => {
+    if (!displaySelectedPath || !gitStatus?.files) return null;
+    const file = gitStatus.files.find((entry) => entry.path === displaySelectedPath);
+    return file ? classifyGitFileStatus(file) : null;
+  }, [displaySelectedPath, gitStatus?.files]);
+
   const canCopy = Boolean(selectedFile && (!isSelectedImage || isSelectedSvg) && !isSelectedPdf && !isUnsupportedBinary && fileContent.length > 0);
   const canCopyPath = Boolean(selectedFile && displaySelectedPath.length > 0);
   // Keep image/SVG on the preview path: `isBinaryFile` excludes `.svg`, so binary
@@ -1614,7 +1621,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
         onOverwrite={() => { void handleConflictOverwrite(); }}
         onClose={handleConflictClose}
       />
-      <div className={cn('flex flex-col flex-shrink-0', showEditorTabsRow && 'border-b border-border/40')}>
+      <div className={cn('flex flex-col flex-shrink-0', (showEditorTabsRow || (!isMobile && selectedFile)) && 'border-b border-border/60')}>
         {/* Row 1: Tabs */}
         <FileTabsRow
           showEditorTabsRow={showEditorTabsRow}
@@ -1631,42 +1638,37 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           onCloseFile={handleCloseFile}
         />
 
-        {/* Row 2: Docked editor toolbar (expanded). Desktop opt-in; ALWAYS on
-            for mobile — floating hover controls don't work with touch. */}
-        {(settingsExpandedEditorToolbar || isMobile) && selectedFile ? (
+        {/* Row 2, mobile: the docked toolbar. Hover controls don't work with
+            touch, and the host header already shows the file name. */}
+        {isMobile && selectedFile ? (
           <div className="flex min-w-0 items-center gap-3 border-t border-border/40 bg-[var(--surface-subtle)] px-3 py-1">
-            {/* Mobile hosts already show the file name in their own header;
-                a truncated duplicate here just eats toolbar width. */}
-            {displaySelectedPath && !isMobile ? (
-              <span
-                className="min-w-0 flex-1 truncate typography-meta text-muted-foreground"
-                title={displaySelectedPath}
-              >
-                {displaySelectedPath}
-              </span>
-            ) : null}
             <div className="ml-auto min-w-0 shrink-0 overflow-x-auto">
               {renderFloatingFileControls({ layout: 'docked' })}
             </div>
           </div>
         ) : null}
 
-      </div>
-
-      <div className="flex-1 min-h-0 min-w-0 relative">
-        {selectedFile && !isSearchOpen && !(settingsExpandedEditorToolbar || isMobile) && (
-          <div
-            ref={floatingToolbarRef}
-            className="absolute right-3 top-3 z-30"
-            onMouseLeave={() => {
-              if (toolbarDropdownOpenCountRef.current > 0) return;
-              setIsFloatingToolbarOpen(false);
-            }}
+        {/* Row 2, desktop: where the file lives and its git change, with the
+            editor controls docked (a setting) or behind a hover button. */}
+        {!isMobile && selectedFile ? (
+          <FilePathBar
+            path={displaySelectedPath}
+            status={selectedFileChange}
+            className={cn(showEditorTabsRow && 'border-t border-border/40')}
           >
-            {isFloatingToolbarOpen ? (
-              renderFloatingFileControls()
+            {settingsExpandedEditorToolbar ? (
+              <div className="min-w-0 overflow-x-auto">
+                {renderFloatingFileControls({ layout: 'docked' })}
+              </div>
             ) : (
-              <div className="flex items-center gap-1">
+              <div
+                ref={floatingToolbarRef}
+                className="relative flex items-center gap-0.5"
+                onMouseLeave={() => {
+                  if (toolbarDropdownOpenCountRef.current > 0) return;
+                  setIsFloatingToolbarOpen(false);
+                }}
+              >
                 {isMarkdown ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1676,13 +1678,12 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                           size="sm"
                           onClick={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
                           className={cn(
-                            'size-8 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-0 shadow-sm transition-colors',
+                            'size-7 p-0',
                             getMdViewMode() === 'preview'
                               ? 'bg-[var(--interactive-selection)] text-[var(--interactive-selection-foreground)] hover:bg-[var(--interactive-selection)]'
                               : 'text-muted-foreground hover:text-foreground'
                           )}
                           aria-label={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
-                          title={(getMdViewMode() === 'preview' ? "Switch to edit mode" : "Switch to preview mode")}
                         >
                           <Icon name={getMdViewMode() === 'preview' ? 'eye' : 'eye-off'} className="size-4" />
                         </Button>
@@ -1695,17 +1696,13 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                 ) : null}
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span
-                      className="inline-flex"
-                      onMouseEnter={() => setIsFloatingToolbarOpen(true)}
-                    >
+                    <span className="inline-flex" onMouseEnter={() => setIsFloatingToolbarOpen(true)}>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => setIsFloatingToolbarOpen(true)}
-                        className="size-8 rounded-lg border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-0 text-muted-foreground shadow-sm hover:text-foreground"
+                        className="size-7 p-0 text-muted-foreground hover:text-foreground"
                         aria-label={"Show editor controls"}
-                        title={"Editor controls"}
                       >
                         <Icon name="more-2-fill" className="size-4" />
                       </Button>
@@ -1713,10 +1710,19 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                   </TooltipTrigger>
                   <TooltipContent side="bottom" sideOffset={6}>{"Editor controls"}</TooltipContent>
                 </Tooltip>
+                {isFloatingToolbarOpen ? (
+                  // Opens over the path bar, right-aligned with the button.
+                  <div className="absolute right-0 top-1/2 z-30 -translate-y-1/2">
+                    {renderFloatingFileControls()}
+                  </div>
+                ) : null}
               </div>
             )}
-          </div>
-        )}
+          </FilePathBar>
+        ) : null}
+      </div>
+
+      <div className="flex-1 min-h-0 min-w-0 relative">
         <FileViewerContent
           variant="embedded"
           {...fileViewerContentProps}

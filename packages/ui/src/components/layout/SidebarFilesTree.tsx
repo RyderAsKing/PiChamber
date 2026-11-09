@@ -12,6 +12,12 @@ import {
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -22,7 +28,6 @@ import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
 import { cn } from '@/lib/utils';
 import { listLocalDirectory } from '@/lib/fsApi';
 import { Icon } from "@/components/icon/Icon";
-import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
 import { isBrowserClientRuntime } from '@/lib/desktop';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useFileOperations } from '@/components/views/files/useFileOperations';
@@ -30,6 +35,7 @@ import { useFilesViewSearch } from '@/components/views/files/useFilesViewSearch'
 import {
   getDisplayPath,
   isAbsolutePath,
+  isAlwaysHiddenEntryName,
   shouldIgnoreEntryName,
   sortNodes,
   type FileNode,
@@ -41,6 +47,7 @@ import {
   dropCacheForRoot,
 } from './sidebar/fileTreeCache';
 import { MemoizedFileRow } from './sidebar/SidebarFileRow';
+import { useOpenContextEditorFile } from './context-panel/useOpenContextEditorFile';
 import { getFileIcon, type FileStatus } from './sidebar/sidebarFileRowHelpers';
 
 
@@ -52,7 +59,6 @@ export const SidebarFilesTree: React.FC = () => {
   const currentDirectory = useEffectiveDirectory() ?? '';
   const root = normalizeDirectoryPathKey(currentDirectory.trim());
   const showGitignored = useFilesViewShowGitignored();
-  const openContextFile = useUIStore((state) => state.openContextFile);
   const gitStatus = useGitStatus(currentDirectory);
 
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -140,7 +146,6 @@ export const SidebarFilesTree: React.FC = () => {
   const expandedPaths = useFilesViewTabsStore((state) => (root ? (state.byRoot[root]?.expandedPaths ?? EMPTY_PATHS) : EMPTY_PATHS));
   const selectedPath = useFilesViewTabsStore((state) => (root ? (state.byRoot[root]?.selectedPath ?? null) : null));
   const setSelectedPath = useFilesViewTabsStore((state) => state.setSelectedPath);
-  const addOpenPath = useFilesViewTabsStore((state) => state.addOpenPath);
   const removeOpenPathsByPrefix = useFilesViewTabsStore((state) => state.removeOpenPathsByPrefix);
   const toggleExpandedPath = useFilesViewTabsStore((state) => state.toggleExpandedPath);
   const collapseAllExpandedPaths = useFilesViewTabsStore((state) => state.collapseAllExpandedPaths);
@@ -162,7 +167,7 @@ export const SidebarFilesTree: React.FC = () => {
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes = entries
       .filter((entry) => entry && typeof entry.name === 'string' && entry.name.length > 0)
-      .filter((entry) => showGitignored || !shouldIgnoreEntryName(entry.name))
+      .filter((entry) => !isAlwaysHiddenEntryName(entry.name) && (showGitignored || !shouldIgnoreEntryName(entry.name)))
       .map<FileNode>((entry) => {
         const name = entry.name;
         const normalizedEntryPath = normalizeDirectoryPathKey(entry.path || '');
@@ -424,11 +429,12 @@ export const SidebarFilesTree: React.FC = () => {
     return map;
   }, [gitStatus, root]);
 
+  // A git change beats "open in a tab": open files already show as tabs.
   const getFileStatus = React.useCallback((path: string): FileStatus | null => {
-    if (openContextFilePaths.has(path)) return 'open';
-    if (statusByPath.size === 0) return null;
     const relative = path.startsWith(root + '/') ? path.slice(root.length + 1) : path;
-    return statusByPath.get(relative) ?? null;
+    const change = statusByPath.get(relative);
+    if (change) return change;
+    return openContextFilePaths.has(path) ? 'open' : null;
   }, [openContextFilePaths, statusByPath, root]);
 
   const getFolderBadge = React.useCallback((dirPath: string): { modified: number; added: number } | null => {
@@ -440,19 +446,8 @@ export const SidebarFilesTree: React.FC = () => {
 
   // --- File operations ---
 
-  const handleOpenFile = React.useCallback(async (node: FileNode) => {
-    if (!root) return;
-
-    const openValidation = await validateContextFileOpen(files, node.path, { directory: root });
-    if (!openValidation.ok) {
-      toast.error(getContextFileOpenFailureMessage(openValidation.reason));
-      return;
-    }
-
-    setSelectedPath(root, node.path);
-    addOpenPath(root, node.path);
-    openContextFile(root, node.path);
-  }, [addOpenPath, files, openContextFile, root, setSelectedPath]);
+  const openEditorFile = useOpenContextEditorFile(root);
+  const handleOpenFile = React.useCallback((node: FileNode) => openEditorFile(node.path), [openEditorFile]);
 
   const toggleDirectory = React.useCallback(async (dirPath: string) => {
     const normalized = normalizeDirectoryPathKey(dirPath);
@@ -469,22 +464,13 @@ export const SidebarFilesTree: React.FC = () => {
   function renderTree(dirPath: string, depth: number): React.ReactNode {
     const nodes = childrenByDir[dirPath] ?? [];
 
-    return nodes.map((node, index) => {
+    return nodes.map((node) => {
       const isDir = node.type === 'directory';
       const isExpanded = isDir && expandedPaths.includes(node.path);
       const isActive = selectedPath === node.path;
-      const isLast = index === nodes.length - 1;
 
       return (
         <li key={node.path} className="relative">
-          {depth > 0 && (
-            <>
-              <span className="absolute top-3.5 left-[-12px] w-3 h-px bg-border/40" />
-              {isLast && (
-                <span className="absolute top-3.5 bottom-0 left-[-13px] w-[2px] bg-sidebar/50" />
-              )}
-            </>
-          )}
           <MemoizedFileRow
             node={node}
             root={root}
@@ -501,7 +487,7 @@ export const SidebarFilesTree: React.FC = () => {
             onOpenDialog={handleOpenDialog}
           />
           {isDir && isExpanded && (
-            <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
+            <ul className="relative ml-[15px] flex flex-col border-l border-border/50 pl-1.5">
               {loadErrorsByDir[node.path] ? (
                 <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
                   <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
@@ -524,74 +510,72 @@ export const SidebarFilesTree: React.FC = () => {
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex items-center gap-1 border-b border-border/40 px-3 py-2">
+      {/* Same height as the editor's path bar beside it, so the rules line up. */}
+      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
         <div className="relative min-w-0 flex-1">
-          <Icon name="search" className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
+          <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
           <Input
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={"Search files..."}
-            className="h-8 pl-8 pr-8 typography-meta"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || !searchQuery) return;
+              event.preventDefault();
+              setSearchQuery('');
+            }}
+            // The column can be narrow; the label says what is searched.
+            placeholder={"Search"}
+            aria-label={"Search files"}
+            className="h-7 rounded-md bg-transparent pl-7 pr-7 typography-meta ring-0 md:typography-meta placeholder:text-subtle-foreground focus:ring-1"
           />
           {searchQuery.trim().length > 0 ? (
             <button
               type="button"
               aria-label={"Clear search"}
-              className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground"
+              title={"Clear search"}
+              className="absolute right-1.5 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setSearchQuery('');
                 searchInputRef.current?.focus();
               }}
             >
-              <Icon name="close" className="h-4 w-4" />
+              <Icon name="close" className="size-3.5" />
             </button>
           ) : null}
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1">
-        {canCreateFile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
-                  className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New File"}
-                  aria-label={"New File"}
-                >
-                  <Icon name="file-add" className="h-4 w-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
-          </Tooltip>
-        )}
-        {canCreateFolder && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
-                  className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New Folder"}
-                  aria-label={"New Folder"}
-                >
-                  <Icon name="folder-add" className="h-4 w-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
-          </Tooltip>
-        )}
+        {canCreateFile || canCreateFolder ? (
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0">
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"New file or folder"}>
+                      <Icon name="add" className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>{"New file or folder"}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" side="bottom">
+              {canCreateFile ? (
+                <DropdownMenuItem onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}>
+                  <Icon name="file-add" className="mr-2 size-4" /> {"New File"}
+                </DropdownMenuItem>
+              ) : null}
+              {canCreateFolder ? (
+                <DropdownMenuItem onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}>
+                  <Icon name="folder-add" className="mr-2 size-4" /> {"New Folder"}
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex flex-shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
-                <Icon name="refresh" className="h-4 w-4" />
+            <span className="inline-flex shrink-0">
+              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-7 p-0" aria-label={"Refresh"}>
+                <Icon name="refresh" className="size-4" />
               </Button>
             </span>
           </TooltipTrigger>
@@ -599,24 +583,22 @@ export const SidebarFilesTree: React.FC = () => {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex flex-shrink-0">
+            <span className="inline-flex shrink-0">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => {
                   if (root) collapseAllExpandedPaths(root);
                 }}
-                className="h-8 w-8 p-0 flex-shrink-0"
-                title={"Collapse all folders"}
+                className="size-7 p-0"
                 aria-label={"Collapse all folders"}
               >
-                <Icon name="collapse-vertical" className="h-4 w-4" />
+                <Icon name="collapse-vertical" className="size-4" />
               </Button>
             </span>
           </TooltipTrigger>
           <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
         </Tooltip>
-        </div>
       </div>
 
       <ScrollableOverlay outerClassName="flex-1 min-h-0" className="px-1 py-2">

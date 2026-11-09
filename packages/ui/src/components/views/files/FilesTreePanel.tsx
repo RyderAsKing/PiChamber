@@ -89,22 +89,13 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
   function renderTree(dirPath: string, depth: number): React.ReactNode {
     const nodes = childrenByDir[dirPath] ?? [];
 
-    return nodes.map((node, index) => {
+    return nodes.map((node) => {
       const isDir = node.type === 'directory';
       const isExpanded = isDir && expandedSet.has(node.path);
       const isActive = selectedFile?.path === node.path;
-      const isLast = index === nodes.length - 1;
 
       return (
         <li key={node.path} className="relative">
-          {depth > 0 && (
-            <>
-              <span className="absolute top-3.5 left-[-12px] w-3 h-px bg-border/40" />
-              {isLast && (
-                <span className="absolute top-3.5 bottom-0 left-[-13px] w-[2px] bg-background" />
-              )}
-            </>
-          )}
           <FileRow
             node={node}
             root={root}
@@ -127,7 +118,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
             onOpenDialog={onOpenDialog}
           />
           {isDir && isExpanded && (
-            <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
+            <ul className="relative ml-[15px] flex flex-col border-l border-border/50 pl-1.5">
               {loadErrorsByDir[node.path] ? (
                 <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
                   <span

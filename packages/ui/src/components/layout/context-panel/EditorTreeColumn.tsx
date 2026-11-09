@@ -6,6 +6,10 @@ import { cn } from '@/lib/utils';
 
 const EDITOR_TREE_MIN_WIDTH = 200;
 const EDITOR_TREE_MAX_WIDTH = 480;
+/** The editor keeps at least this much of the panel; the tree gives way first. */
+const EDITOR_MIN_WIDTH = 280;
+/** How narrow the tree may get while giving way to the editor. */
+const EDITOR_TREE_FIT_MIN_WIDTH = 160;
 
 // The editor surface's file-tree column: docked on the right, resizable from
 // its left edge, and animated open/closed like the app sidebars.
@@ -22,6 +26,27 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
   const clampTreeWidth = React.useCallback((value: number) => {
     return Math.min(EDITOR_TREE_MAX_WIDTH, Math.max(EDITOR_TREE_MIN_WIDTH, Math.round(value)));
   }, []);
+
+  // The width of the row the tree shares with the editor; null until measured
+  // or while the row is hidden.
+  const [rowWidth, setRowWidth] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    const row = columnRef.current?.parentElement;
+    if (!row) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const next = entry?.contentRect.width ?? 0;
+      setRowWidth(next > 0 ? Math.round(next) : null);
+    });
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, []);
+  // The stored width is a preference; in a narrow panel the tree shrinks so the
+  // file stays readable, and grows back when the panel widens.
+  const fitTreeWidth = React.useCallback((value: number) => {
+    if (rowWidth === null) return value;
+    return Math.max(EDITOR_TREE_FIT_MIN_WIDTH, Math.min(value, rowWidth - EDITOR_MIN_WIDTH));
+  }, [rowWidth]);
+  const fittedWidth = fitTreeWidth(width);
 
   const applyLiveTreeWidth = React.useCallback((nextWidth: number) => {
     const column = columnRef.current;
@@ -44,8 +69,8 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
     pointerIDRef.current = event.pointerId;
     setIsResizing(true);
     startXRef.current = event.clientX;
-    startWidthRef.current = width;
-    liveWidthRef.current = width;
+    startWidthRef.current = fittedWidth;
+    liveWidthRef.current = fittedWidth;
     event.preventDefault();
   };
 
@@ -54,7 +79,7 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
       return;
     }
     const delta = startXRef.current - event.clientX;
-    const nextWidth = clampTreeWidth(startWidthRef.current + delta);
+    const nextWidth = fitTreeWidth(clampTreeWidth(startWidthRef.current + delta));
     if (liveWidthRef.current === nextWidth) {
       return;
     }
@@ -78,7 +103,7 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
     setWidth(finalWidth);
   };
 
-  const appliedWidth = visible ? width : 0;
+  const appliedWidth = visible ? fittedWidth : 0;
 
   return (
     <div
@@ -89,7 +114,7 @@ export const EditorTreeColumn: React.FC<{ visible: boolean }> = ({ visible }) =>
       )}
       style={{
         width: `${isResizing ? (liveWidthRef.current ?? appliedWidth) : appliedWidth}px`,
-        ['--oc-editor-tree-width' as string]: `${isResizing ? (liveWidthRef.current ?? width) : width}px`,
+        ['--oc-editor-tree-width' as string]: `${isResizing ? (liveWidthRef.current ?? fittedWidth) : fittedWidth}px`,
         overflowX: 'clip',
         transitionProperty: isResizing ? 'none' : 'width',
         transitionDuration: '200ms',
