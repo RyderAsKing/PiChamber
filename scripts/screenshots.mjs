@@ -77,6 +77,32 @@ const PROJECT_ICONS_SETTLED = `(() => {
   return icons.length >= 4 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
 })()`;
 
+// Opens the sidebar's Add folder dialog, goes to `step` (a source title), and
+// fills each field named by its aria-label or id, one per poll, until `done`.
+const addFolderSettled = (step, fields, done) => `(() => {
+  const dialog = document.querySelector('[data-slot="dialog-content"]');
+  if (!dialog) {
+    [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add folder')?.click();
+    return false;
+  }
+  const step = ${JSON.stringify(step)};
+  if (step && !dialog.querySelector('[aria-label="Back to sources"]')) {
+    [...dialog.querySelectorAll('button')].find((button) => button.textContent.includes(step))?.click();
+    return false;
+  }
+  const fields = ${JSON.stringify(fields)};
+  for (const [name, value] of fields) {
+    const input = dialog.querySelector('input[aria-label="' + name + '"], input#' + name);
+    if (!input) return false;
+    if (input.value !== value) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return false;
+    }
+  }
+  return ${done};
+})()`;
+
 const PAGES = {
   'diff-all': {
     path: '/',
@@ -236,6 +262,42 @@ const PAGES = {
       return false;
     })()`,
     idleRequestPrefix: '/api/git/',
+  },
+  'add-folder': {
+    // The Add folder dialog's first question: where the project comes from.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled(null, [], `document.body.innerText.includes('Where does the project come from?')`),
+  },
+  'add-folder-browse': {
+    // Folder on this server, browsing ~/code: the path field, its folders,
+    // and the footer naming the folder Add folder will add.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled('Folder on this server', [['Folder path', '~/code/']],
+      `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Adds')`),
+  },
+  'add-folder-clone': {
+    // Clone a repository: a URL, the location ~/code, and the folder it makes.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled('Clone a repository', [
+      ['add-folder-remote-url', 'https://github.com/acme/billing-service.git'],
+      ['Location', '~/code/'],
+    ], `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Clones into')`),
+  },
+  'add-folder-new': {
+    // New project: a name, the Git option, the location, and what it creates.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled('New project', [
+      ['add-folder-project-name', 'invoice-worker'],
+      ['Location', '~/code/'],
+    ], `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Creates a Git repository at')`),
   },
   'settings-appearance': {
     // A dense settings page: navigation, section titles, field labels,
@@ -719,6 +781,10 @@ const seed = async (dir) => {
     lastDirectory: repo,
   }, null, 2)}\n`);
   await writeDemoSession(home, repo);
+  // Folders for the Add folder dialog to list; home holds nothing else visible.
+  for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
+    await mkdir(join(home, 'code', name), { recursive: true });
+  }
   console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`);
 };
 

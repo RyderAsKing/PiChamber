@@ -120,7 +120,8 @@ Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
 `<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
 a dark logo on a transparent background), a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
-`HOME` whose Pi agent directory holds one demo session. Start the
+`HOME` whose Pi agent directory holds one demo session and whose `code/`
+folder gives the Add folder dialog something to list. Start the
 dev server with `HOME=<dir>/home PICHAMBER_DATA_DIR=<dir>/data` so it never
 touches real `~/.pi` or `~/.config/pichamber` state.
 
@@ -143,7 +144,10 @@ name, folder, and change mark per hit, desktop only); `files-panel-nested`
 (`src/lib/dates.ts` opened from search, then the search cleared, so the tree
 has opened to it, desktop only); `files-panel-changes` (`billing.ts` open,
 then its path bar's Changes button: the Git panel on the file's scope with it
-expanded, desktop only); `settings-appearance` (a dense settings page, desktop only);
+expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
+first question, desktop only); `add-folder-browse`, `add-folder-clone`, and
+`add-folder-new` (its three steps, each pointed at the seed's `~/code`,
+desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons); `command-palette`
 (opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
