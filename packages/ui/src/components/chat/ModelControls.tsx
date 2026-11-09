@@ -223,7 +223,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
     const sizeVariant: 'mobile' | 'default' = isMobile ? 'mobile' : 'default';
     const buttonHeight = sizeVariant === 'mobile' ? 'h-9' : 'h-7';
     const controlIconSize = 'size-3.5';
-    const controlTextSize = 'typography-micro';
+    const controlTextSize = 'typography-meta';
     const inlineGapClass = sizeVariant === 'mobile' ? 'gap-x-1' : 'gap-x-3';
 
     const currentProvider = getCurrentProvider();
@@ -1247,7 +1247,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                         {!isReady ? (
                             <>
                                 <Icon name="loader-4" className={cn(controlIconSize, 'animate-spin text-muted-foreground flex-shrink-0')} />
-                                <span className="typography-micro font-normal text-muted-foreground min-w-0">
+                                <span className="typography-meta font-normal text-muted-foreground min-w-0">
                                     {readinessLabel}
                                 </span>
                             </>
@@ -1264,7 +1264,7 @@ export const ModelControls: React.FC<ModelControlsProps> = ({
                                 <span
                                     ref={modelLabelRef}
                                     className={cn(
-                                        'model-controls__model-label typography-micro font-normal overflow-hidden',
+                                        'model-controls__model-label typography-meta font-normal overflow-hidden',
                                         keepLabels ? 'whitespace-nowrap' : 'min-w-0',
                                         !keepLabels && (isMobile ? 'max-w-[120px]' : 'max-w-[220px]'),
                                     )}

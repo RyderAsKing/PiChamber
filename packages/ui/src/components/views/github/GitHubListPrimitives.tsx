@@ -113,7 +113,7 @@ export const GitHubCenteredState: React.FC<{
 }> = ({ icon, title, description, action }) => {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center">
-      <Icon name={icon} aria-hidden="true" className="size-6 text-muted-foreground/60" />
+      <Icon name={icon} aria-hidden="true" className="size-6 text-subtle-foreground" />
       <p className="typography-ui-label font-medium text-foreground">{title}</p>
       {description ? (
         <p className="max-w-60 typography-micro text-muted-foreground">{description}</p>

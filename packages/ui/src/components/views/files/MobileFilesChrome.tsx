@@ -249,7 +249,7 @@ const MobileFileRow: React.FC<{
     )}
     <span className={cn(sidebarRowLabelClass(true), 'flex-1 text-foreground')}>{name}</span>
     {meta ? <span className="shrink-0 typography-micro text-muted-foreground">{meta}</span> : null}
-    {directory ? <Icon name="arrow-right-s" className="size-4 shrink-0 text-muted-foreground/60" /> : null}
+    {directory ? <Icon name="arrow-right-s" className="size-4 shrink-0 text-subtle-foreground" /> : null}
   </button>
 );
 

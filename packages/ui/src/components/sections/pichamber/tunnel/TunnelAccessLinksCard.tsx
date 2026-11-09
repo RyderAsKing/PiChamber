@@ -37,7 +37,7 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
               ? isManagedRemote
                 ? 'text-[var(--status-info)]'
                 : 'text-[var(--status-success)]'
-              : 'text-muted-foreground/50';
+              : 'text-subtle-foreground';
             const modeLabel = isManagedRemote ? 'REMOTE' : 'LOCAL';
 
             return (
@@ -57,7 +57,7 @@ export const TunnelAccessLinksCard: React.FC<TunnelAccessLinksCardProps> = ({
                 >
                   {modeLabel}
                 </span>
-                <span className="typography-meta text-muted-foreground/80">
+                <span className="typography-meta text-subtle-foreground">
                   {`Redeemed ${formatAbsoluteTime(record.createdAt, timeFormatPreference)}`}
                 </span>
                 <span className="typography-meta text-foreground">

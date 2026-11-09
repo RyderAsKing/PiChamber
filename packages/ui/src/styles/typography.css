@@ -30,7 +30,7 @@
 
   /*
    * Settings heading scale (by context):
-   * L1 page title  → typography-settings-page-title (+ text-muted-foreground)
+   * L1 page title  → typography-settings-page-title (+ text-foreground)
    * L2 section     → typography-settings-section-title (+ text-foreground)
    * L3 group       → typography-settings-group-title (+ text-foreground)
    * L4 field label → typography-settings-field-label (+ text-foreground)

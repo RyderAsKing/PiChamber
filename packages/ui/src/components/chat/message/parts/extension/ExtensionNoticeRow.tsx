@@ -97,7 +97,7 @@ export const ExtensionNoticeRow: React.FC<ExtensionNoticeRowProps> = ({
             </div>
 
             <div
-                className="my-1 max-h-80 overflow-x-auto overflow-y-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-micro"
+                className="my-1 max-h-80 overflow-x-auto overflow-y-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-code"
                 data-extension-notice-body="true"
             >
                 {visibleLines.map((line, index) => (

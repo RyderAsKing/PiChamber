@@ -521,7 +521,7 @@ const StaticToolRowInner: React.FC<StaticToolRowProps> = ({ toolName, activity, 
             ) : null}
             {durationLabel ? (
                 <span
-                    className={cn('flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)}
+                    className={cn('flex-shrink-0 tabular-nums text-subtle-foreground', TOOL_ROW_DESCRIPTION_CLASS)}
                     aria-label="Tool duration"
                 >
                     {durationLabel}

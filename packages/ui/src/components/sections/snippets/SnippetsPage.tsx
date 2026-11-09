@@ -309,7 +309,7 @@ export const SnippetsPage: React.FC = () => {
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon
               name="file-text"
-              className="size-8 text-muted-foreground/60"
+              className="size-8 text-subtle-foreground"
               aria-hidden
             />
             <p className="typography-meta text-muted-foreground">
@@ -679,7 +679,7 @@ export const SnippetsPage: React.FC = () => {
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
             <Icon
               name="file-text"
-              className="size-8 text-muted-foreground/60"
+              className="size-8 text-subtle-foreground"
               aria-hidden
             />
             <p className="typography-meta text-muted-foreground">

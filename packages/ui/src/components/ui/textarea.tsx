@@ -190,7 +190,7 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
                   "group-hover/textarea:placeholder:text-foreground/80",
                   "focus:placeholder:text-foreground/80",
                 ],
-                disabled && "text-muted-foreground/60 placeholder:text-muted-foreground/60",
+                disabled && "text-subtle-foreground placeholder:text-subtle-foreground",
                 className,
               )}
               spellCheck={false}

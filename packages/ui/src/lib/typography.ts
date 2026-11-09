@@ -3,8 +3,10 @@ export const SEMANTIC_TYPOGRAPHY = {
   code: '0.8125rem',
   uiHeader: '0.9375rem',
   uiLabel: '0.8750rem',
-  meta: '0.875rem',
-  micro: '0.875rem',
+  /** Secondary lines: session details, helper text, status */
+  meta: '0.8125rem',
+  /** Tertiary: timestamps, counts, badges, shortcuts */
+  micro: '0.75rem',
   /** Settings page / detail-pane title — larger than section headers */
   settingsPageTitle: '1.125rem',
 } as const;

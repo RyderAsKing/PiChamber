@@ -50,7 +50,7 @@ export const ChangedFilesList: React.FC<ChangedFilesListProps> = ({ files, curre
                                 )}
                             </span>
                             {(stats.additions > 0 || stats.deletions > 0) ? (
-                                <span className="flex-shrink-0 inline-flex items-baseline gap-1 text-[0.75rem] tabular-nums">
+                                <span className="flex-shrink-0 inline-flex items-baseline gap-1 typography-micro tabular-nums">
                                     {stats.additions > 0 ? <span style={{ color: 'var(--status-success)' }}>+{stats.additions}</span> : null}
                                     {stats.deletions > 0 ? <span style={{ color: 'var(--status-error)' }}>-{stats.deletions}</span> : null}
                                 </span>

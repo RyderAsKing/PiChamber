@@ -45,10 +45,10 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
         {projectPath ? (
           <ProjectIcon directory={projectPath} label={projectLabel} className={iconClassName} />
         ) : (
-          <Icon name="folder" className={cn(iconClassName, 'text-muted-foreground/80')} />
+          <Icon name="folder" className={cn(iconClassName, 'text-subtle-foreground')} />
         )}
       </span>
-      <span className={cn(labelClassName, 'text-foreground')}>{projectLabel}</span>
+      <span className={cn(labelClassName, 'font-medium text-foreground')}>{projectLabel}</span>
     </>
   );
 };

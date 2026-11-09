@@ -358,7 +358,7 @@ export const ProvidersPage: React.FC = () => {
         }
       >
         <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-          <Icon name="cloud-off" className="size-8 text-muted-foreground/60" aria-hidden />
+          <Icon name="cloud-off" className="size-8 text-subtle-foreground" aria-hidden />
           <p className="typography-meta text-muted-foreground">No providers</p>
           <Button variant="outline" size="sm" onClick={() => setSelectedProviderId(PI_CUSTOM_PROVIDER_SELECTION)}>
             Add custom provider

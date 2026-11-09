@@ -489,7 +489,7 @@ export const ContextPanel: React.FC = () => {
                 ? <PreviewPane rawUrl={activeTab.targetPath ?? ''} onNavigate={(url) => openContextPreview(effectiveDirectory, url)} />
                 : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                    <Icon name="global" className="h-12 w-12 text-muted-foreground/50" />
+                    <Icon name="global" className="h-12 w-12 text-subtle-foreground" />
                     <div className="typography-ui-header text-foreground">{"Preview"}</div>
                     <div className="max-w-sm typography-micro text-muted-foreground">{"Use Project Actions or a terminal Preview button to open a preview."}</div>
                   </div>
@@ -731,7 +731,7 @@ export const ContextPanel: React.FC = () => {
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
               ) : (
                 <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
+                  <Icon name="file-code" className="h-12 w-12 text-subtle-foreground" />
                   <div className="typography-ui-header text-foreground">{"No file open"}</div>
                   <div className="max-w-sm typography-micro text-muted-foreground">{"Pick a file from the tree to start editing."}</div>
                 </div>

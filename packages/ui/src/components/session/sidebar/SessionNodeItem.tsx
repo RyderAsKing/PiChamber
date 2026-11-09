@@ -544,7 +544,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                           ? 'text-foreground'
                           : isTree && !isActive
                             ? 'text-muted-foreground transition-colors group-hover:text-foreground'
-                            : 'text-foreground/90',
+                            : 'text-foreground',
                       )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
@@ -552,14 +552,14 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     {isPinnedSession ? <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" /> : null}
                     {/* Reserves the title-line width of the trailing status, which is
                         positioned over the row so the details line can use the full width. */}
-                    <span aria-hidden="true" className="invisible ml-1 min-w-6 shrink-0 whitespace-nowrap text-[11px]">
+                    <span aria-hidden="true" className="invisible ml-1 min-w-6 shrink-0 whitespace-nowrap typography-micro">
                       {showUnreadCompleteDot ? null : sessionCompactUpdatedLabel}
                     </span>
                   </div>
 
                   {/* By-folder rows are a single line: title and time only. */}
                   {!isTree && (showFolderLabel || hasBranchMeta || hasTrailingMeta) ? (
-                    <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden text-xs leading-4 font-normal text-muted-foreground/80">
+                    <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden typography-micro leading-4 font-normal text-subtle-foreground">
                       {showFolderLabel ? (
                         <span className={cn('inline-flex min-w-0 items-center gap-1', hasTrailingMeta ? 'max-w-[60%] shrink-0' : 'flex-1')}>
                           {projectPath ? (
@@ -606,7 +606,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                             <SessionActivityDuration
                               sessionId={session.id}
                               running={isStreaming}
-                              className="shrink-0 text-muted-foreground/70"
+                              className="shrink-0 text-subtle-foreground"
                             />
                           ) : null}
                         </span>
@@ -641,7 +641,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 ) : showUnreadCompleteDot ? (
                   <SessionUnreadDot label={'Session complete'} />
                 ) : (
-                  <span className="text-[11px] text-muted-foreground/75 whitespace-nowrap">
+                  <span className="typography-micro text-subtle-foreground whitespace-nowrap">
                     {sessionCompactUpdatedLabel}
                   </span>
                 )}
@@ -709,7 +709,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     <SessionActivityDuration
                       sessionId={session.id}
                       running={isStreaming}
-                      className="text-[11px] leading-4"
+                      className="typography-micro leading-4"
                     />
                   ) : null}
                 </span>

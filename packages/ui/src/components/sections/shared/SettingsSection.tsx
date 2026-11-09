@@ -47,7 +47,7 @@ export const SETTINGS_OPTION_STACK_CLASS = 'space-y-1.5';
  */
 /** L1 — page / detail-pane title (larger, quieter than section titles). */
 export const SETTINGS_PAGE_TITLE_CLASS =
-  'typography-settings-page-title text-muted-foreground';
+  'typography-settings-page-title text-foreground';
 /** L2 — section title inside a settings page. */
 export const SETTINGS_SECTION_TITLE_CLASS =
   'typography-settings-section-title text-foreground';

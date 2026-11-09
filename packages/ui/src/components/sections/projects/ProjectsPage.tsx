@@ -115,7 +115,7 @@ export const ProjectsPage: React.FC = () => {
       >
         <SettingsSection title="Projects" divider={false} settingsItem="projects.browse">
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Icon name="folders" className="size-8 text-muted-foreground/60" aria-hidden />
+            <Icon name="folders" className="size-8 text-subtle-foreground" aria-hidden />
             <p className="typography-meta text-muted-foreground">No projects yet</p>
             <p className="typography-micro max-w-sm text-muted-foreground">Add a local directory to start saving per-project defaults, session history, and header actions.</p>
             <Button variant="outline" size="sm" onClick={handleAddProject}>

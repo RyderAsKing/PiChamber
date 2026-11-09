@@ -175,7 +175,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
           <Tooltip>
             <TooltipTrigger asChild>
               <span
-                className="mr-1 flex items-center gap-1 text-sm tabular-nums text-muted-foreground/60"
+                className="mr-1 flex items-center gap-1 text-sm tabular-nums text-subtle-foreground"
                 aria-label={`Message time: ${timestamp}`}
               >
                 <Icon name="time" className="h-3.5 w-3.5" />
@@ -253,7 +253,7 @@ export const UserMessageBody = React.memo(function UserMessageBody({
     >
       <div
         className={cn(
-          'leading-relaxed text-foreground/90 text-base overflow-x-hidden',
+          'leading-relaxed text-foreground text-base overflow-x-hidden',
           useStickyScrollableUserContent
             ? 'overflow-y-auto overscroll-contain scrollbar-none'
             : 'overflow-y-hidden'

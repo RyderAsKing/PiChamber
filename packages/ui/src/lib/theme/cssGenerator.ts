@@ -1,5 +1,6 @@
 import type { Theme } from '@/types/theme';
 import { SEMANTIC_TYPOGRAPHY } from '@/lib/typography';
+import { deriveSubtle, ensureContrast } from './contrast';
 
 const hexToRgb = (value: string | undefined | null): string | null => {
   if (!value || typeof value !== 'string') {
@@ -32,6 +33,22 @@ const hexToRgb = (value: string | undefined | null): string | null => {
   return `${r} ${g} ${b}`;
 };
 
+/**
+ * Holds the theme's secondary text to WCAG AA on every surface it is drawn on
+ * (app background, sidebar, cards). Themes that already meet it keep their
+ * exact color; the rest are moved toward their primary text just far enough.
+ */
+function withReadableSecondaryText(theme: Theme): Theme {
+  const { surface } = theme.colors;
+  const mutedForeground = ensureContrast(
+    surface.mutedForeground,
+    [surface.background, surface.muted, surface.elevated],
+    surface.foreground,
+  );
+  if (mutedForeground === surface.mutedForeground) return theme;
+  return { ...theme, colors: { ...theme.colors, surface: { ...surface, mutedForeground } } };
+}
+
 export class CSSVariableGenerator {
   private inheritanceMap: Map<string, string> = new Map();
 
@@ -39,10 +56,17 @@ export class CSSVariableGenerator {
     this.initializeInheritanceMap();
   }
 
-  generate(theme: Theme): string {
+  generate(sourceTheme: Theme): string {
     const cssVars: string[] = [];
+    const theme = withReadableSecondaryText(sourceTheme);
+    const { surface } = theme.colors;
+    const textSurfaces = [surface.background, surface.muted, surface.elevated];
 
     cssVars.push(...this.generateTailwindVariables(theme));
+    // Tertiary text (timestamps, counts, hints): one readable step below muted,
+    // in place of ad-hoc `/60`-`/80` alpha fades that drop under WCAG AA.
+    const subtleForeground = deriveSubtle(surface.mutedForeground, textSurfaces, surface.background);
+    cssVars.push(`  --subtle-foreground: ${subtleForeground} !important;`);
 
     cssVars.push(...this.generatePrimaryColors(theme.colors.primary));
     cssVars.push(...this.generateSurfaceColors(theme.colors.surface));
@@ -453,7 +477,7 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     vars.push(`  --tools-header-hover: ${tools?.headerHover || this.opacity(theme.colors.surface.muted, 0.3)};`);
     vars.push(`  --tools-icon: ${tools?.icon || theme.colors.surface.mutedForeground};`);
     vars.push(`  --tools-title: ${tools?.title || theme.colors.surface.foreground};`);
-    vars.push(`  --tools-description: ${tools?.description || this.opacity(theme.colors.surface.mutedForeground, 0.6)};`);
+    vars.push(`  --tools-description: ${tools?.description || 'var(--subtle-foreground)'};`);
 
     if (tools?.edit) {
       vars.push(`  --tools-edit-added: ${tools.edit.added || theme.colors.status.success};`);
@@ -484,7 +508,7 @@ const sidebarBaseRgb = hexToRgb(theme.colors.surface.muted);
     vars.push(`  --tools-header-hover: ${this.opacity(theme.colors.surface.muted, 0.3)};`);
     vars.push(`  --tools-icon: ${theme.colors.surface.mutedForeground};`);
     vars.push(`  --tools-title: ${theme.colors.surface.foreground};`);
-    vars.push(`  --tools-description: ${this.opacity(theme.colors.surface.mutedForeground, 0.6)};`);
+    vars.push(`  --tools-description: var(--subtle-foreground);`);
 
     vars.push(`  --tools-edit-added: ${theme.colors.status.success};`);
     vars.push(`  --tools-edit-added-bg: ${this.addTransparency(this.removeTransparency(theme.colors.status.successBackground), 0.15)};`);

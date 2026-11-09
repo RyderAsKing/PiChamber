@@ -43,7 +43,7 @@ export const DesktopLanToggleFields: React.FC<{ lan: DesktopLanAccessState }> = 
     ) : null}
 
     {lan.lanUrl ? (
-      <div className="typography-micro text-muted-foreground/80">
+      <div className="typography-micro text-subtle-foreground">
         {lan.isDirty && !lan.draftLanEnabled
           ? 'After restart, open from another device: '
           : 'Open from another device: '}

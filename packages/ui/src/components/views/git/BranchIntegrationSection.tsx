@@ -204,7 +204,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
                   log.status === 'error' && 'text-destructive',
                   log.status === 'done' && 'text-muted-foreground',
                   log.status === 'running' && 'text-foreground',
-                  log.status === 'pending' && 'text-muted-foreground/60'
+                  log.status === 'pending' && 'text-subtle-foreground'
                 )}
               >
                 {log.message}

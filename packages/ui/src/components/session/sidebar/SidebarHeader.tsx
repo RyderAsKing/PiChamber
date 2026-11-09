@@ -196,7 +196,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
 
         {isSessionSearchOpen ? (
           <div className={cn(mobileVariant ? 'pb-2' : 'pb-1')}>
-            <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-muted-foreground/80">
+            <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-subtle-foreground">
               {hasSessionSearchQuery ? (
                 <span>{searchMatchCount === 1
                   ? `${searchMatchCount} match`

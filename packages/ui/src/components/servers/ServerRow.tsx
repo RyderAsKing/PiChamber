@@ -87,7 +87,7 @@ function ServerRouteText({
   if (!interactive) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        <span aria-hidden="true" className="shrink-0 text-muted-foreground/60">{'·'}</span>
+        <span aria-hidden="true" className="shrink-0 text-subtle-foreground">{'·'}</span>
         <span className={routeTextClass}>{displayed.label}</span>
       </span>
     );
@@ -102,7 +102,7 @@ function ServerRouteText({
             className="inline-flex min-w-0 max-w-full items-center gap-0.5 rounded typography-micro text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={`Connection route for ${item.label}: ${displayed.label}`}
           >
-            <span aria-hidden="true" className="shrink-0 text-muted-foreground/60">{'·'}</span>
+            <span aria-hidden="true" className="shrink-0 text-subtle-foreground">{'·'}</span>
             <span className="truncate">{displayed.label}</span>
             <Icon name="arrow-down-s" className="size-3 shrink-0 opacity-70" aria-hidden="true" />
           </button>
@@ -187,7 +187,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
           {refreshing && item.status !== 'checking' ? ' · checking' : ''}
         </span>
         {address ? (
-          <span className="typography-micro block truncate font-mono text-muted-foreground/70">{address}</span>
+          <span className="typography-micro block truncate font-mono text-subtle-foreground">{address}</span>
         ) : null}
       </span>
     </>
@@ -235,7 +235,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                 item.isDefault
                   ? 'text-primary hover:text-primary/80'
-                  : 'text-muted-foreground/60 hover:text-primary/80',
+                  : 'text-subtle-foreground hover:text-primary/80',
                 defaultDisabled && 'opacity-40 cursor-not-allowed',
               )}
               onClick={() => onSetDefault?.(item)}
@@ -254,7 +254,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
                 <button
                   type="button"
                   className={cn(
-                    'rounded-md inline-flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40',
+                    'rounded-md inline-flex items-center justify-center text-subtle-foreground hover:text-foreground hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-40',
                     touch ? 'h-11 w-11' : 'h-8 w-8',
                   )}
                   aria-label={`Actions for ${item.label}`}

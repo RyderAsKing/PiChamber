@@ -141,7 +141,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
 
                   <CollapsibleContent className="pt-1.5">
                     <div className="space-y-1 px-3 pb-2">
-                      <p className="typography-meta text-muted-foreground/70">
+                      <p className="typography-meta text-subtle-foreground">
                         {'Hostname:'} <code>{preset.hostname}</code>
                       </p>
                       <Input
@@ -192,7 +192,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
           })}
         </div>
       ) : (
-        <p className="typography-meta text-muted-foreground/70">
+        <p className="typography-meta text-subtle-foreground">
           {'No managed remote tunnels saved yet.'}
         </p>
       )}
@@ -222,7 +222,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
             disabled={disabled}
           />
           {typeof suggestedConnectorPort === 'number' && (
-            <p className="typography-meta text-muted-foreground/70">
+            <p className="typography-meta text-subtle-foreground">
               {'For Cloudflare connector target, use'}{' '}
               <code>http://localhost:{suggestedConnectorPort}</code>.
             </p>
@@ -251,7 +251,7 @@ export const ManagedRemoteTunnelsPanel: React.FC<ManagedRemoteTunnelsPanelProps>
       )}
 
       <div className="flex items-center gap-1.5">
-        <p className="typography-meta text-muted-foreground/80">
+        <p className="typography-meta text-subtle-foreground">
           {'Tokens are saved per tunnel and reused from disk.'}
         </p>
         <SettingsInfoHint>

@@ -178,7 +178,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         <div className="relative min-w-0 flex-1">
           <Icon
             name="folder-3"
-            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/80"
+            className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle-foreground"
           />
           <Input
             ref={inputRef}
@@ -216,7 +216,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-elevated)] shadow-sm">
       <div className="max-h-[min(28rem,58vh)] overflow-y-auto p-2">
         <div className="flex items-center justify-between gap-2 px-2 pb-1 pt-0.5">
-          <div className="typography-meta font-medium uppercase tracking-wide text-muted-foreground/80">
+          <div className="typography-meta font-medium uppercase tracking-wide text-subtle-foreground">
             {'Directories'}
           </div>
           <Button
@@ -325,10 +325,10 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                       {row.type === 'parent' ? (
                         <Icon
                           name="folder-open"
-                          className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
+                          className="h-4 w-4 flex-shrink-0 text-subtle-foreground"
                         />
                       ) : (
-                        <Icon name="folder-6" className="h-4 w-4 flex-shrink-0 text-muted-foreground/80" />
+                        <Icon name="folder-6" className="h-4 w-4 flex-shrink-0 text-subtle-foreground" />
                       )}
                       <span className="truncate typography-ui-label text-foreground">{row.name}</span>
                     </span>
@@ -347,13 +347,13 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                     {row.type === 'parent' ? (
                       <Icon
                         name="arrow-up-s"
-                        className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
+                        className="h-4 w-4 flex-shrink-0 text-subtle-foreground"
                         aria-hidden="true"
                       />
                     ) : (
                       <Icon
                         name="arrow-right-s"
-                        className="h-4 w-4 flex-shrink-0 text-muted-foreground/80"
+                        className="h-4 w-4 flex-shrink-0 text-subtle-foreground"
                         aria-hidden="true"
                       />
                     )}

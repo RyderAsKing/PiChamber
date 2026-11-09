@@ -133,7 +133,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             outerClassName="border-0 ring-0 rounded-none bg-transparent"
             className={cn(
               'min-h-[220px] w-full bg-transparent px-3 py-3 font-mono typography-meta leading-6',
-              'placeholder:text-muted-foreground/70',
+              'placeholder:text-subtle-foreground',
             )}
             style={{ minHeight }}
             aria-label={contentLabel}
@@ -145,7 +145,7 @@ export const SnippetMarkdownEditor: React.FC<SnippetMarkdownEditorProps> = ({
             <SimpleMarkdownRenderer content={value} className="max-w-none" />
           ) : (
             <div className="flex min-h-[180px] flex-col items-center justify-center gap-2 py-10 text-center">
-              <Icon name="file-text" className="size-6 text-muted-foreground/50" aria-hidden />
+              <Icon name="file-text" className="size-6 text-subtle-foreground" aria-hidden />
               <p className="typography-meta text-muted-foreground">
                 {readOnly ? 'No content' : 'Nothing to preview'}
               </p>

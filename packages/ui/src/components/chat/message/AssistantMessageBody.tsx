@@ -231,7 +231,7 @@ export const AssistantMessageBody = React.memo(
       >
         <TextSelectionMenu containerRef={messageContentRef} />
         <div>
-          <div className="message-content-text space-y-2 leading-relaxed overflow-hidden text-foreground/90 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
+          <div className="message-content-text space-y-2 leading-relaxed overflow-hidden text-foreground [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
             {renderedParts}
             {showErrorMessage && (
               <FadeInOnReveal key="assistant-error">
