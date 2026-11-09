@@ -3,14 +3,44 @@ name: Pull request checks
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+    # Docs-only changes run no code checks. Docs Source validates
+    # packages/docs on push to main.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'packages/docs/**'
+      - '.agents/**'
+
+# A new push to a pull request cancels the run for its previous commit.
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   runtime-compatibility:
     uses: ./.github/workflows/runtime-smoke.yml
 
+  # Each check gets its own runner. None of them read another's output, so
+  # the run takes as long as the slowest check instead of their sum.
   checks:
-    needs: runtime-compatibility
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: build
+            run: bun run build
+          - name: type-check and lint
+            run: bun run type-check && bun run lint
+          - name: web and electron tests
+            run: bun run test:web && bun run test:electron
+          - name: ui tests
+            run: bun run test:ui
 
     steps:
       - name: Checkout repository
@@ -29,21 +59,5 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build
-        run: bun run build
-
-      - name: Type check
-        run: bun run type-check
-
-      - name: Lint
-        run: bun run lint
-
-      - name: Unit tests (web, ui, electron)
-        run: bun run test
-
-      - name: Electron Linux packaging unit tests
-        working-directory: packages/electron
-        run: |
-          bun run test:architecture
-          bun run test:updater
-          bun run type-check
+      - name: ${{ matrix.name }}
+        run: ${{ matrix.run }}
