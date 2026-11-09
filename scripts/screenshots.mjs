@@ -4,7 +4,7 @@
 // scripts/profile-browser.mjs. See "Screenshots" in CLAUDE.md for setup.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises';
+import { mkdir, rm, utimes, writeFile, mkdtemp } from 'node:fs/promises';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -65,6 +65,27 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 <section>Orders today<b>128</b></section><section>Revenue<b>$9,412</b></section>
 <section>Refunds<b>3</b></section><section>Active users<b>1,204</b></section>
 </main></body></html>`;
+
+// Sessions the seed adds for the Threads and By folder captures (see
+// writeShelfSessions): recent ones stay in the list, one is snoozed, one was
+// settled by hand, and old ones settle on their own.
+const SHELF_SESSIONS = [
+  { id: '0193f6a0-0001-7000-8000-000000000001', folder: 'repo', title: 'Add retry with backoff to the billing client', hoursAgo: 0.3 },
+  { id: '0193f6a0-0002-7000-8000-000000000002', folder: 'night-shift', title: 'Fix the dark logo on the dark theme', hoursAgo: 2 },
+  { id: '0193f6a0-0003-7000-8000-000000000003', folder: 'chamber-mono', title: 'Plan the docs restructure', hoursAgo: 20, snooze: true },
+  { id: '0193f6a0-0004-7000-8000-000000000004', folder: 'acme-web', title: 'Rename the checkout helpers', hoursAgo: 1, settled: true },
+  { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24 },
+];
+const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
+const SHELF_SESSION_TEXT = [SHELF_SESSIONS[0].title, SHELF_SESSIONS[1].title];
+// Opens the Snoozed and Settled shelves (they start collapsed) and waits for
+// their rows.
+const SHELVES_OPEN = `(() => {
+  const closed = document.querySelector('[data-session-shelf] button[aria-expanded="false"]');
+  if (closed) { closed.click(); return false; }
+  return document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)})
+    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[4].title)});
+})()`;
 
 // The branch prefix: a middle-truncated label splits the full name across spans.
 const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'Night Shift', 'feature/session-sidebar'];
@@ -152,6 +173,24 @@ const PAGES = {
     settledScript: PROJECT_ICONS_SETTLED,
     idleRequestPrefix: '/api/fs/project-icon',
   },
+  'sidebar-threads': {
+    // The Threads view: recent sessions across folders, then the Snoozed and
+    // Settled shelves opened, with the selected title in medium weight.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+  },
+  'sidebar-folder': {
+    // By folder: folders with their active sessions; snoozed and settled
+    // sessions moved to shelves under the folder list.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'folder',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+  },
   'sidebar-projects-mobile': {
     path: '/',
     // The header button opens the sessions drawer with the same folder list.
@@ -206,6 +245,9 @@ const PAGES = {
     settledScript: `(() => {
       const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
       if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      // A file left open by an earlier capture folds the tree in a narrow panel.
+      const treeToggle = document.querySelector('button[aria-label="Toggle file tree"]');
+      if (treeToggle && treeToggle.getAttribute('aria-pressed') !== 'true') { treeToggle.click(); return false; }
       const input = document.querySelector('input[aria-label="Search files"]');
       if (!input) return false;
       if (input.value !== '.ts') {
@@ -547,6 +589,13 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       { name: 'prefers-reduced-motion', value: 'reduce' },
     ],
   });
+  // The sidebar view is a server setting; pages without one use Workspace.
+  const settings = await fetch(new URL('/api/pi/ui-settings', baseUrl), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sidebarViewMode: page.sidebarViewMode ?? 'workspace' }),
+  });
+  if (!settings.ok) throw new Error(`${pageName}: could not set the sidebar view (${settings.status})`);
   await client.send('Page.navigate', { url: new URL(page.path, baseUrl).toString() });
 
   const textChecks = JSON.stringify(page.readyText);
@@ -701,6 +750,32 @@ const writeDemoSession = async (home, repo) => {
   await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
 };
 
+// Short sessions across the seeded folders, timed relative to the seed, plus
+// the shelf sidecar that snoozes one and settles another by hand.
+const writeShelfSessions = async (home, data, folderPath) => {
+  const now = Date.now();
+  const shelf = {};
+  for (const session of SHELF_SESSIONS) {
+    const cwd = folderPath(session.folder);
+    const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
+    await mkdir(sessionDir, { recursive: true });
+    const start = Math.round(now - session.hoursAgo * 60 * 60 * 1000);
+    const lines = [
+      { type: 'session', version: 3, id: session.id, timestamp: new Date(start).toISOString(), cwd },
+      { type: 'message', id: `${session.id.slice(-4)}0`, parentId: null, timestamp: new Date(start).toISOString(), message: { role: 'user', content: session.title, timestamp: start } },
+      { type: 'session_info', id: `${session.id.slice(-4)}1`, parentId: `${session.id.slice(-4)}0`, timestamp: new Date(start).toISOString(), name: session.title },
+    ];
+    const file = join(sessionDir, `${new Date(start).toISOString().replace(/[:.]/g, '-')}_${session.id}.jsonl`);
+    await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    // The session list dates a session by its file's modification time.
+    await utimes(file, new Date(start), new Date(start));
+    if (session.snooze) shelf[session.id] = { snoozedUntil: now + 24 * 60 * 60 * 1000, snoozedAt: now };
+    if (session.settled) shelf[session.id] = { settled: 'settled', settledAt: now - 30 * 60 * 1000 };
+  }
+  await mkdir(join(data, 'pi'), { recursive: true });
+  await writeFile(join(data, 'pi', 'session-shelf.json'), JSON.stringify(shelf));
+};
+
 // A flat square favicon with one white glyph.
 const demoIcon = (fill, glyph) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="${fill}"/><path d="${glyph}" fill="#fff"/></svg>`;
@@ -806,6 +881,7 @@ const seed = async (dir) => {
     lastDirectory: repo,
   }, null, 2)}\n`);
   await writeDemoSession(home, repo);
+  await writeShelfSessions(home, data, (name) => (name === 'repo' ? repo : join(folders, name)));
   // Folders for the Add folder dialog to list; home holds nothing else visible.
   for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
     await mkdir(join(home, 'code', name), { recursive: true });
