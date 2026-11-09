@@ -79,11 +79,16 @@ const SHELF_SESSIONS = [
 const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
 const SHELF_SESSION_TEXT = [SHELF_SESSIONS[0].title, SHELF_SESSIONS[1].title];
 // Opens the Snoozed and Settled shelves (they start collapsed) and waits for
-// their rows.
+// their rows, and for the open session's message and model picker so the
+// transcript beside the sidebar is not caught loading.
 const SHELVES_OPEN = `(() => {
   const closed = document.querySelector('[data-session-shelf] button[aria-expanded="false"]');
   if (closed) { closed.click(); return false; }
-  return document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)})
+  const messageShown = [...document.querySelectorAll('[data-message-id]')]
+    .some((node) => node.innerText.includes(${JSON.stringify(SHELF_SESSIONS[0].title)}));
+  return messageShown
+    && !document.body.innerText.includes('Loading...')
+    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)})
     && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[4].title)});
 })()`;
 
