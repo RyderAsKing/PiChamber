@@ -265,7 +265,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       outerClassName="flex-1 min-h-0"
       className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-32')}
     >
-      <div className="space-y-1 px-2">
+      <div className={cn(isThreads && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">

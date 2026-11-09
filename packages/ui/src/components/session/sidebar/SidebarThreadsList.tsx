@@ -204,8 +204,8 @@ interface SidebarThreadsListProps {
 
 /**
  * The Threads view: Pinned, then sessions running now, then every other
- * session by when it was last active, then the collapsible Snoozed and
- * Settled sections. On desktop a session can be dragged to Pinned, back to
+ * session by when it was last active, with the collapsible Snoozed and
+ * Settled sections anchored at the bottom of the sidebar. On desktop a session can be dragged to Pinned, back to
  * the list, or to Settled.
  */
 const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
@@ -271,7 +271,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
     || shelves.snoozed.length > 0 || shelves.settled.length > 0;
 
   const list = (
-    <div data-sidebar-threads="">
+    <div className="flex min-h-full flex-1 flex-col" data-sidebar-threads="">
       {showPinned ? (
         <DropZone target="pinned" dragging={isDragging}>
           <SidebarSectionHeading label={'Pinned'} first />
@@ -307,6 +307,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         mobileVariant={mobileVariant}
         dragging={isDragging}
         droppable={!mobileVariant}
+        className="mt-auto pt-3"
       />
     </div>
   );
