@@ -42,11 +42,18 @@ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isWebRuntime }
 import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/settings/metadata';
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
+const PALETTE_KEY_HINTS: KeyHint[] = [
+  { keys: ['↑', '↓'], label: 'Navigate' },
+  { keys: ['↵'], label: 'Open' },
+  { keys: ['Esc'], label: 'Close' },
+];
 import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
 import { ProjectIcon } from "@/components/ui/ProjectIcon";
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
-import { truncatePathMiddle } from '@/lib/utils';
+import { cn, truncatePathMiddle } from '@/lib/utils';
+import { KeyHints, type KeyHint } from '@/components/ui/KeyHints';
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildCommandPaletteFileSearchKey, scoreCommandPaletteFiles } from './commandPaletteFilesState';
@@ -199,10 +206,10 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'toggle-terminal',
-        title: "Toggle Terminal",
+        title: "Toggle terminal",
         icon: <Icon name="terminal-box" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_terminal',
-        searchText: "Toggle Terminal",
+        searchText: "Toggle terminal",
         onSelect: run(() => {
           if (currentDirectory) openContextSurface(currentDirectory, 'terminal');
         }),
@@ -294,6 +301,24 @@ export const CommandPalette: React.FC = () => {
   }, [activeSessions, pinnedSessionIds, sessionOrderRanks]);
 
   const allBranches = useGitAllBranches();
+
+  // The project a session's folder belongs to: the longest project path that
+  // is the folder or contains it. Tells apart sessions with the same title.
+  const projectNameForDirectory = React.useCallback(
+    (dir: string | null): string | null => {
+      if (!dir) return null;
+      let match: (typeof projects)[number] | null = null;
+      for (const project of projects) {
+        const root = project.path.replace(/\/+$/, '');
+        if ((dir === root || dir.startsWith(`${root}/`)) && (!match || root.length > match.path.length)) {
+          match = project;
+        }
+      }
+      if (!match) return null;
+      return match.label || match.path.split('/').pop() || match.path;
+    },
+    [projects],
+  );
 
   const branchForSession = React.useCallback(
     (_sessionId: string, dir: string | null): string | null => {
@@ -465,10 +490,27 @@ export const CommandPalette: React.FC = () => {
         <DialogTitle>{"Command palette"}</DialogTitle>
         <DialogDescription>{"Search files, sessions, and commands."}</DialogDescription>
       </DialogHeader>
-      <DialogContent className="overflow-hidden p-0" showCloseButton>
+      <DialogContent
+        showCloseButton={false}
+        className={cn(
+          'w-full max-w-xl gap-0 self-start overflow-hidden rounded-2xl p-0',
+          // Same frame as the Add folder palette: anchored near the top, so a
+          // longer result list only moves the bottom edge.
+          'mt-[max(env(safe-area-inset-top),0.25rem)] max-h-[calc(100%-0.5rem)] sm:mt-[10vh] sm:max-h-[80vh]',
+        )}
+      >
         <Command
           shouldFilter={false}
-          className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-8 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-1.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4 [&_[cmdk-item]]:typography-meta"
+          className={cn(
+            'rounded-none',
+            '[&_[data-slot=command-input-wrapper]]:h-12 [&_[data-slot=command-input-wrapper]]:border-border/60 [&_[data-slot=command-input-wrapper]]:px-3.5',
+            // The typography-* classes are plain CSS and take no variants, so
+            // descendants get the matching font-size tokens directly.
+            '[&_[cmdk-input]]:h-12 [&_[cmdk-input]]:text-[length:var(--text-markdown)] md:[&_[cmdk-input]]:text-[length:var(--text-ui-label)]',
+            '[&_[cmdk-list]]:p-1.5 [&_[cmdk-group]]:p-0 [&_[cmdk-group]+[cmdk-group]]:mt-1',
+            '[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-1.5 [&_[cmdk-group-heading]]:text-[length:var(--text-micro)]',
+            '[&_[cmdk-item]]:gap-2.5 [&_[cmdk-item]]:px-2.5 [&_[cmdk-item]]:py-1.5 [&_[cmdk-item]]:text-[length:var(--text-ui-label)]',
+          )}
         >
           <CommandInput
             value={query}
@@ -481,7 +523,7 @@ export const CommandPalette: React.FC = () => {
             {groupOrder.map((groupKey) => {
               if (groupKey === 'commands' && visibleCommands.length > 0) {
                 return (
-                  <CommandGroup key="commands">
+                  <CommandGroup key="commands" heading={"Commands"}>
                     {visibleCommands.map((cmd) => (
                       <CommandItem key={cmd.id} value={cmd.id} onSelect={cmd.onSelect}>
                         {cmd.icon}
@@ -496,7 +538,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'settings' && visibleSettings.length > 0) {
                 return (
-                  <CommandGroup key="settings">
+                  <CommandGroup key="settings" heading={"Settings"}>
                     {visibleSettings.map((cmd) => (
                       <CommandItem key={cmd.id} value={cmd.id} onSelect={cmd.onSelect}>
                         {cmd.icon}
@@ -508,11 +550,12 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'sessions' && visibleSessions.length > 0) {
                 return (
-                  <CommandGroup key="sessions">
+                  <CommandGroup key="sessions" heading={"Sessions"}>
                     {visibleSessions.map((session) => {
                       const title = getSessionDisplayTitle(session);
                       const dir = resolveGlobalSessionDirectory(session);
                       const branch = branchForSession(session.id, dir);
+                      const projectName = projectNameForDirectory(dir);
                       return (
                         <CommandItem
                           key={session.id}
@@ -521,10 +564,15 @@ export const CommandPalette: React.FC = () => {
                         >
                           <Icon name="chat-ai-3" className="mr-2 h-4 w-4" />
                           <span className="truncate">{title}</span>
-                          {branch ? (
-                            <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground typography-meta">
-                              <Icon name="git-branch" className="h-3 w-3" />
-                              <span className="truncate max-w-[160px]">{branch}</span>
+                          {projectName || branch ? (
+                            <span className="ml-auto inline-flex min-w-0 shrink-0 items-center gap-1.5 text-muted-foreground typography-meta">
+                              {projectName ? <span className="max-w-[140px] truncate">{projectName}</span> : null}
+                              {branch ? (
+                                <span className="inline-flex min-w-0 items-center gap-1">
+                                  <Icon name="git-branch" className="h-3 w-3" />
+                                  <MiddleTruncate value={branch} className="max-w-[160px]" />
+                                </span>
+                              ) : null}
                             </span>
                           ) : null}
                         </CommandItem>
@@ -535,7 +583,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'files' && visibleFiles.length > 0) {
                 return (
-                  <CommandGroup key="files">
+                  <CommandGroup key="files" heading={"Files"}>
                     {visibleFiles.map((file) => {
                       const display = truncatePathMiddle(file.relativePath || file.name, {
                         maxLength: 80,
@@ -560,7 +608,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'projects' && visibleProjects.length > 0) {
                 return (
-                  <CommandGroup key="projects">
+                  <CommandGroup key="projects" heading={"Projects"}>
                     {visibleProjects.map((project) => {
                       const displayName = project.displayName;
                       return (
@@ -590,6 +638,11 @@ export const CommandPalette: React.FC = () => {
             ) : null}
           </CommandList>
         </Command>
+        {!isMobile ? (
+          <div className="flex min-h-10 shrink-0 items-center border-t border-border/60 bg-[var(--surface-muted)]/40 px-3 py-2 typography-micro text-muted-foreground">
+            <KeyHints hints={PALETTE_KEY_HINTS} />
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

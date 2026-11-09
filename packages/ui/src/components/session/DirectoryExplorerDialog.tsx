@@ -9,7 +9,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDeviceInfo } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { childDisplayPath, folderNameProblem, repositoryFolderName } from './addFolderNames';
-import { type KeyHint, Kbd, KeyHints, PaletteRow } from './AddFolderPaletteParts';
+import { type KeyHint, Kbd, KeyHints } from '@/components/ui/KeyHints';
+import { PaletteRow } from './AddFolderPaletteParts';
 import { normalizeDirectoryPath, normalizeSeparators, trimTrailingSeparators } from './directoryExplorerPaths';
 import {
   type BrowseRow,
@@ -449,9 +450,10 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
 
   let actionButton: React.ReactNode = null;
   if (isBrowseStep(step)) {
+    // The step that finishes the flow gets the primary button.
     actionButton = (
       <Button
-        variant="outline"
+        variant="default"
         size="xs"
         className="shrink-0 gap-1.5"
         disabled={!canSubmit}
@@ -462,7 +464,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         {!isMobile && !pending && canSubmit ? (
           <span className="flex items-center gap-0.5">
             {submitKeys.map((key) => (
-              <Kbd key={key}>{key}</Kbd>
+              <Kbd key={key} className="border-current/30 bg-transparent text-current">{key}</Kbd>
             ))}
           </span>
         ) : null}
