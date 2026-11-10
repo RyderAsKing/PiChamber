@@ -7,12 +7,13 @@ import type { MainTab } from '@/stores/useUIStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { streamPerfMark } from '@/stores/utils/streamDebug';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { archiveSessionsWithUndo } from '../sessionArchive';
+import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 
 type DeleteSessionConfirmSetter = React.Dispatch<React.SetStateAction<{
   session: Session;
   descendantCount: number;
   descendantIds: string[];
-  archivedBucket: boolean;
 } | null>>;
 
 type SessionSelectOptions = {
@@ -23,7 +24,7 @@ type SessionSelectOptions = {
 type DeleteSessionSource = {
   archivedBucket?: boolean;
   hardDelete?: boolean;
-  /** Bypass the confirmation dialog and delete/archive immediately. */
+  /** Bypass the delete confirmation dialog. Archive never asks. */
   skipConfirm?: boolean;
 };
 
@@ -43,13 +44,11 @@ type Args = {
   unshareSession: (id: string) => Promise<Session | null>;
   deleteSession: (id: string) => Promise<boolean>;
   deleteSessions: (ids: string[]) => Promise<{ deletedIds: string[]; failedIds: string[] }>;
-  archiveSession: (id: string) => Promise<boolean>;
-  archiveSessions: (ids: string[]) => Promise<{ archivedIds: string[]; failedIds: string[] }>;
   unarchiveSession: (id: string) => Promise<boolean>;
   childrenMap: Map<string, Session[]>;
   showDeletionDialog: boolean;
   setDeleteSessionConfirm: DeleteSessionConfirmSetter;
-  deleteSessionConfirm: { session: Session; descendantCount: number; descendantIds: string[]; archivedBucket: boolean } | null;
+  deleteSessionConfirm: { session: Session; descendantCount: number; descendantIds: string[] } | null;
   setEditingId: (id: string | null) => void;
   setEditTitle: (value: string) => void;
   editingId: string | null;
@@ -193,7 +192,7 @@ export const useSessionActions = (args: Args) => {
     return collected;
   }, [args.childrenMap]);
 
-  // Archive cascades to subagents that aren't already archived; hard-delete
+  // Archive cascades to forks that aren't already archived; hard-delete
   // cascades to every descendant unconditionally. We collect once and filter
   // per-action so the dialog count and the executed ID list always agree.
   const filterDescendantsForAction = React.useCallback(
@@ -204,61 +203,32 @@ export const useSessionActions = (args: Args) => {
     [],
   );
 
+  // Delete only: archive goes through `archiveSessionsWithUndo` and never
+  // reaches the confirmation dialog.
   const executeDeleteSession = React.useCallback(
-    async (
-      session: Session,
-      source?: DeleteSessionSource,
-      precomputed?: { descendantIds: string[] },
-    ) => {
-      const shouldHardDelete = source?.archivedBucket === true || source?.hardDelete === true;
+    async (session: Session, precomputed?: { descendantIds: string[] }) => {
       // Use the snapshot taken when the dialog opened (if any) so the
-      // executed list matches what the user was told. Fall back to a fresh
-      // collection for direct-execute (no-dialog) callers.
+      // executed list matches what the user was told.
       const descendantIds = precomputed?.descendantIds
-        ?? filterDescendantsForAction(collectDescendants(session.id), shouldHardDelete).map((s) => s.id);
+        ?? filterDescendantsForAction(collectDescendants(session.id), true).map((s) => s.id);
       if (descendantIds.length === 0) {
-        const success = shouldHardDelete
-          ? await args.deleteSession(session.id)
-          : await args.archiveSession(session.id);
-        if (success) {
-          toast.success(shouldHardDelete
-            ? "Session deleted"
-            : "Session archived");
-        } else {
-          toast.error(shouldHardDelete
-            ? "Failed to delete session"
-            : "Failed to archive session");
-        }
+        const success = await args.deleteSession(session.id);
+        if (success) toast.success("Session deleted");
+        else toast.error("Failed to delete session");
         return;
       }
 
-      const ids = [session.id, ...descendantIds];
-      if (shouldHardDelete) {
-        // Delete root + all descendants individually. If the server
-        // cascade-deletes some children before we get to them, 404 is
-        // treated as success by deleteSession and no rollback occurs.
-        const { deletedIds, failedIds } = await args.deleteSessions(ids);
-        if (failedIds.length === 0) {
-          const totalDeleted = deletedIds.length;
-          toast.success(totalDeleted === 1
-            ? `Deleted ${totalDeleted} session`
-            : `Deleted ${totalDeleted} sessions`);
-        } else {
-          toast.error("Failed to delete session");
-        }
-        return;
-      }
-
-      const { archivedIds, failedIds } = await args.archiveSessions(ids);
-      if (archivedIds.length > 0) {
-        toast.success(archivedIds.length === 1
-          ? `Archived ${archivedIds.length} session`
-          : `Archived ${archivedIds.length} sessions`);
-      }
-      if (failedIds.length > 0) {
-        toast.error(failedIds.length === 1
-          ? `Failed to archive ${failedIds.length} session`
-          : `Failed to archive ${failedIds.length} sessions`);
+      // Delete root + all descendants individually. If the server
+      // cascade-deletes some children before we get to them, 404 is
+      // treated as success by deleteSession and no rollback occurs.
+      const { deletedIds, failedIds } = await args.deleteSessions([session.id, ...descendantIds]);
+      if (failedIds.length === 0) {
+        const totalDeleted = deletedIds.length;
+        toast.success(totalDeleted === 1
+          ? `Deleted ${totalDeleted} session`
+          : `Deleted ${totalDeleted} sessions`);
+      } else {
+        toast.error("Failed to delete session");
       }
     },
     [args, collectDescendants, filterDescendantsForAction],
@@ -271,15 +241,23 @@ export const useSessionActions = (args: Args) => {
         collectDescendants(session.id),
         shouldHardDelete,
       ).map((s) => s.id);
+      // Archive needs no confirmation: it happens at once and its toast has
+      // Undo. Delete keeps the dialog.
+      if (!shouldHardDelete) {
+        void archiveSessionsWithUndo(
+          [{ sessionId: session.id, directory: session.directory ?? null, forkIds: effectiveDescendantIds }],
+          { title: getSessionDisplayTitle(session, 'Untitled session') },
+        );
+        return;
+      }
       if (!args.showDeletionDialog || source?.skipConfirm === true) {
-        void executeDeleteSession(session, source, { descendantIds: effectiveDescendantIds });
+        void executeDeleteSession(session, { descendantIds: effectiveDescendantIds });
         return;
       }
       args.setDeleteSessionConfirm({
         session,
         descendantCount: effectiveDescendantIds.length,
         descendantIds: effectiveDescendantIds,
-        archivedBucket: shouldHardDelete,
       });
     },
     [args, collectDescendants, executeDeleteSession, filterDescendantsForAction],
@@ -287,18 +265,18 @@ export const useSessionActions = (args: Args) => {
 
   const confirmDeleteSession = React.useCallback(async () => {
     if (!args.deleteSessionConfirm) return;
-    const { session, archivedBucket, descendantIds } = args.deleteSessionConfirm;
+    const { session, descendantIds } = args.deleteSessionConfirm;
     args.setDeleteSessionConfirm(null);
-    await executeDeleteSession(session, { archivedBucket }, { descendantIds });
+    await executeDeleteSession(session, { descendantIds });
   }, [args, executeDeleteSession]);
 
   const handleRestoreSession = React.useCallback(
     async (session: Session) => {
       const success = await args.unarchiveSession(session.id);
       if (success) {
-        toast.success("Session restored");
+        toast.success("Session unarchived");
       } else {
-        toast.error("Failed to restore session");
+        toast.error("Could not unarchive the session");
       }
     },
     [args],

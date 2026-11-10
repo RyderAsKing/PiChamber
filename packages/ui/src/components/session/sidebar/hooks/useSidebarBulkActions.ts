@@ -1,6 +1,7 @@
 import React from 'react';
 import { toast } from '@/components/ui';
 import { useSessionMultiSelectStore } from '@/stores/useSessionMultiSelectStore';
+import { archiveSessionsWithUndo } from '../sessionArchive';
 import type { SessionFolder } from '@/stores/useSessionFoldersStore';
 
 type Args = {
@@ -16,12 +17,12 @@ type Args = {
   addSessionsToFolder: (scopeKey: string, folderId: string, sessionIds: string[]) => void;
   removeSessionsFromFolders: (scopeKey: string, sessionIds: string[]) => void;
   createFolderAndStartRename: (scopeKey: string, parentId?: string | null) => { id: string } | null;
-  archiveSessions: (ids: string[]) => Promise<{ archivedIds: string[]; failedIds: string[] }>;
+  /** The session's directory, for its pin; null when unknown. */
+  resolveSessionDirectory: (sessionId: string) => string | null;
   unarchiveSessions: (ids: string[]) => Promise<{ restoredIds: string[]; failedIds: string[] }>;
   deleteSessions: (ids: string[]) => Promise<{ deletedIds: string[]; failedIds: string[] }>;
   setBulkDeleteConfirm: React.Dispatch<React.SetStateAction<{
     sessionCount: number;
-    archivedBucket: boolean;
   } | null>>;
 };
 
@@ -48,7 +49,7 @@ export const useSidebarBulkActions = (args: Args) => {
     addSessionsToFolder,
     removeSessionsFromFolders,
     createFolderAndStartRename,
-    archiveSessions,
+    resolveSessionDirectory,
     unarchiveSessions,
     deleteSessions,
     setBulkDeleteConfirm,
@@ -165,46 +166,46 @@ export const useSidebarBulkActions = (args: Args) => {
     }
   }, [removeSessionsFromFolders, selectedIds, selectionFolderScopes, hasSelection]);
 
+  // Deletes archived selections; only reached from the confirmation dialog
+  // (or directly when it is turned off).
   const executeBulkDelete = React.useCallback(async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    if (bulkScopeIsArchived) {
-      const { deletedIds, failedIds } = await deleteSessions(ids);
-      if (deletedIds.length > 0) {
-        toast.success(deletedIds.length === 1
-          ? `Deleted ${deletedIds.length} session`
-          : `Deleted ${deletedIds.length} sessions`);
-      }
-      if (failedIds.length > 0) {
-        toast.error(failedIds.length === 1
-          ? `Failed to delete ${failedIds.length} session`
-          : `Failed to delete ${failedIds.length} sessions`);
-      }
-    } else {
-      const { archivedIds, failedIds } = await archiveSessions(ids);
-      if (archivedIds.length > 0) {
-        toast.success(archivedIds.length === 1
-          ? `Archived ${archivedIds.length} session`
-          : `Archived ${archivedIds.length} sessions`);
-      }
-      if (failedIds.length > 0) {
-        toast.error(failedIds.length === 1
-          ? `Failed to archive ${failedIds.length} session`
-          : `Failed to archive ${failedIds.length} sessions`);
-      }
+    const { deletedIds, failedIds } = await deleteSessions(ids);
+    if (deletedIds.length > 0) {
+      toast.success(deletedIds.length === 1
+        ? `Deleted ${deletedIds.length} session`
+        : `Deleted ${deletedIds.length} sessions`);
+    }
+    if (failedIds.length > 0) {
+      toast.error(failedIds.length === 1
+        ? `Failed to delete ${failedIds.length} session`
+        : `Failed to delete ${failedIds.length} sessions`);
     }
     useSessionMultiSelectStore.getState().clear();
-  }, [archiveSessions, bulkScopeIsArchived, deleteSessions, selectedIds]);
+  }, [deleteSessions, selectedIds]);
 
+  // Active selections archive at once with one Undo toast; archived ones are
+  // deleted, which keeps its confirmation. The selection already includes a
+  // row's forks, so none are added here.
   const handleBulkDelete = React.useCallback(() => {
     if (!hasSelection) return;
-    const count = selectedIds.size;
+    if (!bulkScopeIsArchived) {
+      const targets = Array.from(selectedIds, (sessionId) => ({
+        sessionId,
+        directory: resolveSessionDirectory(sessionId),
+        forkIds: [],
+      }));
+      useSessionMultiSelectStore.getState().clear();
+      void archiveSessionsWithUndo(targets);
+      return;
+    }
     if (!showDeletionDialog) {
       void executeBulkDelete();
       return;
     }
-    setBulkDeleteConfirm({ sessionCount: count, archivedBucket: bulkScopeIsArchived });
-  }, [bulkScopeIsArchived, executeBulkDelete, selectedIds, showDeletionDialog, setBulkDeleteConfirm, hasSelection]);
+    setBulkDeleteConfirm({ sessionCount: selectedIds.size });
+  }, [bulkScopeIsArchived, executeBulkDelete, resolveSessionDirectory, selectedIds, showDeletionDialog, setBulkDeleteConfirm, hasSelection]);
 
   const handleBulkRestore = React.useCallback(async () => {
     if (!hasSelection || !bulkScopeIsArchived) return;
@@ -212,13 +213,13 @@ export const useSidebarBulkActions = (args: Args) => {
     const { restoredIds, failedIds } = await unarchiveSessions(ids);
     if (restoredIds.length > 0) {
       toast.success(restoredIds.length === 1
-        ? `Restored ${restoredIds.length} session`
-        : `Restored ${restoredIds.length} sessions`);
+        ? `Unarchived ${restoredIds.length} session`
+        : `Unarchived ${restoredIds.length} sessions`);
     }
     if (failedIds.length > 0) {
       toast.error(failedIds.length === 1
-        ? `Failed to restore ${failedIds.length} session`
-        : `Failed to restore ${failedIds.length} sessions`);
+        ? `Could not unarchive ${failedIds.length} session`
+        : `Could not unarchive ${failedIds.length} sessions`);
     }
     useSessionMultiSelectStore.getState().clear();
   }, [bulkScopeIsArchived, hasSelection, selectedIds, unarchiveSessions]);

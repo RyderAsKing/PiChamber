@@ -5,7 +5,6 @@ import { isTerminalShell } from '@/lib/terminalShell';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { normalizePwaName } from '@/lib/pwaKeys';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
-import { isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import {
@@ -513,8 +512,11 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   if (isSidebarViewMode(candidate.sidebarViewMode)) {
     result.sidebarViewMode = candidate.sidebarViewMode;
   }
-  if (isAutoSettleAfterDaysSetting(candidate.sidebarAutoSettleAfterDays)) {
-    result.sidebarAutoSettleAfterDays = candidate.sidebarAutoSettleAfterDays;
+  // Retired: the server reads it once to migrate to auto-archive. Whole days
+  // from 1 to 90, or 0 for off.
+  const autoSettle = candidate.sidebarAutoSettleAfterDays;
+  if (typeof autoSettle === 'number' && Number.isInteger(autoSettle) && autoSettle >= 0 && autoSettle <= 90) {
+    result.sidebarAutoSettleAfterDays = autoSettle;
   }
   if (isSessionRetentionDaysSetting(candidate.sessionAutoArchiveAfterDays)) {
     result.sessionAutoArchiveAfterDays = candidate.sessionAutoArchiveAfterDays;

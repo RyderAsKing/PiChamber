@@ -16,7 +16,6 @@ const context = {
   working: new Set<string>(),
   needsInput: new Set<string>(),
   now: NOW,
-  autoSettleAfterDays: 3,
   workingShelf: true,
 };
 
@@ -32,22 +31,20 @@ describe('partitionSessionShelves', () => {
       item('running', NOW - 5 * DAY),
       item('snooze-late', NOW - DAY),
       item('snooze-soon', NOW - DAY),
-      item('settled-by-hand', NOW - 1000),
     ], {
       ...context,
       working: new Set(['running']),
       entries: {
         'snooze-late': { snoozedUntil: NOW + 5 * DAY, snoozedAt: NOW },
         'snooze-soon': { snoozedUntil: NOW + DAY, snoozedAt: NOW },
-        'settled-by-hand': { settled: 'settled', settledAt: NOW - 500 },
       },
     });
     expect(ids(shelves.pinned)).toEqual(['pinned']);
-    expect(ids(shelves.active)).toEqual(['recent', 'older-active']);
+    // No Settled shelf: a session idle for ten days stays in the list.
+    expect(ids(shelves.active)).toEqual(['recent', 'older-active', 'old']);
     expect(ids(shelves.working)).toEqual(['running']);
     expect(ids(shelves.snoozed)).toEqual(['snooze-soon', 'snooze-late']);
-    // Settled: by hand 500 ms ago, then auto-settled at its last activity.
-    expect(ids(shelves.settled)).toEqual(['settled-by-hand', 'old']);
+    expect(Object.keys(shelves)).not.toContain('settled');
     expect(shelves.sectionById.get('running')).toBe('working');
   });
 
@@ -65,10 +62,11 @@ describe('partitionSessionShelves', () => {
 
   test('an identical result compares equal, so a minute tick keeps the old partition', () => {
     const items = [item('a', NOW - 1000), item('b', NOW - 2000)];
-    const first = partitionSessionShelves(items, context);
-    const second = partitionSessionShelves(items, { ...context, now: NOW + 60_000 });
+    const snoozing = { ...context, entries: { b: { snoozedUntil: NOW + DAY, snoozedAt: NOW } } };
+    const first = partitionSessionShelves(items, snoozing);
+    const second = partitionSessionShelves(items, { ...snoozing, now: NOW + 60_000 });
     expect(sameShelves(first, second)).toBe(true);
-    const later = partitionSessionShelves(items, { ...context, now: NOW + 4 * DAY });
+    const later = partitionSessionShelves(items, { ...snoozing, now: NOW + 2 * DAY });
     expect(sameShelves(first, later)).toBe(false);
   });
 });

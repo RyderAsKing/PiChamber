@@ -234,6 +234,9 @@ export class PiSessionStore {
    *  guards every async completion that may still be in flight when the
    *  cluster is torn down or restarted. */
   private runtimeGeneration = 0;
+  /** Latest archive write per session, so a late failure rolls back only its own change. */
+  private archiveRevision = 0;
+  private archiveRevisionById = new Map<PiSessionId, number>();
   /** Most-recent directory focus. Used to reject overlapping focus promises
    *  so a stale `selectProject` / `listSessions` cannot commit while a newer
    *  focus is already in flight. */
@@ -2507,14 +2510,45 @@ export class PiSessionStore {
       ?? this.state.catalog.byId.get(sessionId)?.directory
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.directory;
   }
+  /**
+   * Archive and unarchive are optimistic: the row changes before the server
+   * answers, so it leaves (or rejoins) the sidebar at once. A failed write
+   * puts the previous value back, unless a newer archive change for the same
+   * session replaced it, and rethrows for the caller to report.
+   */
   async archive(sessionId: string, archived: boolean, directory?: string) {
     const expected = this.runtimeGeneration;
     const runtimeKey = getRuntimeKey();
     const sessionDir = this.resolveSessionDirectory(sessionId, directory);
-    await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
-    if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) return;
-    const now = Date.now();
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, now);
+    const row = this.state.catalog.byId.get(sessionId);
+    const previousArchived = row?.archived
+      ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.archived;
+    const previousUpdatedAt = row?.updatedAt;
+    const revision = ++this.archiveRevision;
+    this.archiveRevisionById.set(sessionId, revision);
+    const optimisticAt = Date.now();
+    this.commitArchiveFlag(sessionId, archived, optimisticAt);
+    try {
+      await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
+    } catch (error) {
+      const current = expected === this.runtimeGeneration
+        && runtimeKey === getRuntimeKey()
+        && this.archiveRevisionById.get(sessionId) === revision;
+      if (current && typeof previousArchived === 'boolean') {
+        // Keep a newer live timestamp; otherwise restore the row's own.
+        const currentUpdatedAt = this.state.catalog.byId.get(sessionId)?.updatedAt;
+        const restoreAt = currentUpdatedAt === optimisticAt && previousUpdatedAt !== undefined
+          ? previousUpdatedAt
+          : currentUpdatedAt ?? optimisticAt;
+        this.commitArchiveFlag(sessionId, previousArchived, restoreAt);
+      }
+      throw error;
+    } finally {
+      if (this.archiveRevisionById.get(sessionId) === revision) this.archiveRevisionById.delete(sessionId);
+    }
+  }
+  private commitArchiveFlag(sessionId: string, archived: boolean, updatedAt: number) {
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, updatedAt);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,

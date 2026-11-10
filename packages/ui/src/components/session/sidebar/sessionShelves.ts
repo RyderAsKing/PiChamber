@@ -3,7 +3,6 @@ import {
   hasWokeFromSnooze,
   resolveSessionShelfSection,
   sessionActivityAt,
-  settledAtFor,
   type SessionShelfSection,
 } from '@/lib/sessionShelf';
 import type { SessionNode } from './types';
@@ -25,7 +24,6 @@ interface SessionShelfContext {
   working: ReadonlySet<string>;
   needsInput: ReadonlySet<string>;
   now: number;
-  autoSettleAfterDays: number | null;
   /** Threads moves working sessions to their own shelf; By folder keeps them in place. */
   workingShelf: boolean;
 }
@@ -35,7 +33,6 @@ export interface SessionShelves<T extends ShelfListItem> {
   active: T[];
   working: T[];
   snoozed: T[];
-  settled: T[];
   /** Section per root session id, for rows that show their shelf state. */
   sectionById: ReadonlyMap<string, SessionShelfSection>;
   /** Sessions whose snooze ran out and that the user has not opened since. */
@@ -54,7 +51,6 @@ export const partitionSessionShelves = <T extends ShelfListItem>(
     active: [],
     working: [],
     snoozed: [],
-    settled: [],
   };
   const sectionById = new Map<string, SessionShelfSection>();
   const wokeIds = new Set<string>();
@@ -69,19 +65,14 @@ export const partitionSessionShelves = <T extends ShelfListItem>(
       needsInput: context.needsInput.has(id),
       updatedAt: updatedAtOf(item.node),
       now: context.now,
-      autoSettleAfterDays: context.autoSettleAfterDays,
       workingShelf: context.workingShelf,
     };
     const section = resolveSessionShelfSection(input);
     sectionById.set(id, section);
     if (section !== 'snoozed' && hasWokeFromSnooze(entry, context.now)) wokeIds.add(id);
     // Each section sorts on one number: soonest wake for Snoozed, latest
-    // settle for Settled, latest activity (a wake counts) everywhere else.
-    const key = section === 'snoozed'
-      ? -(entry?.snoozedUntil ?? 0)
-      : section === 'settled'
-        ? settledAtFor(input)
-        : sessionActivityAt(input);
+    // activity (a wake counts) everywhere else.
+    const key = section === 'snoozed' ? -(entry?.snoozedUntil ?? 0) : sessionActivityAt(input);
     sections[section].push({ item, key });
   }
 
@@ -95,7 +86,6 @@ export const partitionSessionShelves = <T extends ShelfListItem>(
     active: sorted('active'),
     working: sorted('working'),
     snoozed: sorted('snoozed'),
-    settled: sorted('settled'),
     sectionById,
     wokeIds,
   };
@@ -109,6 +99,5 @@ export const sameShelves = <T extends ShelfListItem>(left: SessionShelves<T>, ri
   return sameList(left.pinned, right.pinned)
     && sameList(left.active, right.active)
     && sameList(left.working, right.working)
-    && sameList(left.snoozed, right.snoozed)
-    && sameList(left.settled, right.settled);
+    && sameList(left.snoozed, right.snoozed);
 };

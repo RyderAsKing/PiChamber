@@ -159,7 +159,7 @@ export const SIDEBAR_VIEW_DESCRIPTION: Record<SidebarViewMode, string> = {
   workspace: 'Pick a folder, see its sessions.',
   folder: 'Sessions under each folder.',
   timeline: 'All sessions by date.',
-  threads: 'By state, with Snoozed and Settled.',
+  threads: 'By state, with Snoozed below.',
 };
 
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [

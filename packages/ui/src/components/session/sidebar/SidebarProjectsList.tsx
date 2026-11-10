@@ -36,8 +36,6 @@ type Props = {
   searchEmptyState: React.ReactNode;
   isAllFoldersView?: boolean;
   pinnedSessionIds?: Set<string>;
-  /** Days before an idle session settles in the Threads and By folder views; null (the default) is off. */
-  autoSettleAfterDays?: number | null;
   viewMode?: SidebarViewMode;
   timelineBoundaries?: TimelineBoundaries | null;
   onOpenDirectoryDialog?: () => void;
@@ -172,7 +170,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   const shelves = useSessionShelves(allFolderSessions, {
     enabled: isThreads || (isFolder && !props.hasSessionSearchQuery),
     workingShelf: isThreads,
-    autoSettleAfterDays: props.autoSettleAfterDays ?? null,
   });
 
   const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
@@ -266,7 +263,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       className="oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]"
     >
       {/* Threads and By folder (with shelves) fill the scroller so their
-          Snoozed and Settled sections sit at the bottom. */}
+          Snoozed section sits at the bottom. */}
       <div className={cn((isThreads || (isFolder && shelves)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (

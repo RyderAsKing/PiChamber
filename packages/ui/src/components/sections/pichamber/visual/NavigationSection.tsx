@@ -1,14 +1,11 @@
 import React from 'react';
 
 import {
-  SETTINGS_NUMBER_STEPPER_ROW_CLASS,
-  SETTINGS_NUMBER_UNIT_CLASS,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsCheckboxRow,
   SettingsControlGroup,
-  SettingsFieldRow,
   SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsRadioOption,
@@ -25,12 +22,6 @@ import {
 import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
-import { NumberInput } from '@/components/ui/number-input';
-import {
-  DEFAULT_AUTO_SETTLE_AFTER_DAYS,
-  MAX_AUTO_SETTLE_AFTER_DAYS,
-  MIN_AUTO_SETTLE_AFTER_DAYS,
-} from '@/lib/sessionShelf';
 import { SidebarViewPreview } from './SidebarViewPreview';
 import {
   SIDEBAR_VIEW_DESCRIPTION,
@@ -42,9 +33,6 @@ export interface NavigationSectionProps {
   shouldShow: (setting: VisibleSetting) => boolean;
   sidebarViewMode: SidebarViewMode;
   onSidebarViewModeChange: (mode: SidebarViewMode) => void;
-  /** 0 is off. */
-  sidebarAutoSettleAfterDays: number;
-  onSidebarAutoSettleAfterDaysChange: (days: number) => void;
   fileEditorKeymap: 'default' | 'vim';
   setFileEditorKeymap: (keymap: 'default' | 'vim') => void;
   autoSaveEnabled: boolean;
@@ -68,8 +56,6 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   shouldShow,
   sidebarViewMode,
   onSidebarViewModeChange,
-  sidebarAutoSettleAfterDays,
-  onSidebarAutoSettleAfterDaysChange,
   fileEditorKeymap,
   setFileEditorKeymap,
   autoSaveEnabled,
@@ -110,34 +96,6 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
             ))}
           </SettingsRadioGroup>
         </SettingsControlGroup>
-      )}
-      {/* Only Threads and By folder have a Settled shelf, so the control
-          follows the view that uses it. */}
-      {shouldShow('sidebarViewMode') && (sidebarViewMode === 'threads' || sidebarViewMode === 'folder') && (
-        <SettingsFieldRow
-          label={'Settle idle sessions'}
-          description={'Moves a session to the Settled shelf after this many days without activity. Nothing is archived or deleted, and sending a message brings it back.'}
-          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand. To archive or delete old sessions for good, use Session retention under Sessions.'}
-          settingsItem="appearance.auto-settle"
-        >
-          <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-            <NumberInput
-              value={sidebarAutoSettleAfterDays === 0 ? undefined : sidebarAutoSettleAfterDays}
-              fallbackValue={DEFAULT_AUTO_SETTLE_AFTER_DAYS}
-              onValueChange={onSidebarAutoSettleAfterDaysChange}
-              onClear={() => onSidebarAutoSettleAfterDaysChange(0)}
-              emptyLabel={'Off'}
-              min={MIN_AUTO_SETTLE_AFTER_DAYS}
-              max={MAX_AUTO_SETTLE_AFTER_DAYS}
-              step={1}
-              aria-label={'Days before an idle session settles'}
-              className="w-20 tabular-nums"
-            />
-            <span className={SETTINGS_NUMBER_UNIT_CLASS}>
-              {sidebarAutoSettleAfterDays === 1 ? 'day' : 'days'}
-            </span>
-          </div>
-        </SettingsFieldRow>
       )}
       {shouldShow('fileEditorKeymap') && (
         <SettingsControlGroup

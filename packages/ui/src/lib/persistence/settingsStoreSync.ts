@@ -3,7 +3,6 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQueueStore';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
-import { isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
 import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
@@ -184,12 +183,6 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     settings.sidebarViewMode !== store.sidebarViewMode
   ) {
     store.setSidebarViewMode(settings.sidebarViewMode);
-  }
-  if (
-    isAutoSettleAfterDaysSetting(settings.sidebarAutoSettleAfterDays) &&
-    settings.sidebarAutoSettleAfterDays !== store.sidebarAutoSettleAfterDays
-  ) {
-    store.setSidebarAutoSettleAfterDays(settings.sidebarAutoSettleAfterDays);
   }
   if (
     isSessionRetentionDaysSetting(settings.sessionAutoArchiveAfterDays) &&
