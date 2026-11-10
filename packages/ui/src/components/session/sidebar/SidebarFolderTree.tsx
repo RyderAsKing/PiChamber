@@ -51,7 +51,8 @@ const countSessions = (section: ProjectSection): number =>
 const folderBodyClassName = 'pt-0.5 pb-1';
 
 interface SidebarFolderTreeProps {
-  /** Shelf partition; null while searching, when sessions stay in their folders. */
+  /** Shelf partition. While searching it only feeds row menus (Settle, Snooze,
+   *  Wake); every match stays in its folder and no shelf sections render. */
   shelves?: SessionShelves<ThreadsListItem> | null;
   sections: ProjectSection[];
   homeSection?: ProjectSection | null;
@@ -101,7 +102,7 @@ interface SidebarFolderTreeProps {
 }
 
 const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
-  shelves = null,
+  shelves: allShelves = null,
   sections: allSections,
   homeSection: allHomeSection,
   homeDirectory,
@@ -132,6 +133,9 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   emptyState,
   searchEmptyState,
 }) => {
+  // A search shows every match in its folder, shelved or not, so the shelf
+  // layout steps aside; rows still read their shelf state for their menus.
+  const shelves = hasSessionSearchQuery ? null : allShelves;
   const hiddenIds = React.useMemo(() => {
     if (!shelves) return null;
     const ids = new Set<string>();
@@ -147,8 +151,8 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     [allHomeSection, hiddenIds],
   );
   const rowState = React.useMemo<SessionShelfRowState | null>(
-    () => (shelves ? { sectionById: shelves.sectionById, wokeIds: shelves.wokeIds } : null),
-    [shelves],
+    () => (allShelves ? { sectionById: allShelves.sectionById, wokeIds: allShelves.wokeIds } : null),
+    [allShelves],
   );
   // Pinned, Snoozed, and Settled mix folders, so their rows are cards that
   // name the folder, as in Threads.

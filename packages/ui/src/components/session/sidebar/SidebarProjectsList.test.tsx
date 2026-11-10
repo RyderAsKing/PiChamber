@@ -598,6 +598,58 @@ describe('SidebarProjectsList view modes', () => {
     expect(markupHideControls).not.toContain('Add folder');
   });
 
+  test('folder headers keep their actions for hover, and touch layouts leave them to a long press', () => {
+    const folder: ProjectSection = {
+      project: { id: 'f1', label: 'Folder One', normalizedPath: '/projects/f1' },
+      groups: [],
+    };
+    const renderFolders = (alwaysShowActions: boolean) =>
+      renderWithProviders(
+        React.createElement(SidebarProjectsList, {
+          viewMode: 'folder',
+          sectionsForRender: [folder],
+          projectSections: [folder],
+          activeProjectId: 'f1',
+          showOnlyMainWorkspace: false,
+          hasSessionSearchQuery: false,
+          emptyState: null,
+          searchEmptyState: null,
+          renderSessionNode: () => null,
+          renderGroupSessions: () => null,
+          getOrderedGroups: (_projectId, groups) => groups,
+          setGroupOrderByProject: noop,
+          homeDirectory: '/home/tester',
+          collapsedProjects: new Set<string>(),
+          hideDirectoryControls: false,
+          projectRepoStatus: new Map(),
+          mobileVariant: alwaysShowActions,
+          alwaysShowActions,
+          toggleProject: noop,
+          setActiveProjectIdOnly: noop,
+          setActiveMainTab: noop,
+          setSessionSwitcherOpen: noop,
+          openNewSessionDraft: noop,
+          openProjectEditDialog: noop,
+          removeProject: noop,
+          reorderProjects: noop,
+          openSidebarMenuKey: null,
+          setOpenSidebarMenuKey: noop,
+          isInlineEditing: false,
+        }),
+      );
+
+    const pointer = renderFolders(false);
+    expect(pointer).toContain('aria-label="Folder menu"');
+    expect(pointer).toContain('aria-label="New session"');
+
+    // Touch has no hover: the header shows only its name and chevron, and the
+    // folder menu (New session, Edit, Close) opens on a long press instead.
+    const touch = renderFolders(true);
+    expect(touch).toContain('Folder One');
+    expect(touch).not.toContain('aria-label="Folder menu"');
+    expect(touch).not.toContain('aria-label="New session"');
+  });
+
   test('folder scale guard: 200 collapsed folders mount 0 group sessions', () => {
     const folders200: ProjectSection[] = Array.from({ length: 200 }, (_, i) => ({
       project: { id: `p-${i}`, label: `Project ${i}`, normalizedPath: `/projects/p-${i}` },
