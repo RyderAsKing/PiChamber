@@ -33,7 +33,7 @@
       "subtle": "#eaeaf0"
     },
     "interactive": {
-      "border": "#e2e2e8",
+      "border": "#d8d8e0",
       "borderHover": "#cbcbda",
       "borderFocus": "#4f46e5",
       "selection": "#00000014",
@@ -152,7 +152,7 @@
     },
     "tools": {
       "background": "#f3f3f680",
-      "border": "#e2e2e8",
+      "border": "#d8d8e0",
       "headerHover": "#0000000d",
       "icon": "#686875",
       "title": "#2d2d34",

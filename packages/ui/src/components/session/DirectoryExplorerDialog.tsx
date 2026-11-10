@@ -462,7 +462,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     // The step that finishes the flow gets the primary button.
     actionButton = (
       <Button
-        variant="default"
+        variant="solid"
         size="sm"
         className="shrink-0 gap-1.5"
         disabled={!canSubmit}
@@ -483,7 +483,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     // The only way forward from this step, so it is primary as well.
     actionButton = (
       <Button
-        variant="default"
+        variant="solid"
         size="sm"
         className="shrink-0 gap-1.5"
         disabled={!canContinue}
@@ -572,8 +572,12 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         <span className="shrink-0">{summary.text}</span>
         {summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
       </p>
+      {/* The repository reads like the destination above it: a label, then the value. */}
       {step === 'clone-location' ? (
-        <MiddleTruncate value={remoteUrl.trim()} className="min-w-0 font-mono typography-micro text-subtle-foreground" />
+        <p className="flex min-w-0 items-baseline gap-1.5 typography-meta text-muted-foreground">
+          <span className="shrink-0">{'From'}</span>
+          <MiddleTruncate value={remoteUrl.trim()} className="min-w-0 font-mono text-foreground" />
+        </p>
       ) : null}
     </div>
   ) : null;

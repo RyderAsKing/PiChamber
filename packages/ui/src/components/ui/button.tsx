@@ -57,6 +57,10 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: TINT_PRIMARY,
+        // Filled primary for the one action that finishes a flow (Add, Clone,
+        // Create, Commit), so it outranks the tinted buttons around it.
+        solid:
+          "bg-[var(--primary-base)] text-[var(--primary-foreground)] border border-transparent hover:bg-[var(--primary-hover)] active:opacity-90",
         destructive: cn(
           TINT_DESTRUCTIVE,
           "focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",

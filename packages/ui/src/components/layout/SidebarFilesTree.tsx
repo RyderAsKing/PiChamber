@@ -564,16 +564,11 @@ export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile
       {/* Same height as the editor's path bar beside it, so the rules line up. */}
       <div ref={toolbarRef} className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
         {onBackToFile ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex shrink-0">
-                <Button variant="ghost" size="sm" onClick={onBackToFile} className="size-7 p-0" aria-label={"Back to file"}>
-                  <Icon name="arrow-left" className="size-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"Back to file"}</TooltipContent>
-          </Tooltip>
+          // Labelled: an arrow alone does not say the file is behind the tree.
+          <Button variant="ghost" size="xs" onClick={onBackToFile} className="mr-1 shrink-0 text-muted-foreground hover:text-foreground">
+            <Icon name="arrow-left" className="size-3.5" />
+            {"Back to file"}
+          </Button>
         ) : null}
         <div className="relative min-w-0 flex-1">
           <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />

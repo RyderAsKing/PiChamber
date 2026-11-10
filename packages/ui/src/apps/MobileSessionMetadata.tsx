@@ -256,7 +256,7 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         {contextDisplay ? (
           <ContextProgressIcon percentage={contextDisplay.percentage} size={20} className="size-5 -rotate-90" />
         ) : (
-          <Icon name="donut-chart" className="size-5" />
+          <Icon name="pie-chart" className="size-5" />
         )}
       </button>
       <SessionMetadataOverlay

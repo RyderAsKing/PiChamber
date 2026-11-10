@@ -42,7 +42,7 @@ export const CONTEXT_SURFACES: readonly ContextSurfaceDescriptor[] = [
     id: 'context',
     description: "Session context and token usage",
     mode: 'context',
-    icon: 'donut-chart',
+    icon: 'pie-chart',
     label: "Context",
     availability: 'always',
   },

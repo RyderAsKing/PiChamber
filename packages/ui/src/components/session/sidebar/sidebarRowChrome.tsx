@@ -65,10 +65,13 @@ export const SidebarSectionHeading = ({
   onToggle?: () => void;
 }) => {
   const spacing = first ? 'pt-1' : 'pt-3';
-  // A heading that opens its section reads as a control: the count and
-  // chevron sit one text level up from a plain heading's count.
   const countLabel = typeof count === 'number' ? (
-    <span className={cn('font-normal tabular-nums', onToggle ? 'text-muted-foreground' : 'text-subtle-foreground')}>{count}</span>
+    onToggle ? (
+      // A shelf's count is a small badge, so it reads as part of the control.
+      <span className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-[var(--interactive-border)] px-1 typography-micro font-medium tabular-nums text-muted-foreground">{count}</span>
+    ) : (
+      <span className="font-normal tabular-nums text-subtle-foreground">{count}</span>
+    )
   ) : null;
   if (!onToggle) {
     return (
