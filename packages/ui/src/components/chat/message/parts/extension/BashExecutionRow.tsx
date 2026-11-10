@@ -151,10 +151,10 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                     )
                 ) : null}
                 {view.truncated ? (
-                    <span className="shrink-0 rounded border border-[var(--interactive-border)] px-1.5 typography-micro text-muted-foreground">Output truncated</span>
+                    <span className="shrink-0 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-1.5 typography-micro font-medium text-[var(--status-warning)]">Output truncated</span>
                 ) : null}
                 {view.excludeFromContext ? (
-                    <span className="shrink-0 rounded border border-[var(--interactive-border)] px-1.5 typography-micro text-muted-foreground">Not sent to the model</span>
+                    <span className="shrink-0 rounded border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-1.5 typography-micro font-medium text-[var(--status-info)]">Not sent to the model</span>
                 ) : null}
                 {view.running && sessionId ? (
                     <Button

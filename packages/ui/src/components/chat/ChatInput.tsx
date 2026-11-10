@@ -2880,7 +2880,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                 : isNewSessionStackedComposer
                                   ? "Plan, build, / for skills, @ for context"
                                   : useCompactChatPlaceholder
-                                    ? "Use @ / ! # for helpers"
+                                    ? "Ask anything. @ files, / commands"
                                     : "Ask anything. @ files, / commands, ! shell, # snippets"
                               : "Select or create a session to start chatting"
                           }

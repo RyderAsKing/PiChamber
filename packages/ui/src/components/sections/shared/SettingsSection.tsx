@@ -522,6 +522,8 @@ interface SettingsPreviewOptionProps {
   label: React.ReactNode;
   /** Illustration of the option, drawn inside the tile. Decorative: the label names the option. */
   preview: React.ReactNode;
+  /** One short line under the label saying what the option does, for previews too small to explain it. */
+  description?: React.ReactNode;
   ariaLabel?: string;
   disabled?: boolean;
   className?: string;
@@ -533,10 +535,12 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
   onSelect,
   label,
   preview,
+  description,
   ariaLabel,
   disabled = false,
   className,
 }) => {
+  const descriptionId = React.useId();
   return (
     <div
       className={cn(
@@ -548,6 +552,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
       tabIndex={disabled ? -1 : 0}
       aria-checked={selected}
       aria-label={ariaLabel}
+      aria-describedby={description ? descriptionId : undefined}
       aria-disabled={disabled || undefined}
       onClick={() => {
         if (!disabled) onSelect();
@@ -587,6 +592,12 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
           {label}
         </span>
       </div>
+      {description ? (
+        // Indented to the label, past the radio.
+        <p id={descriptionId} className="-mt-1 pl-[20px] typography-meta text-muted-foreground text-pretty">
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 };

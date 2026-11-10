@@ -111,8 +111,10 @@ export const SidebarViewPreview: React.FC<{ mode: SidebarViewMode }> = ({ mode }
             <div className="mx-[3px] h-[2px] w-[30%] shrink-0 rounded-full bg-foreground/35" />
             <CardRow title="w-[75%]" details="w-[50%]" selected />
             <CardRow title="w-[60%]" details="w-[45%]" />
-            <ShelfHeading width="w-[32%]" />
-            <CardRow title="w-[55%]" details="w-[35%]" quiet />
+            {/* Snoozed and Settled sit at the bottom behind a divider, as in the sidebar. */}
+            <div className="mt-auto h-px shrink-0 bg-border" />
+            <ShelfHeading width="w-[34%]" />
+            <ShelfHeading width="w-[30%]" />
           </>
         )}
       </div>

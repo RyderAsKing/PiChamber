@@ -505,7 +505,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
             {isActive && !rowBackground ? (
               // The open session keeps a mark that hover never shows, so it reads
               // apart from a hovered row without comparing two grey fills.
-              <span aria-hidden="true" className="pointer-events-none absolute inset-y-2 left-1 w-0.5 rounded-full bg-[var(--primary-base)]" />
+              <span aria-hidden="true" className="pointer-events-none absolute inset-y-1.5 left-1 w-[3px] rounded-full bg-[var(--primary-base)]" />
             ) : null}
             <div
               className={cn('flex min-w-0 flex-1 items-start', showWorkingOverlay && 'oc-session-row-working-fade')}

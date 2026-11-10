@@ -105,13 +105,10 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
                 label={option.label}
                 ariaLabel={option.label}
                 preview={<SidebarViewPreview mode={option.id} />}
+                description={SIDEBAR_VIEW_DESCRIPTION[option.id]}
               />
             ))}
           </SettingsRadioGroup>
-          {/* The previews are small, so the chosen view also says what it does. */}
-          <p className="mt-2 max-w-[40rem] typography-meta text-muted-foreground text-pretty">
-            {SIDEBAR_VIEW_DESCRIPTION[sidebarViewMode]}
-          </p>
         </SettingsControlGroup>
       )}
       {/* Only Threads and By folder have a Settled shelf, so the control
