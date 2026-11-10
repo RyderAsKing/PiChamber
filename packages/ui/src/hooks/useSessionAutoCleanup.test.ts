@@ -1,17 +1,25 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { Session } from '@/lib/chat/types';
 import {
-  buildAutoDeleteCandidates,
   partitionCleanupCandidates,
   runSessionAutoCleanupNow,
   __resetSessionAutoCleanupForTests,
 } from './useSessionAutoCleanup';
 import { getPiSessionStore } from '@/apps/pi-session-store';
 import { piClient, PiRequestError } from '@/lib/pi/client';
+import type { PiSessionShelfEntry } from '@/lib/pi/protocol';
 import { getRuntimeKey, switchRuntimeEndpoint } from '@/lib/runtime-switch';
-import { __resetDirectoryRefreshSchedulerForTests } from '@/sync/pi-session-catalog';
+import {
+  __resetDirectoryRefreshSchedulerForTests,
+  type LiveSessionRecord,
+  type PiSessionCatalogState,
+  initialCatalog,
+  upsertRecord,
+} from '@/sync/pi-session-catalog';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getPinnedSessionKey, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
+import { useSessionShelfStore } from '@/stores/useSessionShelfStore';
 import { useWorktreeStore } from '@/stores/useWorktreeStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useUIStore } from '@/stores/useUIStore';
@@ -19,105 +27,14 @@ import { useUIStore } from '@/stores/useUIStore';
 const DAY_MS = 24 * 60 * 60 * 1000;
 const NOW = 1_700_000_000_000;
 
-const session = (
-  id: string,
-  updated: number | undefined,
-  extra: Partial<Session> = {},
-): Session =>
-  ({
-    id,
-    title: id,
-    time:
-      updated === undefined
-        ? { created: NOW - 40 * DAY_MS }
-        : { created: updated, updated },
-    ...extra,
-  }) as Session;
-
-describe('buildAutoDeleteCandidates', () => {
-  test('returns sessions older than the cutoff', () => {
-    const sessions = [
-      session('old', NOW - 40 * DAY_MS),
-      session('recent', NOW - 1 * DAY_MS),
-      session('old-2', NOW - 31 * DAY_MS),
-      session('old-3', NOW - 32 * DAY_MS),
-      session('old-4', NOW - 33 * DAY_MS),
-      session('old-5', NOW - 34 * DAY_MS),
-      session('old-6', NOW - 35 * DAY_MS),
-    ];
-    const ids = buildAutoDeleteCandidates({
-      sessions,
-      currentSessionId: null,
-      cutoffDays: 30,
-      now: NOW,
-    });
-    // 5 most recent are protected, so only the 2 oldest are eligible.
-    expect(ids).toEqual(['old-6', 'old']);
-  });
-
-  test('protects the current session even when old', () => {
-    const sessions = [
-      session('a', NOW - 40 * DAY_MS),
-      session('b', NOW - 41 * DAY_MS),
-      session('c', NOW - 42 * DAY_MS),
-      session('d', NOW - 43 * DAY_MS),
-      session('e', NOW - 44 * DAY_MS),
-      session('f', NOW - 45 * DAY_MS),
-      session('g', NOW - 46 * DAY_MS),
-    ];
-    const ids = buildAutoDeleteCandidates({
-      sessions,
-      currentSessionId: 'g',
-      cutoffDays: 30,
-      now: NOW,
-    });
-    expect(ids).not.toContain('g');
-    expect(ids).toEqual(['f']);
-  });
-
-  test('skips shared sessions and sessions without timestamps', () => {
-    const sessions = [
-      session('shared', NOW - 60 * DAY_MS, { share: { url: 'https://x' } } as Partial<Session>),
-      session('no-time', NOW - 60 * DAY_MS, { time: {} } as Partial<Session>),
-      session('old-1', NOW - 60 * DAY_MS),
-      session('old-2', NOW - 61 * DAY_MS),
-      session('old-3', NOW - 62 * DAY_MS),
-      session('old-4', NOW - 63 * DAY_MS),
-      session('old-5', NOW - 64 * DAY_MS),
-      session('old-6', NOW - 65 * DAY_MS),
-    ];
-    const ids = buildAutoDeleteCandidates({
-      sessions,
-      currentSessionId: null,
-      cutoffDays: 30,
-      now: NOW,
-    });
-    expect(ids).not.toContain('shared');
-    expect(ids).not.toContain('no-time');
-  });
-
-  test('returns empty for non-positive cutoff', () => {
-    expect(
-      buildAutoDeleteCandidates({ sessions: [session('a', NOW - 99 * DAY_MS)], currentSessionId: null, cutoffDays: 0, now: NOW }),
-    ).toEqual([]);
-  });
-});
-
 describe('partitionCleanupCandidates', () => {
-  const withDir = (id: string, directory: string, updated: number): Session =>
-    ({
-      id,
-      title: id,
-      directory,
-      time: { created: updated, updated },
-    }) as Session;
+  const withDir = (id: string, directory: string | undefined): Session =>
+    ({ id, title: id, directory, time: { created: NOW, updated: NOW } }) as Session;
 
   test('only ready directories are actionable; failed scopes stay unready', () => {
-    const a = withDir('a', '/ready', NOW - 40 * DAY_MS);
-    const b = withDir('b', '/failed', NOW - 41 * DAY_MS);
     const byId = new Map([
-      ['a', a],
-      ['b', b],
+      ['a', withDir('a', '/ready')],
+      ['b', withDir('b', '/failed')],
     ]);
     const { actionable, unready } = partitionCleanupCandidates(['a', 'b'], byId, new Set(['/ready']));
     expect(actionable).toEqual(['a']);
@@ -125,93 +42,118 @@ describe('partitionCleanupCandidates', () => {
   });
 
   test('missing directory metadata is never actionable', () => {
-    const orphan = session('orphan', NOW - 60 * DAY_MS, { directory: undefined } as Partial<Session>);
-    const byId = new Map([['orphan', orphan]]);
+    const byId = new Map([['orphan', withDir('orphan', undefined)]]);
     const { actionable, unready } = partitionCleanupCandidates(['orphan'], byId, new Set(['/ready']));
     expect(actionable).toEqual([]);
     expect(unready).toEqual(['orphan']);
-  });
-
-  test('newest-5 protection sees failed-directory rows before partitioning', () => {
-    // Five recent rows live in a failed scope; they still protect the
-    // newest-5 globally so an old ready-scope row is not over-deleted.
-    const recentFailed = Array.from({ length: 5 }, (_, i) =>
-      withDir(`recent-${i}`, '/failed', NOW - i * DAY_MS),
-    );
-    const oldReady = withDir('old-ready', '/ready', NOW - 60 * DAY_MS);
-    const olderReady = withDir('older-ready', '/ready', NOW - 61 * DAY_MS);
-    const all = [...recentFailed, oldReady, olderReady];
-    const candidateIds = buildAutoDeleteCandidates({
-      sessions: all,
-      currentSessionId: null,
-      cutoffDays: 30,
-      now: NOW,
-    });
-    // Newest-5 are the failed recents, so only the two old ready rows are candidates.
-    expect(candidateIds.sort()).toEqual(['old-ready', 'older-ready'].sort());
-    const byId = new Map(all.map((s) => [s.id, s] as const));
-    const { actionable, unready } = partitionCleanupCandidates(candidateIds, byId, new Set(['/ready']));
-    expect(actionable.sort()).toEqual(['old-ready', 'older-ready'].sort());
-    expect(unready).toEqual([]);
-  });
-
-  test('old ready row stays protected when failed recents occupy newest-5', () => {
-    const recentFailed = Array.from({ length: 5 }, (_, i) =>
-      withDir(`recent-${i}`, '/failed', NOW - i * DAY_MS),
-    );
-    // Only one old ready row beyond the protected five: it is the sole candidate.
-    const oldReady = withDir('old-ready', '/ready', NOW - 60 * DAY_MS);
-    const all = [...recentFailed, oldReady];
-    const candidateIds = buildAutoDeleteCandidates({
-      sessions: all,
-      currentSessionId: null,
-      cutoffDays: 30,
-      now: NOW,
-    });
-    expect(candidateIds).toEqual(['old-ready']);
   });
 });
 
 // --- Owning run routine: async orchestration without mounting DOM ---------
 
-const listItem = (id: string, directory: string, updatedAt: number) => ({
+type ListItem = {
   session: {
-    id,
-    directory,
-    title: id,
-    createdAt: updatedAt,
-    updatedAt,
-    parentId: null,
-  },
-  updatedAt,
-});
+    id: string;
+    directory: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+    parentId: null;
+    archived?: boolean;
+    timeArchived?: number;
+  };
+  updatedAt: number;
+};
 
-const stubListSessions = (impl: (scope: { directory?: string }) => Promise<{ sessions: ReturnType<typeof listItem>[] }>) => {
+const idle = (id: string, directory: string, idleDays: number): ListItem => {
+  const at = NOW - idleDays * DAY_MS;
+  return { session: { id, directory, title: id, createdAt: at, updatedAt: at, parentId: null }, updatedAt: at };
+};
+
+const archived = (id: string, directory: string, archivedDaysAgo: number | null): ListItem => {
+  const item = idle(id, directory, 90);
+  return {
+    ...item,
+    session: {
+      ...item.session,
+      archived: true,
+      ...(archivedDaysAgo === null ? {} : { timeArchived: NOW - archivedDaysAgo * DAY_MS }),
+    },
+  };
+};
+
+const stubListSessions = (impl: (scope: { directory?: string }) => Promise<{ sessions: ListItem[] }>) => {
   const original = piClient.listSessions.bind(piClient);
-  piClient.listSessions = (async (scope: { directory?: string }) => impl(scope)) as typeof piClient.listSessions;
+  piClient.listSessions = (async (scope: { directory?: string }) => impl(scope)) as unknown as typeof piClient.listSessions;
   return () => {
     piClient.listSessions = original;
   };
 };
 
-const stubArchive = (impl?: (input: { sessionId: string }, scope?: { directory?: string }) => Promise<void>) => {
+const stubArchive = (impl?: (id: string) => Promise<void>) => {
   const original = piClient.archiveSession.bind(piClient);
-  const calls: Array<{ id: string; directory?: string }> = [];
-  piClient.archiveSession = (async (input: { sessionId: string }, scope?: { directory?: string }) => {
-    calls.push({ id: input.sessionId, directory: scope?.directory });
-    if (impl) await impl(input, scope);
+  const calls: string[] = [];
+  piClient.archiveSession = (async (input: { sessionId: string }) => {
+    calls.push(input.sessionId);
+    if (impl) await impl(input.sessionId);
   }) as typeof piClient.archiveSession;
-  return {
-    calls,
-    restore: () => {
-      piClient.archiveSession = original;
-    },
-  };
+  return { calls, restore: () => { piClient.archiveSession = original; } };
 };
 
-const setSingletonDirectory = (directory: string | null): void => {
-  const store = getPiSessionStore();
-  (store.getState() as unknown as { directory: string | null }).directory = directory;
+const stubDelete = (impl?: (id: string) => Promise<void>) => {
+  const original = piClient.deleteSession.bind(piClient);
+  const calls: string[] = [];
+  piClient.deleteSession = (async (input: { sessionId: string }) => {
+    calls.push(input.sessionId);
+    if (impl) await impl(input.sessionId);
+    return true;
+  }) as typeof piClient.deleteSession;
+  return { calls, restore: () => { piClient.deleteSession = original; } };
+};
+
+const stubShelf = (impl: () => Promise<{ sessions: Record<string, PiSessionShelfEntry> }>) => {
+  const original = piClient.getSessionShelf.bind(piClient);
+  const calls: number[] = [];
+  piClient.getSessionShelf = (async () => {
+    calls.push(1);
+    return impl();
+  }) as typeof piClient.getSessionShelf;
+  return { calls, restore: () => { piClient.getSessionShelf = original; } };
+};
+
+const storeState = () => getPiSessionStore().getState() as unknown as {
+  directory: string | null;
+  catalog: PiSessionCatalogState;
+};
+
+/** Seed live state the listing keeps (lifecycle, pending input) before a run lists the folder. */
+const seedLive = (id: string, directory: string, live: Partial<LiveSessionRecord>): void => {
+  const record: LiveSessionRecord = {
+    id,
+    directory,
+    parentId: null,
+    title: id,
+    archived: false,
+    createdAt: 1,
+    updatedAt: 1,
+    lifecycle: 'idle',
+    hydrated: false,
+    ...live,
+  };
+  storeState().catalog = upsertRecord(storeState().catalog ?? initialCatalog(), record);
+};
+
+const setProjects = (...paths: string[]): void => {
+  useProjectsStore.setState({
+    projects: paths.map((path) => ({ id: `p${path}`, path, label: path })),
+    activeProjectId: paths[0] ? `p${paths[0]}` : null,
+    manualProjectOrder: [],
+  });
+};
+
+const setRetention = ({ archiveDays = 7, deleteDays = 0, currentSessionId = null as string | null } = {}): void => {
+  useUIStore.setState({ sessionAutoArchiveAfterDays: archiveDays, sessionAutoDeleteAfterDays: deleteDays });
+  useSessionUIStore.setState({ currentSessionId });
 };
 
 const resetWorkspace = (): void => {
@@ -220,81 +162,253 @@ const resetWorkspace = (): void => {
   try {
     useDirectoryStore.setState({ homeDirectory: '' });
   } catch { /* best-effort */ }
-  setSingletonDirectory(null);
+  storeState().directory = null;
+  useSessionPinnedStore.setState({ ids: new Set(), touchedAt: {} });
+  useSessionShelfStore.setState({ runtimeKey: null, entries: {}, status: 'idle' });
 };
 
-const setupRetention = (overrides?: {
-  enabled?: boolean;
-  days?: number;
-  action?: 'archive' | 'delete';
-  lastRunAt?: number | null;
-  currentSessionId?: string | null;
-}): void => {
-  useUIStore.setState({
-    autoDeleteEnabled: overrides?.enabled ?? true,
-    autoDeleteAfterDays: overrides?.days ?? 30,
-    sessionRetentionAction: overrides?.action ?? 'archive',
-    autoDeleteLastRunAt: overrides?.lastRunAt ?? null,
-  });
-  useSessionUIStore.setState({
-    currentSessionId: overrides?.currentSessionId ?? null,
-  });
-};
-
-const oldSessionsForDir = (directory: string, count: number, startAgeDays = 31): Array<ReturnType<typeof listItem>> => {
-  // Newest-first ages so the first 5 are protected and the rest are candidates.
-  const items: Array<ReturnType<typeof listItem>> = [];
-  for (let i = 0; i < count; i += 1) {
-    const age = startAgeDays + i;
-    items.push(listItem(`old-${directory.replace(/\//g, '')}-${i}`, directory, NOW - age * DAY_MS));
-  }
-  return items;
-};
+let restoreShelf: () => void = () => undefined;
 
 beforeEach(() => {
   __resetDirectoryRefreshSchedulerForTests();
   __resetSessionAutoCleanupForTests();
-  resetWorkspace();
   getPiSessionStore().clear();
-  setSingletonDirectory(null);
-  setupRetention();
+  resetWorkspace();
+  setRetention();
+  restoreShelf = stubShelf(async () => ({ sessions: {} })).restore;
 });
 
 afterEach(() => {
+  restoreShelf();
   __resetDirectoryRefreshSchedulerForTests();
   __resetSessionAutoCleanupForTests();
-  resetWorkspace();
   getPiSessionStore().clear();
-  setSingletonDirectory(null);
-  setupRetention({ enabled: false, lastRunAt: null, currentSessionId: null });
+  resetWorkspace();
+  setRetention({ archiveDays: 0, deleteDays: 0 });
+});
+
+describe('archive pass', () => {
+  test('archives every session idle past the setting, with no keep-newest rule', async () => {
+    setProjects('/a');
+    const items = [idle('old-1', '/a', 8), idle('old-2', '/a', 30), idle('recent', '/a', 6)];
+    const restoreList = stubListSessions(async () => ({ sessions: items }));
+    const archive = stubArchive();
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(result.skippedReason).toBeUndefined();
+      expect(result.archive.completedIds.sort()).toEqual(['old-1', 'old-2']);
+      expect(archive.calls.sort()).toEqual(['old-1', 'old-2']);
+      expect(result.delete.skippedReason).toBe('disabled');
+    } finally {
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('skips pinned, running, waiting, snoozed, and open sessions; a woken snooze counts from its wake', async () => {
+    setProjects('/a');
+    setRetention({ currentSessionId: 'open' });
+    const items = ['pinned', 'busy', 'retrying', 'waiting', 'snoozed', 'open', 'woke-recently', 'woke-long-ago', 'plain']
+      .map((id) => idle(id, '/a', 30));
+    seedLive('busy', '/a', { lifecycle: 'busy' });
+    seedLive('retrying', '/a', { lifecycle: 'retry' });
+    seedLive('waiting', '/a', { pendingInput: { count: 1, kind: 'input', since: NOW - 30 * DAY_MS } });
+    useSessionPinnedStore.setState({ ids: new Set([getPinnedSessionKey(getRuntimeKey(), '/a', 'pinned')!]) });
+    restoreShelf();
+    restoreShelf = stubShelf(async () => ({
+      sessions: {
+        snoozed: { snoozedUntil: NOW + DAY_MS, snoozedAt: NOW - 30 * DAY_MS },
+        'woke-recently': { snoozedUntil: NOW - DAY_MS, snoozedAt: NOW - 30 * DAY_MS },
+        'woke-long-ago': { snoozedUntil: NOW - 10 * DAY_MS, snoozedAt: NOW - 30 * DAY_MS },
+      },
+    })).restore;
+    const restoreList = stubListSessions(async () => ({ sessions: items }));
+    const archive = stubArchive();
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(archive.calls.sort()).toEqual(['plain', 'woke-long-ago']);
+      expect(result.archive.completedIds.sort()).toEqual(['plain', 'woke-long-ago']);
+      expect(result.archive.failedIds).toEqual([]);
+    } finally {
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('without a shelf read it archives nothing (snoozes unknown), and the delete pass still runs', async () => {
+    setProjects('/a');
+    setRetention({ archiveDays: 7, deleteDays: 30 });
+    restoreShelf();
+    restoreShelf = stubShelf(async () => {
+      throw new PiRequestError('DAEMON_UNAVAILABLE', 'boom');
+    }).restore;
+    const restoreList = stubListSessions(async () => ({
+      sessions: [idle('old', '/a', 30), archived('gone', '/a', 40)],
+    }));
+    const archive = stubArchive();
+    const remove = stubDelete();
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(archive.calls).toEqual([]);
+      expect(result.archive.skippedReason).toBe('partial');
+      expect(remove.calls).toEqual(['gone']);
+      expect(result.delete.completedIds).toEqual(['gone']);
+      expect(result.skippedReason).toBe('partial');
+    } finally {
+      remove.restore();
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('rechecks before each write: a session opened mid-batch is skipped', async () => {
+    setProjects('/a');
+    const restoreList = stubListSessions(async () => ({ sessions: [idle('first', '/a', 30), idle('second', '/a', 20)] }));
+    let release!: () => void;
+    let started!: () => void;
+    const startedP = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const archive = stubArchive(async () => {
+      if (archive.calls.length === 1) {
+        started();
+        await gate;
+      }
+    });
+    try {
+      const pending = runSessionAutoCleanupNow({ now: NOW });
+      await startedP;
+      const other = archive.calls[0] === 'first' ? 'second' : 'first';
+      useSessionUIStore.setState({ currentSessionId: other });
+      release();
+      const result = await pending;
+      expect(archive.calls).toHaveLength(1);
+      expect(result.archive.completedIds).toEqual([archive.calls[0]!]);
+      expect(result.archive.failedIds).toEqual([other]);
+      expect(result.skippedReason).toBe('partial');
+    } finally {
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('turning the setting off mid-batch stops the remaining writes', async () => {
+    setProjects('/a');
+    const restoreList = stubListSessions(async () => ({ sessions: [idle('first', '/a', 30), idle('second', '/a', 20)] }));
+    const archive = stubArchive(async () => {
+      useUIStore.setState({ sessionAutoArchiveAfterDays: 0 });
+    });
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(archive.calls).toHaveLength(1);
+      expect(result.archive.completedIds).toHaveLength(1);
+    } finally {
+      archive.restore();
+      restoreList();
+    }
+  });
+});
+
+describe('delete pass', () => {
+  test('deletes archived sessions by archive time and never touches unarchived ones', async () => {
+    setProjects('/a');
+    setRetention({ archiveDays: 0, deleteDays: 30 });
+    const restoreList = stubListSessions(async () => ({
+      sessions: [
+        archived('archived-long-ago', '/a', 31),
+        archived('archived-recently', '/a', 29),
+        archived('archived-unknown-time', '/a', null),
+        idle('idle-but-not-archived', '/a', 400),
+      ],
+    }));
+    const archive = stubArchive();
+    const remove = stubDelete();
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(remove.calls).toEqual(['archived-long-ago']);
+      expect(result.delete.completedIds).toEqual(['archived-long-ago']);
+      expect(result.archive.skippedReason).toBe('disabled');
+      expect(archive.calls).toEqual([]);
+      expect(result.skippedReason).toBeUndefined();
+    } finally {
+      remove.restore();
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('a session unarchived mid-batch is not deleted', async () => {
+    setProjects('/a');
+    setRetention({ archiveDays: 0, deleteDays: 30 });
+    const restoreList = stubListSessions(async () => ({
+      sessions: [archived('first', '/a', 40), archived('second', '/a', 50)],
+    }));
+    const archive = stubArchive();
+    const remove = stubDelete(async (id) => {
+      const other = id === 'first' ? 'second' : 'first';
+      await getPiSessionStore().archive(other, false, '/a');
+    });
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(remove.calls).toHaveLength(1);
+      expect(result.delete.failedIds).toHaveLength(1);
+      expect(result.skippedReason).toBe('partial');
+    } finally {
+      remove.restore();
+      archive.restore();
+      restoreList();
+    }
+  });
+
+  test('a session the archive pass just archived is not deleted in the same run', async () => {
+    setProjects('/a');
+    setRetention({ archiveDays: 7, deleteDays: 1 });
+    const restoreList = stubListSessions(async () => ({ sessions: [idle('old', '/a', 400)] }));
+    const archive = stubArchive();
+    const remove = stubDelete();
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(result.archive.completedIds).toEqual(['old']);
+      expect(remove.calls).toEqual([]);
+    } finally {
+      remove.restore();
+      archive.restore();
+      restoreList();
+    }
+  });
 });
 
 describe('runSessionAutoCleanupNow', () => {
-  test('double run during load: second caller sees running, no double delete', async () => {
-    useProjectsStore.setState({
-      projects: [{ id: 'p-a', path: '/proj-a', label: 'A' }],
-      activeProjectId: 'p-a',
-      manualProjectOrder: [],
+  test('both settings off: nothing is read or written', async () => {
+    setProjects('/a');
+    setRetention({ archiveDays: 0, deleteDays: 0 });
+    let listed = 0;
+    const restoreList = stubListSessions(async () => {
+      listed += 1;
+      return { sessions: [] };
     });
-    const items = oldSessionsForDir('/proj-a', 7);
-    let releaseLoad!: (value: { sessions: typeof items }) => void;
-    const gate = new Promise<{ sessions: typeof items }>((resolve) => {
-      releaseLoad = resolve;
-    });
+    try {
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(result.skippedReason).toBe('disabled');
+      expect(listed).toBe(0);
+    } finally {
+      restoreList();
+    }
+  });
+
+  test('double run during load: second caller sees running, no double archive', async () => {
+    setProjects('/a');
+    const items = [idle('old-1', '/a', 30), idle('old-2', '/a', 31)];
+    let releaseLoad!: (value: { sessions: ListItem[] }) => void;
+    const gate = new Promise<{ sessions: ListItem[] }>((resolve) => { releaseLoad = resolve; });
     const restoreList = stubListSessions(async () => gate);
     const archive = stubArchive();
     try {
-      const first = runSessionAutoCleanupNow({ force: true, now: NOW });
-      const second = runSessionAutoCleanupNow({ force: true, now: NOW });
-      const secondResult = await second;
-      expect(secondResult.skippedReason).toBe('running');
-      expect(secondResult.completedIds).toEqual([]);
+      const first = runSessionAutoCleanupNow({ now: NOW });
+      const second = await runSessionAutoCleanupNow({ now: NOW });
+      expect(second.skippedReason).toBe('running');
       releaseLoad({ sessions: items });
       const firstResult = await first;
-      // 7 old: 5 protected, 2 candidates, both archived once.
-      expect(firstResult.completedIds.sort()).toEqual(
-        [items[5]!.session.id, items[6]!.session.id].sort(),
-      );
+      expect(firstResult.archive.completedIds.sort()).toEqual(['old-1', 'old-2']);
       expect(archive.calls).toHaveLength(2);
     } finally {
       archive.restore();
@@ -302,46 +416,38 @@ describe('runSessionAutoCleanupNow', () => {
     }
   });
 
-  test('runtime switch mid-batch returns stale, skips tail, no cooldown', async () => {
+  test('runtime switch mid-batch returns stale and skips the rest', async () => {
     const previousKey = getRuntimeKey();
-    useProjectsStore.setState({
-      projects: [{ id: 'p-a', path: '/proj-a', label: 'A' }],
-      activeProjectId: 'p-a',
-      manualProjectOrder: [],
-    });
-    const items = oldSessionsForDir('/proj-a', 7);
-    const restoreList = stubListSessions(async () => ({ sessions: items }));
-    let releaseArchive!: () => void;
-    let firstStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      firstStarted = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      releaseArchive = resolve;
-    });
-    let archiveCalls = 0;
+    setProjects('/a');
+    setRetention({ archiveDays: 7, deleteDays: 30 });
+    const restoreList = stubListSessions(async () => ({
+      sessions: [idle('old-1', '/a', 30), idle('old-2', '/a', 31), archived('gone', '/a', 60)],
+    }));
+    let release!: () => void;
+    let started!: () => void;
+    const startedP = new Promise<void>((resolve) => { started = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
     const archive = stubArchive(async () => {
-      archiveCalls += 1;
-      if (archiveCalls === 1) {
-        firstStarted();
+      if (archive.calls.length === 1) {
+        started();
         await gate;
       }
     });
-    const switchedApi = 'http://auto-cleanup-stale.test';
+    const remove = stubDelete();
     try {
-      const pending = runSessionAutoCleanupNow({ force: true, now: NOW });
-      await started;
-      switchRuntimeEndpoint({ apiBaseUrl: switchedApi });
+      const pending = runSessionAutoCleanupNow({ now: NOW });
+      await startedP;
+      switchRuntimeEndpoint({ apiBaseUrl: 'http://auto-cleanup-stale.test' });
       getPiSessionStore().clear();
-      releaseArchive();
+      release();
       const result = await pending;
       expect(result.skippedReason).toBe('stale');
-      // Tail never runs after the switch.
-      expect(archiveCalls).toBe(1);
-      expect(result.completedIds).toEqual([]);
-      expect(result.failedIds).toHaveLength(2);
-      expect(useUIStore.getState().autoDeleteLastRunAt).toBeNull();
+      expect(archive.calls).toHaveLength(1);
+      expect(result.archive.completedIds).toEqual([]);
+      expect(result.archive.failedIds).toHaveLength(2);
+      expect(remove.calls).toEqual([]);
     } finally {
+      remove.restore();
       archive.restore();
       restoreList();
       switchRuntimeEndpoint({ apiBaseUrl: 'http://localhost:0', runtimeKey: previousKey });
@@ -349,122 +455,42 @@ describe('runSessionAutoCleanupNow', () => {
     }
   });
 
-  test('selected session change mid-batch skips the newly opened id', async () => {
-    useProjectsStore.setState({
-      projects: [{ id: 'p-a', path: '/proj-a', label: 'A' }],
-      activeProjectId: 'p-a',
-      manualProjectOrder: [],
+  test('one failed directory does not block a ready one; the result is partial', async () => {
+    setProjects('/ready', '/failed');
+    setRetention({ archiveDays: 7, deleteDays: 30 });
+    const restoreList = stubListSessions(async (scope) => {
+      if (scope.directory === '/failed') throw new PiRequestError('DAEMON_UNAVAILABLE', 'boom');
+      return { sessions: [idle('old', '/ready', 30), archived('gone', '/ready', 60)] };
     });
-    const items = oldSessionsForDir('/proj-a', 7);
-    const candidateA = items[5]!.session.id;
-    const candidateB = items[6]!.session.id;
-    const restoreList = stubListSessions(async () => ({ sessions: items }));
-    let releaseArchive!: () => void;
-    let firstStarted!: () => void;
-    const started = new Promise<void>((resolve) => {
-      firstStarted = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      releaseArchive = resolve;
-    });
-    let calls = 0;
-    const archive = stubArchive(async () => {
-      calls += 1;
-      if (calls === 1) {
-        firstStarted();
-        await gate;
-      }
-    });
+    const archive = stubArchive();
+    const remove = stubDelete();
     try {
-      const pending = runSessionAutoCleanupNow({ force: true, now: NOW });
-      await started;
-      // User opens the second candidate while the first archive awaits.
-      useSessionUIStore.setState({ currentSessionId: candidateB });
-      releaseArchive();
-      const result = await pending;
-      expect(result.completedIds).toEqual([candidateA]);
-      expect(result.failedIds).toContain(candidateB);
+      const result = await runSessionAutoCleanupNow({ now: NOW });
+      expect(result.archive.completedIds).toEqual(['old']);
+      expect(result.delete.completedIds).toEqual(['gone']);
       expect(result.skippedReason).toBe('partial');
-      expect(archive.calls.map((c) => c.id)).toEqual([candidateA]);
-      expect(useUIStore.getState().autoDeleteLastRunAt).toBeNull();
     } finally {
+      remove.restore();
       archive.restore();
       restoreList();
     }
   });
 
-  test('wholly failed scopes return partial with no cooldown and no deletes', async () => {
-    useProjectsStore.setState({
-      projects: [
-        { id: 'p-a', path: '/fail-a', label: 'A' },
-        { id: 'p-b', path: '/fail-b', label: 'B' },
-      ],
-      activeProjectId: 'p-a',
-      manualProjectOrder: [],
-    });
+  test('every directory failing writes nothing and reports partial', async () => {
+    setProjects('/fail-a', '/fail-b');
+    setRetention({ archiveDays: 7, deleteDays: 30 });
     const restoreList = stubListSessions(async () => {
       throw new PiRequestError('DAEMON_UNAVAILABLE', 'boom');
     });
     const archive = stubArchive();
+    const remove = stubDelete();
     try {
-      const result = await runSessionAutoCleanupNow({ force: true, now: NOW });
+      const result = await runSessionAutoCleanupNow({ now: NOW });
       expect(result.skippedReason).toBe('partial');
-      expect(result.completedIds).toEqual([]);
       expect(archive.calls).toEqual([]);
-      expect(useUIStore.getState().autoDeleteLastRunAt).toBeNull();
+      expect(remove.calls).toEqual([]);
     } finally {
-      archive.restore();
-      restoreList();
-    }
-  });
-
-  test('partial failure still cleans ready dirs but never advances cooldown', async () => {
-    useProjectsStore.setState({
-      projects: [
-        { id: 'p-ready', path: '/ready', label: 'Ready' },
-        { id: 'p-failed', path: '/failed', label: 'Failed' },
-      ],
-      activeProjectId: 'p-ready',
-      manualProjectOrder: [],
-    });
-    const readyItems = oldSessionsForDir('/ready', 7);
-    const restoreList = stubListSessions(async (scope) => {
-      if (scope.directory === '/failed') {
-        throw new PiRequestError('DAEMON_UNAVAILABLE', 'boom');
-      }
-      return { sessions: readyItems };
-    });
-    const archive = stubArchive();
-    try {
-      const result = await runSessionAutoCleanupNow({ force: true, now: NOW });
-      // Ready scope still proceeds despite the failed sibling.
-      expect(result.completedIds.sort()).toEqual(
-        [readyItems[5]!.session.id, readyItems[6]!.session.id].sort(),
-      );
-      expect(result.skippedReason).toBe('partial');
-      expect(useUIStore.getState().autoDeleteLastRunAt).toBeNull();
-    } finally {
-      archive.restore();
-      restoreList();
-    }
-  });
-
-  test('complete success advances cooldown', async () => {
-    useProjectsStore.setState({
-      projects: [{ id: 'p-a', path: '/proj-a', label: 'A' }],
-      activeProjectId: 'p-a',
-      manualProjectOrder: [],
-    });
-    const items = oldSessionsForDir('/proj-a', 7);
-    const restoreList = stubListSessions(async () => ({ sessions: items }));
-    const archive = stubArchive();
-    try {
-      const result = await runSessionAutoCleanupNow({ force: true, now: NOW });
-      expect(result.skippedReason).toBe(undefined);
-      expect(result.completedIds).toHaveLength(2);
-      expect(result.failedIds).toEqual([]);
-      expect(useUIStore.getState().autoDeleteLastRunAt).toBe(NOW);
-    } finally {
+      remove.restore();
       archive.restore();
       restoreList();
     }
