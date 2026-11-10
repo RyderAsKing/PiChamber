@@ -39,6 +39,7 @@ const PORTABLE_FIELDS = new Set([
   'weekStartPreference',
   'sidebarViewMode',
   'sidebarAutoSettleAfterDays',
+  'sessionAutoArchiveAfterDays', 'sessionAutoDeleteAfterDays',
   'expandedEditorToolbar',
   'wrapLinesByDefault',
   'fontSize', 'terminalFontSize', 'editorFontSize', 'uiFont', 'monoFont', 'padding',
@@ -70,6 +71,17 @@ const LOCAL_FIELDS = new Set([
   'managedRemoteTunnelToken', 'managedRemoteTunnelPresetTokens',
   'hasManagedRemoteTunnelToken', 'desktopUiPassword', 'desktopLocalClientToken',
 ]);
+
+const RETENTION_FIELDS = ['sessionAutoArchiveAfterDays', 'sessionAutoDeleteAfterDays'];
+const MAX_RETENTION_DAYS = 365;
+const NEW_INSTALL_AUTO_ARCHIVE_DAYS = 7;
+// Old "delete after N days" now archives at N and deletes this long after
+// archiving, so nothing is deleted sooner than it used to be.
+const MIGRATED_DELETE_AFTER_ARCHIVE_DAYS = 30;
+// The old client's default when autoDeleteAfterDays was never saved.
+const LEGACY_RETENTION_DAYS = 30;
+
+const isRetentionDays = (value) => Number.isInteger(value) && value >= 0 && value <= MAX_RETENTION_DAYS;
 
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -108,6 +120,34 @@ const readRecord = async (file, fs) => {
   }
 };
 
+const legacyRetentionDays = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return LEGACY_RETENTION_DAYS;
+  return Math.max(1, Math.min(MAX_RETENTION_DAYS, Math.round(value)));
+};
+
+// Starting values for the auto-archive and auto-delete settings. Runs once:
+// after this the portable file holds both fields and they are never removed.
+// A new install (nothing saved in either file) gets 7/0. An existing install
+// keeps what the old retention fields did, except "delete after N days" now
+// archives at N and deletes 30 days after that.
+const decideRetention = ({ portable, runtime }) => {
+  const isNewInstall = Object.keys(selectFields(portable, PORTABLE_FIELDS)).length === 0
+    && Object.keys(selectFields(portable, LOCAL_FIELDS)).length === 0
+    && Object.keys(selectFields(runtime, LOCAL_FIELDS)).length === 0;
+  if (isNewInstall) {
+    return { sessionAutoArchiveAfterDays: NEW_INSTALL_AUTO_ARCHIVE_DAYS, sessionAutoDeleteAfterDays: 0 };
+  }
+  if (portable.autoDeleteEnabled !== true) {
+    return { sessionAutoArchiveAfterDays: 0, sessionAutoDeleteAfterDays: 0 };
+  }
+  return {
+    sessionAutoArchiveAfterDays: legacyRetentionDays(portable.autoDeleteAfterDays),
+    sessionAutoDeleteAfterDays: portable.sessionRetentionAction === 'delete' ? MIGRATED_DELETE_AFTER_ARCHIVE_DAYS : 0,
+  };
+};
+
+const hasRetentionDecision = (portable) => RETENTION_FIELDS.every((field) => isRetentionDays(portable[field]));
+
 export const createDockerInitialLocalSettings = () => {
   const projectId = `path_${Buffer.from(DOCKER_WORKSPACE).toString('base64url')}`;
   return {
@@ -134,6 +174,9 @@ export const createPiUiSettingsStore = ({
     const portableRoot = await readRecord(file, fs);
     const runtimeRoot = await readRecord(runtimeFile, fs);
     const migrated = portableRoot[PORTABLE_SETTINGS_MARKER] === PORTABLE_SETTINGS_VERSION;
+    const retention = hasRetentionDecision(portableRoot)
+      ? null
+      : decideRetention({ portable: portableRoot, runtime: runtimeRoot });
 
     if (!migrated) {
       const isFreshStore = Object.keys(portableRoot).length === 0 && Object.keys(runtimeRoot).length === 0;
@@ -145,12 +188,23 @@ export const createPiUiSettingsStore = ({
       const migratedPortable = {
         [PORTABLE_SETTINGS_MARKER]: PORTABLE_SETTINGS_VERSION,
         ...selectFields(portableRoot, PORTABLE_FIELDS),
+        ...retention,
       };
       // Local state goes first. A failure cannot strand host state only in a
       // portable file that a later successful write might replace.
       await writeRecord(runtimeFile, migratedRuntime, fs);
       await writeRecord(file, migratedPortable, fs);
       return { ...selectFields(migratedPortable, PORTABLE_FIELDS), ...selectFields(migratedRuntime, LOCAL_FIELDS) };
+    }
+
+    if (retention) {
+      // Rewrite only the portable file; local state is already in its own file.
+      const decidedPortable = { ...portableRoot, ...retention };
+      await writeRecord(file, decidedPortable, fs);
+      return {
+        ...selectFields(decidedPortable, PORTABLE_FIELDS),
+        ...selectFields(runtimeRoot, LOCAL_FIELDS),
+      };
     }
 
     return {
@@ -173,6 +227,11 @@ export const createPiUiSettingsStore = ({
       if (Object.hasOwn(changes, field)
         && changes[field] !== 'stable'
         && changes[field] !== 'rc') {
+        throw new Error('UI_SETTINGS_INVALID');
+      }
+    }
+    for (const field of RETENTION_FIELDS) {
+      if (Object.hasOwn(changes, field) && !isRetentionDays(changes[field])) {
         throw new Error('UI_SETTINGS_INVALID');
       }
     }

@@ -12,6 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
   type MainTab,
@@ -212,6 +213,8 @@ interface UIStore {
   timeFormatPreference: TimeFormatPreference;
   weekStartPreference: WeekStartPreference;
   sidebarViewMode: SidebarViewMode;
+  sessionAutoArchiveAfterDays: number;
+  sessionAutoDeleteAfterDays: number;
   expandedEditorToolbar: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
@@ -358,6 +361,8 @@ interface UIStore {
   setTimeFormatPreference: (value: TimeFormatPreference) => void;
   setWeekStartPreference: (value: WeekStartPreference) => void;
   setSidebarViewMode: (value: SidebarViewMode) => void;
+  setSessionAutoArchiveAfterDays: (value: number) => void;
+  setSessionAutoDeleteAfterDays: (value: number) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
@@ -485,6 +490,9 @@ export const useUIStore = create<UIStore>()(
         timeFormatPreference: 'auto',
         weekStartPreference: 'auto',
         sidebarViewMode: DEFAULT_SIDEBAR_VIEW_MODE,
+        // Off until the server's settings load; the server picks the starting values.
+        sessionAutoArchiveAfterDays: 0,
+        sessionAutoDeleteAfterDays: 0,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
         isExpandedInput: false,
@@ -1581,6 +1589,14 @@ export const useUIStore = create<UIStore>()(
         setSidebarViewMode: (value) => {
           set({ sidebarViewMode: value });
         },
+        setSessionAutoArchiveAfterDays: (value) => {
+          if (!isSessionRetentionDaysSetting(value)) return;
+          set({ sessionAutoArchiveAfterDays: value });
+        },
+        setSessionAutoDeleteAfterDays: (value) => {
+          if (!isSessionRetentionDaysSetting(value)) return;
+          set({ sessionAutoDeleteAfterDays: value });
+        },
         setExpandedEditorToolbar: (value: boolean) => {
           set({ expandedEditorToolbar: value });
         },
@@ -1935,6 +1951,8 @@ export const useUIStore = create<UIStore>()(
           timeFormatPreference: state.timeFormatPreference,
           weekStartPreference: state.weekStartPreference,
           sidebarViewMode: state.sidebarViewMode,
+          sessionAutoArchiveAfterDays: state.sessionAutoArchiveAfterDays,
+          sessionAutoDeleteAfterDays: state.sessionAutoDeleteAfterDays,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,
