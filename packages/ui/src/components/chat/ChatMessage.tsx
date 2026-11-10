@@ -370,7 +370,9 @@ const ChatMessage: React.FC<ChatMessageProps> = ({
                 respectReducedMotion
               >
                 <div className={cn('relative flex justify-end', !isMobile ? 'group/user-shell' : undefined)}>
-                  <div className="max-w-[85%]">
+                  {/* A column aligned to the end, so the bubble fits its own text
+                      rather than stretching to the action row under it. */}
+                  <div className="flex max-w-[85%] flex-col items-end">
                     {hasUserBubbleContent ? (
                       <div
                         style={{

@@ -2491,8 +2491,11 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     editorRef: composerRef,
   });
 
+  // On phones the send button keeps the same inset from the right and bottom
+  // edges as the text and attach button keep from the left (about 13px),
+  // instead of crowding into the rounded corner.
   const footerPaddingClass = isMobile
-    ? "px-1.5 py-1.5"
+    ? "pl-1.5 pr-3 pt-1.5 pb-3"
     : isInlineComposer
       ? "px-1.5 py-1"
       : "px-3 py-2";
