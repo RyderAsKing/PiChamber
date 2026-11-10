@@ -50,7 +50,7 @@ const SOURCES: ReadonlyArray<{ step: Step; icon: IconName; title: string; descri
   },
   {
     step: 'clone-url',
-    icon: 'git-repository',
+    icon: 'download-cloud',
     title: 'Clone a repository',
     description: 'Copy a Git repository from a URL.',
   },
@@ -573,7 +573,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     <div className="flex flex-col gap-0.5 border-b border-border/60 px-4 py-2">
       <p
         className={cn(
-          'flex min-w-0 items-baseline gap-1.5 typography-meta',
+          'flex min-w-0 items-baseline gap-1.5 typography-ui-label',
           summary.tone === 'problem' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
         )}
       >
@@ -582,7 +582,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       </p>
       {/* The repository reads like the destination above it: a label, then the value. */}
       {step === 'clone-location' ? (
-        <p className="flex min-w-0 items-baseline gap-1.5 typography-meta text-muted-foreground">
+        <p className="flex min-w-0 items-baseline gap-1.5 typography-ui-label text-muted-foreground">
           <span className="shrink-0">{'From'}</span>
           <MiddleTruncate value={remoteUrl.trim()} className="min-w-0 font-mono text-foreground" />
         </p>
@@ -651,7 +651,12 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
             autoCorrect="off"
             autoCapitalize="off"
             className={cn(
-              'h-full min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground',
+              'min-w-0 flex-1 text-foreground outline-none placeholder:text-muted-foreground',
+              // Past the source list the field is something you type into, so it
+              // looks like a field rather than a breadcrumb.
+              step === 'source'
+                ? 'h-full bg-transparent'
+                : 'h-8 rounded-md border border-[var(--interactive-border)] bg-[var(--surface-muted)] px-2',
               'typography-markdown md:typography-ui-label',
               usesMono && 'font-mono',
             )}
@@ -682,6 +687,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
                     ariaLabel={item.ariaLabel}
                     ariaChecked={item.ariaChecked}
                     className={item.kind === 'source' ? 'py-2' : undefined}
+                    quiet={isBrowseStep(step)}
                   >
                     {item.content}
                   </PaletteRow>

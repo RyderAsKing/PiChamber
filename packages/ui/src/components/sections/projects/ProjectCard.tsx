@@ -3,7 +3,8 @@ import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
 import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
-import { cn } from '@/lib/utils';
+import { cn, formatPathForDisplay } from '@/lib/utils';
+import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import type { ProjectEntry } from '@/lib/api/types';
 
 interface ProjectCardProps {
@@ -15,6 +16,9 @@ interface ProjectCardProps {
 export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) => {
   const label = getProjectDisplayLabel(project);
   const hasCustomLabel = Boolean(project.label?.trim());
+  const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
+  // Home-relative, so the card spends its width on the part that differs.
+  const displayPath = formatPathForDisplay(project.path, homeDirectory);
 
   return (
     <button
@@ -36,8 +40,8 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) =
         <div className="truncate typography-ui-label font-medium text-foreground">{label}</div>
         {/* Elide the middle: a path's useful part is its end. */}
         <MiddleTruncate
-          value={project.path}
-          className={cn('flex typography-micro text-muted-foreground', hasCustomLabel && 'font-mono')}
+          value={displayPath}
+          className={cn('flex typography-meta text-muted-foreground', hasCustomLabel && 'font-mono')}
         />
       </div>
     </button>

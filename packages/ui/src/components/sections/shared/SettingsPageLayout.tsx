@@ -50,7 +50,7 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
     // The edge fade says a long page continues past the fold.
     <ScrollableOverlay
       useScrollShadow
-      scrollShadowSize={24}
+      scrollShadowSize={16}
       outerClassName={cn('h-full', outerClassName)}
       className="w-full @container"
     >

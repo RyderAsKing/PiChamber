@@ -9,6 +9,8 @@ interface PaletteRowProps {
   ariaLabel?: string;
   ariaChecked?: boolean;
   className?: string;
+  /** A keyboard cursor rather than a choice: a light fill, so it never outranks the destination line. */
+  quiet?: boolean;
   children: React.ReactNode;
 }
 
@@ -19,7 +21,7 @@ interface PaletteRowProps {
  * touch screen with the keyboard down it would read as a choice.
  */
 export const PaletteRow = React.forwardRef<HTMLDivElement, PaletteRowProps>(
-  ({ id, active, onSelect, onHover, ariaLabel, ariaChecked, className, children }, ref) => (
+  ({ id, active, onSelect, onHover, ariaLabel, ariaChecked, className, quiet = false, children }, ref) => (
     <div
       ref={ref}
       id={id}
@@ -32,7 +34,9 @@ export const PaletteRow = React.forwardRef<HTMLDivElement, PaletteRowProps>(
       onClick={onSelect}
       className={cn(
         'flex w-full cursor-pointer select-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left typography-ui-label text-foreground',
-        active && 'group-focus-within/palette:bg-interactive-selection group-focus-within/palette:text-interactive-selection-foreground',
+        active && (quiet
+          ? 'group-focus-within/palette:bg-interactive-hover'
+          : 'group-focus-within/palette:bg-interactive-selection group-focus-within/palette:text-interactive-selection-foreground'),
         !active && 'hover:bg-interactive-hover/60',
         className,
       )}
