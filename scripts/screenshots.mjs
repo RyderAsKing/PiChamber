@@ -487,6 +487,33 @@ const PAGES = {
     })()`,
     idleRequestPrefix: '/api/fs/project-icon',
   },
+  'settings-archive': {
+    // Sessions settings scrolled to Archive and delete: the two day settings
+    // and the suggestion that shows while auto-archive is off.
+    path: '/?settings=sessions',
+    readyText: ['Archive and delete'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const row = document.querySelector('[data-settings-item="sessions.auto-archive"]');
+      if (!row) return false;
+      row.closest('section')?.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
+  'settings-sidebar-view': {
+    // Appearance scrolled to Sidebar view with Legacy views open, so Timeline shows.
+    path: '/?settings=appearance',
+    readyText: ['Legacy views'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const group = document.querySelector('[data-settings-item="appearance.sidebar-view"]');
+      const legacy = group?.querySelector('details');
+      if (!group || !legacy) return false;
+      legacy.open = true;
+      group.scrollIntoView({ block: 'start' });
+      return true;
+    })()`,
+  },
   'command-palette': {
     path: DEMO_SESSION_PATH,
     readyText: [DEMO_REPLY],
