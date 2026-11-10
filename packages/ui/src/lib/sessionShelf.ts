@@ -2,34 +2,15 @@ import type { PiSessionShelfEntry, PiSessionShelfInput } from '@/lib/pi/protocol
 
 /**
  * Sidebar shelf rules: which section a session belongs in (Pinned, active,
- * Working, Snoozed, Settled), when an idle session settles on its own, and
- * the snooze menu. The server stores only what the user chose
- * (`PiSessionShelfEntry`); everything time-based is derived here so every
- * client applies the same rule.
+ * Working, Snoozed) and the snooze menu. The server stores only what the user
+ * chose (`PiSessionShelfEntry`); everything time-based is derived here so
+ * every client applies the same rule. Putting a session away for good is
+ * Archive, which hides it from these views.
  */
 
-export type SessionShelfSection = 'pinned' | 'active' | 'working' | 'snoozed' | 'settled';
+export type SessionShelfSection = 'pinned' | 'active' | 'working' | 'snoozed';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-export const DEFAULT_AUTO_SETTLE_AFTER_DAYS = 3;
-export const MIN_AUTO_SETTLE_AFTER_DAYS = 1;
-export const MAX_AUTO_SETTLE_AFTER_DAYS = 90;
-
-/**
- * The stored setting: whole days from 1 to 90, or 0 for off. Off is 0 rather
- * than null so the value survives settings stores that drop nulls.
- */
-export const isAutoSettleAfterDaysSetting = (value: unknown): value is number =>
-  typeof value === 'number'
-  && Number.isInteger(value)
-  && (value === 0 || (value >= MIN_AUTO_SETTLE_AFTER_DAYS && value <= MAX_AUTO_SETTLE_AFTER_DAYS));
-
-/** The rule's input: days, or null when auto-settle is off. */
-export const autoSettleDaysFromSetting = (value: unknown): number | null => {
-  if (!isAutoSettleAfterDaysSetting(value)) return DEFAULT_AUTO_SETTLE_AFTER_DAYS;
-  return value === 0 ? null : value;
-};
 
 /** Mirrors the server's write so an optimistic entry matches the stored one. */
 export const applyShelfPatch = (
@@ -38,28 +19,12 @@ export const applyShelfPatch = (
   now: number,
 ): PiSessionShelfEntry | undefined => {
   const next: PiSessionShelfEntry = { ...entry };
-  if (Object.hasOwn(patch, 'settled')) {
-    delete next.settled;
-    delete next.settledAt;
-    if (patch.settled === 'settled') {
-      next.settled = 'settled';
-      next.settledAt = entry?.settled === 'settled' && entry.settledAt ? entry.settledAt : now;
-      delete next.snoozedUntil;
-      delete next.snoozedAt;
-    } else if (patch.settled === 'active') {
-      next.settled = 'active';
-    }
-  }
   if (Object.hasOwn(patch, 'snoozedUntil')) {
     delete next.snoozedUntil;
     delete next.snoozedAt;
     if (typeof patch.snoozedUntil === 'number') {
       next.snoozedUntil = patch.snoozedUntil;
       next.snoozedAt = now;
-      if (next.settled === 'settled') {
-        delete next.settled;
-        delete next.settledAt;
-      }
     }
   }
   return Object.keys(next).length > 0 ? next : undefined;
@@ -75,8 +40,6 @@ export interface SessionShelfInput {
   /** Last message activity, ms epoch. */
   updatedAt: number;
   now: number;
-  /** Days of inactivity before a session settles on its own; null is off. */
-  autoSettleAfterDays: number | null;
 }
 
 /**
@@ -100,35 +63,31 @@ export const sessionActivityAt = (input: Pick<SessionShelfInput, 'entry' | 'upda
 };
 
 /**
- * Whether a session belongs in Settled. A hand-set override wins; without
- * one, a session settles after `autoSettleAfterDays` without activity unless
- * it is pinned, working, waiting on the user, or snoozed. Working and
- * waiting sessions never sit in Settled, even with an override, so a run
- * started elsewhere (the Pi CLI) still shows.
+ * Auto-archive takes sessions idle longer than `afterDays` (0 = off). It
+ * skips what the user is keeping in view: pinned, running, waiting on the
+ * user, snoozed until the wake, and the open session. Idle time counts from
+ * a snooze wake as well as from messages.
  */
-const isSettled = (input: SessionShelfInput): boolean => {
-  if (input.working || input.needsInput) return false;
-  if (input.entry?.settled === 'settled') return true;
-  if (input.entry?.settled === 'active') return false;
-  if (input.autoSettleAfterDays === null || input.pinned) return false;
-  if (isSnoozed(input.entry, input.now, input.needsInput)) return false;
-  return sessionActivityAt(input) < input.now - input.autoSettleAfterDays * DAY_MS;
+export const isAutoArchiveCandidate = (
+  input: SessionShelfInput & { open: boolean },
+  afterDays: number,
+): boolean => {
+  if (!(afterDays > 0)) return false;
+  if (input.open || input.pinned || input.working || input.needsInput) return false;
+  if (typeof input.entry?.snoozedUntil === 'number' && input.entry.snoozedUntil > input.now) return false;
+  const activityAt = sessionActivityAt(input);
+  if (!(activityAt > 0)) return false;
+  return activityAt < input.now - afterDays * DAY_MS;
 };
 
-/** When a settled session settled: by hand, or when it went idle. */
-export const settledAtFor = (input: Pick<SessionShelfInput, 'entry' | 'updatedAt' | 'now'>): number =>
-  input.entry?.settled === 'settled' && input.entry.settledAt ? input.entry.settledAt : sessionActivityAt(input);
-
 /**
- * Section order follows the reference model: Snoozed, then Settled, then
- * Pinned, then the active list, whose working sessions move to the Working
- * shelf when it is enabled.
+ * Snoozed comes first, then Pinned, then the active list, whose working
+ * sessions move to the Working shelf when it is enabled.
  */
 export const resolveSessionShelfSection = (
   input: SessionShelfInput & { workingShelf: boolean },
 ): SessionShelfSection => {
   if (isSnoozed(input.entry, input.now, input.needsInput)) return 'snoozed';
-  if (isSettled(input)) return 'settled';
   if (input.pinned) return 'pinned';
   if (input.workingShelf && input.working && !input.needsInput) return 'working';
   return 'active';

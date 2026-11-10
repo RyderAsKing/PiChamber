@@ -67,6 +67,10 @@ export interface LiveSessionRecord {
   title: string;
   /** Whether the session is hidden from the active sidebar. */
   archived: boolean;
+  /** When the session was archived (ms epoch), from the server's listing or
+   *  this client's own archive. Absent while not archived, and when unknown
+   *  (auto-delete never acts on an unknown time). */
+  archivedAt?: number;
   /** Server-confirmed creation timestamp (ms epoch). */
   createdAt: number;
   /** Last activity timestamp the catalog has observed (ms epoch). */
@@ -171,6 +175,7 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.parentId === right.parentId
   && left.title === right.title
   && left.archived === right.archived
+  && left.archivedAt === right.archivedAt
   && left.createdAt === right.createdAt
   && left.updatedAt === right.updatedAt
   && left.preview === right.preview
@@ -299,6 +304,9 @@ export const applyDirectoryListToCatalog = (
       parentId: session.parentId ?? null,
       title: session.title ?? '',
       archived: isArchived,
+      ...(isArchived && typeof session.timeArchived === 'number' && Number.isFinite(session.timeArchived)
+        ? { archivedAt: session.timeArchived }
+        : {}),
       createdAt: session.createdAt,
       // Recency is last-prompt. A later list must not overwrite a prompt stamp.
       updatedAt: existing ? existing.updatedAt : listedUpdatedAt,
@@ -491,18 +499,33 @@ export const touchRecordUpdatedAt = (
  * Update a single row's `archived` flag. Does not move the row between the
  * active and archived categories — that is the consumer's responsibility
  * (the reducer does the same: archive flips a flag, the sidebar filters).
+ * Archiving sets `archivedAt` to the given time; without one an archived
+ * row keeps its time and a newly archived row has none (unknown, so
+ * auto-delete leaves it until a listing brings the server's). Unarchiving
+ * clears it.
  */
 export const applyArchiveChange = (
   state: PiSessionCatalogState,
   sessionId: PiSessionId,
   archived: boolean,
   updatedAt: number,
+  archivedAt?: number,
 ): PiSessionCatalogState => {
   const existing = state.byId.get(sessionId);
   if (!existing) return state;
-  if (existing.archived === archived && existing.updatedAt === updatedAt) return state;
+  const nextArchivedAt = !archived
+    ? undefined
+    : archivedAt ?? (existing.archived ? existing.archivedAt : undefined);
+  if (
+    existing.archived === archived
+    && existing.updatedAt === updatedAt
+    && existing.archivedAt === nextArchivedAt
+  ) return state;
+  const nextRecord: LiveSessionRecord = { ...existing, archived, updatedAt };
+  if (nextArchivedAt === undefined) delete nextRecord.archivedAt;
+  else nextRecord.archivedAt = nextArchivedAt;
   const nextById = new Map(state.byId);
-  nextById.set(sessionId, { ...existing, archived, updatedAt });
+  nextById.set(sessionId, nextRecord);
   return { ...state, byId: nextById };
 };
 
@@ -1005,7 +1028,11 @@ export const applyDirectoryListWithReconciliation = (
     const nextArchived = info.archivedChanged ? info.rec.archived : intermediateRec.archived;
     if (intermediateRec.title !== nextTitle || intermediateRec.archived !== nextArchived) {
       if (!nextById) nextById = new Map(intermediate.byId);
-      nextById.set(id, { ...intermediateRec, title: nextTitle, archived: nextArchived });
+      const nextArchivedAt = info.archivedChanged ? info.rec.archivedAt : intermediateRec.archivedAt;
+      const nextRecord: LiveSessionRecord = { ...intermediateRec, title: nextTitle, archived: nextArchived };
+      if (nextArchived && nextArchivedAt !== undefined) nextRecord.archivedAt = nextArchivedAt;
+      else delete nextRecord.archivedAt;
+      nextById.set(id, nextRecord);
     }
   }
   if (addedOmitted.size === 0 && omittedMetadata.size === 0 && omittedLive.size === 0 && !nextById) return intermediate;

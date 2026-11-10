@@ -25,16 +25,15 @@ import type { SessionShelves } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
 import { SessionShelfStack, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
 
-const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
+const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed'];
 
 /**
- * Takes pinned, snoozed, and settled sessions out of their folders; they show
- * once, above or below the folder list. Archived groups are left alone.
+ * Takes pinned and snoozed sessions out of their folders; they show
+ * once, above or below the folder list.
  */
 const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<string>): ProjectSection => {
   let changed = false;
   const groups = section.groups.map((group) => {
-    if (group.isArchivedBucket) return group;
     const sessions = group.sessions.filter((node) => !hidden.has(node.session.id));
     if (sessions.length === group.sessions.length) return group;
     changed = true;
@@ -44,14 +43,14 @@ const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<str
 };
 
 const countSessions = (section: ProjectSection): number =>
-  section.groups.reduce((total, group) => (group.isArchivedBucket ? total : total + group.sessions.length), 0);
+  section.groups.reduce((total, group) => total + group.sessions.length, 0);
 
 // Rows keep the full sidebar width; the `tree` session row variant indents
 // its own content under the folder label.
 const folderBodyClassName = 'pt-0.5 pb-1';
 
 interface SidebarFolderTreeProps {
-  /** Shelf partition. While searching it only feeds row menus (Settle, Snooze,
+  /** Shelf partition. While searching it only feeds row menus (Archive, Snooze,
    *  Wake); every match stays in its folder and no shelf sections render. */
   shelves?: SessionShelves<ThreadsListItem> | null;
   sections: ProjectSection[];
@@ -73,7 +72,6 @@ interface SidebarFolderTreeProps {
     hideGroupLabel?: boolean,
     dragHandleProps?: SortableDragHandleProps | null,
     compactBodyPadding?: boolean,
-    scrollContainerRef?: React.RefObject<HTMLElement | null>,
   ) => React.ReactNode;
   renderSessionNode?: (
     node: SessionNode,
@@ -86,7 +84,6 @@ interface SidebarFolderTreeProps {
   ) => React.ReactNode;
   getOrderedGroups: (projectId: string, groups: SessionGroup[]) => SessionGroup[];
   renderProjectStatusIndicator?: (projectId: string, groups: SessionGroup[]) => React.ReactNode;
-  scrollContainerRef: React.RefObject<HTMLElement | null>;
   setActiveProjectIdOnly: (id: string) => void;
   setActiveMainTab: (tab: MainTab) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
@@ -119,7 +116,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   renderSessionNode,
   getOrderedGroups,
   renderProjectStatusIndicator,
-  scrollContainerRef,
   setActiveProjectIdOnly,
   setActiveMainTab,
   setSessionSwitcherOpen,
@@ -139,7 +135,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   const hiddenIds = React.useMemo(() => {
     if (!shelves) return null;
     const ids = new Set<string>();
-    for (const item of [...shelves.pinned, ...shelves.snoozed, ...shelves.settled]) ids.add(item.node.session.id);
+    for (const item of [...shelves.pinned, ...shelves.snoozed]) ids.add(item.node.session.id);
     return ids;
   }, [shelves]);
   const sections = React.useMemo(
@@ -154,7 +150,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     () => (allShelves ? { sectionById: allShelves.sectionById, wokeIds: allShelves.wokeIds } : null),
     [allShelves],
   );
-  // Pinned, Snoozed, and Settled mix folders, so their rows are cards that
+  // Pinned and Snoozed mix folders, so their rows are cards that
   // name the folder, as in Threads.
   const renderShelfItem = (item: ThreadsListItem) => (
     <React.Fragment key={item.node.session.id}>
@@ -198,9 +194,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
 
   const allHomeSessions = React.useMemo(() => {
     if (!homeSection) return [];
-    return homeSection.groups
-      .filter((group) => !group.isArchivedBucket)
-      .flatMap((group) => group.sessions);
+    return homeSection.groups.flatMap((group) => group.sessions);
   }, [homeSection]);
 
   const visibleHomeSessions = hasSessionSearchQuery || shelves
@@ -294,8 +288,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                           projectKey,
                           true,
                           null,
-                          undefined,
-                          scrollContainerRef,
                         )
                       : null}
                     {nestedGroups.map((group) => {
@@ -309,8 +301,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                             projectKey,
                             hideGroupLabel,
                             null,
-                            undefined,
-                            scrollContainerRef,
                           )}
                         </React.Fragment>
                       );
@@ -399,7 +389,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
             shelves={shelves}
             renderItem={renderShelfItem}
             hasSessionSearchQuery={hasSessionSearchQuery}
-            mobileVariant={mobileVariant}
             className="mt-auto border-t border-border pt-1"
           />
         </SessionRowVariantContext.Provider>

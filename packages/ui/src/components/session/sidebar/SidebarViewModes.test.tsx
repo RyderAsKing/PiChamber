@@ -51,7 +51,6 @@ type RenderOptions = {
   selected?: ProjectSection | null;
   homeSection?: ProjectSection | null;
   collapsed?: string[];
-  autoSettleAfterDays?: number | null;
   searching?: boolean;
 };
 
@@ -62,12 +61,11 @@ const FolderRow: React.FC<{ id: string; projectId: string }> = ({ id, projectId 
   return React.createElement('span', { 'data-session-id': id, 'data-project-id': projectId, 'data-row-shelf': shelfSection });
 };
 
-const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [], autoSettleAfterDays = null, searching = false }: RenderOptions): string => {
+const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [], searching = false }: RenderOptions): string => {
   const workspace = viewMode === undefined || viewMode === 'workspace';
   return renderToStaticMarkup(
     React.createElement(TooltipProvider, null, React.createElement(SidebarProjectsList, {
       viewMode,
-      autoSettleAfterDays,
       timelineBoundaries: getTimelineBoundaries(NOW, 1),
       // Mirrors SessionSidebar: workspace scopes to the selected folder (or the
       // mixed list when none is selected); the other views see every folder.
@@ -239,46 +237,59 @@ describe('Threads and By folder shelves', () => {
     return shelf < 0 ? null : /data-session-shelf="([^"]+)"/.exec(before.slice(shelf))![1]!;
   };
 
-  test('Threads lists recent sessions first and counts idle ones in a collapsed Settled shelf', () => {
+  test('Threads has no Settled shelf: a long-idle session stays under Recent', () => {
     setNow(NOW);
-    const markup = render({ viewMode: 'threads', sections: [alpha, beta], autoSettleAfterDays: 3 });
-    // alpha-old (90 days idle) settled; its shelf starts collapsed, so only the header shows.
-    expect(sessionIds(markup)).toEqual(['alpha-today', 'home-today', 'beta-yesterday']);
-    expect(markup).toContain('data-session-shelf="settled"');
-    expect(/Settled<span[^>]*>1<\/span>/.test(markup)).toBe(true);
+    const markup = render({ viewMode: 'threads', sections: [alpha, beta] });
+    // alpha-old is 90 days idle and still listed, newest first.
+    expect(sessionIds(markup)).toEqual(['alpha-today', 'home-today', 'beta-yesterday', 'alpha-old']);
+    expect(markup).not.toContain('data-session-shelf="settled"');
+    expect(markup).not.toContain('Settled');
     expect(markup).not.toContain('data-session-shelf="working"');
-    // With another section present the list is named.
-    expect(markup).toContain('>Recent</div>');
+    // With no other section beside it, the list needs no name.
+    expect(markup).not.toContain('>Recent</div>');
   });
 
-  test('By folder takes settled sessions out of their folder and keeps the folder listed', () => {
+  test('By folder keeps long-idle sessions in their folder and shows no Settled shelf', () => {
     setNow(NOW);
-    const markup = render({ viewMode: 'folder', sections: [alpha, beta], autoSettleAfterDays: 3 });
-    expect([...sessionIds(markup)].sort()).toEqual(['alpha-today', 'beta-yesterday', 'home-today']);
+    const markup = render({ viewMode: 'folder', sections: [alpha, beta] });
+    expect([...sessionIds(markup)].sort()).toEqual(['alpha-old', 'alpha-today', 'beta-yesterday', 'home-today']);
     expect(markup).toContain('data-group-key="alpha:alpha-root"');
-    expect(markup).toContain('data-session-shelf="settled"');
-    expect(shelfOf(markup, 'alpha-today')).toBeNull();
+    expect(markup).not.toContain('data-session-shelf="settled"');
+    expect(shelfOf(markup, 'alpha-old')).toBeNull();
   });
 
-  test('a By folder search keeps settled matches in their folder with their shelf menu', () => {
+  test('a By folder search keeps every match in its folder, and rows keep their shelf state for their menus', () => {
     setNow(NOW);
-    const markup = render({ viewMode: 'folder', sections: [alpha, beta], autoSettleAfterDays: 3, searching: true });
-    // Every match stays under its folder, the settled one included, and no shelf renders.
+    const markup = render({ viewMode: 'folder', sections: [alpha, beta], searching: true });
     expect([...sessionIds(markup)].sort()).toEqual(['alpha-old', 'alpha-today', 'beta-yesterday', 'home-today']);
     expect(markup).not.toContain('data-session-shelf=');
     expect(projectOf(markup, 'alpha-old')).toBe('alpha');
-    // The row still knows it is settled, so its menu offers Un-settle.
-    expect(markup).toContain('data-session-id="alpha-old" data-project-id="alpha" data-row-shelf="settled"');
+    // The shelf layout steps aside, but rows still read their shelf section,
+    // so a match's menu offers Snooze (or Wake) as it would outside a search.
     expect(markup).toContain('data-session-id="alpha-today" data-project-id="alpha" data-row-shelf="active"');
   });
 
-  test('with auto-settle off nothing moves and no shelf shows', () => {
+  // Archived sessions only reach the sections during a search, or in Timeline
+  // (useSessionSidebarSections.test.tsx); every view then lists them in place.
+  const archived = { ...makeNode('alpha-archived', '/work/alpha', NOW - HOUR / 2) };
+  archived.session = { ...archived.session, time: { ...archived.session.time, archived: NOW - HOUR / 4 } } as SessionNode['session'];
+  const alphaWithArchived = makeSection('alpha', 'Alpha', [archived, ...alpha.groups[0]!.sessions]);
+
+  test('Threads lists an archived match in place, newest first', () => {
     setNow(NOW);
-    for (const viewMode of ['threads', 'folder'] as const) {
-      const markup = render({ viewMode, sections: [alpha, beta], autoSettleAfterDays: null });
-      expect([...sessionIds(markup)].sort()).toEqual(['alpha-old', 'alpha-today', 'beta-yesterday', 'home-today']);
-      expect(markup).not.toContain('data-session-shelf="settled"');
-      expect(markup).not.toContain('>Recent</div>');
-    }
+    const markup = render({ viewMode: 'threads', sections: [alphaWithArchived, beta] });
+    expect(sessionIds(markup)).toEqual(['alpha-archived', 'alpha-today', 'home-today', 'beta-yesterday', 'alpha-old']);
+  });
+
+  test('By folder lists an archived match in its folder', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'folder', sections: [alphaWithArchived, beta] });
+    expect(projectOf(markup, 'alpha-archived')).toBe('alpha');
+  });
+
+  test('Timeline lists archived sessions by recency', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'timeline', sections: [alphaWithArchived, beta] });
+    expect(sessionIds(markup).slice(0, 2)).toEqual(['alpha-archived', 'alpha-today']);
   });
 });

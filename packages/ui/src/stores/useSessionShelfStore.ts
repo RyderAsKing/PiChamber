@@ -15,13 +15,12 @@ type SessionShelfState = {
   entries: Record<string, PiSessionShelfEntry>;
   /**
    * `failed` keeps the previous entries: a failed read is not an empty shelf.
-   * Before the first successful read the sidebar falls back to auto-settle
-   * only, which needs no stored state.
+   * Before the first successful read no session shows as snoozed.
    */
   status: ShelfStatus;
   load: () => Promise<void>;
   /**
-   * Apply a settle/snooze change now and confirm it with the server. On
+   * Apply a snooze change now and confirm it with the server. On
    * failure the entry rolls back (unless a newer change replaced it) and the
    * error is rethrown for the caller to report.
    */

@@ -612,7 +612,7 @@ export class PiService {
     return result;
   }
 
-  /** Settle, keep active, snooze, or wake a session. Returns its entry after the write. */
+  /** Snooze or wake a session. Returns its entry after the write. */
   async setSessionShelf(input: PiSessionShelfInput, scope?: PiClientScope): Promise<PiSessionShelfEntry | null> {
     assertRuntimeUnchanged(scope);
     const { sessionId, ...patch } = input;

@@ -55,25 +55,46 @@ export async function deleteSessions(ids: string[], _options?: unknown): Promise
 }
 
 export async function archiveSession(id: string): Promise<boolean> {
-  await store().archive(id, true);
-  return true;
+  try {
+    await store().archive(id, true);
+    return true;
+  } catch {
+    return false;
+  }
 }
+
+/**
+ * Archives or unarchives every id at once (each row changes optimistically
+ * when its call starts; the server serializes the writes) and reports each
+ * failure, so one failed session does not hide the rest.
+ */
+const setArchivedMany = async (ids: string[], archived: boolean): Promise<{ done: string[]; failed: string[] }> => {
+  const results = await Promise.allSettled(ids.map((id) => store().archive(id, archived)));
+  const done: string[] = [];
+  const failed: string[] = [];
+  results.forEach((result, index) => (result.status === 'fulfilled' ? done : failed).push(ids[index]!));
+  return { done, failed };
+};
 
 export async function archiveSessions(ids: string[], _options?: unknown): Promise<{ archivedIds: string[]; failedIds: string[] }> {
   void _options;
-  for (const id of ids) await store().archive(id, true);
-  return { archivedIds: ids, failedIds: [] };
+  const { done, failed } = await setArchivedMany(ids, true);
+  return { archivedIds: done, failedIds: failed };
 }
 
 export async function unarchiveSession(id: string): Promise<boolean> {
-  await store().archive(id, false);
-  return true;
+  try {
+    await store().archive(id, false);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function unarchiveSessions(ids: string[], _options?: unknown): Promise<{ restoredIds: string[]; failedIds: string[] }> {
   void _options;
-  for (const id of ids) await store().archive(id, false);
-  return { restoredIds: ids, failedIds: [] };
+  const { done, failed } = await setArchivedMany(ids, false);
+  return { restoredIds: done, failedIds: failed };
 }
 
 export async function updateSessionTitle(sessionId: string, title: string): Promise<void> {

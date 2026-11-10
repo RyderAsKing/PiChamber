@@ -626,6 +626,24 @@ describe('session daemon engines', () => {
     expect(result.result).toEqual({ published: false });
   });
 
+  it('publishes archive changes to every subscriber', async () => {
+    const { root } = await startDaemon({});
+    const health = await send('runtime.health');
+    expect(health.result.capabilities).toContain('archive.publish');
+    await expect(send('archive.publish', { sessionId: '', archived: true })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+    await expect(send('archive.publish', { sessionId: 'a', archived: 'yes' })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+
+    const subscriber = connectClient(currentEndpoint);
+    await subscriber.authenticate();
+    const seen = subscriber.next((message) => message.kind === 'event' && message.event === 'session.archive');
+    const result = await send('archive.publish', { sessionId: 'archived-1', archived: true, directory: root });
+    expect(result.result).toEqual({ published: true });
+    const event = await seen;
+    expect(event.payload).toEqual({ sessionId: 'archived-1', directory: root, archived: true });
+    expect(Number.isSafeInteger(event.sequence)).toBe(true);
+    await subscriber.close().catch(() => {});
+  });
+
   it('advertises sessions.pendingInput in runtime.health', async () => {
     await startDaemon({});
     const health = await send('runtime.health');

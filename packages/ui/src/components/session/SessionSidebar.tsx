@@ -27,7 +27,6 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { isSidebarViewMode, type SidebarViewMode } from '@/lib/sidebarViewMode';
 import { resolveTimelineWeekStart } from './sidebar/timelineBuckets';
 import { useTimelineBoundaries } from './sidebar/hooks/useTimelineBoundaries';
-import { useArchivedAutoFolders } from './sidebar/hooks/useArchivedAutoFolders';
 import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
@@ -65,7 +64,6 @@ import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { type SessionGroup, type SessionNode } from './sidebar/types';
-import { autoSettleDaysFromSetting } from '@/lib/sessionShelf';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   normalizePath,
@@ -260,7 +258,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ? 'workspace'
       : storedSidebarViewMode;
   const weekStartPreference = useUIStore((state) => state.weekStartPreference);
-  const autoSettleAfterDays = autoSettleDaysFromSetting(useUIStore((state) => state.sidebarAutoSettleAfterDays));
   const timelineWeekStart = React.useMemo(() => resolveTimelineWeekStart(weekStartPreference), [weekStartPreference]);
   const timelineBoundaries = useTimelineBoundaries(isVisible && sidebarViewMode === 'timeline', timelineWeekStart);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
@@ -550,8 +547,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const deleteSession = useSessionUIStore((state) => state.deleteSession);
   const deleteSessions = useSessionUIStore((state) => state.deleteSessions);
-  const archiveSession = useSessionUIStore((state) => state.archiveSession);
-  const archiveSessions = useSessionUIStore((state) => state.archiveSessions);
   const unarchiveSession = useSessionUIStore((state) => state.unarchiveSession);
   const unarchiveSessions = useSessionUIStore((state) => state.unarchiveSessions);
 
@@ -584,8 +579,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     unshareSession,
     deleteSession,
     deleteSessions,
-    archiveSession,
-    archiveSessions,
     unarchiveSession,
     childrenMap,
     showDeletionDialog,
@@ -764,25 +757,12 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     ownership: sessionOwnership,
   });
 
-  useArchivedAutoFolders({
-    enabled: isVisible,
-    normalizedProjects,
-    ownership: sessionOwnership,
-    hasAuthoritativeGlobalSessions: catalogReady,
-    isWorktreeTopologyLoading,
-    unresolvedWorktreeProjectPaths,
-    foldersMap,
-    createFolder,
-    addSessionToFolder,
-  });
-
   // Keep last-known repo status to avoid UI jiggling during project switch
   const lastRepoStatusRef = React.useRef(false);
   if (activeProjectId && projectRepoStatus.has(activeProjectId)) {
     lastRepoStatusRef.current = Boolean(projectRepoStatus.get(activeProjectId));
   }
 
-  const showArchivedSessions = useSessionDisplayStore((state) => state.showArchivedSessions);
   const manualProjectOrder = useProjectsStore((state) => state.manualProjectOrder);
   const projectExpandedParentsRef = React.useRef<Set<string>>(new Set());
   const projectExpandedParents = selectExpandedParentKeysForContext(
@@ -814,7 +794,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     gitBranches,
     gitRepoStatus,
     updateStore,
-    showArchivedSessions,
     projectRepoStatus,
     projectRootBranches,
     resolvedWorktreeTopologyKey,
@@ -879,10 +858,14 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     filterSessionNodesForSearch,
     buildGroupSearchText,
     foldersMap,
+    alwaysIncludeArchived: sidebarViewMode === 'timeline',
   });
 
   const allFoldersOnlySection = React.useMemo(() => {
-    const globalSessions = sessions.filter((session) => (
+    // Like the folder sections: archived sessions join during a search or in Timeline.
+    const includeArchived = hasSessionSearchQuery || sidebarViewMode === 'timeline';
+    const candidates = includeArchived ? [...sessions, ...archivedSessions] : sessions;
+    const globalSessions = candidates.filter((session) => (
       isGlobalSessionDirectory(resolveGlobalSessionDirectory(session), homeDirectory)
     ));
     if (globalSessions.length === 0) return null;
@@ -891,7 +874,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       .map((group) => hasSessionSearchQuery
         ? { ...group, sessions: filterSessionNodesForSearch(group.sessions, normalizedSessionSearchQuery) }
         : group)
-      .filter((group) => group.sessions.length > 0 && !group.isArchivedBucket);
+      .filter((group) => group.sessions.length > 0);
     if (groups.length === 0) return null;
 
     return {
@@ -904,12 +887,14 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       groups,
     };
   }, [
+    archivedSessions,
     buildGroupedSessions,
     filterSessionNodesForSearch,
     hasSessionSearchQuery,
     homeDirectory,
     normalizedSessionSearchQuery,
     sessions,
+    sidebarViewMode,
   ]);
 
   const allFoldersOnlySearchMatchCount = React.useMemo(() => {
@@ -929,23 +914,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   ), []);
 
   const { getOrderedGroups } = useGroupOrdering(groupOrderByProject);
-  const hasInitializedArchivedCollapseRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (hasInitializedArchivedCollapseRef.current || projectSections.length === 0) {
-      return;
-    }
-    const archivedGroupKeys = projectSections.flatMap((section) =>
-      section.groups
-        .filter((group) => group.isArchivedBucket)
-        .map((group) => `${section.project.id}:${group.id}`),
-    );
-    if (archivedGroupKeys.length > 0) {
-      setCollapsedGroups((prev) => new Set([...prev, ...archivedGroupKeys]));
-    }
-    hasInitializedArchivedCollapseRef.current = true;
-  }, [projectSections]);
-
   const {
     sessionSidebarMetaById,
     sectionsForSidebarRender,
@@ -1061,7 +1029,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const folderScopesByProject = React.useMemo(() => {
     const map = new Map<string, Array<{ scopeKey: string; directory: string | null }>>();
     flatSectionsForRender.forEach((section) => {
-      const flatGroup = section.groups.find((group) => !group.isArchivedBucket);
+      const flatGroup = section.groups[0];
       if (flatGroup?.folderScopes && flatGroup.folderScopes.length > 0) {
         map.set(section.project.id, flatGroup.folderScopes);
       }
@@ -1072,7 +1040,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
   const renderProjectStatusIndicator = React.useCallback((_projectId: string, groups: SessionGroup[]) => {
     const directories: Array<string | null> = [];
     groups.forEach((group) => {
-      if (group.isArchivedBucket) return;
       directories.push(group.directory);
       group.folderScopes?.forEach((scope) => directories.push(scope.directory));
     });
@@ -1097,7 +1064,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       hideGroupLabel?: boolean,
       dragHandleProps?: SortableDragHandleProps | null,
       compactBodyPadding?: boolean,
-      scrollContainerRef?: React.RefObject<HTMLElement | null>,
     ) => (
       <SessionGroupSection
         group={group}
@@ -1143,7 +1109,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         activeActivitySessionIds={activeSessionIdSet}
         unreadActivitySessionIds={unreadSessionIdSet}
         onToggleCollapsedGroup={toggleCollapsedGroup}
-        scrollContainerRef={scrollContainerRef}
       />
     ),
     [
@@ -1186,6 +1151,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const isInlineEditing = Boolean(renamingFolderId || editingId || editingProjectDialogId);
 
+  // Read at click time, so the bulk hook does not change with every list update.
+  const sessionsRef = React.useRef(sessions);
+  sessionsRef.current = sessions;
+  const resolveSessionDirectory = React.useCallback((sessionId: string): string | null => (
+    sessionsRef.current.find((session) => session.id === sessionId)?.directory ?? null
+  ), []);
+
   const {
     selectionModeEnabled,
     hasSelection,
@@ -1210,7 +1182,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     addSessionsToFolder,
     removeSessionsFromFolders,
     createFolderAndStartRename,
-    archiveSessions,
+    resolveSessionDirectory,
     unarchiveSessions,
     deleteSessions,
     setBulkDeleteConfirm,
@@ -1425,7 +1397,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
         pinnedSessionIds={pinnedSessionIds}
-        autoSettleAfterDays={autoSettleAfterDays}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}

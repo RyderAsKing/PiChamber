@@ -24,13 +24,13 @@ import { recordMobileDiagnostic, startMobileErrorLogCapture } from '@/lib/mobile
 import { loadSessionCatalog } from '@/sync/session-catalog-access';
 import { normalizePath } from '@/lib/pathNormalization';
 import { decideMobileRestore } from './mobileLastSessionRestore';
+import { useMobileFolderFocus } from './useMobileFolderFocus';
 import { clearLastActiveSession, readLastActiveSession } from '@/sync/last-session-cache';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { PiSessionProvider } from '@/sync/pi-session-context';
-import { focusPreferenceForDirectory } from '@/sync/pi-session-focus-preference';
 import { FireworksProvider } from '@/contexts/FireworksContext';
 
 import { SyncAppEffects } from './AppEffects';
@@ -681,12 +681,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     };
   }, [connectionEpoch, isConnected, isNativeMobileApp]);
 
-  React.useEffect(() => {
-    if (!isConnected) return;
-    // A null preference would let a list that is still in flight pick its
-    // first row; carry only a selection that already belongs to this folder.
-    void getPiSessionStore().focusProject(currentDirectory, focusPreferenceForDirectory(currentDirectory));
-  }, [currentDirectory, isConnected]);
+  useMobileFolderFocus(currentDirectory, isConnected);
 
   React.useEffect(() => {
     if (!error) return;
