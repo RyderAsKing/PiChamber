@@ -122,6 +122,14 @@ probes collapse per host through `lib/servers/probeDedupe.ts`.
   address (token + password-unlock included; desktop-only extra headers are
   ignored). Remove uses the row's inline confirmation. Edit keeps the
   mobile inline form (direct only). User-facing copy reads "Servers".
+  The sheet (`layout="sheet"`, default) scrolls and pads itself; the
+  settings page passes `layout="page"`, since `SettingsPageLayout` already
+  scrolls and pads, so the rows span the page width. On phones that page
+  leaves its title to the app header, like the other settings pages, and
+  its section reads "Saved servers" (as on desktop).
+- Touch rows sit on `surface-elevated`, put the status dot on the name
+  line, and set the status and address lines in `typography-meta` (desktop
+  rows use `typography-micro`).
 - Touch targets: in `layout="touch"` the row menu trigger and the default
   star are 44px and the remove confirmation buttons are at least 44px tall;
   the whole row is the Connect target. Android back closes scanner → add

@@ -3,6 +3,7 @@ import React from 'react';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { MobileServersManager } from '@/apps/MobileServersManager';
+import { useDeviceInfo } from '@/lib/device';
 
 /**
  * Servers settings page for the native Capacitor app: the same mobile-backed
@@ -13,19 +14,22 @@ import { MobileServersManager } from '@/apps/MobileServersManager';
 export const MobileServersPage: React.FC<{
   onActiveConnectionDeleted?: () => void;
 }> = ({ onActiveConnectionDeleted }) => {
+  const { isMobile } = useDeviceInfo();
   return (
     <SettingsPageLayout
-      title="Servers"
-      description="Which PiChamber server this app uses. Add other servers to switch between them."
+      // The phone header already shows the page title.
+      title={isMobile ? undefined : 'Servers'}
+      description={isMobile ? undefined : 'Which PiChamber server this app uses. Add other servers to switch between them.'}
     >
       <SettingsSection
-        title={'Other PiChamber servers'}
+        title={'Saved servers'}
         info={'Servers this app can connect to. Add a server by address, pairing link, or QR code.'}
         divider={false}
         settingsItem="servers.direct-hosts"
         contentClassName="space-y-4"
       >
         <MobileServersManager
+          layout="page"
           onConnect={() => undefined}
           onActiveConnectionDeleted={onActiveConnectionDeleted ?? (() => undefined)}
         />
