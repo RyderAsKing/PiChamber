@@ -722,6 +722,7 @@ export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile
                     path={relativePath || node.path}
                     status={getFileStatus(node.path)}
                     active={selectedPath === node.path}
+                    match={searchQuery}
                     onClick={() => void handleOpenFile(node)}
                     onDragStart={(e) => {
                       if (!relativePath || relativePath === '.') return;

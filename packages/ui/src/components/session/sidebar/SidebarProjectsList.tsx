@@ -206,7 +206,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   if (props.sharedSessionsOnly) {
     return (
-      <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 20 : 40} outerClassName="flex-1 min-h-0" className="pt-2 pb-1">
+      <ScrollableOverlay useScrollShadow scrollShadowSize={20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1">
         <div className="space-y-1 px-2">
         {props.topContent}
         {!props.hasSharedSessions ? (props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState) : null}
@@ -217,11 +217,11 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   const hasAllFoldersOnlySection = (props.isAllFoldersView || viewMode === 'timeline' || viewMode === 'folder') && Boolean(props.allFoldersOnlySection);
   if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 20 : 40} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
   if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 20 : 40} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 
   const renderPaginationButtons = () => {
@@ -261,7 +261,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       ref={scrollContainerRef}
       useScrollShadow
       hideTopScrollShadow
-      scrollShadowSize={props.mobileVariant ? 20 : 40}
+      scrollShadowSize={20}
       outerClassName="flex-1 min-h-0"
       className="oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]"
     >

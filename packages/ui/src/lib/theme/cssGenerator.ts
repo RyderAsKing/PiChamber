@@ -65,7 +65,9 @@ export class CSSVariableGenerator {
     cssVars.push(...this.generateTailwindVariables(theme));
     // Tertiary text (timestamps, counts, hints): one readable step below muted,
     // in place of ad-hoc `/60`-`/80` alpha fades that drop under WCAG AA.
-    const subtleForeground = deriveSubtle(surface.mutedForeground, textSurfaces, surface.background);
+    // A short fade keeps it a clear step down from muted without receding on
+    // dark surfaces, where timestamps and parent paths still need to scan.
+    const subtleForeground = deriveSubtle(surface.mutedForeground, textSurfaces, surface.background, { maxFade: 0.15 });
     cssVars.push(`  --subtle-foreground: ${subtleForeground} !important;`);
 
     cssVars.push(...this.generatePrimaryColors(theme.colors.primary));

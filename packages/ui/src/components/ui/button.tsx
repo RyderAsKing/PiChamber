@@ -58,9 +58,13 @@ const buttonVariants = cva(
       variant: {
         default: TINT_PRIMARY,
         // Filled primary for the one action that finishes a flow (Add, Clone,
-        // Create, Commit), so it outranks the tinted buttons around it.
-        solid:
+        // Create, Commit), so it outranks the tinted buttons around it. Disabled,
+        // it drops the fill and matches a disabled outline button, so an
+        // unavailable finishing action never looks ready.
+        solid: cn(
           "bg-[var(--primary-base)] text-[var(--primary-foreground)] border border-transparent hover:bg-[var(--primary-hover)] active:opacity-90",
+          "disabled:bg-[var(--surface-elevated)] disabled:text-foreground disabled:border-border/60",
+        ),
         destructive: cn(
           TINT_DESTRUCTIVE,
           "focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",

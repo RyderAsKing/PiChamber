@@ -139,9 +139,10 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
             aria-pressed={isActive}
             className={cn(
               'flex h-9 w-9 touch-none select-none items-center justify-center rounded-md transition-colors',
+              // The open panel's button keeps a fill, so the rail shows where you are.
               isActive
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'bg-interactive-selection text-foreground'
+                : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
             )}
           >
             {surface.id === 'context' && typeof chartPercentage === 'number' ? (

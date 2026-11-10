@@ -125,7 +125,7 @@
         "diffRemovedBackground": "#f871711c",
         "diffModified": "#818cf8",
         "diffModifiedBackground": "#818cf81c",
-        "lineNumber": "#65656f",
+        "lineNumber": "#74747e",
         "lineNumberActive": "#dcdce0"
       }
     },

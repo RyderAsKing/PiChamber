@@ -45,7 +45,7 @@ Use `Button` from `packages/ui/src/components/ui/button.tsx`.
 | Variant | Use |
 |---|---|
 | `default` | Primary local action |
-| `solid` | The one action that finishes a flow (Add, Clone, Create, Commit) |
+| `solid` | The one action that finishes a flow (Add, Clone, Create, Commit); disabled, it loses its fill |
 | `outline` | Visible secondary action |
 | `secondary` | Soft secondary action |
 | `ghost` | Quiet row/toolbar action |

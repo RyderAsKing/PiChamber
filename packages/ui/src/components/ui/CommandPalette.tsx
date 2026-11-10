@@ -19,6 +19,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useCatalogUiSessions } from '@/sync/sync-context';
 import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
+import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   EMPTY_SESSION_ORDER_RANKS,
@@ -109,6 +110,7 @@ export const CommandPalette: React.FC = () => {
     [isCommandPaletteOpen],
   ));
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
+  const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
   const projects = useProjectsStore((s) => s.projects);
   const effectiveDirectory = useEffectiveDirectory();
@@ -562,7 +564,10 @@ export const CommandPalette: React.FC = () => {
                       const dir = resolveGlobalSessionDirectory(session);
                       const project = projectForDirectory(dir);
                       const branch = branchForSession(dir, project);
-                      const projectName = project ? getProjectDisplayLabel(project) : null;
+                      // Sessions started without a folder say so, as in the sidebar.
+                      const projectName = project
+                        ? getProjectDisplayLabel(project)
+                        : isGlobalSessionDirectory(dir, homeDirectory) ? 'No folder' : null;
                       return (
                         <CommandItem
                           key={session.id}

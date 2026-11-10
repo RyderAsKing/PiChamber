@@ -47,7 +47,10 @@ export const SettingsPageLayout: React.FC<SettingsPageLayoutProps> = ({
   const hasTitleChrome = titleLeading != null || titleAccessory != null;
 
   return (
+    // The edge fade says a long page continues past the fold.
     <ScrollableOverlay
+      useScrollShadow
+      scrollShadowSize={24}
       outerClassName={cn('h-full', outerClassName)}
       className="w-full @container"
     >

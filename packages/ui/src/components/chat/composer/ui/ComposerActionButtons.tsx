@@ -52,6 +52,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     } = props;
     
 
+    const ready = canSend && Boolean(currentSessionId || newSessionDraftOpen) && !isSending;
     const sendButton = (
         <button
             type={isMobile ? 'button' : 'submit'}
@@ -66,8 +67,10 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             }}
             className={cn(
                 footerIconButtonClass,
-                canSend && (currentSessionId || newSessionDraftOpen) && !isSending
-                    ? 'text-primary hover:text-primary'
+                // Ready to send, it fills like the other finishing actions, so
+                // a sendable draft is obvious at a glance; otherwise a faint glyph.
+                ready
+                    ? 'rounded-full bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]'
                     : 'opacity-30',
                 isSending && 'animate-pulse'
             )}
@@ -76,7 +79,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         >
             {isSending
                 ? <Icon name="loader-4" className={cn(sendIconSizeClass, 'animate-spin')} />
-                : <Icon name={isShellMode ? 'play' : 'send-plane-2'} className={cn(sendIconSizeClass)} />}
+                : <Icon name={isShellMode ? 'play' : 'send-plane-2'} className={cn(sendIconSizeClass, ready && 'size-3.5')} />}
         </button>
     );
 

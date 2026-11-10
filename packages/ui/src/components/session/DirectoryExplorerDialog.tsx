@@ -215,12 +215,19 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
 
   if (step === 'folder') {
     pendingLabel = 'Adding…';
+    // Named like the other location steps, so the highlighted folder in the
+    // list never reads as the one being added.
+    const target = trimTrailingSeparators(browser.query.trim()) || browser.query.trim();
     if (browser.isAlreadyAdded) {
       submitVerb = 'Added';
+      if (target) summary = { tone: 'outcome', text: 'Already added:', path: target };
     } else {
       submitVerb = browser.shouldCreateTarget ? 'Create and add' : 'Add';
       const unreadable = browser.browseErrorReason && browser.browseErrorReason !== 'not-found';
       canSubmit = Boolean(browser.targetPath) && !unreadable && !browsing;
+      if (target && !unreadable) {
+        summary = { tone: 'outcome', text: browser.shouldCreateTarget ? 'Creates and adds' : 'Adds', path: target };
+      }
     }
   } else if (step === 'clone-location') {
     submitVerb = 'Clone';
@@ -447,8 +454,9 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   } else if (step === 'clone-url' || step === 'new-name') {
     hints.push({ keys: ['↵'], label: 'Continue' });
   } else if (activeItem) {
+    // The finishing button carries its own shortcut, so the footer only
+    // explains the list keys.
     hints.push({ keys: ['↵'], label: activeItem.kind === 'toggle' ? 'Toggle' : 'Open' });
-    hints.push({ keys: [mod, '↵'], label: submitVerb });
   } else {
     hints.push({ keys: ['↵'], label: submitVerb });
   }

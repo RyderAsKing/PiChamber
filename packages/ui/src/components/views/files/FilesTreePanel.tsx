@@ -272,6 +272,7 @@ export const FilesTreePanel: React.FC<FilesTreePanelProps> = ({
                   path={node.relativePath || getDisplayPath(root, node.path) || node.path}
                   status={getFileStatus(node.path)}
                   active={selectedFile?.path === node.path}
+                  match={searchQuery}
                   onClick={() => void onSelectFile(node)}
                 />
               </li>
