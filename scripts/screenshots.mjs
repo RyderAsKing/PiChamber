@@ -67,19 +67,19 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 </main></body></html>`;
 
 // Sessions the seed adds for the Threads and By folder captures (see
-// writeShelfSessions): recent ones stay in the list, one is snoozed, one was
-// settled by hand, and old ones settle on their own.
+// writeShelfSessions): recent ones stay in the list and one is snoozed. Two are
+// archived: one by hand a little while ago and an old one by auto-archive, so
+// they leave Threads and By folder and show only in search and Timeline.
 const SHELF_SESSIONS = [
   { id: '0193f6a0-0001-7000-8000-000000000001', folder: 'repo', title: 'Add retry with backoff to the billing client', hoursAgo: 0.3 },
   { id: '0193f6a0-0002-7000-8000-000000000002', folder: 'night-shift', title: 'Fix the dark logo on the dark theme', hoursAgo: 2 },
   { id: '0193f6a0-0003-7000-8000-000000000003', folder: 'chamber-mono', title: 'Plan the docs restructure', hoursAgo: 20, snooze: true },
-  { id: '0193f6a0-0004-7000-8000-000000000004', folder: 'acme-web', title: 'Rename the checkout helpers', hoursAgo: 1, settled: true },
-  { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24 },
+  { id: '0193f6a0-0004-7000-8000-000000000004', folder: 'acme-web', title: 'Rename the checkout helpers', hoursAgo: 1, archived: true },
+  { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24, archived: true },
 ];
 const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
 const SHELF_SESSION_TEXT = [SHELF_SESSIONS[0].title, SHELF_SESSIONS[1].title];
-// Opens the Snoozed and Settled shelves (they start collapsed) and waits for
-// their rows, and for the open session's message and model picker so the
+// Opens the Snoozed shelf (it starts collapsed) and waits for its row, and for the open session's message and model picker so the
 // transcript beside the sidebar is not caught loading.
 const SHELVES_OPEN = `(() => {
   const closed = document.querySelector('[data-session-shelf] button[aria-expanded="false"]');
@@ -88,8 +88,7 @@ const SHELVES_OPEN = `(() => {
     .some((node) => node.innerText.includes(${JSON.stringify(SHELF_SESSIONS[0].title)}));
   return messageShown
     && !document.body.innerText.includes('Loading...')
-    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)})
-    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[4].title)});
+    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)});
 })()`;
 
 // The branch prefix: a middle-truncated label splits the full name across spans.
@@ -179,8 +178,8 @@ const PAGES = {
     idleRequestPrefix: '/api/fs/project-icon',
   },
   'sidebar-threads': {
-    // The Threads view: recent sessions across folders, then the Snoozed and
-    // Settled shelves opened, with the selected title in medium weight.
+    // The Threads view: recent sessions across folders, then the Snoozed
+    // shelf opened (archived sessions are not listed), with the selected title in medium weight.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'threads',
     readyText: SHELF_SESSION_TEXT,
@@ -188,7 +187,7 @@ const PAGES = {
     settledScript: SHELVES_OPEN,
   },
   'sidebar-threads-hover': {
-    // Threads with the pointer on an active session: its Settle action takes
+    // Threads with the pointer on an active session: its Archive action takes
     // the timestamp's place.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'threads',
@@ -201,9 +200,9 @@ const PAGES = {
       return rect ? { x: rect.left + 20, y: rect.top + rect.height / 2 } : null;
     })()`,
   },
-  'sidebar-threads-settle': {
-    // Threads with the shelves collapsed, just after the open session's Settle
-    // button: it leaves the list, and a toast names it with Undo. This settles
+  'sidebar-threads-archive': {
+    // Threads with the shelves collapsed, just after the open session's Archive
+    // button: it leaves the list, and a toast names it with Undo. This archives
     // the session in the data directory, so capture it after the other pages.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'threads',
@@ -212,24 +211,46 @@ const PAGES = {
     settledScript: `(() => {
       const title = ${JSON.stringify(SHELF_SESSIONS[0].title)};
       if ([...document.querySelectorAll('[data-sonner-toast]')].some((toast) => toast.innerText.includes(title))) return true;
-      if (window.__settleClicked) return false;
+      if (window.__archiveClicked) return false;
       const messageShown = [...document.querySelectorAll('[data-message-id]')].some((node) => node.innerText.includes(title));
       if (!messageShown) return false;
-      // The row is the widest ancestor holding a single Settle button.
-      const button = [...document.querySelectorAll('button[aria-label="Settle"]')].find((candidate) => {
+      // The row is the widest ancestor holding a single Archive button.
+      const button = [...document.querySelectorAll('button[aria-label="Archive"]')].find((candidate) => {
         let row = candidate;
-        while (row.parentElement && row.parentElement.querySelectorAll('button[aria-label="Settle"]').length === 1) row = row.parentElement;
+        while (row.parentElement && row.parentElement.querySelectorAll('button[aria-label="Archive"]').length === 1) row = row.parentElement;
         return row.innerText.includes(title);
       });
       if (!button) return false;
-      window.__settleClicked = true;
+      window.__archiveClicked = true;
       button.click();
       return false;
     })()`,
   },
+  'sidebar-search-archived': {
+    // A search that matches an archived session: the match shows in place with
+    // a muted title, while the same session is absent from the plain list.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const title = ${JSON.stringify(SHELF_SESSIONS[3].title)};
+      const input = document.querySelector('input[placeholder="Search sessions..."]');
+      if (!input) {
+        document.querySelector('button[aria-label="Search sessions"]')?.click();
+        return false;
+      }
+      if (input.value !== 'checkout') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'checkout');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return false;
+      }
+      return document.body.innerText.includes(title);
+    })()`,
+  },
   'sidebar-folder': {
-    // By folder: folders with their active sessions; snoozed and settled
-    // sessions moved to shelves under the folder list.
+    // By folder: folders with their active sessions; snoozed sessions
+    // moved to a shelf under the folder list, archived ones left out.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'folder',
     readyText: SHELF_SESSION_TEXT,
@@ -900,10 +921,11 @@ const writeDemoSession = async (home, repo) => {
 };
 
 // Short sessions across the seeded folders, timed relative to the seed, plus
-// the shelf sidecar that snoozes one and settles another by hand.
+// the shelf sidecar that snoozes one and the archive sidecar that archives two.
 const writeShelfSessions = async (home, data, folderPath) => {
   const now = Date.now();
   const shelf = {};
+  const archive = {};
   for (const session of SHELF_SESSIONS) {
     const cwd = folderPath(session.folder);
     const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
@@ -919,10 +941,11 @@ const writeShelfSessions = async (home, data, folderPath) => {
     // The session list dates a session by its file's modification time.
     await utimes(file, new Date(start), new Date(start));
     if (session.snooze) shelf[session.id] = { snoozedUntil: now + 24 * 60 * 60 * 1000, snoozedAt: now };
-    if (session.settled) shelf[session.id] = { settled: 'settled', settledAt: now - 30 * 60 * 1000 };
+    if (session.archived) archive[session.id] = now - 30 * 60 * 1000;
   }
   await mkdir(join(data, 'pi'), { recursive: true });
   await writeFile(join(data, 'pi', 'session-shelf.json'), JSON.stringify(shelf));
+  await writeFile(join(data, 'pi', 'session-archive.json'), JSON.stringify(archive));
 };
 
 // A flat square favicon with one white glyph.
