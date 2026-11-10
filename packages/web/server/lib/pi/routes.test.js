@@ -45,6 +45,14 @@ describe('Pi runtime route', () => {
     expect(projectEventFrame(frame({ url: 'http://x.test', attributed: false, createdAt: 1 }))).toBeNull();
   });
 
+  it('projects archive changes and drops malformed ones', () => {
+    const frame = (payload) => ({ protocolVersion: 1, kind: 'event', event: 'session.archive', sequence: 3, payload: { sessionId: 's-1', directory: '/workspace', ...payload } });
+    expect(projectEventFrame(frame({ archived: true }))).toEqual({
+      protocolVersion: 1, kind: 'event', name: 'session.archive', sequence: 3, sessionId: 's-1', directory: '/workspace', payload: { archived: true },
+    });
+    expect(projectEventFrame(frame({ archived: 'yes' }))).toBeNull();
+  });
+
   it('projects prompt-time files on a live user message start', () => {
     expect(projectEventFrame({
       protocolVersion: 1,
@@ -1615,9 +1623,13 @@ describe('Pi runtime route', () => {
         return null;
       },
     };
+    const published = [];
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
-      request: async (command) => (command === 'sessions.list' ? { sessions: [{ session, updatedAt: 2 }] } : {}),
+      request: async (command, payload) => {
+        if (command === 'archive.publish') published.push(payload);
+        return command === 'sessions.list' ? { sessions: [{ session, updatedAt: 2 }] } : {};
+      },
     };
     const app = express();
     app.use(express.json());
@@ -1634,6 +1646,7 @@ describe('Pi runtime route', () => {
     expect(settled.status).toBe(200);
     await expect(settled.json()).resolves.toEqual({ entry: { snoozedUntil: 9_000, snoozedAt: 3 } });
     expect(archiveSets).toEqual([['pi-session-7', true]]);
+    await vi.waitFor(() => expect(published).toEqual([{ sessionId: 'pi-session-7', archived: true, directory: '/workspace' }]));
 
     for (const value of ['active', null]) {
       const response = await post({ settled: value });
@@ -1648,6 +1661,7 @@ describe('Pi runtime route', () => {
     expect(shelfUpdates).toEqual([['pi-session-7', { snoozedUntil: 12_000 }]]);
     expect((await fetch(`${origin}/api/pi/sessions/missing/shelf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settled: 'settled' }) })).status).toBe(404);
     expect(archiveSets).toHaveLength(1);
+    expect(published).toHaveLength(1);
   });
 
   it('unarchives a session when a prompt, steer, follow-up, or shell command is accepted', async () => {
@@ -1662,9 +1676,14 @@ describe('Pi runtime route', () => {
       },
     };
     let accept = true;
+    const published = [];
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
-      request: async (command) => {
+      request: async (command, payload) => {
+        if (command === 'archive.publish') {
+          published.push(payload);
+          return { published: true };
+        }
         if (command === 'sessions.bash') return accept ? { accepted: true, id: 'bash-1' } : Promise.reject(Object.assign(new Error('nope'), { code: 'INVALID_SESSION' }));
         if (command === 'sessions.prompt' || command === 'sessions.steer' || command === 'sessions.followUp') {
           if (!accept) throw Object.assign(new Error('nope'), { code: 'INVALID_SESSION' });
@@ -1685,13 +1704,17 @@ describe('Pi runtime route', () => {
     expect((await post('/api/pi/sessions/pi-session-7/prompt', { text: 'hello', streamEpoch: 'epoch-routes' })).status).not.toBe(202);
     expect((await post('/api/pi/sessions/pi-session-7/bash', { command: 'ls' })).status).not.toBe(202);
     expect(archiveSets).toEqual([]);
+    expect(published).toEqual([]);
     accept = true;
 
     expect((await post('/api/pi/sessions/pi-session-7/prompt', { text: 'hello', streamEpoch: 'epoch-routes' })).status).toBe(202);
     expect(archive).toEqual({ 'pi-session-8': 6 });
-    // Not archived: no write.
+    // The daemon resolves the folder from the resident session.
+    await vi.waitFor(() => expect(published).toEqual([{ sessionId: 'pi-session-7', archived: false }]));
+    // Not archived: no write and nothing to publish.
     expect((await post('/api/pi/sessions/pi-session-7/steer', { text: 'more', streamEpoch: 'epoch-routes' })).status).toBe(202);
     expect(archiveSets).toEqual([['pi-session-7', false]]);
+    expect(published).toHaveLength(1);
 
     for (const [path, body] of [
       ['steer', { text: 'more', streamEpoch: 'epoch-routes' }],
@@ -1729,6 +1752,30 @@ describe('Pi runtime route', () => {
     });
     expect(bash.status).toBe(202);
     expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('keeps an archive change when the daemon cannot publish it', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        if (command === 'sessions.list') return { sessions: [{ session: { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 }] };
+        if (command === 'archive.publish') throw Object.assign(new Error('old daemon'), { code: 'UNKNOWN_COMMAND' });
+        return {};
+      },
+    };
+    const archiveSets = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}), set: async (...args) => archiveSets.push(args) } });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-7/archive`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true }),
+    });
+    expect(response.status).toBe(204);
+    expect(archiveSets).toEqual([['pi-session-7', true]]);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
     warn.mockRestore();
   });
 
@@ -1860,6 +1907,8 @@ describe('Pi runtime route', () => {
     expect((await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true, directory: '/other' }) })).status).toBe(204);
     expect(archiveSets).toEqual([['foreign-1', true]]);
     expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/other' } });
+    // Every device hears about it, on the session's own folder.
+    await vi.waitFor(() => expect(calls).toContainEqual({ command: 'archive.publish', payload: { sessionId: 'foreign-1', archived: true, directory: '/other' } }));
 
     // Wrong directory fails membership without writing the sidecar.
     calls.length = 0;
@@ -1868,6 +1917,7 @@ describe('Pi runtime route', () => {
     expect(wrong.status).not.toBe(204);
     expect(archiveSets).toEqual([]);
     expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/focused' } });
+    expect(calls.some((call) => call.command === 'archive.publish')).toBe(false);
   });
 
   it('projects daemon file parts for image and attachment history instead of failing the session open', async () => {

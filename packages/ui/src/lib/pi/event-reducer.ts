@@ -155,9 +155,10 @@ export const applyPiEvent = (
   }
 
   // An open request is a device-side side effect (lib/pi/open-request.ts),
-  // not session state: advance the cursor without touching or creating the
+  // and an archive change is catalog metadata the store re-lists for, not
+  // session state: advance the cursor without touching or creating the
   // session row.
-  if (event.name === 'session.openUrl') {
+  if (event.name === 'session.openUrl' || event.name === 'session.archive') {
     const nextLastSequence = new Map(state.lastSequence);
     nextLastSequence.set(event.sessionId, event.sequence);
     return {

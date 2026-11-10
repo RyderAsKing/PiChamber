@@ -195,3 +195,44 @@ describe('unarchive on send', () => {
     });
   });
 });
+
+const archiveEvent = (sessionId: string, archived: boolean, sequence: number): PiSessionEvent => ({
+  protocolVersion: 1, kind: 'event', name: 'session.archive', sequence, sessionId, directory: DIRECTORY, payload: { archived },
+}) as PiSessionEvent;
+
+describe('archive changes from other devices', () => {
+  test('a client re-lists the folder when an archive change disagrees with its row', async () => {
+    const listed: Array<string | undefined> = [];
+    await withStore({
+      listSessions: (async (scope?: { directory?: string }) => {
+        listed.push(scope?.directory);
+        return { sessions: [listItem('s1', false), listItem('s2', true)] };
+      }) as typeof piClient.listSessions,
+    }, async (other) => {
+      seed(other, { s1: true, s2: false });
+      internal(other).commitEvents([archiveEvent('s1', false, 5), archiveEvent('s2', true, 6)]);
+      expect(await waitFor(() => isArchived(other, 's1') === false && isArchived(other, 's2') === true)).toBe(true);
+      // Both changes coalesce into one re-list of their folder.
+      expect(listed).toEqual([DIRECTORY]);
+    });
+  });
+
+  test('a change the client already shows, or for a session it does not hold, does nothing', async () => {
+    const listed: Array<string | undefined> = [];
+    await withStore({
+      listSessions: (async (scope?: { directory?: string }) => {
+        listed.push(scope?.directory);
+        return { sessions: [] };
+      }) as typeof piClient.listSessions,
+    }, async (store) => {
+      seed(store, { s1: true });
+      const before = store.getState().reducer.bySession;
+      internal(store).commitEvents([archiveEvent('s1', true, 5), archiveEvent('elsewhere', true, 6)]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(listed).toEqual([]);
+      // Not transcript state: no reducer row appears for an unknown session.
+      expect(store.getState().reducer.bySession.has('elsewhere')).toBe(false);
+      expect(store.getState().reducer.bySession.get('s1')).toBe(before.get('s1'));
+    });
+  });
+});

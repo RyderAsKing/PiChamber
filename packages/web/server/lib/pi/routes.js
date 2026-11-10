@@ -940,6 +940,11 @@ export const projectEventFrame = (frame) => {
       const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
       return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
     }
+    case 'session.archive': {
+      // An archive mark changed on the server; devices re-list the folder.
+      if (typeof frame.payload.archived !== 'boolean') return null;
+      return { ...common, payload: { archived: frame.payload.archived } };
+    }
     case 'session.openUrl': {
       // An Open request (lib/open-url). `serverNow` is stamped at delivery so
       // a device can tell a live request from a replayed one using only the
@@ -1135,6 +1140,24 @@ export const registerPiRuntimeRoutes = (app, {
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
+  // Tell every device an archive mark changed (a `session.archive` event on
+  // the session's stream) so other clients re-list that folder. The change is
+  // already saved, so this never delays or fails the request: an older
+  // daemon without `archive.publish` only logs, and devices catch up on
+  // their next list.
+  const publishArchiveChange = (sessionId, archived, directory) => {
+    void (async () => {
+      try {
+        await getDaemonRuntime(getPiSessionDaemonRuntime).request('archive.publish', {
+          sessionId,
+          archived,
+          ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
+        });
+      } catch (error) {
+        console.warn('[pi] could not tell other devices about an archive change', error?.code ?? error);
+      }
+    })();
+  };
   // A message or command the user sends ends a snooze and unarchives the
   // session. The send already succeeded, so a failed write only logs.
   const bringBackForActivity = async (sessionId) => {
@@ -1145,7 +1168,10 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       const archived = await archiveStore.read();
-      if (Object.hasOwn(archived, sessionId)) await archiveStore.set(sessionId, false);
+      if (Object.hasOwn(archived, sessionId)) {
+        await archiveStore.set(sessionId, false);
+        publishArchiveChange(sessionId, false);
+      }
     } catch (error) {
       console.warn('[pi] could not unarchive a session after a send', error?.code ?? error);
     }
@@ -2065,12 +2091,16 @@ export const registerPiRuntimeRoutes = (app, {
         directory ? { directory } : undefined,
       );
       const items = projectSessionList(result?.sessions);
-      if (!items.some((item) => item.session.id === sessionId)) {
+      const item = items.find((candidate) => candidate.session.id === sessionId);
+      if (!item) {
         const error = new Error('The Pi session does not exist.');
         error.code = 'INVALID_SESSION';
         throw error;
       }
-      if (hasSettled && body.settled === 'settled') await archiveStore.set(sessionId, true);
+      if (hasSettled && body.settled === 'settled') {
+        await archiveStore.set(sessionId, true);
+        publishArchiveChange(sessionId, true, item.session.directory || directory);
+      }
       const entry = hasSnooze
         ? await sessionShelfStore.update(sessionId, { snoozedUntil: body.snoozedUntil })
         : (await sessionShelfStore.read())[sessionId] ?? null;
@@ -2096,12 +2126,14 @@ export const registerPiRuntimeRoutes = (app, {
         directory ? { directory } : undefined,
       );
       const items = projectSessionList(result?.sessions);
-      if (!items.some((item) => item.session.id === sessionId)) {
+      const item = items.find((candidate) => candidate.session.id === sessionId);
+      if (!item) {
         const error = new Error('The Pi session does not exist.');
         error.code = 'INVALID_SESSION';
         throw error;
       }
       await archiveStore.set(sessionId, archived);
+      publishArchiveChange(sessionId, archived, item.session.directory || directory);
       res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);
