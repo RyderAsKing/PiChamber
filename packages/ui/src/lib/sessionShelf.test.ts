@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   applyShelfPatch,
   formatSnoozeWake,
+  isAutoArchiveCandidate,
   nextSnoozeWakeAt,
   resolveSessionShelfSection,
   resolveSnoozePresets,
@@ -69,6 +70,37 @@ describe('session shelf rules', () => {
       b: { snoozedUntil: NOW + 2000, snoozedAt: NOW },
       c: { snoozedUntil: NOW - 2000, snoozedAt: NOW },
     }, NOW)).toBe(NOW + 2000);
+  });
+});
+
+describe('auto-archive candidates', () => {
+  const candidate = (overrides: Partial<SessionShelfInput & { open: boolean }> = {}) => isAutoArchiveCandidate({
+    ...input({ updatedAt: NOW - 8 * DAY }),
+    open: false,
+    ...overrides,
+  }, 7);
+
+  test('a session idle longer than the setting is a candidate; a recent one is not', () => {
+    expect(candidate()).toBe(true);
+    expect(candidate({ updatedAt: NOW - 6 * DAY })).toBe(false);
+  });
+
+  test('pinned, working, waiting, and open sessions never are', () => {
+    expect(candidate({ pinned: true })).toBe(false);
+    expect(candidate({ working: true })).toBe(false);
+    expect(candidate({ needsInput: true })).toBe(false);
+    expect(candidate({ open: true })).toBe(false);
+  });
+
+  test('a snoozed session waits for its wake, then counts idle time from it', () => {
+    expect(candidate({ entry: { snoozedUntil: NOW + DAY, snoozedAt: NOW - 30 * DAY } })).toBe(false);
+    expect(candidate({ entry: { snoozedUntil: NOW - 2 * DAY, snoozedAt: NOW - 30 * DAY } })).toBe(false);
+    expect(candidate({ entry: { snoozedUntil: NOW - 8 * DAY, snoozedAt: NOW - 30 * DAY } })).toBe(true);
+  });
+
+  test('off (0 days) or a session with no activity time is never a candidate', () => {
+    expect(isAutoArchiveCandidate({ ...input({ updatedAt: NOW - 400 * DAY }), open: false }, 0)).toBe(false);
+    expect(candidate({ updatedAt: 0 })).toBe(false);
   });
 });
 

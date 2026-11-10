@@ -2524,10 +2524,11 @@ export class PiSessionStore {
     const previousArchived = row?.archived
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.archived;
     const previousUpdatedAt = row?.updatedAt;
+    const previousArchivedAt = row?.archivedAt;
     const revision = ++this.archiveRevision;
     this.archiveRevisionById.set(sessionId, revision);
     const optimisticAt = Date.now();
-    this.commitArchiveFlag(sessionId, archived, optimisticAt);
+    this.commitArchiveFlag(sessionId, archived, optimisticAt, archived ? optimisticAt : undefined);
     try {
       await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
     } catch (error) {
@@ -2540,15 +2541,15 @@ export class PiSessionStore {
         const restoreAt = currentUpdatedAt === optimisticAt && previousUpdatedAt !== undefined
           ? previousUpdatedAt
           : currentUpdatedAt ?? optimisticAt;
-        this.commitArchiveFlag(sessionId, previousArchived, restoreAt);
+        this.commitArchiveFlag(sessionId, previousArchived, restoreAt, previousArchivedAt);
       }
       throw error;
     } finally {
       if (this.archiveRevisionById.get(sessionId) === revision) this.archiveRevisionById.delete(sessionId);
     }
   }
-  private commitArchiveFlag(sessionId: string, archived: boolean, updatedAt: number) {
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, updatedAt);
+  private commitArchiveFlag(sessionId: string, archived: boolean, updatedAt: number, archivedAt?: number) {
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, updatedAt, archivedAt);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -2573,21 +2574,22 @@ export class PiSessionStore {
     this.setArchivedLocally(sessionId, false);
     const expected = this.runtimeGeneration;
     const directory = existing.directory;
+    const archivedAt = existing.archivedAt;
     return (error) => {
       if (expected !== this.runtimeGeneration || this.sendUnarchiveTokenById.get(sessionId) !== token) return;
       this.sendUnarchiveTokenById.delete(sessionId);
       if (error === undefined) return;
       if (isDefiniteRequestRejection(error)) {
-        if (this.state.catalog.byId.get(sessionId)?.archived === false) this.setArchivedLocally(sessionId, true);
+        if (this.state.catalog.byId.get(sessionId)?.archived === false) this.setArchivedLocally(sessionId, true, archivedAt);
         return;
       }
       if (directory) void this.refreshDirectoryCatalog(directory);
     };
   }
-  private setArchivedLocally(sessionId: PiSessionId, archived: boolean) {
+  private setArchivedLocally(sessionId: PiSessionId, archived: boolean, archivedAt?: number) {
     const existing = this.state.catalog.byId.get(sessionId);
     if (!existing) return;
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, existing.updatedAt);
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, existing.updatedAt, archivedAt);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,

@@ -30,34 +30,32 @@ export const SessionRetentionSettings: React.FC = () => {
   const setAutoDeleteAfterDays = useUIStore((state) => state.setAutoDeleteAfterDays);
   const setSessionRetentionAction = useUIStore((state) => state.setSessionRetentionAction);
 
-  const { candidates, isRunning, runCleanup, action } = useSessionAutoCleanup({ autoRun: false });
-  const pendingCount = candidates.length;
+  const { archiveCandidates, deleteCandidates, isRunning, runCleanup } = useSessionAutoCleanup({ autoRun: false });
 
   const handleRunCleanup = React.useCallback(async () => {
-    const result = await runCleanup({ force: true });
+    const result = await runCleanup();
+    const sessions = (count: number) => (count === 1 ? '1 session' : `${count} sessions`);
+    const archivedCount = result.archive.completedIds.length;
+    const deletedCount = result.delete.completedIds.length;
+    const failedArchive = result.archive.failedIds.length;
+    const failedDelete = result.delete.failedIds.length;
 
-    if (result.completedIds.length === 0 && result.failedIds.length === 0) {
+    if (result.skippedReason === 'disabled') {
+      toast.message("Archiving and deleting are both off");
+      return;
+    }
+    if (archivedCount + deletedCount + failedArchive + failedDelete === 0) {
       toast.message(
-        result.action === 'archive'
-          ? "No sessions eligible for archiving"
-          : "No sessions eligible for deletion"
+        result.skippedReason === 'partial' || result.skippedReason === 'stale'
+          ? "Could not check every folder. Try again later."
+          : "No sessions to archive or delete"
       );
       return;
     }
-    if (result.completedIds.length > 0) {
-      toast.success(
-        result.action === 'archive'
-          ? `Archived ${result.completedIds.length} session(s)`
-          : `Deleted ${result.completedIds.length} session(s)`
-      );
-    }
-    if (result.failedIds.length > 0) {
-      toast.error(
-        result.action === 'archive'
-          ? `Failed to archive ${result.failedIds.length} session(s)`
-          : `Failed to delete ${result.failedIds.length} session(s)`
-      );
-    }
+    if (archivedCount > 0) toast.success(`Archived ${sessions(archivedCount)}`);
+    if (deletedCount > 0) toast.success(`Deleted ${sessions(deletedCount)}`);
+    if (failedArchive > 0) toast.error(`Could not archive ${sessions(failedArchive)}`);
+    if (failedDelete > 0) toast.error(`Could not delete ${sessions(failedDelete)}`);
   }, [runCleanup]);
 
   return (
@@ -133,9 +131,7 @@ export const SessionRetentionSettings: React.FC = () => {
           </Button>
         </SettingsFieldRow>
         <p className="typography-meta text-muted-foreground">
-          {action === 'archive'
-            ? `Eligible for archiving right now: ${pendingCount}`
-            : `Eligible for deletion right now: ${pendingCount}`}
+          {`Ready to archive: ${archiveCandidates.length}. Ready to delete: ${deleteCandidates.length}.`}
         </p>
       </div>
     </SettingsSection>
