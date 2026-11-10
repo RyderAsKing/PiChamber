@@ -21,7 +21,7 @@ export const DialogUnifiedDiff: React.FC<{
         metrics={TOOL_DIFF_METRICS}
         options={{
           diffStyle: diffViewMode === 'unified' ? 'unified' : 'split',
-          diffIndicators: 'none',
+          diffIndicators: 'classic',
           hunkSeparators: 'line-info-basic',
           lineDiffType: 'none',
           disableFileHeader: true,

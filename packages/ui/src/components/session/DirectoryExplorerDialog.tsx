@@ -586,7 +586,29 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
   );
 
   const summaryStrip = summary ? (
-    <div className="flex flex-col gap-0.5 border-b border-border/60 px-4 py-2">
+    <div className="flex flex-col gap-1 border-b border-border/60 px-4 py-2">
+      {/* The new folder's name stays a field here, labeled, above where it ends up. */}
+      {step === 'new-location' ? (
+        <div className="flex min-w-0 items-center gap-2 typography-ui-label">
+          <label htmlFor="new-project-name" className="shrink-0 text-muted-foreground">{'Name'}</label>
+          <input
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            id="new-project-name"
+            spellCheck={false}
+            autoComplete="off"
+            disabled={pending !== null}
+            className="h-7 min-w-0 flex-1 rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-1.5 font-mono text-foreground outline-none focus-visible:border-[var(--interactive-focus)] focus-visible:ring-2 focus-visible:ring-primary/30"
+          />
+        </div>
+      ) : null}
       <p
         className={cn(
           'flex min-w-0 items-baseline gap-1.5 typography-ui-label',
@@ -594,30 +616,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         )}
       >
         <span className="shrink-0">{summary.text}</span>
-        {step === 'new-location' && summary.path !== undefined ? (
-          // The new folder's name stays a field here: the location above is
-          // where it goes, and this is what it is called.
-          <>
-            <MiddleTruncate value={childDisplayPath(location, '')} className="min-w-0 font-mono text-foreground" />
-            <input
-              value={projectName}
-              onChange={(event) => setProjectName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.nativeEvent.isComposing) return;
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  submit();
-                }
-              }}
-              aria-label={'Project name'}
-              spellCheck={false}
-              autoComplete="off"
-              disabled={pending !== null}
-              style={{ width: `${Math.max(projectName.length, 8) + 2}ch` }}
-              className="-my-0.5 h-6 min-w-0 max-w-[16rem] shrink-0 rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-1.5 font-mono text-foreground outline-none focus-visible:border-[var(--interactive-focus)] focus-visible:ring-2 focus-visible:ring-primary/30"
-            />
-          </>
-        ) : summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
+        {summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
       </p>
       {/* The repository reads like the destination above it: a label, then the value. */}
       {step === 'clone-location' ? (

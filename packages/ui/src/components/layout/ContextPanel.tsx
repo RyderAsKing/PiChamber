@@ -482,12 +482,16 @@ export const ContextPanel: React.FC = () => {
   const isPullRequestsPanelActive = activeTab?.mode === 'pull-requests';
   const isIssuesPanelActive = activeTab?.mode === 'issues';
 
+  // Opened from a file's Changes button, the Git panel shows just that file.
+  const gitFocusPath = useUIStore((state) => (
+    state.gitReturnToFile?.directory === directoryKey ? state.gitReturnToFile.focusPath : null
+  ));
   const activeContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'extensions'
             ? <ExtensionsSurface sessionId={currentSessionId} />
             : activeTab?.mode === 'git'
-                ? <React.Suspense fallback={null}><GitView isActive={isOpen} gitHeaderSlot={activeTab?.mode === 'git' ? gitHeaderSlot : null} /></React.Suspense>
+                ? <React.Suspense fallback={null}><GitView isActive={isOpen} gitHeaderSlot={activeTab?.mode === 'git' ? gitHeaderSlot : null} onlyFilePath={gitFocusPath} /></React.Suspense>
             : activeTab?.mode === 'pull-requests'
                 ? <React.Suspense fallback={null}><PullRequestsSurface key={`pull-requests:${directoryKey}`} headerActionsSlot={isPullRequestsPanelActive ? githubHeaderSlot : null} headerActionsPresentation="desktop" /></React.Suspense>
                 : activeTab?.mode === 'issues'
@@ -562,6 +566,7 @@ export const ContextPanel: React.FC = () => {
   // The Git panel reached from an open file's Changes button leads back to it.
   const gitReturnToFile = useUIStore((state) => state.gitReturnToFile);
   const clearGitReturnToFile = useUIStore((state) => state.clearGitReturnToFile);
+  const showAllGitChanges = useUIStore((state) => state.showAllGitChanges);
   const returnFileTab = gitReturnToFile && gitReturnToFile.directory === directoryKey && activeTab?.mode === 'git'
     ? tabs.find((tab) => tab.id === gitReturnToFile.tabId && tab.mode === 'file' && tab.targetPath) ?? null
     : null;
@@ -656,12 +661,13 @@ export const ContextPanel: React.FC = () => {
             variant="ghost"
             size="sm"
             onClick={handleToggleEditorTree}
-            className="h-8 w-8 p-0"
-            title={"Toggle file tree"}
+            // A tree icon that stays filled while the tree is on screen.
+            className={cn('h-8 w-8 p-0', editorTreeShown && 'bg-interactive-selection text-foreground')}
+            title={editorTreeShown ? "Hide file tree" : "Show file tree"}
             aria-label={"Toggle file tree"}
             aria-pressed={editorTreeShown}
           >
-            <Icon name="layout-right" className="size-4" />
+            <Icon name="node-tree" className="size-4" />
           </Button>
         ) : null}
         <Button
@@ -849,6 +855,17 @@ export const ContextPanel: React.FC = () => {
                   <Icon name="arrow-left" className="size-3.5 shrink-0" />
                   <span className="truncate">{`Back to ${getFileNameFromPath(returnFileTab.targetPath) ?? 'file'}`}</span>
                 </Button>
+                {/* The panel opens on just that file; the rest of the changes are one click away. */}
+                {gitReturnToFile?.focusPath ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={showAllGitChanges}
+                    className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    {'Show all changes'}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
             <div className="relative min-h-0 flex-1">{activeContent}</div>

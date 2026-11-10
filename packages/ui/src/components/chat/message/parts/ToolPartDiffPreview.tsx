@@ -89,7 +89,7 @@ const ToolPartDiffPreview: React.FC<ToolPartDiffPreviewProps> = React.memo(({ di
     const options = React.useMemo(
         () => ({
             diffStyle: diffViewMode === 'side-by-side' ? 'split' as const : 'unified' as const,
-            diffIndicators: 'none' as const,
+            diffIndicators: 'classic' as const,
             hunkSeparators: 'line-info-basic' as const,
             lineDiffType: 'none' as const,
             disableFileHeader: true,

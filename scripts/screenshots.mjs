@@ -1026,7 +1026,7 @@ const main = async () => {
       const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
       target = targets.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
       return Boolean(target);
-    }, 15_000, 'Chrome debugging endpoint');
+    }, 60_000, 'Chrome debugging endpoint');
     client = new Cdp(target.webSocketDebuggerUrl);
     await client.connect();
     await client.send('Page.enable');

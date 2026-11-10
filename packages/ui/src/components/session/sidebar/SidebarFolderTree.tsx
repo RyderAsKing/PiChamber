@@ -212,7 +212,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
 
   return (
     <SessionShelfRowContext.Provider value={rowState}>
-    <div className={shelves ? 'flex min-h-full flex-1 flex-col gap-2' : 'space-y-2'}>
+    <div className={shelves ? 'flex min-h-full flex-1 flex-col gap-1' : 'space-y-1'}>
       {shelves && shelves.pinned.length > 0 ? (
         <SessionRowVariantContext.Provider value="card">
           <section aria-label={'Pinned'} data-session-shelf="pinned">

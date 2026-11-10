@@ -68,6 +68,11 @@ interface DiffViewProps {
    * and keep the inline row.
    */
   toolbarSlot?: HTMLDivElement | null;
+  /**
+   * Show only this file (repo-relative path) in the stacked list. Ignored when
+   * the scope has no changes for it, so the panel never looks empty by mistake.
+   */
+  onlyFilePath?: string | null;
 }
 
 export const DiffView: React.FC<DiffViewProps> = ({
@@ -84,6 +89,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   hideToolbar = false,
   onHeaderControlsStateChange,
   toolbarSlot = null,
+  onlyFilePath = null,
 }) => {
   const {
     effectiveDirectory,
@@ -192,6 +198,11 @@ export const DiffView: React.FC<DiffViewProps> = ({
     onHeaderControlsStateChange?.(headerControlsState);
   }, [hideToolbar, headerControlsState, onHeaderControlsStateChange]);
 
+  const onlyFile = onlyFilePath && activeDiffScope !== 'turn' && activeDiffScope !== 'branch'
+    ? changedFiles.find((file) => file.path === onlyFilePath) ?? null
+    : null;
+  const visibleChangedFiles = onlyFile ? [onlyFile] : changedFiles;
+
   const renderStackedDiffView = () => {
     if (!effectiveDirectory) return null;
 
@@ -223,7 +234,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
             data-diff-virtual-root
           >
             <div className="flex flex-col [overflow-anchor:none]" data-diff-virtual-content>
-              {changedFiles.map((file) => {
+              {visibleChangedFiles.map((file) => {
                 const diffSelection = getFileDiffSelection(activeDiffScope, file, focusedFile);
                 return (
                 <MultiFileDiffEntry

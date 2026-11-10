@@ -1364,6 +1364,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
         mobileVariant={mobileVariant}
+        onClose={mobileVariant ? () => setSessionSwitcherOpen(false) : undefined}
       />
 
       {piConnection === 'error' || piConnection === 'unavailable' ? (

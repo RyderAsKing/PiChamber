@@ -647,7 +647,7 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
     },
     themeType: isDark ? ('dark' as const) : ('light' as const),
     diffStyle: renderSideBySide ? ('split' as const) : ('unified' as const),
-    diffIndicators: 'none' as const,
+    diffIndicators: 'classic' as const,
     hunkSeparators: 'line-info-basic' as const,
     // Perf: disable intra-line diff (word-level) globally.
     lineDiffType: 'none' as const,

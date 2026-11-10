@@ -114,11 +114,13 @@ interface UIStore {
   fileTreeReveal: { path: string; nonce: number } | null;
   /**
    * The file tab a file's Changes button left for the Git panel, so that panel
-   * can offer the way back. Cleared once the panel shows anything else. Not
-   * persisted.
+   * can offer the way back. `focusPath` narrows the panel to that file's diff
+   * until Show all changes clears it. Cleared once the panel shows anything
+   * else. Not persisted.
    */
-  gitReturnToFile: { directory: string; tabId: string } | null;
+  gitReturnToFile: { directory: string; tabId: string; focusPath: string | null } | null;
   clearGitReturnToFile: () => void;
+  showAllGitChanges: () => void;
   contextEditorTreeWidth: number;
   /** Persisted per-directory `host/owner/repo` pick for the GitHub surfaces. */
   githubSelectedRepoByDirectory: Record<string, string>;
@@ -558,6 +560,10 @@ export const useUIStore = create<UIStore>()(
         clearGitReturnToFile: () => {
           if (get().gitReturnToFile) set({ gitReturnToFile: null });
         },
+        showAllGitChanges: () => {
+          const current = get().gitReturnToFile;
+          if (current?.focusPath) set({ gitReturnToFile: { ...current, focusPath: null } });
+        },
         clearFileTreeReveal: () => {
           set({ fileTreeReveal: null });
         },
@@ -666,7 +672,11 @@ export const useUIStore = create<UIStore>()(
           get().openContextPanelTab(normalizedDirectory, { mode: 'git' });
           // Set after the Git panel is active, so the panel never sees the
           // record while the file is still showing (which would clear it).
-          set({ gitReturnToFile: fromTab?.mode === 'file' ? { directory: normalizedDirectory, tabId: fromTab.id } : null });
+          set({
+            gitReturnToFile: fromTab?.mode === 'file'
+              ? { directory: normalizedDirectory, tabId: fromTab.id, focusPath: normalizedFilePath }
+              : null,
+          });
         },
 
         openContextFile: (directory, filePath) => {

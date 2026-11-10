@@ -150,6 +150,9 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                         </span>
                     )
                 ) : null}
+                {view.truncated ? (
+                    <span className="shrink-0 rounded border border-[var(--interactive-border)] px-1.5 typography-micro text-muted-foreground">Output truncated</span>
+                ) : null}
                 {view.excludeFromContext ? (
                     <span className="shrink-0 rounded border border-[var(--interactive-border)] px-1.5 typography-micro text-muted-foreground">Not sent to the model</span>
                 ) : null}
@@ -168,6 +171,19 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 ) : null}
             </div>
 
+            {view.truncated ? (
+                // Sits where the missing start would be, and says whether it can be found.
+                <p className="mt-1 typography-micro text-muted-foreground text-pretty">
+                    {showOutputPath ? (
+                        <>
+                            Earlier output was cut; the full output is in <span className="font-mono break-all select-text text-foreground">{view.fullOutputPath}</span>
+                        </>
+                    ) : (
+                        'Earlier output was discarded. Only the last 50 KB is kept.'
+                    )}
+                </p>
+            ) : null}
+
             {view.output.length > 0 ? (
                 <pre
                     ref={outputRef}
@@ -177,19 +193,6 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 >
                     {view.output}
                 </pre>
-            ) : null}
-
-            {view.truncated ? (
-                // Says what is missing and whether it can be found, not just that it is short.
-                <p className="typography-micro text-muted-foreground text-pretty">
-                    {showOutputPath ? (
-                        <>
-                            Output passed 50 KB, so the start is cut here. Full output: <span className="font-mono break-all select-text text-foreground">{view.fullOutputPath}</span>
-                        </>
-                    ) : (
-                        'Output passed 50 KB, so only its last 50 KB is kept; the start is not available here.'
-                    )}
-                </p>
             ) : null}
 
             {view.note ? (

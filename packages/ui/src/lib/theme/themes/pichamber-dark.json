@@ -26,7 +26,7 @@
       "background": "#0f0f12",
       "foreground": "#dcdce0",
       "muted": "#0b0b0e",
-      "mutedForeground": "#9e9ea8",
+      "mutedForeground": "#aaaab4",
       "elevated": "#18181d",
       "elevatedForeground": "#dcdce0",
       "overlay": "#000000b3",
@@ -64,7 +64,7 @@
     },
     "pr": {
       "open": "#34d399",
-      "draft": "#9e9ea8",
+      "draft": "#aaaab4",
       "blocked": "#fbbf24",
       "merged": "#a5b4fc",
       "closed": "#f87171"
@@ -110,7 +110,7 @@
         "boolean": "#e5c07b",
         "decorator": "#a5b4fc",
         "label": "#e5c07b",
-        "punctuation": "#9e9ea8",
+        "punctuation": "#aaaab4",
         "macro": "#f472b6",
         "preprocessor": "#f472b6",
         "regex": "#8fd4b0",
@@ -138,7 +138,7 @@
       "linkHover": "#a5b4fc",
       "inlineCode": "#a5b4fc",
       "inlineCodeBackground": "#818cf81f",
-      "blockquote": "#9e9ea8",
+      "blockquote": "#aaaab4",
       "blockquoteBorder": "#222228",
       "listMarker": "#818cf880"
     },
@@ -154,7 +154,7 @@
       "background": "#18181d80",
       "border": "#222228",
       "headerHover": "#ffffff0d",
-      "icon": "#9e9ea8",
+      "icon": "#aaaab4",
       "title": "#dcdce0",
       "description": "#8a8a95",
       "edit": {
