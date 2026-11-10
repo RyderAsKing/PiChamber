@@ -11,6 +11,7 @@ import {
 import { useUIStore } from '@/stores/useUIStore';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { useSessionAutoCleanup } from '@/hooks/useSessionAutoCleanup';
+import { formatSessionCount } from '@/lib/sessionRetention';
 
 const MIN_DAYS = 1;
 const MAX_DAYS = 365;
@@ -36,9 +37,13 @@ export const ArchiveAndDeleteFields: React.FC<ArchiveAndDeleteFieldsProps> = ({
 }) => {
   const archiveOff = archiveAfterDays === 0;
   const deleteOff = deleteAfterDays === 0;
-  const deleteInfo = archiveOff || deleteOff
-    ? `Only archived sessions are deleted, counted from the day each one was archived. With archiving at ${SUGGESTED_ARCHIVE_DAYS} days and deleting at ${SUGGESTED_DELETE_DAYS}, a session is deleted ${SUGGESTED_ARCHIVE_DAYS + SUGGESTED_DELETE_DAYS} days after you last used it.`
-    : `Only archived sessions are deleted, counted from the day each one was archived. With these settings, a session is deleted ${archiveAfterDays + deleteAfterDays} days after you last used it.`;
+  // The example uses the current values when both are on, else the suggested ones.
+  const showsCurrent = !archiveOff && !deleteOff;
+  const exampleArchiveDays = showsCurrent ? archiveAfterDays : SUGGESTED_ARCHIVE_DAYS;
+  const exampleDeleteDays = showsCurrent ? deleteAfterDays : SUGGESTED_DELETE_DAYS;
+  const deleteInfo = `Only archived sessions are deleted, counted from the day each one was archived. ${
+    showsCurrent ? 'With these settings' : `With archiving at ${exampleArchiveDays} days and deleting at ${exampleDeleteDays}`
+  }, a session is deleted ${exampleArchiveDays + exampleDeleteDays} days after you last used it.`;
 
   return (
     <>
@@ -131,7 +136,6 @@ export const SessionRetentionSettings: React.FC = () => {
 
   const handleRunCleanup = React.useCallback(async () => {
     const result = await runCleanup();
-    const sessions = (count: number) => (count === 1 ? '1 session' : `${count} sessions`);
     const archivedCount = result.archive.completedIds.length;
     const deletedCount = result.delete.completedIds.length;
     const failedArchive = result.archive.failedIds.length;
@@ -149,10 +153,10 @@ export const SessionRetentionSettings: React.FC = () => {
       );
       return;
     }
-    if (archivedCount > 0) toast.success(`Archived ${sessions(archivedCount)}`);
-    if (deletedCount > 0) toast.success(`Deleted ${sessions(deletedCount)}`);
-    if (failedArchive > 0) toast.error(`Could not archive ${sessions(failedArchive)}`);
-    if (failedDelete > 0) toast.error(`Could not delete ${sessions(failedDelete)}`);
+    if (archivedCount > 0) toast.success(`Archived ${formatSessionCount(archivedCount)}`);
+    if (deletedCount > 0) toast.success(`Deleted ${formatSessionCount(deletedCount)}`);
+    if (failedArchive > 0) toast.error(`Could not archive ${formatSessionCount(failedArchive)}`);
+    if (failedDelete > 0) toast.error(`Could not delete ${formatSessionCount(failedDelete)}`);
   }, [runCleanup]);
 
   return (
