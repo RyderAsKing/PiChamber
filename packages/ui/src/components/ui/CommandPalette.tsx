@@ -56,6 +56,7 @@ import { KeyHints, type KeyHint } from '@/components/ui/KeyHints';
 import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { buildCommandPaletteFileSearchKey, scoreCommandPaletteFiles } from './commandPaletteFilesState';
 
 type CommandEntry = {
@@ -304,8 +305,8 @@ export const CommandPalette: React.FC = () => {
 
   // The project a session's folder belongs to: the longest project path that
   // is the folder or contains it. Tells apart sessions with the same title.
-  const projectNameForDirectory = React.useCallback(
-    (dir: string | null): string | null => {
+  const projectForDirectory = React.useCallback(
+    (dir: string | null): (typeof projects)[number] | null => {
       if (!dir) return null;
       let match: (typeof projects)[number] | null = null;
       for (const project of projects) {
@@ -314,16 +315,21 @@ export const CommandPalette: React.FC = () => {
           match = project;
         }
       }
-      if (!match) return null;
-      return match.label || match.path.split('/').pop() || match.path;
+      return match;
     },
     [projects],
   );
 
+  // Like a sidebar card, a row names a branch only when the session runs outside
+  // its folder (a worktree) on a branch other than the folder's own.
   const branchForSession = React.useCallback(
-    (_sessionId: string, dir: string | null): string | null => {
-      if (dir) return allBranches.get(dir)?.trim() || null;
-      return null;
+    (dir: string | null, project: (typeof projects)[number] | null): string | null => {
+      if (!dir) return null;
+      const branch = allBranches.get(dir)?.trim() || null;
+      if (!branch || branch === 'HEAD' || !project) return branch;
+      const root = project.path.replace(/\/+$/, '');
+      if (dir === root || branch === allBranches.get(root)?.trim()) return null;
+      return branch;
     },
     [allBranches],
   );
@@ -554,8 +560,9 @@ export const CommandPalette: React.FC = () => {
                     {visibleSessions.map((session) => {
                       const title = getSessionDisplayTitle(session);
                       const dir = resolveGlobalSessionDirectory(session);
-                      const branch = branchForSession(session.id, dir);
-                      const projectName = projectNameForDirectory(dir);
+                      const project = projectForDirectory(dir);
+                      const branch = branchForSession(dir, project);
+                      const projectName = project ? getProjectDisplayLabel(project) : null;
                       return (
                         <CommandItem
                           key={session.id}

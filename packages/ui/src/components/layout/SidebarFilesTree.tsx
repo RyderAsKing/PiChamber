@@ -16,6 +16,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -54,6 +55,9 @@ import type { FileStatus } from './sidebar/sidebarFileRowHelpers';
 
 // --- Main component ---
 
+/** Tree width under which New, Refresh, and Collapse all share one menu. */
+const TREE_TOOLBAR_FOLD_WIDTH = 280;
+
 export const SidebarFilesTree: React.FC = () => {
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
@@ -64,6 +68,18 @@ export const SidebarFilesTree: React.FC = () => {
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const searchInputRef = React.useRef<HTMLInputElement>(null);
+  // Below this width the toolbar's actions fold into one menu so search keeps its room.
+  const toolbarRef = React.useRef<HTMLDivElement | null>(null);
+  const [toolbarNarrow, setToolbarNarrow] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const node = toolbarRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setToolbarNarrow(node.clientWidth < TREE_TOOLBAR_FOLD_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
   const searchActive = searchQuery.trim().length > 0;
   const { results: searchResults, searching, failed: searchFailed } = useFilesViewSearch({
     directory: currentDirectory,
@@ -541,7 +557,7 @@ export const SidebarFilesTree: React.FC = () => {
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Same height as the editor's path bar beside it, so the rules line up. */}
-      <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
+      <div ref={toolbarRef} className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
         <div className="relative min-w-0 flex-1">
           <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
           <Input
@@ -573,19 +589,20 @@ export const SidebarFilesTree: React.FC = () => {
             </button>
           ) : null}
         </div>
-        {canCreateFile || canCreateFolder ? (
+        {toolbarNarrow ? (
+          // A narrow tree keeps the search wide: its actions share one menu.
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="inline-flex shrink-0">
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"New file or folder"}>
-                      <Icon name="add" className="size-4" />
+                    <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"File actions"}>
+                      <Icon name="more-fill" className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </span>
               </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={6}>{"New file or folder"}</TooltipContent>
+              <TooltipContent side="bottom" sideOffset={6}>{"File actions"}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" side="bottom">
               {canCreateFile ? (
@@ -598,37 +615,79 @@ export const SidebarFilesTree: React.FC = () => {
                   <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
                 </DropdownMenuItem>
               ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-7 p-0" aria-label={"Refresh"}>
-                <Icon name="refresh" className="size-4" />
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex shrink-0">
-              <Button
-                variant="ghost"
-                size="sm"
+              {canCreateFile || canCreateFolder ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem onClick={() => void refreshRoot()}>
+                <Icon name="refresh" className="mr-2 size-4" /> {"Refresh"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={() => {
                   if (root) collapseAllExpandedPaths(root);
                 }}
-                className="size-7 p-0"
-                aria-label={"Collapse all folders"}
               >
-                <Icon name="collapse-vertical" className="size-4" />
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
-        </Tooltip>
+                <Icon name="collapse-vertical" className="mr-2 size-4" /> {"Collapse all folders"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <>
+          {canCreateFile || canCreateFolder ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"New file or folder"}>
+                        <Icon name="add" className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6}>{"New file or folder"}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" side="bottom">
+                {canCreateFile ? (
+                  <DropdownMenuItem onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}>
+                    <Icon name="file-add" className="mr-2 size-4" /> {"New file"}
+                  </DropdownMenuItem>
+                ) : null}
+                {canCreateFolder ? (
+                  <DropdownMenuItem onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}>
+                    <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-7 p-0" aria-label={"Refresh"}>
+                  <Icon name="refresh" className="size-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (root) collapseAllExpandedPaths(root);
+                  }}
+                  className="size-7 p-0"
+                  aria-label={"Collapse all folders"}
+                >
+                  <Icon name="collapse-vertical" className="size-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
+          </Tooltip>
+          </>
+        )}
       </div>
 
       <ScrollableOverlay outerClassName="flex-1 min-h-0" className="px-1 py-2">

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/command';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Icon } from "@/components/icon/Icon";
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import type { GitRemote } from '@/lib/api/types';
 
 interface BranchInfo {
@@ -170,9 +171,8 @@ export const BranchSelector: React.FC<BranchSelectorProps> = ({
               disabled={disabled}
             >
               <Icon name="git-branch" className="size-4 text-primary" />
-              <span className="min-w-0 truncate font-medium text-left">
-                {currentBranch || "Detached HEAD"}
-              </span>
+              {/* Branch names share long prefixes; keep both ends readable. */}
+              <MiddleTruncate value={currentBranch || "Detached HEAD"} className="min-w-0 font-medium text-left" />
               <Icon name="arrow-down-s" className="size-4 opacity-60" />
             </Button>
           </DropdownMenuTrigger>

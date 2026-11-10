@@ -21,6 +21,9 @@ import type {
 
 type SyncAction = 'fetch' | 'pull' | 'push' | 'sync' | null;
 
+/** Below this header width, an idle sync button moves into the overflow menu. */
+const NARROW_HEADER_WIDTH = 420;
+
 interface GitUnifiedHeaderProps {
   status: GitStatus;
   localBranches: string[];
@@ -92,10 +95,27 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
   const isCollapsibleScope = diffScope !== 'turn' && diffScope !== 'branch';
   const hasFetchItems = remotes.length > 0;
   const isFetchDisabled = !status || syncAction !== null;
-  const showViewOptions = hasFetchItems || hasViewsMenu || diffHeaderState !== null;
+  // A narrow header gives the branch the room: sync folds into the menu unless it
+  // has commits to move, since its counts are state worth seeing at a glance.
+  const headerRef = React.useRef<HTMLDivElement | null>(null);
+  const [isNarrow, setIsNarrow] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const node = headerRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setIsNarrow(node.clientWidth < NARROW_HEADER_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const trackingRemote = remotes.find((remote) => remote.name === status.tracking?.split('/')[0]) ?? remotes[0];
+  const hasSyncWork = (status.ahead ?? 0) > 0 || (status.behind ?? 0) > 0;
+  // Without a remote the button is a disabled placeholder, so a narrow header drops it.
+  const foldSync = isNarrow && !hasSyncWork;
+  const showViewOptions = (foldSync && Boolean(trackingRemote)) || hasFetchItems || hasViewsMenu || diffHeaderState !== null;
 
   return (
-    <div className="@container/git-header flex min-w-0 flex-1 items-center gap-1">
+    <div ref={headerRef} className="flex min-w-0 flex-1 items-center gap-1">
       <div className="min-w-0 flex-shrink">
         {isWorktreeMode ? (
           <WorktreeBranchDisplay
@@ -128,7 +148,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
         />
       </div>
       <div className="min-w-0 flex-1" />
-      <div className="shrink-0">
+      <div className={foldSync ? 'hidden' : 'shrink-0'}>
         <SyncActions
           syncAction={syncAction}
           remotes={remotes}
@@ -163,6 +183,15 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
               <TooltipContent sideOffset={8}>{"Repository views"}</TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="max-w-[min(360px,calc(100vw-2rem))]">
+              {foldSync && trackingRemote ? (
+                <DropdownMenuItem
+                  disabled={isFetchDisabled}
+                  onSelect={() => onSync(trackingRemote)}
+                >
+                  <Icon name="refresh" className="size-4" />
+                  {"Sync changes"}
+                </DropdownMenuItem>
+              ) : null}
               {remotes.map((remote) => (
                 <FetchRemoteMenuItem
                   key={remote.name}

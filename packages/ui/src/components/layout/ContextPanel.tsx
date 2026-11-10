@@ -527,9 +527,8 @@ export const ContextPanel: React.FC = () => {
   const treeCrowdsFile = Boolean(
     hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
   );
-  // While crowded, the tree shows only when asked for, laid over the file
-  // rather than beside it, and folds again when the next file opens or the
-  // file is clicked.
+  // While crowded, the tree shows only when asked for, laid over the whole
+  // file rather than beside it, and folds again when the next file opens.
   const [crowdedTreeShown, setCrowdedTreeShown] = React.useState(false);
   React.useEffect(() => {
     setCrowdedTreeShown(false);
@@ -753,26 +752,12 @@ export const ContextPanel: React.FC = () => {
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', isResizing && 'pointer-events-none')}>
         {hasFileTabs ? (
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
-            {/* A tree laid over the file closes when the file is used again. */}
-            <div
-              className="relative h-full min-w-0 flex-1"
-              onPointerDown={treeCrowdsFile && editorTreeShown ? () => setCrowdedTreeShown(false) : undefined}
-            >
+            <div className="relative h-full min-w-0 flex-1">
               {hasOpenEditorFile ? (
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
               ) : (
                 <FilesEmptyState directory={effectiveDirectory} />
               )}
-              {/* Dims the file under a laid-over tree, so the tree reads as on top. */}
-              {treeCrowdsFile ? (
-                <div
-                  aria-hidden="true"
-                  className={cn(
-                    'absolute inset-0 z-10 bg-background/60 transition-opacity duration-200 motion-reduce:transition-none',
-                    editorTreeShown ? 'opacity-100' : 'pointer-events-none opacity-0',
-                  )}
-                />
-              ) : null}
             </div>
             <EditorTreeColumn visible={editorTreeShown} overlay={treeCrowdsFile} />
           </div>

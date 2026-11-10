@@ -69,8 +69,14 @@ export function useSessionNodeItemMetadata({
     secondaryMeta?.branchLabel ??
     worktree?.branch ??
     (liveBranch && liveBranch !== 'HEAD' ? liveBranch : null);
-  const tooltipBranchLabel = resolvedBranchLabel;
-  const isGitRepo = isGitRepoStatus === true || Boolean(resolvedBranchLabel || worktree);
+  // The folder's own branch is shown on the header and composer, so a card names a
+  // branch only when its session runs somewhere else (a worktree) on a different one.
+  const normalizedProjectPath = normalizePath(projectPath);
+  const folderBranch = useGitBranchLabel(normalizedProjectPath);
+  const runsInFolderRoot = Boolean(normalizedProjectPath) && sessionDirectory === normalizedProjectPath;
+  const branchMatchesFolder = runsInFolderRoot || (Boolean(resolvedBranchLabel) && resolvedBranchLabel === folderBranch);
+  const tooltipBranchLabel = branchMatchesFolder ? null : resolvedBranchLabel;
+  const isGitRepo = !branchMatchesFolder && (isGitRepoStatus === true || Boolean(resolvedBranchLabel || worktree));
   const subtaskCount = node.children.length;
   const agentName = (session as Session & { agent?: string }).agent;
 

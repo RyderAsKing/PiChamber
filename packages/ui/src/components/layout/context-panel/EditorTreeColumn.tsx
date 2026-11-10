@@ -13,8 +13,9 @@ const EDITOR_TREE_FIT_MIN_WIDTH = 160;
 
 // The editor surface's file-tree column: docked on the right, resizable from
 // its left edge, and animated open/closed like the app sidebars. In a panel
-// too narrow to share with an open file, `overlay` lays it over the editor's
-// right edge instead, so the file keeps its full width underneath.
+// too narrow to share with an open file, `overlay` lays it over the whole
+// editor instead, like a drawer, so the file keeps its full width underneath
+// and no unreadable strip of it shows beside the tree.
 export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }> = ({ visible, overlay = false }) => {
   const width = useUIStore((state) => state.contextEditorTreeWidth);
   const setWidth = useUIStore((state) => state.setContextEditorTreeWidth);
@@ -45,9 +46,9 @@ export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }>
   // The stored width is a preference; in a narrow panel the tree shrinks so the
   // file stays readable, and grows back when the panel widens.
   const fitTreeWidth = React.useCallback((value: number) => {
+    // Over the editor the tree takes the whole row: the file is behind it.
+    if (overlay) return rowWidth ?? value;
     if (rowWidth === null) return value;
-    // Over the editor the tree may take most of the row: the file is behind it.
-    if (overlay) return Math.max(EDITOR_TREE_FIT_MIN_WIDTH, Math.min(value, rowWidth - 48));
     return Math.max(EDITOR_TREE_FIT_MIN_WIDTH, Math.min(value, rowWidth - EDITOR_MIN_WIDTH));
   }, [overlay, rowWidth]);
   const fittedWidth = fitTreeWidth(width);
@@ -113,8 +114,8 @@ export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }>
     <div
       ref={columnRef}
       className={cn(
-        'h-full flex-shrink-0 overflow-hidden border-l border-border bg-background will-change-[width] motion-reduce:transition-none',
-        overlay ? 'absolute inset-y-0 right-0 z-20' : 'relative',
+        'h-full flex-shrink-0 overflow-hidden bg-background will-change-[width] motion-reduce:transition-none',
+        overlay ? 'absolute inset-y-0 right-0 z-20' : 'relative border-l border-border',
         !visible && 'border-l-0',
       )}
       style={{
@@ -127,7 +128,8 @@ export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }>
       }}
       aria-hidden={!visible}
     >
-      {visible && (
+      {/* A drawer over the whole editor has no width to choose. */}
+      {visible && !overlay && (
         <div
           className={cn(
             'absolute left-0 top-0 z-20 h-full w-[3px] cursor-col-resize transition-colors hover:bg-[var(--interactive-border)]/80',
