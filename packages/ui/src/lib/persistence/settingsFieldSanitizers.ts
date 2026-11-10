@@ -334,6 +334,8 @@ export const materializeAuthoritativeUiSettings = (
     weekStartPreference: defaults.weekStartPreference,
     sidebarViewMode: defaults.sidebarViewMode,
     sidebarAutoSettleAfterDays: defaults.sidebarAutoSettleAfterDays,
+    sessionAutoArchiveAfterDays: defaults.sessionAutoArchiveAfterDays,
+    sessionAutoDeleteAfterDays: defaults.sessionAutoDeleteAfterDays,
     expandedEditorToolbar: defaults.expandedEditorToolbar,
     wrapLinesByDefault: defaults.wrapLinesByDefault,
     draftStartersVisible: defaults.draftStartersVisible,
