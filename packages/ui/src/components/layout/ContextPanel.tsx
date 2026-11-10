@@ -755,7 +755,7 @@ export const ContextPanel: React.FC = () => {
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
             {/* A tree laid over the file closes when the file is used again. */}
             <div
-              className="h-full min-w-0 flex-1"
+              className="relative h-full min-w-0 flex-1"
               onPointerDown={treeCrowdsFile && editorTreeShown ? () => setCrowdedTreeShown(false) : undefined}
             >
               {hasOpenEditorFile ? (
@@ -763,6 +763,16 @@ export const ContextPanel: React.FC = () => {
               ) : (
                 <FilesEmptyState directory={effectiveDirectory} />
               )}
+              {/* Dims the file under a laid-over tree, so the tree reads as on top. */}
+              {treeCrowdsFile ? (
+                <div
+                  aria-hidden="true"
+                  className={cn(
+                    'absolute inset-0 z-10 bg-background/60 transition-opacity duration-200 motion-reduce:transition-none',
+                    editorTreeShown ? 'opacity-100' : 'pointer-events-none opacity-0',
+                  )}
+                />
+              ) : null}
             </div>
             <EditorTreeColumn visible={editorTreeShown} overlay={treeCrowdsFile} />
           </div>

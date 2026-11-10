@@ -431,13 +431,14 @@ export const SidebarFilesTree: React.FC = () => {
     return map;
   }, [gitStatus, root]);
 
-  // A git change beats "open in a tab": open files already show as tabs.
+  // A git change beats "open in a tab": open files already show as tabs. The
+  // selected file's row is highlighted already, so it needs no open dot.
   const getFileStatus = React.useCallback((path: string): FileStatus | null => {
     const relative = path.startsWith(root + '/') ? path.slice(root.length + 1) : path;
     const change = statusByPath.get(relative);
     if (change) return change;
-    return openContextFilePaths.has(path) ? 'open' : null;
-  }, [openContextFilePaths, statusByPath, root]);
+    return openContextFilePaths.has(path) && path !== selectedPath ? 'open' : null;
+  }, [openContextFilePaths, statusByPath, root, selectedPath]);
 
   const getFolderBadge = React.useCallback((dirPath: string): { modified: number; added: number } | null => {
     if (badgeByDir.size === 0) return null;

@@ -167,7 +167,7 @@ export const CommandPalette: React.FC = () => {
       {
         id: 'new-session',
         title: "New session",
-        icon: <Icon name="add" className="mr-2 h-4 w-4" />,
+        icon: <Icon name="chat-new" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_chat',
         searchText: "New session",
         onSelect: run(() => {

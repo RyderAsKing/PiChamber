@@ -36,7 +36,6 @@ export const AssistantMessageBody = React.memo(
     messageFinish,
     messageCompletedAt,
     messageCreatedAt,
-    durationMs,
     isLatestMessage = false,
 
     isMobile,
@@ -86,7 +85,6 @@ export const AssistantMessageBody = React.memo(
       shouldAnimateTurnFooter,
       hasStopFinish,
       awaitingMessageCompletion,
-      turnDurationText,
       footerTimestamp,
     } = useAssistantMessageLifecycle({
       visibleParts,
@@ -94,7 +92,6 @@ export const AssistantMessageBody = React.memo(
       messageFinish,
       messageCompletedAt,
       messageCreatedAt,
-      durationMs,
       turnGroupingContext,
       errorMessage,
       isMobile,
@@ -313,17 +310,6 @@ export const AssistantMessageBody = React.memo(
                     <Icon name="ai-agent" className="h-3.5 w-3.5 flex-shrink-0" />
                     <span className="message-footer__label">{footerAgentName}</span>
                   </span>
-                ) : null}
-                {turnDurationText ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-sm text-muted-foreground tabular-nums flex items-center gap-1">
-                        <Icon name="hourglass" className="h-3.5 w-3.5" />
-                        <span className="message-footer__label">{turnDurationText}</span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{turnDurationText}</TooltipContent>
-                  </Tooltip>
                 ) : null}
                 {footerTimestamp ? (
                   <Tooltip>

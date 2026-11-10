@@ -62,6 +62,15 @@ const SOURCES: ReadonlyArray<{ step: Step; icon: IconName; title: string; descri
   },
 ];
 
+/** The task a step belongs to, kept in the header so each step says what it is for. */
+const STEP_TASK: Record<Exclude<Step, 'source'>, string> = {
+  folder: 'Open folder',
+  'clone-url': 'Clone',
+  'clone-location': 'Clone',
+  'new-name': 'New project',
+  'new-location': 'New project',
+};
+
 const STEP_DESCRIPTION: Record<Step, string> = {
   source: 'Choose where the project comes from, type a folder path, or paste a Git URL.',
   folder: 'Pick a folder on this server or type its path.',
@@ -604,6 +613,12 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
               <Icon name="arrow-left-s" className="size-4" />
             </Button>
           )}
+          {step !== 'source' ? (
+            <span className="flex shrink-0 items-center gap-2 typography-ui-label font-medium text-foreground" aria-hidden="true">
+              {STEP_TASK[step]}
+              <span className="h-4 w-px bg-border" />
+            </span>
+          ) : null}
           <input
             ref={inputRef}
             value={inputValue}

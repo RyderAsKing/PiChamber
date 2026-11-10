@@ -153,7 +153,7 @@ function CommandShortcut({
       return <Icon name="command" className="size-3.5" />;
     }
 
-    if (normalized === 'shift' || normalized === '⇧') {
+    if (normalized === '⇧') {
       return <Icon name="arrow-up" className="size-3.5" />;
     }
 

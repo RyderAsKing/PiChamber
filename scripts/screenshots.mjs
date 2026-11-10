@@ -236,7 +236,8 @@ const PAGES = {
     settledScript: `(() => {
       const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
       if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
-      if (document.body.innerText.includes('Intl.NumberFormat')) return true;
+      // Syntax colors come from a worker after the text shows; wait for them.
+      if (document.body.innerText.includes('Intl.NumberFormat')) return Boolean(document.querySelector('.cm-content [style*="color"]'));
       document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
       return false;
     })()`,
@@ -291,7 +292,8 @@ const PAGES = {
       const treeToggle = document.querySelector('button[aria-label="Toggle file tree"]');
       if (treeToggle && treeToggle.getAttribute('aria-pressed') !== 'true') { treeToggle.click(); return false; }
       if (input.value) { type(''); return false; }
-      return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'));
+      return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'))
+        && Boolean(document.querySelector('.cm-content [style*="color"]'));
     })()`,
   },
   'files-panel-changes': {
@@ -601,6 +603,14 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     body: JSON.stringify({ sidebarViewMode: page.sidebarViewMode ?? 'workspace' }),
   });
   if (!settings.ok) throw new Error(`${pageName}: could not set the sidebar view (${settings.status})`);
+  if (page.typeIntoComposer) {
+    // Viewports share one browser profile, so the previous capture's typed
+    // draft would be restored into this composer. Leave the page first so its
+    // last draft write lands, then drop the origin's local storage.
+    await client.send('Page.navigate', { url: 'about:blank' });
+    await wait(300);
+    await client.send('Storage.clearDataForOrigin', { origin: new URL(baseUrl).origin, storageTypes: 'local_storage' });
+  }
   await client.send('Page.navigate', { url: new URL(page.path, baseUrl).toString() });
 
   const textChecks = JSON.stringify(page.readyText);

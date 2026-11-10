@@ -9,6 +9,7 @@ import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { toast } from '@/components/ui';
 import { useTransientValue } from '@/hooks/useTransientValue';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { cn } from '@/lib/utils';
 import {
     Select,
     SelectContent,
@@ -98,20 +99,23 @@ const WorktreeModeToggle = ({
     onChange,
     showCheck = true,
     chromeLess = false,
+    keepWidth = false,
 }: {
     checked: boolean;
     onChange?: (enabled: boolean) => void;
     showCheck?: boolean;
     chromeLess?: boolean;
+    keepWidth?: boolean;
 }) => (
     <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
             <Button
                 variant={chromeLess ? 'ghost' : 'chip'}
                 size="xs"
-                className={chromeLess
-                    ? 'min-w-0 max-w-[48vw] shrink aria-pressed:bg-interactive-hover aria-pressed:text-foreground sm:max-w-none'
-                    : 'min-w-0 max-w-[48vw] shrink sm:max-w-none'}
+                className={cn(
+                    keepWidth ? 'shrink-0' : 'min-w-0 max-w-[48vw] shrink sm:max-w-none',
+                    chromeLess && 'aria-pressed:bg-interactive-hover aria-pressed:text-foreground',
+                )}
                 aria-pressed={checked}
                 onClick={() => onChange?.(!checked)}
             >
@@ -199,7 +203,8 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
             <div className="flex min-w-0 items-center gap-1">
                 {showProjectSelector ? (
                     <Select value={selectedProject.id} onValueChange={onProjectChange}>
-                        <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
+                        {/* Folder and worktree keep their width; the branch middle-truncates instead. */}
+                        <SelectTrigger size="sm" className={cn(draftSelectTriggerClassName, 'shrink-0')}>
                             <SelectValue>
                                 <ProjectLabel project={selectedProject} theme={theme} maxCharacters={FOLDER_LABEL_MAX_LENGTH} />
                             </SelectValue>
@@ -243,7 +248,7 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                 ) : null}
 
                 {showWorktreeSelector ? (
-                    <WorktreeModeToggle checked={worktreeMode} onChange={onWorktreeModeChange} />
+                    <WorktreeModeToggle checked={worktreeMode} onChange={onWorktreeModeChange} keepWidth />
                 ) : null}
             </div>
             {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}

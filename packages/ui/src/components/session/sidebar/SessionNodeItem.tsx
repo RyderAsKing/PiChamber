@@ -622,7 +622,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
                   {/* By-folder rows are a single line: title and time only. */}
                   {!isTree && (showFolderLabel || hasBranchMeta || hasTrailingMeta) ? (
-                    <div className="flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden typography-micro leading-4 font-normal text-subtle-foreground">
+                    // Details are secondary text; put-away rows drop them a step with their titles.
+                    <div className={cn('flex w-full min-w-0 items-center justify-between gap-2 overflow-hidden typography-micro leading-4 font-normal', isPutAway ? 'text-subtle-foreground' : 'text-muted-foreground')}>
                       {showFolderLabel ? (
                         <span className={cn('inline-flex min-w-0 items-center gap-1', hasTrailingMeta ? 'max-w-[60%] shrink-0' : 'flex-1')}>
                           {projectPath ? (
