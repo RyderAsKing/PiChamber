@@ -29,8 +29,8 @@ export const GitSettings: React.FC = () => {
   const [isLoading, setIsLoading] = React.useState(true);
   const viewOptions = React.useMemo(
     () => [
-      { id: 'flat' as const, label: "Flat List" },
-      { id: 'tree' as const, label: "Tree View" },
+      { id: 'flat' as const, label: "Flat list" },
+      { id: 'tree' as const, label: "Tree view" },
     ],
     []
   );
@@ -108,11 +108,11 @@ export const GitSettings: React.FC = () => {
 
   return (
     <>
-      <SettingsSection title={"Git Preferences"} divider={false}>
+      <SettingsSection title={"Git preferences"} divider={false}>
         <div className={SETTINGS_OPTION_STACK_CLASS}>
           <SettingsControlGroup
             settingsItem="git.changes-view"
-            title={"Changes View"}
+            title={"Changes view"}
           >
             <SettingsRadioGroup aria-label={"Git changes view mode"}>
               {viewOptions.map((option) => (
@@ -133,7 +133,7 @@ export const GitSettings: React.FC = () => {
             settingsItem="git.gitignored-files"
             checked={showGitignored}
             onChange={setFilesViewShowGitignored}
-            label={"Display Gitignored Files"}
+            label={"Display gitignored files"}
             ariaLabel={"Display gitignored files"}
           />
         </div>

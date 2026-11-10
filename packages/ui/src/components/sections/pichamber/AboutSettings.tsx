@@ -232,7 +232,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
 
         <AboutDetails />
 
-        <p className="text-center typography-ui text-muted-foreground/60">
+        <p className="text-center typography-ui text-subtle-foreground">
           {"Made with care for the community"}
         </p>
 
@@ -268,7 +268,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                   updateInfo={updateStore.info}
                   onOpen={() => setUpdateDialogTarget('client')}
                 />
-                <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+                <span className="text-subtle-foreground" aria-hidden="true">·</span>
                 <AboutVersionTarget
                   label="Server"
                   version={serverVersion}

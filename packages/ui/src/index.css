@@ -245,6 +245,15 @@ div[data-chat-input-footer="true"] {
   -webkit-appearance: none;
 }
 
+/* A project icon that is almost all dark (or all light) vanishes on a theme
+   background of the same tone; set it on a plate in the theme's text color,
+   the way dark app icons sit on a light tile. See lib/projectIconTone.ts. */
+.dark img[data-icon-tone="dark"],
+:root:not(.dark) img[data-icon-tone="light"] {
+  background-color: color-mix(in srgb, var(--foreground) 92%, var(--background));
+  padding: 1px;
+}
+
 /* Scroll shadow (HeroUI) fallback styling to ensure visible gradients without the Tailwind plugin */
 [data-scroll-shadow="true"] {
   --scroll-shadow-size: var(--scroll-shadow-size, 48px);
@@ -963,6 +972,14 @@ html:not(.dark) .chat-scroll {
 /* Hide the secondary changed-files label on narrow mobile layouts. */
 @container status-row (max-width: 30rem) {
   .status-row__changed-label {
+    display: none;
+  }
+}
+
+/* Assistant message footer on a phone: the prompt above already shows the
+   time, and dropping it here keeps the actions on the same line. */
+@container message-footer (max-width: 30rem) {
+  .message-footer__timestamp {
     display: none;
   }
 }

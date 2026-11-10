@@ -2,6 +2,7 @@ import React from 'react';
 import type { Session } from '@/lib/chat/types';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SessionFolderItem } from '../SessionFolderItem';
+import { SessionShelfRowContext } from './sessionShelfRowContext';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
 import type { SessionNode } from './types';
 import { isBranchDifferentFromLabel, normalizePath } from './utils';
@@ -105,6 +106,7 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   useEnsureGitHubPrStatus(groupPrDirectory, groupPrBranch);
   const groupPrColor = groupPrSummary ? `var(--pr-${groupPrSummary.visualState})` : undefined;
 
+  const shelvesActive = React.useContext(SessionShelfRowContext) !== null;
   const maxVisible = hideDirectoryControls ? 10 : 5;
   const nonArchivedVisibleCount = Math.max(maxVisible, visibleSessionCount ?? maxVisible);
   const groupMatchesSearch = hasSessionSearchQuery ? searchData?.groupMatches === true : false;
@@ -230,13 +232,15 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   );
 
   const totalSessions = ungroupedSessions.length;
-  const visibleSessions = group.isArchivedBucket
+  // With shelves on, settled sessions already left the folder, so it lists
+  // everything left instead of paging.
+  const visibleSessions = group.isArchivedBucket || shelvesActive
     ? ungroupedSessions
     : hasSessionSearchQuery
       ? ungroupedSessions
       : ungroupedSessions.slice(0, nonArchivedVisibleCount);
   const remainingCount = totalSessions - visibleSessions.length;
-  const canShowLess = !group.isArchivedBucket && !hasSessionSearchQuery && totalSessions > maxVisible && remainingCount === 0;
+  const canShowLess = !group.isArchivedBucket && !shelvesActive && !hasSessionSearchQuery && totalSessions > maxVisible && remainingCount === 0;
 
   const shouldVirtualize =
     group.isArchivedBucket === true && !hasSessionSearchQuery && visibleSessions.length >= ARCHIVED_VIRTUALIZE_THRESHOLD;
@@ -436,7 +440,9 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           </React.Fragment>
         ))
       )}
-      {totalSessions === 0 && allFoldersForGroup.length === 0 ? (
+      {/* With shelves, a folder whose sessions are all settled or snoozed
+          shows only its header; the header keeps its new-session action. */}
+      {totalSessions === 0 && allFoldersForGroup.length === 0 && !shelvesActive ? (
         group.isArchivedBucket ? (
           <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
             {'No archived sessions yet.'}

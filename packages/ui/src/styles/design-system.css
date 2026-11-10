@@ -28,8 +28,8 @@
     --text-code: 0.8125rem;
     --text-ui-header: 0.9375rem;
     --text-ui-label: 0.8750rem;
-    --text-meta: 0.875rem;
-    --text-micro: 0.875rem;
+    --text-meta: 0.8125rem;
+    --text-micro: 0.75rem;
     --text-settings-page-title: 1.125rem;
 
     /* Default Light Theme */
@@ -45,6 +45,7 @@
     --secondary-foreground: oklch(0.25 0.02 40); /* Dark warm text */
     --muted: oklch(0.9 0.015 75); /* Muted sand */
     --muted-foreground: oklch(0.45 0.02 50); /* Medium warm text */
+    --subtle-foreground: oklch(0.5 0.02 50); /* Tertiary text; themes derive it */
     --accent: oklch(0.92 0.02 80); /* Light sand accent */
     --accent-foreground: oklch(0.25 0.02 40); /* Dark warm text */
     --destructive: oklch(0.55 0.25 25); /* Warm red */
@@ -87,6 +88,7 @@
     --secondary-foreground: oklch(0.85 0.02 90); /* #cdccc3 */
     --muted: oklch(0.33 0.01 40); /* #403E3C */
     --muted-foreground: oklch(0.75 0.02 80); /* #b6b4ab */
+    --subtle-foreground: oklch(0.66 0.02 80); /* Tertiary text; themes derive it */
     --accent: oklch(0.29 0.01 40); /* #343331 */
     --accent-foreground: oklch(0.85 0.02 90); /* #cdccc3 */
     --destructive: oklch(0.65 0.15 30); /* #d98678 */
@@ -249,9 +251,11 @@
     0 6px 6px -3px rgb(0 0 0 / 0.16);
 }
 
+/* A light blur: the page behind a dialog stays readable enough to keep your
+   place, and the dim does most of the separating. */
 .oc-glass-backdrop {
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(1.5px);
+  backdrop-filter: blur(1.5px);
 }
 
 @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
@@ -350,6 +354,7 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);

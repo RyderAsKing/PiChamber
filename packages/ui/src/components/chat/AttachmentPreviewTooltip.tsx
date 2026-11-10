@@ -39,7 +39,7 @@ export function AttachmentPreviewTooltipContent({
       <div className="mt-1 px-1 py-0.5">
         <p className="truncate text-xs font-medium text-foreground">{filename}</p>
         {metaLine ? (
-          <p className="text-[11px] text-muted-foreground">{metaLine}</p>
+          <p className="typography-micro text-muted-foreground">{metaLine}</p>
         ) : null}
       </div>
     </div>

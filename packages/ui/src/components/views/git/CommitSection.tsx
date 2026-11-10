@@ -64,7 +64,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
             onClick={onCommit}
             disabled={!canCommit}
             className="commit-actions__btn whitespace-nowrap"
-            aria-label={"Commit  aria label"}
+            aria-label={"Commit"}
           >
             {commitAction === 'commit' ? (
               <>
@@ -83,7 +83,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="default"
+                  variant="solid"
                   size="sm"
                   onClick={() => onCommitAndPush()}
                   disabled={!canCommit}
@@ -104,7 +104,7 @@ export const CommitSection: React.FC<CommitSectionProps> = ({
           ) : (
             <Button
               size="sm"
-              variant="default"
+              variant="solid"
               onClick={() => onCommitAndPush()}
               disabled={!canCommit}
               className="commit-actions__btn"

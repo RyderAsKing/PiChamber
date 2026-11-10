@@ -64,7 +64,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
     ? [
         hasKnownSyncWork
           ? `Sync Changes (${behindCount} down, ${aheadCount} up)`
-          : "Sync Changes",
+          : "Sync changes",
         upstreamTarget ? `Compared with ${upstreamTarget}` : null,
       ].filter(Boolean).join('. ')
     : "No remotes configured";
@@ -96,7 +96,7 @@ export const SyncActions: React.FC<SyncActionsProps> = ({
                 'flex-shrink-0 gap-1.5 tabular-nums',
                 syncText ? 'px-2' : (isTouchSync ? 'w-9 p-0' : 'w-8 p-0'),
               )}
-              aria-label={"Sync Changes"}
+              aria-label={"Sync changes"}
             >
               {syncAction === 'sync' ? (
                 <Icon name="loader-4" className="size-4 animate-spin" />

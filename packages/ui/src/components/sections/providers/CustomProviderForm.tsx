@@ -178,7 +178,7 @@ export const CustomProviderForm: React.FC<CustomProviderFormProps> = ({
           <Input
             value={form.name}
             onChange={(event) => setField('name', event.target.value)}
-            placeholder={"My Provider"}
+            placeholder={"My provider"}
             className="h-8 rounded-md px-3"
             aria-invalid={Boolean(err.name)}
             aria-label={"Display name"}

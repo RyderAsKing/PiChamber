@@ -214,6 +214,9 @@ export const ChatViewport = React.memo(
             ref={scrollRef}
             style={CHAT_SCROLL_STYLE}
             observeMutations={false}
+            // Shallow, so a half-scrolled command header or exit badge under
+            // the session header still reads as live text, not disabled.
+            size={24}
             hideTopShadow={false}
             tabIndex={0}
             onClick={focusScrollContainer}

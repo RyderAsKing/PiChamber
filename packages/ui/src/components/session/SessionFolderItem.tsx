@@ -263,7 +263,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
                   {displayName ?? folder.name}
                 </TooltipContent>
               </Tooltip>
-              <span className="typography-micro text-muted-foreground/70 flex-shrink-0">
+              <span className="typography-micro text-subtle-foreground flex-shrink-0">
                 • {sessions.length}
               </span>
               {collapsedActivityState ? (
@@ -352,7 +352,7 @@ const SessionFolderItemBase = <TSessionNode extends { session: { id: string } },
               </React.Fragment>
             ))
           ) : !subFolderItems ? (
-            <div className="py-1 px-3 text-left typography-micro text-muted-foreground/70">
+            <div className="py-1 px-3 text-left typography-micro text-subtle-foreground">
               {"Empty folder"}
             </div>
           ) : null}

@@ -10,9 +10,8 @@ import { useHasSessionActivityDuration } from '@/sync/session-activity-timing';
 import { useNotificationStore, useSessionUnseenCount } from '@/sync/notification-store';
 import { hasPendingInput, resolveSessionAttention } from './sessionAttention';
 import { isSessionPinned } from '@/stores/useSessionPinnedStore';
-import { formatDirectoryName } from '@/lib/utils';
 import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
-import { formatProjectLabel, normalizePath } from './utils';
+import { getProjectLabel, normalizePath } from './utils';
 import { formatSessionCompactDateLabel } from './utils';
 import { getForkBackgroundColor, getForkColor } from './forkColor';
 import type { SessionNode } from './types';
@@ -52,17 +51,13 @@ export function useSessionNodeItemMetadata({
         if (secondaryMeta?.projectLabel || !projectId) return null;
         const project = state.projects.find((entry) => entry.id === projectId);
         if (!project) return null;
-        return (
-          project.label?.trim() ||
-          formatDirectoryName(normalizePath(project.path) ?? project.path, null) ||
-          project.path
-        );
+        return getProjectLabel({ label: project.label, normalizedPath: normalizePath(project.path) ?? project.path }, null);
       },
       [projectId, secondaryMeta?.projectLabel],
     ),
   );
   const tooltipProjectLabel =
-    secondaryMeta?.projectLabel ?? (projectLabelFromStore ? formatProjectLabel(projectLabelFromStore) : null);
+    secondaryMeta?.projectLabel ?? projectLabelFromStore;
   const projectPath = useProjectsStore(
     React.useCallback(
       (state) => (projectId ? state.projects.find((entry) => entry.id === projectId)?.path ?? null : null),
@@ -74,8 +69,14 @@ export function useSessionNodeItemMetadata({
     secondaryMeta?.branchLabel ??
     worktree?.branch ??
     (liveBranch && liveBranch !== 'HEAD' ? liveBranch : null);
-  const tooltipBranchLabel = resolvedBranchLabel;
-  const isGitRepo = isGitRepoStatus === true || Boolean(resolvedBranchLabel || worktree);
+  // The folder's own branch is shown on the header and composer, so a card names a
+  // branch only when its session runs somewhere else (a worktree) on a different one.
+  const normalizedProjectPath = normalizePath(projectPath);
+  const folderBranch = useGitBranchLabel(normalizedProjectPath);
+  const runsInFolderRoot = Boolean(normalizedProjectPath) && sessionDirectory === normalizedProjectPath;
+  const branchMatchesFolder = runsInFolderRoot || (Boolean(resolvedBranchLabel) && resolvedBranchLabel === folderBranch);
+  const tooltipBranchLabel = branchMatchesFolder ? null : resolvedBranchLabel;
+  const isGitRepo = !branchMatchesFolder && (isGitRepoStatus === true || Boolean(resolvedBranchLabel || worktree));
   const subtaskCount = node.children.length;
   const agentName = (session as Session & { agent?: string }).agent;
 
@@ -147,9 +148,9 @@ export function useSessionNodeItemMetadata({
     () => getForkBackgroundColor(node.forkColorId, { active: isActive || isRowSelected }),
     [node.forkColorId, isActive, isRowSelected],
   );
-  const globalBackground =
-    secondaryMeta?.globalSession && !isActive && !isRowSelected ? 'var(--surface-elevated)' : null;
-  const rowBackground = forkBackground ?? globalBackground;
+  // Sessions outside any folder say so in their details line; a fill would
+  // read as a second selection.
+  const rowBackground = forkBackground;
 
   return {
     session,

@@ -74,7 +74,7 @@ export const PiChamberPage: React.FC<PiChamberPageProps> = ({ section }) => {
         git: "Git",
         github: "Git",
         notifications: "Notifications",
-        tunnel: "External Tunnel",
+        tunnel: "External tunnel",
     }[section];
 
     const pageDescription = {

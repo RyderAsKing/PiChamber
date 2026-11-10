@@ -9,7 +9,6 @@ import { cn } from '@/lib/utils';
 import { abortShellCommand } from '@/sync/session-actions';
 import {
     TOOL_NORMAL_ICON_STYLE,
-    TOOL_NORMAL_TITLE_STYLE,
     TOOL_ROW_DESCRIPTION_CLASS,
     TOOL_ROW_TITLE_CLASS,
 } from '../toolPartStyles';
@@ -130,26 +129,32 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 <span className="inline-flex h-5 shrink-0 items-center" style={TOOL_NORMAL_ICON_STYLE}>
                     <Icon name="terminal-box" className="size-3.5" aria-hidden="true" />
                 </span>
-                <span className={cn(TOOL_ROW_TITLE_CLASS, 'shrink-0')} style={TOOL_NORMAL_TITLE_STYLE}>
+                {/* The command is what the user typed, so it leads; "Shell" only names the row. */}
+                <span className={cn(TOOL_ROW_TITLE_CLASS, 'shrink-0 font-normal')} style={{ color: 'var(--tools-description)' }}>
                     Shell
                 </span>
                 <span
-                    className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'min-w-0 truncate')}
-                    style={{ color: 'var(--tools-description)' }}
+                    className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'min-w-0 truncate text-foreground')}
                     title={view.command}
                 >
                     {view.command}
                 </span>
                 {view.status ? (
-                    <span
-                        className="shrink-0 typography-micro"
-                        style={{ color: view.status.tone === 'error' ? 'var(--status-error)' : 'var(--tools-description)' }}
-                    >
-                        {view.status.text}
-                    </span>
+                    view.status.tone === 'error' ? (
+                        <span className="shrink-0 rounded border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-1.5 typography-micro font-medium text-[var(--status-error)]">
+                            {view.status.text}
+                        </span>
+                    ) : (
+                        <span className="shrink-0 typography-micro" style={{ color: 'var(--tools-description)' }}>
+                            {view.status.text}
+                        </span>
+                    )
+                ) : null}
+                {view.truncated ? (
+                    <span className="shrink-0 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-1.5 typography-micro font-medium text-[var(--status-warning)]">Output truncated</span>
                 ) : null}
                 {view.excludeFromContext ? (
-                    <span className="shrink-0 typography-micro text-muted-foreground">Not sent to the model</span>
+                    <span className="shrink-0 rounded border border-[var(--status-info-border)] bg-[var(--status-info-background)] px-1.5 typography-micro font-medium text-[var(--status-info)]">Not sent to the model</span>
                 ) : null}
                 {view.running && sessionId ? (
                     <Button
@@ -166,26 +171,28 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                 ) : null}
             </div>
 
+            {view.truncated ? (
+                // Sits where the missing start would be, and says whether it can be found.
+                <p className="mt-1 typography-micro text-muted-foreground text-pretty">
+                    {showOutputPath ? (
+                        <>
+                            Earlier output was cut; the full output is in <span className="font-mono break-all select-text text-foreground">{view.fullOutputPath}</span>
+                        </>
+                    ) : (
+                        'Earlier output was discarded. Only the last 50 KB is kept.'
+                    )}
+                </p>
+            ) : null}
+
             {view.output.length > 0 ? (
                 <pre
                     ref={outputRef}
                     onScroll={handleOutputScroll}
-                    className="my-1 max-h-80 overflow-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-micro leading-relaxed"
+                    className="my-1 max-h-80 overflow-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-code leading-relaxed"
                     data-no-drawer-swipe="true"
                 >
                     {view.output}
                 </pre>
-            ) : null}
-
-            {view.truncated ? (
-                <p className="typography-micro text-muted-foreground text-pretty">
-                    Showing the last 50 KB of output.
-                    {showOutputPath ? (
-                        <>
-                            {' '}Full output: <span className="font-mono break-all select-text">{view.fullOutputPath}</span>
-                        </>
-                    ) : null}
-                </p>
             ) : null}
 
             {view.note ? (

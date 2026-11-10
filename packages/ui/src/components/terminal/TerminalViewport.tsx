@@ -668,7 +668,7 @@ const TerminalViewport = React.forwardRef<TerminalController, Props>(
             <Icon name="clipboard" className="mr-2 h-4 w-4" /> {'Paste'}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem onClick={handleSelectAll}>{'Select All'}</ContextMenuItem>
+          <ContextMenuItem onClick={handleSelectAll}>{'Select all'}</ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
     );

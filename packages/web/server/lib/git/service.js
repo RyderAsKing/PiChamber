@@ -1932,6 +1932,33 @@ export async function isGitRepository(directory) {
   return result.success;
 }
 
+/**
+ * Makes an existing folder a Git repository. A folder that already holds its
+ * own `.git` is left alone (`created: false`), so a retry after a partial
+ * failure is safe. Only the folder's own `.git` counts: a new project inside
+ * another repository's tree still gets a repository of its own.
+ */
+export async function initRepository(directory) {
+  const directoryPath = normalizeDirectoryPath(directory);
+  if (!directoryPath) {
+    throw new Error('Folder path is required');
+  }
+  let stats;
+  try {
+    stats = await fs.promises.stat(directoryPath);
+  } catch {
+    throw new Error('Folder does not exist');
+  }
+  if (!stats.isDirectory()) {
+    throw new Error('Path is not a folder');
+  }
+  if (fs.existsSync(path.join(directoryPath, '.git'))) {
+    return { created: false };
+  }
+  await runGitCommandOrThrow(directoryPath, ['init'], 'Failed to initialize Git repository');
+  return { created: true };
+}
+
 export async function getRemoteUrl(directory, remoteName = 'origin') {
   const git = await createGit(directory);
 

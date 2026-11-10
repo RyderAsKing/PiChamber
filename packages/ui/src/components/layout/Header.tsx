@@ -1,5 +1,6 @@
 /* eslint-disable */
 import React, { useEffect } from 'react';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import {
   Tooltip,
   TooltipContent,
@@ -171,13 +172,8 @@ export const Header: React.FC<HeaderProps> = ({
       return null;
     }
 
-    const trimmedLabel = activeProject.label?.trim();
-    if (trimmedLabel) {
-      return trimmedLabel;
-    }
-
-    const pathSegments = activeProject.path.split(/[\\/]/).filter(Boolean);
-    return pathSegments[pathSegments.length - 1] ?? null;
+    // Same name as the sidebar: the saved label, else the folder name title-cased.
+    return getProjectDisplayLabel(activeProject);
   }, [activeProject]);
 
   const { isMobile } = useDeviceInfo();
@@ -648,6 +644,13 @@ export const Header: React.FC<HeaderProps> = ({
       toast[result.ok ? 'success' : 'error']((result.ok ? "Working directory copied" : "Failed to copy working directory"));
     }).catch(() => toast.error("Failed to copy working directory"));
   }, [actionDirectory]);
+
+  const copyCurrentBranchName = React.useCallback(() => {
+    if (!currentBranchLabel) return;
+    void copyTextToClipboard(currentBranchLabel).then((result) => {
+      toast[result.ok ? 'success' : 'error']((result.ok ? "Branch name copied" : "Failed to copy branch name"));
+    }).catch(() => toast.error("Failed to copy branch name"));
+  }, [currentBranchLabel]);
 
   const activeProjectRef = React.useMemo(() => {
     if (!activeProject) {
@@ -1134,13 +1137,13 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex min-w-0 flex-1 items-center">
         {activeSurfaceHeader ? (
           <div className="mr-3 flex min-w-0 items-center gap-1.5 px-1 py-0.5 -my-0.5 text-left">
-            <span className="truncate typography-ui-label text-[14px] font-normal leading-tight text-foreground max-w-full">
+            <span className="truncate typography-ui-label font-normal leading-tight text-foreground max-w-full">
               {activeSurfaceHeader.title}
             </span>
             {activeSurfaceHeader.subtitle ? (
               <>
                 <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
-                <span className="truncate typography-ui-label font-normal leading-tight text-muted-foreground/75 max-w-full">
+                <span className="truncate typography-ui-label font-normal leading-tight text-subtle-foreground max-w-full">
                   {activeSurfaceHeader.subtitle}
                 </span>
               </>
@@ -1216,11 +1219,11 @@ export const Header: React.FC<HeaderProps> = ({
               {showHeaderMetaRow ? (
                 <>
                   <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
-                  <span className="flex min-w-0 items-center gap-1.5 truncate typography-ui-label font-normal leading-tight text-muted-foreground/75">
+                  <span className="flex min-w-0 items-center gap-1.5 truncate typography-ui-label font-normal leading-tight text-subtle-foreground">
                     {headerLocationLabel ? <span className="truncate">{headerLocationLabel}</span> : null}
                     {currentBranchLabel ? (
                       <span className="inline-flex min-w-0 items-center gap-0.5">
-                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-muted-foreground/70" />
+                        <Icon name="git-branch" className="h-3 w-3 flex-shrink-0 text-subtle-foreground" />
                         <span className="truncate">{currentBranchLabel}</span>
                       </span>
                     ) : null}
@@ -1249,6 +1252,9 @@ export const Header: React.FC<HeaderProps> = ({
                     <DropdownMenuItem onClick={() => { pendingHeaderRenameRef.current = true; }}><Icon name="pencil-ai" className="mr-2 size-4" />{"Rename"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={copyCurrentSessionId}><Icon name="file-copy" className="mr-2 size-4" />{"Copy session ID"}</DropdownMenuItem>
                     <DropdownMenuItem onClick={copyCurrentWorkingDirectory} disabled={!actionDirectory}><Icon name="folder" className="mr-2 size-4" />{"Copy working directory"}</DropdownMenuItem>
+                    {currentBranchLabel ? (
+                      <DropdownMenuItem onClick={copyCurrentBranchName}><Icon name="git-branch" className="mr-2 size-4" />{"Copy branch name"}</DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => void exportCurrentSession()}><Icon name="download" className="mr-2 size-4" />{"Export Markdown"}</DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -1281,7 +1287,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           <HeaderIconActionButton
             visible={showMiniChatHeaderAction}
-            title={isNewSessionDraftOpen ? "New Mini Chat Window" : "Open Session in Mini Chat"}
+            title={isNewSessionDraftOpen ? "New Mini Chat window" : "Open session in Mini Chat"}
             ariaLabel={isNewSessionDraftOpen ? "Open a new Mini Chat window" : "Open current session in Mini Chat"}
             onClick={handleOpenCurrentMiniChat}
             className={cn(desktopHeaderIconButtonClass, 'mr-1')}

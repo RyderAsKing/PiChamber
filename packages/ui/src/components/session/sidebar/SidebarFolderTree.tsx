@@ -17,15 +17,42 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import type { MainTab } from '@/stores/useUIStore';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
 import { ProjectHeaderIdentity, ProjectHeaderChevron, SortableProjectItem, type SortableDragHandleProps } from './sortableItems';
-import { SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SessionRowVariantContext } from './sessionRowVariant';
 import { getProjectLabel } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
+import type { SessionShelves } from './sessionShelves';
+import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
+import { SessionShelfStack, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
+
+const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
+
+/**
+ * Takes pinned, snoozed, and settled sessions out of their folders; they show
+ * once, above or below the folder list. Archived groups are left alone.
+ */
+const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<string>): ProjectSection => {
+  let changed = false;
+  const groups = section.groups.map((group) => {
+    if (group.isArchivedBucket) return group;
+    const sessions = group.sessions.filter((node) => !hidden.has(node.session.id));
+    if (sessions.length === group.sessions.length) return group;
+    changed = true;
+    return { ...group, sessions };
+  });
+  return changed ? { ...section, groups } : section;
+};
+
+const countSessions = (section: ProjectSection): number =>
+  section.groups.reduce((total, group) => (group.isArchivedBucket ? total : total + group.sessions.length), 0);
 
 // Rows keep the full sidebar width; the `tree` session row variant indents
 // its own content under the folder label.
 const folderBodyClassName = 'pt-0.5 pb-1';
 
 interface SidebarFolderTreeProps {
+  /** Shelf partition; null while searching, when sessions stay in their folders. */
+  shelves?: SessionShelves<ThreadsListItem> | null;
   sections: ProjectSection[];
   homeSection?: ProjectSection | null;
   homeDirectory: string | null;
@@ -74,8 +101,9 @@ interface SidebarFolderTreeProps {
 }
 
 const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
-  sections,
-  homeSection,
+  shelves = null,
+  sections: allSections,
+  homeSection: allHomeSection,
   homeDirectory,
   collapsedProjects,
   toggleProject,
@@ -104,6 +132,40 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   emptyState,
   searchEmptyState,
 }) => {
+  const hiddenIds = React.useMemo(() => {
+    if (!shelves) return null;
+    const ids = new Set<string>();
+    for (const item of [...shelves.pinned, ...shelves.snoozed, ...shelves.settled]) ids.add(item.node.session.id);
+    return ids;
+  }, [shelves]);
+  const sections = React.useMemo(
+    () => (hiddenIds ? allSections.map((section) => withoutShelvedSessions(section, hiddenIds)) : allSections),
+    [allSections, hiddenIds],
+  );
+  const homeSection = React.useMemo(
+    () => (hiddenIds && allHomeSection ? withoutShelvedSessions(allHomeSection, hiddenIds) : allHomeSection),
+    [allHomeSection, hiddenIds],
+  );
+  const rowState = React.useMemo<SessionShelfRowState | null>(
+    () => (shelves ? { sectionById: shelves.sectionById, wokeIds: shelves.wokeIds } : null),
+    [shelves],
+  );
+  // Pinned, Snoozed, and Settled mix folders, so their rows are cards that
+  // name the folder, as in Threads.
+  const renderShelfItem = (item: ThreadsListItem) => (
+    <React.Fragment key={item.node.session.id}>
+      {renderSessionNode?.(
+        item.node,
+        0,
+        item.node.session.directory ?? item.project.normalizedPath,
+        item.project.id,
+        false,
+        { projectLabel: item.projectLabel, showFolderLabel: true, globalSession: item.globalSession },
+        'project',
+      )}
+    </React.Fragment>
+  );
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
@@ -137,7 +199,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
       .flatMap((group) => group.sessions);
   }, [homeSection]);
 
-  const visibleHomeSessions = hasSessionSearchQuery
+  const visibleHomeSessions = hasSessionSearchQuery || shelves
     ? allHomeSessions
     : allHomeSessions.slice(0, homeLimit);
 
@@ -149,7 +211,17 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   }
 
   return (
-    <div className="space-y-2">
+    <SessionShelfRowContext.Provider value={rowState}>
+    <div className={shelves ? 'flex min-h-full flex-1 flex-col gap-1' : 'space-y-1'}>
+      {shelves && shelves.pinned.length > 0 ? (
+        <SessionRowVariantContext.Provider value="card">
+          <section aria-label={'Pinned'} data-session-shelf="pinned">
+            <SidebarSectionHeading label={'Pinned'} first />
+            {shelves.pinned.map(renderShelfItem)}
+          </section>
+        </SessionRowVariantContext.Provider>
+      ) : null}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -188,6 +260,8 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                 alwaysShowActions={alwaysShowActions}
                 stickyHeader={stickyFolderHeaders}
                 statusIndicator={isCollapsed ? renderProjectStatusIndicator?.(projectKey, section.groups) : null}
+                sessionCount={isCollapsed ? countSessions(section) : null}
+                isEmpty={Boolean(shelves) && countSessions(section) === 0}
                 onToggle={() => toggleProject(projectKey)}
                 onNewSession={() => {
                   if (projectKey !== activeProjectId) {
@@ -313,7 +387,21 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
           {"Add folder"}
         </SidebarSessionLikeButton>
       ) : null}
+
+      {shelves ? (
+        <SessionRowVariantContext.Provider value="card">
+          <SessionShelfStack
+            shelfIds={FOLDER_SHELVES}
+            shelves={shelves}
+            renderItem={renderShelfItem}
+            hasSessionSearchQuery={hasSessionSearchQuery}
+            mobileVariant={mobileVariant}
+            className="mt-auto border-t border-border pt-1"
+          />
+        </SessionRowVariantContext.Provider>
+      ) : null}
     </div>
+    </SessionShelfRowContext.Provider>
   );
 };
 

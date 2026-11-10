@@ -12,6 +12,13 @@ import {
 import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useRuntimeAPIs } from '@/hooks/useRuntimeAPIs';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -19,17 +26,17 @@ import { useFilesViewTabsStore } from '@/stores/useFilesViewTabsStore';
 import { useUIStore } from '@/stores/useUIStore';
 import { useGitStatus } from '@/stores/useGitStore';
 import { useFilesViewShowGitignored } from '@/lib/filesViewShowGitignored';
-import { cn } from '@/lib/utils';
 import { listLocalDirectory } from '@/lib/fsApi';
 import { Icon } from "@/components/icon/Icon";
-import { getContextFileOpenFailureMessage, validateContextFileOpen } from '@/lib/contextFileOpenGuard';
 import { isBrowserClientRuntime } from '@/lib/desktop';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import { useFileOperations } from '@/components/views/files/useFileOperations';
 import { useFilesViewSearch } from '@/components/views/files/useFilesViewSearch';
 import {
+  getAncestorPaths,
   getDisplayPath,
   isAbsolutePath,
+  isAlwaysHiddenEntryName,
   shouldIgnoreEntryName,
   sortNodes,
   type FileNode,
@@ -41,23 +48,45 @@ import {
   dropCacheForRoot,
 } from './sidebar/fileTreeCache';
 import { MemoizedFileRow } from './sidebar/SidebarFileRow';
-import { getFileIcon, type FileStatus } from './sidebar/sidebarFileRowHelpers';
+import { FileListRow } from '@/components/views/files/FileListRow';
+import { useOpenContextEditorFile } from './context-panel/useOpenContextEditorFile';
+import type { FileStatus } from './sidebar/sidebarFileRowHelpers';
 
 
 // --- Main component ---
 
-export const SidebarFilesTree: React.FC = () => {
+/** Tree width under which New, Refresh, and Collapse all share one menu. */
+const TREE_TOOLBAR_FOLD_WIDTH = 280;
+
+type SidebarFilesTreeProps = {
+  /** Set while the tree covers the open file: offers the way back to it. */
+  onBackToFile?: () => void;
+};
+
+export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile }) => {
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
   const root = normalizeDirectoryPathKey(currentDirectory.trim());
   const showGitignored = useFilesViewShowGitignored();
-  const openContextFile = useUIStore((state) => state.openContextFile);
   const gitStatus = useGitStatus(currentDirectory);
 
   const [searchQuery, setSearchQuery] = React.useState('');
   const searchInputRef = React.useRef<HTMLInputElement>(null);
-  const { results: searchResults, searching } = useFilesViewSearch({
+  // Below this width the toolbar's actions fold into one menu so search keeps its room.
+  const toolbarRef = React.useRef<HTMLDivElement | null>(null);
+  const [toolbarNarrow, setToolbarNarrow] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const node = toolbarRef.current;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    const measure = () => setToolbarNarrow(node.clientWidth < TREE_TOOLBAR_FOLD_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const searchActive = searchQuery.trim().length > 0;
+  const { results: searchResults, searching, failed: searchFailed } = useFilesViewSearch({
     directory: currentDirectory,
     query: searchQuery,
     chrome: 'desktop',
@@ -140,7 +169,6 @@ export const SidebarFilesTree: React.FC = () => {
   const expandedPaths = useFilesViewTabsStore((state) => (root ? (state.byRoot[root]?.expandedPaths ?? EMPTY_PATHS) : EMPTY_PATHS));
   const selectedPath = useFilesViewTabsStore((state) => (root ? (state.byRoot[root]?.selectedPath ?? null) : null));
   const setSelectedPath = useFilesViewTabsStore((state) => state.setSelectedPath);
-  const addOpenPath = useFilesViewTabsStore((state) => state.addOpenPath);
   const removeOpenPathsByPrefix = useFilesViewTabsStore((state) => state.removeOpenPathsByPrefix);
   const toggleExpandedPath = useFilesViewTabsStore((state) => state.toggleExpandedPath);
   const collapseAllExpandedPaths = useFilesViewTabsStore((state) => state.collapseAllExpandedPaths);
@@ -162,7 +190,7 @@ export const SidebarFilesTree: React.FC = () => {
   const mapDirectoryEntries = React.useCallback((dirPath: string, entries: Array<{ name: string; path: string; isDirectory: boolean }>): FileNode[] => {
     const nodes = entries
       .filter((entry) => entry && typeof entry.name === 'string' && entry.name.length > 0)
-      .filter((entry) => showGitignored || !shouldIgnoreEntryName(entry.name))
+      .filter((entry) => !isAlwaysHiddenEntryName(entry.name) && (showGitignored || !shouldIgnoreEntryName(entry.name)))
       .map<FileNode>((entry) => {
         const name = entry.name;
         const normalizedEntryPath = normalizeDirectoryPathKey(entry.path || '');
@@ -424,12 +452,14 @@ export const SidebarFilesTree: React.FC = () => {
     return map;
   }, [gitStatus, root]);
 
+  // A git change beats "open in a tab": open files already show as tabs. The
+  // selected file's row is highlighted already, so it needs no open dot.
   const getFileStatus = React.useCallback((path: string): FileStatus | null => {
-    if (openContextFilePaths.has(path)) return 'open';
-    if (statusByPath.size === 0) return null;
     const relative = path.startsWith(root + '/') ? path.slice(root.length + 1) : path;
-    return statusByPath.get(relative) ?? null;
-  }, [openContextFilePaths, statusByPath, root]);
+    const change = statusByPath.get(relative);
+    if (change) return change;
+    return openContextFilePaths.has(path) && path !== selectedPath ? 'open' : null;
+  }, [openContextFilePaths, statusByPath, root, selectedPath]);
 
   const getFolderBadge = React.useCallback((dirPath: string): { modified: number; added: number } | null => {
     if (badgeByDir.size === 0) return null;
@@ -440,19 +470,60 @@ export const SidebarFilesTree: React.FC = () => {
 
   // --- File operations ---
 
-  const handleOpenFile = React.useCallback(async (node: FileNode) => {
-    if (!root) return;
+  const openEditorFile = useOpenContextEditorFile(root);
+  const handleOpenFile = React.useCallback((node: FileNode) => openEditorFile(node.path), [openEditorFile]);
 
-    const openValidation = await validateContextFileOpen(files, node.path, { directory: root });
-    if (!openValidation.ok) {
-      toast.error(getContextFileOpenFailureMessage(openValidation.reason));
+  // Reveal the selected file wherever it was opened from (search, the changed
+  // files list, a link in chat): expand its folders, then bring its row into
+  // view once it renders. Only a new selection reveals, so folders the user
+  // collapses afterwards stay collapsed.
+  const expandPaths = useFilesViewTabsStore((state) => state.expandPaths);
+  const treeListRef = React.useRef<HTMLUListElement | null>(null);
+  const pendingRevealRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!root || !selectedPath) return;
+    pendingRevealRef.current = selectedPath;
+    const ancestors = getAncestorPaths(selectedPath, root);
+    if (ancestors.length === 0) return;
+    expandPaths(root, ancestors);
+    for (const path of ancestors) void loadDirectory(path);
+    // loadDirectory changes with the gitignored setting; that is not a new selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandPaths, root, selectedPath]);
+  // A folder named in the open file's path bar: open the tree to it and bring
+  // it to the top, clearing any search so the tree itself shows.
+  const fileTreeReveal = useUIStore((state) => state.fileTreeReveal);
+  const clearFileTreeReveal = useUIStore((state) => state.clearFileTreeReveal);
+  const revealBlockRef = React.useRef<ScrollLogicalPosition>('nearest');
+  React.useEffect(() => {
+    if (!root || !fileTreeReveal) return;
+    const target = fileTreeReveal.path;
+    clearFileTreeReveal();
+    setSearchQuery('');
+    if (normalizeDirectoryPathKey(target) === normalizeDirectoryPathKey(root)) {
+      treeListRef.current?.firstElementChild?.scrollIntoView({ block: 'start' });
       return;
     }
-
-    setSelectedPath(root, node.path);
-    addOpenPath(root, node.path);
-    openContextFile(root, node.path);
-  }, [addOpenPath, files, openContextFile, root, setSelectedPath]);
+    // The folder's own path counts as an ancestor of a child inside it.
+    const folders = getAncestorPaths(`${target}/_`, root);
+    if (folders.length === 0) return;
+    pendingRevealRef.current = target;
+    revealBlockRef.current = 'start';
+    expandPaths(root, folders);
+    for (const path of folders) void loadDirectory(path);
+    // loadDirectory changes with the gitignored setting; that is not a new request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearFileTreeReveal, expandPaths, fileTreeReveal, root]);
+  React.useEffect(() => {
+    const target = pendingRevealRef.current;
+    const list = treeListRef.current;
+    if (!target || !list) return;
+    const row = list.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(target)}"]`);
+    if (!row) return;
+    pendingRevealRef.current = null;
+    row.scrollIntoView({ block: revealBlockRef.current });
+    revealBlockRef.current = 'nearest';
+  }, [childrenByDir, expandedPaths, searchActive]);
 
   const toggleDirectory = React.useCallback(async (dirPath: string) => {
     const normalized = normalizeDirectoryPathKey(dirPath);
@@ -469,22 +540,13 @@ export const SidebarFilesTree: React.FC = () => {
   function renderTree(dirPath: string, depth: number): React.ReactNode {
     const nodes = childrenByDir[dirPath] ?? [];
 
-    return nodes.map((node, index) => {
+    return nodes.map((node) => {
       const isDir = node.type === 'directory';
       const isExpanded = isDir && expandedPaths.includes(node.path);
       const isActive = selectedPath === node.path;
-      const isLast = index === nodes.length - 1;
 
       return (
-        <li key={node.path} className="relative">
-          {depth > 0 && (
-            <>
-              <span className="absolute top-3.5 left-[-12px] w-3 h-px bg-border/40" />
-              {isLast && (
-                <span className="absolute top-3.5 bottom-0 left-[-13px] w-[2px] bg-sidebar/50" />
-              )}
-            </>
-          )}
+        <li key={node.path} className="relative" data-tree-path={node.path}>
           <MemoizedFileRow
             node={node}
             root={root}
@@ -501,7 +563,7 @@ export const SidebarFilesTree: React.FC = () => {
             onOpenDialog={handleOpenDialog}
           />
           {isDir && isExpanded && (
-            <ul className="flex flex-col gap-1 ml-3 pl-3 border-l border-border/40 relative">
+            <ul className="relative ml-[15px] flex flex-col border-l border-border/50 pl-1.5">
               {loadErrorsByDir[node.path] ? (
                 <li className="flex items-center gap-2 px-2 py-1 typography-meta text-muted-foreground">
                   <span className="min-w-0 flex-1 truncate text-[var(--status-error)]" title={loadErrorsByDir[node.path]}>{loadErrorsByDir[node.path]}</span>
@@ -524,137 +586,175 @@ export const SidebarFilesTree: React.FC = () => {
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex items-center gap-1 border-b border-border/40 px-3 py-2">
+      {/* Same height as the editor's path bar beside it, so the rules line up. */}
+      <div ref={toolbarRef} className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
+        {onBackToFile ? (
+          // Labelled: an arrow alone does not say the file is behind the tree.
+          <Button variant="ghost" size="xs" onClick={onBackToFile} className="mr-1 shrink-0 text-muted-foreground hover:text-foreground">
+            <Icon name="arrow-left" className="size-3.5" />
+            {"Back to file"}
+          </Button>
+        ) : null}
         <div className="relative min-w-0 flex-1">
-          <Icon name="search" className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-muted-foreground" />
+          <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
           <Input
             ref={searchInputRef}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder={"Search files..."}
-            className="h-8 pl-8 pr-8 typography-meta"
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || !searchQuery) return;
+              event.preventDefault();
+              setSearchQuery('');
+            }}
+            // The column can be narrow; the label says what is searched.
+            placeholder={"Search"}
+            aria-label={"Search files"}
+            className="h-7 rounded-md bg-transparent pl-7 pr-7 typography-meta ring-0 md:typography-meta placeholder:text-subtle-foreground focus:ring-1"
           />
           {searchQuery.trim().length > 0 ? (
             <button
               type="button"
               aria-label={"Clear search"}
-              className="absolute right-2 top-2 inline-flex h-4 w-4 items-center justify-center text-muted-foreground hover:text-foreground"
+              title={"Clear search"}
+              className="absolute right-1.5 top-1/2 inline-flex size-4 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
               onClick={() => {
                 setSearchQuery('');
                 searchInputRef.current?.focus();
               }}
             >
-              <Icon name="close" className="h-4 w-4" />
+              <Icon name="close" className="size-3.5" />
             </button>
           ) : null}
         </div>
-        <div className="flex flex-shrink-0 items-center gap-1">
-        {canCreateFile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}
-                  className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New File"}
-                  aria-label={"New File"}
-                >
-                  <Icon name="file-add" className="h-4 w-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New File"}</TooltipContent>
-          </Tooltip>
-        )}
-        {canCreateFolder && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="inline-flex flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}
-                  className="h-8 w-8 p-0 flex-shrink-0"
-                  title={"New Folder"}
-                  aria-label={"New Folder"}
-                >
-                  <Icon name="folder-add" className="h-4 w-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={6}>{"New Folder"}</TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex flex-shrink-0">
-              <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="h-8 w-8 p-0 flex-shrink-0" title={"Refresh"} aria-label={"Refresh"}>
-                <Icon name="refresh" className="h-4 w-4" />
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="inline-flex flex-shrink-0">
-              <Button
-                variant="ghost"
-                size="sm"
+        {toolbarNarrow ? (
+          // A narrow tree keeps the search wide: its actions share one menu.
+          <DropdownMenu>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex shrink-0">
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"File actions"}>
+                      <Icon name="more-fill" className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={6}>{"File actions"}</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" side="bottom">
+              {canCreateFile ? (
+                <DropdownMenuItem onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}>
+                  <Icon name="file-add" className="mr-2 size-4" /> {"New file"}
+                </DropdownMenuItem>
+              ) : null}
+              {canCreateFolder ? (
+                <DropdownMenuItem onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}>
+                  <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
+                </DropdownMenuItem>
+              ) : null}
+              {canCreateFile || canCreateFolder ? <DropdownMenuSeparator /> : null}
+              <DropdownMenuItem onClick={() => void refreshRoot()}>
+                <Icon name="refresh" className="mr-2 size-4" /> {"Refresh"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
                 onClick={() => {
                   if (root) collapseAllExpandedPaths(root);
                 }}
-                className="h-8 w-8 p-0 flex-shrink-0"
-                title={"Collapse all folders"}
-                aria-label={"Collapse all folders"}
               >
-                <Icon name="collapse-vertical" className="h-4 w-4" />
-              </Button>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
-        </Tooltip>
-        </div>
+                <Icon name="collapse-vertical" className="mr-2 size-4" /> {"Collapse all folders"}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <>
+          {canCreateFile || canCreateFolder ? (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex shrink-0">
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="size-7 p-0" aria-label={"New file or folder"}>
+                        <Icon name="add" className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={6}>{"New file or folder"}</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" side="bottom">
+                {canCreateFile ? (
+                  <DropdownMenuItem onClick={() => handleOpenDialog('createFile', { path: currentDirectory, type: 'directory' })}>
+                    <Icon name="file-add" className="mr-2 size-4" /> {"New file"}
+                  </DropdownMenuItem>
+                ) : null}
+                {canCreateFolder ? (
+                  <DropdownMenuItem onClick={() => handleOpenDialog('createFolder', { path: currentDirectory, type: 'directory' })}>
+                    <Icon name="folder-add" className="mr-2 size-4" /> {"New folder"}
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button variant="ghost" size="sm" onClick={() => void refreshRoot()} className="size-7 p-0" aria-label={"Refresh"}>
+                  <Icon name="refresh" className="size-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>{"Refresh"}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (root) collapseAllExpandedPaths(root);
+                  }}
+                  className="size-7 p-0"
+                  aria-label={"Collapse all folders"}
+                >
+                  <Icon name="collapse-vertical" className="size-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>{"Collapse all folders"}</TooltipContent>
+          </Tooltip>
+          </>
+        )}
       </div>
 
       <ScrollableOverlay outerClassName="flex-1 min-h-0" className="px-1 py-2">
-        <ul className="flex flex-col">
-          {searching ? (
+        <ul ref={treeListRef} className="flex flex-col">
+          {searchActive && searching ? (
             <li className="flex items-center gap-1.5 px-2 py-1 typography-meta text-muted-foreground">
-              <Icon name="loader-4" className="h-4 w-4 animate-spin" />
+              <Icon name="loader-4" className="size-4 animate-spin" />
               {"Searching..."}
             </li>
-          ) : searchResults.length > 0 ? (
+          ) : searchActive && searchFailed ? (
+            <li className="px-2 py-1 typography-meta text-[var(--status-error)]">{"Search failed. Edit the search to try again."}</li>
+          ) : searchActive && searchResults.length === 0 ? (
+            <li className="px-2 py-1 typography-meta text-muted-foreground text-pretty">{`No files match “${searchQuery.trim()}”.`}</li>
+          ) : searchActive ? (
             searchResults.map((node) => {
-              const isActive = selectedPath === node.path;
+              const relativePath = node.relativePath || getDisplayPath(root ?? '', node.path);
               return (
                 <li key={node.path}>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenFile(node)}
-                    draggable
+                  <FileListRow
+                    path={relativePath || node.path}
+                    status={getFileStatus(node.path)}
+                    active={selectedPath === node.path}
+                    match={searchQuery}
+                    onClick={() => void handleOpenFile(node)}
                     onDragStart={(e) => {
-                      const path = node.relativePath || getDisplayPath(root ?? '', node.path);
-                      if (!path || path === '.') return;
-                      e.dataTransfer.setData('application/x-pichamber-file-path', path);
+                      if (!relativePath || relativePath === '.') return;
+                      e.dataTransfer.setData('application/x-pichamber-file-path', relativePath);
                       e.dataTransfer.effectAllowed = 'copy';
                     }}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors cursor-grab active:cursor-grabbing',
-                      isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40'
-                    )}
-                    title={node.path}
-                  >
-                    {getFileIcon(node.path, node.extension)}
-                    <span
-                      className="min-w-0 flex-1 truncate typography-meta"
-                      style={{ direction: 'rtl', textAlign: 'left' }}
-                    >
-                      {node.relativePath ?? node.path}
-                    </span>
-                  </button>
+                  />
                 </li>
               );
             })
@@ -679,8 +779,8 @@ export const SidebarFilesTree: React.FC = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {activeDialog === 'createFile' && "Create File"}
-              {activeDialog === 'createFolder' && "Create Folder"}
+              {activeDialog === 'createFile' && "Create file"}
+              {activeDialog === 'createFolder' && "Create folder"}
               {activeDialog === 'rename' && "Rename"}
               {activeDialog === 'delete' && "Delete"}
             </DialogTitle>

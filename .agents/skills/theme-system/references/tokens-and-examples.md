@@ -13,6 +13,37 @@
 | `surface.mutedForeground` | Secondary text and hints |
 | `surface.subtle` | Subtle dividers |
 
+### Text Levels
+
+Three text levels, each readable on every surface:
+
+| Class | Use |
+|---|---|
+| `text-foreground` | Primary text: titles, body, values |
+| `text-muted-foreground` | Secondary text: labels, descriptions, session details |
+| `text-subtle-foreground` | Tertiary text: timestamps, counts, hints, decorative separators |
+
+The CSS generator holds `surface.mutedForeground` to WCAG AA (4.5:1) against
+the background, sidebar, and elevated surfaces, raising it toward the
+foreground only when a theme falls short, and derives `--subtle-foreground`
+as one readable step below it. Do not fade text with alpha
+(`text-muted-foreground/60`, `text-foreground/90`); alpha steps fall below
+AA and drift between call sites. Use `opacity-*` only for disabled or
+transitional states.
+
+### Type Scale
+
+| Class | Desktop | Mobile | Use |
+|---|---|---|---|
+| `typography-ui-header` | 15px | 14px | Panel and dialog titles |
+| `typography-ui-label` | 14px | 13px | Row titles, menu items, buttons |
+| `typography-meta` | 13px | 13px | Secondary lines, compact controls (composer pickers, `xs` buttons) |
+| `typography-micro` | 12px | 12px | Timestamps, counts, badges, shortcuts |
+| `typography-code` | 13px | 12px | Code and command output blocks |
+
+These follow the user's font-size setting; fixed sizes (`text-xs`,
+`text-[11px]`) do not, so prefer the tokens.
+
 ### Interactive
 
 | Token | Usage |

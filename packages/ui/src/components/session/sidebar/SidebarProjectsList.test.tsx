@@ -5,6 +5,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { SidebarProjectsList, type ProjectSection } from './SidebarProjectsList';
 import { getTimelineBoundaries } from './timelineBuckets';
 import type { SessionNode } from './types';
+import { getRuntimeKey } from '@/lib/runtime-switch';
+import { getPinnedSessionKey } from '@/stores/useSessionPinnedStore';
 
 const project = {
   id: 'root',
@@ -265,7 +267,8 @@ describe('SidebarProjectsList view modes', () => {
         hasSessionSearchQuery: false,
         emptyState: React.createElement('div', null, 'Empty'),
         searchEmptyState: React.createElement('div', null, 'Search Empty'),
-        pinnedSessionIds: new Set(['s-pinned']),
+        // Pins are keyed by runtime, directory, and session id, as the pin store keeps them.
+        pinnedSessionIds: new Set([getPinnedSessionKey(getRuntimeKey(), '/project/s-pinned', 's-pinned')!]),
         renderSessionNode: (node, _depth, groupDirectory, projectId, _archived, secondaryMeta) =>
           React.createElement(
             'div',
@@ -326,7 +329,7 @@ describe('SidebarProjectsList view modes', () => {
     // Folder labels passed
     expect(markup).toContain('data-project-label="Alpha Project"');
     expect(markup).toContain('data-project-label="Beta Project"');
-    expect(markup).toContain('data-project-label="No Folder"');
+    expect(markup).toContain('data-project-label="No folder"');
     expect(markup).toContain('data-show-folder-label="1"');
   });
 

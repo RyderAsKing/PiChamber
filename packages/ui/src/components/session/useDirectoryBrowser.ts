@@ -7,11 +7,9 @@ import { canRequestNativeDirectoryAccess, requestDirectoryAccess } from '@/lib/d
 import { isFilesystemError, type FilesystemErrorReason } from '@/lib/api/files-errors';
 import {
   absolutePathToDisplayPath,
-  appendBrowsePathSegment,
   canNavigateUp,
   displayPathToAbsolutePath,
   ensureBrowseDirectoryPath,
-  getBrowseCurrentFolderName,
   getBrowseDirectoryPath,
   getBrowseLeafPathSegment,
   getBrowseParentPath,
@@ -23,65 +21,80 @@ import {
 import {
   type BrowseEntry,
   type BrowseRow,
-  focusPathInput,
   resolveFreshFilesystemHome,
 } from './directoryExplorerTypes';
 
+/** One folder's listing, tagged with the path it was read for. */
+type Listing = {
+  displayDir: string;
+  absoluteDir: string;
+  entries: BrowseEntry[];
+  error: FilesystemErrorReason | null;
+};
+
+const readListing = async (displayDir: string, absoluteDir: string): Promise<Listing> => {
+  try {
+    const result = await listLocalDirectory(absoluteDir);
+    const entries = result
+      .filter((entry) => entry.isDirectory)
+      .map((entry) => ({ name: entry.name, path: normalizeSeparators(entry.path) }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    return { displayDir, absoluteDir, entries, error: null };
+  } catch (error) {
+    return { displayDir, absoluteDir, entries: [], error: isFilesystemError(error) ? error.reason : 'unknown' };
+  }
+};
+
+/** How long a folder may take to list before the list says it's loading. */
+const LOADING_NOTICE_DELAY_MS = 250;
+
+/**
+ * The folder listing behind the Add folder dialog's path field.
+ *
+ * Moving between folders reads the next folder first and switches the path and
+ * the list together, so the list never empties or flashes a loading state on
+ * the way. A newer move or a typed path supersedes one still loading. While a
+ * typed path is still being read, the list keeps showing the last folder read;
+ * its rows carry their own targets, so they stay correct to click.
+ */
 export function useDirectoryBrowser({
   open,
   addedProjectPaths,
-  shouldSuppressAutoFocus,
 }: {
   open: boolean;
   addedProjectPaths: Set<string>;
-  shouldSuppressAutoFocus: boolean;
 }) {
   const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const { canRequestAccess, startAccessing } = useFileSystemAccess();
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  const rowRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const [dialogHomeDirectory, setDialogHomeDirectory] = React.useState('');
   const [query, setQuery] = React.useState('~/');
-  const [entries, setEntries] = React.useState<BrowseEntry[]>([]);
-  const [isLoading, setIsLoading] = React.useState(false);
-  const [isBrowseDirectoryMissing, setIsBrowseDirectoryMissing] = React.useState(false);
-  const [browseErrorReason, setBrowseErrorReason] = React.useState<FilesystemErrorReason | null>(null);
-  const [browseReloadKey, setBrowseReloadKey] = React.useState(0);
-  const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const [listing, setListing] = React.useState<Listing | null>(null);
+  const [showLoading, setShowLoading] = React.useState(false);
   const [isPickingLocation, setIsPickingLocation] = React.useState(false);
   const [showHidden, setShowHidden] = React.useState(false);
-  const [folderEnterFrom, setFolderEnterFrom] = React.useState<'left' | 'right'>('right');
-  const previousBrowsePathRef = React.useRef('~/');
+  const generationRef = React.useRef(0);
 
   const explorerRootDirectory = dialogHomeDirectory || homeDirectory;
 
   React.useEffect(() => {
     if (!open) return;
+    generationRef.current += 1;
     setQuery('~/');
-    setEntries([]);
-    setHighlightedIndex(0);
+    setListing(null);
     setIsPickingLocation(false);
     setShowHidden(false);
-    previousBrowsePathRef.current = '~/';
-    setFolderEnterFrom('right');
-    if (!shouldSuppressAutoFocus) {
-      requestAnimationFrame(() => focusPathInput(inputRef.current));
-    }
 
     let cancelled = false;
     const resolveHome = async () => {
       const resolved = await resolveFreshFilesystemHome();
       if (cancelled) return;
       setDialogHomeDirectory(resolved || homeDirectory || '');
-      if (!shouldSuppressAutoFocus) {
-        requestAnimationFrame(() => focusPathInput(inputRef.current));
-      }
     };
     void resolveHome();
     return () => {
       cancelled = true;
     };
-  }, [homeDirectory, open, shouldSuppressAutoFocus]);
+  }, [homeDirectory, open]);
 
   const browseDirectoryDisplayPath = React.useMemo(() => getBrowseDirectoryPath(query), [query]);
   const browseFilterQuery = React.useMemo(
@@ -93,77 +106,91 @@ export function useDirectoryBrowser({
     [browseDirectoryDisplayPath, explorerRootDirectory],
   );
 
+  const isSettled = Boolean(
+    listing &&
+      listing.displayDir === browseDirectoryDisplayPath &&
+      listing.absoluteDir === browseDirectoryAbsolutePath,
+  );
+
+  // A typed path (or the first open) reads its folder here; moves made through
+  // `navigate` arrive with their listing already read and skip this.
   React.useEffect(() => {
-    const previous = previousBrowsePathRef.current;
-    if (previous === browseDirectoryDisplayPath) return;
-    setFolderEnterFrom(browseDirectoryDisplayPath.length >= previous.length ? 'right' : 'left');
-    previousBrowsePathRef.current = browseDirectoryDisplayPath;
-  }, [browseDirectoryDisplayPath]);
+    if (!open || !browseDirectoryAbsolutePath || isSettled) return;
+    const generation = ++generationRef.current;
+    void readListing(browseDirectoryDisplayPath, browseDirectoryAbsolutePath).then((next) => {
+      if (generation === generationRef.current) setListing(next);
+    });
+  }, [browseDirectoryAbsolutePath, browseDirectoryDisplayPath, isSettled, open]);
 
   React.useEffect(() => {
-    if (!open || !browseDirectoryAbsolutePath) {
-      setEntries([]);
-      setBrowseErrorReason(null);
+    if (isSettled || !browseDirectoryAbsolutePath) {
+      setShowLoading(false);
       return;
     }
+    const timer = window.setTimeout(() => setShowLoading(true), LOADING_NOTICE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [browseDirectoryAbsolutePath, isSettled]);
 
-    let cancelled = false;
-    setIsLoading(true);
-    setIsBrowseDirectoryMissing(false);
-    setBrowseErrorReason(null);
-    listLocalDirectory(browseDirectoryAbsolutePath)
-      .then((result) => {
-        if (cancelled) return;
-        setIsBrowseDirectoryMissing(false);
-        setBrowseErrorReason(null);
-        const nextEntries = result
-          .filter((entry) => entry.isDirectory)
-          .map((entry) => ({
-            name: entry.name,
-            path: normalizeSeparators(entry.path),
-          }))
-          .sort((left, right) => left.name.localeCompare(right.name));
-        setEntries(nextEntries);
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setEntries([]);
-          const reason = isFilesystemError(error) ? error.reason : 'unknown';
-          setBrowseErrorReason(reason);
-          setIsBrowseDirectoryMissing(reason === 'not-found');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
+  /**
+   * Reads `displayPath`, then shows it: path and list change together.
+   * Resolves false when a newer move or typed path superseded this one.
+   */
+  const navigate = React.useCallback(
+    async (displayPath: string): Promise<boolean> => {
+      const nextQuery = ensureBrowseDirectoryPath(displayPath);
+      if (!explorerRootDirectory) {
+        setQuery(nextQuery);
+        return true;
+      }
+      const generation = ++generationRef.current;
+      const next = await readListing(nextQuery, displayPathToAbsolutePath(nextQuery, explorerRootDirectory));
+      if (generation !== generationRef.current) return false;
+      setListing(next);
+      setQuery(nextQuery);
+      return true;
+    },
+    [explorerRootDirectory],
+  );
 
-    return () => {
-      cancelled = true;
-    };
-  }, [browseDirectoryAbsolutePath, browseReloadKey, open]);
+  const reload = React.useCallback(() => {
+    if (!browseDirectoryAbsolutePath) return;
+    const generation = ++generationRef.current;
+    void readListing(browseDirectoryDisplayPath, browseDirectoryAbsolutePath).then((next) => {
+      if (generation === generationRef.current) setListing(next);
+    });
+  }, [browseDirectoryAbsolutePath, browseDirectoryDisplayPath]);
+
+  // Until a typed folder is read, filter the folder still shown by the part of
+  // the path typed into it, so the list doesn't jump while the read finishes.
+  const listedFilter = React.useMemo(() => {
+    if (isSettled) return browseFilterQuery;
+    if (!listing || !query.startsWith(listing.displayDir)) return '';
+    return query.slice(listing.displayDir.length).split('/')[0] ?? '';
+  }, [browseFilterQuery, isSettled, listing, query]);
 
   const filteredEntries = React.useMemo(() => {
-    const lowerFilter = browseFilterQuery.toLowerCase();
-    const includeHidden = showHidden || browseFilterQuery.startsWith('.');
-    return entries.filter(
+    if (!listing) return [];
+    const lowerFilter = listedFilter.toLowerCase();
+    const includeHidden = showHidden || listedFilter.startsWith('.');
+    return listing.entries.filter(
       (entry) =>
         entry.name.toLowerCase().startsWith(lowerFilter) && (includeHidden || !entry.name.startsWith('.')),
     );
-  }, [browseFilterQuery, entries, showHidden]);
-
-  const currentFolderName = React.useMemo(() => getBrowseCurrentFolderName(query), [query]);
-  const parentPath = React.useMemo(() => getBrowseParentPath(query), [query]);
+  }, [listedFilter, listing, showHidden]);
 
   const rows = React.useMemo<BrowseRow[]>(() => {
+    if (!listing || listing.error) return [];
     const nextRows: BrowseRow[] = [];
-    const currentNormalized = normalizeDirectoryPath(browseDirectoryAbsolutePath);
-    if (canNavigateUp(query) && currentFolderName && parentPath) {
+    const parentPath = canNavigateUp(listing.displayDir) ? getBrowseParentPath(listing.displayDir) : null;
+    if (parentPath) {
+      const current = normalizeDirectoryPath(listing.absoluteDir);
       nextRows.push({
         type: 'parent',
         value: 'browse:up',
-        name: currentFolderName,
-        path: parentPath,
-        alreadyAdded: Boolean(currentNormalized && addedProjectPaths.has(currentNormalized)),
+        name: '..',
+        path: listing.absoluteDir,
+        target: parentPath,
+        alreadyAdded: Boolean(current && addedProjectPaths.has(current)),
       });
     }
     for (const entry of filteredEntries) {
@@ -173,15 +200,15 @@ export function useDirectoryBrowser({
         value: `browse:${entry.path}`,
         name: entry.name,
         path: entry.path,
+        target: `${ensureBrowseDirectoryPath(listing.displayDir)}${entry.name}/`,
         alreadyAdded: Boolean(normalized && addedProjectPaths.has(normalized)),
       });
     }
     return nextRows;
-  }, [addedProjectPaths, browseDirectoryAbsolutePath, currentFolderName, filteredEntries, parentPath, query]);
+  }, [addedProjectPaths, filteredEntries, listing]);
 
-  React.useEffect(() => {
-    setHighlightedIndex(0);
-  }, [query, rows.length]);
+  const browseErrorReason = isSettled ? (listing?.error ?? null) : null;
+  const entries = React.useMemo(() => (isSettled && listing ? listing.entries : []), [isSettled, listing]);
 
   const targetPath = React.useMemo(() => {
     if (!explorerRootDirectory) return '';
@@ -193,41 +220,16 @@ export function useDirectoryBrowser({
 
   const exactEntry = React.useMemo(() => {
     if (!browseFilterQuery) return null;
-    return filteredEntries.find((entry) => entry.name === browseFilterQuery) ?? null;
-  }, [browseFilterQuery, filteredEntries]);
+    return entries.find((entry) => entry.name === browseFilterQuery) ?? null;
+  }, [browseFilterQuery, entries]);
 
   const shouldCreateTarget = Boolean(
-    targetPath &&
+    isSettled &&
+      targetPath &&
       !isAlreadyAdded &&
       (browseErrorReason === null || browseErrorReason === 'not-found') &&
-      ((hasTrailingPathSeparator(query) && isBrowseDirectoryMissing) ||
+      ((hasTrailingPathSeparator(query) && browseErrorReason === 'not-found') ||
         (!hasTrailingPathSeparator(query) && browseFilterQuery.trim().length > 0 && exactEntry === null)),
-  );
-
-  const highlightedRow = rows[highlightedIndex] ?? null;
-  const hasHighlightedBrowseItem = Boolean(highlightedRow);
-
-  const browseToDisplayPath = React.useCallback((displayPath: string) => {
-    setQuery(ensureBrowseDirectoryPath(displayPath));
-  }, []);
-
-  const browseToEntry = React.useCallback(
-    (entry: BrowseEntry) => {
-      setQuery(appendBrowsePathSegment(query, entry.name));
-    },
-    [query],
-  );
-
-  const executeRow = React.useCallback(
-    (row: BrowseRow | null) => {
-      if (!row) return;
-      if (row.type === 'parent') {
-        browseToDisplayPath(row.path);
-        return;
-      }
-      browseToEntry(row);
-    },
-    [browseToDisplayPath, browseToEntry],
   );
 
   const applyPickedLocation = React.useCallback(
@@ -242,10 +244,10 @@ export function useDirectoryBrowser({
       const displayPath = explorerRootDirectory
         ? absolutePathToDisplayPath(pickedPath, explorerRootDirectory)
         : ensureBrowseDirectoryPath(normalizeSeparators(pickedPath));
-      browseToDisplayPath(displayPath);
+      await navigate(displayPath);
       return true;
     },
-    [browseToDisplayPath, explorerRootDirectory, startAccessing],
+    [explorerRootDirectory, navigate, startAccessing],
   );
 
   const handleBrowseLocation = React.useCallback(async () => {
@@ -285,37 +287,28 @@ export function useDirectoryBrowser({
   }, [applyPickedLocation, isPickingLocation, targetPath]);
 
   return {
-    inputRef,
-    rowRefs,
     query,
     setQuery,
-    isLoading,
-    isBrowseDirectoryMissing,
+    /** False while the folder the path points at is still being read. */
+    isSettled,
+    /** True once a read has taken long enough to say so. */
+    showLoading,
     browseErrorReason,
-    browseReloadKey,
-    setBrowseReloadKey,
-    highlightedIndex,
-    setHighlightedIndex,
+    reload,
     isPickingLocation,
     showHidden,
     setShowHidden,
-    folderEnterFrom,
     explorerRootDirectory,
     browseDirectoryDisplayPath,
     browseDirectoryAbsolutePath,
     browseFilterQuery,
-    filteredEntries,
+    entries,
     rows,
     targetPath,
     isAlreadyAdded,
     shouldCreateTarget,
-    highlightedRow,
-    hasHighlightedBrowseItem,
     canRequestAccess,
-    browseToDisplayPath,
-    browseToEntry,
-    executeRow,
-    applyPickedLocation,
+    navigate,
     handleBrowseLocation,
   };
 }

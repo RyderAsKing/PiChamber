@@ -475,7 +475,7 @@ export const GitHubSection: React.FC<{
           <Icon
             name="arrow-down-s"
             aria-hidden="true"
-            className={cn('size-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-150', !open && '-rotate-90')}
+            className={cn('size-3.5 shrink-0 text-subtle-foreground transition-transform duration-150', !open && '-rotate-90')}
           />
         </button>
         {action}
@@ -510,7 +510,7 @@ export const GitHubCommentCard: React.FC<{
           {badge}
           {time ? (
             <>
-              <span aria-hidden="true" className="text-muted-foreground/60">·</span>
+              <span aria-hidden="true" className="text-subtle-foreground">·</span>
               {timeHref ? (
                 <a
                   href={timeHref}

@@ -15,6 +15,11 @@ import { cn } from '@/lib/utils';
 import { sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 import { treeRowGapClassName } from './sessionRowVariant';
 
+const folderActionButtonClassName =
+  'inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-[opacity,background-color,color] hover:bg-interactive-active hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
+const folderActionHiddenClassName =
+  'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto';
+
 export type SortableDragHandleProps = {
   listeners: ReturnType<typeof useSortable>['listeners'];
   setActivatorNodeRef: ReturnType<typeof useSortable>['setActivatorNodeRef'];
@@ -45,10 +50,10 @@ export const ProjectHeaderIdentity: React.FC<ProjectHeaderIdentityProps> = ({
         {projectPath ? (
           <ProjectIcon directory={projectPath} label={projectLabel} className={iconClassName} />
         ) : (
-          <Icon name="folder" className={cn(iconClassName, 'text-muted-foreground/80')} />
+          <Icon name="folder" className={cn(iconClassName, 'text-subtle-foreground')} />
         )}
       </span>
-      <span className={cn(labelClassName, 'text-foreground')}>{projectLabel}</span>
+      <span className={cn(labelClassName, 'font-medium text-foreground')}>{projectLabel}</span>
     </>
   );
 };
@@ -83,6 +88,10 @@ export interface SortableProjectItemProps extends ProjectIdentityProps {
   setOpenSidebarMenuKey: (key: string | null) => void;
   /** Aggregated activity/attention indicator shown while the project is collapsed. */
   statusIndicator?: React.ReactNode;
+  /** Sessions in the folder, shown while it is collapsed; null hides the count. */
+  sessionCount?: number | null;
+  /** Nothing to show under the header (every session is on a shelf): no chevron. */
+  isEmpty?: boolean;
 }
 
 export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
@@ -106,6 +115,8 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   openSidebarMenuKey,
   setOpenSidebarMenuKey,
   statusIndicator = null,
+  sessionCount = null,
+  isEmpty = false,
 }) => {
   const {
     listeners,
@@ -225,6 +236,14 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       projectPath={projectPath}
                       mobileVariant={mobileVariant}
                     />
+                    {sessionCount ? (
+                      <span
+                        className="shrink-0 typography-micro text-subtle-foreground tabular-nums"
+                        aria-label={sessionCount === 1 ? '1 session' : `${sessionCount} sessions`}
+                      >
+                        {sessionCount}
+                      </span>
+                    ) : null}
                     {statusIndicator ? (
                       <span className="ml-1 inline-flex flex-shrink-0 items-center">{statusIndicator}</span>
                     ) : null}
@@ -234,6 +253,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       mobileVariant={mobileVariant}
                       className={cn(
                         'transition-[padding]',
+                        isEmpty && 'invisible',
                         // Touch layouts keep the actions visible, and their 36px touch targets need the wider slot.
                         alwaysShowActions
                           ? 'pl-16'
@@ -247,9 +267,39 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 </TooltipContent>
               </Tooltip>
 
-              {/* Left of the new-session button (right-7 plus its w-6); written out because 13 is not on the padding-scaled spacing scale. */}
-              <div className="absolute right-[calc(3.25rem*var(--padding-scale,1))] top-1/2 z-10 -translate-y-1/2">
-                {!hideDirectoryControls ? (
+              {/* Hover actions: one evenly spaced group left of the chevron (at the
+                  row's edge when there is no chevron), New session first and the
+                  folder menu last, each with its own hover fill. */}
+              {!hideDirectoryControls ? (
+                <div
+                  className={cn(
+                    'absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5',
+                    isEmpty ? 'right-2' : 'right-7',
+                  )}
+                >
+                  {showCreateButtons && onNewSession ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNewSession();
+                          }}
+                          className={cn(
+                            folderActionButtonClassName,
+                            alwaysShowActions ? 'opacity-100' : folderActionHiddenClassName,
+                          )}
+                          aria-label={"New session"}
+                        >
+                          <Icon name="add" className="size-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" sideOffset={4}>
+                        <p>{"New session"}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : null}
                   <DropdownMenu
                     open={isMenuOpen}
                     onOpenChange={handleMenuOpenChange}
@@ -258,53 +308,25 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       <button
                         type="button"
                         className={cn(
-                          'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 hover:text-foreground',
+                          folderActionButtonClassName,
                           isMenuOpen
-                            ? 'opacity-100 pointer-events-auto'
+                            ? 'opacity-100 pointer-events-auto bg-interactive-active text-foreground'
                             : alwaysShowActions
                               ? 'opacity-100'
-                              : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
+                              : folderActionHiddenClassName,
                         )}
                         aria-label={"Folder menu"}
                         onPointerDown={handleMenuTriggerPointerDown}
                         onMouseDown={handleMenuTriggerMouseDown}
                         onClick={handleMenuTriggerClick}
                       >
-                        <Icon name="more-2" className="size-4" />
+                        <Icon name="more-fill" className="size-4" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="min-w-[180px]">
                       {renderProjectMenuItems(DropdownMenuItem)}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                ) : null}
-              </div>
-
-              {showCreateButtons && !hideDirectoryControls && onNewSession ? (
-                <div className="absolute right-7 top-1/2 z-10 -translate-y-1/2">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onNewSession();
-                        }}
-                        className={cn(
-                          'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 transition-opacity',
-                          alwaysShowActions
-                            ? 'opacity-100'
-                            : 'opacity-0 pointer-events-none group-hover/project:opacity-100 group-hover/project:pointer-events-auto group-focus-within/project:opacity-100 group-focus-within/project:pointer-events-auto',
-                        )}
-                        aria-label={"New session"}
-                      >
-                        <Icon name="add" className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" sideOffset={4}>
-                      <p>{"New session"}</p>
-                    </TooltipContent>
-                  </Tooltip>
                 </div>
               ) : null}
             </div>

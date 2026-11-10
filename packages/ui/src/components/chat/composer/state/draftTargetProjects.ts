@@ -1,5 +1,5 @@
 import type { ProjectEntry } from '@/lib/api/types';
-import { formatDirectoryName } from '@/lib/utils';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { normalizePath } from '../attachments/filePaths';
 
 export const GLOBAL_PROJECT_ID = '__home__';
@@ -45,7 +45,7 @@ export const resolveDraftWelcomeProjectLabel = (input: {
     ? input.projects.find((candidate) => candidate.id === projectId)
     : null) ?? input.projects[0] ?? null;
   if (!project) return null;
-  return project.label?.trim() || formatDirectoryName(project.path);
+  return getProjectDisplayLabel(project);
 };
 
 export function buildDraftTargetProjects(

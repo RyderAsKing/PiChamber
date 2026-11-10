@@ -148,7 +148,7 @@ const ToolScrollableTextOutput: React.FC<{
 
     if (part.tool === 'bash' && isStreaming) {
         return (
-            <div className="typography-code text-muted-foreground/90">
+            <div className="typography-code text-muted-foreground">
                 <StreamingPlainTextOutput output={renderedOutput} />
             </div>
         );
@@ -212,7 +212,7 @@ const ToolScrollableTextOutput: React.FC<{
                         maxHeight="400px"
                     />
                 ) : (
-                    <div className="typography-code pr-12 text-muted-foreground/90">
+                    <div className="typography-code pr-12 text-muted-foreground">
                         <WorkerHighlightedCode
                             language="json"
                             code={renderedOutput}
@@ -227,7 +227,7 @@ const ToolScrollableTextOutput: React.FC<{
     }
 
     return (
-        <div className={part.tool === 'bash' ? 'typography-code text-muted-foreground/90' : undefined}>
+        <div className={part.tool === 'bash' ? 'typography-code text-muted-foreground' : undefined}>
             <WorkerHighlightedCode
                 language={outputLanguage}
                 code={renderedOutput}
@@ -585,7 +585,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         }
 
         return renderScrollableBlock(
-            <div className="typography-meta text-muted-foreground/70">{"No output produced"}</div>,
+            <div className="typography-meta text-subtle-foreground">{"No output produced"}</div>,
             { maxHeightClass: 'max-h-60' }
         );
     };
@@ -598,7 +598,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
         if (state.status === 'error' && 'error' in state) {
             return (
                 <div className="oc-tool-expanded-body relative pr-2 pb-2 pt-2 space-y-2 pl-4">
-                    <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
+                    <div className="typography-meta font-medium text-subtle-foreground mb-1">{"Error:"}</div>
                     <div className="typography-meta p-2 rounded-xl border" style={{
                         backgroundColor: 'var(--status-error-background)',
                         color: 'var(--status-error)',
@@ -612,7 +612,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
 
         const todoOutput = renderTodoOutput(todoContent, {
             total: "Total",
-            inProgress: "In Progress",
+            inProgress: "In progress",
             pending: "Pending",
             completed: "Completed",
             cancelled: "Cancelled",
@@ -649,7 +649,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                         <div className="my-1">
                             {renderScrollableBlock(
                                 part.tool === 'bash' ? (
-                                    <pre className="tool-input-text whitespace-pre-wrap break-words typography-code text-muted-foreground/90 m-0 p-0">
+                                    <pre className="tool-input-text whitespace-pre-wrap break-words typography-code text-muted-foreground m-0 p-0">
                                         {inputTextContent}
                                     </pre>
                                 ) : isWriteLikeTool && writeLikeInputPatch ? (
@@ -658,7 +658,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
                                         diffViewMode={diffViewMode}
                                     />
                                 ) : (
-                                    <blockquote className="tool-input-text whitespace-pre-wrap break-words typography-meta italic text-muted-foreground/70">
+                                    <blockquote className="tool-input-text whitespace-pre-wrap break-words typography-meta italic text-subtle-foreground">
                                         {inputTextContent}
                                     </blockquote>
                                 ),
@@ -687,7 +687,7 @@ export const ToolExpandedContent: React.FC<ToolExpandedContentProps> = React.mem
 
                     {state.status === 'error' && 'error' in state && (
                         <div>
-                            <div className="typography-meta font-medium text-muted-foreground/80 mb-1">{"Error:"}</div>
+                            <div className="typography-meta font-medium text-subtle-foreground mb-1">{"Error:"}</div>
                             <div className="typography-meta p-2 rounded-xl border" style={{
                                 backgroundColor: 'var(--status-error-background)',
                                 color: 'var(--status-error)',

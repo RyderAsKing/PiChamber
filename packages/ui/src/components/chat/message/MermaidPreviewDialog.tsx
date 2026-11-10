@@ -318,7 +318,7 @@ export const MermaidPreviewDialog: React.FC<{
           <div className="flex items-center justify-end">
             <button
               type="button"
-              className="h-8 w-8 flex items-center justify-center rounded-lg text-muted-foreground/80 hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
+              className="h-8 w-8 flex items-center justify-center rounded-lg text-subtle-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/60"
               onClick={() => onOpenChange(false)}
               aria-label={'Close diagram preview'}
             >

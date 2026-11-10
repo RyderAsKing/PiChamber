@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 
 interface WorktreeBranchDisplayProps {
   currentBranch: string | null | undefined;
@@ -127,9 +128,7 @@ export const WorktreeBranchDisplay: React.FC<WorktreeBranchDisplayProps> = ({
     <div className="flex w-full min-w-0 items-center gap-1.5 px-2 py-1 h-8">
       <Icon name="git-branch" className="size-4 text-primary shrink-0" />
       <div className="inline-flex min-w-0 max-w-full items-center gap-1">
-        <span className="truncate typography-ui-label font-normal text-foreground">
-          {currentBranch || "Detached HEAD"}
-        </span>
+        <MiddleTruncate value={currentBranch || "Detached HEAD"} className="min-w-0 typography-ui-label font-normal text-foreground" />
         {showEditButton && onRename && currentBranch && (
           <Button
             variant="ghost"

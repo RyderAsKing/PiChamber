@@ -38,8 +38,8 @@ export const Dialogs: React.FC<DialogsProps> = ({
       <DialogContent initialFocus={inputRef}>
         <DialogHeader>
           <DialogTitle>
-            {activeDialog === 'createFile' && "Create File"}
-            {activeDialog === 'createFolder' && "Create Folder"}
+            {activeDialog === 'createFile' && "Create file"}
+            {activeDialog === 'createFolder' && "Create folder"}
             {activeDialog === 'rename' && "Rename"}
             {activeDialog === 'delete' && "Delete"}
           </DialogTitle>

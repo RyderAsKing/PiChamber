@@ -68,12 +68,7 @@ const SortableChip: React.FC<{
     /** Hide the per-chip hover "x" (mobile uses the trash drop-zone instead). */
     hideRemove?: boolean;
 }> = ({ item, onInsert, onRemove, hideRemove }) => {
-    const { currentTheme } = useThemeSystem();
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
-    const chipStyle: React.CSSProperties = {
-        backgroundColor: currentTheme?.colors?.surface?.elevated,
-        borderColor: currentTheme?.colors?.interactive?.border,
-    };
 
     return (
         <div
@@ -88,8 +83,8 @@ const SortableChip: React.FC<{
                 {...attributes}
                 {...listeners}
                 onClick={() => onInsert(item)}
-                className="group inline-flex touch-none select-none items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-[var(--interactive-hover)] hover:text-foreground"
-                style={chipStyle}
+                // Starters stay quiet under the composer: no fill or border until hovered.
+                className="group inline-flex touch-none select-none items-center gap-1.5 rounded-full border border-transparent px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-[var(--interactive-hover)] hover:text-foreground"
             >
                 <Icon name={item.icon} className="h-3.5 w-3.5 shrink-0 opacity-70 transition-opacity group-hover:opacity-100" />
                 <span className="whitespace-nowrap">{item.label}</span>
@@ -100,8 +95,7 @@ const SortableChip: React.FC<{
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                     aria-label={"Remove"}
                     title={"Remove"}
-                    className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border text-muted-foreground shadow-sm hover:text-foreground group-hover/chip:flex"
-                    style={chipStyle}
+                    className="absolute -right-1.5 -top-1.5 hidden h-4 w-4 items-center justify-center rounded-full border border-[var(--interactive-border)] bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground group-hover/chip:flex"
                 >
                     <Icon name="close" className="h-2.5 w-2.5" />
                 </button>

@@ -41,7 +41,8 @@ describe('BashExecutionRow', () => {
       kind: 'recorded',
       details: { command: 'yes', output: 'y', truncated: true, fullOutputPath: '/tmp/pi-bash-123.log' },
     });
-    expect(markup).toContain('Showing the last 50 KB of output.');
+    expect(markup).toContain('Output truncated');
+    expect(markup).toContain('Earlier output was discarded. Only the last 50 KB is kept.');
     expect(markup).not.toContain('/tmp/pi-bash-123.log');
   });
 

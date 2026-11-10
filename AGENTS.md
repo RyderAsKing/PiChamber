@@ -116,10 +116,14 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 `THEME=light|dark`, and `OUT_DIR` as needed.
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
-`<dir>/repo` (on a long branch, with a favicon), more folders in
-`<dir>/folders` (one with a favicon, a monorepo, one without an icon), a data
+`<dir>/repo` (on a long branch, with a favicon and an unchanged `src/` folder), more folders in
+`<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
+a dark logo on a transparent background), a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
-`HOME` whose Pi agent directory holds one demo session. Start the
+`HOME` whose Pi agent directory holds one demo session (plus a few short
+sessions across the folders, with backdated times and shelf state, for the
+sidebar views) and whose `code/`
+folder gives the Add folder dialog something to list. Start the
 dev server with `HOME=<dir>/home PICHAMBER_DATA_DIR=<dir>/data` so it never
 touches real `~/.pi` or `~/.config/pichamber` state.
 
@@ -130,11 +134,40 @@ command kept from the model, and truncated output); `shell-composer` (the same
 session with `!!git diff --stat` typed into the composer); `sidebar-projects`
 (desktop only: the folder list with project icons and the fallback mark, and
 session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
-same list in the mobile sessions drawer); `open-request` (an Open request for a
+same list in the mobile sessions drawer); `sidebar-threads` (desktop only: the
+Threads view with its Snoozed and Settled shelves open, one session snoozed,
+one settled by hand, and one settled after five idle days); `sidebar-threads-hover`
+(the same view with the pointer on an active session, showing its Settle
+action, desktop only); `sidebar-threads-settle` (the same view with its
+shelves collapsed, just after the open session's Settle button: the session
+leaves the list and a toast names it with Undo; it settles that session in
+the data directory, so capture it last, desktop only); `sidebar-folder`
+(the same sessions in the By folder view); `sidebar-folder-actions` (By folder
+with the pointer on a folder header, showing its New session and folder menu
+buttons, desktop only); `open-request` (an Open request for a
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
-only). Server-route captures need Chrome on the server: under the throwaway
+only); `files-panel` (the Files panel beside the demo session with no file
+open: in that narrow panel the tree fills it, with its change marks,
+desktop only);
+`files-panel-file` (the same panel with `billing.ts` open under its path bar,
+desktop only); `files-panel-menu` (the same file with its File actions menu
+open, desktop only); `files-panel-crumb` (`src/lib/dates.ts` open, then the
+`src` step of its path bar: the tree opens over the file to that folder,
+desktop only); `files-panel-search` (`.ts` typed into the tree's search:
+name, folder, and change mark per hit, desktop only); `files-panel-nested`
+(`src/lib/dates.ts` opened from search, then the search cleared, so the tree
+has opened to it, desktop only); `files-panel-changes` (`billing.ts` open,
+then its path bar's Changes button: the Git panel on the file's scope with it
+expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
+first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
+`add-folder-new` (its three steps, each pointed at the seed's `~/code`,
+desktop only); `settings-appearance` (a dense settings page, desktop only);
+`settings-projects` (project cards with their icons, desktop only); `command-palette`
+(opened with Ctrl+P, desktop only). Desktop captures report a mouse, so
+`hover:` styles apply; a page's `hoverScript` returns the point to rest the
+pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,

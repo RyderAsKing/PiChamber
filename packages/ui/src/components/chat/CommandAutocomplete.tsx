@@ -563,7 +563,7 @@ export const CommandAutocomplete = React.forwardRef<
                           "mt-0.5 truncate text-xs leading-4",
                           isSelected
                             ? "text-interactive-selection-foreground/60"
-                            : "text-muted-foreground/80",
+                            : "text-subtle-foreground",
                         )}
                       >
                         {command.name}

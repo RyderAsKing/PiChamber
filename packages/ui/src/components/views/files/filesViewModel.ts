@@ -123,6 +123,12 @@ const DEFAULT_IGNORED_DIR_NAMES = new Set(['node_modules']);
 
 export const shouldIgnoreEntryName = (name: string): boolean => DEFAULT_IGNORED_DIR_NAMES.has(name);
 
+/** Git's own directory: never project content, so hidden even when gitignored files show. */
+export const isAlwaysHiddenEntryName = (name: string): boolean => name === '.git';
+
+const ALWAYS_HIDDEN_PATH = /(^|\/)\.git(\/|$)/;
+export const isAlwaysHiddenPath = (path: string): boolean => ALWAYS_HIDDEN_PATH.test(normalizePath(path));
+
 export const shouldIgnorePath = (path: string): boolean => {
   const normalized = normalizePath(path);
   return normalized === 'node_modules' || normalized.endsWith('/node_modules') || normalized.includes('/node_modules/');

@@ -31,12 +31,15 @@ const MODIFIER_KEY_MAP: Record<string, ShortcutModifier> = {
   'command': 'mod',
 };
 
+// Mac symbols where ⌘ shows; elsewhere every modifier is a word, so a
+// shortcut never mixes "Ctrl" with "⇧".
+const USE_MAC_SYMBOLS = isMacOS() && isDesktopShell();
 const DISPLAY_LABEL_MAP: Record<ShortcutModifier, string> = {
-  'mod': isMacOS() && isDesktopShell() ? '⌘' : 'Ctrl',
-  'shift': '⇧',
-  'alt': '⌥',
-  'option': '⌥',
-  'ctrl': '⌃',
+  'mod': USE_MAC_SYMBOLS ? '⌘' : 'Ctrl',
+  'shift': USE_MAC_SYMBOLS ? '⇧' : 'Shift',
+  'alt': USE_MAC_SYMBOLS ? '⌥' : 'Alt',
+  'option': USE_MAC_SYMBOLS ? '⌥' : 'Alt',
+  'ctrl': USE_MAC_SYMBOLS ? '⌃' : 'Ctrl',
 };
 
 // Physical `event.key` values (lowercased) that satisfy each modifier while a

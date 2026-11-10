@@ -9,6 +9,7 @@ import { MobileOverlayPanel } from '@/components/ui/MobileOverlayPanel';
 import { toast } from '@/components/ui';
 import { useTransientValue } from '@/hooks/useTransientValue';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { cn } from '@/lib/utils';
 import {
     Select,
     SelectContent,
@@ -91,27 +92,30 @@ export function ProjectLabel({
 }
 
 const draftSelectTriggerClassName =
-    'h-7 min-w-0 w-fit max-w-[48vw] gap-1 border-transparent bg-transparent px-1.5 text-muted-foreground typography-micro font-normal hover:bg-transparent hover:text-foreground data-[popup-open]:bg-transparent [&_svg]:size-3.5 [&_svg]:opacity-70 sm:max-w-none';
+    'h-7 min-w-0 w-fit max-w-[48vw] gap-1 border-transparent bg-transparent px-1.5 text-muted-foreground typography-meta font-normal hover:bg-transparent hover:text-foreground data-[popup-open]:bg-transparent [&_svg]:size-3.5 [&_svg]:opacity-70 sm:max-w-none';
 
 const WorktreeModeToggle = ({
     checked,
     onChange,
     showCheck = true,
     chromeLess = false,
+    keepWidth = false,
 }: {
     checked: boolean;
     onChange?: (enabled: boolean) => void;
     showCheck?: boolean;
     chromeLess?: boolean;
+    keepWidth?: boolean;
 }) => (
     <Tooltip delayDuration={300}>
         <TooltipTrigger asChild>
             <Button
                 variant={chromeLess ? 'ghost' : 'chip'}
                 size="xs"
-                className={chromeLess
-                    ? 'min-w-0 max-w-[48vw] shrink aria-pressed:bg-interactive-hover aria-pressed:text-foreground sm:max-w-none'
-                    : 'min-w-0 max-w-[48vw] shrink sm:max-w-none'}
+                className={cn(
+                    keepWidth ? 'shrink-0' : 'min-w-0 max-w-[48vw] shrink sm:max-w-none',
+                    chromeLess && 'aria-pressed:bg-interactive-hover aria-pressed:text-foreground',
+                )}
                 aria-pressed={checked}
                 onClick={() => onChange?.(!checked)}
             >
@@ -131,12 +135,13 @@ const BranchValue = ({ label, startFrom = false }: { label: string | null; start
     return (
         <span className="inline-flex min-w-0 items-center gap-1.5" title={label ?? undefined}>
             <Icon name="git-branch" className="size-3.5 shrink-0 text-muted-foreground" />
-            {startFrom && label ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+            {startFrom && label ? <span className="shrink-0 text-subtle-foreground">from</span> : null}
             {label ? <MiddleTruncate value={label} showTitle={false} /> : <span className="truncate">{displayLabel}</span>}
         </span>
     );
 };
 
+/** Copies the branch name; the mobile composer row is where a phone shows the branch. */
 function BranchCopyButton({ branchName }: { branchName: string | null }) {
     const { value: copied, show } = useTransientValue(false, 2000);
     const handleCopy = React.useCallback(async (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -172,7 +177,7 @@ function BranchCopyButton({ branchName }: { branchName: string | null }) {
     );
 }
 
-/** Desktop project selector and branch target. Existing sessions render a read-only branch label. */
+/** Desktop project selector and branch picker for a new session; an existing session's branch shows in the header. */
 export function DraftTargetSelectors(props: DraftTargetProps) {
     const {
         projects,
@@ -198,7 +203,8 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
             <div className="flex min-w-0 items-center gap-1">
                 {showProjectSelector ? (
                     <Select value={selectedProject.id} onValueChange={onProjectChange}>
-                        <SelectTrigger size="sm" className={draftSelectTriggerClassName}>
+                        {/* Folder and worktree keep their width; the branch middle-truncates instead. */}
+                        <SelectTrigger size="sm" className={cn(draftSelectTriggerClassName, 'shrink-0')}>
                             <SelectValue>
                                 <ProjectLabel project={selectedProject} theme={theme} maxCharacters={FOLDER_LABEL_MAX_LENGTH} />
                             </SelectValue>
@@ -239,15 +245,10 @@ export function DraftTargetSelectors(props: DraftTargetProps) {
                             </SelectGroup>
                         </SelectContent>
                     </Select>
-                ) : showBranchSelector ? (
-                    <div className="inline-flex h-7 min-w-0 items-center gap-0.5 px-1.5 typography-micro text-muted-foreground">
-                        <BranchValue label={selectedBranchLabel} startFrom={worktreeMode} />
-                        <BranchCopyButton branchName={selectedBranchName} />
-                    </div>
                 ) : null}
 
                 {showWorktreeSelector ? (
-                    <WorktreeModeToggle checked={worktreeMode} onChange={onWorktreeModeChange} />
+                    <WorktreeModeToggle checked={worktreeMode} onChange={onWorktreeModeChange} keepWidth />
                 ) : null}
             </div>
             {endAccessory ? <div className="min-w-0 shrink-0">{endAccessory}</div> : null}
@@ -302,7 +303,7 @@ export function MobileDraftTargetTriggers(
                 {showProjectSelector ? (
                     <button
                         type="button"
-                        className="inline-flex h-7 min-w-0 max-w-[44%] shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
+                        className="inline-flex h-7 min-w-0 max-w-[44%] shrink cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-meta font-medium text-foreground/80 hover:bg-[var(--interactive-hover)]"
                         onClick={() => onOpenPicker('project')}
                     >
                         <ProjectLabel project={selectedProject} theme={theme} maxCharacters={FOLDER_LABEL_MAX_LENGTH} />
@@ -312,22 +313,22 @@ export function MobileDraftTargetTriggers(
                 {showBranchSelector && branchInteractive ? (
                     <button
                         type="button"
-                        className={`inline-flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-micro font-medium text-foreground/80 hover:bg-[var(--interactive-hover)] ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'flex-1'}`}
+                        className={`inline-flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-lg px-1.5 typography-meta font-medium text-foreground/80 hover:bg-[var(--interactive-hover)] ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'flex-1'}`}
                         onClick={() => onOpenPicker('branch')}
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-subtle-foreground">from</span> : null}
                         {branchLabel}
                         <Icon name="arrow-down-s" className="h-3 w-3 shrink-0 text-muted-foreground" />
                     </button>
                 ) : showBranchSelector ? (
                     <div
-                        className={`inline-flex h-7 min-w-0 items-center gap-1 px-1.5 typography-micro text-muted-foreground ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'min-w-0 flex-1'}`}
+                        className={`inline-flex h-7 min-w-0 items-center gap-1 px-1.5 typography-meta text-muted-foreground ${showProjectSelector ? 'ml-auto max-w-[54%] shrink' : 'min-w-0 flex-1'}`}
                         title={selectedBranchLabel ?? undefined}
                     >
                         <Icon name="git-branch" className="h-3 w-3 shrink-0" />
-                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-muted-foreground/70">from</span> : null}
+                        {worktreeMode && selectedBranchLabel ? <span className="shrink-0 text-subtle-foreground">from</span> : null}
                         {branchLabel}
                         <BranchCopyButton branchName={selectedBranchName} />
                     </div>

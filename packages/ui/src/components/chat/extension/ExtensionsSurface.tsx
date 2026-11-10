@@ -43,7 +43,7 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
         className={cn('flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center', className)}
         data-testid="extensions-surface-empty"
       >
-        <Icon name="plug-2" aria-hidden="true" className="size-6 text-muted-foreground/60" />
+        <Icon name="plug-2" aria-hidden="true" className="size-6 text-subtle-foreground" />
         <p className="typography-ui-label font-medium text-foreground">No extension widgets yet</p>
         <p className="max-w-60 typography-micro text-muted-foreground">
           Widgets that extensions set with ctx.ui.setWidget show up here.
@@ -90,7 +90,7 @@ const SurfaceSection: React.FC<{ title: string; count: number; children: React.R
   <section aria-label={title} className="border-t border-border/60 first:border-t-0">
     <p className="flex items-center gap-1.5 px-3 pb-0.5 pt-1.5 typography-micro font-medium text-muted-foreground">
       {title}
-      <span className="tabular-nums text-muted-foreground/70">{count}</span>
+      <span className="tabular-nums text-subtle-foreground">{count}</span>
     </p>
     <div className="flex flex-col p-1 pt-0.5">{children}</div>
   </section>

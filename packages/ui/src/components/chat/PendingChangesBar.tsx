@@ -107,20 +107,20 @@ export const PendingChangesBar: React.FC<{ align?: 'start' | 'end' }> = React.me
                 className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
             />
             {isMobile ? (
-                <span className="min-w-0 shrink-0 text-foreground typography-ui-label">
+                <span className="min-w-0 shrink-0 text-foreground typography-meta">
                     {mobileLabel}
                 </span>
             ) : (
                 <>
-                    <span className="min-w-0 shrink-0 text-foreground typography-ui-label">
+                    <span className="min-w-0 shrink-0 text-foreground typography-meta">
                         {labelHead}
                     </span>
-                    <span className="status-row__changed-label min-w-0 typography-ui-label text-foreground truncate">
+                    <span className="status-row__changed-label min-w-0 typography-meta text-foreground truncate">
                         {"changed"}
                     </span>
                 </>
             )}
-            <span className="inline-flex shrink-0 items-baseline gap-1 text-[0.75rem] tabular-nums">
+            <span className="inline-flex shrink-0 items-baseline gap-1 typography-meta tabular-nums">
                 {totalAdded > 0 ? <span style={{ color: 'var(--status-success)' }}>+{totalAdded}</span> : null}
                 {totalRemoved > 0 ? <span style={{ color: 'var(--status-error)' }}>-{totalRemoved}</span> : null}
             </span>

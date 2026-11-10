@@ -103,10 +103,10 @@ export function createFlexokiCodeMirrorTheme(
     },
     '.cm-gutters': {
       backgroundColor: 'var(--background)',
-      color: highlights.lineNumber || theme.colors.syntax.base.comment,
+      // Tertiary text, not the comment color: some themes' comments are too faint to read numbers by.
+      color: highlights.lineNumber || 'var(--subtle-foreground)',
       borderRight: `1px solid ${theme.colors.interactive.border}`,
       position: 'sticky',
-      paddingRight: '8px',
       left: 0,
       zIndex: 2,
       boxShadow: `0 0 0 var(--background)`,
@@ -120,10 +120,13 @@ export function createFlexokiCodeMirrorTheme(
     '.cm-lineNumbers': {
       backgroundColor: 'var(--background)',
     },
+    // Sized to the digits: a fixed minimum left short files with a gutter
+    // wider than their numbers, which narrow panels can't spare.
     '.cm-lineNumbers .cm-gutterElement': {
       paddingLeft: '8px',
-      paddingRight: '8px',
-      minWidth: '42px',
+      paddingRight: '10px',
+      minWidth: '2ch',
+      boxSizing: 'content-box',
     },
     '.cm-activeLineGutter': {
       color: highlights.lineNumberActive || theme.colors.syntax.base.foreground,

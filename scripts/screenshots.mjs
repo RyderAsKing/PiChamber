@@ -4,7 +4,7 @@
 // scripts/profile-browser.mjs. See "Screenshots" in CLAUDE.md for setup.
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { mkdir, rm, writeFile, mkdtemp } from 'node:fs/promises';
+import { mkdir, rm, utimes, writeFile, mkdtemp } from 'node:fs/promises';
 import { createServer as createHttpServer, request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -66,15 +66,72 @@ b{display:block;font-size:26px;margin-top:6px}</style></head>
 <section>Refunds<b>3</b></section><section>Active users<b>1,204</b></section>
 </main></body></html>`;
 
+// Sessions the seed adds for the Threads and By folder captures (see
+// writeShelfSessions): recent ones stay in the list, one is snoozed, one was
+// settled by hand, and old ones settle on their own.
+const SHELF_SESSIONS = [
+  { id: '0193f6a0-0001-7000-8000-000000000001', folder: 'repo', title: 'Add retry with backoff to the billing client', hoursAgo: 0.3 },
+  { id: '0193f6a0-0002-7000-8000-000000000002', folder: 'night-shift', title: 'Fix the dark logo on the dark theme', hoursAgo: 2 },
+  { id: '0193f6a0-0003-7000-8000-000000000003', folder: 'chamber-mono', title: 'Plan the docs restructure', hoursAgo: 20, snooze: true },
+  { id: '0193f6a0-0004-7000-8000-000000000004', folder: 'acme-web', title: 'Rename the checkout helpers', hoursAgo: 1, settled: true },
+  { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24 },
+];
+const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
+const SHELF_SESSION_TEXT = [SHELF_SESSIONS[0].title, SHELF_SESSIONS[1].title];
+// Opens the Snoozed and Settled shelves (they start collapsed) and waits for
+// their rows, and for the open session's message and model picker so the
+// transcript beside the sidebar is not caught loading.
+const SHELVES_OPEN = `(() => {
+  const closed = document.querySelector('[data-session-shelf] button[aria-expanded="false"]');
+  if (closed) { closed.click(); return false; }
+  const messageShown = [...document.querySelectorAll('[data-message-id]')]
+    .some((node) => node.innerText.includes(${JSON.stringify(SHELF_SESSIONS[0].title)}));
+  return messageShown
+    && !document.body.innerText.includes('Loading...')
+    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[2].title)})
+    && document.body.innerText.includes(${JSON.stringify(SHELF_SESSIONS[4].title)});
+})()`;
+
 // The branch prefix: a middle-truncated label splits the full name across spans.
-const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'feature/session-sidebar'];
-// Three seeded folders ship an icon; wait until each has loaded. A build
+const SIDEBAR_PROJECTS_TEXT = ['Acme Web', 'Chamber Mono', 'Dotfiles', 'Night Shift', 'feature/session-sidebar'];
+// Four seeded folders ship an icon; wait until each has loaded. A build
 // without project icons renders no [data-project-icon], so it settles at once
 // and the same page captures a before shot.
 const PROJECT_ICONS_SETTLED = `(() => {
   if (!document.querySelector('[data-project-icon]')) return true;
   const icons = [...document.querySelectorAll('img[src^="blob:"]')];
-  return icons.length >= 3 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
+  return icons.length >= 4 && icons.every((icon) => icon.complete && icon.naturalWidth > 0);
+})()`;
+
+// Opens the sidebar's Add folder dialog and walks `plan`: pick the source
+// titled `plan.source`, then fill each field (named by the dialog's field
+// label) and press Continue where asked, one action per poll, until `done`.
+// The dialog keeps one field; its label says which step is showing.
+const addFolderSettled = (plan, done) => `(() => {
+  const dialog = document.querySelector('[data-slot="dialog-content"]');
+  if (!dialog) {
+    [...document.querySelectorAll('button')].find((button) => button.textContent.trim() === 'Add folder')?.click();
+    return false;
+  }
+  const input = dialog.querySelector('input[role="combobox"]');
+  if (!input) return false;
+  const plan = ${JSON.stringify(plan)};
+  const label = input.getAttribute('aria-label');
+  const field = plan.fields.find((entry) => entry.label === label);
+  if (plan.source && !field) {
+    [...dialog.querySelectorAll('[role="option"]')].find((row) => row.textContent.includes(plan.source))?.click();
+    return false;
+  }
+  if (field && input.value !== field.value) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, field.value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return false;
+  }
+  if (field?.continue) {
+    [...dialog.querySelectorAll('button')].find((button) => /continue/i.test(button.textContent))?.click();
+    return false;
+  }
+  return ${done};
 })()`;
 
 const PAGES = {
@@ -121,6 +178,80 @@ const PAGES = {
     settledScript: PROJECT_ICONS_SETTLED,
     idleRequestPrefix: '/api/fs/project-icon',
   },
+  'sidebar-threads': {
+    // The Threads view: recent sessions across folders, then the Snoozed and
+    // Settled shelves opened, with the selected title in medium weight.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+  },
+  'sidebar-threads-hover': {
+    // Threads with the pointer on an active session: its Settle action takes
+    // the timestamp's place.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+    hoverScript: `(() => {
+      const title = [...document.querySelectorAll('aside *, nav *, [class*="sidebar"] *')].find((node) => node.childElementCount === 0 && node.textContent.trim() === ${JSON.stringify(SHELF_SESSIONS[1].title)});
+      const rect = title?.getBoundingClientRect();
+      return rect ? { x: rect.left + 20, y: rect.top + rect.height / 2 } : null;
+    })()`,
+  },
+  'sidebar-threads-settle': {
+    // Threads with the shelves collapsed, just after the open session's Settle
+    // button: it leaves the list, and a toast names it with Undo. This settles
+    // the session in the data directory, so capture it after the other pages.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const title = ${JSON.stringify(SHELF_SESSIONS[0].title)};
+      if ([...document.querySelectorAll('[data-sonner-toast]')].some((toast) => toast.innerText.includes(title))) return true;
+      if (window.__settleClicked) return false;
+      const messageShown = [...document.querySelectorAll('[data-message-id]')].some((node) => node.innerText.includes(title));
+      if (!messageShown) return false;
+      // The row is the widest ancestor holding a single Settle button.
+      const button = [...document.querySelectorAll('button[aria-label="Settle"]')].find((candidate) => {
+        let row = candidate;
+        while (row.parentElement && row.parentElement.querySelectorAll('button[aria-label="Settle"]').length === 1) row = row.parentElement;
+        return row.innerText.includes(title);
+      });
+      if (!button) return false;
+      window.__settleClicked = true;
+      button.click();
+      return false;
+    })()`,
+  },
+  'sidebar-folder': {
+    // By folder: folders with their active sessions; snoozed and settled
+    // sessions moved to shelves under the folder list.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'folder',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+  },
+  'sidebar-folder-actions': {
+    // By folder with the pointer on a folder header: its New session and
+    // folder menu buttons.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'folder',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+    hoverScript: `(() => {
+      const label = [...document.querySelectorAll('[aria-expanded] span')].find((node) => node.textContent.trim() === 'Night Shift');
+      const row = label?.closest('[data-sidebar-tree-row]');
+      if (!row) return null;
+      const rect = row.getBoundingClientRect();
+      return { x: rect.left + 40, y: rect.top + rect.height / 2 };
+    })()`,
+  },
   'sidebar-projects-mobile': {
     path: '/',
     // The header button opens the sessions drawer with the same folder list.
@@ -136,6 +267,234 @@ const PAGES = {
     // `!` enters shell mode and a second `!` keeps the command out of the
     // model's context; each insert is a separate edit, like typing.
     typeIntoComposer: ['!', '!', 'git diff --stat'],
+  },
+  'files-panel': {
+    path: DEMO_SESSION_PATH,
+    // The right rail's Files button opens the tree beside the session.
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    // The panel can close again while the app finishes starting; press its
+    // rail button until the tree's toolbar shows.
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      return Boolean(document.querySelector('input[aria-label="Search files"]'));
+    })()`,
+  },
+  'files-panel-file': {
+    // The same panel with billing.ts open. The panel is narrow, so the tree
+    // folds away and the file gets the width.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      // Syntax colors come from a worker after the text shows; wait for them.
+      if (document.body.innerText.includes('Intl.NumberFormat')) return Boolean(document.querySelector('.cm-content [style*="color"]'));
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+  },
+  'files-panel-menu': {
+    // billing.ts open with its File actions menu: each action written out.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      if (document.querySelector('[data-slot="dropdown-menu-content"]')) return document.body.innerText.includes('Copy path');
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      if (document.body.innerText.includes('Intl.NumberFormat') && document.querySelector('.cm-content [style*="color"]')) {
+        document.querySelector('button[aria-label="File actions"]')?.click();
+        return false;
+      }
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+  },
+  'files-panel-crumb': {
+    // src/lib/dates.ts open, then the src step of its path bar: the tree opens
+    // over the file to src, with Back to file.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const crumb = document.querySelector('button[title="Show src in the tree"]');
+      // The folded tree stays mounted under aria-hidden, Back to file included.
+      const back = [...document.querySelectorAll('button')].find((node) => node.textContent.includes('Back to file') && !node.closest('[aria-hidden="true"]'));
+      if (crumb && !back) { crumb.click(); return false; }
+      if (crumb) return Boolean(document.querySelector('[data-tree-path$="/src/lib"]'));
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      const hit = document.querySelector('button[title="src/lib/dates.ts"]');
+      if (hit) { hit.click(); return false; }
+      if (input.value !== 'dates') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'dates');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return false;
+    })()`,
+  },
+  'files-panel-search': {
+    // A search in the Files tree: hits show name, folder, and change mark.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      // A file left open by an earlier capture folds the tree in a narrow panel.
+      const treeToggle = document.querySelector('button[aria-label="Toggle file tree"]');
+      if (treeToggle && treeToggle.getAttribute('aria-pressed') !== 'true') { treeToggle.click(); return false; }
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      if (input.value !== '.ts') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '.ts');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return false;
+      }
+      return Boolean(document.querySelector('button[title="src/lib/dates.ts"]'));
+    })()`,
+  },
+  'files-panel-nested': {
+    // src/lib/dates.ts opened from a search, the folded tree shown again, and
+    // the search cleared: the path bar shows its folder and the tree has
+    // opened src/lib to it.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      const type = (value) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const opened = document.body.innerText.includes('isoDate');
+      if (!opened) {
+        const hit = document.querySelector('button[title="src/lib/dates.ts"]');
+        if (hit) hit.click();
+        else if (input.value !== 'dates') type('dates');
+        return false;
+      }
+      // A narrow panel folds the tree when a file opens; bring it back.
+      const treeToggle = document.querySelector('button[aria-label="Toggle file tree"]');
+      if (treeToggle && treeToggle.getAttribute('aria-pressed') !== 'true') { treeToggle.click(); return false; }
+      if (input.value) { type(''); return false; }
+      return Boolean(document.querySelector('[data-tree-path$="/src/lib/dates.ts"]'))
+        && Boolean(document.querySelector('.cm-content [style*="color"]'));
+    })()`,
+  },
+  'files-panel-changes': {
+    // billing.ts opened in the Files panel, then its path bar's Changes
+    // button: the Git panel opens on the file's scope with it expanded.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const panel = document.querySelector('[data-diff-virtual-content]');
+      if (panel) {
+        const header = [...panel.querySelectorAll('div[role="button"]')]
+          .find((node) => node.textContent.includes('billing.ts'));
+        return Boolean(header && header.parentElement?.parentElement?.children.length > 1)
+          && !panel.innerText.includes('Loading diff')
+          && !panel.querySelector('.h-40');
+      }
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const changes = document.querySelector('button[title="Show this file\\'s changes"]');
+      if (changes) { changes.click(); return false; }
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+    idleRequestPrefix: '/api/git/',
+  },
+  'add-folder': {
+    // The Add folder dialog's first step: where the project comes from.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled({ fields: [] }, `dialog.innerText.includes('New project')`),
+  },
+  'add-folder-browse': {
+    // Folder on this server, browsing ~/code: the path field, its folders,
+    // and the key hints.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled(
+      { source: 'Folder on this server', fields: [{ label: 'Folder path', value: '~/code/' }] },
+      `dialog.innerText.includes('design-notes')`,
+    ),
+  },
+  'add-folder-clone': {
+    // Clone a repository: the URL, then the location ~/code and the folder it makes.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled({
+      source: 'Clone a repository',
+      fields: [
+        { label: 'Repository URL', value: 'https://github.com/acme/billing-service.git', continue: true },
+        { label: 'Location', value: '~/code/' },
+      ],
+    }, `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Clones into')`),
+  },
+  'add-folder-new': {
+    // New project: the name, then the Git option, the location, and what it creates.
+    path: '/',
+    viewports: ['desktop'],
+    readyText: ['Add folder'],
+    settledScript: addFolderSettled({
+      source: 'New project',
+      fields: [
+        { label: 'Project name', value: 'invoice-worker', continue: true },
+        { label: 'Location', value: '~/code/' },
+      ],
+    }, `dialog.innerText.includes('design-notes') && dialog.innerText.includes('Creates')`),
+  },
+  'settings-appearance': {
+    // A dense settings page: navigation, section titles, field labels,
+    // descriptions, and every control type.
+    path: '/?settings=appearance',
+    readyText: ['Appearance'],
+    viewports: ['desktop'],
+  },
+  'settings-projects': {
+    // Project rows with icons, paths, and actions.
+    path: '/?settings=projects',
+    readyText: ['Acme Web', 'Night Shift'],
+    // The mobile app does not open settings from the URL.
+    viewports: ['desktop'],
+    // The sidebar lists the same projects, so wait for the settings page's
+    // own project grid before checking the icons.
+    settledScript: `(() => {
+      const grid = document.querySelector('[data-settings-item="projects.browse"]');
+      if (!grid || !grid.innerText.includes('Night Shift')) return false;
+      return ${PROJECT_ICONS_SETTLED};
+    })()`,
+    idleRequestPrefix: '/api/fs/project-icon',
+  },
+  'command-palette': {
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // Ctrl+P (the default palette shortcut on Linux and Windows), pressed once the page is ready.
+    shortcut: { key: 'p', code: 'KeyP', modifiers: 2 },
+    // Phones open the palette from a button, not a shortcut.
+    viewports: ['desktop'],
+    settledScript: `Boolean(document.querySelector('input[placeholder^="Search files, sessions"]'))`,
   },
   'open-request': {
     path: DEMO_SESSION_PATH,
@@ -337,6 +696,21 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       { name: 'prefers-reduced-motion', value: 'reduce' },
     ],
   });
+  // The sidebar view is a server setting; pages without one use Workspace.
+  const settings = await fetch(new URL('/api/pi/ui-settings', baseUrl), {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ sidebarViewMode: page.sidebarViewMode ?? 'workspace' }),
+  });
+  if (!settings.ok) throw new Error(`${pageName}: could not set the sidebar view (${settings.status})`);
+  if (page.typeIntoComposer) {
+    // Viewports share one browser profile, so the previous capture's typed
+    // draft would be restored into this composer. Leave the page first so its
+    // last draft write lands, then drop the origin's local storage.
+    await client.send('Page.navigate', { url: 'about:blank' });
+    await wait(300);
+    await client.send('Storage.clearDataForOrigin', { origin: new URL(baseUrl).origin, storageTypes: 'local_storage' });
+  }
   await client.send('Page.navigate', { url: new URL(page.path, baseUrl).toString() });
 
   const textChecks = JSON.stringify(page.readyText);
@@ -386,8 +760,22 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       }
     }
     if (page.openRequest) await sendOpenRequest(page.openRequest);
+    if (page.shortcut) {
+      const { key, code, modifiers } = page.shortcut;
+      const keyCode = key.toUpperCase().charCodeAt(0);
+      for (const type of ['rawKeyDown', 'keyUp']) {
+        await client.send('Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: keyCode });
+      }
+    }
     if (page.settledScript) {
       await waitForSettled(client, page, network, `${pageName} settled`);
+    }
+    if (page.hoverScript) {
+      // Hover-only controls: move the pointer to the point the script returns.
+      const point = await client.evaluate(page.hoverScript);
+      if (!point) throw new Error(`${pageName}: nothing to hover`);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+      await wait(150);
     }
     if (page.typeIntoComposer) {
       const selector = JSON.stringify(COMPOSER_EDITOR_SELECTOR);
@@ -484,6 +872,32 @@ const writeDemoSession = async (home, repo) => {
   await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
 };
 
+// Short sessions across the seeded folders, timed relative to the seed, plus
+// the shelf sidecar that snoozes one and settles another by hand.
+const writeShelfSessions = async (home, data, folderPath) => {
+  const now = Date.now();
+  const shelf = {};
+  for (const session of SHELF_SESSIONS) {
+    const cwd = folderPath(session.folder);
+    const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
+    await mkdir(sessionDir, { recursive: true });
+    const start = Math.round(now - session.hoursAgo * 60 * 60 * 1000);
+    const lines = [
+      { type: 'session', version: 3, id: session.id, timestamp: new Date(start).toISOString(), cwd },
+      { type: 'message', id: `${session.id.slice(-4)}0`, parentId: null, timestamp: new Date(start).toISOString(), message: { role: 'user', content: session.title, timestamp: start } },
+      { type: 'session_info', id: `${session.id.slice(-4)}1`, parentId: `${session.id.slice(-4)}0`, timestamp: new Date(start).toISOString(), name: session.title },
+    ];
+    const file = join(sessionDir, `${new Date(start).toISOString().replace(/[:.]/g, '-')}_${session.id}.jsonl`);
+    await writeFile(file, `${lines.map((line) => JSON.stringify(line)).join('\n')}\n`);
+    // The session list dates a session by its file's modification time.
+    await utimes(file, new Date(start), new Date(start));
+    if (session.snooze) shelf[session.id] = { snoozedUntil: now + 24 * 60 * 60 * 1000, snoozedAt: now };
+    if (session.settled) shelf[session.id] = { settled: 'settled', settledAt: now - 30 * 60 * 1000 };
+  }
+  await mkdir(join(data, 'pi'), { recursive: true });
+  await writeFile(join(data, 'pi', 'session-shelf.json'), JSON.stringify(shelf));
+};
+
 // A flat square favicon with one white glyph.
 const demoIcon = (fill, glyph) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="${fill}"/><path d="${glyph}" fill="#fff"/></svg>`;
@@ -521,6 +935,10 @@ const seed = async (dir) => {
     'export const defaults = {', "  theme: 'light',", '  fontSize: 14,', '  autosave: false,', '};', '',
     'export function loadSettings() {', '  return { ...defaults };', '}',
   ]);
+  await mkdir(join(repo, 'src/lib'), { recursive: true });
+  await write('src/index.ts', ["export { total, formatAmount } from '../billing';", "export { loadSettings } from '../settings';"]);
+  await write('src/lib/dates.ts', ['export const isoDate = (date: Date) => date.toISOString().slice(0, 10);']);
+  await write('README.md', ['# demo-repo', '', 'Billing and settings helpers.']);
   await mkdir(join(repo, 'public'), { recursive: true });
   await write('public/favicon.svg', [demoIcon('#2f6fde', 'M10 22V10h7a6 6 0 0 1 0 12z')]);
   git('add', '.');
@@ -558,6 +976,10 @@ const seed = async (dir) => {
       'packages/web/public/favicon.svg': demoIcon('#30a46c', 'M16 8l8 8-8 8-8-8z'),
     } },
     { name: 'dotfiles', label: 'Dotfiles', files: { 'README.md': '# dotfiles\n' } },
+    // A dark logo on a transparent background: the case a dark theme must keep visible.
+    { name: 'night-shift', label: 'Night Shift', files: {
+      'public/favicon.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M20 4a12 12 0 1 0 8 20A10 10 0 0 1 20 4z" fill="#14141a"/></svg>',
+    } },
   ];
   for (const folder of extraFolders) {
     for (const [file, content] of Object.entries(folder.files)) {
@@ -581,6 +1003,11 @@ const seed = async (dir) => {
     lastDirectory: repo,
   }, null, 2)}\n`);
   await writeDemoSession(home, repo);
+  await writeShelfSessions(home, data, (name) => (name === 'repo' ? repo : join(folders, name)));
+  // Folders for the Add folder dialog to list; home holds nothing else visible.
+  for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
+    await mkdir(join(home, 'code', name), { recursive: true });
+  }
   console.log(`Seeded ${repo}\nStart the dev server with HOME=${home} PICHAMBER_DATA_DIR=${data}`);
 };
 
@@ -609,6 +1036,9 @@ const main = async () => {
   const profileDir = await mkdtemp(join(tmpdir(), 'pichamber-screenshots-'));
   const chrome = spawn(resolveChrome(), [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+    // Headless Chrome reports no pointer, so hover styles never apply; report a
+    // mouse (mobile pages switch to touch through touch emulation).
+    '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
     '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
     `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, 'about:blank',
   ], { stdio: 'ignore' });
@@ -622,7 +1052,7 @@ const main = async () => {
       const targets = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
       target = targets.find((entry) => entry.type === 'page' && entry.webSocketDebuggerUrl);
       return Boolean(target);
-    }, 15_000, 'Chrome debugging endpoint');
+    }, 60_000, 'Chrome debugging endpoint');
     client = new Cdp(target.webSocketDebuggerUrl);
     await client.connect();
     await client.send('Page.enable');

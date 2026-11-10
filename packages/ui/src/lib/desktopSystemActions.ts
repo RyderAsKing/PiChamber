@@ -210,7 +210,7 @@ export const requestDirectoryAccess = async (
       const selected = await getDesktopBridge()?.openDialog?.({
         directory: true,
         multiple: false,
-        title: 'Select Working Directory',
+        title: 'Select working directory',
         ...(directoryPath ? { defaultPath: directoryPath } : {}),
       });
       if (!selected || typeof selected !== 'string') {
@@ -240,7 +240,7 @@ export const requestFileAccess = async (
       const selected = await getDesktopBridge()?.openDialog?.({
         directory: false,
         multiple: false,
-        title: 'Select File',
+        title: 'Select file',
         returnGrant: true,
         ...(options?.filters ? { filters: options.filters } : {}),
         ...(options?.defaultPath ? { defaultPath: options.defaultPath } : {}),

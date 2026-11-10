@@ -31,12 +31,16 @@ mock.module('@/stores/useGitStore', () => {
     useGitLoadingStatus: () => false,
   };
 });
+const uiState = {
+  pendingDiffFile: null as string | null,
+  pendingDiffScope: null as string | null,
+};
 mock.module('@/stores/useUIStore', () => {
   const state = {
-    pendingDiffFile: null,
+    get pendingDiffFile() { return uiState.pendingDiffFile; },
     pendingDiffStaged: false,
-    pendingDiffScope: null,
-    setPendingDiffFile: () => undefined,
+    get pendingDiffScope() { return uiState.pendingDiffScope; },
+    setPendingDiffFile: (path: string | null) => { uiState.pendingDiffFile = path; },
     diffLayoutPreference: 'inline',
     diffFileLayout: {},
     setDiffFileLayout: () => undefined,
@@ -160,6 +164,8 @@ afterEach(async () => {
   }
   restoreFns.splice(0).forEach((restore) => restore());
   latest = null;
+  uiState.pendingDiffFile = null;
+  uiState.pendingDiffScope = null;
 });
 
 describe('useDiffViewState stacked diff mounting', () => {
@@ -203,5 +209,14 @@ describe('useDiffViewState stacked diff mounting', () => {
     expect(result().activeDiffScope).toBe('branch');
     expect(result().expandedFiles.size).toBe(0);
     expect(result().mountedStackedFiles.size).toBe(0);
+  });
+
+  test('a file opened from elsewhere stays expanded through the scope switch it causes', async () => {
+    uiState.pendingDiffFile = 'src/branch.ts';
+    uiState.pendingDiffScope = 'branch';
+    await renderHook({ diffScope: 'turn', stackedDefaultCollapsedAll: true });
+
+    expect(result().activeDiffScope).toBe('branch');
+    expect(result().expandedFiles).toEqual(new Set(['src/branch.ts']));
   });
 });

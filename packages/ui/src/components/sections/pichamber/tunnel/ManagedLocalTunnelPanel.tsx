@@ -76,7 +76,7 @@ export const ManagedLocalTunnelPanel: React.FC<ManagedLocalTunnelPanelProps> = (
             </Button>
           )}
         </div>
-        <p className="typography-meta text-muted-foreground/70">
+        <p className="typography-meta text-subtle-foreground">
           {managedLocalConfigPath
             ? 'Custom config file will be used when starting the tunnel.'
             : 'When empty, cloudflared uses its default config (~/.cloudflared/config.yml).'}

@@ -110,7 +110,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                         </div>
                                     ) : meta.tool === 'task' && getInputValue('prompt') ? (
                                         <div
-                                            className="tool-input-surface bg-transparent rounded-xl border border-border/20 font-mono whitespace-pre-wrap text-foreground/90 mx-3"
+                                            className="tool-input-surface bg-transparent rounded-xl border border-border/20 font-mono whitespace-pre-wrap text-foreground mx-3"
                                             style={toolDisplayStyles.getPopupStyles()}
                                         >
                                             {getInputValue('description') ? `Task: ${getInputValue('description')}\n` : ''}
@@ -136,7 +136,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                         </div>
                                     ) : (
                                         <div
-                                            className="tool-input-surface bg-transparent rounded-xl border border-border/20 font-mono whitespace-pre-wrap text-foreground/90 mx-3"
+                                            className="tool-input-surface bg-transparent rounded-xl border border-border/20 font-mono whitespace-pre-wrap text-foreground mx-3"
                                             style={toolDisplayStyles.getPopupStyles()}
                                         >
                                             {formatInputForDisplay(input, meta.tool as string)}
@@ -161,7 +161,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
                                     return (
                                         renderTodoOutput(popup.content, {
                                             total: "Total",
-                                            inProgress: "In Progress",
+                                            inProgress: "In progress",
                                             pending: "Pending",
                                             completed: "Completed",
                                             cancelled: "Cancelled",
@@ -209,7 +209,7 @@ const ToolOutputDialog: React.FC<ToolOutputDialogProps> = ({ popup, onOpenChange
 
                                 if (tool === 'task' || tool === 'reasoning') {
                                     return (
-                                        <div className={tool === 'reasoning' ? "text-muted-foreground/70" : ""}>
+                                        <div className={tool === 'reasoning' ? "text-subtle-foreground" : ""}>
                                             <SimpleMarkdownRenderer content={popup.content} variant="tool" />
                                         </div>
                                     );

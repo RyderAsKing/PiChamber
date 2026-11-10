@@ -48,7 +48,7 @@ const GroupPrBadge: React.FC<{ directory: string | null; number: number; color?:
   if (!directory || !repo) {
     return (
       <span
-        className="ml-auto flex-shrink-0 text-[0.72rem] font-medium leading-none"
+        className="ml-auto flex-shrink-0 typography-micro font-medium leading-none"
         style={color ? { color } : undefined}
       >
         #{number}
@@ -62,7 +62,7 @@ const GroupPrBadge: React.FC<{ directory: string | null; number: number; color?:
         event.stopPropagation();
         openPullRequestInSurface(directory, repo, number);
       }}
-      className="ml-auto flex-shrink-0 rounded text-[0.72rem] font-medium leading-none hover:bg-interactive-hover"
+      className="ml-auto flex-shrink-0 rounded typography-micro font-medium leading-none hover:bg-interactive-hover"
       style={color ? { color } : undefined}
       title={`Open PR #${number} in Pull requests`}
       aria-label={`Open pull request #${number} in Pull requests`}
@@ -122,7 +122,7 @@ export function SessionGroupHeader({
         {...(dragHandleProps?.listeners ?? {})}
       >
         <div className="min-w-0 flex flex-1 flex-col justify-center gap-0.5 overflow-hidden">
-          <p className="typography-ui-label font-normal truncate text-foreground/92">
+          <p className="typography-ui-label font-normal truncate text-foreground">
             {group.isArchivedBucket ? (
               <span className="inline-flex min-w-0 max-w-full items-center gap-1">
                 <span className="inline-flex size-4 shrink-0 items-center justify-center">
@@ -202,7 +202,7 @@ export function SessionGroupHeader({
               ) : (
                 <Icon name="git-branch" className="size-4 flex-shrink-0 text-muted-foreground" />
               )}
-              <span className="min-w-0 truncate text-[11px] font-medium text-muted-foreground/80">
+              <span className="min-w-0 truncate typography-micro font-medium text-subtle-foreground">
                 {statusLine.label}
               </span>
             </span>

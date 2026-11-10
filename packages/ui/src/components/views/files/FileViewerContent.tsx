@@ -257,7 +257,7 @@ export const FileViewerContent: React.FC<FileViewerContentProps> = ({
               src={htmlPreviewSrc}
               className="w-full h-full border-none"
               sandbox="allow-scripts allow-same-origin allow-forms"
-              title={"HTML Preview"}
+              title={"HTML preview"}
             />
           </div>
         )

@@ -67,7 +67,7 @@ export function DesktopHostSwitcherDialog({
             <div className="min-w-0 flex items-baseline gap-1.5 typography-ui-label">
               <span className="font-medium text-foreground">{"Current"}</span>
               <span className="max-w-[9rem] truncate text-muted-foreground">{redactSensitiveUrl(servers.current.label)}</span>
-              <span className="text-muted-foreground/50">•</span>
+              <span className="text-subtle-foreground">•</span>
               <span className="font-medium text-foreground">{"Default"}</span>
               <span className="max-w-[9rem] truncate text-muted-foreground">{redactSensitiveUrl(servers.currentDefaultLabel)}</span>
             </div>

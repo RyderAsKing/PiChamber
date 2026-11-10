@@ -1,10 +1,10 @@
 import React from 'react';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Icon } from '@/components/icon/Icon';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
-import { cn } from '@/lib/utils';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
@@ -73,7 +73,7 @@ export const ProjectsPage: React.FC = () => {
 
   // ── Detail view ──────────────────────────────────────────────────────────
   if (selectedProject) {
-    const label = selectedProject.label?.trim() || selectedProject.path.split('/').pop()?.trim() || selectedProject.path;
+    const label = getProjectDisplayLabel(selectedProject);
 
     return (
       <SettingsPageLayout
@@ -105,22 +105,22 @@ export const ProjectsPage: React.FC = () => {
     return (
       <SettingsPageLayout
         title={isMobile ? undefined : 'Projects'}
-        description={isMobile ? undefined : 'Manage your projects and worktrees. Add a project to configure its defaults and actions.'}
+        description={isMobile ? undefined : 'Manage your projects and worktrees. Add a folder to configure its defaults and actions.'}
         headerEnd={
           <Button variant="outline" size="sm" onClick={handleAddProject}>
             <Icon name="add" className="size-4" />
-            Add project
+            Add folder
           </Button>
         }
       >
-        <SettingsSection title="Projects" divider={false} settingsItem="projects.browse">
+        <SettingsSection divider={false} settingsItem="projects.browse">
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Icon name="folders" className="size-8 text-muted-foreground/60" aria-hidden />
+            <Icon name="folders" className="size-8 text-subtle-foreground" aria-hidden />
             <p className="typography-meta text-muted-foreground">No projects yet</p>
-            <p className="typography-micro max-w-sm text-muted-foreground">Add a local directory to start saving per-project defaults, session history, and header actions.</p>
+            <p className="typography-micro max-w-sm text-muted-foreground">Add a folder to start saving per-project defaults, session history, and header actions.</p>
             <Button variant="outline" size="sm" onClick={handleAddProject}>
               <Icon name="add" className="size-4" />
-              Add project
+              Add folder
             </Button>
           </div>
         </SettingsSection>
@@ -160,12 +160,12 @@ export const ProjectsPage: React.FC = () => {
           </div>
           <Button variant="outline" size="sm" onClick={handleAddProject}>
             <Icon name="add" className="size-4" />
-            Add project
+            Add folder
           </Button>
         </div>
       }
     >
-      <SettingsSection title="Projects" divider={false} settingsItem="projects.browse">
+      <SettingsSection divider={false} settingsItem="projects.browse">
         {filteredProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
             <p className="typography-meta text-muted-foreground">No projects match “{projectQuery}”.</p>
@@ -178,24 +178,6 @@ export const ProjectsPage: React.FC = () => {
             {filteredProjects.map((project) => (
               <ProjectCard key={project.id} project={project} onSelect={setSelectedId} />
             ))}
-            <button
-              type="button"
-              onClick={handleAddProject}
-              aria-label="Add project"
-              className={cn(
-                'group flex min-h-[118px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed p-4',
-                'border-border/60 bg-transparent text-muted-foreground',
-                'hover:border-border hover:bg-interactive-hover hover:text-foreground',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]',
-                'transition-colors duration-150',
-              )}
-            >
-              <span className="inline-flex size-9 items-center justify-center rounded-full bg-muted">
-                <Icon name="add" className="size-5" />
-              </span>
-              <span className="typography-ui-label font-medium">Add project</span>
-              <span className="typography-micro text-muted-foreground">Local directory</span>
-            </button>
           </div>
         )}
       </SettingsSection>

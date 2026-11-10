@@ -152,7 +152,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
         'hover:bg-interactive-hover',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
       )
-      : 'text-muted-foreground/60',
+      : 'text-subtle-foreground',
     className,
   );
 
@@ -183,7 +183,7 @@ export const ContextUsageDisplay: React.FC<ContextUsageDisplayProps> = ({
         <MobileOverlayPanel
           open={mobileTooltipOpen}
           onClose={() => setMobileTooltipOpen(false)}
-          title={"Context Usage"}
+          title={"Context usage"}
         >
           <div className="flex flex-col gap-1.5">
             <div className="rounded-xl border border-border/40 bg-sidebar/30 px-3 py-2 space-y-1">

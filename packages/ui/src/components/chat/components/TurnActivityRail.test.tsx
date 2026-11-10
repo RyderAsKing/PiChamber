@@ -59,7 +59,7 @@ describe('TurnActivityRail', () => {
 
         expect(markup).toContain('data-turn-activity-expanded="false"');
         expect(markup).not.toContain('data-turn-activity-panel="true"');
-        expect(markup).not.toContain('title="Read File"');
+        expect(markup).not.toContain('title="Read file"');
     });
 
     test('renders the latest forty tools without a count group', () => {
@@ -78,7 +78,7 @@ describe('TurnActivityRail', () => {
         expect(markup).toContain('data-turn-activity-panel="true"');
         expect(markup).toContain('grid-rows-[1fr]');
         expect(markup).toContain('class="min-w-0 space-y-1"');
-        expect(markup.match(/title="Read File"/g)).toHaveLength(40);
+        expect(markup.match(/title="Read file"/g)).toHaveLength(40);
         expect(markup).not.toContain('title="Skill"');
         expect(markup).not.toContain('tool calls');
         expect(markup).not.toContain('data-tool-call-group');

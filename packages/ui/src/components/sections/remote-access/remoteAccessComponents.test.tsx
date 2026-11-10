@@ -161,7 +161,7 @@ describe('AddDeviceDialog body', () => {
       />,
     );
     expect(desktop).toContain("Other devices can&#x27;t reach this computer yet");
-    expect(desktop).toContain('Turn on Local network');
+    expect(desktop).toContain('Turn on local network');
     expect(desktop).toContain('Set up Tailscale');
     expect(desktop).not.toContain('PiChamber connection QR code');
 
@@ -172,7 +172,7 @@ describe('AddDeviceDialog body', () => {
       />,
     );
     expect(web).toContain('Set up Tailscale');
-    expect(web).not.toContain('Turn on Local network');
+    expect(web).not.toContain('Turn on local network');
   });
 });
 
@@ -248,7 +248,7 @@ describe('DesktopPasswordFields (Security)', () => {
   test('renders in Security with the stable focus id for the Tailscale callout', () => {
     const markup = renderToStaticMarkup(<DesktopPasswordFields lan={lanStub()} />);
     expect(markup).toContain('id="desktop-ui-password"');
-    expect(markup).toContain('Desktop UI Password');
+    expect(markup).toContain('Desktop UI password');
   });
 });
 

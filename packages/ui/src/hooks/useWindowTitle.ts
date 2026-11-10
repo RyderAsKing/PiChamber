@@ -7,18 +7,9 @@ import { useNeedsInputTitlePrefix } from '@/components/chat/NeedsInputAlerts';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useSessionUIStore } from '@/sync/session-ui-store';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
 const APP_TITLE = 'PiChamber';
-
-const formatProjectLabel = (label: string): string => {
-  return label.replace(/[-_]/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
-};
-
-const getProjectNameFromPath = (path: string): string => {
-  const normalized = path.replace(/\\/g, '/').replace(/\/+$/, '');
-  const segments = normalized.split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? '';
-};
 
 const buildWindowTitle = (projectLabel: string | null, instanceLabel: string | null): string => {
   const parts = [projectLabel, instanceLabel, APP_TITLE].filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
@@ -39,23 +30,10 @@ const useWindowTitle = () => {
     return state.projects.find((project) => project.id === state.activeProjectId) ?? null;
   });
 
-  const projectLabel = React.useMemo(() => {
-    if (!activeProject) {
-      return null;
-    }
-
-    const label = activeProject.label?.trim();
-    if (label) {
-      return formatProjectLabel(label);
-    }
-
-    const pathName = getProjectNameFromPath(activeProject.path);
-    if (pathName) {
-      return formatProjectLabel(pathName);
-    }
-
-    return null;
-  }, [activeProject]);
+  const projectLabel = React.useMemo(
+    () => (activeProject ? getProjectDisplayLabel(activeProject) || null : null),
+    [activeProject],
+  );
 
   const [instanceLabel, setInstanceLabel] = React.useState<string | null>(null);
   // `(N)` prefix for sessions needing input (non-desktop browsers only;

@@ -37,17 +37,18 @@ describe('classifyGitFileStatus', () => {
     expect(classifyGitFileStatus(file('a', 'A', 'M'))).toBe('git-added');
   });
 
-  test('open beats git and first duplicate wins', () => {
+  test('git beats open, open marks unchanged files, and first duplicate wins', () => {
     const index = createFileTreeStatusIndex({
       root: ROOT,
-      openPaths: [`${ROOT}/b.ts`],
+      openPaths: [`${ROOT}/b.ts`, `${ROOT}/c.ts`],
       gitFiles: [
         file('a.ts', 'M', ' '),
         file('a.ts', 'A', ' '),
         file('b.ts', 'M', ' '),
       ],
     });
-    expect(index.getFileStatus(`${ROOT}/b.ts`)).toBe('open');
+    expect(index.getFileStatus(`${ROOT}/b.ts`)).toBe('git-modified');
+    expect(index.getFileStatus(`${ROOT}/c.ts`)).toBe('open');
     expect(index.getFileStatus(`${ROOT}/a.ts`)).toBe('git-modified');
     expect(index.getFileStatus(`${ROOT}/missing.ts`)).toBe(null);
   });

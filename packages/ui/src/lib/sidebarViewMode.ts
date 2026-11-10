@@ -4,11 +4,13 @@
  * - `workspace`: one folder is scoped at a time through the folder rail.
  * - `folder`: every folder is listed with its sessions nested beneath it.
  * - `timeline`: sessions from every folder are grouped by recency.
+ * - `threads`: sessions from every folder in one list, with Working,
+ *   Snoozed, and Settled shelves at the bottom (see `lib/sessionShelf.ts`).
  *
  * Persisted server-side as the `sidebarViewMode` UI setting so every client
  * of a server renders the same view.
  */
-const SIDEBAR_VIEW_MODES =['workspace', 'folder', 'timeline'] as const;
+const SIDEBAR_VIEW_MODES = ['workspace', 'folder', 'timeline', 'threads'] as const;
 
 export type SidebarViewMode = (typeof SIDEBAR_VIEW_MODES)[number];
 

@@ -59,7 +59,7 @@ export const StashDialog: React.FC<StashDialogProps> = ({
         <DialogHeader>
           <div className="flex items-center gap-2">
             <Icon name="alert" className="size-5 text-[var(--status-warning)]" />
-            <DialogTitle>{"Uncommitted Changes"}</DialogTitle>
+            <DialogTitle>{"Uncommitted changes"}</DialogTitle>
           </div>
           <DialogDescription>
             {`Stash your local changes before starting the ${operation}.`}

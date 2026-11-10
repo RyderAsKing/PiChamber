@@ -79,7 +79,7 @@ export const BehaviorPage: React.FC = () => {
           {isEditable ? (
             <div className="flex items-center justify-between gap-2">
               <span className="typography-micro text-muted-foreground">{isDirty ? "Unsaved changes" : "No changes"}</span>
-              <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || !isDirty}>{saving === agent.id ? "Saving..." : "Save Changes"}</Button>
+              <Button size="xs" onClick={() => void save(agent)} disabled={saving !== null || !isDirty}>{saving === agent.id ? "Saving..." : "Save changes"}</Button>
             </div>
           ) : null}
         </SettingsSection>;

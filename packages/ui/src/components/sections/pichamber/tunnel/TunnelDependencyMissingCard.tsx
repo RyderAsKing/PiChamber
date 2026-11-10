@@ -22,7 +22,7 @@ export const TunnelDependencyMissingCard: React.FC<TunnelDependencyMissingCardPr
           <p className={SETTINGS_CALLOUT_TITLE_CLASS}>
             {`${installInfo.dependency} was not found.`}
           </p>
-          <p className="typography-meta text-muted-foreground/70">
+          <p className="typography-meta text-subtle-foreground">
             {'Install it to enable remote tunnel access:'}
           </p>
           <code className="typography-code block rounded bg-muted/50 px-2 py-1 text-xs text-foreground">

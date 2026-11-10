@@ -86,7 +86,7 @@ export const TunnelSettings: React.FC = () => {
 
   return (
     <SettingsSection
-      title={"External Tunnel"}
+      title={"External tunnel"}
       info={(
         <div className="space-y-1">
           <p>{"Configure secure remote access with your own managed Cloudflare tunnel."}</p>

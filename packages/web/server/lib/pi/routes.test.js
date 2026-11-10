@@ -1546,6 +1546,83 @@ describe('Pi runtime route', () => {
     }
   });
 
+  it('serves the session shelf, checks membership on writes, and clears it when the user sends', async () => {
+    const calls = [];
+    const session = { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 };
+    let shelf = { 'pi-session-7': { settled: 'settled', settledAt: 3 } };
+    const sessionShelfStore = {
+      read: async () => shelf,
+      update: async (sessionId, patch) => {
+        calls.push({ command: 'shelf.update', payload: [sessionId, patch] });
+        return { settled: 'active' };
+      },
+      clearForActivity: async (sessionId) => {
+        calls.push({ command: 'shelf.clear', payload: sessionId });
+        shelf = {};
+        return null;
+      },
+      remove: async (sessionId) => calls.push({ command: 'shelf.remove', payload: sessionId }),
+    };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        if (command === 'sessions.list') return { sessions: [{ session, updatedAt: 2 }] };
+        if (command === 'sessions.prompt') return { accepted: true, messageId: 'message-1' };
+        if (command === 'sessions.bash') return { accepted: true, id: 'bash-1' };
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) }, sessionShelfStore });
+    server = await listen(app);
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const post = (path, body) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    await expect((await fetch(`${origin}/api/pi/session-shelf`)).json()).resolves.toEqual({ sessions: { 'pi-session-7': { settled: 'settled', settledAt: 3 } } });
+
+    const updated = await post('/api/pi/sessions/pi-session-7/shelf', { settled: 'active', directory: '/workspace' });
+    expect(updated.status).toBe(200);
+    await expect(updated.json()).resolves.toEqual({ entry: { settled: 'active' } });
+    expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/workspace' } });
+    expect(calls).toContainEqual({ command: 'shelf.update', payload: ['pi-session-7', { settled: 'active' }] });
+
+    expect((await post('/api/pi/sessions/missing/shelf', { settled: 'settled' })).status).toBe(404);
+    expect((await post('/api/pi/sessions/pi-session-7/shelf', {})).status).toBe(400);
+    expect((await post('/api/pi/sessions/pi-session-7/shelf', { settled: 'done' })).status).toBe(400);
+    expect((await post('/api/pi/sessions/pi-session-7/shelf', { snoozedUntil: 'tomorrow' })).status).toBe(400);
+    expect(calls.filter((call) => call.command === 'shelf.update')).toHaveLength(1);
+
+    expect((await post('/api/pi/sessions/pi-session-7/prompt', { text: 'hello', streamEpoch: 'epoch-routes' })).status).toBe(202);
+    expect((await post('/api/pi/sessions/pi-session-7/bash', { command: 'ls' })).status).toBe(202);
+    expect(calls.filter((call) => call.command === 'shelf.clear')).toEqual([
+      { command: 'shelf.clear', payload: 'pi-session-7' },
+      { command: 'shelf.clear', payload: 'pi-session-7' },
+    ]);
+    expect((await fetch(`${origin}/api/pi/sessions/pi-session-7`, { method: 'DELETE' })).status).toBe(204);
+    expect(calls).toContainEqual({ command: 'shelf.remove', payload: 'pi-session-7' });
+  });
+
+  it('keeps a send accepted when clearing the shelf fails', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => (command === 'sessions.prompt' ? { accepted: true, messageId: 'message-1' } : {}),
+    };
+    const sessionShelfStore = { clearForActivity: async () => { throw Object.assign(new Error('bad'), { code: 'SESSION_SHELF_INVALID' }); } };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, sessionShelfStore });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-7/prompt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hello', streamEpoch: 'epoch-routes' }),
+    });
+    expect(response.status).toBe(202);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('creates a session and projects the created detail like a session read', async () => {
     const calls = [];
     let created;
