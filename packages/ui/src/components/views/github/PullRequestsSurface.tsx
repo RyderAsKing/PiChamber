@@ -312,7 +312,6 @@ const PullsContent: React.FC<{
       error={relevantError}
       filters={filters}
       checksByUrl={checksByUrl}
-      countComplete={complete}
       incompleteNotice={incompleteSummary ? { summary: incompleteSummary, searching: remotePending, onSearchAll: handleSearchAll } : null}
       remote={remote}
       numberJump={numberJump}

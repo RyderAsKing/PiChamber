@@ -1,10 +1,8 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { formatGitHubRelativeTime } from './GitHubDetailScaffold';
 import {
   GitHubEmptyState,
   GitHubIncompleteNotice,
-  GitHubListFooter,
   GitHubListSkeleton,
   GitHubLoadMore,
   GitHubNumberJumpRow,
@@ -81,20 +79,12 @@ export type GitHubListViewProps<TItem extends { number: number }> = {
   headerActionsPresentation?: GitHubHeaderActionsPresentation;
   /** True when no filter is active: empty state reads as "no items". */
   isDefaultFilters: boolean;
-  /** Lowercase state label for the footer (`open`, `closed`, …). */
-  stateLabel: string;
-  kindSingular: string;
-  kindPlural: string;
   noItemsTitle: string;
   noItemsBody?: string;
   noItemsIcon?: IconName;
   noItemsAction?: React.ReactNode;
   listAriaLabel: string;
   skeletonLabel: string;
-  /** ISO timestamp per row for the footer's "updated …" suffix. */
-  updatedAtOf: (item: TItem) => string | null | undefined;
-  /** False while the viewed collections still page: counts show a `+` suffix. */
-  countComplete?: boolean;
   /** Honesty notice for incomplete collections with an active filter. */
   incompleteNotice?: { summary: string; searching: boolean; onSearchAll: () => void } | null;
   /** Server search results below the local rows (deduped by the surface). */
@@ -126,17 +116,12 @@ export const GitHubListView = <TItem extends { number: number }>({
   headerActionsSlot = null,
   headerActionsPresentation = 'drawer',
   isDefaultFilters,
-  stateLabel,
-  kindSingular,
-  kindPlural,
   noItemsTitle,
   noItemsBody,
   noItemsIcon,
   noItemsAction,
   listAriaLabel,
   skeletonLabel,
-  updatedAtOf,
-  countComplete = true,
   incompleteNotice = null,
   remote = null,
   numberJump = null,
@@ -146,20 +131,6 @@ export const GitHubListView = <TItem extends { number: number }>({
   onRetry,
   onOpen,
 }: GitHubListViewProps<TItem>): React.ReactElement => {
-  const footerSummary = React.useMemo(() => {
-    if (items.length === 0) return null;
-    const count = items.length === 1 && countComplete
-      ? `1 ${kindSingular}`
-      : `${items.length}${countComplete ? '' : '+'} ${kindPlural}`;
-    let latest = 0;
-    for (const item of items) {
-      const parsed = updatedAtOf(item) ? Date.parse(updatedAtOf(item) as string) : NaN;
-      if (Number.isFinite(parsed) && parsed > latest) latest = parsed;
-    }
-    const updated = latest > 0 ? formatGitHubRelativeTime(new Date(latest).toISOString()) : '';
-    return `${count} · ${stateLabel.toLowerCase()}${updated ? ` · updated ${updated}` : ''}`;
-  }, [items, stateLabel, kindSingular, kindPlural, countComplete, updatedAtOf]);
-
   const blockingError = Boolean(error) && items.length === 0;
   const firstLoad = !blockingError && isLoading && items.length === 0;
   // Action controls (Refresh + primary) portal into the host header while
@@ -266,7 +237,6 @@ export const GitHubListView = <TItem extends { number: number }>({
           onSearchAll={incompleteNotice.onSearchAll}
         />
       ) : null}
-      {!blockingError && !firstLoad && footerSummary ? <GitHubListFooter summary={footerSummary} /> : null}
     </div>
   );
 };

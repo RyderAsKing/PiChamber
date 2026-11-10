@@ -46,8 +46,6 @@ export const IssuesList: React.FC<{
   stale: boolean;
   error: { kind: string; message?: string } | null;
   filters: IssuesFilters;
-  /** False while the viewed collections still page: counts show a `+` suffix. */
-  countComplete?: boolean;
   /** Honesty notice for incomplete collections with an active filter. */
   incompleteNotice?: { summary: string; searching: boolean; onSearchAll: () => void } | null;
   /** Server search results below the local rows (deduped by the surface). */
@@ -77,7 +75,6 @@ export const IssuesList: React.FC<{
   stale,
   error,
   filters,
-  countComplete = true,
   incompleteNotice = null,
   remote = null,
   numberJump = null,
@@ -197,9 +194,6 @@ export const IssuesList: React.FC<{
       headerActionsSlot={headerActionsSlot}
       headerActionsPresentation={headerPresentation}
       isDefaultFilters={isDefaultFilters}
-      stateLabel={ISSUE_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state}
-      kindSingular="issue"
-      kindPlural="issues"
       noItemsTitle={filters.state === 'open' ? 'No open issues' : 'No issues yet'}
       noItemsBody="Issues for this repository appear here."
       noItemsIcon="inbox-archive"
@@ -211,8 +205,6 @@ export const IssuesList: React.FC<{
       }
       listAriaLabel="Issues"
       skeletonLabel="Loading issues"
-      updatedAtOf={(issue) => issue.updatedAt}
-      countComplete={countComplete}
       incompleteNotice={incompleteNotice}
       remote={remote}
       numberJump={numberJump}
