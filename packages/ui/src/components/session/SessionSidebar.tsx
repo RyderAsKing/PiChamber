@@ -1449,19 +1449,19 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         isInlineEditing={isInlineEditing}
       />
 
-      {/* Dedicated mobile: the new-session action floats above the session
-          list, docked to the sidebar bottom with a sidebar-toned fade so the
-          last rows stay readable underneath. Hidden while the bulk selection
-          bar owns the bottom edge. The tablet sidebar keeps the SidebarNav
+      {/* Dedicated mobile: the new-session action is a footer under the
+          session list, so the bottom-anchored shelves sit right above it
+          instead of above a padded gap. Hidden while the bulk selection bar
+          owns the bottom edge. The tablet sidebar keeps the SidebarNav
           control instead (mobileVariant is false there). */}
       {mobileVariant && !(selectionModeEnabled && hasSelection) ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-sidebar via-sidebar/85 to-transparent px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-10">
+        <div className="flex shrink-0 flex-col gap-2 px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-2">
           <BackgroundTasksMenu variant="mobile" />
           <Button
             type="button"
             variant="default"
             size="lg"
-            className="pointer-events-auto w-full"
+            className="w-full"
             onClick={handleOpenNewSessionDraftFromHeader}
           >
             <Icon name="chat-new" className="size-4" />

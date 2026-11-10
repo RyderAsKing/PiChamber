@@ -141,8 +141,9 @@ one settled by hand, and one settled after five idle days); `sidebar-folder`
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
-only); `files-panel` (the Files panel beside the demo session: the tree's
-change marks and the no-file state listing changed files, desktop only);
+only); `files-panel` (the Files panel beside the demo session with no file
+open: in that narrow panel the tree fills it, with its change marks,
+desktop only);
 `files-panel-file` (the same panel with `billing.ts` open under its path bar,
 desktop only); `files-panel-search` (`.ts` typed into the tree's search:
 name, folder, and change mark per hit, desktop only); `files-panel-nested`

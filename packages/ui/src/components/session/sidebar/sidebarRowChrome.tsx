@@ -80,20 +80,19 @@ export const SidebarSectionHeading = ({
   }
   return (
     <div role="heading" aria-level={3} className={spacing}>
+      {/* A shelf heading is a row-sized control, set like a folder header:
+          label and count on the left, the open/closed chevron on the right edge. */}
       <button
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className={cn(
-          sectionHeadingClassName,
-          'group/heading flex w-full items-center gap-1.5 rounded-md pt-0 text-left text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-        )}
+        className="group/heading flex h-7 w-full select-none items-center gap-1.5 rounded-md px-3 text-left typography-ui-label font-medium text-foreground transition-colors hover:bg-interactive-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
         {label}
         {countLabel}
         <Icon
-          name="arrow-right-s"
-          className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform group-hover/heading:text-foreground', expanded && 'rotate-90')}
+          name={expanded ? 'arrow-down-s' : 'arrow-right-s'}
+          className="ml-auto size-4 shrink-0 text-muted-foreground group-hover/heading:text-foreground"
         />
       </button>
     </div>

@@ -22,7 +22,6 @@ import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { Icon } from "@/components/icon/Icon";
 import { getFileIcon, type FileStatus } from './sidebarFileRowHelpers';
 import { FileChangeMark, FolderChangeMark } from '@/components/views/files/FileChangeMark';
-import { fileChangeTextClass } from '@/components/views/files/fileChange';
 import {
   getDisplayPath,
   type FileNode,
@@ -199,7 +198,7 @@ export const FileRow: React.FC<FileRowProps> = ({
         ) : (
           getFileIcon(node.path, node.extension)
         )}
-        <span className={cn('min-w-0 flex-1 truncate typography-meta', fileChangeTextClass(status))} title={node.path}>
+        <span className="min-w-0 flex-1 truncate typography-meta" title={node.path}>
           {node.name}
         </span>
         {/* The row's menu button takes this spot on hover. */}

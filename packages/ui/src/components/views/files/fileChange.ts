@@ -11,7 +11,3 @@ export const GIT_CHANGES: Record<GitChange, { letter: string; label: string; tex
 
 export const isGitChange = (status: FileStatus): status is GitChange => status in GIT_CHANGES;
 
-/** Text color for a file name with a git change; undefined otherwise. */
-export const fileChangeTextClass = (status: FileStatus | null | undefined): string | undefined =>
-  status && isGitChange(status) ? GIT_CHANGES[status].textClass : undefined;
-

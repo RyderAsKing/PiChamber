@@ -58,7 +58,12 @@ import type { FileStatus } from './sidebar/sidebarFileRowHelpers';
 /** Tree width under which New, Refresh, and Collapse all share one menu. */
 const TREE_TOOLBAR_FOLD_WIDTH = 280;
 
-export const SidebarFilesTree: React.FC = () => {
+type SidebarFilesTreeProps = {
+  /** Set while the tree covers the open file: offers the way back to it. */
+  onBackToFile?: () => void;
+};
+
+export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile }) => {
   const { files, runtime } = useRuntimeAPIs();
   const isBrowserClient = isBrowserClientRuntime(runtime.platform);
   const currentDirectory = useEffectiveDirectory() ?? '';
@@ -558,6 +563,18 @@ export const SidebarFilesTree: React.FC = () => {
     <section className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* Same height as the editor's path bar beside it, so the rules line up. */}
       <div ref={toolbarRef} className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border/60 pl-1.5 pr-1">
+        {onBackToFile ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex shrink-0">
+                <Button variant="ghost" size="sm" onClick={onBackToFile} className="size-7 p-0" aria-label={"Back to file"}>
+                  <Icon name="arrow-left" className="size-4" />
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" sideOffset={6}>{"Back to file"}</TooltipContent>
+          </Tooltip>
+        ) : null}
         <div className="relative min-w-0 flex-1">
           <Icon name="search" className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-subtle-foreground" />
           <Input

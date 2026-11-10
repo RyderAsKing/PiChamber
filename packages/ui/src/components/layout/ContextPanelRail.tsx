@@ -433,7 +433,10 @@ export const ContextPanelRail: React.FC = () => {
   const railPercentage = !isNewSessionDraftOpen && railTotalTokens > 0 && railContextLimit > 0
     ? Math.min((railTotalTokens / railContextLimit) * 100, 999)
     : 0;
-  const railChartPercentage = railPercentage;
+  // An empty ring reads as a stalled spinner, so the rail shows the plain
+  // Context icon until the session has reported token usage.
+  const railHasUsage = !isNewSessionDraftOpen && !!railContextMessage && railTotalTokens > 0 && railContextLimit > 0;
+  const railChartPercentage = railHasUsage ? railPercentage : null;
   const railCacheHit = railBreakdown ? computeCacheHitRate({ input: railBreakdown.input, cache: { read: railBreakdown.cacheRead, write: railBreakdown.cacheWrite } }) : null;
   const railCacheHitPercent = railCacheHit?.hasInput ? railCacheHit.percent : null;
   const railChartDetails = React.useMemo(() => {

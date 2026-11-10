@@ -3,7 +3,7 @@ import React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { FileChangeMark } from './FileChangeMark';
-import { fileChangeTextClass, type FileStatus } from './fileChange';
+import type { FileStatus } from './fileChange';
 
 interface FilePathBarProps {
   /** Workspace-relative path of the open file. */
@@ -38,7 +38,7 @@ export const FilePathBar: React.FC<FilePathBarProps> = ({ path, status, classNam
               <bdi>{folder}</bdi>
             </span>
           ) : null}
-          <span className={cn('min-w-0 truncate font-medium text-foreground', fileChangeTextClass(status))}>{name}</span>
+          <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
         </span>
         {status && status !== 'open' ? <FileChangeMark status={status} /> : null}
       </div>

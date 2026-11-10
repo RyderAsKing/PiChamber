@@ -161,7 +161,7 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }, 
   }
 
   if (tab.mode === 'context') {
-    return <Icon name="donut-chart-fill" className="h-3.5 w-3.5" />;
+    return <Icon name="donut-chart" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'preview') {
@@ -533,7 +533,12 @@ export const ContextPanel: React.FC = () => {
   React.useEffect(() => {
     setCrowdedTreeShown(false);
   }, [openEditorFilePath]);
-  const editorTreeShown = treeCrowdsFile ? crowdedTreeShown : contextEditorTreeVisible;
+  // With no file open, a narrow panel is all tree: an empty-state column beside
+  // it would only repeat the changed files the tree already marks.
+  const treeFillsPanel = Boolean(
+    !hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
+  );
+  const editorTreeShown = treeFillsPanel ? true : treeCrowdsFile ? crowdedTreeShown : contextEditorTreeVisible;
   const handleToggleEditorTree = React.useCallback(() => {
     if (treeCrowdsFile) {
       setCrowdedTreeShown((shown) => !shown);
@@ -623,7 +628,7 @@ export const ContextPanel: React.FC = () => {
         </div>
       )}
       <div className="flex items-center gap-1 px-1.5">
-        {isFileTabActive ? (
+        {isFileTabActive && !treeFillsPanel ? (
           <Button
             type="button"
             variant="ghost"
@@ -755,11 +760,15 @@ export const ContextPanel: React.FC = () => {
             <div className="relative h-full min-w-0 flex-1">
               {hasOpenEditorFile ? (
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
-              ) : (
+              ) : treeFillsPanel ? null : (
                 <FilesEmptyState directory={effectiveDirectory} />
               )}
             </div>
-            <EditorTreeColumn visible={editorTreeShown} overlay={treeCrowdsFile} />
+            <EditorTreeColumn
+              visible={editorTreeShown}
+              overlay={treeCrowdsFile || treeFillsPanel}
+              onDismissOverlay={treeCrowdsFile ? () => setCrowdedTreeShown(false) : undefined}
+            />
           </div>
         ) : null}
         {browserTabs.map((tab) => (

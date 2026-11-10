@@ -3,7 +3,7 @@ import React from 'react';
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
 import { cn } from '@/lib/utils';
 import { FileChangeMark } from './FileChangeMark';
-import { fileChangeTextClass, type FileStatus } from './fileChange';
+import type { FileStatus } from './fileChange';
 
 interface FileListRowProps {
   /** Workspace-relative path, shown as name then folder. */
@@ -37,11 +37,11 @@ export const FileListRow: React.FC<FileListRowProps> = ({ path, status, active =
       title={path}
     >
       <FileTypeIcon filePath={path} />
-      <span className={cn('min-w-0 truncate typography-meta text-foreground', fileChangeTextClass(status))}>
+      <span className="min-w-0 truncate typography-meta text-foreground">
         {name}
       </span>
       {/* rtl drops the start of a long folder, keeping the part nearest the file. */}
-      <span className="min-w-0 flex-1 truncate typography-meta text-subtle-foreground [direction:rtl] [text-align:left]">
+      <span className="min-w-0 flex-1 truncate pl-1 typography-meta text-muted-foreground [direction:rtl] [text-align:left]">
         <bdi>{folder}</bdi>
       </span>
       {status ? <FileChangeMark status={status} /> : null}

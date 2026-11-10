@@ -16,7 +16,12 @@ const EDITOR_TREE_FIT_MIN_WIDTH = 160;
 // too narrow to share with an open file, `overlay` lays it over the whole
 // editor instead, like a drawer, so the file keeps its full width underneath
 // and no unreadable strip of it shows beside the tree.
-export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }> = ({ visible, overlay = false }) => {
+export const EditorTreeColumn: React.FC<{
+  visible: boolean;
+  overlay?: boolean;
+  /** Folds a laid-over tree back to the file (its Back button and Escape). */
+  onDismissOverlay?: () => void;
+}> = ({ visible, overlay = false, onDismissOverlay }) => {
   const width = useUIStore((state) => state.contextEditorTreeWidth);
   const setWidth = useUIStore((state) => state.setContextEditorTreeWidth);
   const [isResizing, setIsResizing] = React.useState(false);
@@ -152,8 +157,12 @@ export const EditorTreeColumn: React.FC<{ visible: boolean; overlay?: boolean }>
         )}
         style={{ width: 'var(--oc-editor-tree-width)' }}
         aria-hidden={!visible}
+        // Escape leaves a laid-over tree, unless the search used it to clear itself.
+        onKeyDown={overlay && onDismissOverlay ? (event) => {
+          if (event.key === 'Escape' && !event.defaultPrevented) onDismissOverlay();
+        } : undefined}
       >
-        <SidebarFilesTree />
+        <SidebarFilesTree onBackToFile={overlay ? onDismissOverlay : undefined} />
       </div>
     </div>
   );

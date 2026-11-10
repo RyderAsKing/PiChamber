@@ -587,13 +587,13 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       // view; grey stays for labels, times, and actions.
                       // The open session's title is a step heavier, so the selection
                       // reads without relying on the row tint alone.
-                      // By folder keeps the other titles a step quieter under
-                      // their folder headers, and snoozed and settled sessions
-                      // are quieter in every view: they are put away.
+                      // Snoozed and settled sessions are quieter in every view:
+                      // they are put away. By folder titles stay full strength
+                      // too, so the work outranks the folder headers above it.
                       className={cn(
                         'block min-w-0 flex-1 truncate typography-ui-label',
                         isActive ? 'font-medium text-foreground' : 'font-normal',
-                        !isActive && (isTree || isPutAway ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
+                        !isActive && (isPutAway ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
                       )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}

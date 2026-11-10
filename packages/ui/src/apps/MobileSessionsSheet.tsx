@@ -8,7 +8,7 @@ import { MOBILE_DRAWER_DURATION_MS, MOBILE_DRAWER_EASING, useDrawerSwipe } from 
 type MobileSessionsSheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 'drawer' renders an 85%-width overlay (at most 420px); 'sidebar' is the tablet persistent pane. */
+  /** 'drawer' renders a 72%-width overlay (at most 360px); 'sidebar' is the tablet persistent pane. */
   variant?: 'drawer' | 'sidebar';
   /** External refs so the shell can drive the drawer without querySelector per-frame */
   drawerRefExternal?: React.RefObject<HTMLDivElement | null>;
@@ -99,7 +99,7 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
     drawerRef,
     scrimRef,
     onClose: close,
-    widthRatio: 0.85,
+    widthRatio: 0.72,
     prefersReducedMotion,
   });
 
@@ -140,7 +140,7 @@ export const MobileSessionsSheet = React.memo(function MobileSessionsSheet({
       />
       <div
         ref={drawerRef as React.RefObject<HTMLDivElement>}
-        className={cn('relative z-10 flex h-full w-[85%] max-w-[420px] flex-col bg-sidebar')}
+        className={cn('relative z-10 flex h-full w-[72%] max-w-[360px] flex-col bg-sidebar')}
         style={{
           paddingTop: 'var(--oc-safe-area-top, 0px)',
           transform: entered ? 'none' : 'translateX(-100%)',

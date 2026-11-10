@@ -22,7 +22,7 @@ import { cn, getRevealLabel } from '@/lib/utils';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { getDisplayPath, type FileNode } from './filesViewModel';
 import { FileChangeMark, FolderChangeMark } from './FileChangeMark';
-import { fileChangeTextClass, type FileStatus } from './fileChange';
+import type { FileStatus } from './fileChange';
 
 export const OpenInAppListIcon = ({ label, iconDataUrl }: { label: string; iconDataUrl?: string }) => {
   const [failed, setFailed] = React.useState(false);
@@ -284,7 +284,7 @@ export const FileRow: React.FC<FileRowProps> = ({
           <FileIcon filePath={node.path} extension={node.extension} />
         )}
         <span
-          className={cn('min-w-0 flex-1 truncate typography-meta', fileChangeTextClass(status))}
+          className="min-w-0 flex-1 truncate typography-meta"
           title={node.path}
         >
           {node.name}
