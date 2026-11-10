@@ -180,13 +180,15 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
             ) : null}
 
             {view.truncated ? (
+                // Says what is missing and whether it can be found, not just that it is short.
                 <p className="typography-micro text-muted-foreground text-pretty">
-                    Showing the last 50 KB of output.
                     {showOutputPath ? (
                         <>
-                            {' '}Full output: <span className="font-mono break-all select-text">{view.fullOutputPath}</span>
+                            Output passed 50 KB, so the start is cut here. Full output: <span className="font-mono break-all select-text text-foreground">{view.fullOutputPath}</span>
                         </>
-                    ) : null}
+                    ) : (
+                        'Output passed 50 KB, so only its last 50 KB is kept; the start is not available here.'
+                    )}
                 </p>
             ) : null}
 

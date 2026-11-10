@@ -12,7 +12,7 @@ import { DiffViewToggle } from '@/components/chat/message/DiffViewToggle';
 import { Icon } from "@/components/icon/Icon";
 import { ChangeScopeSelector } from './diff/ChangeScopeSelector';
 import { FileList } from './diff/FileList';
-import { getFileDiffSelection } from './diff/diffSource';
+import { getFileDiffSelection, getFileStageLabel } from './diff/diffSource';
 import { MultiFileDiffEntry } from './diff/MultiFileDiffEntry';
 import type { DiffScope } from './diff/diffTypes';
 import { useDiffViewState } from './diff/useDiffViewState';
@@ -245,6 +245,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
                   }}
                   diffSource={diffSelection.source}
                   staged={diffSelection.staged}
+                  stageLabel={getFileStageLabel(activeDiffScope, file)}
                   showFileActions={activeDiffScope !== 'turn' && activeDiffScope !== 'branch'}
                   loadFullFiles={loadFullFiles}
                   initialDiffData={

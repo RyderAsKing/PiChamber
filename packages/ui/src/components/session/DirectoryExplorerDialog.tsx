@@ -205,7 +205,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
 
   const cloneName = repositoryFolderName(remoteUrl);
   const newName = projectName.trim();
-  const newNameProblem = newName ? folderNameProblem(newName) : null;
+  const newNameProblem = folderNameProblem(newName);
 
   let canSubmit = false;
   let submitVerb = '';
@@ -247,11 +247,13 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     const target = childDisplayPath(location, newName);
     if (locationProblem) {
       summary = { tone: 'problem', text: locationProblem };
+    } else if (newNameProblem) {
+      summary = { tone: 'problem', text: newNameProblem, path: target };
     } else if (existingNames.has(newName)) {
       summary = { tone: 'problem', text: 'Already exists:', path: target };
     } else {
       summary = { tone: 'outcome', text: 'Creates', path: target };
-      canSubmit = Boolean(newName) && !newNameProblem && !browsing;
+      canSubmit = !browsing;
     }
   }
   canSubmit = canSubmit && pending === null;
@@ -592,8 +594,30 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
         )}
       >
         <span className="shrink-0">{summary.text}</span>
-        {summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
-        {step === 'new-location' ? editEarlierAnswer('Rename', 'Change the project name') : null}
+        {step === 'new-location' && summary.path !== undefined ? (
+          // The new folder's name stays a field here: the location above is
+          // where it goes, and this is what it is called.
+          <>
+            <MiddleTruncate value={childDisplayPath(location, '')} className="min-w-0 font-mono text-foreground" />
+            <input
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  submit();
+                }
+              }}
+              aria-label={'Project name'}
+              spellCheck={false}
+              autoComplete="off"
+              disabled={pending !== null}
+              style={{ width: `${Math.max(projectName.length, 8) + 2}ch` }}
+              className="-my-0.5 h-6 min-w-0 max-w-[16rem] shrink-0 rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] px-1.5 font-mono text-foreground outline-none focus-visible:border-[var(--interactive-focus)] focus-visible:ring-2 focus-visible:ring-primary/30"
+            />
+          </>
+        ) : summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
       </p>
       {/* The repository reads like the destination above it: a label, then the value. */}
       {step === 'clone-location' ? (

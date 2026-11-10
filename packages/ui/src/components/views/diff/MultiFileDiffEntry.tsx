@@ -47,6 +47,8 @@ export interface MultiFileDiffEntryProps {
   onOpenInEditor?: (filePath: string, diffData: DiffData | null) => void;
   diffSource: GitDiffSource;
   staged?: boolean;
+  /** How much of the file is staged, shown in its header (All scope only). */
+  stageLabel?: string | null;
   showFileActions?: boolean;
   loadFullFiles?: boolean;
   initialDiffData?: DiffData | null;
@@ -68,6 +70,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   onOpenInEditor,
   diffSource,
   staged = false,
+  stageLabel = null,
   showFileActions = true,
   loadFullFiles = false,
   initialDiffData = null,
@@ -312,6 +315,9 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
             </span>
           </div>
           <div className="relative flex shrink-0 items-center justify-self-end gap-2">
+            {stageLabel && showFileActions ? (
+              <span className="typography-micro text-muted-foreground">{stageLabel}</span>
+            ) : null}
             {formatDiffTotals(file.insertions, file.deletions)}
             {showOpenInEditorAction && onOpenInEditor ? (
               <Button

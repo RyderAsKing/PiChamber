@@ -73,6 +73,7 @@ import { FileActionsMenu } from './files/FileActionsMenu';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { GoToLineDialog } from './GoToLineDialog';
+import { wrappedLineHangingIndent } from '@/lib/codemirror/hangingIndent';
 import { classifyGitFileStatus, createFileTreeStatusIndex } from './files/fileTreeStatus';
 
 interface FilesViewProps {
@@ -1263,7 +1264,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       }));
     }
     if (wrapLines) {
-      extensions.push(EditorView.lineWrapping);
+      extensions.push(EditorView.lineWrapping, wrappedLineHangingIndent);
     }
     if (isMobile) {
       extensions.push(EditorView.updateListener.of((update) => {

@@ -1,5 +1,5 @@
 import type { GitDiffSource } from '@/lib/api/types';
-import { isStagedOnlyStatusFile, type GitStatusFile } from '../git/gitStatusPredicates';
+import { isStagedOnlyStatusFile, isStagedStatusFile, isWorkingStatusFile, type GitStatusFile } from '../git/gitStatusPredicates';
 import type { DiffScope } from './diffTypes';
 
 export interface FileDiffSelection {
@@ -27,4 +27,15 @@ export function getFileDiffSelection(
   }
   const focusedStaged = focused.staged && file.path === focused.path;
   return { source: 'head', staged: focusedStaged || isStagedOnlyStatusFile(file) };
+}
+
+/**
+ * In the All scope a file's diff mixes staged and unstaged edits, so its
+ * actions name which it is. The single-change-set scopes already say so.
+ */
+export function getFileStageLabel(scope: DiffScope, file: GitStatusFile): string | null {
+  if (scope !== 'all') return null;
+  if (isStagedOnlyStatusFile(file)) return 'Staged';
+  if (isStagedStatusFile(file) && isWorkingStatusFile(file)) return 'Partly staged';
+  return 'Not staged';
 }

@@ -72,6 +72,8 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
                 ready
                     ? 'rounded-full bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]'
                     : 'opacity-30',
+                // A shell command runs rather than sends, and the button says so.
+                isShellMode && !isSending && 'w-auto gap-1 rounded-full px-2.5 typography-ui-label font-medium',
                 isSending && 'animate-pulse'
             )}
             aria-label={isSending ? "Creating session…" : disabledReason || (isShellMode ? "Run command" : "Send message")}
@@ -79,7 +81,9 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         >
             {isSending
                 ? <Icon name="loader-4" className={cn(sendIconSizeClass, 'animate-spin')} />
-                : <Icon name={isShellMode ? 'play' : 'send-plane-2'} className={cn(sendIconSizeClass, ready && 'size-3.5')} />}
+                : isShellMode
+                    ? <><Icon name="play" className="size-3.5" />{'Run'}</>
+                    : <Icon name="send-plane-2" className={cn(sendIconSizeClass, ready && 'size-3.5')} />}
         </button>
     );
 
