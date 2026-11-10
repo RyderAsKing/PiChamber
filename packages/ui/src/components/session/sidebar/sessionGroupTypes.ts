@@ -65,5 +65,4 @@ export type SessionGroupSectionProps = {
   onToggleCollapsedGroup: (groupKey: string) => void;
   dragHandleProps?: SortableDragHandleProps | null;
   compactBodyPadding?: boolean;
-  scrollContainerRef?: React.RefObject<HTMLElement | null>;
 };

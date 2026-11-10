@@ -20,7 +20,6 @@ export type SessionGroup = {
   branch: string | null;
   description: string | null;
   isMain: boolean;
-  isArchivedBucket?: boolean;
   worktree?: GitWorktree | null;
   directory: string | null;
   folderScopeKey?: string | null;
