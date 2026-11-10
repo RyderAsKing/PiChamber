@@ -228,20 +228,6 @@ describe('Threads and By folder shelves', () => {
     return shelf < 0 ? null : /data-session-shelf="([^"]+)"/.exec(before.slice(shelf))![1]!;
   };
 
-  const withArchivedBucket = (section: ProjectSection, archived: SessionNode[]): ProjectSection => ({
-    ...section,
-    groups: [...section.groups, {
-      id: `${section.project.id}-archived`,
-      label: 'Archived',
-      branch: null,
-      description: null,
-      isMain: false,
-      isArchivedBucket: true,
-      directory: section.project.normalizedPath,
-      sessions: archived,
-    } as SessionGroup],
-  });
-
   test('Threads has no Settled shelf: a long-idle session stays under Recent', () => {
     setNow(NOW);
     const markup = render({ viewMode: 'threads', sections: [alpha, beta] });
@@ -263,13 +249,27 @@ describe('Threads and By folder shelves', () => {
     expect(shelfOf(markup, 'alpha-old')).toBeNull();
   });
 
-  // Workspace and By folder never receive archived sessions outside a search
-  // (useSessionSidebarSections.test.tsx); Threads also skips the bucket itself.
-  test('Threads does not list archived sessions', () => {
+  // Archived sessions only reach the sections during a search, or in Timeline
+  // (useSessionSidebarSections.test.tsx); every view then lists them in place.
+  const archived = { ...makeNode('alpha-archived', '/work/alpha', NOW - HOUR / 2) };
+  archived.session = { ...archived.session, time: { ...archived.session.time, archived: NOW - HOUR / 4 } } as SessionNode['session'];
+  const alphaWithArchived = makeSection('alpha', 'Alpha', [archived, ...alpha.groups[0]!.sessions]);
+
+  test('Threads lists an archived match in place, newest first', () => {
     setNow(NOW);
-    const archived = makeNode('alpha-archived', '/work/alpha', NOW - HOUR / 2);
-    const markup = render({ viewMode: 'threads', sections: [withArchivedBucket(alpha, [archived]), beta] });
-    expect(sessionIds(markup)).not.toContain('alpha-archived');
-    expect(sessionIds(markup)).toContain('alpha-today');
+    const markup = render({ viewMode: 'threads', sections: [alphaWithArchived, beta] });
+    expect(sessionIds(markup)).toEqual(['alpha-archived', 'alpha-today', 'home-today', 'beta-yesterday', 'alpha-old']);
+  });
+
+  test('By folder lists an archived match in its folder', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'folder', sections: [alphaWithArchived, beta] });
+    expect(projectOf(markup, 'alpha-archived')).toBe('alpha');
+  });
+
+  test('Timeline lists archived sessions by recency', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'timeline', sections: [alphaWithArchived, beta] });
+    expect(sessionIds(markup).slice(0, 2)).toEqual(['alpha-archived', 'alpha-today']);
   });
 });

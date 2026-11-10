@@ -29,12 +29,11 @@ const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed'];
 
 /**
  * Takes pinned and snoozed sessions out of their folders; they show
- * once, above or below the folder list. Archived groups are left alone.
+ * once, above or below the folder list.
  */
 const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<string>): ProjectSection => {
   let changed = false;
   const groups = section.groups.map((group) => {
-    if (group.isArchivedBucket) return group;
     const sessions = group.sessions.filter((node) => !hidden.has(node.session.id));
     if (sessions.length === group.sessions.length) return group;
     changed = true;
@@ -44,7 +43,7 @@ const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<str
 };
 
 const countSessions = (section: ProjectSection): number =>
-  section.groups.reduce((total, group) => (group.isArchivedBucket ? total : total + group.sessions.length), 0);
+  section.groups.reduce((total, group) => total + group.sessions.length, 0);
 
 // Rows keep the full sidebar width; the `tree` session row variant indents
 // its own content under the folder label.
@@ -72,7 +71,6 @@ interface SidebarFolderTreeProps {
     hideGroupLabel?: boolean,
     dragHandleProps?: SortableDragHandleProps | null,
     compactBodyPadding?: boolean,
-    scrollContainerRef?: React.RefObject<HTMLElement | null>,
   ) => React.ReactNode;
   renderSessionNode?: (
     node: SessionNode,
@@ -85,7 +83,6 @@ interface SidebarFolderTreeProps {
   ) => React.ReactNode;
   getOrderedGroups: (projectId: string, groups: SessionGroup[]) => SessionGroup[];
   renderProjectStatusIndicator?: (projectId: string, groups: SessionGroup[]) => React.ReactNode;
-  scrollContainerRef: React.RefObject<HTMLElement | null>;
   setActiveProjectIdOnly: (id: string) => void;
   setActiveMainTab: (tab: MainTab) => void;
   setSessionSwitcherOpen: (open: boolean) => void;
@@ -118,7 +115,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   renderSessionNode,
   getOrderedGroups,
   renderProjectStatusIndicator,
-  scrollContainerRef,
   setActiveProjectIdOnly,
   setActiveMainTab,
   setSessionSwitcherOpen,
@@ -194,9 +190,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
 
   const allHomeSessions = React.useMemo(() => {
     if (!homeSection) return [];
-    return homeSection.groups
-      .filter((group) => !group.isArchivedBucket)
-      .flatMap((group) => group.sessions);
+    return homeSection.groups.flatMap((group) => group.sessions);
   }, [homeSection]);
 
   const visibleHomeSessions = hasSessionSearchQuery || shelves
@@ -290,8 +284,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                           projectKey,
                           true,
                           null,
-                          undefined,
-                          scrollContainerRef,
                         )
                       : null}
                     {nestedGroups.map((group) => {
@@ -305,8 +297,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
                             projectKey,
                             hideGroupLabel,
                             null,
-                            undefined,
-                            scrollContainerRef,
                           )}
                         </React.Fragment>
                       );
