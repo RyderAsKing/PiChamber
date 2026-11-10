@@ -63,6 +63,24 @@ export const sessionActivityAt = (input: Pick<SessionShelfInput, 'entry' | 'upda
 };
 
 /**
+ * Auto-archive takes sessions idle longer than `afterDays` (0 = off). It
+ * skips what the user is keeping in view: pinned, running, waiting on the
+ * user, snoozed until the wake, and the open session. Idle time counts from
+ * a snooze wake as well as from messages.
+ */
+export const isAutoArchiveCandidate = (
+  input: SessionShelfInput & { open: boolean },
+  afterDays: number,
+): boolean => {
+  if (!(afterDays > 0)) return false;
+  if (input.open || input.pinned || input.working || input.needsInput) return false;
+  if (typeof input.entry?.snoozedUntil === 'number' && input.entry.snoozedUntil > input.now) return false;
+  const activityAt = sessionActivityAt(input);
+  if (!(activityAt > 0)) return false;
+  return activityAt < input.now - afterDays * DAY_MS;
+};
+
+/**
  * Snoozed comes first, then Pinned, then the active list, whose working
  * sessions move to the Working shelf when it is enabled.
  */
