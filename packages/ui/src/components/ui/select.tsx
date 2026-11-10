@@ -149,7 +149,7 @@ function SelectTrigger({
       {asChildRender ? undefined : (<>
         {children}
         <BaseSelect.Icon>
-          <Icon name="arrow-down-s" className="size-4 opacity-50" />
+          <Icon name="arrow-down-s" className="size-4 opacity-70" />
         </BaseSelect.Icon>
       </>)}
     </BaseSelect.Trigger>

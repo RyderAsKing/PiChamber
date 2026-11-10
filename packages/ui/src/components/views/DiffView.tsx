@@ -29,6 +29,8 @@ export type DiffHeaderScope = Extract<DiffScope, 'all' | 'working' | 'staged' | 
 export interface DiffHeaderControlsState {
   turnCount: number;
   branchCount: number;
+  /** The one file the diff is narrowed to, so the scope picker names it instead of a count. */
+  focusedFilePath: string | null;
   expandedCount: number;
   totalCount: number;
   loadFullFiles: boolean;
@@ -165,9 +167,16 @@ export const DiffView: React.FC<DiffViewProps> = ({
 
   const expandedCount = expandedFiles.size;
 
+  const onlyFile = onlyFilePath && activeDiffScope !== 'turn' && activeDiffScope !== 'branch'
+    ? changedFiles.find((file) => file.path === onlyFilePath) ?? null
+    : null;
+  const visibleChangedFiles = onlyFile ? [onlyFile] : changedFiles;
+
+
   const headerControlsState = React.useMemo<DiffHeaderControlsState>(() => ({
     turnCount: turnFileCount,
     branchCount: branchFileCount,
+    focusedFilePath: onlyFile?.path ?? null,
     expandedCount,
     totalCount: changedFiles.length,
     loadFullFiles,
@@ -180,6 +189,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   }), [
     turnFileCount,
     branchFileCount,
+    onlyFile,
     expandedCount,
     changedFiles.length,
     loadFullFiles,
@@ -197,11 +207,6 @@ export const DiffView: React.FC<DiffViewProps> = ({
     }
     onHeaderControlsStateChange?.(headerControlsState);
   }, [hideToolbar, headerControlsState, onHeaderControlsStateChange]);
-
-  const onlyFile = onlyFilePath && activeDiffScope !== 'turn' && activeDiffScope !== 'branch'
-    ? changedFiles.find((file) => file.path === onlyFilePath) ?? null
-    : null;
-  const visibleChangedFiles = onlyFile ? [onlyFile] : changedFiles;
 
   const renderStackedDiffView = () => {
     if (!effectiveDirectory) return null;
@@ -361,6 +366,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
             stagedCount={stagedFileCount}
             turnCount={turnFileCount}
             branchCount={branchFileCount}
+            focusedFilePath={onlyFile?.path ?? null}
             onScopeChange={(scope) => {
               setActiveDiffScope(scope);
               onDiffScopeChange?.(scope);

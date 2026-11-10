@@ -93,6 +93,14 @@ export const PIERRE_RUNTIME_BASE_CSS = `
   pre[data-interactive-line-numbers] [data-line-number] {
     touch-action: manipulation;
   }
+
+  /* With wrapping on, a line's later rows hang 4ch in from its first row, so a
+     continuation never starts at the code edge where the next line does. The
+     +/- marker is absolutely placed, so it stays put. */
+  [data-overflow="wrap"] [data-line] {
+    padding-inline-start: calc(2ch + 4ch);
+    text-indent: -4ch;
+  }
 `;
 
 // CSS injected into Pierre's Shadow DOM for WebKit scroll optimization +

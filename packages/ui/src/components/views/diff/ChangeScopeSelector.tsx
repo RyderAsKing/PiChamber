@@ -20,6 +20,8 @@ export interface ChangeScopeSelectorProps {
   stagedCount: number;
   turnCount: number;
   branchCount: number;
+  /** The diff shows only this file, so it is named in place of the scope's count. */
+  focusedFilePath?: string | null;
   onScopeChange?: (scope: Extract<DiffScope, 'all' | 'working' | 'staged' | 'turn' | 'branch'>) => void;
 }
 
@@ -32,6 +34,7 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
   stagedCount,
   turnCount,
   branchCount,
+  focusedFilePath = null,
   onScopeChange,
 }) {
   const [open, setOpen] = React.useState(false);
@@ -67,10 +70,12 @@ export const ChangeScopeSelector = React.memo<ChangeScopeSelectorProps>(function
           <span className="whitespace-nowrap font-medium">
             {currentLabel}{' '}
             <span className="diff-toolbar__scope-count font-normal text-muted-foreground">
-              {currentCount === 1 ? '1 file' : `${currentCount} files`}
+              {focusedFilePath
+                ? `· ${focusedFilePath.split('/').pop() ?? focusedFilePath}`
+                : currentCount === 1 ? '1 file' : `${currentCount} files`}
             </span>
           </span>
-          <Icon name="arrow-down-s" className="size-4 flex-shrink-0 opacity-60" />
+          <Icon name="arrow-down-s" className="size-4 flex-shrink-0 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-40">

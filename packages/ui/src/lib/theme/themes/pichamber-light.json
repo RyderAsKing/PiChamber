@@ -34,7 +34,7 @@
     },
     "interactive": {
       "border": "#d8d8e0",
-      "borderHover": "#cbcbda",
+      "borderHover": "#bcbccb",
       "borderFocus": "#4f46e5",
       "selection": "#00000014",
       "selectionForeground": "#2d2d34",

@@ -144,6 +144,7 @@ export const GitUnifiedHeader: React.FC<GitUnifiedHeaderProps> = ({
           stagedCount={stagedCount}
           turnCount={diffHeaderState?.turnCount ?? 0}
           branchCount={diffHeaderState?.branchCount ?? 0}
+          focusedFilePath={diffHeaderState?.focusedFilePath ?? null}
           onScopeChange={onDiffScopeChange}
         />
       </div>

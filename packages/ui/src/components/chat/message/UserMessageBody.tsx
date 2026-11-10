@@ -12,6 +12,7 @@ import { Icon } from '@/components/icon/Icon';
 import { formatTimestampForDisplay } from './timeFormat';
 import { MessageRevertAction } from './MessageRevertAction';
 import { MessageForkAction } from './MessageForkAction';
+import { MessageMoreActions } from './MessageMoreActions';
 import { UserShellActionPart, UserSubtaskPart } from './UserAuxiliaryParts';
 import { isShellActionPart, isSubtaskPart } from './userAuxiliaryPartsModel';
 
@@ -185,18 +186,21 @@ export const UserMessageBody = React.memo(function UserMessageBody({
             <TooltipContent>{timestamp}</TooltipContent>
           </Tooltip>
         ) : null}
-        {!isLatestMessage ? (
+        {/* Touch screens keep Copy in view and move the rest behind one labeled menu. */}
+        {!isTouchContext && !isLatestMessage ? (
           <MessageRevertAction
             sessionId={sessionId ?? null}
             messageId={messageId}
             size="assistant"
           />
         ) : null}
-        <MessageForkAction
-          sessionId={sessionId ?? null}
-          messageId={messageId}
-          size="assistant"
-        />
+        {!isTouchContext ? (
+          <MessageForkAction
+            sessionId={sessionId ?? null}
+            messageId={messageId}
+            size="assistant"
+          />
+        ) : null}
         {canCopyMessage && hasCopyableText && (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -229,6 +233,14 @@ export const UserMessageBody = React.memo(function UserMessageBody({
             <TooltipContent sideOffset={6}>{'Copy message'}</TooltipContent>
           </Tooltip>
         )}
+        {isTouchContext ? (
+          <MessageMoreActions
+            sessionId={sessionId ?? null}
+            messageId={messageId}
+            showRevert={!isLatestMessage}
+            size="assistant"
+          />
+        ) : null}
         </div>
         {attachedFiles.length > 0 ? (
           <UserMessageAttachments files={attachedFiles} onShowPopup={onShowPopup} />
