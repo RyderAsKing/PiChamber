@@ -213,6 +213,13 @@ if (viteHot) {
  *  hydrated sessions. Every async completion is generation- and runtime-
  *  guarded so a stale hydrate cannot commit into a new runtime/focus.
  */
+/** A 4xx (other than a timeout) means the server refused the request. */
+const isDefiniteRequestRejection = (error: unknown): boolean => error instanceof PiRequestError
+  && typeof error.status === 'number'
+  && error.status >= 400
+  && error.status < 500
+  && error.status !== 408;
+
 export class PiSessionStore {
   private state: PiSessionStoreState;
   private listenersByTopic = new Map<string, Set<Listener>>();
@@ -1041,6 +1048,16 @@ export class PiSessionStore {
     return sessions.filter((item) => !this.deletedSessionIds.has(item.session.id));
   }
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
+  // Sending to an archived session unarchives it on the server. The server
+  // broadcasts nothing for archive changes, so a client that sees a send to
+  // a session it has archived re-lists that folder once the server has had
+  // time to write the change. Keyed by directory so a burst coalesces.
+  private remoteSendRefreshDelayMs = 1_500;
+  private readonly remoteSendRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Sessions this client unarchived for a send that has not answered yet,
+  // so only that send rolls its own change back.
+  private readonly sendUnarchiveTokenById = new Map<PiSessionId, number>();
+  private sendUnarchiveCounter = 0;
   private readonly catalogCache: PiSessionCatalogCache;
   private unsubscribeRuntime: () => void;
 
@@ -1168,6 +1185,9 @@ export class PiSessionStore {
     this.lastAccessClock = 0;
     this.lastSelectedByDirectory.clear();
     this.directoryRefreshGenerationByDirectory.clear();
+    for (const timer of this.remoteSendRefreshTimers.values()) clearTimeout(timer);
+    this.remoteSendRefreshTimers.clear();
+    this.sendUnarchiveTokenById.clear();
     // The outgoing runtime's daemon (and its stream lifetime) no longer
     // applies; the incoming runtime establishes a fresh epoch.
     this.streamEpoch = null;
@@ -2505,6 +2525,55 @@ export class PiSessionStore {
     if (catalogChanged) topics.push(TOPIC_CATALOG);
     this.emit(topics);
   }
+  /**
+   * Clear the archived mark for a send this client is making (the server
+   * clears it when it accepts the send). Returns the settle callback for the
+   * send's outcome: a definite rejection puts the mark back; an unconfirmed
+   * outcome re-lists the folder so the server's state decides.
+   */
+  private unarchiveForSend(sessionId: PiSessionId): (error?: unknown) => void {
+    const existing = this.state.catalog.byId.get(sessionId);
+    if (!existing?.archived) return () => undefined;
+    const token = ++this.sendUnarchiveCounter;
+    this.sendUnarchiveTokenById.set(sessionId, token);
+    this.setArchivedLocally(sessionId, false);
+    const expected = this.runtimeGeneration;
+    const directory = existing.directory;
+    return (error) => {
+      if (expected !== this.runtimeGeneration || this.sendUnarchiveTokenById.get(sessionId) !== token) return;
+      this.sendUnarchiveTokenById.delete(sessionId);
+      if (error === undefined) return;
+      if (isDefiniteRequestRejection(error)) {
+        if (this.state.catalog.byId.get(sessionId)?.archived === false) this.setArchivedLocally(sessionId, true);
+        return;
+      }
+      if (directory) void this.refreshDirectoryCatalog(directory);
+    };
+  }
+  private setArchivedLocally(sessionId: PiSessionId, archived: boolean) {
+    const existing = this.state.catalog.byId.get(sessionId);
+    if (!existing) return;
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, existing.updatedAt);
+    const catalogChanged = nextCatalog !== this.state.catalog;
+    this.state = {
+      ...this.state,
+      sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item),
+      catalog: nextCatalog,
+    };
+    const topics: string[] = [TOPIC_CHROME];
+    if (catalogChanged) topics.push(TOPIC_CATALOG);
+    this.emit(topics);
+  }
+  private scheduleRemoteSendRefresh(directory: string) {
+    if (!directory || this.remoteSendRefreshTimers.has(directory)) return;
+    const expected = this.runtimeGeneration;
+    const timer = setTimeout(() => {
+      this.remoteSendRefreshTimers.delete(directory);
+      if (expected !== this.runtimeGeneration) return;
+      void this.refreshDirectoryCatalog(directory);
+    }, this.remoteSendRefreshDelayMs);
+    this.remoteSendRefreshTimers.set(directory, timer);
+  }
   async remove(sessionId: string, directory?: string) {
     const expected = this.runtimeGeneration;
     const runtimeKey = getRuntimeKey();
@@ -2727,6 +2796,7 @@ export class PiSessionStore {
     const promptTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) promptTopics.push(TOPIC_CATALOG);
     this.emit(promptTopics);
+    const settleUnarchive = this.unarchiveForSend(sessionId);
     try {
       let result;
       if (delivery === 'steer') result = await piClient.sendSteer(input, scope);
@@ -2747,8 +2817,10 @@ export class PiSessionStore {
         // turn starts and therefore pay no snapshot request.
         void this.reconcileAcceptedSlashPrompt(sessionId, generation, expected);
       }
+      settleUnarchive();
       return result;
     } catch (error) {
+      settleUnarchive(error);
       recordMobileDiagnosticError('prompt-send', error);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) throw error;
       if (isSessionInUseError(error)) {
@@ -2901,11 +2973,22 @@ export class PiSessionStore {
     sessionId,
     ...(customInstructions ? { customInstructions } : {}),
   }, this.scope());
-  runBash = (sessionId: string, command: string, options?: { excludeFromContext?: boolean }) => piClient.runBash({
-    sessionId,
-    command,
-    ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
-  }, this.scope());
+  runBash = async (sessionId: string, command: string, options?: { excludeFromContext?: boolean }) => {
+    const scope = this.scope();
+    const settleUnarchive = this.unarchiveForSend(sessionId);
+    try {
+      const result = await piClient.runBash({
+        sessionId,
+        command,
+        ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
+      }, scope);
+      settleUnarchive();
+      return result;
+    } catch (error) {
+      settleUnarchive(error);
+      throw error;
+    }
+  };
   abortBash = (sessionId: string) => piClient.abortBash({ sessionId }, this.scope());
   setModel = (sessionId: string, providerId: string, modelId: string) => piClient.setSessionModel({ sessionId, model: { providerId, modelId } }, this.scope());
   setThinking = (sessionId: string, thinking: PiThinkingLevel) => piClient.setSessionThinking({ sessionId, thinking }, this.scope());
@@ -4104,6 +4187,12 @@ export class PiSessionStore {
     // stale-epoch event, must not resurrect a catalog row here.
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
+    for (const event of acceptedEvents) {
+      const isSend = (event.name === 'assistant.message.start' && event.payload.role === 'user') || event.name === 'session.bash';
+      if (!isSend) continue;
+      const row = nextCatalog.byId.get(event.sessionId);
+      if (row?.archived) this.scheduleRemoteSendRefresh(row.directory || event.directory);
+    }
     // Live-only pending-input transitions: walk the accepted `session.input`
     // events per session in order, starting from the pre-batch catalog value
     // and normalizing each payload the same way the catalog does (malformed
