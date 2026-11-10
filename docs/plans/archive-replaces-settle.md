@@ -190,8 +190,8 @@ Automatic runs show no toast.
   one on Timeline loses sight of it. Remove the "Settle idle sessions" row.
 - **Sessions → Session retention** becomes **Archive and delete**:
   - "Archive idle sessions after [7] days". Empty means Off. While it is
-    off, a line under it reads "Archiving sessions idle for 7 days keeps the
-    sidebar to what you're working on.", with a Turn on button that sets 7.
+    off, a line under it reads "Suggested: 7 days, so the sidebar shows what
+    you're working on.", and a Turn on button beside the box sets 7.
   - "Delete archived sessions [ ] days after archiving". Empty means Off.
     Its info text says deletion is permanent, applies only to archived
     sessions, and counts from the day a session was archived, so with
