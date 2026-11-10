@@ -185,7 +185,7 @@ export const AssistantMessageBody = React.memo(
     ]);
 
     const footerTimestampClassName =
-      'text-sm text-muted-foreground tabular-nums flex items-center gap-1';
+      'typography-meta text-muted-foreground tabular-nums flex items-center gap-1';
     const canOpenMessagePreview = !isMiniChatSurface && !isMobile;
 
     const finalTurnActionButtons = (
@@ -272,7 +272,7 @@ export const AssistantMessageBody = React.memo(
               )}
               style={MESSAGE_FOOTER_CONTAINER_STYLE}
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 typography-meta text-muted-foreground">
                 {footerModelName ? (
                   <span className="flex min-w-0 items-center gap-1.5">
                     {footerHasLogo && footerLogoSrc ? (

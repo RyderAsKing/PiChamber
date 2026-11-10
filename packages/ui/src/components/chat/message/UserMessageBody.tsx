@@ -175,10 +175,10 @@ export const UserMessageBody = React.memo(function UserMessageBody({
           <Tooltip>
             <TooltipTrigger asChild>
               <span
-                className="mr-1 flex items-center gap-1 text-sm tabular-nums text-subtle-foreground"
+                className="mr-1 flex items-center gap-1 typography-meta tabular-nums text-subtle-foreground"
                 aria-label={`Message time: ${timestamp}`}
               >
-                <Icon name="time" className="h-3.5 w-3.5" />
+                <Icon name="time" className="size-3" />
                 <span className="message-footer__label">{timestamp}</span>
               </span>
             </TooltipTrigger>

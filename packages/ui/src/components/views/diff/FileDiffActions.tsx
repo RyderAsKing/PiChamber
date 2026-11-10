@@ -6,7 +6,10 @@ import { cn } from '@/lib/utils';
 import type { FileDiffAction } from './diffTypes';
 
 export interface FileDiffActionButtonProps {
+  /** Full name of the action, for assistive tech and the tooltip. */
   label: string;
+  /** The word shown on the button, so the action reads without hovering. */
+  text: string;
   icon: 'add' | 'arrow-go-back';
   loading: boolean;
   disabled: boolean;
@@ -16,6 +19,7 @@ export interface FileDiffActionButtonProps {
 
 export const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
   label,
+  text,
   icon,
   loading,
   disabled,
@@ -26,7 +30,7 @@ export const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
     variant="ghost"
     size="sm"
     className={cn(
-      'h-6 w-6 rounded-none bg-transparent p-0 text-muted-foreground opacity-70 hover:bg-transparent hover:text-foreground hover:opacity-100',
+      'h-6 gap-1 rounded-md bg-transparent px-2 typography-micro font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
       tone === 'failure' && 'text-[var(--status-error)] hover:text-[var(--status-error)]',
       tone === 'success' && 'text-[var(--status-success)] hover:text-[var(--status-success)]'
     )}
@@ -41,8 +45,9 @@ export const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
     {loading ? (
       <Icon name="loader-4" className="size-3.5 animate-spin" />
     ) : (
-      <Icon name={icon} className={icon === 'add' ? 'size-4' : 'size-3.5'} />
+      <Icon name={icon} className="size-3.5" />
     )}
+    {text}
   </Button>
 );
 
@@ -62,10 +67,11 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
   onAction,
 }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-full border border-[var(--interactive-border)]/45 bg-[var(--surface-background)]/95 px-1 py-0.5 shadow-sm backdrop-blur-md">
+    <div className="flex items-center gap-1">
       {staged ? (
         <FileDiffActionButton
           label={`Unstage ${filePath}`}
+          text={'Unstage'}
           icon="arrow-go-back"
           loading={busyAction === 'unstage'}
           disabled={disabled}
@@ -75,6 +81,7 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
         <>
           <FileDiffActionButton
             label={`Revert changes in ${filePath}`}
+            text={'Revert'}
             icon="arrow-go-back"
             loading={busyAction === 'discard'}
             disabled={disabled}
@@ -83,6 +90,7 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
           />
           <FileDiffActionButton
             label={`Stage ${filePath}`}
+            text={'Stage'}
             icon="add"
             loading={busyAction === 'stage'}
             disabled={disabled}

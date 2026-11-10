@@ -112,6 +112,13 @@ interface UIStore {
    * consumed (cleared) by the tree once it has expanded to it. Not persisted.
    */
   fileTreeReveal: { path: string; nonce: number } | null;
+  /**
+   * The file tab a file's Changes button left for the Git panel, so that panel
+   * can offer the way back. Cleared once the panel shows anything else. Not
+   * persisted.
+   */
+  gitReturnToFile: { directory: string; tabId: string } | null;
+  clearGitReturnToFile: () => void;
   contextEditorTreeWidth: number;
   /** Persisted per-directory `host/owner/repo` pick for the GitHub surfaces. */
   githubSelectedRepoByDirectory: Record<string, string>;
@@ -399,6 +406,7 @@ export const useUIStore = create<UIStore>()(
         contextRailOrder: [],
         contextEditorTreeVisible: true,
         fileTreeReveal: null,
+        gitReturnToFile: null,
         contextEditorTreeWidth: 240,
         githubSelectedRepoByDirectory: {},
         isSessionSwitcherOpen: false,
@@ -547,6 +555,9 @@ export const useUIStore = create<UIStore>()(
         revealInFileTree: (path) => {
           set((state) => ({ fileTreeReveal: { path, nonce: (state.fileTreeReveal?.nonce ?? 0) + 1 } }));
         },
+        clearGitReturnToFile: () => {
+          if (get().gitReturnToFile) set({ gitReturnToFile: null });
+        },
         clearFileTreeReveal: () => {
           set({ fileTreeReveal: null });
         },
@@ -645,8 +656,17 @@ export const useUIStore = create<UIStore>()(
 
           const diffScope = normalizePendingDiffScope(scope) ?? (staged ? 'staged' : 'working');
 
+          // Leaving an open file for its changes: remember the way back.
+          const panelState = get().contextPanelByDirectory[normalizedDirectory];
+          const fromTab = panelState?.isOpen
+            ? panelState.tabs.find((tab) => tab.id === panelState.activeTabId)
+            : undefined;
+
           get().setPendingDiffFile(normalizedFilePath, staged, diffScope);
           get().openContextPanelTab(normalizedDirectory, { mode: 'git' });
+          // Set after the Git panel is active, so the panel never sees the
+          // record while the file is still showing (which would clear it).
+          set({ gitReturnToFile: fromTab?.mode === 'file' ? { directory: normalizedDirectory, tabId: fromTab.id } : null });
         },
 
         openContextFile: (directory, filePath) => {

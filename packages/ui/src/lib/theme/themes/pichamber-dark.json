@@ -73,7 +73,7 @@
       "base": {
         "background": "#0f0f12",
         "foreground": "#dcdce0",
-        "comment": "#7c7c89",
+        "comment": "#868693",
         "keyword": "#a5b4fc",
         "string": "#8fd4b0",
         "number": "#e5c07b",
@@ -83,7 +83,7 @@
         "operator": "#dcdce0"
       },
       "tokens": {
-        "commentDoc": "#7c7c89",
+        "commentDoc": "#868693",
         "stringEscape": "#f472b6",
         "keywordImport": "#f472b6",
         "storageModifier": "#a5b4fc",
@@ -147,7 +147,7 @@
       "userMessageBackground": "#18181d",
       "assistantMessage": "#dcdce0",
       "assistantMessageBackground": "#0f0f12",
-      "timestamp": "#80808b",
+      "timestamp": "#8a8a95",
       "divider": "#222228"
     },
     "tools": {
@@ -156,13 +156,13 @@
       "headerHover": "#ffffff0d",
       "icon": "#9e9ea8",
       "title": "#dcdce0",
-      "description": "#80808b",
+      "description": "#8a8a95",
       "edit": {
         "added": "#34d399",
         "addedBackground": "#34d39920",
         "removed": "#f87171",
         "removedBackground": "#f8717120",
-        "lineNumber": "#4e4e58"
+        "lineNumber": "#666671"
       }
     }
   },

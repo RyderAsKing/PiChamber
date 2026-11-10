@@ -454,16 +454,15 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
                 wrapLines={wrapLines}
               />
               {showFileActions ? (
-                <div className="pointer-events-none absolute bottom-3 right-3 z-20">
-                  <div className="pointer-events-auto">
-                    <FileDiffActions
-                      filePath={file.path}
-                      staged={staged}
-                      busyAction={fileAction}
-                      disabled={fileAction !== null}
-                      onAction={handleFileAction}
-                    />
-                  </div>
+                // A row of its own under the diff, so it never covers a line of code.
+                <div className="flex justify-end border-t border-border/40 px-2 py-1">
+                  <FileDiffActions
+                    filePath={file.path}
+                    staged={staged}
+                    busyAction={fileAction}
+                    disabled={fileAction !== null}
+                    onAction={handleFileAction}
+                  />
                 </div>
               ) : null}
             </>

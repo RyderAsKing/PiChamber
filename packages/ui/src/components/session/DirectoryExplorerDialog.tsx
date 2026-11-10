@@ -569,6 +569,20 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     </p>
   ) : null;
 
+  // The answer from the step before stays editable from here: its line ends
+  // in a button that goes back to it.
+  const editEarlierAnswer = (label: string, ariaLabel: string) => (
+    <button
+      type="button"
+      onClick={goBack}
+      disabled={pending !== null}
+      aria-label={ariaLabel}
+      className="ml-auto shrink-0 rounded px-1 typography-ui-label text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
+
   const summaryStrip = summary ? (
     <div className="flex flex-col gap-0.5 border-b border-border/60 px-4 py-2">
       <p
@@ -579,12 +593,14 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
       >
         <span className="shrink-0">{summary.text}</span>
         {summary.path ? <MiddleTruncate value={summary.path} className="min-w-0 font-mono text-foreground" /> : null}
+        {step === 'new-location' ? editEarlierAnswer('Rename', 'Change the project name') : null}
       </p>
       {/* The repository reads like the destination above it: a label, then the value. */}
       {step === 'clone-location' ? (
         <p className="flex min-w-0 items-baseline gap-1.5 typography-ui-label text-muted-foreground">
           <span className="shrink-0">{'From'}</span>
           <MiddleTruncate value={remoteUrl.trim()} className="min-w-0 font-mono text-foreground" />
+          {editEarlierAnswer('Change', 'Change the repository URL')}
         </p>
       ) : null}
     </div>

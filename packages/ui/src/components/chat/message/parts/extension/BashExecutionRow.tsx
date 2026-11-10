@@ -151,7 +151,7 @@ export const BashExecutionRow: React.FC<BashExecutionRowProps> = ({
                     )
                 ) : null}
                 {view.excludeFromContext ? (
-                    <span className="shrink-0 rounded border border-border px-1.5 typography-micro text-muted-foreground">Not sent to the model</span>
+                    <span className="shrink-0 rounded border border-[var(--interactive-border)] px-1.5 typography-micro text-muted-foreground">Not sent to the model</span>
                 ) : null}
                 {view.running && sessionId ? (
                     <Button

@@ -559,6 +559,17 @@ export const ContextPanel: React.FC = () => {
   }, [toggleContextEditorTree, treeCrowdsFile]);
 
   const isFileTabActive = activeTab?.mode === 'file';
+  // The Git panel reached from an open file's Changes button leads back to it.
+  const gitReturnToFile = useUIStore((state) => state.gitReturnToFile);
+  const clearGitReturnToFile = useUIStore((state) => state.clearGitReturnToFile);
+  const returnFileTab = gitReturnToFile && gitReturnToFile.directory === directoryKey && activeTab?.mode === 'git'
+    ? tabs.find((tab) => tab.id === gitReturnToFile.tabId && tab.mode === 'file' && tab.targetPath) ?? null
+    : null;
+  React.useEffect(() => {
+    if (gitReturnToFile && (!isOpen || activeTab?.mode !== 'git' || gitReturnToFile.directory !== directoryKey)) {
+      clearGitReturnToFile();
+    }
+  }, [activeTab?.mode, clearGitReturnToFile, directoryKey, gitReturnToFile, isOpen]);
   const isTerminalPanelActive = activeTab?.mode === 'terminal';
   const isGitPanelActive = activeTab?.mode === 'git';
   const isDiffPanelActive = activeTab?.mode === 'diff';
@@ -821,7 +832,28 @@ export const ContextPanel: React.FC = () => {
             />
           </div>
         ) : null}
-        {isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}
+        {isOpen && activeTab?.mode === 'git' ? (
+          <div className="flex h-full min-h-0 flex-col">
+            {returnFileTab ? (
+              <div className="flex h-9 shrink-0 items-center border-b border-border/60 pl-1.5 pr-1">
+                {/* Named for the file: the panel replaced it, so say what is behind it. */}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => {
+                    clearGitReturnToFile();
+                    setActiveContextPanelTab(directoryKey, returnFileTab.id);
+                  }}
+                  className="min-w-0 text-muted-foreground hover:text-foreground"
+                >
+                  <Icon name="arrow-left" className="size-3.5 shrink-0" />
+                  <span className="truncate">{`Back to ${getFileNameFromPath(returnFileTab.targetPath) ?? 'file'}`}</span>
+                </Button>
+              </div>
+            ) : null}
+            <div className="relative min-h-0 flex-1">{activeContent}</div>
+          </div>
+        ) : isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}
       </div>
       </div>
     </aside>

@@ -280,7 +280,7 @@ describe('assistant response body', () => {
     );
 
     expect(markup).toContain('Claude');
-    expect(markup).toContain('gap-y-1 text-sm text-muted-foreground');
+    expect(markup).toContain('gap-y-1 typography-meta text-muted-foreground');
     expect(markup).not.toContain('text-muted-foreground/60');
     expect(markup).not.toContain('message-footer-enter');
   });
