@@ -15,7 +15,6 @@ export type DeleteSessionConfirmState = {
   // executed list matches the count shown to the user even if childrenMap
   // changes while the dialog is open.
   descendantIds: string[];
-  archivedBucket: boolean;
 } | null;
 
 function SessionMutationDialogFooter(props: {
@@ -23,7 +22,7 @@ function SessionMutationDialogFooter(props: {
   setShowDeletionDialog: (next: boolean) => void;
   onCancel: () => void;
   onConfirm: () => Promise<void> | void;
-  confirmLabel: 'Archive' | 'Delete';
+  confirmLabel: 'Delete';
 }): React.ReactNode {
   const { showDeletionDialog, setShowDeletionDialog, onCancel, onConfirm, confirmLabel } = props;
   return (
@@ -72,21 +71,13 @@ export function SessionDeleteConfirmDialog(props: {
     <Dialog open={Boolean(value)} onOpenChange={(open) => { if (!open) setValue(null); }}>
       <DialogContent showCloseButton={false} className="max-w-sm gap-5">
         <DialogHeader>
-          <DialogTitle>{value?.archivedBucket
-            ? "Delete session?"
-            : "Archive session?"}</DialogTitle>
+          <DialogTitle>{"Delete session?"}</DialogTitle>
           <DialogDescription>
             {value && value.descendantCount > 0
-              ? value.archivedBucket
-                ? value.descendantCount === 1
-                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be permanently deleted.`
-                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
-                : value.descendantCount === 1
-                  ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be archived.`
-                  : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be archived.`
-              : value?.archivedBucket
-                ? `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be permanently deleted.`
-                : `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be archived.`}
+              ? value.descendantCount === 1
+                ? `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-task will be permanently deleted.`
+                : `"${sessionDisplayTitle(value.session)}" and its ${value.descendantCount} sub-tasks will be permanently deleted.`
+              : `"${value?.session ? sessionDisplayTitle(value.session) : "Untitled Session"}" will be permanently deleted.`}
           </DialogDescription>
         </DialogHeader>
         <SessionMutationDialogFooter
@@ -94,7 +85,7 @@ export function SessionDeleteConfirmDialog(props: {
           setShowDeletionDialog={setShowDeletionDialog}
           onCancel={() => setValue(null)}
           onConfirm={onConfirm}
-          confirmLabel={value?.archivedBucket ? 'Delete' : 'Archive'}
+          confirmLabel="Delete"
         />
       </DialogContent>
     </Dialog>
@@ -103,7 +94,6 @@ export function SessionDeleteConfirmDialog(props: {
 
 export type BulkDeleteSessionsConfirmState = {
   sessionCount: number;
-  archivedBucket: boolean;
 } | null;
 
 export function BulkSessionDeleteConfirmDialog(props: {
@@ -115,22 +105,11 @@ export function BulkSessionDeleteConfirmDialog(props: {
 }): React.ReactNode {
   
   const { value, setValue, showDeletionDialog, setShowDeletionDialog, onConfirm } = props;
-  const archived = value?.archivedBucket === true;
   const n = value?.sessionCount ?? 0;
-  const title = archived
-    ? (n === 1
-      ? "Delete session?"
-      : "Delete sessions?")
-    : (n === 1
-      ? "Archive session?"
-      : "Archive sessions?");
-  const description = archived
-    ? (n === 1
-      ? `${n} session will be permanently deleted.`
-      : `${n} sessions will be permanently deleted.`)
-    : (n === 1
-      ? `${n} session will be archived.`
-      : `${n} sessions will be archived.`);
+  const title = n === 1 ? "Delete session?" : "Delete sessions?";
+  const description = n === 1
+    ? `${n} session will be permanently deleted.`
+    : `${n} sessions will be permanently deleted.`;
 
   return (
     <Dialog open={Boolean(value)} onOpenChange={(open) => { if (!open) setValue(null); }}>
@@ -144,7 +123,7 @@ export function BulkSessionDeleteConfirmDialog(props: {
           setShowDeletionDialog={setShowDeletionDialog}
           onCancel={() => setValue(null)}
           onConfirm={onConfirm}
-          confirmLabel={archived ? 'Delete' : 'Archive'}
+          confirmLabel="Delete"
         />
       </DialogContent>
     </Dialog>

@@ -12,12 +12,17 @@ const makeStore = async () => {
   return { file, runtimeFile, store: createPiUiSettingsStore({ file, runtimeFile }) };
 };
 
+// What a fresh store decides for the auto-archive and auto-delete settings,
+// and what an existing install with retention off maps to.
+const NEW_INSTALL_RETENTION = { sessionAutoArchiveAfterDays: 7, sessionAutoDeleteAfterDays: 0 };
+const RETENTION_OFF = { sessionAutoArchiveAfterDays: 0, sessionAutoDeleteAfterDays: 0 };
+
 const readJson = async (file) => JSON.parse(await readFile(file, 'utf8'));
 
 describe('Pi UI settings store', () => {
   it('distinguishes malformed persisted settings from a fresh store', async () => {
     const { file, store } = await makeStore();
-    await expect(store.read()).resolves.toEqual({});
+    await expect(store.read()).resolves.toEqual(NEW_INSTALL_RETENTION);
     await writeFile(file, '{broken');
     await expect(store.read()).rejects.toThrow('UI_SETTINGS_INVALID');
   });
@@ -65,7 +70,7 @@ describe('Pi UI settings store', () => {
       runtimeFile: existingRuntimeFile,
       initialLocalSettings,
     });
-    await expect(existingStore.read()).resolves.toEqual({ themeId: 'nord' });
+    await expect(existingStore.read()).resolves.toEqual({ themeId: 'nord', ...RETENTION_OFF });
   });
 
   it('migrates a flat settings file into portable and local allowlists', async () => {
@@ -87,6 +92,7 @@ describe('Pi UI settings store', () => {
     await expect(readJson(file)).resolves.toEqual({
       __pichamberSettingsScope: 'portable-v1',
       themeId: 'nord',
+      ...RETENTION_OFF,
     });
     await expect(readJson(runtimeFile)).resolves.toEqual({
       homeDirectory: '/old-home',
@@ -105,6 +111,7 @@ describe('Pi UI settings store', () => {
 
     await expect(target.store.read()).resolves.toEqual({
       themeId: 'nord',
+      ...NEW_INSTALL_RETENTION,
       homeDirectory: '/root',
       projects: [{ id: 'two', path: '/root/project' }],
     });
@@ -118,12 +125,14 @@ describe('Pi UI settings store', () => {
     ]);
     await expect(store.read()).resolves.toEqual({
       themeId: 'dark',
+      ...NEW_INSTALL_RETENTION,
       projects: [{ id: 'one', path: '/one' }],
       desktopCloseToTrayEnabled: false,
     });
     await expect(readJson(file)).resolves.toEqual({
       __pichamberSettingsScope: 'portable-v1',
       themeId: 'dark',
+      ...NEW_INSTALL_RETENTION,
     });
     await expect(readJson(runtimeFile)).resolves.toEqual({
       projects: [{ id: 'one', path: '/one' }],
@@ -142,6 +151,7 @@ describe('Pi UI settings store', () => {
     await expect(readJson(file)).resolves.toEqual({
       __pichamberSettingsScope: 'portable-v1',
       themeId: 'dark',
+      ...NEW_INSTALL_RETENTION,
     });
     await expect(readJson(runtimeFile)).resolves.toEqual({ desktopUpdateChannel: 'rc', serverUpdateChannel: 'stable' });
     await expect(store.write({ desktopUpdateChannel: 'beta' })).rejects.toThrow('UI_SETTINGS_INVALID');
@@ -242,26 +252,28 @@ describe('Pi UI settings store', () => {
     const { file, runtimeFile, store } = await makeStore();
 
     const writeResult = await store.write({ sidebarViewMode: 'folder', unknownField: 'drop-me' });
-    expect(writeResult).toEqual({ sidebarViewMode: 'folder' });
+    expect(writeResult).toEqual({ sidebarViewMode: 'folder', ...NEW_INSTALL_RETENTION });
 
     const readResult = await store.read();
-    expect(readResult).toEqual({ sidebarViewMode: 'folder' });
+    expect(readResult).toEqual({ sidebarViewMode: 'folder', ...NEW_INSTALL_RETENTION });
 
     const portable = await readJson(file);
     expect(portable).toEqual({
       __pichamberSettingsScope: 'portable-v1',
       sidebarViewMode: 'folder',
+      ...NEW_INSTALL_RETENTION,
     });
 
     const runtime = await readJson(runtimeFile);
     expect(runtime).toEqual({});
 
     const updatedResult = await store.write({ sidebarViewMode: 'timeline' });
-    expect(updatedResult).toEqual({ sidebarViewMode: 'timeline' });
-    expect(await store.read()).toEqual({ sidebarViewMode: 'timeline' });
+    expect(updatedResult).toEqual({ sidebarViewMode: 'timeline', ...NEW_INSTALL_RETENTION });
+    expect(await store.read()).toEqual({ sidebarViewMode: 'timeline', ...NEW_INSTALL_RETENTION });
     expect(await readJson(file)).toEqual({
       __pichamberSettingsScope: 'portable-v1',
       sidebarViewMode: 'timeline',
+      ...NEW_INSTALL_RETENTION,
     });
   });
 
@@ -274,6 +286,7 @@ describe('Pi UI settings store', () => {
     expect(await readJson(file)).toEqual({
       __pichamberSettingsScope: 'portable-v1',
       notifyOnInputNeeded: false,
+      ...NEW_INSTALL_RETENTION,
     });
 
     await expect(store.write({ notifyOnInputNeeded: true })).resolves.toMatchObject({
@@ -288,6 +301,92 @@ describe('Pi UI settings store', () => {
     await expect(store.read()).rejects.toThrow('UI_SETTINGS_INVALID');
     const changes = JSON.parse('{"constructor":{"polluted":true}}');
     await expect(store.write(changes)).rejects.toThrow('UI_SETTINGS_INVALID');
+  });
+
+  describe('session retention starting values', () => {
+    const seed = async (portable, runtime) => {
+      const target = await makeStore();
+      if (portable !== undefined) await writeFile(target.file, JSON.stringify(portable));
+      if (runtime !== undefined) await writeFile(target.runtimeFile, JSON.stringify(runtime));
+      return target;
+    };
+
+    it('starts a new install at auto-archive 7 and auto-delete 0, and writes it', async () => {
+      for (const portable of [undefined, {}, { __pichamberSettingsScope: 'portable-v1' }]) {
+        const { file, store } = await seed(portable);
+        await expect(store.read()).resolves.toEqual({
+          sessionAutoArchiveAfterDays: 7,
+          sessionAutoDeleteAfterDays: 0,
+        });
+        expect(await readJson(file)).toEqual({
+          __pichamberSettingsScope: 'portable-v1',
+          sessionAutoArchiveAfterDays: 7,
+          sessionAutoDeleteAfterDays: 0,
+        });
+      }
+    });
+
+    it('maps each old retention combination on an existing install', async () => {
+      const cases = [
+        [{ themeId: 'nord' }, 0, 0],
+        [{ autoDeleteEnabled: false, sessionRetentionAction: 'delete', autoDeleteAfterDays: 10 }, 0, 0],
+        [{ autoDeleteEnabled: true, sessionRetentionAction: 'archive', autoDeleteAfterDays: 14 }, 14, 0],
+        [{ autoDeleteEnabled: true, sessionRetentionAction: 'delete', autoDeleteAfterDays: 21 }, 21, 30],
+        [{ autoDeleteEnabled: true }, 30, 0],
+        [{ autoDeleteEnabled: true, sessionRetentionAction: 'delete', autoDeleteAfterDays: 900 }, 365, 30],
+      ];
+      for (const [old, archive, del] of cases) {
+        for (const marked of [false, true]) {
+          const portable = marked ? { __pichamberSettingsScope: 'portable-v1', ...old } : old;
+          const { file, store } = await seed(portable);
+          const settings = await store.read();
+          expect([settings.sessionAutoArchiveAfterDays, settings.sessionAutoDeleteAfterDays]).toEqual([archive, del]);
+          const saved = await readJson(file);
+          expect([saved.sessionAutoArchiveAfterDays, saved.sessionAutoDeleteAfterDays]).toEqual([archive, del]);
+        }
+      }
+    });
+
+    it('treats saved local state as an existing install', async () => {
+      const { store } = await seed({ __pichamberSettingsScope: 'portable-v1' }, { projects: [{ id: 'one', path: '/one' }] });
+      await expect(store.read()).resolves.toMatchObject({
+        sessionAutoArchiveAfterDays: 0,
+        sessionAutoDeleteAfterDays: 0,
+      });
+    });
+
+    it('decides once and keeps later choices', async () => {
+      const { store } = await seed({ autoDeleteEnabled: true, sessionRetentionAction: 'delete', autoDeleteAfterDays: 5 });
+      await expect(store.read()).resolves.toMatchObject({ sessionAutoArchiveAfterDays: 5, sessionAutoDeleteAfterDays: 30 });
+      await store.write({ sessionAutoArchiveAfterDays: 0, sessionAutoDeleteAfterDays: 0, autoDeleteAfterDays: 60 });
+      await expect(store.read()).resolves.toMatchObject({
+        sessionAutoArchiveAfterDays: 0,
+        sessionAutoDeleteAfterDays: 0,
+        autoDeleteEnabled: true,
+        autoDeleteAfterDays: 60,
+      });
+    });
+
+    it('decides before the first write', async () => {
+      const { store } = await seed({ autoDeleteEnabled: true, sessionRetentionAction: 'archive', autoDeleteAfterDays: 9 });
+      await expect(store.write({ themeId: 'dark' })).resolves.toMatchObject({
+        themeId: 'dark',
+        sessionAutoArchiveAfterDays: 9,
+        sessionAutoDeleteAfterDays: 0,
+      });
+    });
+
+    it('rejects values outside off or 1 to 365 days', async () => {
+      const { store } = await makeStore();
+      for (const value of [-1, 366, 1.5, '7', null]) {
+        await expect(store.write({ sessionAutoArchiveAfterDays: value })).rejects.toThrow('UI_SETTINGS_INVALID');
+        await expect(store.write({ sessionAutoDeleteAfterDays: value })).rejects.toThrow('UI_SETTINGS_INVALID');
+      }
+      await expect(store.write({ sessionAutoArchiveAfterDays: 365, sessionAutoDeleteAfterDays: 1 })).resolves.toMatchObject({
+        sessionAutoArchiveAfterDays: 365,
+        sessionAutoDeleteAfterDays: 1,
+      });
+    });
   });
 
   it('keeps a symlinked settings.json and writes through to its target', async () => {

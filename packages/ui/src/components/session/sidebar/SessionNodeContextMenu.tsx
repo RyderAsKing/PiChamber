@@ -19,11 +19,9 @@ import { cn } from '@/lib/utils';
 import { Icon } from '@/components/icon/Icon';
 import { resolveSnoozePresets, type SessionShelfSection } from '@/lib/sessionShelf';
 
-/** Settle and snooze actions for rows in the Threads and By folder views. */
+/** Snooze actions for rows in the Threads and By folder views. */
 export interface SessionShelfMenuActions {
   section: SessionShelfSection;
-  onSettle: () => void;
-  onUnsettle: () => void;
   onSnooze: (snoozedUntil: number) => void;
   onWake: () => void;
 }
@@ -116,17 +114,6 @@ function renderSessionMenuItems(
 
       {shelfActions && !archivedBucket ? (
         <>
-          {shelfActions.section === 'settled' ? (
-            <Item onClick={shelfActions.onUnsettle} className="[&>svg]:mr-1">
-              <Icon name="arrow-go-back" className="mr-1 h-4 w-4" />
-              {'Un-settle session'}
-            </Item>
-          ) : (
-            <Item onClick={shelfActions.onSettle} className="[&>svg]:mr-1">
-              <Icon name="check" className="mr-1 h-4 w-4" />
-              {'Settle session'}
-            </Item>
-          )}
           {shelfActions.section === 'snoozed' ? (
             <Item onClick={shelfActions.onWake} className="[&>svg]:mr-1">
               <Icon name="alarm" className="mr-1 h-4 w-4" />
@@ -188,7 +175,7 @@ function renderSessionMenuItems(
           onClick={() => handleRestoreSession(session)}
         >
           <Icon name="inbox-unarchive" className="mr-1 h-4 w-4" />
-          {'Restore'}
+          {'Unarchive'}
         </Item>
       ) : null}
       <Item

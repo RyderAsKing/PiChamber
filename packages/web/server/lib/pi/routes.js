@@ -940,6 +940,11 @@ export const projectEventFrame = (frame) => {
       const level = ['info', 'warning', 'error'].includes(frame.payload.level) ? frame.payload.level : 'info';
       return { ...common, payload: { message: frame.payload.message.slice(0, 2000), level } };
     }
+    case 'session.archive': {
+      // An archive mark changed on the server; devices re-list the folder.
+      if (typeof frame.payload.archived !== 'boolean') return null;
+      return { ...common, payload: { archived: frame.payload.archived } };
+    }
     case 'session.openUrl': {
       // An Open request (lib/open-url). `serverNow` is stamped at delivery so
       // a device can tell a live request from a replayed one using only the
@@ -1121,7 +1126,7 @@ export const registerPiRuntimeRoutes = (app, {
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
   sessionFoldersStore = createPiSessionFoldersStore(),
-  sessionShelfStore = createPiSessionShelfStore(),
+  sessionShelfStore = createPiSessionShelfStore({ archiveStore }),
   uiSettingsStore = createPiUiSettingsStore(),
   snippetsStore = createPiSnippetsStore(),
   listCustomThemes = listPiCustomThemes,
@@ -1135,13 +1140,40 @@ export const registerPiRuntimeRoutes = (app, {
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
-  // A message or command the user sends ends a snooze and drops a settled
-  // override. The send already succeeded, so a shelf write failure only logs.
-  const clearShelfForActivity = async (sessionId) => {
+  // Tell every device an archive mark changed (a `session.archive` event on
+  // the session's stream) so other clients re-list that folder. The change is
+  // already saved, so this never delays or fails the request: an older
+  // daemon without `archive.publish` only logs, and devices catch up on
+  // their next list.
+  const publishArchiveChange = (sessionId, archived, directory) => {
+    void (async () => {
+      try {
+        await getDaemonRuntime(getPiSessionDaemonRuntime).request('archive.publish', {
+          sessionId,
+          archived,
+          ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
+        });
+      } catch (error) {
+        console.warn('[pi] could not tell other devices about an archive change', error?.code ?? error);
+      }
+    })();
+  };
+  // A message or command the user sends ends a snooze and unarchives the
+  // session. The send already succeeded, so a failed write only logs.
+  const bringBackForActivity = async (sessionId) => {
     try {
       await sessionShelfStore.clearForActivity(sessionId);
     } catch (error) {
       console.warn('[pi] could not clear the session shelf after a send', error?.code ?? error);
+    }
+    try {
+      const archived = await archiveStore.read();
+      if (Object.hasOwn(archived, sessionId)) {
+        await archiveStore.set(sessionId, false);
+        publishArchiveChange(sessionId, false);
+      }
+    } catch (error) {
+      console.warn('[pi] could not unarchive a session after a send', error?.code ?? error);
     }
   };
   app.get('/api/pi/ui-settings', async (_req, res) => {
@@ -2039,14 +2071,15 @@ export const registerPiRuntimeRoutes = (app, {
     const { sessionId } = req.params;
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const directory = typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined;
-    const patch = {
-      ...(Object.hasOwn(body, 'settled') ? { settled: body.settled } : {}),
-      ...(Object.hasOwn(body, 'snoozedUntil') ? { snoozedUntil: body.snoozedUntil } : {}),
-    };
-    const settledValid = !Object.hasOwn(patch, 'settled') || patch.settled === null || patch.settled === 'settled' || patch.settled === 'active';
-    const snoozeValid = !Object.hasOwn(patch, 'snoozedUntil') || patch.snoozedUntil === null
-      || (Number.isSafeInteger(patch.snoozedUntil) && patch.snoozedUntil > 0);
-    if (!sessionId || Object.keys(patch).length === 0 || !settledValid || !snoozeValid) {
+    // Older clients (the Settle release candidate) may still send `settled`:
+    // 'settled' archives the session; 'active' and null do nothing. Remove
+    // this mapping one release after Archive replaced Settle.
+    const hasSettled = Object.hasOwn(body, 'settled');
+    const hasSnooze = Object.hasOwn(body, 'snoozedUntil');
+    const settledValid = !hasSettled || body.settled === null || body.settled === 'settled' || body.settled === 'active';
+    const snoozeValid = !hasSnooze || body.snoozedUntil === null
+      || (Number.isSafeInteger(body.snoozedUntil) && body.snoozedUntil > 0);
+    if (!sessionId || (!hasSettled && !hasSnooze) || !settledValid || !snoozeValid) {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
@@ -2058,12 +2091,20 @@ export const registerPiRuntimeRoutes = (app, {
         directory ? { directory } : undefined,
       );
       const items = projectSessionList(result?.sessions);
-      if (!items.some((item) => item.session.id === sessionId)) {
+      const item = items.find((candidate) => candidate.session.id === sessionId);
+      if (!item) {
         const error = new Error('The Pi session does not exist.');
         error.code = 'INVALID_SESSION';
         throw error;
       }
-      res.json({ entry: await sessionShelfStore.update(sessionId, patch) });
+      if (hasSettled && body.settled === 'settled') {
+        await archiveStore.set(sessionId, true);
+        publishArchiveChange(sessionId, true, item.session.directory || directory);
+      }
+      const entry = hasSnooze
+        ? await sessionShelfStore.update(sessionId, { snoozedUntil: body.snoozedUntil })
+        : (await sessionShelfStore.read())[sessionId] ?? null;
+      res.json({ entry });
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2085,12 +2126,14 @@ export const registerPiRuntimeRoutes = (app, {
         directory ? { directory } : undefined,
       );
       const items = projectSessionList(result?.sessions);
-      if (!items.some((item) => item.session.id === sessionId)) {
+      const item = items.find((candidate) => candidate.session.id === sessionId);
+      if (!item) {
         const error = new Error('The Pi session does not exist.');
         error.code = 'INVALID_SESSION';
         throw error;
       }
       await archiveStore.set(sessionId, archived);
+      publishArchiveChange(sessionId, archived, item.session.directory || directory);
       res.status(204).end();
     } catch (error) {
       writeDaemonError(res, error);
@@ -2280,7 +2323,7 @@ export const registerPiRuntimeRoutes = (app, {
           return;
         }
         await attachmentStore.consume?.(attachmentIds);
-        await clearShelfForActivity(req.params.sessionId);
+        await bringBackForActivity(req.params.sessionId);
         res.status(202).json({
           accepted: true,
           messageId: result.messageId,
@@ -2355,7 +2398,7 @@ export const registerPiRuntimeRoutes = (app, {
       writeDaemonError(res, protocolMismatch());
       return;
     }
-    await clearShelfForActivity(req.params.sessionId);
+    await bringBackForActivity(req.params.sessionId);
     res.status(202).json({ accepted: true, id: result.id });
   });
 

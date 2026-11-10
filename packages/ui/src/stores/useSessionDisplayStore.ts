@@ -6,14 +6,8 @@ type SessionDisplayStore = {
   stickyZoneHeaders: boolean;
   toggleStickyZoneHeaders: () => void;
   showRecentSection: boolean;
-  // VS Code only: the compact webview keeps archived buckets inline because it
-  // has no room for the full Archive dialog. Web/desktop ignore this flag and
-  // always route archived sessions to the Archive dialog instead.
-  showArchivedSessions: boolean;
   setShowRecentSection: (show: boolean) => void;
-  setShowArchivedSessions: (show: boolean) => void;
   toggleRecentSection: () => void;
-  toggleArchivedSessions: () => void;
 };
 
 export const migrateSessionDisplayState = (
@@ -24,8 +18,11 @@ export const migrateSessionDisplayState = (
     displayMode?: string;
     sessionGroupingMode?: string;
     projectSortOrder?: string;
+    showArchivedSessions?: boolean;
   };
   delete state.projectSortOrder;
+  // Archived sessions no longer have a sidebar bucket to show or hide.
+  delete state.showArchivedSessions;
   if (version < 4) {
     delete state.displayMode;
   }
@@ -41,15 +38,12 @@ export const useSessionDisplayStore = create<SessionDisplayStore>()(
       stickyZoneHeaders: true,
       toggleStickyZoneHeaders: () => set((state) => ({ stickyZoneHeaders: !state.stickyZoneHeaders })),
       showRecentSection: true,
-      showArchivedSessions: false,
       setShowRecentSection: (show) => set({ showRecentSection: show }),
-      setShowArchivedSessions: (show) => set({ showArchivedSessions: show }),
       toggleRecentSection: () => set((state) => ({ showRecentSection: !state.showRecentSection })),
-      toggleArchivedSessions: () => set((state) => ({ showArchivedSessions: !state.showArchivedSessions })),
     }),
     {
       name: 'pichamber:session-display-settings',
-      version: 6,
+      version: 7,
       migrate: migrateSessionDisplayState,
     },
   ),

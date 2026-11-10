@@ -45,6 +45,14 @@ describe('Pi runtime route', () => {
     expect(projectEventFrame(frame({ url: 'http://x.test', attributed: false, createdAt: 1 }))).toBeNull();
   });
 
+  it('projects archive changes and drops malformed ones', () => {
+    const frame = (payload) => ({ protocolVersion: 1, kind: 'event', event: 'session.archive', sequence: 3, payload: { sessionId: 's-1', directory: '/workspace', ...payload } });
+    expect(projectEventFrame(frame({ archived: true }))).toEqual({
+      protocolVersion: 1, kind: 'event', name: 'session.archive', sequence: 3, sessionId: 's-1', directory: '/workspace', payload: { archived: true },
+    });
+    expect(projectEventFrame(frame({ archived: 'yes' }))).toBeNull();
+  });
+
   it('projects prompt-time files on a live user message start', () => {
     expect(projectEventFrame({
       protocolVersion: 1,
@@ -1549,12 +1557,12 @@ describe('Pi runtime route', () => {
   it('serves the session shelf, checks membership on writes, and clears it when the user sends', async () => {
     const calls = [];
     const session = { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 };
-    let shelf = { 'pi-session-7': { settled: 'settled', settledAt: 3 } };
+    let shelf = { 'pi-session-7': { snoozedUntil: 9_000, snoozedAt: 3 } };
     const sessionShelfStore = {
       read: async () => shelf,
       update: async (sessionId, patch) => {
         calls.push({ command: 'shelf.update', payload: [sessionId, patch] });
-        return { settled: 'active' };
+        return { snoozedUntil: 12_000, snoozedAt: 4 };
       },
       clearForActivity: async (sessionId) => {
         calls.push({ command: 'shelf.clear', payload: sessionId });
@@ -1580,15 +1588,15 @@ describe('Pi runtime route', () => {
     const origin = `http://127.0.0.1:${server.address().port}`;
     const post = (path, body) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-    await expect((await fetch(`${origin}/api/pi/session-shelf`)).json()).resolves.toEqual({ sessions: { 'pi-session-7': { settled: 'settled', settledAt: 3 } } });
+    await expect((await fetch(`${origin}/api/pi/session-shelf`)).json()).resolves.toEqual({ sessions: { 'pi-session-7': { snoozedUntil: 9_000, snoozedAt: 3 } } });
 
-    const updated = await post('/api/pi/sessions/pi-session-7/shelf', { settled: 'active', directory: '/workspace' });
+    const updated = await post('/api/pi/sessions/pi-session-7/shelf', { snoozedUntil: 12_000, directory: '/workspace' });
     expect(updated.status).toBe(200);
-    await expect(updated.json()).resolves.toEqual({ entry: { settled: 'active' } });
+    await expect(updated.json()).resolves.toEqual({ entry: { snoozedUntil: 12_000, snoozedAt: 4 } });
     expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/workspace' } });
-    expect(calls).toContainEqual({ command: 'shelf.update', payload: ['pi-session-7', { settled: 'active' }] });
+    expect(calls).toContainEqual({ command: 'shelf.update', payload: ['pi-session-7', { snoozedUntil: 12_000 }] });
 
-    expect((await post('/api/pi/sessions/missing/shelf', { settled: 'settled' })).status).toBe(404);
+    expect((await post('/api/pi/sessions/missing/shelf', { snoozedUntil: 12_000 })).status).toBe(404);
     expect((await post('/api/pi/sessions/pi-session-7/shelf', {})).status).toBe(400);
     expect((await post('/api/pi/sessions/pi-session-7/shelf', { settled: 'done' })).status).toBe(400);
     expect((await post('/api/pi/sessions/pi-session-7/shelf', { snoozedUntil: 'tomorrow' })).status).toBe(400);
@@ -1604,6 +1612,173 @@ describe('Pi runtime route', () => {
     expect(calls).toContainEqual({ command: 'shelf.remove', payload: 'pi-session-7' });
   });
 
+  it('maps a settled shelf write from an older client to an archive, and accepts active or null as no-ops', async () => {
+    const session = { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 };
+    const archiveSets = [];
+    const shelfUpdates = [];
+    const sessionShelfStore = {
+      read: async () => ({ 'pi-session-7': { snoozedUntil: 9_000, snoozedAt: 3 } }),
+      update: async (sessionId, patch) => {
+        shelfUpdates.push([sessionId, patch]);
+        return null;
+      },
+    };
+    const published = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        if (command === 'archive.publish') published.push(payload);
+        return command === 'sessions.list' ? { sessions: [{ session, updatedAt: 2 }] } : {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => runtime,
+      archiveStore: { read: async () => ({}), set: async (...args) => archiveSets.push(args) },
+      sessionShelfStore,
+    });
+    server = await listen(app);
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const post = (body) => fetch(`${origin}/api/pi/sessions/pi-session-7/shelf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    const settled = await post({ settled: 'settled', directory: '/workspace' });
+    expect(settled.status).toBe(200);
+    await expect(settled.json()).resolves.toEqual({ entry: { snoozedUntil: 9_000, snoozedAt: 3 } });
+    expect(archiveSets).toEqual([['pi-session-7', true]]);
+    await vi.waitFor(() => expect(published).toEqual([{ sessionId: 'pi-session-7', archived: true, directory: '/workspace' }]));
+
+    for (const value of ['active', null]) {
+      const response = await post({ settled: value });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ entry: { snoozedUntil: 9_000, snoozedAt: 3 } });
+    }
+    expect(archiveSets).toHaveLength(1);
+    expect(shelfUpdates).toEqual([]);
+
+    // A snooze sent alongside a settled value still applies.
+    expect((await post({ settled: null, snoozedUntil: 12_000 })).status).toBe(200);
+    expect(shelfUpdates).toEqual([['pi-session-7', { snoozedUntil: 12_000 }]]);
+    expect((await fetch(`${origin}/api/pi/sessions/missing/shelf`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settled: 'settled' }) })).status).toBe(404);
+    expect(archiveSets).toHaveLength(1);
+    expect(published).toHaveLength(1);
+  });
+
+  it('unarchives a session when a prompt, steer, follow-up, or shell command is accepted', async () => {
+    const archive = { 'pi-session-7': 5, 'pi-session-8': 6 };
+    const archiveSets = [];
+    const archiveStore = {
+      read: async () => ({ ...archive }),
+      set: async (sessionId, archived) => {
+        archiveSets.push([sessionId, archived]);
+        if (archived) archive[sessionId] = 10;
+        else delete archive[sessionId];
+      },
+    };
+    let accept = true;
+    const published = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        if (command === 'archive.publish') {
+          published.push(payload);
+          return { published: true };
+        }
+        if (command === 'sessions.bash') return accept ? { accepted: true, id: 'bash-1' } : Promise.reject(Object.assign(new Error('nope'), { code: 'INVALID_SESSION' }));
+        if (command === 'sessions.prompt' || command === 'sessions.steer' || command === 'sessions.followUp') {
+          if (!accept) throw Object.assign(new Error('nope'), { code: 'INVALID_SESSION' });
+          return { accepted: true, messageId: 'message-1' };
+        }
+        return {};
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore, sessionShelfStore: { clearForActivity: async () => null } });
+    server = await listen(app);
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const post = (path, body) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    // A rejected send leaves the archive alone.
+    accept = false;
+    expect((await post('/api/pi/sessions/pi-session-7/prompt', { text: 'hello', streamEpoch: 'epoch-routes' })).status).not.toBe(202);
+    expect((await post('/api/pi/sessions/pi-session-7/bash', { command: 'ls' })).status).not.toBe(202);
+    expect(archiveSets).toEqual([]);
+    expect(published).toEqual([]);
+    accept = true;
+
+    expect((await post('/api/pi/sessions/pi-session-7/prompt', { text: 'hello', streamEpoch: 'epoch-routes' })).status).toBe(202);
+    expect(archive).toEqual({ 'pi-session-8': 6 });
+    // The daemon resolves the folder from the resident session.
+    await vi.waitFor(() => expect(published).toEqual([{ sessionId: 'pi-session-7', archived: false }]));
+    // Not archived: no write and nothing to publish.
+    expect((await post('/api/pi/sessions/pi-session-7/steer', { text: 'more', streamEpoch: 'epoch-routes' })).status).toBe(202);
+    expect(archiveSets).toEqual([['pi-session-7', false]]);
+    expect(published).toHaveLength(1);
+
+    for (const [path, body] of [
+      ['steer', { text: 'more', streamEpoch: 'epoch-routes' }],
+      ['follow-up', { text: 'later', streamEpoch: 'epoch-routes' }],
+      ['bash', { command: 'ls' }],
+    ]) {
+      archive['pi-session-7'] = 5;
+      expect((await post(`/api/pi/sessions/pi-session-7/${path}`, body)).status).toBe(202);
+      expect(archive).toEqual({ 'pi-session-8': 6 });
+    }
+    expect(archiveSets).toHaveLength(4);
+  });
+
+  it('keeps a send accepted when unarchiving fails', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => (command === 'sessions.bash' ? { accepted: true, id: 'bash-1' } : { accepted: true, messageId: 'message-1' }),
+    };
+    const archiveStore = {
+      read: async () => ({ 'pi-session-7': 5 }),
+      set: async () => { throw Object.assign(new Error('bad'), { code: 'EIO' }); },
+    };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore, sessionShelfStore: { clearForActivity: async () => null } });
+    server = await listen(app);
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const prompt = await fetch(`${origin}/api/pi/sessions/pi-session-7/prompt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hello', streamEpoch: 'epoch-routes' }),
+    });
+    expect(prompt.status).toBe(202);
+    const bash = await fetch(`${origin}/api/pi/sessions/pi-session-7/bash`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: 'ls' }),
+    });
+    expect(bash.status).toBe(202);
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('keeps an archive change when the daemon cannot publish it', async () => {
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command) => {
+        if (command === 'sessions.list') return { sessions: [{ session: { id: 'pi-session-7', directory: '/workspace', createdAt: 1, updatedAt: 2 }, updatedAt: 2 }] };
+        if (command === 'archive.publish') throw Object.assign(new Error('old daemon'), { code: 'UNKNOWN_COMMAND' });
+        return {};
+      },
+    };
+    const archiveSets = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}), set: async (...args) => archiveSets.push(args) } });
+    server = await listen(app);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-7/archive`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true }),
+    });
+    expect(response.status).toBe(204);
+    expect(archiveSets).toEqual([['pi-session-7', true]]);
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled());
+    warn.mockRestore();
+  });
+
   it('keeps a send accepted when clearing the shelf fails', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
@@ -1613,7 +1788,7 @@ describe('Pi runtime route', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const app = express();
     app.use(express.json());
-    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, sessionShelfStore });
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) }, sessionShelfStore });
     server = await listen(app);
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/sessions/pi-session-7/prompt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'hello', streamEpoch: 'epoch-routes' }),
@@ -1732,6 +1907,8 @@ describe('Pi runtime route', () => {
     expect((await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ archived: true, directory: '/other' }) })).status).toBe(204);
     expect(archiveSets).toEqual([['foreign-1', true]]);
     expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/other' } });
+    // Every device hears about it, on the session's own folder.
+    await vi.waitFor(() => expect(calls).toContainEqual({ command: 'archive.publish', payload: { sessionId: 'foreign-1', archived: true, directory: '/other' } }));
 
     // Wrong directory fails membership without writing the sidecar.
     calls.length = 0;
@@ -1740,6 +1917,7 @@ describe('Pi runtime route', () => {
     expect(wrong.status).not.toBe(204);
     expect(archiveSets).toEqual([]);
     expect(calls).toContainEqual({ command: 'sessions.list', payload: { directory: '/focused' } });
+    expect(calls.some((call) => call.command === 'archive.publish')).toBe(false);
   });
 
   it('projects daemon file parts for image and attachment history instead of failing the session open', async () => {

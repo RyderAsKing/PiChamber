@@ -140,22 +140,6 @@ export const GitHubLoadMore: React.FC<{
 };
 
 /**
- * Footer: muted counts summary from loaded data only.
- */
-export const GitHubListFooter: React.FC<{
-  summary: string;
-  summaryTitle?: string;
-}> = ({ summary, summaryTitle }) => {
-  return (
-    <footer className="flex shrink-0 items-center justify-between border-t border-border/60 px-2 py-1.5 typography-micro text-muted-foreground">
-      <span className="min-w-0 truncate" title={summaryTitle ?? summary}>
-        {summary}
-      </span>
-    </footer>
-  );
-};
-
-/**
  * Honesty footer for incomplete collections with an active filter.
  */
 export const GitHubIncompleteNotice: React.FC<{

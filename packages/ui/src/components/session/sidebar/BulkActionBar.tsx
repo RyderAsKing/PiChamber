@@ -46,12 +46,12 @@ export const BulkActionBar: React.FC<Props> = ({
                 type="button"
                 onClick={onRestore}
                 className={iconButtonClass}
-                aria-label={"Restore"}
+                aria-label={"Unarchive"}
               >
                 <Icon name="inbox-unarchive" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" sideOffset={4}><p>{"Restore"}</p></TooltipContent>
+            <TooltipContent side="top" sideOffset={4}><p>{"Unarchive"}</p></TooltipContent>
           </Tooltip>
         ) : null}
 
@@ -60,10 +60,10 @@ export const BulkActionBar: React.FC<Props> = ({
             <button
               type="button"
               onClick={onDelete}
-              className={cn(destructiveIconButtonClass)}
+              className={cn(archivedBucket ? destructiveIconButtonClass : iconButtonClass)}
               aria-label={destructiveLabel}
             >
-              <Icon name="delete-bin" className="h-4 w-4" />
+              <Icon name={archivedBucket ? 'delete-bin' : 'inbox-archive'} className="h-4 w-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" sideOffset={4}><p>{destructiveLabel}</p></TooltipContent>

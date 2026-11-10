@@ -36,8 +36,6 @@ type Props = {
   searchEmptyState: React.ReactNode;
   isAllFoldersView?: boolean;
   pinnedSessionIds?: Set<string>;
-  /** Days before an idle session settles in the Threads and By folder views; null (the default) is off. */
-  autoSettleAfterDays?: number | null;
   viewMode?: SidebarViewMode;
   timelineBoundaries?: TimelineBoundaries | null;
   onOpenDirectoryDialog?: () => void;
@@ -58,7 +56,6 @@ type Props = {
     hideGroupLabel?: boolean,
     dragHandleProps?: SortableDragHandleProps | null,
     compactBodyPadding?: boolean,
-    scrollContainerRef?: React.RefObject<HTMLElement | null>,
   ) => React.ReactNode;
   getOrderedGroups: (projectId: string, groups: SessionGroup[]) => SessionGroup[];
   setGroupOrderByProject: React.Dispatch<React.SetStateAction<Map<string, string[]>>>;
@@ -112,11 +109,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     return ordered;
   };
 
-  // Threaded into SessionGroupSection so the archived-bucket virtualizer
-  // can resolve the scrolling ancestor synchronously (no getComputedStyle
-  // walk) and skip the cost of a style recalc on every render.
-  const scrollContainerRef = React.useRef<HTMLElement | null>(null);
-
   const isThreads = viewMode === 'threads';
   const isFolder = viewMode === 'folder';
   const shouldComputeAllFolderSessions = Boolean(props.isAllFoldersView || isTimeline || isThreads || isFolder);
@@ -131,7 +123,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     for (const section of sections) {
       const projectLabel = getProjectLabel(section.project, props.homeDirectory);
       for (const group of section.groups) {
-        if (group.isArchivedBucket) continue;
         for (const node of group.sessions) {
           // Pins are keyed by runtime, directory, and session id.
           const isPinned = props.pinnedSessionIds
@@ -167,12 +158,11 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     props.pinnedSessionIds,
   ]);
 
-  // Threads always shelves; By folder shelves except while searching, where
-  // matches stay in their folders.
+  // Threads and By folder both shelve. While searching, By folder keeps every
+  // match in its folder and uses shelves only for the rows' menus.
   const shelves = useSessionShelves(allFolderSessions, {
-    enabled: isThreads || (isFolder && !props.hasSessionSearchQuery),
+    enabled: isThreads || isFolder,
     workingShelf: isThreads,
-    autoSettleAfterDays: props.autoSettleAfterDays ?? null,
   });
 
   const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
@@ -258,7 +248,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     // rows appear below naturally.
     <div className="relative flex min-h-0 flex-1">
     <ScrollableOverlay
-      ref={scrollContainerRef}
       useScrollShadow
       hideTopScrollShadow
       scrollShadowSize={props.mobileVariant ? 12 : 20}
@@ -266,8 +255,8 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       className="oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]"
     >
       {/* Threads and By folder (with shelves) fill the scroller so their
-          Snoozed and Settled sections sit at the bottom. */}
-      <div className={cn((isThreads || (isFolder && shelves)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
+          Snoozed section sits at the bottom. */}
+      <div className={cn((isThreads || (isFolder && shelves && !props.hasSessionSearchQuery)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">
@@ -294,21 +283,12 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                 </SidebarSessionLikeButton>
               );
             }
-            const archivedGroup = activeSection.groups.find((candidate) => candidate.isArchivedBucket);
-            const groupsToRender = [
-              primaryGroup,
-              ...(archivedGroup && archivedGroup.id !== primaryGroup.id ? [archivedGroup] : []),
-            ];
-
-            return groupsToRender.map((group) => {
-              const groupKey = `${activeSection.project.id}:${group.id}`;
-              const hideGroupLabel = group.id === primaryGroup.id;
-              return (
-                <React.Fragment key={groupKey}>
-                  {props.renderGroupSessions(group, groupKey, activeSection.project.id, hideGroupLabel, null, true, scrollContainerRef)}
-                </React.Fragment>
-              );
-            });
+            const groupKey = `${activeSection.project.id}:${primaryGroup.id}`;
+            return (
+              <React.Fragment key={groupKey}>
+                {props.renderGroupSessions(primaryGroup, groupKey, activeSection.project.id, true, null, true)}
+              </React.Fragment>
+            );
           })()}
         </div>
       ) : isThreads && shelves && props.renderSessionNode ? (
@@ -341,7 +321,6 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           renderSessionNode={props.renderSessionNode}
           getOrderedGroups={cachedGetOrderedGroups}
           renderProjectStatusIndicator={props.renderProjectStatusIndicator}
-          scrollContainerRef={scrollContainerRef}
           setActiveProjectIdOnly={props.setActiveProjectIdOnly}
           setActiveMainTab={props.setActiveMainTab}
           setSessionSwitcherOpen={props.setSessionSwitcherOpen}
@@ -432,13 +411,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
             return (
               <div key={projectKey}>
-                {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null, undefined, scrollContainerRef) : null}
+                {rootGroup ? props.renderGroupSessions(rootGroup, `${projectKey}:${rootGroup.id}`, projectKey, true, null) : null}
                 {nestedGroups.map((group) => {
                   const groupKey = `${projectKey}:${group.id}`;
                   const hideGroupLabel = orderedGroups.length === 1;
                   return (
                     <React.Fragment key={group.id}>
-                      {props.renderGroupSessions(group, groupKey, projectKey, hideGroupLabel, null, undefined, scrollContainerRef)}
+                      {props.renderGroupSessions(group, groupKey, projectKey, hideGroupLabel, null)}
                     </React.Fragment>
                   );
                 })}

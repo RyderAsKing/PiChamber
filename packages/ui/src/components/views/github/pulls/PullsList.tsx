@@ -34,8 +34,6 @@ export const PullsList: React.FC<{
   error: { kind: string; message?: string } | null;
   filters: PullsFilters;
   checksByUrl: Record<string, string | null>;
-  /** False while the viewed collections still page: counts show a `+` suffix. */
-  countComplete?: boolean;
   /** Honesty notice for incomplete collections with an active filter. */
   incompleteNotice?: { summary: string; searching: boolean; onSearchAll: () => void } | null;
   /** Server search results below the local rows (deduped by the surface). */
@@ -65,7 +63,6 @@ export const PullsList: React.FC<{
   error,
   filters,
   checksByUrl,
-  countComplete = true,
   incompleteNotice = null,
   remote = null,
   numberJump = null,
@@ -138,16 +135,11 @@ export const PullsList: React.FC<{
       headerActionsSlot={headerActionsSlot}
       headerActionsPresentation={headerActionsPresentation}
       isDefaultFilters={isDefaultFilters}
-      stateLabel={PULL_STATE_TABS.find((tab) => tab.id === filters.state)?.label ?? filters.state}
-      kindSingular="pull request"
-      kindPlural="pull requests"
       noItemsTitle={filters.state === 'open' ? 'No open pull requests' : 'No pull requests yet'}
       noItemsBody="Pull requests for this repository appear here."
       noItemsIcon="git-pull-request"
       listAriaLabel="Pull requests"
       skeletonLabel="Loading pull requests"
-      updatedAtOf={(pr) => pr.updatedAt}
-      countComplete={countComplete}
       incompleteNotice={incompleteNotice}
       remote={remote}
       numberJump={numberJump}

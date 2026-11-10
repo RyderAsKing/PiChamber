@@ -163,17 +163,24 @@ export const nodeHasPinnedMembershipChange = (
  * Resolve the session id whose sidebar menu is open, or null if no
  * menu is open. Only one row can have its menu open at a time.
  */
+/**
+ * Menu and expansion key for a session row. Archived rows carry their own tag,
+ * read from the session, so the key holds wherever the row shows.
+ */
+export const sessionRowKey = (
+  renderContext: 'project' | 'recent',
+  session: { id: string; time?: { archived?: number | null } | null },
+): string => `${renderContext}:${session.time?.archived ? 'archived' : 'active'}:${session.id}`;
+
 export const resolveMenuOpenSessionId = (
   nodes: SessionNode[],
   menuKey: string | null,
   renderContext: 'project' | 'recent',
-  archivedBucket: boolean,
 ): string | null => {
   if (!menuKey) return null;
-  const bucketTag = archivedBucket ? 'archived' : 'active';
   let result: string | null = null;
   const visit = (node: SessionNode): boolean => {
-    const nodeMenuKey = `${renderContext}:${bucketTag}:${node.session.id}`;
+    const nodeMenuKey = sessionRowKey(renderContext, node.session);
     if (nodeMenuKey === menuKey) {
       result = node.session.id;
       return true;

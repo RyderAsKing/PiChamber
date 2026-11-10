@@ -63,10 +63,10 @@ const statusDotClass = (status: ServerStatus, pulse: boolean): string => {
   );
 };
 
-const statusTextClass = (status: ServerStatus): string => {
+const statusTextClass = (status: ServerStatus, touch: boolean): string => {
   const tone = SERVER_STATUS_META[status].tone;
   return cn(
-    'typography-micro truncate',
+    touch ? 'typography-meta block truncate' : 'typography-micro truncate',
     tone === 'success' && 'text-[var(--status-success)]',
     tone === 'warning' && 'text-[var(--status-warning)]',
     tone === 'error' && 'text-[var(--status-error)]',
@@ -166,10 +166,15 @@ export const ServerRow: React.FC<ServerRowProps> = ({
     busy || (guardDefaultByStatus && !item.isDefault && blocked);
   const switchDisabled = busy || item.isCurrent;
 
+  // Touch rows read at phone size: the status and address lines step up from
+  // micro to meta, and the dot sits on the name line instead of mid-row.
   const mainBody = (
     <>
-      <span className={statusDotClass(item.status, refreshing || item.status === 'checking')} aria-hidden="true" />
-      <span className="flex-1 min-w-0 space-y-0.5">
+      <span
+        className={cn(statusDotClass(item.status, refreshing || item.status === 'checking'), touch && 'mt-1.5')}
+        aria-hidden="true"
+      />
+      <span className={cn('flex-1 min-w-0', touch ? 'space-y-1' : 'space-y-0.5')}>
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0">
           <span className="typography-ui-label font-medium truncate text-foreground min-w-0">{item.label}</span>
           <ServerRouteText item={item} onSelectRoute={onSelectRoute} />
@@ -179,7 +184,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
             </span>
           )}
         </span>
-        <span className={statusTextClass(item.status)} title={meta.description}>
+        <span className={statusTextClass(item.status, touch)} title={meta.description}>
           {meta.label}
           {typeof item.latencyMs === 'number' && (item.status === 'connected' || item.status === 'reachable')
             ? ` · ${item.latencyMs}ms`
@@ -187,7 +192,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
           {refreshing && item.status !== 'checking' ? ' · checking' : ''}
         </span>
         {address ? (
-          <span className="typography-micro block truncate font-mono text-subtle-foreground">{address}</span>
+          <span className={cn('block truncate font-mono text-subtle-foreground', touch ? 'typography-meta' : 'typography-micro')}>{address}</span>
         ) : null}
       </span>
     </>
@@ -197,7 +202,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
     <div
       className={cn(
         'group flex gap-2 overflow-hidden rounded-md px-2.5 py-2',
-        touch ? 'flex-col rounded-xl bg-[var(--surface-muted)] px-3 py-2.5' : 'items-center',
+        touch ? 'flex-col rounded-xl bg-[var(--surface-elevated)] px-3.5 py-3' : 'items-center',
         touch && item.isCurrent && 'bg-[var(--interactive-selection)]/25',
       )}
     >
@@ -205,7 +210,7 @@ export const ServerRow: React.FC<ServerRowProps> = ({
         {showSwitch && !item.isCurrent ? (
           // The switch button is a full-size overlay so the route picker in
           // mainBody stays a sibling (no nested buttons) and sits above it.
-          <div className={cn('relative flex items-center gap-2 flex-1 min-w-0', switchDisabled && 'opacity-70')}>
+          <div className={cn('relative flex gap-2 flex-1 min-w-0', touch ? 'items-start' : 'items-center', switchDisabled && 'opacity-70')}>
             <button
               type="button"
               className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
@@ -214,12 +219,12 @@ export const ServerRow: React.FC<ServerRowProps> = ({
               aria-label={`${switchLabel} to ${item.label}`}
             />
             {pending ? <Icon name="loader-4" className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
-            <span className="pointer-events-none flex items-center gap-2 flex-1 min-w-0 [&_[data-route-picker]]:pointer-events-auto [&_[data-route-picker]]:relative">
+            <span className={cn('pointer-events-none flex gap-2 flex-1 min-w-0 [&_[data-route-picker]]:pointer-events-auto [&_[data-route-picker]]:relative', touch ? 'items-start' : 'items-center')}>
               {mainBody}
             </span>
           </div>
         ) : (
-          <div className="flex items-center gap-2 flex-1 min-w-0" aria-label={item.isCurrent ? `Current server ${item.label}` : undefined}>
+          <div className={cn('flex gap-2 flex-1 min-w-0', touch ? 'items-start' : 'items-center')} aria-label={item.isCurrent ? `Current server ${item.label}` : undefined}>
             {mainBody}
           </div>
         )}

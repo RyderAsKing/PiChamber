@@ -4,19 +4,18 @@ import type { SessionGroup, SessionNode } from '../types';
 import type { ProjectSection } from './useSessionSidebarSections';
 import {
   deriveActiveDirectoriesByProject,
-  deriveSectionsForSidebarRender,
   deriveSessionCountByProject,
   deriveTotalSessionCount,
   hasActiveSessionInProject,
   hasUnseenInProject,
 } from './useSidebarProjectMetadata';
 
-const createMockNode = (id: string, directory = '/workspace'): SessionNode => ({
+const createMockNode = (id: string, directory = '/workspace', archived = false): SessionNode => ({
   session: {
     id,
     directory,
     title: `Session ${id}`,
-    time: { created: Date.now(), updated: Date.now() },
+    time: { created: Date.now(), updated: Date.now(), ...(archived ? { archived: Date.now() } : {}) },
   } satisfies Session,
   children: [],
 });
@@ -24,7 +23,8 @@ const createMockNode = (id: string, directory = '/workspace'): SessionNode => ({
 describe('useSidebarProjectMetadata pure functions', () => {
   const node1 = createMockNode('s1');
   const node2 = createMockNode('s2');
-  const node3 = createMockNode('s3');
+  // Archived sessions sit in place (a search or Timeline brings them in).
+  const node3 = createMockNode('s3', '/workspace', true);
 
   const regularGroup: SessionGroup = {
     id: 'grp1',
@@ -33,19 +33,7 @@ describe('useSidebarProjectMetadata pure functions', () => {
     description: null,
     isMain: true,
     directory: '/workspace',
-    sessions: [node1, node2],
-    isArchivedBucket: false,
-  };
-
-  const archivedGroup: SessionGroup = {
-    id: 'archived',
-    label: 'Archived',
-    branch: null,
-    description: null,
-    isMain: false,
-    directory: '/workspace',
-    sessions: [node3],
-    isArchivedBucket: true,
+    sessions: [node1, node3, node2],
   };
 
   const section: ProjectSection = {
@@ -55,10 +43,10 @@ describe('useSidebarProjectMetadata pure functions', () => {
       normalizedPath: '/workspace',
       label: 'Main Project',
     },
-    groups: [regularGroup, archivedGroup],
+    groups: [regularGroup],
   };
 
-  test('deriveTotalSessionCount ignores archived buckets', () => {
+  test('deriveTotalSessionCount ignores archived sessions', () => {
     expect(deriveTotalSessionCount([section])).toBe(2);
   });
 
@@ -67,15 +55,9 @@ describe('useSidebarProjectMetadata pure functions', () => {
     expect(counts.get('proj1')).toBe(2);
   });
 
-  test('deriveSectionsForSidebarRender removes archived groups', () => {
-    const rendered = deriveSectionsForSidebarRender([section]);
-    expect(rendered[0].groups.length).toBe(1);
-    expect(rendered[0].groups[0].id).toBe('grp1');
-  });
-
   test('hasActiveSessionInProject checks active session membership', () => {
     expect(hasActiveSessionInProject(section, new Set(['s1']))).toBe(true);
-    expect(hasActiveSessionInProject(section, new Set(['s3']))).toBe(false); // in archived
+    expect(hasActiveSessionInProject(section, new Set(['s3']))).toBe(false); // archived
     expect(hasActiveSessionInProject(section, new Set(['other']))).toBe(false);
   });
 

@@ -49,13 +49,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'threads', 'layout', 'group'],
   },
   {
-    id: 'appearance.auto-settle',
-    page: 'appearance',
-    title: "Settle idle sessions",
-    description: "Threads and By folder views: move sessions with no recent activity to the Settled shelf.",
-    keywords: ['settled', 'settle', 'idle', 'inactive', 'days', 'threads', 'shelf', 'archive'],
-  },
-  {
     id: 'appearance.light-theme',
     page: 'appearance',
     title: "Light theme",
@@ -310,23 +303,24 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['walkthrough', 'diff', 'review', 'changes', 'structured output', 'model', 'override', 'picker'],
   },
   {
+    id: 'sessions.auto-archive',
+    page: 'sessions',
+    title: "Archive idle sessions after",
+    description: "Archives sessions after this many days without activity. Sending a message brings one back.",
+    keywords: ['archive', 'auto-archive', 'idle', 'settle', 'retention', 'cleanup', 'inactive', 'days'],
+  },
+  {
+    id: 'sessions.auto-delete',
+    page: 'sessions',
+    title: "Delete archived sessions",
+    description: "Deletes archived sessions this many days after they were archived.",
+    keywords: ['delete', 'auto-delete', 'retention', 'cleanup', 'expire', 'days'],
+  },
+  {
     id: 'sessions.auto-cleanup',
     page: 'sessions',
-    title: "Enable auto-cleanup",
-    description: "Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions.",
-    keywords: ['retention', 'archive', 'delete'],
-  },
-  {
-    id: 'sessions.retention-period',
-    page: 'sessions',
-    title: "Retention period",
-    keywords: ['days', 'cleanup', 'retention'],
-  },
-  {
-    id: 'sessions.retention-action',
-    page: 'sessions',
-    title: "When sessions expire",
-    keywords: ['archive', 'delete', 'expire'],
+    title: "Archive and delete now",
+    keywords: ['cleanup', 'retention', 'archive', 'delete', 'run'],
   },
   {
     id: 'sessions.desktop-launch-at-login',
@@ -507,9 +501,9 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'servers.direct-hosts',
     page: 'servers',
-    title: "Other PiChamber servers",
+    title: "Saved servers",
     description: "Servers this app can switch to. Import a pairing link from the other server, or add one by address.",
-    keywords: ['server', 'servers', 'instance', 'server url', 'connection token', 'import link', 'host switcher', 'switch', 'connect', 'additional headers', 'request headers', 'cloudflare access', 'service token'],
+    keywords: ['server', 'servers', 'saved servers', 'other servers', 'instance', 'server url', 'connection token', 'import link', 'host switcher', 'switch', 'connect', 'additional headers', 'request headers', 'cloudflare access', 'service token'],
     isAvailable: (ctx) => ctx.isDesktop || (ctx.isMobile && ctx.isCapacitor === true),
   },
   {

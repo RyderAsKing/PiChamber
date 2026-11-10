@@ -4,7 +4,6 @@ import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
 import {
   dedupeSessionsById,
-  getArchivedScopeKey,
   normalizePath,
 } from '../utils';
 import { createSessionLifecycleComparator } from '@/sync/session-ordering';
@@ -100,15 +99,14 @@ export const useSessionGrouping = (args: Args) => {
 
       const activeNodes: SessionNode[] = [];
       const activeNodesByWorktree = new Map<string, SessionNode[]>();
-      const archivedNodes: SessionNode[] = [];
       for (const entry of normalizedWorktrees) activeNodesByWorktree.set(entry.directory, []);
 
       sortedProjectSessions.forEach((session) => {
         const worktree = worktreeForSession(session);
         const node = toFlatNode(session, worktree);
-        if (session.time?.archived) {
-          archivedNodes.push(node);
-        } else if (worktree) {
+        // Archived sessions only arrive here during a search or in Timeline,
+        // and they stay in place beside the open ones.
+        if (worktree) {
           activeNodesByWorktree.get(normalizePath(worktree.path) ?? '')?.push(node);
         } else {
           activeNodes.push(node);
@@ -123,7 +121,6 @@ export const useSessionGrouping = (args: Args) => {
         branch: projectRootBranch ?? null,
         description: normalizedProjectRoot ? formatPathForDisplay(normalizedProjectRoot, args.homeDirectory) : null,
         isMain: true,
-        isArchivedBucket: false,
         worktree: null,
         directory: normalizedProjectRoot,
         folderScopeKey: normalizedProjectRoot,
@@ -137,26 +134,10 @@ export const useSessionGrouping = (args: Args) => {
           branch: worktree.branch,
           description: formatPathForDisplay(directory, args.homeDirectory),
           isMain: false,
-          isArchivedBucket: false,
-          worktree,
+            worktree,
           directory,
           folderScopeKey: directory,
           sessions: activeNodesByWorktree.get(directory) ?? [],
-        });
-      }
-
-      if (archivedNodes.length > 0) {
-        groups.push({
-          id: 'archived',
-          label: "archived",
-          branch: null,
-          description: "Archived and unassigned sessions",
-          isMain: false,
-          isArchivedBucket: true,
-          worktree: null,
-          directory: null,
-          folderScopeKey: normalizedProjectRoot ? getArchivedScopeKey(normalizedProjectRoot) : null,
-          sessions: archivedNodes,
         });
       }
 

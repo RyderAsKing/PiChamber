@@ -1,5 +1,4 @@
 import React from 'react';
-import type { Session } from '@/lib/chat/types';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
 import { selectFolderRootNodes } from './sessionNodeItemUtils';
 import {
@@ -19,7 +18,6 @@ export function useSessionGroupFolders({
   activeActivitySessionIds,
   unreadActivitySessionIds,
   inputActivitySessionIds,
-  collectGroupSessions,
 }: {
   group: SessionGroup;
   sourceGroupNodes: SessionNode[];
@@ -29,7 +27,6 @@ export function useSessionGroupFolders({
   activeActivitySessionIds: Set<string>;
   unreadActivitySessionIds: Set<string>;
   inputActivitySessionIds: ReadonlySet<string>;
-  collectGroupSessions: (nodes: SessionNode[]) => Session[];
 }) {
   const foldersMap = useSessionFoldersStore((state) => state.foldersMap);
 
@@ -96,12 +93,6 @@ export function useSessionGroupFolders({
 
       const childFolderIds = childFolderIdsByParentId.get(folderId) ?? [];
 
-      if (group.isArchivedBucket && entry.nodes.length === 0) {
-        const hasContentInChildren = childFolderIds.some((childId) => shouldKeepFolder(childId));
-        keepByFolderId.set(folderId, hasContentInChildren);
-        return hasContentInChildren;
-      }
-
       if (!hasSessionSearchQuery) {
         keepByFolderId.set(folderId, true);
         return true;
@@ -119,7 +110,7 @@ export function useSessionGroupFolders({
     };
 
     return allFoldersForGroupBase.filter(({ folder }) => shouldKeepFolder(folder.id));
-  }, [allFoldersForGroupBase, group.isArchivedBucket, hasSessionSearchQuery, normalizedSessionSearchQuery]);
+  }, [allFoldersForGroupBase, hasSessionSearchQuery, normalizedSessionSearchQuery]);
 
   const sessionIdsInFolders = React.useMemo(
     () => new Set(allFoldersForGroup.flatMap((f) => f.folder.sessionIds)),
@@ -172,33 +163,6 @@ export function useSessionGroupFolders({
     return result;
   }, [activeActivitySessionIds, allFoldersForGroup, childFoldersByParentId, inputActivitySessionIds, unreadActivitySessionIds]);
 
-  const folderSessionsForDeleteById = React.useMemo(() => {
-    if (!group.isArchivedBucket) return new Map<string, Session[]>();
-    const result = new Map<string, Session[]>();
-    const childIdsByParentId = new Map<string, string[]>();
-    for (const { folder } of allFoldersForGroup) {
-      if (!folder.parentId) continue;
-      const existing = childIdsByParentId.get(folder.parentId) ?? [];
-      existing.push(folder.id);
-      childIdsByParentId.set(folder.parentId, existing);
-    }
-    const visit = (targetFolderId: string, seen: Set<string>): Session[] => {
-      if (seen.has(targetFolderId)) return [];
-      seen.add(targetFolderId);
-      const directEntry = allFoldersForGroup.find(({ folder: candidate }) => candidate.id === targetFolderId);
-      const collected: Session[] = directEntry ? collectGroupSessions(directEntry.nodes) : [];
-      const childIds = childIdsByParentId.get(targetFolderId) ?? [];
-      for (const childId of childIds) {
-        collected.push(...visit(childId, seen));
-      }
-      return collected;
-    };
-    for (const { folder } of allFoldersForGroup) {
-      result.set(folder.id, visit(folder.id, new Set()));
-    }
-    return result;
-  }, [allFoldersForGroup, collectGroupSessions, group.isArchivedBucket]);
-
   return {
     folderScopeKey,
     folderScopes,
@@ -206,6 +170,5 @@ export function useSessionGroupFolders({
     rootFolders,
     ungroupedSessions,
     folderActivityStateById,
-    folderSessionsForDeleteById,
   };
 }

@@ -547,13 +547,10 @@ export interface PiArchiveInput {
 
 /**
  * PiChamber-only sidebar shelf state for one session (`GET /api/pi/session-shelf`).
- * `settled: 'settled'` moves the session to Settled; `settled: 'active'` keeps it
- * out of Settled even when it would auto-settle. `snoozedUntil` hides it until
- * that time (ms epoch). A send to the session clears the entry on the server.
+ * `snoozedUntil` hides it until that time (ms epoch). A send to the session
+ * clears the entry on the server.
  */
 export interface PiSessionShelfEntry {
-  settled?: 'settled' | 'active';
-  settledAt?: number;
   snoozedUntil?: number;
   snoozedAt?: number;
 }
@@ -565,7 +562,6 @@ export interface PiSessionShelfResponse {
 /** Omitted fields are left alone; `null` clears them. */
 export interface PiSessionShelfInput {
   sessionId: PiSessionId;
-  settled?: 'settled' | 'active' | null;
   snoozedUntil?: number | null;
 }
 
@@ -575,8 +571,6 @@ const isPositiveTimestamp = (value: unknown): value is number =>
 export const isValidSessionShelfEntry = (value: unknown): value is PiSessionShelfEntry => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
-  if (entry.settled !== undefined && entry.settled !== 'settled' && entry.settled !== 'active') return false;
-  if (entry.settled === 'settled' && !isPositiveTimestamp(entry.settledAt)) return false;
   if (entry.snoozedUntil !== undefined && (!isPositiveTimestamp(entry.snoozedUntil) || !isPositiveTimestamp(entry.snoozedAt))) return false;
   return true;
 };
@@ -875,6 +869,7 @@ export type PiEventName =
   | 'session.error'
   | 'session.interrupted'
   | 'session.openUrl'
+  | 'session.archive'
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
@@ -1145,6 +1140,18 @@ export type PiSessionOpenUrlEvent = PiEventEnvelope<
     /** Server wall clock when this event was delivered; with `createdAt`
      *  it tells a live request from a replayed one without device clocks. */
     serverNow: number;
+  }
+>;
+
+/**
+ * A session's archive mark changed on the server (archive, unarchive, or
+ * unarchive on send, from any device). Not transcript state: a device whose
+ * catalog row disagrees re-lists the session's folder.
+ */
+export type PiSessionArchiveEvent = PiEventEnvelope<
+  'session.archive',
+  {
+    archived: boolean;
   }
 >;
 
@@ -1474,6 +1481,7 @@ export type PiSessionEvent =
   | PiSessionErrorEvent
   | PiSessionInterruptedEvent
   | PiSessionOpenUrlEvent
+  | PiSessionArchiveEvent
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
@@ -1522,6 +1530,7 @@ export const PI_EVENT_KINDS = [
   'session.error',
   'session.interrupted',
   'session.openUrl',
+  'session.archive',
   'extension.entry',
   'extension.message',
   'extension.notify',
