@@ -187,6 +187,20 @@ const PAGES = {
     viewports: ['desktop'],
     settledScript: SHELVES_OPEN,
   },
+  'sidebar-threads-hover': {
+    // Threads with the pointer on an active session: its Settle action takes
+    // the timestamp's place.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+    hoverScript: `(() => {
+      const title = [...document.querySelectorAll('aside *, nav *, [class*="sidebar"] *')].find((node) => node.childElementCount === 0 && node.textContent.trim() === ${JSON.stringify(SHELF_SESSIONS[1].title)});
+      const rect = title?.getBoundingClientRect();
+      return rect ? { x: rect.left + 20, y: rect.top + rect.height / 2 } : null;
+    })()`,
+  },
   'sidebar-folder': {
     // By folder: folders with their active sessions; snoozed and settled
     // sessions moved to shelves under the folder list.

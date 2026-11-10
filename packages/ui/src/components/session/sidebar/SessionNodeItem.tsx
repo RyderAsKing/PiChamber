@@ -611,13 +611,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     >
                       {showUnreadCompleteDot ? null : trailingLabel}
                     </span>
-                    {/* A second hover action needs room the time label does not reserve. */}
-                    {shelfQuickAction && showQuickArchiveAction ? (
-                      <span
-                        aria-hidden="true"
-                        className={cn('w-6 shrink-0', alwaysShowActions || isContextMenuOpen ? 'block' : 'hidden group-hover:block group-focus-within:block')}
-                      />
-                    ) : null}
                   </div>
 
                   {/* By-folder rows are a single line: title and time only. */}
@@ -733,7 +726,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                         <button
                           type="button"
                           aria-label={shelfQuickAction.label}
-                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                          className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-interactive-active hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                           onPointerDown={handleQuickArchivePointerDown}
                           onMouseDown={handleQuickArchiveMouseDown}
                           onKeyDown={(event) => event.stopPropagation()}
@@ -744,24 +737,27 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                             shelfQuickAction.run();
                           }}
                         >
-                          <Icon name={shelfQuickAction.icon} className="h-3.5 w-3.5" />
+                          <Icon name={shelfQuickAction.icon} className="size-4" />
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="top" sideOffset={6}>
                         {shelfQuickAction.label}
                       </TooltipContent>
                     </Tooltip>
-                  ) : null}
-                  <QuickSessionAction
-                    archiveLabel={'Archive'}
-                    deleteLabel={'Delete'}
-                    buttonSizeClass="h-6 w-6"
-                    iconSizeClass="h-3.5 w-3.5"
-                    onPointerDown={handleQuickArchivePointerDown}
-                    onMouseDown={handleQuickArchiveMouseDown}
-                    onArchive={handleQuickArchiveClick}
-                    onDelete={handleQuickDeleteClick}
-                  />
+                  ) : (
+                    // Rows on a shelf view offer only their shelf action on hover;
+                    // Archive stays in the row's context menu.
+                    <QuickSessionAction
+                      archiveLabel={'Archive'}
+                      deleteLabel={'Delete'}
+                      buttonSizeClass="h-6 w-6"
+                      iconSizeClass="h-3.5 w-3.5"
+                      onPointerDown={handleQuickArchivePointerDown}
+                      onMouseDown={handleQuickArchiveMouseDown}
+                      onArchive={handleQuickArchiveClick}
+                      onDelete={handleQuickDeleteClick}
+                    />
+                  )}
                 </div>
               ) : null}
             </div>
