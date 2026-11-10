@@ -134,6 +134,9 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   // stick over. Leaving it out keeps a long list of collapsed folders free of
   // sticky boxes and scroll-state containers the scroller would track every frame.
   const isSticky = stickyHeader && !isCollapsed;
+  // Touch layouts have no hover, so the header keeps only its name and chevron;
+  // a long press opens the same folder menu (New session, Edit, Close).
+  const showHeaderActions = !hideDirectoryControls && !alwaysShowActions;
 
   const handleMenuOpenChange = React.useCallback((open: boolean) => {
     if (open) setIsContextMenuOpen(false);
@@ -254,23 +257,25 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                       className={cn(
                         'transition-[padding]',
                         isEmpty && 'invisible',
-                        // Touch layouts keep the actions visible, and their 36px touch targets need the wider slot.
-                        alwaysShowActions
-                          ? 'pl-16'
-                          : 'pl-2 group-hover/project:pl-14 group-focus-within/project:pl-14',
+                        showHeaderActions && 'group-hover/project:pl-14 group-focus-within/project:pl-14',
+                        'pl-2',
                       )}
                     />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" sideOffset={8}>
-                  {projectDescription}
-                </TooltipContent>
+                {/* A long press opens the folder menu on touch, so the path
+                    tooltip would land on top of it. */}
+                {alwaysShowActions ? null : (
+                  <TooltipContent side="right" sideOffset={8}>
+                    {projectDescription}
+                  </TooltipContent>
+                )}
               </Tooltip>
 
               {/* Hover actions: one evenly spaced group left of the chevron (at the
                   row's edge when there is no chevron), New session first and the
                   folder menu last, each with its own hover fill. */}
-              {!hideDirectoryControls ? (
+              {showHeaderActions ? (
                 <div
                   className={cn(
                     'absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5',
@@ -286,10 +291,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                             e.stopPropagation();
                             onNewSession();
                           }}
-                          className={cn(
-                            folderActionButtonClassName,
-                            alwaysShowActions ? 'opacity-100' : folderActionHiddenClassName,
-                          )}
+                          className={cn(folderActionButtonClassName, folderActionHiddenClassName)}
                           aria-label={"New session"}
                         >
                           <Icon name="add" className="size-4" />
@@ -311,9 +313,7 @@ export const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                           folderActionButtonClassName,
                           isMenuOpen
                             ? 'opacity-100 pointer-events-auto bg-interactive-active text-foreground'
-                            : alwaysShowActions
-                              ? 'opacity-100'
-                              : folderActionHiddenClassName,
+                            : folderActionHiddenClassName,
                         )}
                         aria-label={"Folder menu"}
                         onPointerDown={handleMenuTriggerPointerDown}

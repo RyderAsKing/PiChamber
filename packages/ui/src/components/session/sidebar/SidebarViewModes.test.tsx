@@ -6,6 +6,7 @@ import type { SidebarViewMode } from '@/lib/sidebarViewMode';
 import { SidebarProjectsList, type ProjectSection } from './SidebarProjectsList';
 import { getTimelineBoundaries } from './timelineBuckets';
 import type { SessionGroup, SessionNode } from './types';
+import { SessionShelfRowContext } from './sessionShelfRowContext';
 
 // One dataset rendered through every sidebar view: switching the view changes
 // the arrangement only, and a folder or session that disappears from the data
@@ -50,9 +51,17 @@ type RenderOptions = {
   selected?: ProjectSection | null;
   homeSection?: ProjectSection | null;
   collapsed?: string[];
+  searching?: boolean;
 };
 
-const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [] }: RenderOptions): string => {
+// A folder row as SessionNodeItem sees it: the shelf its menu acts on, read
+// from the same context the real row reads.
+const FolderRow: React.FC<{ id: string; projectId: string }> = ({ id, projectId }) => {
+  const shelfSection = React.useContext(SessionShelfRowContext)?.sectionById.get(id) ?? '';
+  return React.createElement('span', { 'data-session-id': id, 'data-project-id': projectId, 'data-row-shelf': shelfSection });
+};
+
+const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [], searching = false }: RenderOptions): string => {
   const workspace = viewMode === undefined || viewMode === 'workspace';
   return renderToStaticMarkup(
     React.createElement(TooltipProvider, null, React.createElement(SidebarProjectsList, {
@@ -66,7 +75,7 @@ const render = ({ viewMode, sections, selected = null, homeSection = home, colla
       projectSections: sections,
       activeProjectId: selected?.project.id ?? null,
       showOnlyMainWorkspace: false,
-      hasSessionSearchQuery: false,
+      hasSessionSearchQuery: searching,
       emptyState: React.createElement('div', { 'data-testid': 'empty' }),
       searchEmptyState: React.createElement('div', { 'data-testid': 'search-empty' }),
       renderSessionNode: (node, _depth, _directory, projectId, _archived, secondaryMeta) =>
@@ -77,10 +86,10 @@ const render = ({ viewMode, sections, selected = null, homeSection = home, colla
         }),
       renderGroupSessions: (group, groupKey, projectId) =>
         React.createElement('div', { 'data-group-key': groupKey },
-          group.sessions.map((node) => React.createElement('span', {
+          group.sessions.map((node) => React.createElement(FolderRow, {
             key: node.session.id,
-            'data-session-id': node.session.id,
-            'data-project-id': projectId ?? '',
+            id: node.session.id,
+            projectId: projectId ?? '',
           }))),
       getOrderedGroups: (_projectId, groups) => groups,
       setGroupOrderByProject: noop,
@@ -247,6 +256,17 @@ describe('Threads and By folder shelves', () => {
     expect(markup).toContain('data-group-key="alpha:alpha-root"');
     expect(markup).not.toContain('data-session-shelf="settled"');
     expect(shelfOf(markup, 'alpha-old')).toBeNull();
+  });
+
+  test('a By folder search keeps every match in its folder, and rows keep their shelf state for their menus', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'folder', sections: [alpha, beta], searching: true });
+    expect([...sessionIds(markup)].sort()).toEqual(['alpha-old', 'alpha-today', 'beta-yesterday', 'home-today']);
+    expect(markup).not.toContain('data-session-shelf=');
+    expect(projectOf(markup, 'alpha-old')).toBe('alpha');
+    // The shelf layout steps aside, but rows still read their shelf section,
+    // so a match's menu offers Snooze (or Wake) as it would outside a search.
+    expect(markup).toContain('data-session-id="alpha-today" data-project-id="alpha" data-row-shelf="active"');
   });
 
   // Archived sessions only reach the sections during a search, or in Timeline

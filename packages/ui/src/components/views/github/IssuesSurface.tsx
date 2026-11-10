@@ -273,7 +273,6 @@ const IssuesBody: React.FC<{
       stale={relevantStale}
       error={relevantError}
       filters={filters}
-      countComplete={complete}
       incompleteNotice={incompleteSummary ? { summary: incompleteSummary, searching: remotePending, onSearchAll: handleSearchAll } : null}
       remote={remote}
       numberJump={numberJump}

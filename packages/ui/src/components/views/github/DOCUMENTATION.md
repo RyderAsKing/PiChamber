@@ -46,9 +46,7 @@ sections, and comment cards.
   `typography-ui-label` title, `typography-micro` muted `max-w-60`
   description, optional outline sm action), `GitHubEmptyState`
   (`no-items` vs `no-match` with Clear filters), `GitHubLoadMore` (quiet
-  outline sm at the list end), `GitHubListFooter` (`border-t
-  border-border/60 px-2 py-1.5` counts summary from loaded data only, with a
-  `+` suffix while the viewed collections still page), `GitHubStaleBanner`
+  outline sm at the list end), `GitHubStaleBanner`
   ("Showing saved results — last refresh failed" + Retry; exactly one
   renders per surface), `GitHubIncompleteNotice` (honesty footer for
   filtered incomplete collections: "Showing N matches from the M most
@@ -61,9 +59,10 @@ sections, and comment cards.
   failure row with Retry — a failed section never renders as empty).
   `GitHubListView` (`GitHubListView.tsx`) owns the whole list chrome both
   entity lists share (toolbar, stale banner, blocking error/first-load
-  branching, empty state, load more, remote section, incomplete notice,
-  footer); pulls/issues pass only row rendering, filter menus, the primary
-  action, and copy. The list toolbar (second row, `border-b border-border
+  branching, empty state, load more, remote section, incomplete notice).
+  There is no counts footer: the rows already show how many there are and
+  when each changed, and the Filters menu shows the state. Pulls and issues
+  pass only row rendering, filter menus, the primary action, and copy. The list toolbar (second row, `border-b border-border
   px-3 py-2`) always keeps search + filters (Filters dropdown, Sort).
   `GitHubListView` takes an optional `primaryAction` (the primary list
   action, e.g. New issue — explicitly separate from the filter controls)
@@ -159,7 +158,7 @@ sections, and comment cards.
   host top header row (`headerActionsSlot` + `headerActionsPresentation`)
   while the list is shown, and render inline in the toolbar when no slot
   is provided; rows per
-  `GitHubRow`; footer counts; skeleton only on true first load of the
+  `GitHubRow`; skeleton only on true first load of the
   needed collection(s). The list reads two wide collections (`open` +
   `closed`, perPage 100) and every view — state tab (merged split locally
   by `mergedAt`), involvement (viewer login from `useGitHubLogin`; unknown

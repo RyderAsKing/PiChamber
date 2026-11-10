@@ -87,7 +87,7 @@ const DesktopServersPage: React.FC = () => {
       description="Which PiChamber server this app uses. Add other servers to switch between them."
     >
       <SettingsSection
-        title={'Other PiChamber servers'}
+        title={'Saved servers'}
         info={'Servers this app can switch to. Import a pairing link from the other server, or add one by address.'}
         divider={false}
         settingsItem="servers.direct-hosts"

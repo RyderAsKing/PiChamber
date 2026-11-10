@@ -32,12 +32,18 @@ export type MobileServersManagerProps = {
   onActiveConnectionDeleted: () => void;
   /** Sheet-only extras (diagnostics export lives on the Instances sheet). */
   showDiagnostics?: boolean;
+  /**
+   * `sheet` (default) scrolls and pads itself; `page` renders inside a
+   * Settings page, which already scrolls and pads, so rows use its full width.
+   */
+  layout?: 'sheet' | 'page';
 };
 
 export const MobileServersManager: React.FC<MobileServersManagerProps> = ({
   onConnect,
   onActiveConnectionDeleted,
   showDiagnostics = false,
+  layout = 'sheet',
 }) => {
   const servers = useMobileServers({ onConnected: onConnect, onActiveConnectionDeleted });
   const { conn, items, connectingId } = servers;
@@ -241,11 +247,14 @@ export const MobileServersManager: React.FC<MobileServersManagerProps> = ({
   useNativeAndroidBackButton(handleNativeBack);
 
   const inputClass = mobileConnectionInputClass;
+  const inPage = layout === 'page';
+  const frameClass = inPage ? undefined : 'flex h-full flex-col overflow-hidden';
+  const scrollClass = inPage ? undefined : 'flex-1 overflow-y-auto px-5 py-4';
 
   if (pendingConnection) {
     return (
-      <div className="flex h-full flex-col overflow-hidden">
-        <form className="flex-1 overflow-y-auto px-5 py-4" onSubmit={handlePasswordSubmit}>
+      <div className={frameClass}>
+        <form className={scrollClass} onSubmit={handlePasswordSubmit}>
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3 rounded-[18px] border border-border/70 bg-surface-elevated px-3.5 py-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-interactive-hover text-foreground">
@@ -285,9 +294,9 @@ export const MobileServersManager: React.FC<MobileServersManagerProps> = ({
     <>
     {isScanning ? <MobileQrScannerOverlay onCancel={() => scanAbortRef.current?.abort()} /> : null}
     {isCompletingScan ? <MobileQrConnectionLoading /> : null}
-    <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex-1 overflow-y-auto px-5 py-4">
-        <div className="space-y-6">
+    <div className={frameClass}>
+      <div className={scrollClass}>
+        <div className={inPage ? 'space-y-4' : 'space-y-6'}>
           <ServerList
             items={items}
             layout="touch"

@@ -158,10 +158,10 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     props.pinnedSessionIds,
   ]);
 
-  // Threads always shelves; By folder shelves except while searching, where
-  // matches stay in their folders.
+  // Threads and By folder both shelve. While searching, By folder keeps every
+  // match in its folder and uses shelves only for the rows' menus.
   const shelves = useSessionShelves(allFolderSessions, {
-    enabled: isThreads || (isFolder && !props.hasSessionSearchQuery),
+    enabled: isThreads || isFolder,
     workingShelf: isThreads,
   });
 
@@ -256,7 +256,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     >
       {/* Threads and By folder (with shelves) fill the scroller so their
           Snoozed section sits at the bottom. */}
-      <div className={cn((isThreads || (isFolder && shelves)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
+      <div className={cn((isThreads || (isFolder && shelves && !props.hasSessionSearchQuery)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">

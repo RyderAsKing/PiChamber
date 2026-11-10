@@ -501,9 +501,9 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'servers.direct-hosts',
     page: 'servers',
-    title: "Other PiChamber servers",
+    title: "Saved servers",
     description: "Servers this app can switch to. Import a pairing link from the other server, or add one by address.",
-    keywords: ['server', 'servers', 'instance', 'server url', 'connection token', 'import link', 'host switcher', 'switch', 'connect', 'additional headers', 'request headers', 'cloudflare access', 'service token'],
+    keywords: ['server', 'servers', 'saved servers', 'other servers', 'instance', 'server url', 'connection token', 'import link', 'host switcher', 'switch', 'connect', 'additional headers', 'request headers', 'cloudflare access', 'service token'],
     isAvailable: (ctx) => ctx.isDesktop || (ctx.isMobile && ctx.isCapacitor === true),
   },
   {
