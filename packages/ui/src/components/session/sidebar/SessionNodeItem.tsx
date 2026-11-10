@@ -581,7 +581,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                   }}
                   className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
                 >
-                  <div className="flex w-full items-center min-w-0 flex-1 gap-1.5 overflow-hidden">
+                  <div className={cn('flex w-full min-w-0 flex-1 gap-1.5 overflow-hidden', isTree ? 'items-center' : 'items-start')}>
                     <div
                       // Titles are the content here, so full strength in every
                       // view; grey stays for labels, times, and actions.
@@ -591,14 +591,18 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       // they are put away. By folder titles stay full strength
                       // too, so the work outranks the folder headers above it.
                       className={cn(
-                        'block min-w-0 flex-1 truncate typography-ui-label',
+                        // A card's title may take a second line before it truncates, so
+                        // similar titles keep the words that tell them apart; By folder
+                        // rows stay one line.
+                        'min-w-0 flex-1 typography-ui-label',
+                        isTree ? 'block truncate' : 'line-clamp-2 text-pretty [overflow-wrap:anywhere]',
                         isActive ? 'font-medium text-foreground' : 'font-normal',
                         !isActive && (isPutAway ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
                       )}
                     >
                       {renderHighlightedText(sessionTitle, normalizedSessionSearchQuery)}
                     </div>
-                    {isPinnedSession ? <Icon name="star-fill" className="h-3 w-3 text-primary shrink-0" /> : null}
+                    {isPinnedSession ? <Icon name="star-fill" className={cn("h-3 w-3 text-primary shrink-0", !isTree && "mt-1")} /> : null}
                     {/* Reserves the title-line width of the trailing status, which is
                         positioned over the row so the details line can use the full width. */}
                     <span
