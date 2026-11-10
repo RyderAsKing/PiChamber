@@ -112,7 +112,7 @@ export const UserMessageAttachments = memo(({
                 type="button"
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium',
-                  'text-muted-foreground/80 hover:text-foreground transition-colors cursor-pointer select-none',
+                  'text-subtle-foreground hover:text-foreground transition-colors cursor-pointer select-none',
                   className,
                 )}
                 aria-label={`View ${count} attachment${count !== 1 ? 's' : ''}`}
@@ -231,7 +231,7 @@ const AttachmentRow = memo(function AttachmentRow({
         <p className="text-xs font-medium text-foreground truncate" title={fileName}>
           {fileName}
         </p>
-        <p className="text-[11px] text-muted-foreground truncate">
+        <p className="typography-micro text-muted-foreground truncate">
           {[ext.toUpperCase() || 'FILE', file.mime, sizeText].filter(Boolean).join(' · ')}
         </p>
       </div>

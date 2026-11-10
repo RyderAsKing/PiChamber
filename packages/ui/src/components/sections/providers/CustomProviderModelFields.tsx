@@ -82,7 +82,7 @@ export const CustomProviderModelFields: React.FC<Props> = ({
               onChange={(event) =>
                 onChange("displayName", event.target.value, "displayName")
               }
-              placeholder="Same as Model ID"
+              placeholder="Same as model ID"
               className="mt-1 h-8 rounded-md px-3"
               disabled={busy}
               aria-invalid={Boolean(errors?.displayName) || undefined}

@@ -11,14 +11,25 @@ export type BrowseEntry = {
   path: string;
 };
 
-export type BrowseRow =
-  | { type: 'parent'; value: 'browse:up'; name: string; path: string; alreadyAdded: boolean }
-  | { type: 'directory'; value: string; name: string; path: string; alreadyAdded: boolean };
-
-export const isPrimaryModifierPressed = (event: React.KeyboardEvent<HTMLInputElement>): boolean => {
-  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
-  return isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+/** A row in a folder listing. `target` is the path field's value after opening it. */
+export type BrowseRow = {
+  type: 'parent' | 'directory';
+  value: string;
+  name: string;
+  path: string;
+  target: string;
+  alreadyAdded: boolean;
 };
+
+const isApplePlatform = (): boolean =>
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+
+export const isPrimaryModifierPressed = (event: React.KeyboardEvent<HTMLElement>): boolean => (
+  isApplePlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+);
+
+/** The key that, with Enter, finishes the dialog: ⌘ on Apple platforms, Ctrl elsewhere. */
+export const primaryModifierLabel = (): string => (isApplePlatform() ? '⌘' : 'Ctrl');
 
 export const focusPathInput = (input: HTMLInputElement | null): void => {
   if (!input) return;

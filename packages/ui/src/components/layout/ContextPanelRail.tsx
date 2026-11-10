@@ -139,9 +139,10 @@ const ContextPanelRailItem: React.FC<RailItemProps> = ({
             aria-pressed={isActive}
             className={cn(
               'flex h-9 w-9 touch-none select-none items-center justify-center rounded-md transition-colors',
+              // The open panel's button keeps a fill, so the rail shows where you are.
               isActive
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground',
+                ? 'bg-interactive-selection text-foreground'
+                : 'text-muted-foreground hover:bg-interactive-hover hover:text-foreground',
             )}
           >
             {surface.id === 'context' && typeof chartPercentage === 'number' ? (
@@ -433,7 +434,10 @@ export const ContextPanelRail: React.FC = () => {
   const railPercentage = !isNewSessionDraftOpen && railTotalTokens > 0 && railContextLimit > 0
     ? Math.min((railTotalTokens / railContextLimit) * 100, 999)
     : 0;
-  const railChartPercentage = railPercentage;
+  // An empty ring reads as a stalled spinner, so the rail shows the plain
+  // Context icon until the session has reported token usage.
+  const railHasUsage = !isNewSessionDraftOpen && !!railContextMessage && railTotalTokens > 0 && railContextLimit > 0;
+  const railChartPercentage = railHasUsage ? railPercentage : null;
   const railCacheHit = railBreakdown ? computeCacheHitRate({ input: railBreakdown.input, cache: { read: railBreakdown.cacheRead, write: railBreakdown.cacheWrite } }) : null;
   const railCacheHitPercent = railCacheHit?.hasInput ? railCacheHit.percent : null;
   const railChartDetails = React.useMemo(() => {

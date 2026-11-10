@@ -38,6 +38,7 @@ const PORTABLE_FIELDS = new Set([
   'timeFormatPreference',
   'weekStartPreference',
   'sidebarViewMode',
+  'sidebarAutoSettleAfterDays',
   'expandedEditorToolbar',
   'wrapLinesByDefault',
   'fontSize', 'terminalFontSize', 'editorFontSize', 'uiFont', 'monoFont', 'padding',

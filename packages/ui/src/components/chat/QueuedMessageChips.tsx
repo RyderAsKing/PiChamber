@@ -111,8 +111,8 @@ const QueuedMessageChip = memo(({ message, target, sending, checking, canSteer, 
                         size="xs"
                         onClick={() => onSend(message)}
                         disabled={busy}
-                        aria-label={"Send now with Steering"}
-                        title={"Send now with Steering"}
+                        aria-label={"Send now with steering"}
+                        title={"Send now with steering"}
                     >
                         <Icon name="send-plane" className="h-3 w-3" aria-hidden="true" />
                         {"Steer"}

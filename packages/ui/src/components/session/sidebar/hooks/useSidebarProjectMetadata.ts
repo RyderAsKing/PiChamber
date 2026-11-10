@@ -1,8 +1,7 @@
 import React from 'react';
 
-import { formatDirectoryName } from '@/lib/utils';
 import type { SessionNode } from '../types';
-import { formatProjectLabel, normalizePath } from '../utils';
+import { getProjectLabel, normalizePath } from '../utils';
 import type { ProjectSection } from './useSessionSidebarSections';
 
 export const deriveTotalSessionCount = (projectSections: ProjectSection[]): number => {
@@ -128,11 +127,7 @@ export const deriveSessionSidebarMetaById = (
   const projectPathLengthBySessionId = new Map<string, number>();
 
   projectSections.forEach((section) => {
-    const projectLabel = formatProjectLabel(
-      section.project.label?.trim() ||
-        formatDirectoryName(section.project.normalizedPath, homeDirectory) ||
-        section.project.normalizedPath
-    );
+    const projectLabel = getProjectLabel(section.project, homeDirectory);
     section.groups.forEach((group) => {
       const branchCandidate =
         group.branch && group.branch !== 'HEAD' && group.branch !== projectLabel

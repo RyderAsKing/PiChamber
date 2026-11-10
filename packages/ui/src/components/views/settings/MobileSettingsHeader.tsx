@@ -125,7 +125,7 @@ export const MobileSettingsHeader: React.FC<MobileSettingsHeaderProps> = ({
               onKeyDown={handleSettingsSearchKeyDown}
               placeholder={'Search settings'}
               aria-label={'Search settings'}
-              className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground/70"
+              className="typography-ui-label min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground"
             />
             {settingsSearchQuery.trim().length > 0 ? (
               <button

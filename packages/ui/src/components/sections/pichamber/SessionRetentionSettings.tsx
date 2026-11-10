@@ -62,21 +62,21 @@ export const SessionRetentionSettings: React.FC = () => {
 
   return (
     <SettingsSection
-      title={"Session Retention"}
-      info={"Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions."}
+      title={"Session retention"}
+      info={"Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions. This changes the sessions themselves; Settle idle sessions in Appearance only tidies the Threads and By folder sidebar."}
     >
       <SettingsCheckboxRow
         settingsItem="sessions.auto-cleanup"
         checked={autoDeleteEnabled}
         onChange={setAutoDeleteEnabled}
-        label={"Enable Auto-Cleanup"}
+        label={"Enable auto-cleanup"}
         ariaLabel={"Enable auto-cleanup"}
       />
 
       <SettingsInset className="space-y-0">
         <SettingsFieldRow
           settingsItem="sessions.retention-period"
-          label={"Retention Period"}
+          label={"Retention period"}
         >
           <NumberInput
             value={autoDeleteAfterDays}
@@ -119,7 +119,7 @@ export const SessionRetentionSettings: React.FC = () => {
 
       <div className="mt-1 py-1.5 space-y-1">
         <SettingsFieldRow
-          label={"Manual Cleanup"}
+          label={"Manual cleanup"}
         >
           <Button
             type="button"

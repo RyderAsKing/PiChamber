@@ -12,6 +12,7 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { normalizeDirectoryPathKey } from '@/lib/directoryPathKey';
 import type { TerminalShell } from '@/lib/api/types';
 import { DEFAULT_SIDEBAR_VIEW_MODE, type SidebarViewMode } from '@/lib/sidebarViewMode';
+import { DEFAULT_AUTO_SETTLE_AFTER_DAYS, isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
 import { useFilesViewTabsStore } from './useFilesViewTabsStore';
 import {
   type MainTab,
@@ -106,6 +107,20 @@ interface UIStore {
   contextPanelByDirectory: Record<string, ContextPanelDirectoryState>;
   contextRailOrder: string[];
   contextEditorTreeVisible: boolean;
+  /**
+   * A folder the Files tree should show: set by the open file's path bar,
+   * consumed (cleared) by the tree once it has expanded to it. Not persisted.
+   */
+  fileTreeReveal: { path: string; nonce: number } | null;
+  /**
+   * The file tab a file's Changes button left for the Git panel, so that panel
+   * can offer the way back. `focusPath` narrows the panel to that file's diff
+   * until Show all changes clears it. Cleared once the panel shows anything
+   * else. Not persisted.
+   */
+  gitReturnToFile: { directory: string; tabId: string; focusPath: string | null } | null;
+  clearGitReturnToFile: () => void;
+  showAllGitChanges: () => void;
   contextEditorTreeWidth: number;
   /** Persisted per-directory `host/owner/repo` pick for the GitHub surfaces. */
   githubSelectedRepoByDirectory: Record<string, string>;
@@ -198,6 +213,8 @@ interface UIStore {
   timeFormatPreference: TimeFormatPreference;
   weekStartPreference: WeekStartPreference;
   sidebarViewMode: SidebarViewMode;
+  /** Days without activity before a session moves to Settled; 0 turns it off. */
+  sidebarAutoSettleAfterDays: number;
   expandedEditorToolbar: boolean;
   isExpandedInput: boolean;
   shortcutOverrides: Record<string, ShortcutCombo>;
@@ -210,6 +227,8 @@ interface UIStore {
   setSidebarWidth: (width: number) => void;
   setContextRailOrder: (order: string[]) => void;
   toggleContextEditorTree: () => void;
+  revealInFileTree: (path: string) => void;
+  clearFileTreeReveal: () => void;
   setContextEditorTreeWidth: (width: number) => void;
   setGitHubSelectedRepo: (directory: string, repoRef: string | null) => void;
   openContextSurface: (directory: string, mode: ContextPanelMode) => void;
@@ -342,6 +361,7 @@ interface UIStore {
   setTimeFormatPreference: (value: TimeFormatPreference) => void;
   setWeekStartPreference: (value: WeekStartPreference) => void;
   setSidebarViewMode: (value: SidebarViewMode) => void;
+  setSidebarAutoSettleAfterDays: (value: number) => void;
   setExpandedEditorToolbar: (value: boolean) => void;
   viewPagerPage: 'left' | 'center' | 'right';
   setViewPagerPage: (page: 'left' | 'center' | 'right') => void;
@@ -387,6 +407,8 @@ export const useUIStore = create<UIStore>()(
         chatLinkTarget: 'system',
         contextRailOrder: [],
         contextEditorTreeVisible: true,
+        fileTreeReveal: null,
+        gitReturnToFile: null,
         contextEditorTreeWidth: 240,
         githubSelectedRepoByDirectory: {},
         isSessionSwitcherOpen: false,
@@ -467,6 +489,7 @@ export const useUIStore = create<UIStore>()(
         timeFormatPreference: 'auto',
         weekStartPreference: 'auto',
         sidebarViewMode: DEFAULT_SIDEBAR_VIEW_MODE,
+        sidebarAutoSettleAfterDays: DEFAULT_AUTO_SETTLE_AFTER_DAYS,
         expandedEditorToolbar: false,
         draftStartersVisible: true,
         isExpandedInput: false,
@@ -530,6 +553,19 @@ export const useUIStore = create<UIStore>()(
 
         toggleContextEditorTree: () => {
           set((state) => ({ contextEditorTreeVisible: !state.contextEditorTreeVisible }));
+        },
+        revealInFileTree: (path) => {
+          set((state) => ({ fileTreeReveal: { path, nonce: (state.fileTreeReveal?.nonce ?? 0) + 1 } }));
+        },
+        clearGitReturnToFile: () => {
+          if (get().gitReturnToFile) set({ gitReturnToFile: null });
+        },
+        showAllGitChanges: () => {
+          const current = get().gitReturnToFile;
+          if (current?.focusPath) set({ gitReturnToFile: { ...current, focusPath: null } });
+        },
+        clearFileTreeReveal: () => {
+          set({ fileTreeReveal: null });
         },
 
         setContextEditorTreeWidth: (width) => {
@@ -626,8 +662,21 @@ export const useUIStore = create<UIStore>()(
 
           const diffScope = normalizePendingDiffScope(scope) ?? (staged ? 'staged' : 'working');
 
+          // Leaving an open file for its changes: remember the way back.
+          const panelState = get().contextPanelByDirectory[normalizedDirectory];
+          const fromTab = panelState?.isOpen
+            ? panelState.tabs.find((tab) => tab.id === panelState.activeTabId)
+            : undefined;
+
           get().setPendingDiffFile(normalizedFilePath, staged, diffScope);
           get().openContextPanelTab(normalizedDirectory, { mode: 'git' });
+          // Set after the Git panel is active, so the panel never sees the
+          // record while the file is still showing (which would clear it).
+          set({
+            gitReturnToFile: fromTab?.mode === 'file'
+              ? { directory: normalizedDirectory, tabId: fromTab.id, focusPath: normalizedFilePath }
+              : null,
+          });
         },
 
         openContextFile: (directory, filePath) => {
@@ -1537,6 +1586,10 @@ export const useUIStore = create<UIStore>()(
         setSidebarViewMode: (value) => {
           set({ sidebarViewMode: value });
         },
+        setSidebarAutoSettleAfterDays: (value) => {
+          if (!isAutoSettleAfterDaysSetting(value)) return;
+          set({ sidebarAutoSettleAfterDays: value });
+        },
         setExpandedEditorToolbar: (value: boolean) => {
           set({ expandedEditorToolbar: value });
         },
@@ -1891,6 +1944,7 @@ export const useUIStore = create<UIStore>()(
           timeFormatPreference: state.timeFormatPreference,
           weekStartPreference: state.weekStartPreference,
           sidebarViewMode: state.sidebarViewMode,
+          sidebarAutoSettleAfterDays: state.sidebarAutoSettleAfterDays,
           expandedEditorToolbar: state.expandedEditorToolbar,
           draftStartersVisible: state.draftStartersVisible,
           shortcutOverrides: state.shortcutOverrides,

@@ -89,6 +89,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
     const setWeekStartPreference = useUIStore(state => state.setWeekStartPreference);
     const sidebarViewMode = useUIStore(state => state.sidebarViewMode);
     const setSidebarViewMode = useUIStore(state => state.setSidebarViewMode);
+    const sidebarAutoSettleAfterDays = useUIStore(state => state.sidebarAutoSettleAfterDays);
+    const setSidebarAutoSettleAfterDays = useUIStore(state => state.setSidebarAutoSettleAfterDays);
     const draftStartersVisible = useUIStore(state => state.draftStartersVisible);
     const setDraftStartersVisible = useUIStore(state => state.setDraftStartersVisible);
     const {
@@ -152,6 +154,11 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
         setSidebarViewMode(value);
         void updateDesktopSettings({ sidebarViewMode: value });
     }, [setSidebarViewMode]);
+
+    const handleSidebarAutoSettleAfterDaysChange = React.useCallback((value: number) => {
+        setSidebarAutoSettleAfterDays(value);
+        void updateDesktopSettings({ sidebarAutoSettleAfterDays: value });
+    }, [setSidebarAutoSettleAfterDays]);
 
     const lightThemes = React.useMemo(
         () => availableThemes
@@ -473,6 +480,8 @@ export const PiChamberVisualSettings: React.FC<PiChamberVisualSettingsProps> = (
                     shouldShow={shouldShow}
                     sidebarViewMode={sidebarViewMode}
                     onSidebarViewModeChange={handleSidebarViewModeChange}
+                    sidebarAutoSettleAfterDays={sidebarAutoSettleAfterDays}
+                    onSidebarAutoSettleAfterDaysChange={handleSidebarAutoSettleAfterDaysChange}
                     fileEditorKeymap={fileEditorKeymap}
                     setFileEditorKeymap={setFileEditorKeymap}
                     autoSaveEnabled={autoSaveEnabled}

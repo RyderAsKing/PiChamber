@@ -119,7 +119,7 @@ const TaskSummaryEntryRow = React.memo(({
                         ) : (
                             <Text
                                 variant={animateTailText ? 'generate-effect' : 'static'}
-                                className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'flex-1 min-w-0 truncate text-muted-foreground/70')}
+                                className={cn(TOOL_ROW_DESCRIPTION_CLASS, 'flex-1 min-w-0 truncate text-subtle-foreground')}
                                 style={{ color: 'var(--tools-description)' }}
                                 title={label}
                             >
@@ -158,7 +158,7 @@ const TaskSummaryEntriesList = React.memo(({
         <ToolScrollableSection maxHeightClass={isExpanded ? 'max-h-[40vh]' : 'max-h-[min(17.5rem,45vh)]'} disableHorizontal>
             <div className="w-full min-w-0 space-y-1" data-chat-task-entries-list="true">
                 {hiddenCount > 0 ? (
-                    <div className="typography-micro text-muted-foreground/70">+{hiddenCount} more…</div>
+                    <div className="typography-micro text-subtle-foreground">+{hiddenCount} more…</div>
                 ) : null}
 
                 {visibleEntries.map((entry, idx) => {
@@ -218,7 +218,7 @@ export const TaskToolSummary: React.FC<{
     if (entries.length === 0 && !hasOutput && !sessionId) {
         return (
             <div className="oc-task-tool-summary relative pr-2 pb-2 pt-2 space-y-2 pl-[1.4375rem]">
-                <div className="typography-meta text-muted-foreground/70">
+                <div className="typography-meta text-subtle-foreground">
                     {isActive ? 'Waiting for subagent activity...' : 'No subagent session id on task metadata.'}
                 </div>
             </div>

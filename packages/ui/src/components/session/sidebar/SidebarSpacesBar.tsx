@@ -26,9 +26,9 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import { cn, formatDirectoryName } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useProjectsStore } from '@/stores/useProjectsStore';
-import { formatProjectLabel, normalizePath, sidebarRowIconClass, sidebarRowLabelClass } from './utils';
+import { getProjectLabel, normalizePath, sidebarRowIconClass, sidebarRowLabelClass } from './utils';
 
 export type SpaceProject = {
   id: string;
@@ -348,11 +348,7 @@ export const SidebarSpacesBar: React.FC<SidebarSpacesBarProps> = ({
             const isProjectExpanded = selectedProjectId === project.id;
             const isSelected = isProjectExpanded && !selectedWorktreePath;
             const worktrees = worktreesByProject.get(project.normalizedPath) ?? [];
-            const label = formatProjectLabel(
-              project.label?.trim()
-              || formatDirectoryName(project.normalizedPath, homeDirectory)
-              || project.normalizedPath,
-            );
+            const label = getProjectLabel(project, homeDirectory);
             const activeSet = activeDirectoriesByProject?.get(project.id);
             const normalizedRoot = normalizePath(project.normalizedPath)?.toLowerCase() ?? '';
             const hasActiveInRoot = normalizedRoot ? (activeSet?.has(normalizedRoot) ?? false) : false;

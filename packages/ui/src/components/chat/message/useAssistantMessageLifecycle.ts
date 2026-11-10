@@ -3,7 +3,6 @@ import type { Part } from '@/lib/chat/types';
 import type { TurnGroupingContext } from '../lib/turns/types';
 import type { TimeFormatPreference } from '@/stores/useUIStore';
 import { extractLoopbackUrls } from '@/lib/url';
-import { formatTurnDuration } from './turnDuration';
 import { formatTimestampForDisplay } from './timeFormat';
 
 /**
@@ -21,7 +20,6 @@ export function useAssistantMessageLifecycle({
   messageFinish,
   messageCompletedAt,
   messageCreatedAt,
-  durationMs,
   turnGroupingContext,
   errorMessage,
   isMobile,
@@ -33,7 +31,6 @@ export function useAssistantMessageLifecycle({
   messageFinish?: string;
   messageCompletedAt?: number;
   messageCreatedAt?: number;
-  durationMs?: number;
   turnGroupingContext?: TurnGroupingContext;
   errorMessage?: string;
   isMobile: boolean;
@@ -75,28 +72,6 @@ export function useAssistantMessageLifecycle({
   const hasStopFinish = messageFinish === 'stop' || (isMessageCompleted && !errorMessage);
   const awaitingMessageCompletion = !isMessageCompleted;
 
-  const turnDurationText = React.useMemo(() => {
-    if (!isLastAssistantInTurn || isTurnWorking) return undefined;
-    if (typeof durationMs === 'number' && durationMs > 0) {
-      return formatTurnDuration(durationMs);
-    }
-    if (
-      typeof messageCompletedAt === 'number' &&
-      typeof messageCreatedAt === 'number' &&
-      messageCompletedAt > messageCreatedAt
-    ) {
-      return formatTurnDuration(messageCompletedAt - messageCreatedAt);
-    }
-    const userCreatedAt = turnGroupingContext?.userMessageCreatedAt;
-    if (
-      typeof userCreatedAt === 'number' &&
-      typeof messageCompletedAt === 'number' &&
-      messageCompletedAt > userCreatedAt
-    ) {
-      return formatTurnDuration(messageCompletedAt - userCreatedAt);
-    }
-    return undefined;
-  }, [isLastAssistantInTurn, isTurnWorking, durationMs, messageCompletedAt, messageCreatedAt, turnGroupingContext?.userMessageCreatedAt]);
 
   const footerTimestamp = React.useMemo(() => {
     const timestamp =
@@ -118,7 +93,6 @@ export function useAssistantMessageLifecycle({
     shouldAnimateTurnFooter,
     hasStopFinish,
     awaitingMessageCompletion,
-    turnDurationText,
     footerTimestamp,
   };
 }

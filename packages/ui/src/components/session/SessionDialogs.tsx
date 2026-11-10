@@ -206,7 +206,7 @@ export const SessionDialogs: React.FC = () => {
                         {deleteDialog.sessions.slice(0, 5).map((session) => (
                             <li
                                 key={session.id}
-                                className="typography-micro text-muted-foreground/80"
+                                className="typography-micro text-subtle-foreground"
                             >
                                 <span className="truncate">
                                     {getSessionDisplayTitle(session)}
@@ -214,7 +214,7 @@ export const SessionDialogs: React.FC = () => {
                             </li>
                         ))}
                         {deleteDialog.sessions.length > 5 && (
-                            <li className="typography-micro text-muted-foreground/70">
+                            <li className="typography-micro text-subtle-foreground">
                                 {`+${deleteDialog.sessions.length - 5} more`}
                             </li>
                         )}
@@ -222,7 +222,7 @@ export const SessionDialogs: React.FC = () => {
                 </div>
             )}
             <div className="rounded-xl border border-border/40 bg-sidebar/60 p-3">
-                <p className="typography-meta text-muted-foreground/80">
+                <p className="typography-meta text-subtle-foreground">
                     {"Worktree directories stay intact. Subsessions linked to the selected sessions will also be removed."}
                 </p>
             </div>
@@ -275,7 +275,7 @@ export const SessionDialogs: React.FC = () => {
                 >
                     <div className="space-y-2 pb-2">
                         {deleteDialogDescription && (
-                            <p className="typography-meta text-muted-foreground/80">{deleteDialogDescription}</p>
+                            <p className="typography-meta text-subtle-foreground">{deleteDialogDescription}</p>
                         )}
                         {deleteDialogBody}
                     </div>

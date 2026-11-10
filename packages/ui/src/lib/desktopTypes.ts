@@ -111,6 +111,8 @@ export type DesktopSettings = {
   timeFormatPreference?: 'auto' | '12h' | '24h';
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
   sidebarViewMode?: SidebarViewMode;
+  /** Days without activity before a session moves to Settled; 0 turns it off. */
+  sidebarAutoSettleAfterDays?: number;
   expandedEditorToolbar?: boolean;
   wrapLinesByDefault?: boolean;
   fontSize?: number;

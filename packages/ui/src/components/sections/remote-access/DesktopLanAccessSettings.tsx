@@ -43,7 +43,7 @@ export const DesktopLanToggleFields: React.FC<{ lan: DesktopLanAccessState }> = 
     ) : null}
 
     {lan.lanUrl ? (
-      <div className="typography-micro text-muted-foreground/80">
+      <div className="typography-micro text-subtle-foreground">
         {lan.isDirty && !lan.draftLanEnabled
           ? 'After restart, open from another device: '
           : 'Open from another device: '}
@@ -74,7 +74,7 @@ export const DesktopPasswordFields: React.FC<{ lan: DesktopLanAccessState }> = (
       settingsItem="sessions.desktop-ui-password"
       label={(
         <label htmlFor="desktop-ui-password">
-          {'Desktop UI Password'}
+          {'Desktop UI password'}
         </label>
       )}
       info={'PiChamber asks after restart, then when the login session expires: after 12 hours, or 7 days with Trust this device. Leave empty to disable login.'}

@@ -162,7 +162,7 @@ export const AuthLockCard: React.FC<AuthLockCardProps> = ({
             )}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Icon name="lock" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+                <Icon name="lock" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-subtle-foreground" />
                 <Input
                   id="pichamber-ui-password"
                   ref={passwordInputRef}

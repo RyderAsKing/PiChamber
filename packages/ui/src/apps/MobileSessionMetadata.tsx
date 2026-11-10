@@ -252,7 +252,12 @@ export const MobileSessionMetadataButton = React.memo(function MobileSessionMeta
         onClick={() => onOpenChange((currentOpen) => !currentOpen)}
         style={{ touchAction: 'manipulation' }}
       >
-        <ContextProgressIcon percentage={contextDisplay?.percentage ?? 0} size={20} className="size-5 -rotate-90" />
+        {/* An empty ring reads as a stalled spinner, so it waits for token usage. */}
+        {contextDisplay ? (
+          <ContextProgressIcon percentage={contextDisplay.percentage} size={20} className="size-5 -rotate-90" />
+        ) : (
+          <Icon name="pie-chart" className="size-5" />
+        )}
       </button>
       <SessionMetadataOverlay
         open={open}

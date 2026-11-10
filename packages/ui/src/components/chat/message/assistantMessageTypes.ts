@@ -13,7 +13,6 @@ export interface MessageBodyProps {
   messageFinish?: string;
   messageCompletedAt?: number;
   messageCreatedAt?: number;
-  durationMs?: number;
 
   isMobile: boolean;
   alwaysShowActions?: boolean;

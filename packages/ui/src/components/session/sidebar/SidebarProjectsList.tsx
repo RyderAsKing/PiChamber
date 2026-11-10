@@ -3,7 +3,7 @@ import { ScrollableOverlay } from '@/components/ui/ScrollableOverlay';
 import { cn } from '@/lib/utils';
 import type { SessionGroup, SessionNode, ProjectSection } from './types';
 import { getProjectLabel } from './utils';
-import { SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
 import type { SortableDragHandleProps } from './sortableItems';
 import type { MainTab } from '@/stores/useUIStore';
@@ -16,6 +16,9 @@ import {
 } from './timelineBuckets';
 import { SidebarFolderTree } from './SidebarFolderTree';
 import { SessionRowVariantContext } from './sessionRowVariant';
+import { SidebarThreadsList, type ThreadsListItem } from './SidebarThreadsList';
+import { useSessionShelves } from './hooks/useSessionShelves';
+import { isSessionPinned } from '@/stores/useSessionPinnedStore';
 
 export type { ProjectSection };
 
@@ -33,6 +36,8 @@ type Props = {
   searchEmptyState: React.ReactNode;
   isAllFoldersView?: boolean;
   pinnedSessionIds?: Set<string>;
+  /** Days before an idle session settles in the Threads and By folder views; null (the default) is off. */
+  autoSettleAfterDays?: number | null;
   viewMode?: SidebarViewMode;
   timelineBoundaries?: TimelineBoundaries | null;
   onOpenDirectoryDialog?: () => void;
@@ -112,18 +117,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   // walk) and skip the cost of a style recalc on every render.
   const scrollContainerRef = React.useRef<HTMLElement | null>(null);
 
-  const shouldComputeAllFolderSessions = Boolean(props.isAllFoldersView || isTimeline);
+  const isThreads = viewMode === 'threads';
+  const isFolder = viewMode === 'folder';
+  const shouldComputeAllFolderSessions = Boolean(props.isAllFoldersView || isTimeline || isThreads || isFolder);
 
   const allFolderSessions = React.useMemo(() => {
     if (!shouldComputeAllFolderSessions) return [];
-    const items: Array<{
-      node: SessionNode;
-      project: ProjectSection['project'];
-      projectLabel: string;
-      isPinned: boolean;
-      timestamp: number;
-      globalSession: boolean;
-    }> = [];
+    const items: ThreadsListItem[] = [];
 
     const sections = props.allFoldersOnlySection
       ? [props.allFoldersOnlySection, ...props.sectionsForRender]
@@ -133,7 +133,10 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       for (const group of section.groups) {
         if (group.isArchivedBucket) continue;
         for (const node of group.sessions) {
-          const isPinned = Boolean(props.pinnedSessionIds?.has(node.session.id));
+          // Pins are keyed by runtime, directory, and session id.
+          const isPinned = props.pinnedSessionIds
+            ? isSessionPinned(props.pinnedSessionIds, node.session.directory ?? section.project.normalizedPath, node.session.id)
+            : false;
           const timestamp = node.session.time?.updated || node.session.time?.created || 0;
           items.push({
             node,
@@ -163,6 +166,14 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     props.homeDirectory,
     props.pinnedSessionIds,
   ]);
+
+  // Threads always shelves; By folder shelves except while searching, where
+  // matches stay in their folders.
+  const shelves = useSessionShelves(allFolderSessions, {
+    enabled: isThreads || (isFolder && !props.hasSessionSearchQuery),
+    workingShelf: isThreads,
+    autoSettleAfterDays: props.autoSettleAfterDays ?? null,
+  });
 
   const [allFoldersLimit, setAllFoldersLimit] = React.useState(30);
 
@@ -195,7 +206,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   if (props.sharedSessionsOnly) {
     return (
-      <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}>
+      <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 12 : 20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1">
         <div className="space-y-1 px-2">
         {props.topContent}
         {!props.hasSharedSessions ? (props.hasSessionSearchQuery ? props.searchEmptyState : props.emptyState) : null}
@@ -206,11 +217,11 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   const hasAllFoldersOnlySection = (props.isAllFoldersView || viewMode === 'timeline' || viewMode === 'folder') && Boolean(props.allFoldersOnlySection);
   if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 12 : 20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
   if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
-    return <ScrollableOverlay useScrollShadow scrollShadowSize={96} outerClassName="flex-1 min-h-0" className={cn('pt-2 pb-1', props.mobileVariant && 'pb-32')}><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
+    return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 12 : 20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 
   const renderPaginationButtons = () => {
@@ -250,11 +261,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       ref={scrollContainerRef}
       useScrollShadow
       hideTopScrollShadow
-      scrollShadowSize={96}
+      scrollShadowSize={props.mobileVariant ? 12 : 20}
       outerClassName="flex-1 min-h-0"
-      className={cn('oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]', props.mobileVariant && 'pb-32')}
+      className="oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]"
     >
-      <div className="space-y-1 px-2">
+      {/* Threads and By folder (with shelves) fill the scroller so their
+          Snoozed and Settled sections sit at the bottom. */}
+      <div className={cn((isThreads || (isFolder && shelves)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">
@@ -298,9 +311,20 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
             });
           })()}
         </div>
+      ) : isThreads && shelves && props.renderSessionNode ? (
+        <SidebarThreadsList
+          items={allFolderSessions}
+          shelves={shelves}
+          renderSessionNode={props.renderSessionNode}
+          hasSessionSearchQuery={props.hasSessionSearchQuery}
+          mobileVariant={props.mobileVariant}
+          emptyState={props.emptyState}
+          searchEmptyState={props.searchEmptyState}
+        />
       ) : viewMode === 'folder' ? (
         <SessionRowVariantContext.Provider value="tree">
         <SidebarFolderTree
+          shelves={shelves}
           sections={props.sectionsForRender}
           homeSection={props.allFoldersOnlySection}
           homeDirectory={props.homeDirectory}
@@ -346,16 +370,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
                     aria-label={label}
                     data-timeline-bucket={group.id}
                   >
-                    <div
-                      role="heading"
-                      aria-level={3}
-                      className={cn(
-                        'select-none px-3 pb-1 text-xs leading-4 font-medium text-muted-foreground',
-                        index === 0 ? 'pt-1' : 'pt-3',
-                      )}
-                    >
-                      {label}
-                    </div>
+                    <SidebarSectionHeading label={label} first={index === 0} />
                     {group.items.map(({ node, project, projectLabel, globalSession }) => {
                       const groupDirectory = node.session.directory ?? project.normalizedPath;
                       return (

@@ -112,7 +112,7 @@ export const RemoteAccessPage: React.FC = () => {
 
   return (
     <SettingsPageLayout
-      title={isMobile ? undefined : 'Remote Access'}
+      title={isMobile ? undefined : 'Remote access'}
       description={isMobile ? undefined : 'How other devices reach this computer.'}
       headerEnd={clientAuth ? (
         <div data-settings-item="remote-access.client-auth">

@@ -33,7 +33,7 @@ const statusConfig: Record<TodoStatus, { textClassName: string }> = {
 const priorityClassName: Record<TodoPriority, string> = {
   high: "text-[var(--status-warning)]",
   medium: "text-muted-foreground",
-  low: "text-muted-foreground/70",
+  low: "text-subtle-foreground",
 };
 
 const priorityIcon: Record<TodoPriority, React.ReactNode> = {

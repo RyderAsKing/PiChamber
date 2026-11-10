@@ -10,6 +10,8 @@ export const CHAT_SCROLL_STYLE = {
   overflowAnchor: 'none',
   overscrollBehavior: 'contain',
   overscrollBehaviorY: 'contain',
+  // A short top fade: the default 48px washed out the row just below the header.
+  '--scroll-shadow-top-size': '16px',
 } as const;
 
 /**

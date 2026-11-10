@@ -17,6 +17,7 @@ import { readUpdateJob } from '../update-job-store.js';
 import { createPiSettingsStore } from './settings-store.js';
 import { isPiThinkingLevel } from './thinking-levels.js';
 import { createPiSessionFoldersStore } from './session-folders-store.js';
+import { createPiSessionShelfStore } from './session-shelf-store.js';
 import {
   MAX_EXTENSION_APP_HTML_CHARS,
   isValidCustomInputItems,
@@ -60,6 +61,7 @@ const UNAVAILABLE_CODES = new Set([
   'MALFORMED_SESSION_JSONL',
   'SESSION_JSONL_UNREADABLE',
   'ARCHIVE_METADATA_INVALID',
+  'SESSION_SHELF_INVALID',
 ]);
 
 const BAD_GATEWAY_CODES = new Set([
@@ -1119,6 +1121,7 @@ export const registerPiRuntimeRoutes = (app, {
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
   sessionFoldersStore = createPiSessionFoldersStore(),
+  sessionShelfStore = createPiSessionShelfStore(),
   uiSettingsStore = createPiUiSettingsStore(),
   snippetsStore = createPiSnippetsStore(),
   listCustomThemes = listPiCustomThemes,
@@ -1132,6 +1135,15 @@ export const registerPiRuntimeRoutes = (app, {
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
+  // A message or command the user sends ends a snooze and drops a settled
+  // override. The send already succeeded, so a shelf write failure only logs.
+  const clearShelfForActivity = async (sessionId) => {
+    try {
+      await sessionShelfStore.clearForActivity(sessionId);
+    } catch (error) {
+      console.warn('[pi] could not clear the session shelf after a send', error?.code ?? error);
+    }
+  };
   app.get('/api/pi/ui-settings', async (_req, res) => {
     try {
       res.json(await uiSettingsStore.read());
@@ -2006,7 +2018,55 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.delete');
-    if (result !== undefined) res.status(204).end();
+    if (result === undefined) return;
+    try {
+      await sessionShelfStore.remove(req.params.sessionId);
+    } catch (error) {
+      console.warn('[pi] could not remove a deleted session from the shelf', error?.code ?? error);
+    }
+    res.status(204).end();
+  });
+
+  app.get('/api/pi/session-shelf', async (_req, res) => {
+    try {
+      res.json({ sessions: await sessionShelfStore.read() });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.post('/api/pi/sessions/:sessionId/shelf', async (req, res) => {
+    const { sessionId } = req.params;
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const directory = typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined;
+    const patch = {
+      ...(Object.hasOwn(body, 'settled') ? { settled: body.settled } : {}),
+      ...(Object.hasOwn(body, 'snoozedUntil') ? { snoozedUntil: body.snoozedUntil } : {}),
+    };
+    const settledValid = !Object.hasOwn(patch, 'settled') || patch.settled === null || patch.settled === 'settled' || patch.settled === 'active';
+    const snoozeValid = !Object.hasOwn(patch, 'snoozedUntil') || patch.snoozedUntil === null
+      || (Number.isSafeInteger(patch.snoozedUntil) && patch.snoozedUntil > 0);
+    if (!sessionId || Object.keys(patch).length === 0 || !settledValid || !snoozeValid) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      // Same membership check as archive: shelf state is PiChamber metadata
+      // for a session that exists, not a Pi session mutation.
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+        'sessions.list',
+        directory ? { directory } : undefined,
+      );
+      const items = projectSessionList(result?.sessions);
+      if (!items.some((item) => item.session.id === sessionId)) {
+        const error = new Error('The Pi session does not exist.');
+        error.code = 'INVALID_SESSION';
+        throw error;
+      }
+      res.json({ entry: await sessionShelfStore.update(sessionId, patch) });
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
   });
 
   app.post('/api/pi/sessions/:sessionId/archive', async (req, res) => {
@@ -2220,6 +2280,7 @@ export const registerPiRuntimeRoutes = (app, {
           return;
         }
         await attachmentStore.consume?.(attachmentIds);
+        await clearShelfForActivity(req.params.sessionId);
         res.status(202).json({
           accepted: true,
           messageId: result.messageId,
@@ -2294,6 +2355,7 @@ export const registerPiRuntimeRoutes = (app, {
       writeDaemonError(res, protocolMismatch());
       return;
     }
+    await clearShelfForActivity(req.params.sessionId);
     res.status(202).json({ accepted: true, id: result.id });
   });
 

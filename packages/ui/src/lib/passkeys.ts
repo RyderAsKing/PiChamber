@@ -146,26 +146,37 @@ export const authenticateWithPasskey = async (trustDevice: boolean, options: Pas
   return verifyResponse.json().catch(() => null);
 };
 
+// The session auth gate awaits this alongside its status check, so a request
+// to an unreachable host must not hold the gate on its loading screen.
+const PASSKEY_STATUS_TIMEOUT_MS = 15_000;
+
 export const fetchPasskeyStatus = async (): Promise<PasskeyStatus> => {
-  const response = await runtimeFetch(PASSKEY_STATUS_ENDPOINT, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PASSKEY_STATUS_TIMEOUT_MS);
+  try {
+    const response = await runtimeFetch(PASSKEY_STATUS_ENDPOINT, {
+      method: 'GET',
+      credentials: 'include',
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
 
-  if (!response.ok) {
-    return defaultPasskeyStatus;
+    if (!response.ok) {
+      return defaultPasskeyStatus;
+    }
+
+    const payload = await response.json().catch(() => null);
+    return {
+      enabled: payload?.enabled === true,
+      hasPasskeys: payload?.hasPasskeys === true,
+      passkeyCount: typeof payload?.passkeyCount === 'number' ? payload.passkeyCount : 0,
+      rpID: typeof payload?.rpID === 'string' && payload.rpID ? payload.rpID : null,
+    };
+  } finally {
+    clearTimeout(timer);
   }
-
-  const payload = await response.json().catch(() => null);
-  return {
-    enabled: payload?.enabled === true,
-    hasPasskeys: payload?.hasPasskeys === true,
-    passkeyCount: typeof payload?.passkeyCount === 'number' ? payload.passkeyCount : 0,
-    rpID: typeof payload?.rpID === 'string' && payload.rpID ? payload.rpID : null,
-  };
 };
 
 export const fetchStoredPasskeys = async (): Promise<StoredPasskey[]> => {

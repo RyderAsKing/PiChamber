@@ -2,6 +2,7 @@ import React from 'react';
 import { ContextPanelBrowserPane } from './context-panel/BrowserPane';
 import { closeServerBrowserTab } from '@/lib/serverBrowser/api';
 import { EditorTreeColumn } from './context-panel/EditorTreeColumn';
+import { FilesEmptyState } from './context-panel/FilesEmptyState';
 import { PreviewPane } from './context-panel/PreviewPane';
 
 import { FileTypeIcon } from '@/components/icons/FileTypeIcon';
@@ -39,6 +40,12 @@ const CONTEXT_PANEL_MAX_WIDTH = 1400;
 const CONTEXT_PANEL_DEFAULT_WIDTH = 600;
 const RESIZE_FOLLOW_INTERVAL_MS = 100;
 const CONTEXT_TAB_LABEL_MAX_CHARS = 24;
+/**
+ * Below this panel width an open file and the file tree don't both fit
+ * readably, so the tree folds away while a file is open. The tree toggle
+ * still brings it back until another file opens.
+ */
+const EDITOR_WITH_TREE_MIN_WIDTH = 720;
 
 const clampWidth = (width: number): number => {
   if (!Number.isFinite(width)) {
@@ -154,7 +161,7 @@ const getTabIcon = (tab: { mode: ContextPanelMode; targetPath: string | null }, 
   }
 
   if (tab.mode === 'context') {
-    return <Icon name="donut-chart-fill" className="h-3.5 w-3.5" />;
+    return <Icon name="pie-chart" className="h-3.5 w-3.5" />;
   }
 
   if (tab.mode === 'preview') {
@@ -475,12 +482,16 @@ export const ContextPanel: React.FC = () => {
   const isPullRequestsPanelActive = activeTab?.mode === 'pull-requests';
   const isIssuesPanelActive = activeTab?.mode === 'issues';
 
+  // Opened from a file's Changes button, the Git panel shows just that file.
+  const gitFocusPath = useUIStore((state) => (
+    state.gitReturnToFile?.directory === directoryKey ? state.gitReturnToFile.focusPath : null
+  ));
   const activeContent = activeTab?.mode === 'context'
         ? <ContextPanelContent />
         : activeTab?.mode === 'extensions'
             ? <ExtensionsSurface sessionId={currentSessionId} />
             : activeTab?.mode === 'git'
-                ? <React.Suspense fallback={null}><GitView isActive={isOpen} gitHeaderSlot={activeTab?.mode === 'git' ? gitHeaderSlot : null} /></React.Suspense>
+                ? <React.Suspense fallback={null}><GitView isActive={isOpen} gitHeaderSlot={activeTab?.mode === 'git' ? gitHeaderSlot : null} onlyFilePath={gitFocusPath} /></React.Suspense>
             : activeTab?.mode === 'pull-requests'
                 ? <React.Suspense fallback={null}><PullRequestsSurface key={`pull-requests:${directoryKey}`} headerActionsSlot={isPullRequestsPanelActive ? githubHeaderSlot : null} headerActionsPresentation="desktop" /></React.Suspense>
                 : activeTab?.mode === 'issues'
@@ -489,7 +500,7 @@ export const ContextPanel: React.FC = () => {
                 ? <PreviewPane rawUrl={activeTab.targetPath ?? ''} onNavigate={(url) => openContextPreview(effectiveDirectory, url)} />
                 : (
                   <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                    <Icon name="global" className="h-12 w-12 text-muted-foreground/50" />
+                    <Icon name="global" className="h-12 w-12 text-subtle-foreground" />
                     <div className="typography-ui-header text-foreground">{"Preview"}</div>
                     <div className="max-w-sm typography-micro text-muted-foreground">{"Use Project Actions or a terminal Preview button to open a preview."}</div>
                   </div>
@@ -515,8 +526,55 @@ export const ContextPanel: React.FC = () => {
     () => tabs.some((tab) => tab.mode === 'file' && tab.targetPath),
     [tabs],
   );
+  const openEditorFilePath = activeTab?.mode === 'file' ? (activeTab.targetPath ?? null) : null;
+  const panelContentWidth = isExpanded ? availablePanelAreaWidth : width;
+  const treeCrowdsFile = Boolean(
+    hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
+  );
+  // While crowded, the tree shows only when asked for, laid over the whole
+  // file rather than beside it, and folds again when the next file opens.
+  const [crowdedTreeShown, setCrowdedTreeShown] = React.useState(false);
+  React.useEffect(() => {
+    setCrowdedTreeShown(false);
+  }, [openEditorFilePath]);
+  // With no file open, a narrow panel is all tree: an empty-state column beside
+  // it would only repeat the changed files the tree already marks.
+  const treeFillsPanel = Boolean(
+    !hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
+  );
+  const editorTreeShown = treeFillsPanel ? true : treeCrowdsFile ? crowdedTreeShown : contextEditorTreeVisible;
+  // A folder picked in the open file's path bar needs the tree on screen; the
+  // tree itself opens to the folder and clears the request.
+  const fileTreeReveal = useUIStore((state) => state.fileTreeReveal);
+  React.useEffect(() => {
+    if (!fileTreeReveal) return;
+    if (treeCrowdsFile) {
+      setCrowdedTreeShown(true);
+    } else if (!useUIStore.getState().contextEditorTreeVisible) {
+      toggleContextEditorTree();
+    }
+  }, [fileTreeReveal, toggleContextEditorTree, treeCrowdsFile]);
+  const handleToggleEditorTree = React.useCallback(() => {
+    if (treeCrowdsFile) {
+      setCrowdedTreeShown((shown) => !shown);
+      return;
+    }
+    toggleContextEditorTree();
+  }, [toggleContextEditorTree, treeCrowdsFile]);
 
   const isFileTabActive = activeTab?.mode === 'file';
+  // The Git panel reached from an open file's Changes button leads back to it.
+  const gitReturnToFile = useUIStore((state) => state.gitReturnToFile);
+  const clearGitReturnToFile = useUIStore((state) => state.clearGitReturnToFile);
+  const showAllGitChanges = useUIStore((state) => state.showAllGitChanges);
+  const returnFileTab = gitReturnToFile && gitReturnToFile.directory === directoryKey && activeTab?.mode === 'git'
+    ? tabs.find((tab) => tab.id === gitReturnToFile.tabId && tab.mode === 'file' && tab.targetPath) ?? null
+    : null;
+  React.useEffect(() => {
+    if (gitReturnToFile && (!isOpen || activeTab?.mode !== 'git' || gitReturnToFile.directory !== directoryKey)) {
+      clearGitReturnToFile();
+    }
+  }, [activeTab?.mode, clearGitReturnToFile, directoryKey, gitReturnToFile, isOpen]);
   const isTerminalPanelActive = activeTab?.mode === 'terminal';
   const isGitPanelActive = activeTab?.mode === 'git';
   const isDiffPanelActive = activeTab?.mode === 'diff';
@@ -597,18 +655,19 @@ export const ContextPanel: React.FC = () => {
         </div>
       )}
       <div className="flex items-center gap-1 px-1.5">
-        {isFileTabActive ? (
+        {isFileTabActive && !treeFillsPanel ? (
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            onClick={toggleContextEditorTree}
-            className="h-8 w-8 p-0"
-            title={"Toggle file tree"}
+            onClick={handleToggleEditorTree}
+            // A tree icon that stays filled while the tree is on screen.
+            className={cn('h-8 w-8 p-0', editorTreeShown && 'bg-interactive-selection text-foreground')}
+            title={editorTreeShown ? "Hide file tree" : "Show file tree"}
             aria-label={"Toggle file tree"}
-            aria-pressed={contextEditorTreeVisible}
+            aria-pressed={editorTreeShown}
           >
-            <Icon name="layout-right" className="size-4" />
+            <Icon name="node-tree" className="size-4" />
           </Button>
         ) : null}
         <Button
@@ -726,18 +785,18 @@ export const ContextPanel: React.FC = () => {
       <div className={cn('relative min-h-0 flex-1 overflow-hidden', isResizing && 'pointer-events-none')}>
         {hasFileTabs ? (
           <div className={cn('absolute inset-0 flex', isFileTabActive ? 'flex' : 'hidden')}>
-            <div className="h-full min-w-0 flex-1">
+            <div className="relative h-full min-w-0 flex-1">
               {hasOpenEditorFile ? (
                 <React.Suspense fallback={null}><FilesView mode="editor-only" isVisible={isOpen && isFileTabActive} /></React.Suspense>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-                  <Icon name="file-code" className="h-12 w-12 text-muted-foreground/50" />
-                  <div className="typography-ui-header text-foreground">{"No file open"}</div>
-                  <div className="max-w-sm typography-micro text-muted-foreground">{"Pick a file from the tree to start editing."}</div>
-                </div>
+              ) : treeFillsPanel ? null : (
+                <FilesEmptyState directory={effectiveDirectory} />
               )}
             </div>
-            <EditorTreeColumn visible={contextEditorTreeVisible} />
+            <EditorTreeColumn
+              visible={editorTreeShown}
+              overlay={treeCrowdsFile || treeFillsPanel}
+              onDismissOverlay={treeCrowdsFile ? () => setCrowdedTreeShown(false) : undefined}
+            />
           </div>
         ) : null}
         {browserTabs.map((tab) => (
@@ -779,7 +838,39 @@ export const ContextPanel: React.FC = () => {
             />
           </div>
         ) : null}
-        {isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}
+        {isOpen && activeTab?.mode === 'git' ? (
+          <div className="flex h-full min-h-0 flex-col">
+            {returnFileTab ? (
+              <div className="flex h-9 shrink-0 items-center border-b border-border/60 pl-1.5 pr-1">
+                {/* Named for the file: the panel replaced it, so say what is behind it. */}
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => {
+                    clearGitReturnToFile();
+                    setActiveContextPanelTab(directoryKey, returnFileTab.id);
+                  }}
+                  className="min-w-0 text-muted-foreground hover:text-foreground"
+                >
+                  <Icon name="arrow-left" className="size-3.5 shrink-0" />
+                  <span className="truncate">{`Back to ${getFileNameFromPath(returnFileTab.targetPath) ?? 'file'}`}</span>
+                </Button>
+                {/* The panel opens on just that file; the rest of the changes are one click away. */}
+                {gitReturnToFile?.focusPath ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={showAllGitChanges}
+                    className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+                  >
+                    {'Show all changes'}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="relative min-h-0 flex-1">{activeContent}</div>
+          </div>
+        ) : isOpen && !isFileTabActive && activeTab?.mode !== 'browser' && activeTab?.mode !== 'diff' && activeTab?.mode !== 'terminal' ? activeContent : null}
       </div>
       </div>
     </aside>

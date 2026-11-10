@@ -375,7 +375,7 @@ export const PromptTemplatesPage: React.FC = () => {
           description="This prompt template no longer exists."
         >
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Icon name="terminal" className="size-8 text-muted-foreground/60" aria-hidden />
+            <Icon name="terminal" className="size-8 text-subtle-foreground" aria-hidden />
             <p className="typography-meta text-muted-foreground">
               The selected prompt template was not found.
             </p>
@@ -797,7 +797,7 @@ export const PromptTemplatesPage: React.FC = () => {
       {emptyState ? (
         <SettingsSection title="Prompt templates" divider={false} settingsItem="prompt-templates.create">
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Icon name="terminal" className="size-8 text-muted-foreground/60" aria-hidden />
+            <Icon name="terminal" className="size-8 text-subtle-foreground" aria-hidden />
             <p className="typography-meta text-muted-foreground">No prompt templates yet</p>
             <p className="typography-micro max-w-sm text-muted-foreground">
               Prompt templates are native Pi commands. Create one and run it in chat as{" "}

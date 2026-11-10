@@ -241,7 +241,7 @@ export const renderListOutput = (output: string, options?: { unstyled?: boolean 
                 {items.map((item, idx) => (
                     <div key={idx} className="min-w-0" style={{ paddingLeft: `${item.depth * 20}px` }}>
                         {item.isFile ? (
-                            <span className="text-foreground/90 block truncate">{item.name}</span>
+                            <span className="text-foreground block truncate">{item.name}</span>
                         ) : (
                             <span className="font-semibold text-foreground block truncate">{item.name}/</span>
                         )}
@@ -511,14 +511,14 @@ export const renderTodoOutput = (
                 {todosByStatus.cancelled.length > 0 && (
                     <div className="space-y-2">
                         <div className="flex items-center gap-2">
-                            <span className="w-3 h-3 text-muted-foreground/50">×</span>
-                            <span className="typography-meta font-semibold text-muted-foreground/50 uppercase tracking-wide">{labels.cancelled}</span>
+                            <span className="w-3 h-3 text-subtle-foreground">×</span>
+                            <span className="typography-meta font-semibold text-subtle-foreground uppercase tracking-wide">{labels.cancelled}</span>
                         </div>
                         <div className="space-y-1.5 pl-4">
                             {todosByStatus.cancelled.map((todo, idx) => (
                                 <div key={todo.id || idx} className="flex items-start gap-2">
-                                    <span className="w-3 h-3 text-muted-foreground/50 mt-0.5 flex-shrink-0">×</span>
-                                    <span className="typography-code text-muted-foreground/50 line-through flex-1 leading-relaxed">{coerceToText(todo.content)}</span>
+                                    <span className="w-3 h-3 text-subtle-foreground mt-0.5 flex-shrink-0">×</span>
+                                    <span className="typography-code text-subtle-foreground line-through flex-1 leading-relaxed">{coerceToText(todo.content)}</span>
                                 </div>
                             ))}
                         </div>

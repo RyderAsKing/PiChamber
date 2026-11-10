@@ -97,7 +97,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "text-foreground [&_[cmdk-group-heading]]:text-muted-foreground overflow-hidden p-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:typography-meta [&_[cmdk-group-heading]]:font-medium",
+        "text-foreground [&_[cmdk-group-heading]]:text-muted-foreground overflow-hidden p-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[length:var(--text-meta)] [&_[cmdk-group-heading]]:font-medium",
         className
       )}
       {...props}
@@ -144,7 +144,7 @@ function CommandShortcut({
     if (normalized === 'ctrl' || normalized === 'control') {
       return (
         <span className="text-xs font-medium">
-          ctrl
+          Ctrl
         </span>
       );
     }
@@ -153,7 +153,7 @@ function CommandShortcut({
       return <Icon name="command" className="size-3.5" />;
     }
 
-    if (normalized === 'shift' || normalized === '⇧') {
+    if (normalized === '⇧') {
       return <Icon name="arrow-up" className="size-3.5" />;
     }
 
@@ -182,7 +182,7 @@ function CommandShortcut({
       {tokens.length > 0
         ? tokens.map((token, index) => (
             <React.Fragment key={`${token}-${index}`}>
-              {index > 0 && <span className="opacity-60 text-xs">+</span>}
+              {index > 0 && <span className="text-xs text-subtle-foreground">+</span>}
               {renderKey(token)}
             </React.Fragment>
           ))

@@ -41,7 +41,7 @@ export async function detectDevServerCommand(
   if (devAction) {
     return {
       command: devAction.command,
-      label: devAction.name || 'Start Preview',
+      label: devAction.name || 'Start preview',
       actionId: devAction.id,
       previewUrlHint: devAction.openUrl,
     };

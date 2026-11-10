@@ -3,6 +3,7 @@ import type { Session } from '@/lib/chat/types';
 import { useCatalogUiSessions } from '@/sync/sync-context';
 import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { createSessionLifecycleComparator, useSessionOrderingStore } from '@/sync/session-ordering';
 import { useGitAllBranches } from '@/stores/useGitStore';
@@ -23,13 +24,8 @@ const isPathWithinProject = (directory: string | null, projectPath: string | nul
   return normDir === normProj || normDir.startsWith(`${normProj}/`);
 };
 
-const formatProjectLabel = (project: { label?: string; path: string } | null): string | null => {
-  if (!project) return null;
-  const label = project.label?.trim();
-  if (label) return label;
-  const parts = project.path.split(/[\\/]/).filter(Boolean);
-  return parts.at(-1) ?? project.path;
-};
+const formatProjectLabel = (project: { label?: string; path: string } | null): string | null =>
+  project ? getProjectDisplayLabel(project) : null;
 
 export type SwitcherItem = {
   node: SessionNode;

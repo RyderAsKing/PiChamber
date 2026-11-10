@@ -242,7 +242,7 @@ export function GoToLineDialog({ open, onOpenChange, view, variant = 'overlay' }
           placeholder={"Line number"}
           className="h-8 w-full rounded-md border-border/70 bg-background/60 typography-ui-label"
         />
-        <div className="mt-2 rounded-md bg-primary/15 px-3 py-1.5 typography-ui-label text-foreground/95">
+        <div className="mt-2 rounded-md bg-primary/15 px-3 py-1.5 typography-ui-label text-foreground">
           {helperText}
         </div>
       </div>

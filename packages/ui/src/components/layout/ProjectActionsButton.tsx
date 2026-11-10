@@ -104,13 +104,13 @@ export const ProjectActionsButton = ({
               <button
                 type="button"
                 className="app-region-no-drag -ml-1 inline-flex h-9 w-7 items-center justify-center rounded-[10px] text-muted-foreground hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                aria-label={"Open Preview"}
+                aria-label={"Open preview"}
                 onClick={handleOpenSelectedPreview}
               >
                 <Icon name="global" className="h-4 w-4" />
               </button>
             </TooltipTrigger>
-            <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
+            <TooltipContent sideOffset={6}>{"Open preview"}</TooltipContent>
           </Tooltip>
         ) : null}
         <DropdownMenu>
@@ -213,12 +213,12 @@ export const ProjectActionsButton = ({
                 'border-l border-[var(--interactive-border)] text-foreground',
                 'hover:bg-interactive-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
               )}
-              aria-label={"Open Preview"}
+              aria-label={"Open preview"}
             >
               <Icon name="global" className="h-4 w-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent sideOffset={6}>{"Open Preview"}</TooltipContent>
+          <TooltipContent sideOffset={6}>{"Open preview"}</TooltipContent>
         </Tooltip>
       ) : null}
 

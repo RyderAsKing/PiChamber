@@ -40,6 +40,7 @@ import { MobileShell } from './MobileShell';
 import { autoConnectLastInstance, getAutoConnectTargetLabel, reprobeActiveConnection, type AutoConnectOutcome } from './mobileConnections';
 import { MobileConnectionRecovery, isHiddenNow, isOfflineNow } from './mobile/mobileConnectionRecovery';
 import { setMobileConnectionUncertain, useMobileConnectionUncertain } from './mobile/mobileRecoveryStatus';
+import { MobileConnectionRecoveryBanner } from './mobile/MobileConnectionRecoveryBanner';
 import { subscribeRuntimeAuthExpired } from '@/lib/runtime-auth';
 import { isCapacitorMobileApp, useNativeMobileChrome, useNativeMobileLifecycle } from './mobileNativeChrome';
 import { reconnectAppForTransportSwitch, resetAppForRuntimeEndpointChange } from './runtimeEndpointReset';
@@ -52,6 +53,11 @@ type MobileAppProps = {
 };
 
 const NATIVE_RESUME_SYNC_EVENT_THROTTLE_MS = 1_000;
+// Recovery starts after one failed probe (resume, cold-launch classification,
+// or network change). Once the paced cycle is about to run this attempt — so
+// at least one more probe has failed — say the server is unreachable instead
+// of showing an open-ended reconnect pill.
+const RECOVERY_UNREACHABLE_FROM_ATTEMPT = 2;
 
 export function MobileApp({ apis }: MobileAppProps) {
   
@@ -75,6 +81,9 @@ export function MobileApp({ apis }: MobileAppProps) {
   // endpoint), auth-invalid (login/repair flow), and no-candidate all leave
   // recovery via cancel + endpoint clear instead of retrying.
   const [recoveryPhase, setRecoveryPhase] = React.useState<'idle' | 'recovering' | 'exhausted'>('idle');
+  // Upcoming attempt number in the current bounded cycle (0 = fresh cycle);
+  // drives when the reconnect pill becomes an explicit unreachable notice.
+  const [recoveryAttempt, setRecoveryAttempt] = React.useState(0);
   const isUncertain = useMobileConnectionUncertain();
   const recoveryRef = React.useRef<MobileConnectionRecovery | null>(null);
   const recoveryPhaseRef = React.useRef(recoveryPhase);
@@ -116,6 +125,7 @@ export function MobileApp({ apis }: MobileAppProps) {
         onHealthy: (outcome) => {
           recordMobileDiagnostic('recovery', { code: 'success' });
           setRecoveryPhase('idle');
+          setRecoveryAttempt(0);
           setMobileConnectionUncertain(false);
           if (outcome === 'unchanged') {
             // Same server, connection back: pick up shared settings changed
@@ -129,6 +139,7 @@ export function MobileApp({ apis }: MobileAppProps) {
         onAuthExpired: () => {
           recordMobileDiagnostic('recovery', { code: 'auth-expired' });
           setRecoveryPhase('idle');
+          setRecoveryAttempt(0);
           setMobileConnectionUncertain(false);
           setAutoConnectNotice({ kind: 'auth-expired', label: getAutoConnectTargetLabel() ?? '' });
           switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
@@ -137,6 +148,7 @@ export function MobileApp({ apis }: MobileAppProps) {
         onNoConnection: () => {
           recordMobileDiagnostic('recovery', { code: 'no-connection' });
           setRecoveryPhase('idle');
+          setRecoveryAttempt(0);
           setMobileConnectionUncertain(false);
           switchRuntimeEndpoint({ apiBaseUrl: '', clientToken: null, runtimeKey: 'mobile-disconnected' });
           setConnectionEpoch((value) => value + 1);
@@ -152,6 +164,7 @@ export function MobileApp({ apis }: MobileAppProps) {
         },
         onAttempt: (attempt) => {
           recordMobileDiagnostic('recovery', { code: 'attempt', detail: String(attempt) });
+          setRecoveryAttempt(attempt);
         },
       },
       () => `${getRuntimeKey()}|${getRuntimeApiBaseUrl()}`,
@@ -174,6 +187,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       return;
     }
     setRecoveryPhase('recovering');
+    setRecoveryAttempt(0);
     setMobileConnectionUncertain(true);
     recovery.start();
   }, [isNativeMobileApp]);
@@ -181,8 +195,27 @@ export function MobileApp({ apis }: MobileAppProps) {
   const cancelTemporaryRecovery = React.useCallback(() => {
     recoveryRef.current?.cancel();
     setRecoveryPhase('idle');
+    setRecoveryAttempt(0);
     setMobileConnectionUncertain(false);
     setColdLaunchClassificationPending(false);
+  }, []);
+
+  // Manual retry from the unreachable notice: wake the running cycle, or
+  // restart an exhausted one with an immediate probe. Offline keeps the
+  // exhausted notice up; the controller's online wake restarts it.
+  const retryTemporaryRecovery = React.useCallback(() => {
+    const recovery = recoveryRef.current;
+    if (!recovery) return;
+    if (recovery.isRunning) {
+      setRecoveryAttempt(0);
+      recovery.retryNow();
+      return;
+    }
+    if (recoveryPhaseRef.current !== 'exhausted' || isOfflineNow()) return;
+    setRecoveryPhase('recovering');
+    setRecoveryAttempt(0);
+    setMobileConnectionUncertain(true);
+    recovery.retryNow();
   }, []);
 
   const disconnectToConnectScreen = React.useCallback((notice: MobileConnectionNotice | null) => {
@@ -243,6 +276,7 @@ export function MobileApp({ apis }: MobileAppProps) {
     if (recoveryPhaseRef.current === 'exhausted') {
       if (isOfflineNow() || isHiddenNow()) return;
       setRecoveryPhase('recovering');
+      setRecoveryAttempt(0);
       setMobileConnectionUncertain(true);
       recoveryRef.current?.start();
       dispatchThrottledSystemResume();
@@ -333,6 +367,7 @@ export function MobileApp({ apis }: MobileAppProps) {
       if (recoveryPhaseRef.current === 'exhausted') {
         if (isHiddenNow()) return;
         setRecoveryPhase('recovering');
+        setRecoveryAttempt(0);
         setMobileConnectionUncertain(true);
         recoveryRef.current?.start();
         return;
@@ -720,6 +755,13 @@ export function MobileApp({ apis }: MobileAppProps) {
   // manual wake restarts a fresh bounded cycle); otherwise
   // synced (or initial connecting/reconnecting).
   const inTemporaryRecovery = isNativeMobileApp && hasRuntimeEndpoint && recoveryPhase !== 'idle';
+  // Recovery shows the retained shell. Once the user has seen it, a later
+  // successful connect must not cover it with the restore overlay; the
+  // restore itself still runs on connect and only selects the last session
+  // when nothing is open.
+  React.useEffect(() => {
+    if (inTemporaryRecovery) setLastSessionRestorePending(false);
+  }, [inTemporaryRecovery]);
   // Hold a logo splash until the UI web font is loaded, so the first UI the user sees
   // already uses the real font instead of flashing the fallback and reflowing (FOUT).
   if (!fontsReady) {
@@ -828,8 +870,12 @@ export function MobileApp({ apis }: MobileAppProps) {
                 {/* Cold-launch continuity: keep the boot logo up over the shell
                     until the last-session restore decides between session and
                     draft — otherwise the auto-opened draft flashes first. The
-                    shell (and sync) still mounts and warms up underneath. */}
-                {isNativeMobileApp && lastSessionRestorePending ? (
+                    shell (and sync) still mounts and warms up underneath.
+                    The restore only runs while connected, so the overlay never
+                    covers a shell that is recovering or waiting to reconnect:
+                    it would otherwise spin forever over an unreachable server.
+                    Entering recovery also drops it for good (see above). */}
+                {isNativeMobileApp && lastSessionRestorePending && isConnected && !inTemporaryRecovery ? (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
                     <PiChamberLogo width={120} height={120} isAnimated />
                   </div>
@@ -840,18 +886,12 @@ export function MobileApp({ apis }: MobileAppProps) {
                     uncertain mutation. */}
                 <SyncAppEffects embeddedBackgroundWorkEnabled={isInitialized && !isUncertain} />
                 {inTemporaryRecovery ? (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="pointer-events-none fixed inset-x-0 top-[calc(var(--oc-safe-area-top,0px)+var(--oc-header-height,56px)+10px)] z-40 flex justify-center"
-                  >
-                    <span className="flex size-11 items-center justify-center rounded-full border border-border/70 bg-[var(--surface-elevated)] text-[var(--surface-elevated-foreground)] shadow-sm">
-                      <PiChamberLogo width={24} height={24} isAnimated />
-                    </span>
-                    <span className="sr-only">
-                      {recoveryPhase === 'exhausted' ? 'Server unreachable' : 'Reconnecting…'}
-                    </span>
-                  </div>
+                  <MobileConnectionRecoveryBanner
+                    state={recoveryPhase === 'exhausted' || recoveryAttempt >= RECOVERY_UNREACHABLE_FROM_ATTEMPT ? 'unreachable' : 'reconnecting'}
+                    label={getAutoConnectTargetLabel() ?? ''}
+                    onRetry={retryTemporaryRecovery}
+                    onUseAnotherServer={() => disconnectToConnectScreen(null)}
+                  />
                 ) : null}
                 <MobileAppUpdateToast />
                 <MobileShell onActiveConnectionDeleted={() => {

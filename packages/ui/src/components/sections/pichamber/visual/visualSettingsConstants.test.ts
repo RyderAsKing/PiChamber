@@ -53,7 +53,7 @@ describe('follow-up behavior wording', () => {
     expect(chips).toContain('Remove follow-up');
     expect(chips).not.toContain('Remove from queue');
     expect(chips).toContain('Steer');
-    expect(chips).toContain('Send now with Steering');
+    expect(chips).toContain('Send now with steering');
     expect(chips).toContain('steering message waiting');
     expect(chips).toContain('steering messages waiting');
     expect(chips).toContain('follow-up message waiting');

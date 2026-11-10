@@ -192,6 +192,12 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
     });
   }, []);
 
+  // A file asked for from outside (a pending diff, a target path) stays
+  // requested until it is in the current list. Opening one usually switches
+  // the scope too, and a scope switch re-initializes expansion to collapsed;
+  // without this the requested file would be collapsed again straight away.
+  const requestedExpandRef = React.useRef<string | null>(null);
+
   const changedFilePathsKey = React.useMemo(
     () => changedFiles.map((file) => file.path).join('\0'),
     [changedFiles],
@@ -205,13 +211,18 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
     }`;
     const shouldInitialize = stackedStateScopeRef.current !== scopeKey;
     stackedStateScopeRef.current = scopeKey;
+    const requested = requestedExpandRef.current;
+    const keepExpanded = requested && pathSet.has(requested) ? requested : null;
+    if (keepExpanded) requestedExpandRef.current = null;
 
     setExpandedFiles((previous) => {
       if (shouldInitialize) {
         const defaultExpandedCount = stackedDefaultCollapsedAll
           ? 0
           : getStackedViewDefaultExpandedCount(paths.length);
-        return new Set(paths.slice(0, defaultExpandedCount));
+        const initial = new Set(paths.slice(0, defaultExpandedCount));
+        if (keepExpanded) initial.add(keepExpanded);
+        return initial;
       }
 
       let changed = false;
@@ -222,6 +233,10 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
           continue;
         }
         next.add(path);
+      }
+      if (keepExpanded && !next.has(keepExpanded)) {
+        next.add(keepExpanded);
+        changed = true;
       }
       return changed ? next : previous;
     });
@@ -327,6 +342,7 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
       setPendingDiffFile(null);
       shouldPinAfterAlignRef.current = true;
       pendingScrollTargetRef.current = pendingDiffFile;
+      requestedExpandRef.current = pendingDiffFile;
       expandStackedFile(pendingDiffFile);
       setScrollRequestNonce((value) => value + 1);
     }
@@ -356,6 +372,7 @@ export function useDiffViewState(options: UseDiffViewStateOptions) {
 
     shouldPinAfterAlignRef.current = true;
     pendingScrollTargetRef.current = normalizedTarget;
+    requestedExpandRef.current = normalizedTarget;
     expandStackedFile(normalizedTarget);
     setScrollRequestNonce((value) => value + 1);
   }, [activeDiffScope, expandStackedFile, pendingScrollTargetRef, shouldPinAfterAlignRef, targetFilePath]);

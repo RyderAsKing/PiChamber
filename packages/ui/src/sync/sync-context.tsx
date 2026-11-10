@@ -92,6 +92,36 @@ export function useSessionsNeedingInput(): ReadonlyArray<SessionNeedingInput> {
     TOPIC_CATALOG,
   );
 }
+/**
+ * Which sessions are running (busy or retrying) and which wait on the user,
+ * from the live catalog. The sidebar shelves read both: a working session
+ * never sits in Settled, and only a request for the user ends a snooze early.
+ * The selector returns a sorted key, so the sets keep their identity until
+ * membership changes.
+ */
+export function useSessionShelfLiveState(enabled = true): {
+  working: ReadonlySet<string>;
+  needsInput: ReadonlySet<string>;
+} {
+  const key = usePiSessionSnapshot((state) => {
+    if (!enabled) return '';
+    const working: string[] = [];
+    const needsInput: string[] = [];
+    for (const record of state.catalog.byId.values()) {
+      if (record.lifecycle === 'busy' || record.lifecycle === 'retry') working.push(record.id);
+      if (record.pendingInput != null) needsInput.push(record.id);
+    }
+    if (working.length === 0 && needsInput.length === 0) return '';
+    return JSON.stringify([working.sort(), needsInput.sort()]);
+  }, undefined, TOPIC_CATALOG);
+  return useMemo(() => {
+    if (!key) return { working: EMPTY_ID_SET, needsInput: EMPTY_ID_SET };
+    const [working, needsInput] = JSON.parse(key) as [string[], string[]];
+    return { working: new Set(working), needsInput: new Set(needsInput) };
+  }, [key]);
+}
+const EMPTY_ID_SET: ReadonlySet<string> = new Set();
+
 export function setActiveSession(directory: string, sessionId: string) {
   // Cross-folder select is a runtime-cluster focus change, never a
   // teardown. `select` itself focuses the new directory without disposing

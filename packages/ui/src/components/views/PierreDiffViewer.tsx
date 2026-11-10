@@ -93,6 +93,18 @@ export const PIERRE_RUNTIME_BASE_CSS = `
   pre[data-interactive-line-numbers] [data-line-number] {
     touch-action: manipulation;
   }
+
+  /* With wrapping on, a line's later rows hang 4ch in from its first row, so a
+     continuation never starts at the code edge where the next line does. The
+     +/- marker is absolutely placed, so it stays put, but it is an inline-block
+     that would inherit the negative indent and push its glyph out of view. */
+  [data-overflow="wrap"] [data-line] {
+    padding-inline-start: calc(2ch + 4ch);
+    text-indent: -4ch;
+  }
+  [data-overflow="wrap"] [data-line]:before {
+    text-indent: 0;
+  }
 `;
 
 // CSS injected into Pierre's Shadow DOM for WebKit scroll optimization +
@@ -647,7 +659,7 @@ export const PierreDiffViewer: React.FC<PierreDiffViewerProps> = ({
     },
     themeType: isDark ? ('dark' as const) : ('light' as const),
     diffStyle: renderSideBySide ? ('split' as const) : ('unified' as const),
-    diffIndicators: 'none' as const,
+    diffIndicators: 'classic' as const,
     hunkSeparators: 'line-info-basic' as const,
     // Perf: disable intra-line diff (word-level) globally.
     lineDiffType: 'none' as const,

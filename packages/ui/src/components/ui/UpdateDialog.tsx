@@ -293,7 +293,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                     <span className="text-muted-foreground">{info.currentVersion}</span>
                   )}
                   {info?.currentVersion && displayedVersion && (
-                    <span className="text-muted-foreground/50" aria-hidden="true">→</span>
+                    <span className="text-subtle-foreground" aria-hidden="true">→</span>
                   )}
                   {displayedVersion && (
                     <span className="text-[var(--primary-base)] font-medium">{displayedVersion}</span>
@@ -475,7 +475,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
                 className="flex items-center justify-center gap-2 px-5 py-2 rounded-md text-sm font-medium bg-[var(--status-success)] text-white hover:opacity-90 transition-opacity"
               >
                 <Icon name="restart" className="h-4 w-4" />
-                {"Restart to Update"}
+                {"Restart to update"}
               </button>
             )}
 

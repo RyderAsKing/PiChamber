@@ -7,6 +7,7 @@ import { useChatSurfaceMode } from '@/components/chat/chatSurfaceContext';
 import { useTransientValue } from '@/hooks/useTransientValue';
 import { cn } from '@/lib/utils';
 import { MessageForkAction } from './MessageForkAction';
+import { MessageMoreActions } from './MessageMoreActions';
 import { MessageRevertAction } from './MessageRevertAction';
 
 export interface AssistantMessageActionButtonsProps {
@@ -88,18 +89,15 @@ export const AssistantMessageActionButtons = React.memo(({
         [hasCopyableText, isTouchContext, onCopyMessage, revealCopyHint, showMessageCopied]
     );
 
-    const handleShareImageClick = React.useCallback(
-        async (event: React.MouseEvent<HTMLButtonElement>) => {
-            event.stopPropagation();
-            event.preventDefault();
-
+    const shareImageFrom = React.useCallback(
+        async (origin: Element) => {
             if (isSharing || !hasCopyableText) {
                 return;
             }
 
             setIsSharing(true);
             try {
-                const root = event.currentTarget.closest('[data-message-text-export-root]');
+                const root = origin.closest('[data-message-text-export-root]');
                 const sourceElement = root?.querySelector<HTMLElement>('[data-message-text-export-source]') ?? null;
                 await onShareImage(sourceElement);
             } finally {
@@ -109,14 +107,26 @@ export const AssistantMessageActionButtons = React.memo(({
         [hasCopyableText, isSharing, onShareImage]
     );
 
+    const handleShareImageClick = React.useCallback(
+        async (event: React.MouseEvent<HTMLButtonElement>) => {
+            event.stopPropagation();
+            event.preventDefault();
+            await shareImageFrom(event.currentTarget);
+        },
+        [shareImageFrom]
+    );
+
+    // Touch screens keep Copy in view and move the rest behind one labeled menu.
+    const collapseToMenu = isTouchContext && Boolean(sessionId && messageId);
+
     return (
         <>
             {/* Stable keys prevent the conditional revert action from
                 remounting its siblings when the latest-message state changes. */}
-            {sessionId && messageId && !isLatestMessage ? (
+            {!collapseToMenu && sessionId && messageId && !isLatestMessage ? (
                 <MessageRevertAction key="message-revert" sessionId={sessionId} messageId={messageId} size="assistant" />
             ) : null}
-            {sessionId && messageId ? (
+            {!collapseToMenu && sessionId && messageId ? (
                 <MessageForkAction key="message-fork" sessionId={sessionId} messageId={messageId} size="assistant" />
             ) : null}
             {onCopyMessage && (
@@ -159,7 +169,18 @@ export const AssistantMessageActionButtons = React.memo(({
                     <TooltipContent sideOffset={6}>{"Copy answer"}</TooltipContent>
                 </Tooltip>
             )}
-            {chatSurfaceMode !== 'mini-chat' ? <Tooltip key="message-share">
+            {collapseToMenu && messageId ? (
+                <MessageMoreActions
+                    key="message-more"
+                    sessionId={sessionId}
+                    messageId={messageId}
+                    showRevert={!isLatestMessage}
+                    size="assistant"
+                    onSaveImage={chatSurfaceMode !== 'mini-chat' ? (trigger) => { void shareImageFrom(trigger); } : undefined}
+                    saveImageDisabled={isSharing || !hasCopyableText}
+                />
+            ) : null}
+            {!collapseToMenu && chatSurfaceMode !== 'mini-chat' ? <Tooltip key="message-share">
                 <TooltipTrigger asChild>
                     <Button
                         type="button"

@@ -60,7 +60,7 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
             <div className="flex flex-col gap-1">
               {inputModalityIcons.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="typography-meta text-muted-foreground/80 w-12">Input</span>
+                  <span className="typography-meta text-subtle-foreground w-12">Input</span>
                   <div className="flex gap-1">
                     {inputModalityIcons.map(({ key, icon, label }) => (
                       <IconBadge key={`input-${key}`} iconName={icon} label={`${label} input`} />
@@ -70,7 +70,7 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
               )}
               {outputModalityIcons.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="typography-meta text-muted-foreground/80 w-12">Output</span>
+                  <span className="typography-meta text-subtle-foreground w-12">Output</span>
                   <div className="flex gap-1">
                     {outputModalityIcons.map(({ key, icon, label }) => (
                       <IconBadge key={`output-${key}`} iconName={icon} label={`${label} output`} />
@@ -86,13 +86,13 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
           <div className="typography-micro text-muted-foreground mb-1">Limits</div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Context</span>
+              <span className="typography-meta text-subtle-foreground">Context</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatTokens(currentMetadata?.limit?.context)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Output</span>
+              <span className="typography-meta text-subtle-foreground">Output</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatTokens(currentMetadata?.limit?.output)}
               </span>
@@ -104,13 +104,13 @@ export const MobileModelTooltipPanel: React.FC<MobileModelTooltipPanelProps> = (
           <div className="typography-micro text-muted-foreground mb-1">Metadata</div>
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Knowledge</span>
+              <span className="typography-meta text-subtle-foreground">Knowledge</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatKnowledge(currentMetadata?.knowledge)}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="typography-meta text-muted-foreground/80">Release</span>
+              <span className="typography-meta text-subtle-foreground">Release</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatDate(currentMetadata?.release_date)}
               </span>

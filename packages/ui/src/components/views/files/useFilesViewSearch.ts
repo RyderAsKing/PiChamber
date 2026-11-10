@@ -2,7 +2,7 @@ import React from 'react';
 
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useFileSearchStore } from '@/stores/useFileSearchStore';
-import { normalizePath, shouldIgnorePath, type FileNode } from './filesViewModel';
+import { isAlwaysHiddenPath, normalizePath, shouldIgnorePath, type FileNode } from './filesViewModel';
 
 type FilesViewSearchOptions = {
   directory: string;
@@ -13,7 +13,10 @@ type FilesViewSearchOptions = {
 
 type FilesViewSearchResult = {
   results: FileNode[];
+  /** True from the first keystroke until results for the current query land. */
   searching: boolean;
+  /** The last search failed; `results` is empty but says nothing about matches. */
+  failed: boolean;
 };
 
 /**
@@ -21,7 +24,8 @@ type FilesViewSearchResult = {
  *
  * Hidden files are always searched. Desktop follows the active Files
  * gitignored preference. A failed search is local presentation failure
- * and does not replace directory tree state.
+ * and does not replace directory tree state; `failed` keeps it from reading
+ * as "no matches".
  */
 export function useFilesViewSearch({
   directory,
@@ -33,17 +37,20 @@ export function useFilesViewSearch({
   const debouncedQuery = useDebouncedValue(query, 200);
   const [results, setResults] = React.useState<FileNode[]>([]);
   const [searching, setSearching] = React.useState(false);
+  const [failed, setFailed] = React.useState(false);
 
   React.useEffect(() => {
     const trimmedQuery = debouncedQuery.trim();
     if (!directory || !trimmedQuery) {
       setResults([]);
       setSearching(false);
+      setFailed(false);
       return;
     }
 
     let cancelled = false;
     setSearching(true);
+    setFailed(false);
 
     void searchFiles(directory, trimmedQuery, chrome === 'mobile' ? 40 : 150, {
       includeHidden: true,
@@ -53,6 +60,7 @@ export function useFilesViewSearch({
       .then((hits) => {
         if (cancelled) return;
         setResults(hits
+          .filter((hit) => !isAlwaysHiddenPath(hit.relativePath ?? hit.path))
           .filter((hit) => showGitignored || !shouldIgnorePath(hit.path))
           .map((hit) => ({
             name: hit.name,
@@ -63,7 +71,9 @@ export function useFilesViewSearch({
           })));
       })
       .catch(() => {
-        if (!cancelled) setResults([]);
+        if (cancelled) return;
+        setResults([]);
+        setFailed(true);
       })
       .finally(() => {
         if (!cancelled) setSearching(false);
@@ -74,5 +84,8 @@ export function useFilesViewSearch({
     };
   }, [chrome, debouncedQuery, directory, searchFiles, showGitignored]);
 
-  return { results, searching };
+  // Covers the debounce window too, so stale results or the tree don't flash
+  // as the answer to a query that hasn't been sent yet.
+  const pending = query.trim() !== '' && query.trim() !== debouncedQuery.trim();
+  return { results, searching: searching || pending, failed: failed && !pending };
 }

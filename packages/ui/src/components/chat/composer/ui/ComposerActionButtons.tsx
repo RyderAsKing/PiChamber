@@ -25,6 +25,8 @@ type ComposerActionButtonsProps = {
     newSessionDraftOpen: boolean;
     /** True while a new-session send is in flight: show pending, block input. */
     isSending?: boolean;
+    /** Shell mode runs the command instead of sending a prompt, so the button says Run. */
+    isShellMode?: boolean;
     onPrimaryAction: () => void;
     onQueueMessage: () => void;
     onAbort: () => void;
@@ -43,12 +45,14 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
         currentSessionId,
         newSessionDraftOpen,
         isSending = false,
+        isShellMode = false,
         onPrimaryAction,
         onQueueMessage,
         onAbort,
     } = props;
     
 
+    const ready = canSend && Boolean(currentSessionId || newSessionDraftOpen) && !isSending;
     const sendButton = (
         <button
             type={isMobile ? 'button' : 'submit'}
@@ -63,17 +67,23 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
             }}
             className={cn(
                 footerIconButtonClass,
-                canSend && (currentSessionId || newSessionDraftOpen) && !isSending
-                    ? 'text-primary hover:text-primary'
+                // Ready to send, it fills like the other finishing actions, so
+                // a sendable draft is obvious at a glance; otherwise a faint glyph.
+                ready
+                    ? 'rounded-full bg-[var(--primary-base)] text-[var(--primary-foreground)] hover:bg-[var(--primary-hover)]'
                     : 'opacity-30',
+                // A shell command runs rather than sends, and the button says so.
+                isShellMode && !isSending && 'w-auto gap-1 rounded-full px-2.5 typography-ui-label font-medium',
                 isSending && 'animate-pulse'
             )}
-            aria-label={isSending ? "Creating session…" : disabledReason || "Send message"}
-            title={isSending ? "Creating session…" : disabledReason || undefined}
+            aria-label={isSending ? "Creating session…" : disabledReason || (isShellMode ? "Run command" : "Send message")}
+            title={isSending ? "Creating session…" : disabledReason || (isShellMode ? "Run command" : undefined)}
         >
             {isSending
                 ? <Icon name="loader-4" className={cn(sendIconSizeClass, 'animate-spin')} />
-                : <Icon name="send-plane-2" className={cn(sendIconSizeClass)} />}
+                : isShellMode
+                    ? <><Icon name="play" className="size-3.5" />{'Run'}</>
+                    : <Icon name="send-plane-2" className={cn(sendIconSizeClass, ready && 'size-3.5')} />}
         </button>
     );
 
@@ -129,6 +139,7 @@ export const ComposerActionButtons = React.memo(function ComposerActionButtons(p
     && prev.currentSessionId === next.currentSessionId
     && prev.newSessionDraftOpen === next.newSessionDraftOpen
     && prev.isSending === next.isSending
+    && prev.isShellMode === next.isShellMode
     && prev.onPrimaryAction === next.onPrimaryAction
     && prev.onQueueMessage === next.onQueueMessage
     && prev.onAbort === next.onAbort

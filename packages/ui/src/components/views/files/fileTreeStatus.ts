@@ -19,7 +19,7 @@ export const toRootRelativePath = (path: string, root: string): string =>
 
 /**
  * Git code precedence preserving FilesView semantics:
- * open beats git at the caller, first duplicate wins via the index map,
+ * first duplicate wins via the index map,
  * `A`/`?` -> added, `D` -> deleted, `M` -> modified, anything else -> null.
  * Folder badges count modified and added independently, even when both apply.
  */
@@ -48,7 +48,8 @@ export interface FileTreeStatusIndex {
  *
  * Build once per `gitStatus` snapshot (plus `root`/`openPaths`), then answer
  * every row with O(1) lookups:
- * - `openPaths` set for exact open membership (open beats git).
+ * - `openPaths` set for exact open membership; a git change beats open,
+ *   since open files already show as tabs.
  * - `statusByPath` map for exact relative-path git lookup (first duplicate wins).
  * - `ancestorCounts` map for folder badges: each changed file increments its
  *   segment-boundary ancestors once at build time instead of scanning all
@@ -95,12 +96,10 @@ export const createFileTreeStatusIndex = ({
   }
 
   const getFileStatus = (path: string): FileStatus | null => {
-    if (openSet.has(path)) return 'open';
-    if (statusByPath.size === 0) return null;
-    const relative = toRootRelativePath(path, root);
-    const file = statusByPath.get(relative);
-    if (!file) return null;
-    return classifyGitFileStatus(file);
+    const file = statusByPath.size > 0 ? statusByPath.get(toRootRelativePath(path, root)) : undefined;
+    const change = file ? classifyGitFileStatus(file) : null;
+    if (change) return change;
+    return openSet.has(path) ? 'open' : null;
   };
 
   const getFolderBadge = (dirPath: string): FolderBadge | null => {

@@ -70,6 +70,8 @@ type GitViewProps = {
    * rendering GitView's own local header row (terminal pattern).
    */
   gitHeaderSlot?: HTMLDivElement | null;
+  /** Show only this file's diff (repo-relative path), when it has changes in the scope. */
+  onlyFilePath?: string | null;
 };
 
 export const GitView: React.FC<GitViewProps> = ({
@@ -78,6 +80,7 @@ export const GitView: React.FC<GitViewProps> = ({
   initialDiffPath = null,
   initialDiffStaged = false,
   gitHeaderSlot = null,
+  onlyFilePath = null,
 }) => {
   const { git } = useRuntimeAPIs();
   const currentDirectory = useEffectiveDirectory();
@@ -499,7 +502,7 @@ export const GitView: React.FC<GitViewProps> = ({
       const message =
         err instanceof Error
           ? err.message
-          : `${action === 'sync' ? 'Sync Changes' : action === 'pull' ? 'Pull' : action} failed`;
+          : `${action === 'sync' ? 'Sync changes' : action === 'pull' ? 'Pull' : action} failed`;
       toast.error(message);
     } finally {
       setSyncAction(null);
@@ -1542,6 +1545,7 @@ export const GitView: React.FC<GitViewProps> = ({
                     stackedDefaultCollapsedAll
                     flushContent
                     hideToolbar
+                    onlyFilePath={onlyFilePath}
                     onHeaderControlsStateChange={handleDiffHeaderStateChange}
                   />
                 </React.Suspense>

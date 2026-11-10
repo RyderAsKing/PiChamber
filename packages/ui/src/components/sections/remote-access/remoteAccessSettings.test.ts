@@ -52,7 +52,7 @@ const getPageTitle = (slug: string) =>
 
 describe("remote access / servers settings contract", () => {
   test("registers both pages with icons and ordering", () => {
-    expect(getSettingsPageMeta("remote-access")?.title).toBe("Remote Access");
+    expect(getSettingsPageMeta("remote-access")?.title).toBe("Remote access");
     expect(getSettingsPageMeta("servers")?.title).toBe("Servers");
     expect(getSettingsNavIcon("remote-access")).toBeTruthy();
     expect(getSettingsNavIcon("servers")).toBeTruthy();

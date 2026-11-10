@@ -1010,9 +1010,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   // Normal/steering submits carry only the composer; pending follow-ups are
   // distinct entries dispatched via their own claim, so the send gate ignores
   // them here. Each chip sends its own follow-up explicitly.
+  // A shell command in an existing session runs without the model; a new
+  // session still needs one to be created.
+  const shellRunsWithoutModel =
+    inputMode === "shell" && Boolean(currentSessionId) && !newSessionDraftOpen;
   const canSend =
     hasContent &&
-    hasUsableModel &&
+    (hasUsableModel || shellRunsWithoutModel) &&
     attachmentsReady &&
     !isConnectionUncertain;
 
@@ -1247,7 +1251,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
         ? capturedSendConfig?.variant
         : currentVariant;
 
-      if (!providerIdToSend || !modelIdToSend) {
+      if ((!providerIdToSend || !modelIdToSend) && !(shellRunsWithoutModel && !queuedOnly)) {
         console.warn("Cannot send message: provider or model not selected");
         toast.error("Select a provider and model before sending a message.");
         return;
@@ -1694,8 +1698,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
 
       const sendPromise = sendMessage(
         primaryText,
-        providerIdToSend,
-        modelIdToSend,
+        providerIdToSend ?? "",
+        modelIdToSend ?? "",
         agentNameToSend,
         primaryAttachments,
         undefined,
@@ -2590,7 +2594,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                 branchOptions={draftBranchItems}
                 branchInteractive={newSessionDraftOpen}
                 branchLoading={isDiscoveringDraftBranches}
-                showBranchSelector={shouldShowDraftBranchSelector}
+                // An existing session's branch is already in the header; the
+                // row keeps only the pending-changes summary.
+                showBranchSelector={shouldShowDraftBranchSelector && newSessionDraftOpen}
                 showProjectSelector={newSessionDraftOpen}
                 showWorktreeSelector={
                   newSessionDraftOpen && shouldShowDraftBranchSelector
@@ -2710,8 +2716,9 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   directory={currentSessionDirectoryForSync ?? currentDirectory}
                   newSessionDraftOpen={newSessionDraftOpen}
                   messageLength={message.length}
+                  // A shell command runs without the model, so its picker steps aside.
                   leadingExtra={
-                    isDesktopStackedComposer || isMobile ? (
+                    inputMode !== "shell" && (isDesktopStackedComposer || isMobile) ? (
                       <MemoModelControls
                         keepLabels
                         className="w-max shrink-0"
@@ -2758,6 +2765,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   stopIconSizeClass={stopIconSizeClass}
                   canSend={canSend && !isComposerLocked}
                   isSending={isSendingNewSession}
+                  isShellMode={inputMode === "shell"}
                   isAttachmentDisabled={isAttachmentDisabled}
                   disabledReason={attachmentGateMessage}
                   canAbort={canAbort}
@@ -2788,20 +2796,36 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                       {inputMode === "shell" ? (
                         <div
                           className={cn(
-                            "typography-micro text-muted-foreground",
+                            "flex items-center gap-1.5 typography-micro text-muted-foreground",
                             isInlineComposer ? "px-1.5 pt-1" : "px-3 pt-2",
                           )}
                           data-testid="chat-input-shell-mode"
                         >
-                          <span className="font-mono text-foreground">
-                            {shellExcludeFromContext ? "!!" : "!"}
-                          </span>{" "}
-                          {shellExcludeFromContext
-                            ? "Shell command, not sent to the model"
-                            : "Shell command, sent to the model"}
+                          <Icon name="terminal-box" className="size-3.5 shrink-0 text-foreground" />
+                          <span className="font-medium text-foreground">{"Shell"}</span>
+                          <span className="min-w-0 truncate">
+                            {shellExcludeFromContext
+                              ? "Output not sent to the model"
+                              : "Output sent to the model"}
+                          </span>
                           {!isMobile || hasHardwareKeyboard ? (
-                            <span> · Esc to go back</span>
-                          ) : null}
+                            <span className="ml-auto shrink-0">{"Esc to exit"}</span>
+                          ) : (
+                            // Without a keyboard there is no Escape: a button leaves
+                            // shell mode and keeps the typed text, like Escape does.
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => {
+                                setInputMode("normal");
+                                composerRef.current?.focus();
+                              }}
+                              className="ml-auto h-6 shrink-0 px-2 typography-micro font-medium text-muted-foreground hover:text-foreground"
+                            >
+                              {"Exit shell"}
+                            </Button>
+                          )}
                         </div>
                       ) : null}
                       <div className="relative z-10">
@@ -2856,8 +2880,8 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                 : isNewSessionStackedComposer
                                   ? "Plan, build, / for skills, @ for context"
                                   : useCompactChatPlaceholder
-                                    ? "Use @ / ! # for helpers"
-                                    : "@ for files; / for commands, skills, and prompts; ! for shell; # for snippets"
+                                    ? "Ask anything. @ files, / commands"
+                                    : "Ask anything. @ files, / commands, ! shell, # snippets"
                               : "Select or create a session to start chatting"
                           }
                           editable={
@@ -2904,6 +2928,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                                     ? "pt-1.5 pb-2"
                                     : "pt-3 pb-2",
                             "typography-markdown md:typography-ui-label",
+                            inputMode === "shell" && "font-mono",
                           )}
                         />
                       </div>
@@ -2913,7 +2938,7 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               </div>
             </>
           </div>
-          {isDesktopStackedComposer || isMobile ? null : (
+          {isDesktopStackedComposer || isMobile || inputMode === "shell" ? null : (
             <div
               className={cn(
                 "mt-1.5 flex w-full shrink-0 items-center pl-2",

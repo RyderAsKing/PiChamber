@@ -21,22 +21,11 @@ import { cn, getRevealLabel } from '@/lib/utils';
 import { isDesktopLocalOriginActive, isDesktopShell } from '@/lib/desktop';
 import { Icon } from "@/components/icon/Icon";
 import { getFileIcon, type FileStatus } from './sidebarFileRowHelpers';
+import { FileChangeMark, FolderChangeMark } from '@/components/views/files/FileChangeMark';
 import {
   getDisplayPath,
   type FileNode,
 } from '@/components/views/files/filesViewModel';
-
-export const FileStatusDot: React.FC<{ status: FileStatus }> = ({ status }) => {
-  const color = {
-    open: 'var(--status-info)',
-    modified: 'var(--status-warning)',
-    'git-modified': 'var(--status-warning)',
-    'git-added': 'var(--status-success)',
-    'git-deleted': 'var(--status-error)',
-  }[status];
-
-  return <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />;
-};
 
 export interface FileRowProps {
   node: FileNode;
@@ -130,7 +119,7 @@ export const FileRow: React.FC<FileRowProps> = ({
           toast.error("Copy failed");
         });
       }}>
-        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {"Copy Path"}
+        <Icon name="file-copy" className="mr-2 h-4 w-4" /> {"Copy path"}
       </Item>
       {!isDir && downloadFile && (
         <Item onClick={(e: React.MouseEvent) => {
@@ -153,12 +142,12 @@ export const FileRow: React.FC<FileRowProps> = ({
           <Separator />
           {canCreateFile && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFile', node); }}>
-              <Icon name="file-add" className="mr-2 h-4 w-4" /> {"New File"}
+              <Icon name="file-add" className="mr-2 h-4 w-4" /> {"New file"}
             </Item>
           )}
           {canCreateFolder && (
             <Item onClick={(e: React.MouseEvent) => { e.stopPropagation(); onOpenDialog('createFolder', node); }}>
-              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {"New Folder"}
+              <Icon name="folder-add" className="mr-2 h-4 w-4" /> {"New folder"}
             </Item>
           )}
         </>
@@ -194,7 +183,8 @@ export const FileRow: React.FC<FileRowProps> = ({
         draggable
         onDragStart={handleDragStart}
         className={cn(
-          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors pr-8 select-none',
+          'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-foreground transition-colors select-none',
+          hasMenuActions && 'group-hover:pr-8 group-focus-within:pr-8',
           isActive ? 'bg-interactive-selection/70' : 'hover:bg-interactive-hover/40',
           'cursor-grab active:cursor-grabbing'
         )}
@@ -211,12 +201,12 @@ export const FileRow: React.FC<FileRowProps> = ({
         <span className="min-w-0 flex-1 truncate typography-meta" title={node.path}>
           {node.name}
         </span>
-        {!isDir && status && <FileStatusDot status={status} />}
+        {/* The row's menu button takes this spot on hover. */}
+        {!isDir && status && (
+          <FileChangeMark status={status} className={hasMenuActions ? 'group-hover:invisible group-focus-within:invisible' : undefined} />
+        )}
         {isDir && badge && (
-          <span className="text-xs flex items-center gap-1 ml-auto mr-1">
-            {badge.modified > 0 && <span className="text-[var(--status-warning)]">M{badge.modified}</span>}
-            {badge.added > 0 && <span className="text-[var(--status-success)]">+{badge.added}</span>}
-          </span>
+          <FolderChangeMark badge={badge} className={hasMenuActions ? 'group-hover:invisible group-focus-within:invisible' : undefined} />
         )}
       </button>
       {hasMenuActions && (

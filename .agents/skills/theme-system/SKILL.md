@@ -14,6 +14,7 @@ description: Use when creating or modifying PiChamber UI components, styling, co
 - Use the sprite-based `Icon`; never import icons directly from `@remixicon/react`.
 - Apply hover tokens only to interactive elements.
 - Use status colors only for actual status/feedback.
+- Use the three text levels (`text-foreground`, `text-muted-foreground`, `text-subtle-foreground`) and the `typography-*` scale; do not add alpha-faded text or hardcoded font sizes.
 - Use selection tokens for selected state and primary tokens for primary actions.
 
 ## Load References By Task
@@ -44,6 +45,7 @@ Use `Button` from `packages/ui/src/components/ui/button.tsx`.
 | Variant | Use |
 |---|---|
 | `default` | Primary local action |
+| `solid` | The one action that finishes a flow (Add, Clone, Create, Commit); disabled, it loses its fill |
 | `outline` | Visible secondary action |
 | `secondary` | Soft secondary action |
 | `ghost` | Quiet row/toolbar action |

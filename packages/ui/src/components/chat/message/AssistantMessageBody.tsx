@@ -36,7 +36,6 @@ export const AssistantMessageBody = React.memo(
     messageFinish,
     messageCompletedAt,
     messageCreatedAt,
-    durationMs,
     isLatestMessage = false,
 
     isMobile,
@@ -86,7 +85,6 @@ export const AssistantMessageBody = React.memo(
       shouldAnimateTurnFooter,
       hasStopFinish,
       awaitingMessageCompletion,
-      turnDurationText,
       footerTimestamp,
     } = useAssistantMessageLifecycle({
       visibleParts,
@@ -94,7 +92,6 @@ export const AssistantMessageBody = React.memo(
       messageFinish,
       messageCompletedAt,
       messageCreatedAt,
-      durationMs,
       turnGroupingContext,
       errorMessage,
       isMobile,
@@ -188,7 +185,7 @@ export const AssistantMessageBody = React.memo(
     ]);
 
     const footerTimestampClassName =
-      'text-sm text-muted-foreground tabular-nums flex items-center gap-1';
+      'typography-meta text-muted-foreground tabular-nums flex items-center gap-1';
     const canOpenMessagePreview = !isMiniChatSurface && !isMobile;
 
     const finalTurnActionButtons = (
@@ -231,7 +228,7 @@ export const AssistantMessageBody = React.memo(
       >
         <TextSelectionMenu containerRef={messageContentRef} />
         <div>
-          <div className="message-content-text space-y-2 leading-relaxed overflow-hidden text-foreground/90 [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
+          <div className="message-content-text space-y-2 leading-relaxed overflow-hidden text-foreground [&_p:last-child]:mb-0 [&_ul:last-child]:mb-0 [&_ol:last-child]:mb-0">
             {renderedParts}
             {showErrorMessage && (
               <FadeInOnReveal key="assistant-error">
@@ -275,7 +272,7 @@ export const AssistantMessageBody = React.memo(
               )}
               style={MESSAGE_FOOTER_CONTAINER_STYLE}
             >
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm text-muted-foreground">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 typography-meta text-muted-foreground">
                 {footerModelName ? (
                   <span className="flex min-w-0 items-center gap-1.5">
                     {footerHasLogo && footerLogoSrc ? (
@@ -314,22 +311,11 @@ export const AssistantMessageBody = React.memo(
                     <span className="message-footer__label">{footerAgentName}</span>
                   </span>
                 ) : null}
-                {turnDurationText ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-sm text-muted-foreground tabular-nums flex items-center gap-1">
-                        <Icon name="hourglass" className="h-3.5 w-3.5" />
-                        <span className="message-footer__label">{turnDurationText}</span>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent>{turnDurationText}</TooltipContent>
-                  </Tooltip>
-                ) : null}
                 {footerTimestamp ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span
-                        className={footerTimestampClassName}
+                        className={cn(footerTimestampClassName, 'message-footer__timestamp')}
                         aria-label={`Message time: ${footerTimestamp}`}
                       >
                         <Icon name="time" className="h-3.5 w-3.5" />

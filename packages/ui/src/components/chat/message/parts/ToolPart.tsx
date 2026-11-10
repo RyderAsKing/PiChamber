@@ -129,7 +129,7 @@ const ExtensionRenderBlock: React.FC<ExtensionRenderBlockProps> = React.memo(({ 
         <div
             className={cn(
                 'my-1 ml-5 overflow-x-auto rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2',
-                'font-mono typography-micro whitespace-pre max-h-80 overflow-y-auto',
+                'font-mono typography-code whitespace-pre max-h-80 overflow-y-auto',
             )}
             data-chat-tool-extension-render="true"
         >
@@ -617,7 +617,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                                 onFileClick={runtime?.editor ? openApplyPatchFile : undefined}
                             />
                             {typeof effectiveTimeStart === 'number' ? (
-                                <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
+                                <span className={cn('ml-auto flex-shrink-0 tabular-nums text-subtle-foreground', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
                                     <LiveDuration
                                         start={effectiveTimeStart}
                                         end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}
@@ -725,7 +725,7 @@ const ToolPartContent: React.FC<ToolPartProps> = ({
                     </div>
                 ) : null}
                 {!isMultiFileApplyPatch && typeof effectiveTimeStart === 'number' ? (
-                    <span className={cn('ml-auto flex-shrink-0 tabular-nums text-muted-foreground/80', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
+                    <span className={cn('ml-auto flex-shrink-0 tabular-nums text-subtle-foreground', TOOL_ROW_DESCRIPTION_CLASS)} aria-label="Tool duration">
                         <LiveDuration
                             start={effectiveTimeStart}
                             end={typeof effectiveTimeEnd === 'number' ? effectiveTimeEnd : undefined}

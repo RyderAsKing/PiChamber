@@ -31,6 +31,7 @@ The following functions are exported and used by the web server:
 ### Repository Operations
 - `isGitRepository(directory)`: Check if a directory is a Git repository.
 - `getCurrentIdentity(directory)`: Read-only read of the local Git `user.name`/`user.email` (falling back to global when unset). Never writes config.
+- `initRepository(directory)`: Run `git init` in an existing folder. Returns `{ created: true }`, or `{ created: false }` without running git when the folder already holds its own `.git` (a parent repository does not count). Throws for a missing path or a file. Exposed as `POST /api/git/init?directory=…`, which answers failures with 400; the Add folder dialog's new-project step calls it after creating the folder.
 - `getRemoteUrl(directory, remoteName)`: Get URL for a specific remote.
 
 ### Status and Diff Operations

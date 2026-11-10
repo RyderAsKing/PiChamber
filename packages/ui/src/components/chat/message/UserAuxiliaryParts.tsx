@@ -46,24 +46,24 @@ export const UserSubtaskPart: React.FC<{ part: SubtaskPartLike }> = ({ part }) =
             <div className="flex items-center gap-2 flex-wrap">
                 <span className="typography-meta font-semibold text-foreground">{"Delegated task"}</span>
                 {command ? (
-                    <span className="inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none bg-foreground/5 text-muted-foreground">
+                    <span className="inline-flex h-5 items-center rounded px-1.5 typography-micro leading-none bg-foreground/5 text-muted-foreground">
                         /{command}
                     </span>
                 ) : null}
                 {agent ? (
-                    <span className="inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none bg-foreground/5 text-muted-foreground">
+                    <span className="inline-flex h-5 items-center rounded px-1.5 typography-micro leading-none bg-foreground/5 text-muted-foreground">
                         @{agent}
                     </span>
                 ) : null}
                 {model ? (
-                    <span className="inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none bg-foreground/5 text-muted-foreground">
+                    <span className="inline-flex h-5 items-center rounded px-1.5 typography-micro leading-none bg-foreground/5 text-muted-foreground">
                         {model}
                     </span>
                 ) : null}
             </div>
 
             {description ? (
-                <div className="typography-ui-label text-foreground/90 mt-1.5">
+                <div className="typography-ui-label text-foreground mt-1.5">
                     {description}
                 </div>
             ) : null}
@@ -125,7 +125,7 @@ export const UserShellActionPart: React.FC<{ part: ShellActionPartLike }> = ({ p
                 <span className="typography-meta font-semibold text-foreground">{"Shell command"}</span>
                 {status ? (
                     <span className={cn(
-                        'inline-flex h-5 items-center rounded px-1.5 text-[11px] leading-none',
+                        'inline-flex h-5 items-center rounded px-1.5 typography-micro leading-none',
                         status === 'error'
                             ? 'bg-[var(--status-error-background)] text-[var(--status-error)]'
                             : 'bg-foreground/5 text-muted-foreground'

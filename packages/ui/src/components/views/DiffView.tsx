@@ -12,7 +12,7 @@ import { DiffViewToggle } from '@/components/chat/message/DiffViewToggle';
 import { Icon } from "@/components/icon/Icon";
 import { ChangeScopeSelector } from './diff/ChangeScopeSelector';
 import { FileList } from './diff/FileList';
-import { getFileDiffSelection } from './diff/diffSource';
+import { getFileDiffSelection, getFileStageLabel, isPartlyStaged } from './diff/diffSource';
 import { MultiFileDiffEntry } from './diff/MultiFileDiffEntry';
 import type { DiffScope } from './diff/diffTypes';
 import { useDiffViewState } from './diff/useDiffViewState';
@@ -29,6 +29,8 @@ export type DiffHeaderScope = Extract<DiffScope, 'all' | 'working' | 'staged' | 
 export interface DiffHeaderControlsState {
   turnCount: number;
   branchCount: number;
+  /** The one file the diff is narrowed to, so the scope picker names it instead of a count. */
+  focusedFilePath: string | null;
   expandedCount: number;
   totalCount: number;
   loadFullFiles: boolean;
@@ -68,6 +70,11 @@ interface DiffViewProps {
    * and keep the inline row.
    */
   toolbarSlot?: HTMLDivElement | null;
+  /**
+   * Show only this file (repo-relative path) in the stacked list. Ignored when
+   * the scope has no changes for it, so the panel never looks empty by mistake.
+   */
+  onlyFilePath?: string | null;
 }
 
 export const DiffView: React.FC<DiffViewProps> = ({
@@ -84,6 +91,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   hideToolbar = false,
   onHeaderControlsStateChange,
   toolbarSlot = null,
+  onlyFilePath = null,
 }) => {
   const {
     effectiveDirectory,
@@ -159,9 +167,16 @@ export const DiffView: React.FC<DiffViewProps> = ({
 
   const expandedCount = expandedFiles.size;
 
+  const onlyFile = onlyFilePath && activeDiffScope !== 'turn' && activeDiffScope !== 'branch'
+    ? changedFiles.find((file) => file.path === onlyFilePath) ?? null
+    : null;
+  const visibleChangedFiles = onlyFile ? [onlyFile] : changedFiles;
+
+
   const headerControlsState = React.useMemo<DiffHeaderControlsState>(() => ({
     turnCount: turnFileCount,
     branchCount: branchFileCount,
+    focusedFilePath: onlyFile?.path ?? null,
     expandedCount,
     totalCount: changedFiles.length,
     loadFullFiles,
@@ -174,6 +189,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
   }), [
     turnFileCount,
     branchFileCount,
+    onlyFile,
     expandedCount,
     changedFiles.length,
     loadFullFiles,
@@ -223,7 +239,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
             data-diff-virtual-root
           >
             <div className="flex flex-col [overflow-anchor:none]" data-diff-virtual-content>
-              {changedFiles.map((file) => {
+              {visibleChangedFiles.map((file) => {
                 const diffSelection = getFileDiffSelection(activeDiffScope, file, focusedFile);
                 return (
                 <MultiFileDiffEntry
@@ -245,6 +261,8 @@ export const DiffView: React.FC<DiffViewProps> = ({
                   }}
                   diffSource={diffSelection.source}
                   staged={diffSelection.staged}
+                  stageLabel={getFileStageLabel(activeDiffScope, file)}
+                  partlyStaged={isPartlyStaged(activeDiffScope, file)}
                   showFileActions={activeDiffScope !== 'turn' && activeDiffScope !== 'branch'}
                   loadFullFiles={loadFullFiles}
                   initialDiffData={
@@ -348,6 +366,7 @@ export const DiffView: React.FC<DiffViewProps> = ({
             stagedCount={stagedFileCount}
             turnCount={turnFileCount}
             branchCount={branchFileCount}
+            focusedFilePath={onlyFile?.path ?? null}
             onScopeChange={(scope) => {
               setActiveDiffScope(scope);
               onDiffScopeChange?.(scope);

@@ -5,6 +5,7 @@ import { listLocalDirectory } from '@/lib/fsApi';
 import {
   isAbsolutePath,
   normalizePath,
+  isAlwaysHiddenEntryName,
   shouldIgnoreEntryName,
   sortNodes,
   type FileNode,
@@ -138,6 +139,7 @@ export function useFilesTree({
     const nodes: FileNode[] = [];
     for (const entry of entries) {
       if (!entry?.name) continue;
+      if (isAlwaysHiddenEntryName(entry.name)) continue;
       if (chrome === 'desktop' && !showGitignored && shouldIgnoreEntryName(entry.name)) continue;
 
       const normalizedEntryPath = normalizePath(entry.path || '');

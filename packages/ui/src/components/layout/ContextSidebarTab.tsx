@@ -364,7 +364,7 @@ export const ContextPanelContent: React.FC = () => {
   const segments: Array<{ key: string; label: string; value: number; color: string }> = [
     { key: 'user', label: "User", value: viewModel.breakdown.user, color: 'var(--status-success)' },
     { key: 'assistant', label: "Assistant", value: viewModel.breakdown.assistant, color: 'var(--primary-base)' },
-    { key: 'tool', label: "Tool Calls", value: viewModel.breakdown.tool, color: 'var(--status-warning)' },
+    { key: 'tool', label: "Tool calls", value: viewModel.breakdown.tool, color: 'var(--status-warning)' },
     ...(viewModel.hasUsage ? [] : [{ key: 'other', label: "Other", value: viewModel.breakdown.other, color: 'var(--surface-muted-foreground)' }]),
   ];
 
@@ -375,7 +375,7 @@ export const ContextPanelContent: React.FC = () => {
         {/* ── Session header ── */}
         <div className="mb-6">
           <h2 className="typography-ui-header font-semibold text-foreground truncate">{viewModel.sessionTitle}</h2>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 typography-micro text-muted-foreground/70">
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 typography-micro text-subtle-foreground">
             <span>{viewModel.providerModel.providerName} / {viewModel.providerModel.modelName}</span>
             {viewModel.createdAt && (
               <>
@@ -390,7 +390,7 @@ export const ContextPanelContent: React.FC = () => {
         <div className="mb-5 rounded-lg bg-[var(--surface-elevated)]/70 px-4 py-3.5">
           <div className="flex items-baseline justify-between">
             <span className="typography-micro text-muted-foreground">{"Context"}</span>
-            <span className="typography-micro tabular-nums text-muted-foreground/70">
+            <span className="typography-micro tabular-nums text-subtle-foreground">
               {formatNumber(viewModel.contextWindowTokens)}
               {viewModel.contextLimit ? ` / ${formatNumber(viewModel.contextLimit)}` : ''}
             </span>
@@ -420,7 +420,7 @@ export const ContextPanelContent: React.FC = () => {
             { label: "Cost", value: formatMoney(viewModel.totalAssistantCost) },
           ] as const).map((item) => (
             <div key={item.label} className="rounded-lg bg-[var(--surface-elevated)]/70 px-3 py-2.5">
-              <div className="typography-micro text-muted-foreground/70">{item.label}</div>
+              <div className="typography-micro text-subtle-foreground">{item.label}</div>
               <div className="mt-0.5 typography-ui-label tabular-nums text-foreground">{item.value}</div>
             </div>
           ))}
@@ -428,22 +428,22 @@ export const ContextPanelContent: React.FC = () => {
 
         {/* ── Last turn tokens ── */}
         <div className="mb-5 rounded-lg bg-[var(--surface-elevated)]/70 px-4 py-3.5">
-          <div className="typography-micro text-muted-foreground mb-2.5">{"Last Assistant Message"}</div>
+          <div className="typography-micro text-muted-foreground mb-2.5">{"Last assistant message"}</div>
           <div className="grid grid-cols-3 gap-x-4 gap-y-2.5">
             {([
               { label: "Input", value: viewModel.tokenBreakdown.input, format: 'count' },
               { label: "Output", value: viewModel.tokenBreakdown.output, format: 'count' },
               { label: "Reasoning", value: viewModel.tokenBreakdown.reasoning, format: 'count' },
-              { label: "Cache Read", value: viewModel.tokenBreakdown.cacheRead, format: 'count' },
-              { label: "Cache Write", value: viewModel.tokenBreakdown.cacheWrite, format: 'count' },
+              { label: "Cache read", value: viewModel.tokenBreakdown.cacheRead, format: 'count' },
+              { label: "Cache write", value: viewModel.tokenBreakdown.cacheWrite, format: 'count' },
               {
-                label: "Cache Hit",
+                label: "Cache hit",
                 value: viewModel.cacheHitRate.hasInput ? viewModel.cacheHitRate.percent : null,
                 format: 'percent',
               },
             ] as const).map((item) => (
               <div key={item.label}>
-                <div className="typography-micro text-muted-foreground/70">{item.label}</div>
+                <div className="typography-micro text-subtle-foreground">{item.label}</div>
                 <div className="mt-0.5 typography-ui-label tabular-nums text-foreground">
                   {item.value !== null && item.value !== undefined
                     ? item.format === 'percent'
@@ -478,7 +478,7 @@ export const ContextPanelContent: React.FC = () => {
               return (
                 <div key={segment.key} className="inline-flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: segment.color }} />
-                  <span className="typography-micro text-muted-foreground/70">
+                  <span className="typography-micro text-subtle-foreground">
                     {segment.label} <span className="tabular-nums">{pct.toFixed(0)}%</span>
                   </span>
                 </div>
@@ -489,7 +489,7 @@ export const ContextPanelContent: React.FC = () => {
 
         {/* ── Raw messages ── */}
         <div>
-          <div className="typography-micro text-muted-foreground">{"Raw Messages"}</div>
+          <div className="typography-micro text-muted-foreground">{"Raw messages"}</div>
           <div className="mt-2.5 space-y-1">
             {[...sessionMessages].reverse().map((message) => {
               const roleInfo = deriveMessageRole(message.info);

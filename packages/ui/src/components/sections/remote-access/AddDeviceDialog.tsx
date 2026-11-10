@@ -61,7 +61,7 @@ export const AddDeviceDialogBody: React.FC<{ addDevice: AddDeviceApi; isDesktop:
             <div className="flex flex-wrap gap-2">
               {isDesktop ? (
                 <Button type="button" size="xs" className="!font-normal" onClick={() => scrollToWays('lan')}>
-                  {'Turn on Local network'}
+                  {'Turn on local network'}
                 </Button>
               ) : null}
               <Button

@@ -174,7 +174,7 @@ export function DictationSettings() {
           <Input type="password" value={remoteApiKey} onChange={(event) => setRemoteApiKey(event.target.value)} placeholder={remote?.apiKeyConfigured ? 'Stored key' : 'Optional'} className="h-8" autoComplete="off" />
         </SettingsStackedField>
         <div className={SETTINGS_CONTROL_CLUSTER_CLASS}>
-          <Button onClick={() => void saveRemote()} disabled={savingRemote || !remoteUrl.trim() || !remoteModel.trim()}>{savingRemote ? 'Saving...' : 'Save Provider'}</Button>
+          <Button onClick={() => void saveRemote()} disabled={savingRemote || !remoteUrl.trim() || !remoteModel.trim()}>{savingRemote ? 'Saving...' : 'Save provider'}</Button>
         </div>
       </SettingsSection>
       {loadError ? <p role="alert" className="pb-6 typography-meta text-[var(--status-error)]">{loadError}</p> : null}

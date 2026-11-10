@@ -545,6 +545,49 @@ export interface PiArchiveInput {
   archived: boolean;
 }
 
+/**
+ * PiChamber-only sidebar shelf state for one session (`GET /api/pi/session-shelf`).
+ * `settled: 'settled'` moves the session to Settled; `settled: 'active'` keeps it
+ * out of Settled even when it would auto-settle. `snoozedUntil` hides it until
+ * that time (ms epoch). A send to the session clears the entry on the server.
+ */
+export interface PiSessionShelfEntry {
+  settled?: 'settled' | 'active';
+  settledAt?: number;
+  snoozedUntil?: number;
+  snoozedAt?: number;
+}
+
+export interface PiSessionShelfResponse {
+  sessions: Record<PiSessionId, PiSessionShelfEntry>;
+}
+
+/** Omitted fields are left alone; `null` clears them. */
+export interface PiSessionShelfInput {
+  sessionId: PiSessionId;
+  settled?: 'settled' | 'active' | null;
+  snoozedUntil?: number | null;
+}
+
+const isPositiveTimestamp = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+
+export const isValidSessionShelfEntry = (value: unknown): value is PiSessionShelfEntry => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const entry = value as Record<string, unknown>;
+  if (entry.settled !== undefined && entry.settled !== 'settled' && entry.settled !== 'active') return false;
+  if (entry.settled === 'settled' && !isPositiveTimestamp(entry.settledAt)) return false;
+  if (entry.snoozedUntil !== undefined && (!isPositiveTimestamp(entry.snoozedUntil) || !isPositiveTimestamp(entry.snoozedAt))) return false;
+  return true;
+};
+
+export const isValidSessionShelfResponse = (value: unknown): value is PiSessionShelfResponse => {
+  if (!value || typeof value !== 'object') return false;
+  const sessions = (value as { sessions?: unknown }).sessions;
+  if (!sessions || typeof sessions !== 'object' || Array.isArray(sessions)) return false;
+  return Object.values(sessions).every(isValidSessionShelfEntry);
+};
+
 export interface PiSessionTreeNode {
   /** Pi history entry identity accepted by `sessions.navigate`. */
   entryId: string;

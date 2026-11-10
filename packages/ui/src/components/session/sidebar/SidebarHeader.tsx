@@ -24,6 +24,8 @@ type Props = {
   onToggleSelectionMode: () => void;
   /** Dedicated mobile: occupy the same header band as the chat and workspace drawers. */
   mobileVariant?: boolean;
+  /** Mobile: closes the sessions drawer. */
+  onClose?: () => void;
 };
 
 export function SidebarHeader(props: Props): React.ReactNode {
@@ -47,6 +49,7 @@ export function SidebarHeader(props: Props): React.ReactNode {
     selectionModeEnabled,
     onToggleSelectionMode,
     mobileVariant = false,
+    onClose,
   } = props;
 
   if (hideDirectoryControls) {
@@ -58,6 +61,38 @@ export function SidebarHeader(props: Props): React.ReactNode {
     'text-muted-foreground hover:text-foreground',
     !mobileVariant && 'hover:bg-transparent',
   );
+
+  const settingsButton = onOpenSettings ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className={actionClassName}
+          aria-label={"Settings"}
+        >
+          <Icon name="settings-3" className={headerActionIconClass} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
+    </Tooltip>
+  ) : null;
+
+  const updateButton = onOpenUpdate ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onOpenUpdate}
+          className={actionClassName}
+          aria-label={"Update"}
+        >
+          <Icon name="download" className={headerActionIconClass} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" sideOffset={4}><p>{"Update"}</p></TooltipContent>
+    </Tooltip>
+  ) : null;
 
   return (
     <div className={cn('select-none flex-shrink-0', mobileVariant ? 'px-2' : 'px-2 py-1')}>
@@ -71,21 +106,15 @@ export function SidebarHeader(props: Props): React.ReactNode {
           )}
         >
           <div className={cn('flex min-w-0 items-center', mobileVariant ? 'gap-1 overflow-x-auto' : 'gap-1.5')} data-no-drawer-swipe={mobileVariant ? "true" : undefined}>
-            {onOpenSettings ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={onOpenSettings}
-                    className={actionClassName}
-                    aria-label={"Settings"}
-                  >
-                    <Icon name="settings-3" className={headerActionIconClass} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Settings"}</p></TooltipContent>
-              </Tooltip>
-            ) : null}
+            {mobileVariant ? (
+              // The drawer names itself, like the chat and workspace drawers' titles.
+              <h2 className="truncate pl-2 typography-ui-header font-semibold text-foreground">{"Sessions"}</h2>
+            ) : (
+              <>
+                {settingsButton}
+                {updateButton}
+              </>
+            )}
 
             {!mobileVariant && onOpenInstances ? (
               <Tooltip>
@@ -105,22 +134,6 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </Tooltip>
             ) : null}
 
-            {onOpenUpdate ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={onOpenUpdate}
-                    className={actionClassName}
-                    aria-label={"Update"}
-                  >
-                    <Icon name="download" className={headerActionIconClass} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Update"}</p></TooltipContent>
-              </Tooltip>
-            ) : null}
-
             {!mobileVariant ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -128,12 +141,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
                     type="button"
                     onClick={handleOpenDirectoryDialog}
                     className={actionClassName}
-                    aria-label={"Add project"}
+                    aria-label={"Add folder"}
                   >
                     <Icon name="folder-add" className={headerActionIconClass} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>{"Add project"}</p></TooltipContent>
+                <TooltipContent side="bottom" sideOffset={4}><p>{"Add folder"}</p></TooltipContent>
               </Tooltip>
             ) : null}
 
@@ -155,6 +168,12 @@ export function SidebarHeader(props: Props): React.ReactNode {
           </div>
 
           <div className={cn('flex shrink-0 items-center', mobileVariant ? 'gap-1' : 'gap-1.5')}>
+            {mobileVariant ? (
+              <>
+                {settingsButton}
+                {updateButton}
+              </>
+            ) : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -191,12 +210,22 @@ export function SidebarHeader(props: Props): React.ReactNode {
               </TooltipContent>
             </Tooltip>
 
+            {mobileVariant && onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className={actionClassName}
+                aria-label={"Close sessions"}
+              >
+                <Icon name="close" className={headerActionIconClass} />
+              </button>
+            ) : null}
           </div>
         </div>
 
         {isSessionSearchOpen ? (
           <div className={cn(mobileVariant ? 'pb-2' : 'pb-1')}>
-            <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-muted-foreground/80">
+            <div className="mb-1 flex items-center justify-between px-0.5 typography-micro text-subtle-foreground">
               {hasSessionSearchQuery ? (
                 <span>{searchMatchCount === 1
                   ? `${searchMatchCount} match`

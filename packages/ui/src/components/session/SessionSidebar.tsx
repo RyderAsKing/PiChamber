@@ -65,9 +65,9 @@ import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { type SessionGroup, type SessionNode } from './sidebar/types';
+import { autoSettleDaysFromSetting } from '@/lib/sessionShelf';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
-  formatProjectLabel,
   normalizePath,
   selectExpandedParentKeysForContext,
   toggleExpandedParentKey,
@@ -260,6 +260,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ? 'workspace'
       : storedSidebarViewMode;
   const weekStartPreference = useUIStore((state) => state.weekStartPreference);
+  const autoSettleAfterDays = autoSettleDaysFromSetting(useUIStore((state) => state.sidebarAutoSettleAfterDays));
   const timelineWeekStart = React.useMemo(() => resolveTimelineWeekStart(weekStartPreference), [weekStartPreference]);
   const timelineBoundaries = useTimelineBoundaries(isVisible && sidebarViewMode === 'timeline', timelineWeekStart);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
@@ -1363,6 +1364,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         selectionModeEnabled={selectionModeEnabled}
         onToggleSelectionMode={handleToggleSelectionMode}
         mobileVariant={mobileVariant}
+        onClose={mobileVariant ? () => setSessionSwitcherOpen(false) : undefined}
       />
 
       {piConnection === 'error' || piConnection === 'unavailable' ? (
@@ -1423,6 +1425,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
         pinnedSessionIds={pinnedSessionIds}
+        autoSettleAfterDays={autoSettleAfterDays}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}
@@ -1447,23 +1450,23 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         isInlineEditing={isInlineEditing}
       />
 
-      {/* Dedicated mobile: the new-session action floats above the session
-          list, docked to the sidebar bottom with a sidebar-toned fade so the
-          last rows stay readable underneath. Hidden while the bulk selection
-          bar owns the bottom edge. The tablet sidebar keeps the SidebarNav
+      {/* Dedicated mobile: the new-session action is a footer under the
+          session list, so the bottom-anchored shelves sit right above it
+          instead of above a padded gap. Hidden while the bulk selection bar
+          owns the bottom edge. The tablet sidebar keeps the SidebarNav
           control instead (mobileVariant is false there). */}
       {mobileVariant && !(selectionModeEnabled && hasSelection) ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col gap-2 bg-gradient-to-t from-sidebar via-sidebar/85 to-transparent px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-10">
+        <div className="flex shrink-0 flex-col gap-2 px-4 pb-[calc(0.75rem+var(--oc-safe-area-bottom,0px))] pt-2">
           <BackgroundTasksMenu variant="mobile" />
           <Button
             type="button"
             variant="default"
             size="lg"
-            className="pointer-events-auto w-full shadow-lg"
+            className="w-full"
             onClick={handleOpenNewSessionDraftFromHeader}
-            aria-label="New session"
           >
             <Icon name="chat-new" className="size-4" />
+            {"New session"}
           </Button>
         </div>
       ) : null}

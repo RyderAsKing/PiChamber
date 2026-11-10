@@ -204,7 +204,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
                   log.status === 'error' && 'text-destructive',
                   log.status === 'done' && 'text-muted-foreground',
                   log.status === 'running' && 'text-foreground',
-                  log.status === 'pending' && 'text-muted-foreground/60'
+                  log.status === 'pending' && 'text-subtle-foreground'
                 )}
               >
                 {log.message}
@@ -310,7 +310,7 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
               className={cn(dropdownTriggerVariants({ size: 'default' }), 'w-full')}
             >
               <span className={cn('truncate', !selectedBranch && 'text-muted-foreground')}>
-                {selectedBranch || "Select Branch"}
+                {selectedBranch || "Select branch"}
               </span>
               <Icon name="arrow-down-s" className="size-4 opacity-60 shrink-0" />
             </button>
@@ -474,9 +474,9 @@ export const BranchIntegrationSection: React.FC<BranchIntegrationSectionProps> =
               <DialogDescription>
               {isOperating ? (
                 operationCompleted ? (
-                  hasError ? "Operation Failed" : "Operation Completed"
+                  hasError ? "Operation failed" : "Operation completed"
                 ) : (
-                  operation === 'merge' ? "Merging In Progress" : "Rebasing In Progress"
+                  operation === 'merge' ? "Merging in progress" : "Rebasing in progress"
                 )
               ) : (
                 <>

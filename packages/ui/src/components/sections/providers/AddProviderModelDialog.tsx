@@ -285,7 +285,7 @@ export const AddProviderModelDialog: React.FC<AddProviderModelDialogProps> = ({
                       setDisplayName(event.target.value);
                       clearError("displayName");
                     }}
-                    placeholder="Same as Model ID"
+                    placeholder="Same as model ID"
                     className="h-8"
                     disabled={saving}
                     aria-invalid={Boolean(fieldErrors.displayName) || undefined}

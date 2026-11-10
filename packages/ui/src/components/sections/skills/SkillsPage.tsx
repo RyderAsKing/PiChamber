@@ -170,7 +170,7 @@ export const SkillsPage: React.FC = () => {
           </SettingsSection>
 
           <SettingsSection
-            title="Skill Guide"
+            title="Skill guide"
             settingsItem="skills.content"
             info={isEditingSkill ? "Markdown supported. Preview your changes before saving." : "Rendered from the SKILL.md markdown file discovered by Pi."}
             headerAction={
@@ -193,7 +193,7 @@ export const SkillsPage: React.FC = () => {
                     Cancel
                   </Button>
                   <Button size="xs" onClick={() => void handleSaveSkill()} disabled={isSavingSkill || !isDirty}>
-                    {isSavingSkill ? "Saving..." : "Save Changes"}
+                    {isSavingSkill ? "Saving..." : "Save changes"}
                   </Button>
                 </div>
               </>
@@ -203,7 +203,7 @@ export const SkillsPage: React.FC = () => {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-10 text-center">
-                <Icon name="book-open" className="size-6 text-muted-foreground/60" aria-hidden />
+                <Icon name="book-open" className="size-6 text-subtle-foreground" aria-hidden />
                 <p className="typography-meta text-muted-foreground">No guide content available for this skill.</p>
                 <p className="typography-micro text-muted-foreground">The daemon did not return markdown for this resource.</p>
                 {isEditable ? (
@@ -309,7 +309,7 @@ export const SkillsPage: React.FC = () => {
           }
         >
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
-            <Icon name="book-open" className="size-8 text-muted-foreground/60" aria-hidden />
+            <Icon name="book-open" className="size-8 text-subtle-foreground" aria-hidden />
             <p className="typography-meta text-muted-foreground">No skills configured</p>
             <p className="typography-micro text-muted-foreground">Skills appear here when Pi discovers SKILL.md files.</p>
           </div>

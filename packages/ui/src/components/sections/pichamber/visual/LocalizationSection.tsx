@@ -42,7 +42,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
       <SettingsTwoColumn className="gap-4 @md:grid-cols-2 @md:gap-8 @3xl:gap-10">
         {shouldShowTimeFormat && (
           <SettingsStackedField
-            label={'Time Format'}
+            label={'Time format'}
             settingsItem="appearance.time-format"
           >
             <Select
@@ -71,7 +71,7 @@ export const LocalizationSection: React.FC<LocalizationSectionProps> = ({
 
         {shouldShowWeekStart && (
           <SettingsStackedField
-            label={'Week Starts On'}
+            label={'Week starts on'}
             settingsItem="appearance.week-start"
           >
             <Select

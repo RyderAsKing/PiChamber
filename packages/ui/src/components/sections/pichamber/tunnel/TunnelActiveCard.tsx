@@ -44,7 +44,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
         </div>
 
         <div>
-          <p className="typography-meta mb-1 text-muted-foreground/70">
+          <p className="typography-meta mb-1 text-subtle-foreground">
             {'Public URL (not accessible without a token)'}
           </p>
           <code className="typography-code block truncate rounded bg-muted/50 px-2 py-1 text-xs text-foreground">
@@ -55,7 +55,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
         {isConnectLinkLive && tunnelInfo.connectUrl && (
           <>
             <div>
-              <p className="typography-meta mb-1 text-muted-foreground/70">
+              <p className="typography-meta mb-1 text-subtle-foreground">
                 {'Connect link'}
               </p>
               <div className="flex items-center gap-2">
@@ -76,7 +76,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
                   {copied ? 'Copied' : 'Copy all'}
                 </Button>
               </div>
-              <p className="typography-meta mt-1 text-muted-foreground/70">
+              <p className="typography-meta mt-1 text-subtle-foreground">
                 {'Expires'}: {tunnelInfo.bootstrapExpiresAt ? remainingText : 'Never'}
               </p>
             </div>
@@ -129,7 +129,7 @@ export const TunnelActiveCard: React.FC<TunnelActiveCardProps> = ({
                 {'Stopping...'}
               </>
             ) : (
-              'Stop Tunnel'
+              'Stop tunnel'
             )}
           </Button>
         </div>

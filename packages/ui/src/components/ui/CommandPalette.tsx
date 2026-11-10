@@ -19,6 +19,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useCatalogUiSessions } from '@/sync/sync-context';
 import { resolveGlobalSessionDirectory } from '@/lib/chat/sessionDirectory';
+import { isGlobalSessionDirectory } from '@/sync/global-session-directory';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   EMPTY_SESSION_ORDER_RANKS,
@@ -42,13 +43,21 @@ import { canUseElectronDesktopIPC, invokeDesktop, isDesktopShell, isWebRuntime }
 import { SETTINGS_PAGE_METADATA, type SettingsRuntimeContext } from '@/lib/settings/metadata';
 
 const EMPTY_PINNED_SESSION_IDS = new Set<string>();
+const PALETTE_KEY_HINTS: KeyHint[] = [
+  { keys: ['↑', '↓'], label: 'Navigate' },
+  { keys: ['↵'], label: 'Open' },
+  { keys: ['Esc'], label: 'Close' },
+];
 import { getSettingsNavIcon } from '@/lib/settings/metadata';
 import { Icon } from "@/components/icon/Icon";
 import { ProjectIcon } from "@/components/ui/ProjectIcon";
 import { scoreByFuzzyQuery } from '@/lib/search/fuzzySearch';
-import { truncatePathMiddle } from '@/lib/utils';
+import { cn, truncatePathMiddle } from '@/lib/utils';
+import { KeyHints, type KeyHint } from '@/components/ui/KeyHints';
+import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 import { buildCommandPaletteFileSearchKey, scoreCommandPaletteFiles } from './commandPaletteFilesState';
 
 type CommandEntry = {
@@ -101,6 +110,7 @@ export const CommandPalette: React.FC = () => {
     [isCommandPaletteOpen],
   ));
   const currentDirectory = useDirectoryStore((s) => s.currentDirectory);
+  const homeDirectory = useDirectoryStore((s) => s.homeDirectory);
   const activeProject = useProjectsStore((s) => s.getActiveProject());
   const projects = useProjectsStore((s) => s.projects);
   const effectiveDirectory = useEffectiveDirectory();
@@ -159,10 +169,10 @@ export const CommandPalette: React.FC = () => {
     const list: CommandEntry[] = [
       {
         id: 'new-session',
-        title: "New Session",
-        icon: <Icon name="add" className="mr-2 h-4 w-4" />,
+        title: "New session",
+        icon: <Icon name="chat-new" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_chat',
-        searchText: "New Session",
+        searchText: "New session",
         onSelect: run(() => {
           setActiveMainTab('chat');
           setSessionSwitcherOpen(false);
@@ -171,9 +181,9 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'add-project',
-        title: "Add Project",
+        title: "Add folder",
         icon: <Icon name="folder-add" className="mr-2 h-4 w-4" />,
-        searchText: "Add Project",
+        searchText: "Add folder",
         onSelect: run(() => {
           sessionEvents.requestDirectoryDialog();
         }),
@@ -181,13 +191,13 @@ export const CommandPalette: React.FC = () => {
       {
         id: 'toggle-sidebar',
         title: isMobile
-          ? "Show Session Switcher"
-          : "Toggle Sidebar",
+          ? "Show session switcher"
+          : "Toggle sidebar",
         icon: <Icon name="layout-left" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_sidebar',
         searchText: isMobile
-          ? "Show Session Switcher"
-          : "Toggle Sidebar",
+          ? "Show session switcher"
+          : "Toggle sidebar",
         onSelect: run(() => {
           if (isMobile) {
             const { isSessionSwitcherOpen } = useUIStore.getState();
@@ -199,39 +209,39 @@ export const CommandPalette: React.FC = () => {
       },
       {
         id: 'toggle-terminal',
-        title: "Toggle Terminal",
+        title: "Toggle terminal",
         icon: <Icon name="terminal-box" className="mr-2 h-4 w-4" />,
         shortcutId: 'toggle_terminal',
-        searchText: "Toggle Terminal",
+        searchText: "Toggle terminal",
         onSelect: run(() => {
           if (currentDirectory) openContextSurface(currentDirectory, 'terminal');
         }),
       },
       {
         id: 'context-usage',
-        title: "Show Context Usage",
+        title: "Show context usage",
         icon: <Icon name="pie-chart" className="mr-2 h-4 w-4" />,
-        searchText: "Show Context Usage",
+        searchText: "Show context usage",
         onSelect: run(() => {
           if (currentDirectory) openContextOverview(currentDirectory);
         }),
       },
       {
         id: 'open-settings',
-        title: "Open Settings...",
+        title: "Open settings…",
         icon: <Icon name="settings-3" className="mr-2 h-4 w-4" />,
         shortcutId: 'open_settings',
-        searchText: "Open Settings...",
+        searchText: "Open settings…",
         onSelect: run(() => setSettingsDialogOpen(true)),
       },
     ];
     if (canUseElectronDesktopIPC()) {
       list.splice(1, 0, {
         id: 'new-mini-chat',
-        title: "New Mini Chat Window",
+        title: "New Mini Chat window",
         icon: <Icon name="window" className="mr-2 h-4 w-4" />,
         shortcutId: 'new_mini_chat',
-        searchText: "New Mini Chat Window",
+        searchText: "New Mini Chat window",
         onSelect: run(() => {
           void invokeDesktop('desktop_open_draft_mini_chat_window', {
             directory: normalizePath(currentDirectory || activeProject?.path || ''),
@@ -295,10 +305,33 @@ export const CommandPalette: React.FC = () => {
 
   const allBranches = useGitAllBranches();
 
+  // The project a session's folder belongs to: the longest project path that
+  // is the folder or contains it. Tells apart sessions with the same title.
+  const projectForDirectory = React.useCallback(
+    (dir: string | null): (typeof projects)[number] | null => {
+      if (!dir) return null;
+      let match: (typeof projects)[number] | null = null;
+      for (const project of projects) {
+        const root = project.path.replace(/\/+$/, '');
+        if ((dir === root || dir.startsWith(`${root}/`)) && (!match || root.length > match.path.length)) {
+          match = project;
+        }
+      }
+      return match;
+    },
+    [projects],
+  );
+
+  // Like a sidebar card, a row names a branch only when the session runs outside
+  // its folder (a worktree) on a branch other than the folder's own.
   const branchForSession = React.useCallback(
-    (_sessionId: string, dir: string | null): string | null => {
-      if (dir) return allBranches.get(dir)?.trim() || null;
-      return null;
+    (dir: string | null, project: (typeof projects)[number] | null): string | null => {
+      if (!dir) return null;
+      const branch = allBranches.get(dir)?.trim() || null;
+      if (!branch || branch === 'HEAD' || !project) return branch;
+      const root = project.path.replace(/\/+$/, '');
+      if (dir === root || branch === allBranches.get(root)?.trim()) return null;
+      return branch;
     },
     [allBranches],
   );
@@ -462,13 +495,30 @@ export const CommandPalette: React.FC = () => {
   return (
     <Dialog open={isCommandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
       <DialogHeader className="sr-only">
-        <DialogTitle>{"Command Palette"}</DialogTitle>
+        <DialogTitle>{"Command palette"}</DialogTitle>
         <DialogDescription>{"Search files, sessions, and commands."}</DialogDescription>
       </DialogHeader>
-      <DialogContent className="overflow-hidden p-0" showCloseButton>
+      <DialogContent
+        showCloseButton={false}
+        className={cn(
+          'w-full max-w-xl gap-0 self-start overflow-hidden rounded-2xl p-0',
+          // Same frame as the Add folder palette: anchored near the top, so a
+          // longer result list only moves the bottom edge.
+          'mt-[max(env(safe-area-inset-top),0.25rem)] max-h-[calc(100%-0.5rem)] sm:mt-[10vh] sm:max-h-[80vh]',
+        )}
+      >
         <Command
           shouldFilter={false}
-          className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-group]:not([hidden])_~[cmdk-group]]:pt-0 [&_[cmdk-input-wrapper]_svg]:h-4 [&_[cmdk-input-wrapper]_svg]:w-4 [&_[cmdk-input]]:h-8 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-1.5 [&_[cmdk-item]_svg]:h-4 [&_[cmdk-item]_svg]:w-4 [&_[cmdk-item]]:typography-meta"
+          className={cn(
+            'rounded-none',
+            '[&_[data-slot=command-input-wrapper]]:h-12 [&_[data-slot=command-input-wrapper]]:border-border/60 [&_[data-slot=command-input-wrapper]]:px-3.5',
+            // The typography-* classes are plain CSS and take no variants, so
+            // descendants get the matching font-size tokens directly.
+            '[&_[cmdk-input]]:h-12 [&_[cmdk-input]]:text-[length:var(--text-markdown)] md:[&_[cmdk-input]]:text-[length:var(--text-ui-label)]',
+            '[&_[cmdk-list]]:p-1.5 [&_[cmdk-group]]:p-0 [&_[cmdk-group]+[cmdk-group]]:mt-1',
+            '[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-1.5 [&_[cmdk-group-heading]]:text-[length:var(--text-micro)]',
+            '[&_[cmdk-item]]:gap-2.5 [&_[cmdk-item]]:px-2.5 [&_[cmdk-item]]:py-1.5 [&_[cmdk-item]]:text-[length:var(--text-ui-label)]',
+          )}
         >
           <CommandInput
             value={query}
@@ -481,7 +531,7 @@ export const CommandPalette: React.FC = () => {
             {groupOrder.map((groupKey) => {
               if (groupKey === 'commands' && visibleCommands.length > 0) {
                 return (
-                  <CommandGroup key="commands">
+                  <CommandGroup key="commands" heading={"Commands"}>
                     {visibleCommands.map((cmd) => (
                       <CommandItem key={cmd.id} value={cmd.id} onSelect={cmd.onSelect}>
                         {cmd.icon}
@@ -496,7 +546,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'settings' && visibleSettings.length > 0) {
                 return (
-                  <CommandGroup key="settings">
+                  <CommandGroup key="settings" heading={"Settings"}>
                     {visibleSettings.map((cmd) => (
                       <CommandItem key={cmd.id} value={cmd.id} onSelect={cmd.onSelect}>
                         {cmd.icon}
@@ -508,11 +558,16 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'sessions' && visibleSessions.length > 0) {
                 return (
-                  <CommandGroup key="sessions">
+                  <CommandGroup key="sessions" heading={"Sessions"}>
                     {visibleSessions.map((session) => {
                       const title = getSessionDisplayTitle(session);
                       const dir = resolveGlobalSessionDirectory(session);
-                      const branch = branchForSession(session.id, dir);
+                      const project = projectForDirectory(dir);
+                      const branch = branchForSession(dir, project);
+                      // Sessions started without a folder say so, as in the sidebar.
+                      const projectName = project
+                        ? getProjectDisplayLabel(project)
+                        : isGlobalSessionDirectory(dir, homeDirectory) ? 'No folder' : null;
                       return (
                         <CommandItem
                           key={session.id}
@@ -520,11 +575,17 @@ export const CommandPalette: React.FC = () => {
                           onSelect={() => handleOpenSession(session)}
                         >
                           <Icon name="chat-ai-3" className="mr-2 h-4 w-4" />
-                          <span className="truncate">{title}</span>
-                          {branch ? (
-                            <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground typography-meta">
-                              <Icon name="git-branch" className="h-3 w-3" />
-                              <span className="truncate max-w-[160px]">{branch}</span>
+                          <span className="min-w-0 flex-1 truncate">{title}</span>
+                          {/* Folder and branch give way before the title does. */}
+                          {projectName || branch ? (
+                            <span className="ml-auto inline-flex min-w-0 max-w-[45%] shrink items-center gap-1.5 text-muted-foreground typography-meta">
+                              {projectName ? <span className="min-w-0 max-w-[140px] shrink-0 truncate">{projectName}</span> : null}
+                              {branch ? (
+                                <span className="inline-flex min-w-0 items-center gap-1">
+                                  <Icon name="git-branch" className="h-3 w-3 shrink-0" />
+                                  <MiddleTruncate value={branch} className="min-w-0 max-w-[120px]" />
+                                </span>
+                              ) : null}
                             </span>
                           ) : null}
                         </CommandItem>
@@ -535,7 +596,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'files' && visibleFiles.length > 0) {
                 return (
-                  <CommandGroup key="files">
+                  <CommandGroup key="files" heading={"Files"}>
                     {visibleFiles.map((file) => {
                       const display = truncatePathMiddle(file.relativePath || file.name, {
                         maxLength: 80,
@@ -560,7 +621,7 @@ export const CommandPalette: React.FC = () => {
               }
               if (groupKey === 'projects' && visibleProjects.length > 0) {
                 return (
-                  <CommandGroup key="projects">
+                  <CommandGroup key="projects" heading={"Projects"}>
                     {visibleProjects.map((project) => {
                       const displayName = project.displayName;
                       return (
@@ -590,6 +651,15 @@ export const CommandPalette: React.FC = () => {
             ) : null}
           </CommandList>
         </Command>
+        {!isMobile ? (
+          <div className="flex min-h-10 shrink-0 items-center border-t border-border/60 bg-[var(--surface-muted)]/40 px-3 py-2 typography-micro text-muted-foreground">
+            <KeyHints
+              hints={PALETTE_KEY_HINTS.map((hint) =>
+                hint.label === 'Close' ? { ...hint, onSelect: () => setCommandPaletteOpen(false) } : hint,
+              )}
+            />
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

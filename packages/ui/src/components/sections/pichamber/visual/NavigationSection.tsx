@@ -1,11 +1,14 @@
 import React from 'react';
 
 import {
+  SETTINGS_NUMBER_STEPPER_ROW_CLASS,
+  SETTINGS_NUMBER_UNIT_CLASS,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsCheckboxRow,
   SettingsControlGroup,
+  SettingsFieldRow,
   SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsRadioOption,
@@ -22,8 +25,15 @@ import {
 import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
+import { NumberInput } from '@/components/ui/number-input';
+import {
+  DEFAULT_AUTO_SETTLE_AFTER_DAYS,
+  MAX_AUTO_SETTLE_AFTER_DAYS,
+  MIN_AUTO_SETTLE_AFTER_DAYS,
+} from '@/lib/sessionShelf';
 import { SidebarViewPreview } from './SidebarViewPreview';
 import {
+  SIDEBAR_VIEW_DESCRIPTION,
   SIDEBAR_VIEW_MODE_OPTIONS,
   type VisibleSetting,
 } from './visualSettingsConstants';
@@ -32,6 +42,9 @@ export interface NavigationSectionProps {
   shouldShow: (setting: VisibleSetting) => boolean;
   sidebarViewMode: SidebarViewMode;
   onSidebarViewModeChange: (mode: SidebarViewMode) => void;
+  /** 0 is off. */
+  sidebarAutoSettleAfterDays: number;
+  onSidebarAutoSettleAfterDaysChange: (days: number) => void;
   fileEditorKeymap: 'default' | 'vim';
   setFileEditorKeymap: (keymap: 'default' | 'vim') => void;
   autoSaveEnabled: boolean;
@@ -55,6 +68,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   shouldShow,
   sidebarViewMode,
   onSidebarViewModeChange,
+  sidebarAutoSettleAfterDays,
+  onSidebarAutoSettleAfterDaysChange,
   fileEditorKeymap,
   setFileEditorKeymap,
   autoSaveEnabled,
@@ -78,10 +93,10 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
       {shouldShow('sidebarViewMode') && (
         <SettingsControlGroup
           title={'Sidebar view'}
-          info={'Workspace opens one folder at a time. By folder lists every folder with its sessions underneath. Timeline groups sessions from every folder by when they were last active. Applies to every device connected to this server.'}
+          info={'Applies to every device connected to this server.'}
           settingsItem="appearance.sidebar-view"
         >
-          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[30rem] grid-cols-3 gap-2 space-y-0 @xl:gap-3">
+          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[40rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-4 @xl:gap-3">
             {SIDEBAR_VIEW_MODE_OPTIONS.map((option) => (
               <SettingsPreviewOption
                 key={option.id}
@@ -90,10 +105,39 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
                 label={option.label}
                 ariaLabel={option.label}
                 preview={<SidebarViewPreview mode={option.id} />}
+                description={SIDEBAR_VIEW_DESCRIPTION[option.id]}
               />
             ))}
           </SettingsRadioGroup>
         </SettingsControlGroup>
+      )}
+      {/* Only Threads and By folder have a Settled shelf, so the control
+          follows the view that uses it. */}
+      {shouldShow('sidebarViewMode') && (sidebarViewMode === 'threads' || sidebarViewMode === 'folder') && (
+        <SettingsFieldRow
+          label={'Settle idle sessions'}
+          description={'Moves a session to the Settled shelf after this many days without activity. Nothing is archived or deleted, and sending a message brings it back.'}
+          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand. To archive or delete old sessions for good, use Session retention under Sessions.'}
+          settingsItem="appearance.auto-settle"
+        >
+          <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
+            <NumberInput
+              value={sidebarAutoSettleAfterDays === 0 ? undefined : sidebarAutoSettleAfterDays}
+              fallbackValue={DEFAULT_AUTO_SETTLE_AFTER_DAYS}
+              onValueChange={onSidebarAutoSettleAfterDaysChange}
+              onClear={() => onSidebarAutoSettleAfterDaysChange(0)}
+              emptyLabel={'Off'}
+              min={MIN_AUTO_SETTLE_AFTER_DAYS}
+              max={MAX_AUTO_SETTLE_AFTER_DAYS}
+              step={1}
+              aria-label={'Days before an idle session settles'}
+              className="w-20 tabular-nums"
+            />
+            <span className={SETTINGS_NUMBER_UNIT_CLASS}>
+              {sidebarAutoSettleAfterDays === 1 ? 'day' : 'days'}
+            </span>
+          </div>
+        </SettingsFieldRow>
       )}
       {shouldShow('fileEditorKeymap') && (
         <SettingsControlGroup
@@ -139,8 +183,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           <SettingsCheckboxRow
             checked={wrapLinesByDefault}
             onChange={onWrapLinesByDefaultChange}
-            label={'Wrap long lines by default'}
-            ariaLabel={'Wrap long lines by default'}
+            label={'Wrap long lines in files and diffs'}
+            ariaLabel={'Wrap long lines in files and diffs'}
             info={'Applies to the file viewer and diffs. The wrap toggle in each view overrides it until reload.'}
             settingsItem="appearance.wrap-lines-by-default"
           />
@@ -149,7 +193,7 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           <SettingsCheckboxRow
             checked={showTerminalQuickKeysOnDesktop}
             onChange={setShowTerminalQuickKeysOnDesktop}
-            label={'Terminal Quick Keys'}
+            label={'Terminal quick keys'}
             ariaLabel={'Terminal quick keys'}
             settingsItem="appearance.terminal-quick-keys"
             info={'Show Esc, Ctrl, Arrows in terminal view'}
@@ -157,7 +201,7 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
         )}
         {showTerminalShellSetting && (
           <SettingsStackedField
-            label={'Terminal Shell'}
+            label={'Terminal shell'}
             info={'Restart the terminal to apply this change to the current session.'}
             settingsItem="appearance.terminal-shell"
             className="pt-2"

@@ -160,7 +160,7 @@ export const EditDirectHostDialog: React.FC<EditDirectHostDialogProps> = ({
               {"Cancel"}
             </Button>
             <Button type="submit" size="xs" className="!font-normal" disabled={saving}>
-              {"Save Changes"}
+              {"Save changes"}
             </Button>
           </div>
         </form>

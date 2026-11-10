@@ -47,7 +47,7 @@ export const SETTINGS_OPTION_STACK_CLASS = 'space-y-1.5';
  */
 /** L1 — page / detail-pane title (larger, quieter than section titles). */
 export const SETTINGS_PAGE_TITLE_CLASS =
-  'typography-settings-page-title text-muted-foreground';
+  'typography-settings-page-title text-foreground';
 /** L2 — section title inside a settings page. */
 export const SETTINGS_SECTION_TITLE_CLASS =
   'typography-settings-section-title text-foreground';
@@ -503,7 +503,7 @@ export const SettingsRadioOption: React.FC<SettingsRadioOptionProps> = ({
         <span
           className={cn(
             'typography-settings-field-label font-normal',
-            selected ? 'text-foreground' : 'text-foreground/50',
+            'text-foreground',
           )}
         >
           {label}
@@ -522,6 +522,8 @@ interface SettingsPreviewOptionProps {
   label: React.ReactNode;
   /** Illustration of the option, drawn inside the tile. Decorative: the label names the option. */
   preview: React.ReactNode;
+  /** One short line under the label saying what the option does, for previews too small to explain it. */
+  description?: React.ReactNode;
   ariaLabel?: string;
   disabled?: boolean;
   className?: string;
@@ -533,10 +535,12 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
   onSelect,
   label,
   preview,
+  description,
   ariaLabel,
   disabled = false,
   className,
 }) => {
+  const descriptionId = React.useId();
   return (
     <div
       className={cn(
@@ -548,6 +552,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
       tabIndex={disabled ? -1 : 0}
       aria-checked={selected}
       aria-label={ariaLabel}
+      aria-describedby={description ? descriptionId : undefined}
       aria-disabled={disabled || undefined}
       onClick={() => {
         if (!disabled) onSelect();
@@ -566,7 +571,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
           // Border and ring share one colour and neither changes the box, so selecting never shifts the tile.
           selected
             ? 'border-[var(--primary-base)] ring-1 ring-[var(--primary-base)]'
-            : 'border-border group-hover/preview:border-foreground/30',
+            : 'border-[var(--interactive-border)] group-hover/preview:border-foreground/30',
         )}
       >
         {preview}
@@ -581,12 +586,18 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
         <span
           className={cn(
             'min-w-0 truncate typography-settings-field-label font-normal',
-            selected ? 'text-foreground' : 'text-foreground/50',
+            'text-foreground',
           )}
         >
           {label}
         </span>
       </div>
+      {description ? (
+        // Indented to the label, past the radio.
+        <p id={descriptionId} className="-mt-1 pl-[20px] typography-meta text-muted-foreground text-pretty">
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 };

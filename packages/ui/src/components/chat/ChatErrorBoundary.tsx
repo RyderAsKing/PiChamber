@@ -106,11 +106,11 @@ export function ChatErrorBoundary(props: ChatErrorBoundaryProps) {
     <ChatErrorBoundaryView
       {...props}
       texts={{
-        title: "Chat Error",
+        title: "Chat error",
         description: "The chat interface encountered an error. This might be due to a temporary network issue or corrupted message data.",
         sessionLabel: "Session",
         detailsSummary: "Error details",
-        resetAction: "Reset Chat",
+        resetAction: "Reset chat",
         persistentHint: "If the problem persists, try refreshing the page.",
       }}
     />

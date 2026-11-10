@@ -31,6 +31,7 @@ import {
   getDiff,
   getFileDiff,
   resolveDiffSource,
+  initRepository,
 } from './service.js';
 
 // ---------------------------------------------------------------------------
@@ -1498,5 +1499,36 @@ describe.runIf(canRunGit())('getRangeDiff', () => {
     const diff = await getRangeDiff(repository, { base: 'react', head: 'next' });
 
     expect(diff).toContain('feature.txt');
+  });
+});
+
+describe.skipIf(!canRunGit())('initRepository', () => {
+  it('makes a plain folder a repository and leaves an existing one alone', async () => {
+    const folder = createTempDir();
+
+    expect(await initRepository(folder)).toEqual({ created: true });
+    expect(fs.existsSync(path.join(folder, '.git'))).toBe(true);
+    expect(await isGitRepository(folder)).toBe(true);
+
+    expect(await initRepository(folder)).toEqual({ created: false });
+  });
+
+  it('gives a folder inside another repository its own repository', async () => {
+    const parent = createTempDir();
+    runGit(parent, ['init']);
+    const child = path.join(parent, 'new-project');
+    fs.mkdirSync(child);
+
+    expect(await initRepository(child)).toEqual({ created: true });
+    expect(fs.existsSync(path.join(child, '.git'))).toBe(true);
+  });
+
+  it('rejects a missing path and a file', async () => {
+    const folder = createTempDir();
+    const file = path.join(folder, 'notes.txt');
+    fs.writeFileSync(file, 'x');
+
+    await expect(initRepository(path.join(folder, 'missing'))).rejects.toThrow('Folder does not exist');
+    await expect(initRepository(file)).rejects.toThrow('Path is not a folder');
   });
 });

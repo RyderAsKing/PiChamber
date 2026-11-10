@@ -52,7 +52,7 @@ export const ModelTooltipContent: React.FC<ModelTooltipContentProps> = ({
             <span className="typography-meta text-muted-foreground">{providerDisplayName}</span>
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">
+            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Capabilities
             </span>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -66,12 +66,12 @@ export const ModelTooltipContent: React.FC<ModelTooltipContentProps> = ({
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">
+            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Modalities
             </span>
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between gap-3">
-                <span className="typography-meta font-medium text-muted-foreground/80">Input</span>
+                <span className="typography-meta font-medium text-subtle-foreground">Input</span>
                 <div className="flex items-center gap-1.5">
                   {inputModalityIcons.length > 0 ? (
                     inputModalityIcons.map(({ key, icon, label }) => (
@@ -83,7 +83,7 @@ export const ModelTooltipContent: React.FC<ModelTooltipContentProps> = ({
                 </div>
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="typography-meta font-medium text-muted-foreground/80">Output</span>
+                <span className="typography-meta font-medium text-subtle-foreground">Output</span>
                 <div className="flex items-center gap-1.5">
                   {outputModalityIcons.length > 0 ? (
                     outputModalityIcons.map(({ key, icon, label }) => (
@@ -97,39 +97,39 @@ export const ModelTooltipContent: React.FC<ModelTooltipContentProps> = ({
             </div>
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">
+            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Cost ($/1M tokens)
             </span>
             {costRows.map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3">
-                <span className="typography-meta font-medium text-muted-foreground/80">{row.label}</span>
+                <span className="typography-meta font-medium text-subtle-foreground">{row.label}</span>
                 <span className="typography-meta font-medium text-foreground">{row.value}</span>
               </div>
             ))}
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">
+            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Limits
             </span>
             {limitRows.map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3">
-                <span className="typography-meta font-medium text-muted-foreground/80">{row.label}</span>
+                <span className="typography-meta font-medium text-subtle-foreground">{row.label}</span>
                 <span className="typography-meta font-medium text-foreground">{row.value}</span>
               </div>
             ))}
           </div>
           <div className="flex flex-col gap-1.5">
-            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground/90">
+            <span className="typography-meta font-semibold uppercase tracking-wide text-muted-foreground">
               Metadata
             </span>
             <div className="flex items-center justify-between gap-3">
-              <span className="typography-meta font-medium text-muted-foreground/80">Knowledge</span>
+              <span className="typography-meta font-medium text-subtle-foreground">Knowledge</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatKnowledge(currentMetadata.knowledge)}
               </span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="typography-meta font-medium text-muted-foreground/80">Release</span>
+              <span className="typography-meta font-medium text-subtle-foreground">Release</span>
               <span className="typography-meta font-medium text-foreground">
                 {formatDate(currentMetadata.release_date)}
               </span>

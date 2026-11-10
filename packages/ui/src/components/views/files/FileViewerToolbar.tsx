@@ -245,7 +245,7 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
           {openInCacheStale ? (
             <DropdownMenuItem className="flex items-center gap-2" onClick={() => void onRefreshOpenInApps()}>
               <Icon name="refresh" className="size-4" />
-              <span className="typography-ui-label text-foreground">Refresh Apps</span>
+              <span className="typography-ui-label text-foreground">Refresh apps</span>
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
@@ -374,13 +374,13 @@ export const FileViewerToolbar: React.FC<FileViewerToolbarProps> = ({
 
       {isJson &&
         withTooltip(
-          jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View',
+          jsonViewMode === 'tree' ? 'Switch to text view' : 'Switch to tree view',
           <Button
             variant="ghost"
             size="sm"
             onClick={onToggleJsonViewMode}
             className="size-6 p-0 text-muted-foreground opacity-65 hover:bg-transparent hover:opacity-100 focus-visible:bg-transparent active:bg-transparent"
-            title={jsonViewMode === 'tree' ? 'Switch to Text View' : 'Switch to Tree View'}
+            title={jsonViewMode === 'tree' ? 'Switch to text view' : 'Switch to tree view'}
           >
             {jsonViewMode === 'tree' ? (
               <Icon name="code-sslash" className="size-4" />
