@@ -81,12 +81,16 @@ const PiSessionBootstrapBridge: React.FC = () => {
 
   React.useEffect(() => {
     if (!directory) return;
+    // Focus moved again after this render (mobile's folder focus runs in the
+    // same commit). Skip the stale value; the store already scheduled a
+    // render with the new one. Writing it back would start a ping-pong.
+    if (normalizePath(store.getState().directory) !== normalizePath(directory)) return;
     const currentDirectory = useDirectoryStore.getState().currentDirectory;
     if (normalizePath(currentDirectory) !== normalizePath(directory)) {
       useDirectoryStore.getState().setDirectory(directory, { showOverlay: false });
     }
     void useConfigStore.getState().activateDirectory(directory);
-  }, [directory]);
+  }, [directory, store]);
 
   // The composer still reads the restored session UI store. Keep its complete
   // identity synchronized, including project switches and the no-project state.
