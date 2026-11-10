@@ -196,6 +196,22 @@ const PAGES = {
     viewports: ['desktop'],
     settledScript: SHELVES_OPEN,
   },
+  'sidebar-folder-actions': {
+    // By folder with the pointer on a folder header: its New session and
+    // folder menu buttons.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'folder',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: SHELVES_OPEN,
+    hoverScript: `(() => {
+      const label = [...document.querySelectorAll('[aria-expanded] span')].find((node) => node.textContent.trim() === 'Night Shift');
+      const row = label?.closest('[data-sidebar-tree-row]');
+      if (!row) return null;
+      const rect = row.getBoundingClientRect();
+      return { x: rect.left + 40, y: rect.top + rect.height / 2 };
+    })()`,
+  },
   'sidebar-projects-mobile': {
     path: '/',
     // The header button opens the sessions drawer with the same folder list.
@@ -239,6 +255,50 @@ const PAGES = {
       // Syntax colors come from a worker after the text shows; wait for them.
       if (document.body.innerText.includes('Intl.NumberFormat')) return Boolean(document.querySelector('.cm-content [style*="color"]'));
       document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+  },
+  'files-panel-menu': {
+    // billing.ts open with its File actions menu: each action written out.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      if (document.querySelector('[data-slot="dropdown-menu-content"]')) return document.body.innerText.includes('Copy path');
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      if (document.body.innerText.includes('Intl.NumberFormat') && document.querySelector('.cm-content [style*="color"]')) {
+        document.querySelector('button[aria-label="File actions"]')?.click();
+        return false;
+      }
+      document.querySelector('span[title$="/billing.ts"]')?.closest('button')?.click();
+      return false;
+    })()`,
+  },
+  'files-panel-crumb': {
+    // src/lib/dates.ts open, then the src step of its path bar: the tree opens
+    // over the file to src, with Back to file.
+    path: DEMO_SESSION_PATH,
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Files"]',
+    viewports: ['desktop'],
+    readyText: [DEMO_REPLY],
+    settledScript: `(() => {
+      const control = document.querySelector('nav[aria-label="Panel surfaces"] button[aria-label="Files"]');
+      if (control?.getAttribute('aria-pressed') !== 'true') { control?.click(); return false; }
+      const crumb = document.querySelector('button[title="Show src in the tree"]');
+      // The folded tree stays mounted under aria-hidden, Back to file included.
+      const back = [...document.querySelectorAll('button')].find((node) => node.textContent.includes('Back to file') && !node.closest('[aria-hidden="true"]'));
+      if (crumb && !back) { crumb.click(); return false; }
+      if (crumb) return Boolean(document.querySelector('[data-tree-path$="/src/lib"]'));
+      const input = document.querySelector('input[aria-label="Search files"]');
+      if (!input) return false;
+      const hit = document.querySelector('button[title="src/lib/dates.ts"]');
+      if (hit) { hit.click(); return false; }
+      if (input.value !== 'dates') {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'dates');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       return false;
     })()`,
   },
@@ -670,6 +730,13 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     if (page.settledScript) {
       await waitForSettled(client, page, network, `${pageName} settled`);
     }
+    if (page.hoverScript) {
+      // Hover-only controls: move the pointer to the point the script returns.
+      const point = await client.evaluate(page.hoverScript);
+      if (!point) throw new Error(`${pageName}: nothing to hover`);
+      await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
+      await wait(150);
+    }
     if (page.typeIntoComposer) {
       const selector = JSON.stringify(COMPOSER_EDITOR_SELECTOR);
       await waitFor(
@@ -929,6 +996,9 @@ const main = async () => {
   const profileDir = await mkdtemp(join(tmpdir(), 'pichamber-screenshots-'));
   const chrome = spawn(resolveChrome(), [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--hide-scrollbars',
+    // Headless Chrome reports no pointer, so hover styles never apply; report a
+    // mouse (mobile pages switch to touch through touch emulation).
+    '--blink-settings=primaryHoverType=2,availableHoverTypes=2,primaryPointerType=4,availablePointerTypes=4',
     '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
     `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, 'about:blank',
   ], { stdio: 'ignore' });

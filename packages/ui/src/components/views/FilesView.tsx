@@ -69,6 +69,10 @@ import { FileViewerToolbar } from './files/FileViewerToolbar';
 import { UnsavedChangesDialog } from './files/UnsavedChangesDialog';
 import { FilesTreePanel } from './files/FilesTreePanel';
 import { FilePathBar } from './files/FilePathBar';
+import { FileActionsMenu } from './files/FileActionsMenu';
+import { useProjectsStore } from '@/stores/useProjectsStore';
+import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
+import { GoToLineDialog } from './GoToLineDialog';
 import { classifyGitFileStatus, createFileTreeStatusIndex } from './files/fileTreeStatus';
 
 interface FilesViewProps {
@@ -122,8 +126,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
   }, []);
   const [isFullscreen, setIsFullscreen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
-  const [isFloatingToolbarOpen, setIsFloatingToolbarOpen] = React.useState(false);
-  const floatingToolbarRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     if (!mobileChrome) return;
@@ -140,23 +142,6 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     );
   }, []);
 
-  const isClickInsidePortalledMenu = React.useCallback((target: EventTarget | null) => {
-    if (!(target instanceof Element)) return false;
-    return target.closest('[data-slot="dropdown-menu-content"], [data-slot="dropdown-menu-item"]') !== null;
-  }, []);
-
-  React.useEffect(() => {
-    if (!isFloatingToolbarOpen) return;
-    const handler = (event: MouseEvent) => {
-      if (toolbarDropdownOpenCountRef.current > 0) return;
-      if (isClickInsidePortalledMenu(event.target)) return;
-      if (floatingToolbarRef.current && !floatingToolbarRef.current.contains(event.target as Node)) {
-        setIsFloatingToolbarOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [isClickInsidePortalledMenu, isFloatingToolbarOpen]);
   const lightTheme = React.useMemo(
     () => availableThemes.find((theme) => theme.metadata.id === lightThemeId) ?? getDefaultTheme(false),
     [availableThemes, lightThemeId],
@@ -1452,90 +1437,113 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
     });
   }, [files.downloadFile, selectedFile?.path]);
 
+  // One set of file controls, shown as the docked icon row (a setting, and on
+  // phones) or as the labeled File actions menu in the path bar.
+  const usesFileActionsMenu = !isMobile && !settingsExpandedEditorToolbar;
+  // The path bar's folders lead back to the tree: beside the editor it is the
+  // context panel's tree (shown on request), on the Files page its own.
+  // The project's name when the root is a project, else the folder's own name
+  // (a worktree, say), as the sidebar and header name it.
+  const rootProject = useProjectsStore(
+    React.useCallback((state) => state.projects.find((project) => normalizePath(project.path) === root) ?? null, [root]),
+  );
+  const rootFolderLabel = rootProject
+    ? getProjectDisplayLabel(rootProject)
+    : root ? (root.split('/').filter(Boolean).pop() ?? root) : undefined;
+  const revealInFileTree = useUIStore((state) => state.revealInFileTree);
+  const handleRevealFolder = React.useCallback((relativeFolder: string) => {
+    if (!root) return;
+    const target = relativeFolder ? `${root.replace(/\/+$/, '')}/${relativeFolder}` : root;
+    if (mode === 'editor-only') {
+      revealInFileTree(target);
+      return;
+    }
+    if (relativeFolder) void ensurePathVisible(target, true);
+  }, [ensurePathVisible, mode, revealInFileTree, root]);
+  const fileControlProps = {
+    selectedFile,
+    displaySelectedPath,
+    canEdit,
+    isEditingFile,
+    isSaving,
+    autoSaveEnabled,
+    autoSaveStatus,
+    isDirty,
+    onSaveDraft: saveDraft,
+    onToggleAutoSave: () => setAutoSaveEnabled(!autoSaveEnabled),
+    canOpenInDesktopApp,
+    openInApps,
+    openInCacheStale,
+    onOpenInApp: handleOpenInApp,
+    onRefreshOpenInApps: () => loadOpenInApps(true),
+    onToolbarDropdownOpenChange: handleToolbarDropdownOpenChange,
+    isSelectedImage,
+    isSelectedPdf,
+    isUnsupportedBinary,
+    wrapLines,
+    onToggleWrapLines: () => setWrapLines(!wrapLines),
+    textViewMode,
+    onToggleSearch: () => setIsSearchOpen(!isSearchOpen),
+    isGoToLineOpen,
+    onOpenGoToLineChange: setIsGoToLineOpen,
+    editorView: editorViewRef.current,
+    canUseShikiFileView,
+    isJson,
+    isHtml,
+    onToggleTextViewMode: () => {
+      saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
+    },
+    isMarkdown,
+    mdViewMode: getMdViewMode(),
+    onToggleMdViewMode: () => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview'),
+    isDrawio,
+    drawioViewMode,
+    onToggleDrawioViewMode: () => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview'),
+    diagramSaved,
+    onSaveDiagram: async () => {
+      const xml = diagramEditorRef.current?.getXml();
+      if (selectedFile?.path && xml) {
+        await saveDiagramNow(selectedFile.path, xml);
+      }
+    },
+    jsonViewMode,
+    onToggleJsonViewMode: () => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree'),
+    canCopy,
+    copiedContent,
+    onCopyContent: async () => {
+      const result = await copyTextToClipboard(fileContent);
+      if (result.ok) {
+        showCopiedContent(true);
+        // The menu closes on select, so it says so instead of a check icon.
+        if (usesFileActionsMenu) toast.success("Contents copied");
+      } else {
+        toast.error("Copy failed");
+      }
+    },
+    canCopyPath,
+    copiedPath,
+    onCopyPath: async () => {
+      const result = await copyTextToClipboard(displaySelectedPath);
+      if (result.ok) {
+        showCopiedPath(true);
+        if (usesFileActionsMenu) toast.success("Path copied");
+      } else {
+        toast.error("Copy failed");
+      }
+    },
+    onDownloadFile: files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined,
+    isMobile,
+    mode,
+    isFullscreen,
+    onToggleFullscreen: () => setIsFullscreen(!isFullscreen),
+    onExitFullscreen: () => setIsFullscreen(false),
+  };
   const renderFloatingFileControls = ({
     exitFullscreenOnly = false,
     layout = 'floating',
-  }: { exitFullscreenOnly?: boolean; layout?: 'floating' | 'docked' } = {}) => {
-    return (
-      <FileViewerToolbar
-        selectedFile={selectedFile}
-        displaySelectedPath={displaySelectedPath}
-        layout={layout}
-        exitFullscreenOnly={exitFullscreenOnly}
-        canEdit={canEdit}
-        isEditingFile={isEditingFile}
-        isSaving={isSaving}
-        autoSaveEnabled={autoSaveEnabled}
-        autoSaveStatus={autoSaveStatus}
-        isDirty={isDirty}
-        onSaveDraft={saveDraft}
-        onToggleAutoSave={() => setAutoSaveEnabled(!autoSaveEnabled)}
-        canOpenInDesktopApp={canOpenInDesktopApp}
-        openInApps={openInApps}
-        openInCacheStale={openInCacheStale}
-        onOpenInApp={handleOpenInApp}
-        onRefreshOpenInApps={() => loadOpenInApps(true)}
-        onToolbarDropdownOpenChange={handleToolbarDropdownOpenChange}
-        isSelectedImage={isSelectedImage}
-        isSelectedPdf={isSelectedPdf}
-        isUnsupportedBinary={isUnsupportedBinary}
-        wrapLines={wrapLines}
-        onToggleWrapLines={() => setWrapLines(!wrapLines)}
-        textViewMode={textViewMode}
-        onToggleSearch={() => setIsSearchOpen(!isSearchOpen)}
-        isGoToLineOpen={isGoToLineOpen}
-        onOpenGoToLineChange={setIsGoToLineOpen}
-        editorView={editorViewRef.current}
-        canUseShikiFileView={canUseShikiFileView}
-        isJson={isJson}
-        isHtml={isHtml}
-        onToggleTextViewMode={() => {
-          saveTextViewMode(textViewMode === 'view' ? 'edit' : 'view');
-        }}
-        isMarkdown={isMarkdown}
-        mdViewMode={getMdViewMode()}
-        onToggleMdViewMode={() => saveMdViewMode(getMdViewMode() === 'preview' ? 'edit' : 'preview')}
-        isDrawio={isDrawio}
-        drawioViewMode={drawioViewMode}
-        onToggleDrawioViewMode={() => saveDrawioViewMode(drawioViewMode === 'preview' ? 'edit' : 'preview')}
-        diagramSaved={diagramSaved}
-        onSaveDiagram={async () => {
-          const xml = diagramEditorRef.current?.getXml();
-          if (selectedFile?.path && xml) {
-            await saveDiagramNow(selectedFile.path, xml);
-          }
-        }}
-        jsonViewMode={jsonViewMode}
-        onToggleJsonViewMode={() => saveJsonViewMode(jsonViewMode === 'tree' ? 'text' : 'tree')}
-        canCopy={canCopy}
-        copiedContent={copiedContent}
-        onCopyContent={async () => {
-          const result = await copyTextToClipboard(fileContent);
-          if (result.ok) {
-            showCopiedContent(true);
-          } else {
-            toast.error("Copy failed");
-          }
-        }}
-        canCopyPath={canCopyPath}
-        copiedPath={copiedPath}
-        onCopyPath={async () => {
-          const result = await copyTextToClipboard(displaySelectedPath);
-          if (result.ok) {
-            showCopiedPath(true);
-          } else {
-            toast.error("Copy failed");
-          }
-        }}
-        onDownloadFile={files.downloadFile && selectedFile ? handleDownloadSelectedFile : undefined}
-        isMobile={isMobile}
-        mode={mode}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
-        onExitFullscreen={() => setIsFullscreen(false)}
-      />
-    );
-  };
+  }: { exitFullscreenOnly?: boolean; layout?: 'floating' | 'docked' } = {}) => (
+    <FileViewerToolbar {...fileControlProps} layout={layout} exitFullscreenOnly={exitFullscreenOnly} />
+  );
 
   const handleEmbeddedEditorViewReady = React.useCallback((view: EditorView) => {
     editorViewRef.current = view;
@@ -1660,6 +1668,8 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
           <FilePathBar
             path={displaySelectedPath}
             status={selectedFileChange}
+            rootLabel={rootFolderLabel}
+            onRevealFolder={handleRevealFolder}
             // Diffs open in the context panel, which only sits beside the editor-only host.
             onShowChanges={mode === 'editor-only' && selectedFileChange !== 'git-deleted' ? handleShowSelectedFileChanges : undefined}
             className={cn(showEditorTabsRow && 'border-t border-border/40')}
@@ -1669,14 +1679,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                 {renderFloatingFileControls({ layout: 'docked' })}
               </div>
             ) : (
-              <div
-                ref={floatingToolbarRef}
-                className="relative flex items-center gap-0.5"
-                onMouseLeave={() => {
-                  if (toolbarDropdownOpenCountRef.current > 0) return;
-                  setIsFloatingToolbarOpen(false);
-                }}
-              >
+              <div className="flex items-center gap-0.5">
+                {isSaving ? (
+                  <span className="px-1 typography-micro text-muted-foreground">{"Saving…"}</span>
+                ) : null}
                 {isMarkdown ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1702,28 +1708,7 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
                     </TooltipContent>
                   </Tooltip>
                 ) : null}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex" onMouseEnter={() => setIsFloatingToolbarOpen(true)}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsFloatingToolbarOpen(true)}
-                        className="size-7 p-0 text-muted-foreground hover:text-foreground"
-                        aria-label={"Show editor controls"}
-                      >
-                        <Icon name="more-2-fill" className="size-4" />
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={6}>{"Editor controls"}</TooltipContent>
-                </Tooltip>
-                {isFloatingToolbarOpen ? (
-                  // Opens over the path bar, right-aligned with the button.
-                  <div className="absolute right-0 top-1/2 z-30 -translate-y-1/2">
-                    {renderFloatingFileControls()}
-                  </div>
-                ) : null}
+                <FileActionsMenu {...fileControlProps} />
               </div>
             )}
           </FilePathBar>
@@ -1731,6 +1716,10 @@ export const FilesView: React.FC<FilesViewProps> = ({ mode = 'full', chrome = 'd
       </div>
 
       <div className="flex-1 min-h-0 min-w-0 relative">
+        {/* Go to line from the File actions menu opens over the file. */}
+        {usesFileActionsMenu && selectedFile ? (
+          <GoToLineDialog open={isGoToLineOpen} onOpenChange={setIsGoToLineOpen} view={editorViewRef.current} />
+        ) : null}
         <FileViewerContent
           variant="embedded"
           {...fileViewerContentProps}

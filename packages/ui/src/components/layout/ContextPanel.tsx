@@ -539,6 +539,17 @@ export const ContextPanel: React.FC = () => {
     !hasOpenEditorFile && panelContentWidth !== null && panelContentWidth < EDITOR_WITH_TREE_MIN_WIDTH,
   );
   const editorTreeShown = treeFillsPanel ? true : treeCrowdsFile ? crowdedTreeShown : contextEditorTreeVisible;
+  // A folder picked in the open file's path bar needs the tree on screen; the
+  // tree itself opens to the folder and clears the request.
+  const fileTreeReveal = useUIStore((state) => state.fileTreeReveal);
+  React.useEffect(() => {
+    if (!fileTreeReveal) return;
+    if (treeCrowdsFile) {
+      setCrowdedTreeShown(true);
+    } else if (!useUIStore.getState().contextEditorTreeVisible) {
+      toggleContextEditorTree();
+    }
+  }, [fileTreeReveal, toggleContextEditorTree, treeCrowdsFile]);
   const handleToggleEditorTree = React.useCallback(() => {
     if (treeCrowdsFile) {
       setCrowdedTreeShown((shown) => !shown);

@@ -63,7 +63,7 @@ export const SessionRetentionSettings: React.FC = () => {
   return (
     <SettingsSection
       title={"Session retention"}
-      info={"Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions."}
+      info={"Automatically archive or delete inactive sessions based on last activity. Keeps the 5 most recent sessions. This changes the sessions themselves; Settle idle sessions in Appearance only tidies the Threads and By folder sidebar."}
     >
       <SettingsCheckboxRow
         settingsItem="sessions.auto-cleanup"

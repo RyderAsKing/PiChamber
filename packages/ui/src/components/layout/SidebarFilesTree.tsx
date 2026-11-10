@@ -490,6 +490,30 @@ export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile
     // loadDirectory changes with the gitignored setting; that is not a new selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expandPaths, root, selectedPath]);
+  // A folder named in the open file's path bar: open the tree to it and bring
+  // it to the top, clearing any search so the tree itself shows.
+  const fileTreeReveal = useUIStore((state) => state.fileTreeReveal);
+  const clearFileTreeReveal = useUIStore((state) => state.clearFileTreeReveal);
+  const revealBlockRef = React.useRef<ScrollLogicalPosition>('nearest');
+  React.useEffect(() => {
+    if (!root || !fileTreeReveal) return;
+    const target = fileTreeReveal.path;
+    clearFileTreeReveal();
+    setSearchQuery('');
+    if (normalizeDirectoryPathKey(target) === normalizeDirectoryPathKey(root)) {
+      treeListRef.current?.firstElementChild?.scrollIntoView({ block: 'start' });
+      return;
+    }
+    // The folder's own path counts as an ancestor of a child inside it.
+    const folders = getAncestorPaths(`${target}/_`, root);
+    if (folders.length === 0) return;
+    pendingRevealRef.current = target;
+    revealBlockRef.current = 'start';
+    expandPaths(root, folders);
+    for (const path of folders) void loadDirectory(path);
+    // loadDirectory changes with the gitignored setting; that is not a new request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clearFileTreeReveal, expandPaths, fileTreeReveal, root]);
   React.useEffect(() => {
     const target = pendingRevealRef.current;
     const list = treeListRef.current;
@@ -497,7 +521,8 @@ export const SidebarFilesTree: React.FC<SidebarFilesTreeProps> = ({ onBackToFile
     const row = list.querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(target)}"]`);
     if (!row) return;
     pendingRevealRef.current = null;
-    row.scrollIntoView({ block: 'nearest' });
+    row.scrollIntoView({ block: revealBlockRef.current });
+    revealBlockRef.current = 'nearest';
   }, [childrenByDir, expandedPaths, searchActive]);
 
   const toggleDirectory = React.useCallback(async (dirPath: string) => {

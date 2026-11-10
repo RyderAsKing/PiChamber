@@ -137,7 +137,9 @@ session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
 same list in the mobile sessions drawer); `sidebar-threads` (desktop only: the
 Threads view with its Snoozed and Settled shelves open, one session snoozed,
 one settled by hand, and one settled after five idle days); `sidebar-folder`
-(the same sessions in the By folder view); `open-request` (an Open request for a
+(the same sessions in the By folder view); `sidebar-folder-actions` (By folder
+with the pointer on a folder header, showing its New session and folder menu
+buttons, desktop only); `open-request` (an Open request for a
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
@@ -145,6 +147,9 @@ only); `files-panel` (the Files panel beside the demo session with no file
 open: in that narrow panel the tree fills it, with its change marks,
 desktop only);
 `files-panel-file` (the same panel with `billing.ts` open under its path bar,
+desktop only); `files-panel-menu` (the same file with its File actions menu
+open, desktop only); `files-panel-crumb` (`src/lib/dates.ts` open, then the
+`src` step of its path bar: the tree opens over the file to that folder,
 desktop only); `files-panel-search` (`.ts` typed into the tree's search:
 name, folder, and change mark per hit, desktop only); `files-panel-nested`
 (`src/lib/dates.ts` opened from search, then the search cleared, so the tree
@@ -155,7 +160,9 @@ first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons, desktop only); `command-palette`
-(opened with Ctrl+P, desktop only). Server-route captures need Chrome on the server: under the throwaway
+(opened with Ctrl+P, desktop only). Desktop captures report a mouse, so
+`hover:` styles apply; a page's `hoverScript` returns the point to rest the
+pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,

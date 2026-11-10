@@ -109,11 +109,13 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           </SettingsRadioGroup>
         </SettingsControlGroup>
       )}
-      {shouldShow('sidebarViewMode') && (
+      {/* Only Threads and By folder have a Settled shelf, so the control
+          follows the view that uses it. */}
+      {shouldShow('sidebarViewMode') && (sidebarViewMode === 'threads' || sidebarViewMode === 'folder') && (
         <SettingsFieldRow
           label={'Settle idle sessions'}
-          description={'Threads and By folder move a session to Settled after this many days without activity. Sending a message brings it back.'}
-          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand.'}
+          description={'Moves a session to the Settled shelf after this many days without activity. Nothing is archived or deleted, and sending a message brings it back.'}
+          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand. To archive or delete old sessions for good, use Session retention under Sessions.'}
           settingsItem="appearance.auto-settle"
         >
           <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>

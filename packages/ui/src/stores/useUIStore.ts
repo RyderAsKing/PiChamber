@@ -107,6 +107,11 @@ interface UIStore {
   contextPanelByDirectory: Record<string, ContextPanelDirectoryState>;
   contextRailOrder: string[];
   contextEditorTreeVisible: boolean;
+  /**
+   * A folder the Files tree should show: set by the open file's path bar,
+   * consumed (cleared) by the tree once it has expanded to it. Not persisted.
+   */
+  fileTreeReveal: { path: string; nonce: number } | null;
   contextEditorTreeWidth: number;
   /** Persisted per-directory `host/owner/repo` pick for the GitHub surfaces. */
   githubSelectedRepoByDirectory: Record<string, string>;
@@ -213,6 +218,8 @@ interface UIStore {
   setSidebarWidth: (width: number) => void;
   setContextRailOrder: (order: string[]) => void;
   toggleContextEditorTree: () => void;
+  revealInFileTree: (path: string) => void;
+  clearFileTreeReveal: () => void;
   setContextEditorTreeWidth: (width: number) => void;
   setGitHubSelectedRepo: (directory: string, repoRef: string | null) => void;
   openContextSurface: (directory: string, mode: ContextPanelMode) => void;
@@ -391,6 +398,7 @@ export const useUIStore = create<UIStore>()(
         chatLinkTarget: 'system',
         contextRailOrder: [],
         contextEditorTreeVisible: true,
+        fileTreeReveal: null,
         contextEditorTreeWidth: 240,
         githubSelectedRepoByDirectory: {},
         isSessionSwitcherOpen: false,
@@ -535,6 +543,12 @@ export const useUIStore = create<UIStore>()(
 
         toggleContextEditorTree: () => {
           set((state) => ({ contextEditorTreeVisible: !state.contextEditorTreeVisible }));
+        },
+        revealInFileTree: (path) => {
+          set((state) => ({ fileTreeReveal: { path, nonce: (state.fileTreeReveal?.nonce ?? 0) + 1 } }));
+        },
+        clearFileTreeReveal: () => {
+          set({ fileTreeReveal: null });
         },
 
         setContextEditorTreeWidth: (width) => {
