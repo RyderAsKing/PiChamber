@@ -463,7 +463,7 @@ export const DirectoryExplorerDialog: React.FC<DirectoryExplorerDialogProps> = (
     hints.push({ keys: ['↵'], label: submitVerb });
   }
   if (step !== 'source' && inputValue === '') hints.push({ keys: ['⌫'], label: 'Back' });
-  hints.push({ keys: ['Esc'], label: 'Close' });
+  hints.push({ keys: ['Esc'], label: 'Close', onSelect: () => onOpenChange(false) });
 
   const submitKeys = isBrowseStep(step) && activeItem ? [mod, '↵'] : ['↵'];
 

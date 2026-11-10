@@ -154,6 +154,14 @@ export const SIDEBAR_VIEW_MODE_OPTIONS: Option<SidebarViewMode>[] = [
   { id: 'threads', label: 'Threads' },
 ];
 
+/** One line per sidebar view, shown under the previews for the chosen one. */
+export const SIDEBAR_VIEW_DESCRIPTION: Record<SidebarViewMode, string> = {
+  workspace: 'Your folders on top; pick one, or All sessions, to list its sessions below.',
+  folder: 'Every folder with its sessions under it, and Snoozed and Settled shelves at the bottom.',
+  timeline: 'Sessions from every folder under date headings, newest first.',
+  threads: 'Sessions from every folder by state: Pinned, Working, Recent, then Snoozed and Settled shelves.',
+};
+
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
   {
     id: 'steer',

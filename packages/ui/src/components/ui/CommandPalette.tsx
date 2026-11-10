@@ -653,7 +653,11 @@ export const CommandPalette: React.FC = () => {
         </Command>
         {!isMobile ? (
           <div className="flex min-h-10 shrink-0 items-center border-t border-border/60 bg-[var(--surface-muted)]/40 px-3 py-2 typography-micro text-muted-foreground">
-            <KeyHints hints={PALETTE_KEY_HINTS} />
+            <KeyHints
+              hints={PALETTE_KEY_HINTS.map((hint) =>
+                hint.label === 'Close' ? { ...hint, onSelect: () => setCommandPaletteOpen(false) } : hint,
+              )}
+            />
           </div>
         ) : null}
       </DialogContent>

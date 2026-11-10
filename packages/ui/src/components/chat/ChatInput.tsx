@@ -2810,7 +2810,22 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                           </span>
                           {!isMobile || hasHardwareKeyboard ? (
                             <span className="ml-auto shrink-0">{"Esc to exit"}</span>
-                          ) : null}
+                          ) : (
+                            // Without a keyboard there is no Escape: a button leaves
+                            // shell mode and keeps the typed text, like Escape does.
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              onClick={() => {
+                                setInputMode("normal");
+                                composerRef.current?.focus();
+                              }}
+                              className="ml-auto h-6 shrink-0 px-2 typography-micro font-medium text-muted-foreground hover:text-foreground"
+                            >
+                              {"Exit shell"}
+                            </Button>
+                          )}
                         </div>
                       ) : null}
                       <div className="relative z-10">

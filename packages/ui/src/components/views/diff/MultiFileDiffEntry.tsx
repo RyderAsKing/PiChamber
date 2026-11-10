@@ -49,6 +49,8 @@ export interface MultiFileDiffEntryProps {
   staged?: boolean;
   /** How much of the file is staged, shown in its header (All scope only). */
   stageLabel?: string | null;
+  /** Stage and Revert reach only the unstaged part of the file. */
+  partlyStaged?: boolean;
   showFileActions?: boolean;
   loadFullFiles?: boolean;
   initialDiffData?: DiffData | null;
@@ -71,6 +73,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
   diffSource,
   staged = false,
   stageLabel = null,
+  partlyStaged = false,
   showFileActions = true,
   loadFullFiles = false,
   initialDiffData = null,
@@ -465,6 +468,7 @@ export const MultiFileDiffEntry = React.memo<MultiFileDiffEntryProps>(function M
                   <FileDiffActions
                     filePath={file.path}
                     staged={staged}
+                    partlyStaged={partlyStaged}
                     busyAction={fileAction}
                     disabled={fileAction !== null}
                     onAction={handleFileAction}

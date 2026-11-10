@@ -245,10 +245,10 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   }, [shelfSection, session.id, sessionDirectory, isPinnedSession, togglePinnedSession]);
   const shelfQuickAction = shelfActions
     ? shelfActions.section === 'snoozed'
-      ? { label: 'Wake', icon: 'alarm' as const, run: shelfActions.onWake }
+      ? { label: 'Wake', hint: 'Wake now: back to the list', icon: 'alarm' as const, run: shelfActions.onWake }
       : shelfActions.section === 'settled'
-        ? { label: 'Un-settle', icon: 'arrow-go-back' as const, run: shelfActions.onUnsettle }
-        : { label: 'Settle', icon: 'check' as const, run: shelfActions.onSettle }
+        ? { label: 'Un-settle', hint: 'Un-settle: back to the list', icon: 'arrow-go-back' as const, run: shelfActions.onUnsettle }
+        : { label: 'Settle', hint: 'Settle: move to Settled, not archived', icon: 'check' as const, run: shelfActions.onSettle }
     : null;
 
   const handleOpenMiniChatWindow = React.useCallback(() => {
@@ -745,7 +745,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                         </button>
                       </TooltipTrigger>
                       <TooltipContent side="top" sideOffset={6}>
-                        {shelfQuickAction.label}
+                        {shelfQuickAction.hint}
                       </TooltipContent>
                     </Tooltip>
                   ) : (

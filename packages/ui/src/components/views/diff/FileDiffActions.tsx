@@ -54,6 +54,8 @@ export const FileDiffActionButton: React.FC<FileDiffActionButtonProps> = ({
 export interface FileDiffActionsProps {
   filePath: string;
   staged: boolean;
+  /** Part of the file is already staged, so its actions reach only the rest. */
+  partlyStaged?: boolean;
   busyAction: FileDiffAction | null;
   disabled: boolean;
   onAction: (action: FileDiffAction) => void;
@@ -62,6 +64,7 @@ export interface FileDiffActionsProps {
 export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDiffActions({
   filePath,
   staged,
+  partlyStaged = false,
   busyAction,
   disabled,
   onAction,
@@ -80,8 +83,8 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
       ) : (
         <>
           <FileDiffActionButton
-            label={`Revert changes in ${filePath}`}
-            text={'Revert'}
+            label={partlyStaged ? `Revert unstaged changes in ${filePath}` : `Revert changes in ${filePath}`}
+            text={partlyStaged ? 'Revert unstaged' : 'Revert'}
             icon="arrow-go-back"
             loading={busyAction === 'discard'}
             disabled={disabled}
@@ -89,8 +92,8 @@ export const FileDiffActions = React.memo<FileDiffActionsProps>(function FileDif
             onClick={() => onAction('discard')}
           />
           <FileDiffActionButton
-            label={`Stage ${filePath}`}
-            text={'Stage'}
+            label={partlyStaged ? `Stage the rest of ${filePath}` : `Stage ${filePath}`}
+            text={partlyStaged ? 'Stage the rest' : 'Stage'}
             icon="add"
             loading={busyAction === 'stage'}
             disabled={disabled}

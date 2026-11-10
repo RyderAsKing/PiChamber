@@ -33,6 +33,7 @@ import {
 } from '@/lib/sessionShelf';
 import { SidebarViewPreview } from './SidebarViewPreview';
 import {
+  SIDEBAR_VIEW_DESCRIPTION,
   SIDEBAR_VIEW_MODE_OPTIONS,
   type VisibleSetting,
 } from './visualSettingsConstants';
@@ -92,7 +93,7 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
       {shouldShow('sidebarViewMode') && (
         <SettingsControlGroup
           title={'Sidebar view'}
-          info={'Workspace opens one folder at a time. By folder lists every folder with its sessions underneath. Timeline groups sessions from every folder by when they were last active. Threads lists every session in one place, with shelves for working, snoozed, and settled sessions. Applies to every device connected to this server.'}
+          info={'Applies to every device connected to this server.'}
           settingsItem="appearance.sidebar-view"
         >
           <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[40rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-4 @xl:gap-3">
@@ -107,6 +108,10 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
               />
             ))}
           </SettingsRadioGroup>
+          {/* The previews are small, so the chosen view also says what it does. */}
+          <p className="mt-2 max-w-[40rem] typography-meta text-muted-foreground text-pretty">
+            {SIDEBAR_VIEW_DESCRIPTION[sidebarViewMode]}
+          </p>
         </SettingsControlGroup>
       )}
       {/* Only Threads and By folder have a Settled shelf, so the control
@@ -181,8 +186,8 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           <SettingsCheckboxRow
             checked={wrapLinesByDefault}
             onChange={onWrapLinesByDefaultChange}
-            label={'Wrap long lines by default'}
-            ariaLabel={'Wrap long lines by default'}
+            label={'Wrap long lines in files and diffs'}
+            ariaLabel={'Wrap long lines in files and diffs'}
             info={'Applies to the file viewer and diffs. The wrap toggle in each view overrides it until reload.'}
             settingsItem="appearance.wrap-lines-by-default"
           />

@@ -36,6 +36,14 @@ export function getFileDiffSelection(
 export function getFileStageLabel(scope: DiffScope, file: GitStatusFile): string | null {
   if (scope !== 'all') return null;
   if (isStagedOnlyStatusFile(file)) return 'Staged';
-  if (isStagedStatusFile(file) && isWorkingStatusFile(file)) return 'Partly staged';
+  if (isPartlyStaged(scope, file)) return 'Partly staged';
   return 'Not staged';
+}
+
+/**
+ * In the All scope, a file with both staged and unstaged edits: its Stage and
+ * Revert reach only the unstaged part, so they say so.
+ */
+export function isPartlyStaged(scope: DiffScope, file: GitStatusFile): boolean {
+  return scope === 'all' && isStagedStatusFile(file) && isWorkingStatusFile(file);
 }

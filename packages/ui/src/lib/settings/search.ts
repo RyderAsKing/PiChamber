@@ -157,7 +157,7 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'appearance.wrap-lines-by-default',
     page: 'appearance',
-    title: "Wrap long lines by default",
+    title: "Wrap long lines in files and diffs",
     description: "Applies to the file viewer and diffs. The wrap toggle in each view overrides it until reload.",
     keywords: ['word wrap', 'wrap', 'line wrap', 'soft wrap', 'wrap lines', 'diff', 'editor'],
   },

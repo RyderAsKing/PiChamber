@@ -566,7 +566,7 @@ export const SettingsPreviewOption: React.FC<SettingsPreviewOptionProps> = ({
           // Border and ring share one colour and neither changes the box, so selecting never shifts the tile.
           selected
             ? 'border-[var(--primary-base)] ring-1 ring-[var(--primary-base)]'
-            : 'border-border group-hover/preview:border-foreground/30',
+            : 'border-[var(--interactive-border)] group-hover/preview:border-foreground/30',
         )}
       >
         {preview}
