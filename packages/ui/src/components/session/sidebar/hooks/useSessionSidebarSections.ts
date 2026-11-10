@@ -55,6 +55,8 @@ type Args = {
   foldersMap: SessionFoldersMap;
 };
 
+const NO_SESSIONS: Session[] = [];
+
 export const useSessionSidebarSections = (args: Args) => {
   const {
     normalizedProjects,
@@ -72,6 +74,8 @@ export const useSessionSidebarSections = (args: Args) => {
     foldersMap,
   } = args;
   const projectSectionCacheRef = React.useRef<Map<string, ProjectSectionCacheEntry>>(new Map());
+  // Workspace and By folder hide archived sessions; only a search reaches them.
+  const includeArchived = hasSessionSearchQuery;
 
   const projectSections = React.useMemo<ProjectSection[]>(() => {
     const previousCache = projectSectionCacheRef.current;
@@ -84,7 +88,7 @@ export const useSessionSidebarSections = (args: Args) => {
 
     const sections = normalizedProjects.map((project) => {
       const activeSessions = getSessionsForProject(project.id);
-      const archivedSessions = getArchivedSessionsForProject(project.id);
+      const archivedSessions = includeArchived ? getArchivedSessionsForProject(project.id) : NO_SESSIONS;
       const isRepo = projectRepoStatus.has(project.id)
         ? Boolean(projectRepoStatus.get(project.id))
         : lastRepoStatus;
@@ -136,6 +140,7 @@ export const useSessionSidebarSections = (args: Args) => {
     normalizedProjects,
     getSessionsForProject,
     getArchivedSessionsForProject,
+    includeArchived,
     availableWorktreesByProject,
     projectRepoStatus,
     lastRepoStatus,

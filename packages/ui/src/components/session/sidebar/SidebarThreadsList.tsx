@@ -15,11 +15,10 @@ import type { SessionShelfSection } from '@/lib/sessionShelf';
 import { cn } from '@/lib/utils';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
-import { useSessionUIStore } from '@/sync/session-ui-store';
-import { settleSession, updateSessionShelf } from './hooks/useSessionShelves';
+import { updateSessionShelf } from './hooks/useSessionShelves';
 import type { SessionShelves, ShelfListItem } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
-import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
+import { SidebarSectionHeading } from './sidebarRowChrome';
 import type { ProjectSection, SessionNode } from './types';
 
 export interface ThreadsListItem {
@@ -31,16 +30,13 @@ export interface ThreadsListItem {
   globalSession: boolean;
 }
 
-export type ShelfId = 'snoozed' | 'settled';
-type DropTarget = 'pinned' | 'active' | 'settled';
+export type ShelfId = 'snoozed';
+type DropTarget = 'pinned' | 'active';
 
 const SHELF_LABELS: Record<ShelfId, string> = {
   snoozed: 'Snoozed',
-  settled: 'Settled',
 };
 
-const SETTLED_FIRST_PAGE = 10;
-const SETTLED_PAGE = 25;
 const EXPANDED_SHELVES_STORAGE_KEY = 'oc.sidebar.shelves.expanded';
 
 const readExpandedShelves = (): Set<ShelfId> => {
@@ -48,7 +44,8 @@ const readExpandedShelves = (): Set<ShelfId> => {
     const raw = getDeferredSafeStorage().getItem(EXPANDED_SHELVES_STORAGE_KEY);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is ShelfId => id === 'snoozed' || id === 'settled'));
+    // Values from retired shelves (`settled`) are ignored.
+    return new Set(parsed.filter((id): id is ShelfId => id === 'snoozed'));
   } catch {
     return new Set();
   }
@@ -104,52 +101,31 @@ const DropZone: React.FC<{
   );
 };
 
-const THREADS_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
+const THREADS_SHELVES: readonly ShelfId[] = ['snoozed'];
 
 /**
- * The collapsible Snoozed and Settled sections below the Threads list and the
- * By folder tree. A collapsed section shows only its heading, even when it
- * holds the open session; Settled pages its rows.
+ * The collapsible Snoozed section below the Threads list and the By folder
+ * tree. A collapsed section shows only its heading, even when it holds the
+ * open session.
  */
 export const SessionShelfStack = <T extends ShelfListItem>({
   shelfIds,
   shelves,
   renderItem,
   hasSessionSearchQuery,
-  mobileVariant,
-  dragging = false,
-  droppable = false,
   className,
 }: {
   shelfIds: readonly ShelfId[];
   shelves: SessionShelves<T>;
   renderItem: (item: T) => React.ReactNode;
   hasSessionSearchQuery: boolean;
-  mobileVariant: boolean;
-  /** A session drag is in progress; Settled shows as a drop target even when empty. */
-  dragging?: boolean;
-  /** Settled accepts dropped sessions; needs an enclosing `DndContext`. */
-  droppable?: boolean;
   className?: string;
 }): React.ReactNode => {
   const { expanded, toggle } = useExpandedShelves();
-  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
-  const [settledLimit, setSettledLimit] = React.useState(SETTLED_FIRST_PAGE);
 
   // While searching, every match shows; shelves open so results are not hidden.
   const isExpanded = (id: ShelfId) => hasSessionSearchQuery || expanded.has(id);
-  const shelfRows = (id: ShelfId, rows: T[]) => {
-    if (isExpanded(id)) {
-      if (id !== 'settled' || hasSessionSearchQuery) return rows;
-      const visible = rows.slice(0, settledLimit);
-      // The open session stays visible even past the page.
-      const current = rows.find((item) => item.node.session.id === currentSessionId);
-      return current && !visible.includes(current) ? [...visible, current] : visible;
-    }
-    return [];
-  };
-  const settledRemaining = shelves.settled.length - Math.min(settledLimit, shelves.settled.length);
-  const visibleIds = shelfIds.filter((id) => shelves[id].length > 0 || (id === 'settled' && dragging));
+  const visibleIds = shelfIds.filter((id) => shelves[id].length > 0);
   if (visibleIds.length === 0) return null;
 
   return (
@@ -157,34 +133,15 @@ export const SessionShelfStack = <T extends ShelfListItem>({
       {visibleIds.map((id) => {
         const rows = shelves[id];
         const shelfExpanded = isExpanded(id);
-        const body = (
-          <>
+        return (
+          <section key={id} aria-label={SHELF_LABELS[id]} data-session-shelf={id}>
             <SidebarSectionHeading
               label={SHELF_LABELS[id]}
               count={rows.length}
               expanded={shelfExpanded}
-              onToggle={() => {
-                if (id === 'settled') setSettledLimit(SETTLED_FIRST_PAGE);
-                toggle(id);
-              }}
+              onToggle={() => toggle(id)}
             />
-            {shelfRows(id, rows).map(renderItem)}
-            {id === 'settled' && shelfExpanded && !hasSessionSearchQuery && settledRemaining > 0 ? (
-              <SidebarSessionLikeButton
-                icon="arrow-down-s"
-                mobileVariant={mobileVariant}
-                onClick={() => setSettledLimit((limit) => limit + SETTLED_PAGE)}
-              >
-                {`Show ${Math.min(SETTLED_PAGE, settledRemaining)} more`}
-              </SidebarSessionLikeButton>
-            ) : null}
-          </>
-        );
-        return (
-          <section key={id} aria-label={SHELF_LABELS[id]} data-session-shelf={id}>
-            {id === 'settled' && droppable ? (
-              <DropZone target="settled" dragging={dragging}>{body}</DropZone>
-            ) : body}
+            {shelfExpanded ? rows.map(renderItem) : null}
           </section>
         );
       })}
@@ -204,9 +161,9 @@ interface SidebarThreadsListProps {
 
 /**
  * The Threads view: Pinned, then sessions running now, then every other
- * session by when it was last active, with the collapsible Snoozed and
- * Settled sections anchored at the bottom of the sidebar. On desktop a session can be dragged to Pinned, back to
- * the list, or to Settled.
+ * session by when it was last active, with the collapsible Snoozed section
+ * anchored at the bottom of the sidebar. On desktop a session can be dragged
+ * to Pinned or back to the list. Archived sessions are not listed.
  */
 const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
   items,
@@ -256,7 +213,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
     const directory = active.sessionDirectory ?? null;
     const from = shelves.sectionById.get(sessionId);
     if (!from) return;
-    moveSession(sessionId, directory, from, over.target, dragging?.title ?? 'Session');
+    moveSession(sessionId, directory, from, over.target);
   };
 
   if (items.length === 0) {
@@ -268,7 +225,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
   const showWorking = shelves.working.length > 0;
   // "Recent" only needs a name when another section sits beside it.
   const showRecentHeading = showPinned || showWorking
-    || shelves.snoozed.length > 0 || shelves.settled.length > 0;
+    || shelves.snoozed.length > 0;
 
   const list = (
     <div className="flex min-h-full flex-1 flex-col" data-sidebar-threads="">
@@ -294,7 +251,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         {shelves.active.map(renderItem)}
         {shelves.active.length === 0 && !hasSessionSearchQuery ? (
           <div className="px-3 py-1.5 typography-micro text-subtle-foreground">
-            {isDragging ? 'Drop here to keep it in the list' : 'Nothing recent. Settled sessions are below.'}
+            {isDragging ? 'Drop here to keep it in the list' : 'Nothing recent. Snoozed sessions are below.'}
           </div>
         ) : null}
       </DropZone>
@@ -304,9 +261,6 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         shelves={shelves}
         renderItem={renderItem}
         hasSessionSearchQuery={hasSessionSearchQuery}
-        mobileVariant={mobileVariant}
-        dragging={isDragging}
-        droppable={!mobileVariant}
         className="mt-auto border-t border-border pt-1"
       />
     </div>
@@ -340,16 +294,14 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
 };
 
 /**
- * What a drop means. Pinning and un-pinning use the pin store; settling and
- * waking use the shelf store. A settled session dropped back into the list
- * stays out of Settled until its next activity; settling unpins.
+ * What a drop means. Pinning and un-pinning use the pin store; waking a
+ * snoozed session uses the shelf store.
  */
 const moveSession = (
   sessionId: string,
   directory: string | null,
   from: SessionShelfSection,
   to: DropTarget,
-  title: string,
 ) => {
   const pins = useSessionPinnedStore.getState();
   const isPinned = isSessionPinned(pins.ids, directory, sessionId);
@@ -357,16 +309,8 @@ const moveSession = (
     if (!directory || isPinned === pinned) return;
     pins.toggle({ directory, sessionId });
   };
-  if (to === 'settled') {
-    if (from === 'settled') return;
-    settleSession(sessionId, directory, title);
-    return;
-  }
   if (from === 'snoozed') {
     updateSessionShelf(sessionId, { snoozedUntil: null }, directory, 'Could not wake the session');
-  }
-  if (from === 'settled') {
-    updateSessionShelf(sessionId, { settled: 'active' }, directory, 'Could not un-settle the session');
   }
   setPinned(to === 'pinned');
 };

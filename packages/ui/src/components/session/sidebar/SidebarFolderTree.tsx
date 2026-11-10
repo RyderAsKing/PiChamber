@@ -25,10 +25,10 @@ import type { SessionShelves } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
 import { SessionShelfStack, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
 
-const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
+const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed'];
 
 /**
- * Takes pinned, snoozed, and settled sessions out of their folders; they show
+ * Takes pinned and snoozed sessions out of their folders; they show
  * once, above or below the folder list. Archived groups are left alone.
  */
 const withoutShelvedSessions = (section: ProjectSection, hidden: ReadonlySet<string>): ProjectSection => {
@@ -135,7 +135,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   const hiddenIds = React.useMemo(() => {
     if (!shelves) return null;
     const ids = new Set<string>();
-    for (const item of [...shelves.pinned, ...shelves.snoozed, ...shelves.settled]) ids.add(item.node.session.id);
+    for (const item of [...shelves.pinned, ...shelves.snoozed]) ids.add(item.node.session.id);
     return ids;
   }, [shelves]);
   const sections = React.useMemo(
@@ -150,7 +150,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     () => (shelves ? { sectionById: shelves.sectionById, wokeIds: shelves.wokeIds } : null),
     [shelves],
   );
-  // Pinned, Snoozed, and Settled mix folders, so their rows are cards that
+  // Pinned and Snoozed mix folders, so their rows are cards that
   // name the folder, as in Threads.
   const renderShelfItem = (item: ThreadsListItem) => (
     <React.Fragment key={item.node.session.id}>
@@ -395,7 +395,6 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
             shelves={shelves}
             renderItem={renderShelfItem}
             hasSessionSearchQuery={hasSessionSearchQuery}
-            mobileVariant={mobileVariant}
             className="mt-auto border-t border-border pt-1"
           />
         </SessionRowVariantContext.Provider>

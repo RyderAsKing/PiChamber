@@ -3,7 +3,7 @@ import type { SessionShelfSection } from '@/lib/sessionShelf';
 
 /**
  * Shelf state for rows in the Threads and By folder views. `null` in the
- * other views, where rows show no settle or snooze controls.
+ * other views, where rows show no snooze controls.
  */
 export interface SessionShelfRowState {
   sectionById: ReadonlyMap<string, SessionShelfSection>;

@@ -33,7 +33,7 @@ import { SessionRowVariantContext, treeRowGapClassName, treeRowSpacingClassName 
 import { SessionShelfRowContext } from './sessionShelfRowContext';
 import { useSessionShelfStore } from '@/stores/useSessionShelfStore';
 import { formatSnoozeWake } from '@/lib/sessionShelf';
-import { settleSession, updateSessionShelf } from './hooks/useSessionShelves';
+import { updateSessionShelf } from './hooks/useSessionShelves';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SessionShelfMenuActions } from './SessionNodeContextMenu';
 
@@ -226,25 +226,21 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const snoozedUntil = useSessionShelfStore(
     React.useCallback((state) => (shelfSection === 'snoozed' ? state.entries[session.id]?.snoozedUntil ?? null : null), [shelfSection, session.id]),
   );
-  const isPutAway = shelfSection === 'snoozed' || shelfSection === 'settled';
+  // Snoozed and archived rows are put away, so their titles are quieter.
+  const isPutAway = shelfSection === 'snoozed' || archivedBucket;
   const showWoke = shelfSection !== null && shelfSection !== 'snoozed' && Boolean(shelfRowState?.wokeIds.has(session.id));
   const shelfActions = React.useMemo<SessionShelfMenuActions | null>(() => {
     if (!shelfSection) return null;
     const directory = sessionDirectory ?? null;
     return {
       section: shelfSection,
-      onSettle: () => settleSession(session.id, directory, sessionTitle),
-      onUnsettle: () => updateSessionShelf(session.id, { settled: 'active' }, directory, 'Could not un-settle the session'),
       onSnooze: (until) => updateSessionShelf(session.id, { snoozedUntil: until }, directory, 'Could not snooze the session'),
       onWake: () => updateSessionShelf(session.id, { snoozedUntil: null }, directory, 'Could not wake the session'),
     };
-  }, [shelfSection, session.id, sessionDirectory, sessionTitle]);
-  const shelfQuickAction = shelfActions
-    ? shelfActions.section === 'snoozed'
-      ? { label: 'Wake', hint: 'Wake now: back to the list', icon: 'alarm' as const, run: shelfActions.onWake }
-      : shelfActions.section === 'settled'
-        ? { label: 'Un-settle', hint: 'Un-settle: back to the list', icon: 'arrow-go-back' as const, run: shelfActions.onUnsettle }
-        : { label: 'Settle', hint: 'Settle: move to Settled, not archived', icon: 'check' as const, run: shelfActions.onSettle }
+  }, [shelfSection, session.id, sessionDirectory]);
+  // A snoozed row's hover action wakes it; every other row has one Archive button.
+  const shelfQuickAction = shelfActions?.section === 'snoozed'
+    ? { label: 'Wake', hint: 'Wake now: back to the list', icon: 'alarm' as const, run: shelfActions.onWake }
     : null;
 
   const handleOpenMiniChatWindow = React.useCallback(() => {
@@ -583,7 +579,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       // view; grey stays for labels, times, and actions.
                       // The open session's title is a step heavier, so the selection
                       // reads without relying on the row tint alone.
-                      // Snoozed and settled sessions are quieter in every view:
+                      // Snoozed and archived sessions are quieter in every view:
                       // they are put away. By folder titles stay full strength
                       // too, so the work outranks the folder headers above it.
                       className={cn(
@@ -745,8 +741,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       </TooltipContent>
                     </Tooltip>
                   ) : (
-                    // Rows on a shelf view offer only their shelf action on hover;
-                    // Archive stays in the row's context menu.
                     <QuickSessionAction
                       archiveLabel={'Archive'}
                       deleteLabel={'Delete'}

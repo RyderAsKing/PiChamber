@@ -333,7 +333,6 @@ export const materializeAuthoritativeUiSettings = (
     timeFormatPreference: defaults.timeFormatPreference,
     weekStartPreference: defaults.weekStartPreference,
     sidebarViewMode: defaults.sidebarViewMode,
-    sidebarAutoSettleAfterDays: defaults.sidebarAutoSettleAfterDays,
     expandedEditorToolbar: defaults.expandedEditorToolbar,
     wrapLinesByDefault: defaults.wrapLinesByDefault,
     draftStartersVisible: defaults.draftStartersVisible,

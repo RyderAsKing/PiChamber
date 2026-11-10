@@ -3,7 +3,6 @@ import React from 'react';
 import { toast } from '@/components/ui';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { nextSnoozeWakeAt } from '@/lib/sessionShelf';
-import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { useSessionShelfStore, type SessionShelfPatch } from '@/stores/useSessionShelfStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionShelfLiveState } from '@/sync/sync-context';
@@ -16,8 +15,7 @@ const RELOAD_AFTER_WORK_STARTS_MS = 1_500;
 
 /**
  * Wall-clock time for the shelf rules, refreshed each minute and exactly at
- * the next snooze wake, so idle sessions settle and snoozes wake without a
- * reload. Stops while the document is hidden and catches up when shown.
+ * the next snooze wake, so snoozes wake without a reload. Stops while the document is hidden and catches up when shown.
  */
 const useShelfClock = (enabled: boolean, nextWakeAt: number | null): number => {
   const [now, setNow] = React.useState(() => Date.now());
@@ -96,8 +94,6 @@ const useShelfLoading = (enabled: boolean, working: ReadonlySet<string>) => {
 interface UseSessionShelvesOptions {
   enabled: boolean;
   workingShelf: boolean;
-  /** Days before an idle session settles; null is off. */
-  autoSettleAfterDays: number | null;
 }
 
 /**
@@ -106,7 +102,7 @@ interface UseSessionShelvesOptions {
  */
 export const useSessionShelves = <T extends ShelfListItem>(
   items: readonly T[],
-  { enabled, workingShelf, autoSettleAfterDays }: UseSessionShelvesOptions,
+  { enabled, workingShelf }: UseSessionShelvesOptions,
 ): SessionShelves<T> | null => {
   const entries = useSessionShelfStore((state) => (enabled ? state.entries : EMPTY_ENTRIES));
   const { working, needsInput } = useSessionShelfLiveState(enabled);
@@ -122,7 +118,6 @@ export const useSessionShelves = <T extends ShelfListItem>(
       working,
       needsInput,
       now,
-      autoSettleAfterDays,
       workingShelf,
     });
     // The minute tick usually changes nothing; keep the old object so rows
@@ -133,7 +128,7 @@ export const useSessionShelves = <T extends ShelfListItem>(
       if (sameSections) return previous.current;
     }
     return next;
-  }, [enabled, items, entries, working, needsInput, now, autoSettleAfterDays, workingShelf]);
+  }, [enabled, items, entries, working, needsInput, now, workingShelf]);
   previous.current = shelves;
 
   // Opening a session that woke from a snooze acknowledges the wake.
@@ -151,7 +146,7 @@ export const useSessionShelves = <T extends ShelfListItem>(
 
 const EMPTY_ENTRIES: Readonly<Record<string, never>> = Object.freeze({});
 
-/** Settle, un-settle, snooze, or wake a session; reports a failure as a toast. */
+/** Snooze or wake a session; reports a failure as a toast. Archive is `sessionArchive.ts`. */
 export const updateSessionShelf = (
   sessionId: string,
   patch: SessionShelfPatch,
@@ -163,39 +158,5 @@ export const updateSessionShelf = (
     .catch((error) => {
       console.warn('[session-shelf] update failed', error);
       toast.error(failureMessage);
-    });
-};
-
-/**
- * Settles a session from its hover button, menu, or a drop on Settled. It
- * leaves Pinned too, and the Settled shelf may be collapsed, so a toast names
- * it and Undo puts it back where it was, pin included.
- */
-export const settleSession = (sessionId: string, directory: string | null | undefined, title: string): void => {
-  const pins = useSessionPinnedStore.getState();
-  const wasPinned = Boolean(directory) && isSessionPinned(pins.ids, directory ?? null, sessionId);
-  if (wasPinned && directory) pins.toggle({ directory, sessionId });
-  const restorePin = () => {
-    if (!wasPinned || !directory) return;
-    const current = useSessionPinnedStore.getState();
-    if (!isSessionPinned(current.ids, directory, sessionId)) current.toggle({ directory, sessionId });
-  };
-  void useSessionShelfStore.getState()
-    .update(sessionId, { settled: 'settled' }, directory ?? undefined)
-    .then(() => {
-      toast.success(`Settled \u201c${title}\u201d`, {
-        action: {
-          label: 'Undo',
-          onClick: () => {
-            restorePin();
-            updateSessionShelf(sessionId, { settled: 'active' }, directory, 'Could not un-settle the session');
-          },
-        },
-      });
-    })
-    .catch((error) => {
-      console.warn('[session-shelf] update failed', error);
-      restorePin();
-      toast.error('Could not settle the session');
     });
 };

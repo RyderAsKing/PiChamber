@@ -65,7 +65,6 @@ import { BulkActionBar } from './sidebar/BulkActionBar';
 import { useSidebarBulkActions } from './sidebar/hooks/useSidebarBulkActions';
 import { useSessionDisplayStore } from '@/stores/useSessionDisplayStore';
 import { type SessionGroup, type SessionNode } from './sidebar/types';
-import { autoSettleDaysFromSetting } from '@/lib/sessionShelf';
 import { useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import {
   normalizePath,
@@ -260,7 +259,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
       ? 'workspace'
       : storedSidebarViewMode;
   const weekStartPreference = useUIStore((state) => state.weekStartPreference);
-  const autoSettleAfterDays = autoSettleDaysFromSetting(useUIStore((state) => state.sidebarAutoSettleAfterDays));
   const timelineWeekStart = React.useMemo(() => resolveTimelineWeekStart(weekStartPreference), [weekStartPreference]);
   const timelineBoundaries = useTimelineBoundaries(isVisible && sidebarViewMode === 'timeline', timelineWeekStart);
   const stickyZoneHeaders = useSessionDisplayStore((state) => state.stickyZoneHeaders);
@@ -550,8 +548,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const deleteSession = useSessionUIStore((state) => state.deleteSession);
   const deleteSessions = useSessionUIStore((state) => state.deleteSessions);
-  const archiveSession = useSessionUIStore((state) => state.archiveSession);
-  const archiveSessions = useSessionUIStore((state) => state.archiveSessions);
   const unarchiveSession = useSessionUIStore((state) => state.unarchiveSession);
   const unarchiveSessions = useSessionUIStore((state) => state.unarchiveSessions);
 
@@ -584,8 +580,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     unshareSession,
     deleteSession,
     deleteSessions,
-    archiveSession,
-    archiveSessions,
     unarchiveSession,
     childrenMap,
     showDeletionDialog,
@@ -1186,6 +1180,13 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
 
   const isInlineEditing = Boolean(renamingFolderId || editingId || editingProjectDialogId);
 
+  // Read at click time, so the bulk hook does not change with every list update.
+  const sessionsRef = React.useRef(sessions);
+  sessionsRef.current = sessions;
+  const resolveSessionDirectory = React.useCallback((sessionId: string): string | null => (
+    sessionsRef.current.find((session) => session.id === sessionId)?.directory ?? null
+  ), []);
+
   const {
     selectionModeEnabled,
     hasSelection,
@@ -1210,7 +1211,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     addSessionsToFolder,
     removeSessionsFromFolders,
     createFolderAndStartRename,
-    archiveSessions,
+    resolveSessionDirectory,
     unarchiveSessions,
     deleteSessions,
     setBulkDeleteConfirm,
@@ -1425,7 +1426,6 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
         pinnedSessionIds={pinnedSessionIds}
-        autoSettleAfterDays={autoSettleAfterDays}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}

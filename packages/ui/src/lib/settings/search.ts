@@ -49,13 +49,6 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['sidebar', 'sessions', 'folders', 'workspace', 'timeline', 'threads', 'layout', 'group'],
   },
   {
-    id: 'appearance.auto-settle',
-    page: 'appearance',
-    title: "Settle idle sessions",
-    description: "Threads and By folder views: move sessions with no recent activity to the Settled shelf.",
-    keywords: ['settled', 'settle', 'idle', 'inactive', 'days', 'threads', 'shelf', 'archive'],
-  },
-  {
     id: 'appearance.light-theme',
     page: 'appearance',
     title: "Light theme",
