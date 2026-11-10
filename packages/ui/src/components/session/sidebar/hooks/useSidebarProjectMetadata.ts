@@ -4,13 +4,23 @@ import type { SessionNode } from '../types';
 import { getProjectLabel, normalizePath } from '../utils';
 import type { ProjectSection } from './useSessionSidebarSections';
 
+// Archived sessions only reach the sections during a search or in Timeline;
+// counts and activity ignore them.
+const isArchivedNode = (node: SessionNode): boolean => Boolean(node.session.time?.archived);
+
+const countOpenNodes = (nodes: SessionNode[]): number => {
+  let count = 0;
+  for (const node of nodes) {
+    if (!isArchivedNode(node)) count += 1;
+  }
+  return count;
+};
+
 export const deriveTotalSessionCount = (projectSections: ProjectSection[]): number => {
   let count = 0;
   for (const section of projectSections) {
     for (const group of section.groups) {
-      if (!group.isArchivedBucket) {
-        count += group.sessions.length;
-      }
+      count += countOpenNodes(group.sessions);
     }
   }
   return count;
@@ -23,9 +33,7 @@ export const deriveSessionCountByProject = (
   for (const section of projectSections) {
     let count = 0;
     for (const group of section.groups) {
-      if (!group.isArchivedBucket) {
-        count += group.sessions.length;
-      }
+      count += countOpenNodes(group.sessions);
     }
     map.set(section.project.id, count);
   }
@@ -36,20 +44,18 @@ export const hasActiveSessionInProject = (
   section: ProjectSection,
   activeSessionIdSet: ReadonlySet<string>
 ): boolean => {
-  return section.groups.some((group) => {
-    if (group.isArchivedBucket) return false;
-    return group.sessions.some((node) => activeSessionIdSet.has(node.session.id));
-  });
+  return section.groups.some((group) => (
+    group.sessions.some((node) => !isArchivedNode(node) && activeSessionIdSet.has(node.session.id))
+  ));
 };
 
 export const hasUnseenInProject = (
   section: ProjectSection,
   unreadSessionIdSet: ReadonlySet<string>
 ): boolean => {
-  return section.groups.some((group) => {
-    if (group.isArchivedBucket) return false;
-    return group.sessions.some((node) => unreadSessionIdSet.has(node.session.id));
-  });
+  return section.groups.some((group) => (
+    group.sessions.some((node) => !isArchivedNode(node) && unreadSessionIdSet.has(node.session.id))
+  ));
 };
 
 export const deriveActiveDirectoriesByProject = (
@@ -60,9 +66,8 @@ export const deriveActiveDirectoriesByProject = (
   for (const section of projectSections) {
     const dirs = new Set<string>();
     for (const group of section.groups) {
-      if (group.isArchivedBucket) continue;
       const hasActive = group.sessions.some((node) =>
-        activeSessionIdSet.has(node.session.id)
+        !isArchivedNode(node) && activeSessionIdSet.has(node.session.id)
       );
       if (hasActive && group.directory) {
         const normalized = normalizePath(group.directory)?.toLowerCase();
@@ -72,19 +77,6 @@ export const deriveActiveDirectoriesByProject = (
     if (dirs.size > 0) map.set(section.project.id, dirs);
   }
   return map as ReadonlyMap<string, ReadonlySet<string>>;
-};
-
-export const deriveSectionsForSidebarRender = (
-  flatSectionsForRender: ProjectSection[]
-): ProjectSection[] => {
-  return flatSectionsForRender.map((section) =>
-    section.groups.some((group) => group.isArchivedBucket)
-      ? {
-          ...section,
-          groups: section.groups.filter((group) => !group.isArchivedBucket),
-        }
-      : section
-  );
 };
 
 export const deriveFilteredSectionsForSidebarRender = (
@@ -103,7 +95,7 @@ export const deriveFilteredSectionsForSidebarRender = (
   );
   const selectedGroup = section.groups.find(
     (group) =>
-      !group.isArchivedBucket && normalizePath(group.directory) === targetDirectory
+      normalizePath(group.directory) === targetDirectory
   );
   return selectedGroup ? [{ ...section, groups: [selectedGroup] }] : [];
 };
@@ -190,10 +182,7 @@ export function useSidebarProjectMetadata({
     [projectSections, homeDirectory]
   );
 
-  const sectionsForSidebarRender = React.useMemo(
-    () => deriveSectionsForSidebarRender(flatSectionsForRender),
-    [flatSectionsForRender]
-  );
+  const sectionsForSidebarRender = flatSectionsForRender;
 
   const filteredSectionsForSidebarRender = React.useMemo(
     () =>

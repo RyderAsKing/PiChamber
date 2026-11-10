@@ -53,6 +53,8 @@ type Args = {
   filterSessionNodesForSearch: (nodes: SessionNode[], query: string) => SessionNode[];
   buildGroupSearchText: (group: SessionGroup) => string;
   foldersMap: SessionFoldersMap;
+  /** Timeline lists every session, archived included, with or without a search. */
+  alwaysIncludeArchived?: boolean;
 };
 
 const NO_SESSIONS: Session[] = [];
@@ -72,10 +74,12 @@ export const useSessionSidebarSections = (args: Args) => {
     filterSessionNodesForSearch,
     buildGroupSearchText,
     foldersMap,
+    alwaysIncludeArchived = false,
   } = args;
   const projectSectionCacheRef = React.useRef<Map<string, ProjectSectionCacheEntry>>(new Map());
-  // Workspace and By folder hide archived sessions; only a search reaches them.
-  const includeArchived = hasSessionSearchQuery;
+  // Workspace, By folder and Threads hide archived sessions; a search or
+  // Timeline brings them back, in place within their folder.
+  const includeArchived = hasSessionSearchQuery || alwaysIncludeArchived;
 
   const projectSections = React.useMemo<ProjectSection[]>(() => {
     const previousCache = projectSectionCacheRef.current;
@@ -213,18 +217,17 @@ export const useSessionSidebarSections = (args: Args) => {
         return cached.section;
       }
 
-      const nonArchivedGroups = section.groups.filter((group) => !group.isArchivedBucket);
-      const archivedGroups = section.groups.filter((group) => group.isArchivedBucket);
-      const sessions = nonArchivedGroups.flatMap((group) => hasSessionSearchQuery
+      const sourceGroups = section.groups;
+      const sessions = sourceGroups.flatMap((group) => hasSessionSearchQuery
         ? (groupSearchDataByGroup.get(group)?.filteredNodes ?? [])
         : group.sessions);
-      const folderScopes = nonArchivedGroups
+      const folderScopes = sourceGroups
         .map((group) => ({
           scopeKey: group.folderScopeKey ?? normalizePath(group.directory ?? null),
           directory: group.directory ?? null,
         }))
         .filter((scope): scope is { scopeKey: string; directory: string | null } => Boolean(scope.scopeKey));
-      const rootGroup = nonArchivedGroups.find((group) => group.isMain) ?? null;
+      const rootGroup = sourceGroups.find((group) => group.isMain) ?? null;
 
       const flatGroup: SessionGroup = {
         id: 'flat',
@@ -232,7 +235,6 @@ export const useSessionSidebarSections = (args: Args) => {
         branch: rootGroup?.branch ?? null,
         description: rootGroup?.description ?? null,
         isMain: true,
-        isArchivedBucket: false,
         directory: rootGroup?.directory ?? section.project.normalizedPath,
         folderScopeKey: rootGroup?.folderScopeKey ?? section.project.normalizedPath,
         folderScopes,
@@ -240,7 +242,7 @@ export const useSessionSidebarSections = (args: Args) => {
       };
 
       if (hasSessionSearchQuery) {
-        const merged = nonArchivedGroups
+        const merged = sourceGroups
           .map((group) => groupSearchDataByGroup.get(group))
           .filter((data): data is GroupSearchData => Boolean(data));
         groupSearchDataByGroup.set(flatGroup, {
@@ -254,7 +256,7 @@ export const useSessionSidebarSections = (args: Args) => {
 
       const flatSection: ProjectSection = {
         project: section.project,
-        groups: [flatGroup, ...archivedGroups],
+        groups: [flatGroup],
       };
       cache.set(section, { query: normalizedSessionSearchQuery, section: flatSection });
       return flatSection;

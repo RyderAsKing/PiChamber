@@ -5,8 +5,9 @@ import type { Session } from '@/lib/chat/types';
 import type { SessionGroup, SessionNode } from '../types';
 import { useSessionSidebarSections } from './useSessionSidebarSections';
 
-// Workspace and By folder hide archived sessions: with no search query the
-// sections carry no archived nodes, so neither view lists or buckets them.
+// Workspace, By folder and Threads hide archived sessions: with no search
+// query the sections carry no archived nodes. A search, or Timeline, brings
+// them back in place within their folder.
 
 const session = (id: string, archived = false): Session => ({
   id,
@@ -17,24 +18,14 @@ const session = (id: string, archived = false): Session => ({
 
 const project = { id: 'alpha', path: '/work/alpha', normalizedPath: '/work/alpha' };
 
-// Mirrors useSessionGrouping: archived sessions go to their own bucket group.
-const buildGroupedSessions = (sessions: Session[]): SessionGroup[] => {
-  const node = (item: Session): SessionNode => ({ session: item, children: [] } as unknown as SessionNode);
-  const groups: SessionGroup[] = [{
-    id: 'root', label: 'root', branch: null, description: null, isMain: true, isArchivedBucket: false,
-    directory: '/work/alpha', sessions: sessions.filter((item) => !item.time?.archived).map(node),
-  } as SessionGroup];
-  const archived = sessions.filter((item) => item.time?.archived);
-  if (archived.length > 0) {
-    groups.push({
-      id: 'archived', label: 'archived', branch: null, description: null, isMain: false, isArchivedBucket: true,
-      directory: null, sessions: archived.map(node),
-    } as SessionGroup);
-  }
-  return groups;
-};
+// Mirrors useSessionGrouping: archived sessions stay in their folder group.
+const buildGroupedSessions = (sessions: Session[]): SessionGroup[] => [{
+  id: 'root', label: 'root', branch: null, description: null, isMain: true,
+  directory: '/work/alpha',
+  sessions: sessions.map((item) => ({ session: item, children: [] } as unknown as SessionNode)),
+} as SessionGroup];
 
-const renderedIds = (query: string): string[] => {
+const renderedIds = (query: string, alwaysIncludeArchived = false): string[] => {
   let ids: string[] = [];
   const Probe = () => {
     const { sectionsForRender, flatSectionsForRender } = useSessionSidebarSections({
@@ -51,6 +42,7 @@ const renderedIds = (query: string): string[] => {
       filterSessionNodesForSearch: (nodes, q) => nodes.filter((node) => node.session.title?.toLowerCase().includes(q)),
       buildGroupSearchText: () => '',
       foldersMap: {},
+      alwaysIncludeArchived,
     });
     ids = [...sectionsForRender, ...flatSectionsForRender]
       .flatMap((section) => section.groups)
@@ -68,5 +60,9 @@ describe('useSessionSidebarSections', () => {
 
   test('a search still reaches archived matches', () => {
     expect(renderedIds('title')).toEqual(['open', 'put-away']);
+  });
+
+  test('Timeline always includes archived sessions', () => {
+    expect(renderedIds('', true)).toEqual(['open', 'put-away']);
   });
 });

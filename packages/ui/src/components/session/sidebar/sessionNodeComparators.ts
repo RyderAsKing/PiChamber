@@ -1,6 +1,6 @@
 import type { Session } from '@/lib/chat/types';
 import type { SessionNode } from './types';
-import { nodeContainsSessionId, nodeHasPinnedMembershipChange } from './sessionNodeItemUtils';
+import { nodeContainsSessionId, nodeHasPinnedMembershipChange, sessionRowKey } from './sessionNodeItemUtils';
 import { normalizePath } from './utils';
 import type { SecondaryMeta, SessionNodeItemProps } from './sessionNodeTypes';
 
@@ -18,9 +18,9 @@ export const isSecondaryMetaEqual = (prev?: SecondaryMeta | null, next?: Seconda
 
 export const getMenuSessionIdFromKey = (props: SessionNodeItemProps): string | null => {
   if (!props.openSidebarMenuKey) return null;
-  const bucketTag = props.archivedBucket ? 'archived' : 'active';
-  const prefix = `${props.renderContext ?? 'project'}:${bucketTag}:`;
-  return props.openSidebarMenuKey.startsWith(prefix) ? props.openSidebarMenuKey.slice(prefix.length) : null;
+  const context = props.renderContext ?? 'project';
+  const [keyContext, , ...rest] = props.openSidebarMenuKey.split(':');
+  return keyContext === context && rest.length > 0 ? rest.join(':') : null;
 };
 
 export const getRelevantMenuSessionId = (props: SessionNodeItemProps): string | null => {
@@ -58,22 +58,20 @@ export const hasSetMembershipChangeInNode = (
 
 export const hasExpansionMembershipChange = (prev: SessionNodeItemProps, next: SessionNodeItemProps): boolean => {
   if (prev.hasSessionSearchQuery || next.hasSessionSearchQuery) return false;
-  const prevBucketTag = prev.archivedBucket ? 'archived' : 'active';
-  const nextBucketTag = next.archivedBucket ? 'archived' : 'active';
   return (
     hasSetMembershipChangeInNode(
       prev.node,
       next.node,
       prev.expandedParents,
       next.expandedParents,
-      (node) => `${prev.renderContext ?? 'project'}:${prevBucketTag}:${node.session.id}`,
+      (node) => sessionRowKey(prev.renderContext ?? 'project', node.session),
     ) ||
     hasSetMembershipChangeInNode(
       prev.node,
       next.node,
       prev.expandedParents,
       next.expandedParents,
-      (node) => `${next.renderContext ?? 'project'}:${nextBucketTag}:${node.session.id}`,
+      (node) => sessionRowKey(next.renderContext ?? 'project', node.session),
     )
   );
 };

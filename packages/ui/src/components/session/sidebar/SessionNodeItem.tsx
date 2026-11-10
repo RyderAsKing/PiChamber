@@ -10,6 +10,7 @@ import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { AgentThinkingLoader } from '@/components/chat/AgentThinkingLoader';
 import { DraggableSessionRow } from './sessionFolderDnd';
 import type { SessionNodeChildRenderExtras } from './sessionNodeItemUtils';
+import { sessionRowKey } from './sessionNodeItemUtils';
 import { renderHighlightedText } from './highlightedText';
 import { SessionActivityDuration } from '@/components/session/SessionActivityDuration';
 import { SessionUnreadDot } from './SessionUnreadDot';
@@ -104,7 +105,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     depth = 0,
     groupDirectory,
     projectId,
-    archivedBucket = false,
+    archivedBucket: archivedBucketProp = false,
     pinnedSessionIds,
     expandedParents,
     hasSessionSearchQuery,
@@ -144,6 +145,9 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     childRenderExtrasFor,
   } = props;
 
+  // Archived rows reach the list during a search or in Timeline; they read as
+  // archived (muted, Unarchive in the menu) wherever they show.
+  const archivedBucket = archivedBucketProp || Boolean(node.session.time?.archived);
   const isTree = React.useContext(SessionRowVariantContext) === 'tree';
   const metaIconClassName = 'size-3 shrink-0';
   const isElectron = React.useMemo(() => canUseElectronDesktopIPC(), []);
@@ -160,7 +164,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const renameTargetRef = React.useRef<string | null>(null);
   const formRef = React.useRef<HTMLFormElement>(null);
 
-  const menuInstanceKey = `${renderContext}:${archivedBucket ? 'archived' : 'active'}:${node.session.id}`;
+  const menuInstanceKey = sessionRowKey(renderContext, node.session);
   const expansionKey = menuInstanceKey;
 
   const {
