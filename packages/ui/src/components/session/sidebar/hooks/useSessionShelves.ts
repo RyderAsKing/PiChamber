@@ -3,6 +3,7 @@ import React from 'react';
 import { toast } from '@/components/ui';
 import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { nextSnoozeWakeAt } from '@/lib/sessionShelf';
+import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { useSessionShelfStore, type SessionShelfPatch } from '@/stores/useSessionShelfStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSessionShelfLiveState } from '@/sync/sync-context';
@@ -162,5 +163,39 @@ export const updateSessionShelf = (
     .catch((error) => {
       console.warn('[session-shelf] update failed', error);
       toast.error(failureMessage);
+    });
+};
+
+/**
+ * Settles a session from its hover button, menu, or a drop on Settled. It
+ * leaves Pinned too, and the Settled shelf may be collapsed, so a toast names
+ * it and Undo puts it back where it was, pin included.
+ */
+export const settleSession = (sessionId: string, directory: string | null | undefined, title: string): void => {
+  const pins = useSessionPinnedStore.getState();
+  const wasPinned = Boolean(directory) && isSessionPinned(pins.ids, directory ?? null, sessionId);
+  if (wasPinned && directory) pins.toggle({ directory, sessionId });
+  const restorePin = () => {
+    if (!wasPinned || !directory) return;
+    const current = useSessionPinnedStore.getState();
+    if (!isSessionPinned(current.ids, directory, sessionId)) current.toggle({ directory, sessionId });
+  };
+  void useSessionShelfStore.getState()
+    .update(sessionId, { settled: 'settled' }, directory ?? undefined)
+    .then(() => {
+      toast.success(`Settled \u201c${title}\u201d`, {
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            restorePin();
+            updateSessionShelf(sessionId, { settled: 'active' }, directory, 'Could not un-settle the session');
+          },
+        },
+      });
+    })
+    .catch((error) => {
+      console.warn('[session-shelf] update failed', error);
+      restorePin();
+      toast.error('Could not settle the session');
     });
 };

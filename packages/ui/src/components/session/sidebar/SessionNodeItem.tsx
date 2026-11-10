@@ -33,7 +33,7 @@ import { SessionRowVariantContext, treeRowGapClassName, treeRowSpacingClassName 
 import { SessionShelfRowContext } from './sessionShelfRowContext';
 import { useSessionShelfStore } from '@/stores/useSessionShelfStore';
 import { formatSnoozeWake } from '@/lib/sessionShelf';
-import { updateSessionShelf } from './hooks/useSessionShelves';
+import { settleSession, updateSessionShelf } from './hooks/useSessionShelves';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { SessionShelfMenuActions } from './SessionNodeContextMenu';
 
@@ -233,16 +233,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
     const directory = sessionDirectory ?? null;
     return {
       section: shelfSection,
-      onSettle: () => {
-        // Settled sessions leave Pinned, as they do when dragged to Settled.
-        if (isPinnedSession && directory) togglePinnedSession({ directory, sessionId: session.id });
-        updateSessionShelf(session.id, { settled: 'settled' }, directory, 'Could not settle the session');
-      },
+      onSettle: () => settleSession(session.id, directory, sessionTitle),
       onUnsettle: () => updateSessionShelf(session.id, { settled: 'active' }, directory, 'Could not un-settle the session'),
       onSnooze: (until) => updateSessionShelf(session.id, { snoozedUntil: until }, directory, 'Could not snooze the session'),
       onWake: () => updateSessionShelf(session.id, { snoozedUntil: null }, directory, 'Could not wake the session'),
     };
-  }, [shelfSection, session.id, sessionDirectory, isPinnedSession, togglePinnedSession]);
+  }, [shelfSection, session.id, sessionDirectory, sessionTitle]);
   const shelfQuickAction = shelfActions
     ? shelfActions.section === 'snoozed'
       ? { label: 'Wake', hint: 'Wake now: back to the list', icon: 'alarm' as const, run: shelfActions.onWake }
@@ -502,11 +498,6 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
               />
             }
           >
-            {isActive && !rowBackground ? (
-              // The open session keeps a mark that hover never shows, so it reads
-              // apart from a hovered row without comparing two grey fills.
-              <span aria-hidden="true" className="pointer-events-none absolute inset-y-1.5 left-1 w-[3px] rounded-full bg-[var(--primary-base)]" />
-            ) : null}
             <div
               className={cn('flex min-w-0 flex-1 items-start', showWorkingOverlay && 'oc-session-row-working-fade')}
               data-clear-on-hover={showWorkingOverlay && showQuickArchiveAction ? 'true' : undefined}

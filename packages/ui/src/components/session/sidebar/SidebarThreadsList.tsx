@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { updateSessionShelf } from './hooks/useSessionShelves';
+import { settleSession, updateSessionShelf } from './hooks/useSessionShelves';
 import type { SessionShelves, ShelfListItem } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
 import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
@@ -108,8 +108,8 @@ const THREADS_SHELVES: readonly ShelfId[] = ['snoozed', 'settled'];
 
 /**
  * The collapsible Snoozed and Settled sections below the Threads list and the
- * By folder tree. A collapsed section still shows the open session, so the
- * selection never disappears; Settled pages its rows.
+ * By folder tree. A collapsed section shows only its heading, even when it
+ * holds the open session; Settled pages its rows.
  */
 export const SessionShelfStack = <T extends ShelfListItem>({
   shelfIds,
@@ -146,7 +146,7 @@ export const SessionShelfStack = <T extends ShelfListItem>({
       const current = rows.find((item) => item.node.session.id === currentSessionId);
       return current && !visible.includes(current) ? [...visible, current] : visible;
     }
-    return rows.filter((item) => item.node.session.id === currentSessionId);
+    return [];
   };
   const settledRemaining = shelves.settled.length - Math.min(settledLimit, shelves.settled.length);
   const visibleIds = shelfIds.filter((id) => shelves[id].length > 0 || (id === 'settled' && dragging));
@@ -256,7 +256,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
     const directory = active.sessionDirectory ?? null;
     const from = shelves.sectionById.get(sessionId);
     if (!from) return;
-    moveSession(sessionId, directory, from, over.target);
+    moveSession(sessionId, directory, from, over.target, dragging?.title ?? 'Session');
   };
 
   if (items.length === 0) {
@@ -349,6 +349,7 @@ const moveSession = (
   directory: string | null,
   from: SessionShelfSection,
   to: DropTarget,
+  title: string,
 ) => {
   const pins = useSessionPinnedStore.getState();
   const isPinned = isSessionPinned(pins.ids, directory, sessionId);
@@ -358,8 +359,7 @@ const moveSession = (
   };
   if (to === 'settled') {
     if (from === 'settled') return;
-    setPinned(false);
-    updateSessionShelf(sessionId, { settled: 'settled' }, directory, 'Could not settle the session');
+    settleSession(sessionId, directory, title);
     return;
   }
   if (from === 'snoozed') {
