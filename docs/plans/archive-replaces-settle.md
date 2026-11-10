@@ -85,10 +85,12 @@ set changes) instead of relying on a later list.
 - **Migration on first read:** for each entry with `settled: 'settled'`,
   archive the session (keeping `settledAt` as the archive time) and remove
   the settled fields. Entries with `settled: 'active'` lose the field. This
-  runs once under the existing cross-process lock and writes both files
-  atomically: the archive file first, then the shelf file. If the archive
-  write fails, the shelf file stays unchanged and the migration retries on
-  the next read.
+  runs once under the existing cross-process lock. The two writes are
+  ordered, not atomic: the archive file first, then the shelf file. If the
+  archive write fails, the shelf keeps its settled marks and the migration
+  retries on the next read or write. If the shelf write fails after the
+  archive write, the retry is safe because `archiveMissing` keeps existing
+  archive times.
 - **Older clients:** a release-candidate desktop app may still send
   `settled: 'settled'` to a new server. The route maps that to an archive.
   `settled: 'active'` and `settled: null` are accepted and do nothing. Remove

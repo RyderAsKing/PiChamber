@@ -391,6 +391,9 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const pinnedIds = useSessionPinnedStore((state) => state.ids);
   const shelfEntries = useSessionShelfStore((state) => state.entries);
+  // Same gate as the run: without this runtime's shelf, snoozed sessions
+  // can't be told apart, so no archive count is shown.
+  const shelfReady = useSessionShelfStore((state) => state.status === 'ready' && state.runtimeKey === getRuntimeKey());
   // Only Settings needs the counts; the app shell's hook never wakes on catalog changes.
   const records = usePiSessionSnapshot(
     (state) => (showCounts ? state.catalog.byId : EMPTY_RECORDS),
@@ -404,7 +407,7 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
 
   const candidates = React.useMemo(() => {
     if (!showCounts) return EMPTY_CANDIDATES;
-    return listAutoCleanupCandidates(records.values(), {
+    const result = listAutoCleanupCandidates(records.values(), {
       archiveDays,
       deleteDays,
       currentSessionId: currentSessionId ?? null,
@@ -412,7 +415,8 @@ export const useSessionAutoCleanup = (enabledOrOptions?: boolean | CleanupOption
       shelfEntries,
       now: Date.now(),
     });
-  }, [showCounts, records, archiveDays, deleteDays, currentSessionId, pinnedIds, shelfEntries]);
+    return shelfReady ? result : { ...result, archive: [] };
+  }, [showCounts, shelfReady, records, archiveDays, deleteDays, currentSessionId, pinnedIds, shelfEntries]);
 
   const [isRunning, setIsRunning] = React.useState(false);
   const runCleanup = React.useCallback(async (): Promise<CleanupResult> => {

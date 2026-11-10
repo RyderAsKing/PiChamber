@@ -141,6 +141,10 @@ export const SessionRetentionSettings: React.FC = () => {
     const failedArchive = result.archive.failedIds.length;
     const failedDelete = result.delete.failedIds.length;
 
+    if (result.skippedReason === 'running') {
+      toast.message("Archive and delete is already running. Try again in a moment.");
+      return;
+    }
     if (result.skippedReason === 'disabled') {
       toast.message("Archiving and deleting are both off");
       return;

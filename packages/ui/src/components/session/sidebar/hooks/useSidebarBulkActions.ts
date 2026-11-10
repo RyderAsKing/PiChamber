@@ -26,6 +26,15 @@ type Args = {
   } | null>>;
 };
 
+// A row is archived when every rendered copy of it is marked archived.
+const isArchivedRow = (sessionId: string): boolean => {
+  if (typeof document === 'undefined') return false;
+  const rows = document.querySelectorAll<HTMLElement>(`[data-session-row="${CSS.escape(sessionId)}"]`);
+  if (rows.length === 0) return false;
+  for (const row of rows) if (row.getAttribute('data-session-archived') !== '1') return false;
+  return true;
+};
+
 /**
  * Bulk-action logic for the sidebar. The hot-path concern is that this
  * hook subscribes to `useSessionMultiSelectStore` — which can fire on
@@ -191,11 +200,16 @@ export const useSidebarBulkActions = (args: Args) => {
   const handleBulkDelete = React.useCallback(() => {
     if (!hasSelection) return;
     if (!bulkScopeIsArchived) {
-      const targets = Array.from(selectedIds, (sessionId) => ({
-        sessionId,
-        directory: resolveSessionDirectory(sessionId),
-        forkIds: [],
-      }));
+      // A mixed selection (search or Timeline lists archived rows too) only
+      // archives its active rows, so Undo never unarchives a session that was
+      // archived before.
+      const targets = Array.from(selectedIds)
+        .filter((sessionId) => !isArchivedRow(sessionId))
+        .map((sessionId) => ({
+          sessionId,
+          directory: resolveSessionDirectory(sessionId),
+          forkIds: [],
+        }));
       useSessionMultiSelectStore.getState().clear();
       void archiveSessionsWithUndo(targets);
       return;
