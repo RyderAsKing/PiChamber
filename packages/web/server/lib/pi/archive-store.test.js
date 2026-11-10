@@ -29,4 +29,14 @@ describe('Pi archive sidecar', () => {
     await writeFile(file, 'not-json');
     await expect(archive.read()).rejects.toMatchObject({ code: 'ARCHIVE_METADATA_INVALID' });
   });
+
+  it('archives missing sessions at given times without moving existing archive times', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-archive-'));
+    const archive = createPiArchiveStore({ file: join(root, 'pi', 'session-archive.json') });
+    await archive.set('kept', true);
+    const keptAt = (await archive.read()).kept;
+    await archive.archiveMissing({ kept: 5, added: 7 });
+    await expect(archive.read()).resolves.toEqual({ kept: keptAt, added: 7 });
+    await expect(archive.archiveMissing({ bad: -1 })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  });
 });
