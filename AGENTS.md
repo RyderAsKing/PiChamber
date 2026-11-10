@@ -138,7 +138,10 @@ same list in the mobile sessions drawer); `sidebar-threads` (desktop only: the
 Threads view with its Snoozed and Settled shelves open, one session snoozed,
 one settled by hand, and one settled after five idle days); `sidebar-threads-hover`
 (the same view with the pointer on an active session, showing its Settle
-action, desktop only); `sidebar-folder`
+action, desktop only); `sidebar-threads-settle` (the same view with its
+shelves collapsed, just after the open session's Settle button: the session
+leaves the list and a toast names it with Undo; it settles that session in
+the data directory, so capture it last, desktop only); `sidebar-folder`
 (the same sessions in the By folder view); `sidebar-folder-actions` (By folder
 with the pointer on a folder header, showing its New session and folder menu
 buttons, desktop only); `open-request` (an Open request for a

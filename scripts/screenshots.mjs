@@ -201,6 +201,32 @@ const PAGES = {
       return rect ? { x: rect.left + 20, y: rect.top + rect.height / 2 } : null;
     })()`,
   },
+  'sidebar-threads-settle': {
+    // Threads with the shelves collapsed, just after the open session's Settle
+    // button: it leaves the list, and a toast names it with Undo. This settles
+    // the session in the data directory, so capture it after the other pages.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'threads',
+    readyText: SHELF_SESSION_TEXT,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const title = ${JSON.stringify(SHELF_SESSIONS[0].title)};
+      if ([...document.querySelectorAll('[data-sonner-toast]')].some((toast) => toast.innerText.includes(title))) return true;
+      if (window.__settleClicked) return false;
+      const messageShown = [...document.querySelectorAll('[data-message-id]')].some((node) => node.innerText.includes(title));
+      if (!messageShown) return false;
+      // The row is the widest ancestor holding a single Settle button.
+      const button = [...document.querySelectorAll('button[aria-label="Settle"]')].find((candidate) => {
+        let row = candidate;
+        while (row.parentElement && row.parentElement.querySelectorAll('button[aria-label="Settle"]').length === 1) row = row.parentElement;
+        return row.innerText.includes(title);
+      });
+      if (!button) return false;
+      window.__settleClicked = true;
+      button.click();
+      return false;
+    })()`,
+  },
   'sidebar-folder': {
     // By folder: folders with their active sessions; snoozed and settled
     // sessions moved to shelves under the folder list.
