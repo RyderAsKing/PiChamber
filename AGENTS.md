@@ -135,13 +135,15 @@ session with `!!git diff --stat` typed into the composer); `sidebar-projects`
 (desktop only: the folder list with project icons and the fallback mark, and
 session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
 same list in the mobile sessions drawer); `sidebar-threads` (desktop only: the
-Threads view with its Snoozed and Settled shelves open, one session snoozed,
-one settled by hand, and one settled after five idle days); `sidebar-threads-hover`
-(the same view with the pointer on an active session, showing its Settle
-action, desktop only); `sidebar-threads-settle` (the same view with its
-shelves collapsed, just after the open session's Settle button: the session
-leaves the list and a toast names it with Undo; it settles that session in
-the data directory, so capture it last, desktop only); `sidebar-folder`
+Threads view with its Snoozed shelf open and one session snoozed; two seeded
+sessions are archived and so absent); `sidebar-threads-hover`
+(the same view with the pointer on an active session, showing its Archive
+action, desktop only); `sidebar-threads-archive` (the same view with its
+shelf collapsed, just after the open session's Archive button: the session
+leaves the list and a toast names it with Undo; it archives that session in
+the data directory, so capture it last, desktop only);
+`sidebar-search-archived` (a search for `checkout` that matches an archived
+session, shown in place with a muted title, desktop only); `sidebar-folder`
 (the same sessions in the By folder view); `sidebar-folder-actions` (By folder
 with the pointer on a folder header, showing its New session and folder menu
 buttons, desktop only); `open-request` (an Open request for a
@@ -164,10 +166,12 @@ expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
 first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
-`settings-projects` (project cards with their icons, desktop only); `command-palette`
-(opened with Ctrl+P, desktop only). Desktop captures report a mouse, so
-`hover:` styles apply; a page's `hoverScript` returns the point to rest the
-pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
+`settings-projects` (project cards with their icons, desktop only);
+`settings-archive` (Sessions settings at Archive and delete, desktop only);
+`settings-sidebar-view` (Appearance at Sidebar view with Legacy views open,
+desktop only); `command-palette` (opened with Ctrl+P, desktop only).
+Desktop captures report a mouse, so `hover:` styles apply; a page's
+`hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,

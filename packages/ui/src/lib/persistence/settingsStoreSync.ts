@@ -3,7 +3,7 @@ import { useUIStore } from '@/stores/useUIStore';
 import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normalizeFollowUpBehavior } from '@/stores/messageQueueStore';
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
-import { isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
+import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -185,10 +185,16 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     store.setSidebarViewMode(settings.sidebarViewMode);
   }
   if (
-    isAutoSettleAfterDaysSetting(settings.sidebarAutoSettleAfterDays) &&
-    settings.sidebarAutoSettleAfterDays !== store.sidebarAutoSettleAfterDays
+    isSessionRetentionDaysSetting(settings.sessionAutoArchiveAfterDays) &&
+    settings.sessionAutoArchiveAfterDays !== store.sessionAutoArchiveAfterDays
   ) {
-    store.setSidebarAutoSettleAfterDays(settings.sidebarAutoSettleAfterDays);
+    store.setSessionAutoArchiveAfterDays(settings.sessionAutoArchiveAfterDays);
+  }
+  if (
+    isSessionRetentionDaysSetting(settings.sessionAutoDeleteAfterDays) &&
+    settings.sessionAutoDeleteAfterDays !== store.sessionAutoDeleteAfterDays
+  ) {
+    store.setSessionAutoDeleteAfterDays(settings.sessionAutoDeleteAfterDays);
   }
   if (
     typeof settings.expandedEditorToolbar === 'boolean' &&

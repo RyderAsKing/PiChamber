@@ -1813,6 +1813,7 @@ describe('catalog-owner list/mutation reconciliation', () => {
     // Authoritative remote rename/archive wins; live lifecycle rides the merge.
     expect(reconciled.byId.get('s-1')?.title).toBe('remote-new');
     expect(reconciled.byId.get('s-1')?.archived).toBe(true);
+    expect(reconciled.byId.get('s-1')?.archivedAt).toBe(7);
     expect(reconciled.byId.get('s-1')?.lifecycle).toBe('busy');
   });
 
@@ -1821,7 +1822,7 @@ describe('catalog-owner list/mutation reconciliation', () => {
       listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 }),
     ], 10);
     let current = applyTitleChange(baseline, 's-1', 'local-new', 99);
-    current = applyArchiveChange(current, 's-1', true, 99);
+    current = applyArchiveChange(current, 's-1', true, 99, 99);
     const reconciled = applyDirectoryListWithReconciliation(
       baseline,
       current,
@@ -1831,6 +1832,37 @@ describe('catalog-owner list/mutation reconciliation', () => {
     );
     expect(reconciled.byId.get('s-1')?.title).toBe('local-new');
     expect(reconciled.byId.get('s-1')?.archived).toBe(true);
+    expect(reconciled.byId.get('s-1')?.archivedAt).toBe(99);
+  });
+
+  test('archive time: the listing carries it, a local archive stamps it, unarchive clears it', () => {
+    let state = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('listed', '/repo-a', { archived: true, timeArchived: 40, updatedAt: 5 }),
+      listItem('restored', '/repo-a', { archived: true, timeArchived: 0, updatedAt: 5 }),
+      listItem('active', '/repo-a', { updatedAt: 5 }),
+    ], 10);
+    expect(state.byId.get('listed')?.archivedAt).toBe(40);
+    expect(state.byId.get('restored')?.archivedAt).toBeUndefined();
+    expect(state.byId.get('active')?.archivedAt).toBeUndefined();
+
+    state = applyArchiveChange(state, 'active', true, 50, 50);
+    expect(state.byId.get('active')?.archivedAt).toBe(50);
+    // Archiving an archived row again keeps its original time.
+    state = applyArchiveChange(state, 'listed', true, 60);
+    expect(state.byId.get('listed')?.archivedAt).toBe(40);
+    // Unarchive, then a rollback that names the time it restores.
+    state = applyArchiveChange(state, 'listed', false, 61);
+    expect(state.byId.get('listed')?.archivedAt).toBeUndefined();
+    // Without a time the archive time is unknown, never guessed.
+    state = applyArchiveChange(state, 'listed', true, 61);
+    expect(state.byId.get('listed')?.archivedAt).toBeUndefined();
+    state = applyArchiveChange(state, 'listed', true, 62, 40);
+    expect(state.byId.get('listed')?.archivedAt).toBe(40);
+    // A later listing with a new archive time replaces it.
+    state = applyDirectoryListToCatalog(state, '/repo-a', [
+      listItem('listed', '/repo-a', { archived: true, timeArchived: 45, updatedAt: 5 }),
+    ], 70);
+    expect(state.byId.get('listed')?.archivedAt).toBe(45);
   });
 
   test('hydration-only change does not freeze stale title', () => {

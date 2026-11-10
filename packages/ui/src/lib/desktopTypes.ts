@@ -111,8 +111,12 @@ export type DesktopSettings = {
   timeFormatPreference?: 'auto' | '12h' | '24h';
   weekStartPreference?: 'auto' | 'sunday' | 'monday';
   sidebarViewMode?: SidebarViewMode;
-  /** Days without activity before a session moves to Settled; 0 turns it off. */
+  /** Retired Settle setting (days, 0 off); read once by the server to migrate, no longer written. */
   sidebarAutoSettleAfterDays?: number;
+  /** Days without activity before a session is archived; 0 turns it off. */
+  sessionAutoArchiveAfterDays?: number;
+  /** Days after archiving before a session is deleted; 0 turns it off. */
+  sessionAutoDeleteAfterDays?: number;
   expandedEditorToolbar?: boolean;
   wrapLinesByDefault?: boolean;
   fontSize?: number;

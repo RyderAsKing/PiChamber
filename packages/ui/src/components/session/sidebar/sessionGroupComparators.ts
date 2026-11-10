@@ -3,6 +3,7 @@ import {
   nodeContainsSessionId,
   nodeHasPinnedMembershipChange,
   resolveMenuOpenSessionId,
+  sessionRowKey,
 } from './sessionNodeItemUtils';
 import type { SessionGroupSectionProps } from './sessionGroupTypes';
 
@@ -56,9 +57,8 @@ export const groupHasExpansionMembershipChange = (
   prevExpandedParents: Set<string>,
   nextExpandedParents: Set<string>,
 ): boolean => {
-  const bucketTag = group.isArchivedBucket ? 'archived' : 'active';
   const visit = (node: SessionNode): boolean => {
-    const key = `project:${bucketTag}:${node.session.id}`;
+    const key = sessionRowKey('project', node.session);
     if (prevExpandedParents.has(key) !== nextExpandedParents.has(key)) return true;
     return node.children.some(visit);
   };
@@ -108,8 +108,8 @@ export const areGroupPropsEqual = (
   }
 
   if (prev.openSidebarMenuKey !== next.openSidebarMenuKey) {
-    const prevMenuSessionId = resolveMenuOpenSessionId(prev.group.sessions, prev.openSidebarMenuKey, 'project', Boolean(prev.group.isArchivedBucket));
-    const nextMenuSessionId = resolveMenuOpenSessionId(next.group.sessions, next.openSidebarMenuKey, 'project', Boolean(next.group.isArchivedBucket));
+    const prevMenuSessionId = resolveMenuOpenSessionId(prev.group.sessions, prev.openSidebarMenuKey, 'project');
+    const nextMenuSessionId = resolveMenuOpenSessionId(next.group.sessions, next.openSidebarMenuKey, 'project');
     if (prevMenuSessionId || nextMenuSessionId) return false;
   }
 
@@ -151,6 +151,5 @@ export const areGroupPropsEqual = (
     && prev.setRenamingFolderId === next.setRenamingFolderId
     && prev.onToggleCollapsedGroup === next.onToggleCollapsedGroup
     && prev.dragHandleProps === next.dragHandleProps
-    && prev.scrollContainerRef === next.scrollContainerRef
   );
 };

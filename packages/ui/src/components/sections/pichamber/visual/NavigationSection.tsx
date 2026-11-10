@@ -1,14 +1,12 @@
 import React from 'react';
 
 import {
-  SETTINGS_NUMBER_STEPPER_ROW_CLASS,
-  SETTINGS_NUMBER_UNIT_CLASS,
   SETTINGS_OPTION_STACK_CLASS,
   SETTINGS_SELECT_SIZE,
   SETTINGS_SELECT_TRIGGER_CLASS,
   SettingsCheckboxRow,
   SettingsControlGroup,
-  SettingsFieldRow,
+  SettingsDisclosure,
   SettingsPreviewOption,
   SettingsRadioGroup,
   SettingsRadioOption,
@@ -25,26 +23,20 @@ import {
 import type { TerminalShell, TerminalShellOption } from '@/lib/api/types';
 import { isTerminalShell } from '@/lib/terminalShell';
 import type { SidebarViewMode } from '@/lib/sidebarViewMode';
-import { NumberInput } from '@/components/ui/number-input';
-import {
-  DEFAULT_AUTO_SETTLE_AFTER_DAYS,
-  MAX_AUTO_SETTLE_AFTER_DAYS,
-  MIN_AUTO_SETTLE_AFTER_DAYS,
-} from '@/lib/sessionShelf';
 import { SidebarViewPreview } from './SidebarViewPreview';
 import {
+  LEGACY_SIDEBAR_VIEW_MODE_OPTIONS,
   SIDEBAR_VIEW_DESCRIPTION,
   SIDEBAR_VIEW_MODE_OPTIONS,
   type VisibleSetting,
 } from './visualSettingsConstants';
 
+const SIDEBAR_VIEW_GRID_CLASS = 'grid max-w-[40rem] grid-cols-2 gap-2 @xl:grid-cols-4 @xl:gap-3';
+
 export interface NavigationSectionProps {
   shouldShow: (setting: VisibleSetting) => boolean;
   sidebarViewMode: SidebarViewMode;
   onSidebarViewModeChange: (mode: SidebarViewMode) => void;
-  /** 0 is off. */
-  sidebarAutoSettleAfterDays: number;
-  onSidebarAutoSettleAfterDaysChange: (days: number) => void;
   fileEditorKeymap: 'default' | 'vim';
   setFileEditorKeymap: (keymap: 'default' | 'vim') => void;
   autoSaveEnabled: boolean;
@@ -68,8 +60,6 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   shouldShow,
   sidebarViewMode,
   onSidebarViewModeChange,
-  sidebarAutoSettleAfterDays,
-  onSidebarAutoSettleAfterDaysChange,
   fileEditorKeymap,
   setFileEditorKeymap,
   autoSaveEnabled,
@@ -88,6 +78,17 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
   terminalLoginShellEnabled,
   setTerminalLoginShellEnabled,
 }) => {
+  const renderViewOption = (option: (typeof SIDEBAR_VIEW_MODE_OPTIONS)[number]) => (
+    <SettingsPreviewOption
+      key={option.id}
+      selected={sidebarViewMode === option.id}
+      onSelect={() => onSidebarViewModeChange(option.id)}
+      label={option.label}
+      ariaLabel={option.label}
+      preview={<SidebarViewPreview mode={option.id} />}
+      description={SIDEBAR_VIEW_DESCRIPTION[option.id]}
+    />
+  );
   return (
     <SettingsSection title={'Navigation'} contentClassName="space-y-4">
       {shouldShow('sidebarViewMode') && (
@@ -96,48 +97,23 @@ export const NavigationSection: React.FC<NavigationSectionProps> = ({
           info={'Applies to every device connected to this server.'}
           settingsItem="appearance.sidebar-view"
         >
-          <SettingsRadioGroup aria-label={'Sidebar view'} className="grid max-w-[40rem] grid-cols-2 gap-2 space-y-0 @xl:grid-cols-4 @xl:gap-3">
-            {SIDEBAR_VIEW_MODE_OPTIONS.map((option) => (
-              <SettingsPreviewOption
-                key={option.id}
-                selected={sidebarViewMode === option.id}
-                onSelect={() => onSidebarViewModeChange(option.id)}
-                label={option.label}
-                ariaLabel={option.label}
-                preview={<SidebarViewPreview mode={option.id} />}
-                description={SIDEBAR_VIEW_DESCRIPTION[option.id]}
-              />
-            ))}
+          <SettingsRadioGroup aria-label={'Sidebar view'} className="space-y-0">
+            {/* Both rows share one grid so legacy tiles match the others in size. */}
+            <div className={SIDEBAR_VIEW_GRID_CLASS}>
+              {SIDEBAR_VIEW_MODE_OPTIONS.map(renderViewOption)}
+            </div>
+            <SettingsDisclosure
+              label={'Legacy views'}
+              divider={false}
+              className="pt-4 pb-0"
+              defaultOpen={LEGACY_SIDEBAR_VIEW_MODE_OPTIONS.some((option) => option.id === sidebarViewMode)}
+            >
+              <div className={SIDEBAR_VIEW_GRID_CLASS}>
+                {LEGACY_SIDEBAR_VIEW_MODE_OPTIONS.map(renderViewOption)}
+              </div>
+            </SettingsDisclosure>
           </SettingsRadioGroup>
         </SettingsControlGroup>
-      )}
-      {/* Only Threads and By folder have a Settled shelf, so the control
-          follows the view that uses it. */}
-      {shouldShow('sidebarViewMode') && (sidebarViewMode === 'threads' || sidebarViewMode === 'folder') && (
-        <SettingsFieldRow
-          label={'Settle idle sessions'}
-          description={'Moves a session to the Settled shelf after this many days without activity. Nothing is archived or deleted, and sending a message brings it back.'}
-          info={'Pinned, working, and snoozed sessions stay put. Leave empty to settle only by hand. To archive or delete old sessions for good, use Session retention under Sessions.'}
-          settingsItem="appearance.auto-settle"
-        >
-          <div className={SETTINGS_NUMBER_STEPPER_ROW_CLASS}>
-            <NumberInput
-              value={sidebarAutoSettleAfterDays === 0 ? undefined : sidebarAutoSettleAfterDays}
-              fallbackValue={DEFAULT_AUTO_SETTLE_AFTER_DAYS}
-              onValueChange={onSidebarAutoSettleAfterDaysChange}
-              onClear={() => onSidebarAutoSettleAfterDaysChange(0)}
-              emptyLabel={'Off'}
-              min={MIN_AUTO_SETTLE_AFTER_DAYS}
-              max={MAX_AUTO_SETTLE_AFTER_DAYS}
-              step={1}
-              aria-label={'Days before an idle session settles'}
-              className="w-20 tabular-nums"
-            />
-            <span className={SETTINGS_NUMBER_UNIT_CLASS}>
-              {sidebarAutoSettleAfterDays === 1 ? 'day' : 'days'}
-            </span>
-          </div>
-        </SettingsFieldRow>
       )}
       {shouldShow('fileEditorKeymap') && (
         <SettingsControlGroup

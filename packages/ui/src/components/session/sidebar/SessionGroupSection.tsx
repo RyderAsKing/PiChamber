@@ -1,6 +1,4 @@
 import React from 'react';
-import type { Session } from '@/lib/chat/types';
-import { sessionEvents } from '@/lib/sessionEvents';
 import { SessionFolderItem } from '../SessionFolderItem';
 import { SessionShelfRowContext } from './sessionShelfRowContext';
 import { DroppableFolderWrapper, SessionFolderDndScope } from './sessionFolderDnd';
@@ -18,10 +16,6 @@ import { getGitHubPrStatusKey, useEnsureGitHubPrStatus, usePrVisualSummary } fro
 import { CollapsedActivityIndicator } from './collapsedActivityIndicator';
 import { getSessionNodesActivityState } from './collapsedActivityState';
 import { useSessionsNeedingInput } from '@/sync/sync-context';
-import {
-  VirtualArchivedSessionList,
-  ARCHIVED_VIRTUALIZE_THRESHOLD,
-} from './VirtualArchivedSessionList';
 import { SessionGroupHeader } from './SessionGroupHeader';
 import type { SessionGroupSectionProps } from './sessionGroupTypes';
 import { areGroupPropsEqual } from './sessionGroupComparators';
@@ -64,7 +58,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     setRenameFolderDraft,
     setRenamingFolderId,
     pinnedSessionIds,
-    expandedParents,
     sessionOrderIndex,
     editingId,
     openSidebarMenuKey,
@@ -73,7 +66,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     onToggleCollapsedGroup,
     dragHandleProps,
     compactBodyPadding = false,
-    scrollContainerRef,
   } = props;
 
   const compareSessionNodes = React.useCallback(
@@ -93,10 +85,10 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   const searchData = hasSessionSearchQuery ? groupSearchDataByGroup.get(group) : null;
   const isCollapsed = hasSessionSearchQuery ? false : collapsedGroups.has(groupKey);
 
-  const groupPrDirectory = !group.isMain && !group.isArchivedBucket && !hideGroupLabel
+  const groupPrDirectory = !group.isMain && !hideGroupLabel
     ? normalizePath(group.directory ?? null)
     : null;
-  const groupPrBranch = !group.isMain && !group.isArchivedBucket && !hideGroupLabel
+  const groupPrBranch = !group.isMain && !hideGroupLabel
     ? group.branch?.trim() || null
     : null;
   const groupPrKey = React.useMemo(() => {
@@ -119,18 +111,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     [compareSessionNodes, group.sessions, searchData?.filteredNodes, shouldFilterGroupContents],
   );
 
-  const collectGroupSessions = React.useCallback((nodes: SessionNode[]): Session[] => {
-    const collected: Session[] = [];
-    const visit = (list: SessionNode[]) => {
-      list.forEach((node) => {
-        collected.push(node.session);
-        if (node.children.length > 0) visit(node.children);
-      });
-    };
-    visit(nodes);
-    return collected;
-  }, []);
-
   // Sessions needing input, computed once per group render from the shared
   // needing list (reference-stable across unrelated catalog commits) rather
   // than once per row. Sidebar rows subscribe narrowly per session instead.
@@ -147,7 +127,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     rootFolders,
     ungroupedSessions,
     folderActivityStateById,
-    folderSessionsForDeleteById,
   } = useSessionGroupFolders({
     group,
     sourceGroupNodes,
@@ -157,7 +136,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
     activeActivitySessionIds,
     unreadActivitySessionIds,
     inputActivitySessionIds,
-    collectGroupSessions,
   });
 
   const renderContextForGroup = 'project' as const;
@@ -176,7 +154,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       sourceGroupNodes,
       openSidebarMenuKey,
       renderContextForGroup,
-      Boolean(group.isArchivedBucket),
     );
     if (fromSource) return fromSource;
     for (const { nodes } of allFoldersForGroup) {
@@ -184,12 +161,11 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
         nodes,
         openSidebarMenuKey,
         renderContextForGroup,
-        Boolean(group.isArchivedBucket),
       );
       if (id) return id;
     }
     return null;
-  }, [openSidebarMenuKey, sourceGroupNodes, allFoldersForGroup, group.isArchivedBucket]);
+  }, [openSidebarMenuKey, sourceGroupNodes, allFoldersForGroup]);
 
   const buildNodeStructureKeyByNode = React.useCallback((nodes: SessionNode[]): WeakMap<SessionNode, string> => {
     const map = new WeakMap<SessionNode, string>();
@@ -234,30 +210,13 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
   const totalSessions = ungroupedSessions.length;
   // With shelves on, settled sessions already left the folder, so it lists
   // everything left instead of paging.
-  const visibleSessions = group.isArchivedBucket || shelvesActive
+  const visibleSessions = shelvesActive
     ? ungroupedSessions
     : hasSessionSearchQuery
       ? ungroupedSessions
       : ungroupedSessions.slice(0, nonArchivedVisibleCount);
   const remainingCount = totalSessions - visibleSessions.length;
-  const canShowLess = !group.isArchivedBucket && !shelvesActive && !hasSessionSearchQuery && totalSessions > maxVisible && remainingCount === 0;
-
-  const shouldVirtualize =
-    group.isArchivedBucket === true && !hasSessionSearchQuery && visibleSessions.length >= ARCHIVED_VIRTUALIZE_THRESHOLD;
-
-  const bucketTag = group.isArchivedBucket ? 'archived' : 'active';
-  const hasExpandedParent =
-    shouldVirtualize &&
-    visibleSessions.some((node) => {
-      if (node.children.length === 0) return false;
-      const expansionKey = `project:${bucketTag}:${node.session.id}`;
-      return expandedParents.has(expansionKey);
-    });
-
-  const allGroupSessions = React.useMemo(
-    () => collectGroupSessions(sourceGroupNodes),
-    [collectGroupSessions, sourceGroupNodes],
-  );
+  const canShowLess = !shelvesActive && !hasSessionSearchQuery && totalSessions > maxVisible && remainingCount === 0;
 
   if (hasSessionSearchQuery && !groupMatchesSearch && rootFolders.length === 0 && ungroupedSessions.length === 0) {
     return null;
@@ -279,7 +238,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
 
   const renderOneFolderItem = (entry: FolderEntry, displayName: string): React.ReactNode => {
     const { folder, scopeKey, scopeDirectory, nodes } = entry;
-    const folderSessionsForDelete = folderSessionsForDeleteById.get(folder.id) ?? [];
 
     const isFolderCollapsed = hasSessionSearchQuery ? false : collapsedFolderIds.has(folder.id);
     return (
@@ -296,13 +254,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               renameFolder(scopeKey, folder.id, name);
             }}
             onDelete={() => {
-              if (group.isArchivedBucket) {
-                sessionEvents.requestDelete({
-                  sessions: folderSessionsForDelete,
-                  mode: 'session',
-                });
-                return;
-              }
               if (!showDeletionDialog) {
                 deleteFolder(scopeKey, folder.id);
                 return;
@@ -361,7 +312,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
               });
             }}
             hideActions={false}
-            archivedBucket={group.isArchivedBucket === true}
           />
         )}
       </DroppableFolderWrapper>
@@ -411,43 +361,19 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
       }}
     >
       {renderFolderItems()}
-      {group.isArchivedBucket ? (
-        <VirtualArchivedSessionList
-          visibleSessions={visibleSessions}
-          shouldVirtualize={shouldVirtualize}
-          hasExpandedParent={hasExpandedParent}
-          scrollContainerRef={scrollContainerRef}
-          groupDirectory={group.directory}
-          projectId={projectId}
-          isArchivedBucket={group.isArchivedBucket === true}
-          renderSessionNode={renderSessionNode}
-          getRenderExtras={(node) => ({
-            subtreeContainsEditing,
-            menuOpenSessionId,
-            nodeStructureKey: resolveNodeStructureKey(node),
-            childRenderExtrasFor,
-          })}
-        />
-      ) : (
-        visibleSessions.map((node) => (
+      {visibleSessions.map((node) => (
           <React.Fragment key={node.session.id}>
-            {renderSessionNode(node, 0, group.directory, projectId, group.isArchivedBucket === true, undefined, 'project', {
+            {renderSessionNode(node, 0, group.directory, projectId, false, undefined, 'project', {
               subtreeContainsEditing,
               menuOpenSessionId,
               nodeStructureKey: resolveNodeStructureKey(node),
               childRenderExtrasFor,
             })}
           </React.Fragment>
-        ))
-      )}
-      {/* With shelves, a folder whose sessions are all settled or snoozed
+        ))}
+      {/* With shelves, a folder whose sessions are all snoozed
           shows only its header; the header keeps its new-session action. */}
       {totalSessions === 0 && allFoldersForGroup.length === 0 && !shelvesActive ? (
-        group.isArchivedBucket ? (
-          <div className="py-1 px-3 text-left typography-ui-label text-muted-foreground">
-            {'No archived sessions yet.'}
-          </div>
-        ) : (
           <SidebarSessionLikeButton
             icon="chat-new"
             onClick={() => {
@@ -459,7 +385,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
           >
             {'New session'}
           </SidebarSessionLikeButton>
-        )
       ) : null}
       {remainingCount > 0 ? (
         <SidebarSessionLikeButton
@@ -504,7 +429,6 @@ function SessionGroupSectionBase(props: SessionGroupSectionProps): React.ReactNo
         groupActivityIndicator={groupActivityIndicator}
         showBranchSubtitle={showBranchSubtitle}
         statusLine={statusLine}
-        allGroupSessions={allGroupSessions}
         projectId={projectId}
         activeProjectId={activeProjectId}
         setActiveProjectIdOnly={setActiveProjectIdOnly}

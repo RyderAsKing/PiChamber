@@ -2,12 +2,12 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   applyShelfPatch,
-  autoSettleDaysFromSetting,
   formatSnoozeWake,
-  isAutoSettleAfterDaysSetting,
+  isAutoArchiveCandidate,
   nextSnoozeWakeAt,
   resolveSessionShelfSection,
   resolveSnoozePresets,
+  sessionActivityAt,
   type SessionShelfInput,
 } from './sessionShelf';
 
@@ -21,25 +21,18 @@ const input = (overrides: Partial<SessionShelfInput & { workingShelf: boolean }>
   needsInput: false,
   updatedAt: NOW - DAY,
   now: NOW,
-  autoSettleAfterDays: 3,
   workingShelf: true,
   ...overrides,
 });
 
 describe('session shelf rules', () => {
-  test('an idle session settles after the configured days unless kept', () => {
+  test('there is no Settled section: an old idle session stays in the list', () => {
     expect(resolveSessionShelfSection(input())).toBe('active');
-    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 4 * DAY }))).toBe('settled');
-    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 4 * DAY, autoSettleAfterDays: null }))).toBe('active');
-    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 4 * DAY, pinned: true }))).toBe('pinned');
-    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 4 * DAY, entry: { settled: 'active' } }))).toBe('active');
-  });
-
-  test('a manual settle wins over pinned, but never over a live run or a question', () => {
-    const settled = { settled: 'settled' as const, settledAt: NOW - 1000 };
-    expect(resolveSessionShelfSection(input({ entry: settled, pinned: true }))).toBe('settled');
-    expect(resolveSessionShelfSection(input({ entry: settled, working: true }))).toBe('working');
-    expect(resolveSessionShelfSection(input({ entry: settled, needsInput: true }))).toBe('active');
+    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 400 * DAY }))).toBe('active');
+    expect(resolveSessionShelfSection(input({ updatedAt: NOW - 400 * DAY, pinned: true }))).toBe('pinned');
+    // A legacy settled flag from an older server is ignored.
+    const legacy = { settled: 'settled', settledAt: NOW - DAY } as unknown as SessionShelfInput['entry'];
+    expect(resolveSessionShelfSection(input({ entry: legacy }))).toBe('active');
   });
 
   test('working sessions use the Working shelf only where it exists', () => {
@@ -53,28 +46,21 @@ describe('session shelf rules', () => {
     expect(resolveSessionShelfSection(input({ entry }))).toBe('snoozed');
     expect(resolveSessionShelfSection(input({ entry, working: true }))).toBe('snoozed');
     expect(resolveSessionShelfSection(input({ entry, needsInput: true }))).toBe('active');
-    // After waking, the wake counts as activity, so an old session does not settle at once.
     const woke = { snoozedUntil: NOW - 1000, snoozedAt: NOW - 10 * DAY };
     expect(resolveSessionShelfSection(input({ entry: woke, updatedAt: NOW - 10 * DAY }))).toBe('active');
   });
 
-  test('patches mirror the server: settling clears a snooze and snoozing clears a settle', () => {
-    const settled = applyShelfPatch(undefined, { settled: 'settled' }, 5);
-    expect(settled).toEqual({ settled: 'settled', settledAt: 5 });
-    expect(applyShelfPatch(settled, { settled: 'settled' }, 9)).toEqual({ settled: 'settled', settledAt: 5 });
-    expect(applyShelfPatch(settled, { snoozedUntil: 100 }, 9)).toEqual({ snoozedUntil: 100, snoozedAt: 9 });
-    expect(applyShelfPatch({ snoozedUntil: 100, snoozedAt: 9 }, { settled: 'settled' }, 10)).toEqual({ settled: 'settled', settledAt: 10 });
-    expect(applyShelfPatch({ settled: 'active' }, { settled: null }, 10)).toBeUndefined();
+  test('a wake counts as activity', () => {
+    const woke = { snoozedUntil: NOW - 1000, snoozedAt: NOW - 10 * DAY };
+    expect(sessionActivityAt({ entry: woke, updatedAt: NOW - 10 * DAY, now: NOW })).toBe(NOW - 1000);
+    expect(sessionActivityAt({ entry: undefined, updatedAt: NOW - DAY, now: NOW })).toBe(NOW - DAY);
   });
 
-  test('the setting is whole days from 1 to 90, with 0 for off', () => {
-    expect(isAutoSettleAfterDaysSetting(0)).toBe(true);
-    expect(isAutoSettleAfterDaysSetting(90)).toBe(true);
-    expect(isAutoSettleAfterDaysSetting(91)).toBe(false);
-    expect(isAutoSettleAfterDaysSetting(1.5)).toBe(false);
-    expect(autoSettleDaysFromSetting(0)).toBeNull();
-    expect(autoSettleDaysFromSetting(7)).toBe(7);
-    expect(autoSettleDaysFromSetting('x')).toBe(3);
+  test('patches mirror the server: a snooze sets its wake and time, null clears it', () => {
+    const snoozed = applyShelfPatch(undefined, { snoozedUntil: 100 }, 9);
+    expect(snoozed).toEqual({ snoozedUntil: 100, snoozedAt: 9 });
+    expect(applyShelfPatch(snoozed, { snoozedUntil: null }, 10)).toBeUndefined();
+    expect(applyShelfPatch(snoozed, {}, 10)).toEqual(snoozed);
   });
 
   test('the next wake is the soonest future snooze', () => {
@@ -84,6 +70,37 @@ describe('session shelf rules', () => {
       b: { snoozedUntil: NOW + 2000, snoozedAt: NOW },
       c: { snoozedUntil: NOW - 2000, snoozedAt: NOW },
     }, NOW)).toBe(NOW + 2000);
+  });
+});
+
+describe('auto-archive candidates', () => {
+  const candidate = (overrides: Partial<SessionShelfInput & { open: boolean }> = {}) => isAutoArchiveCandidate({
+    ...input({ updatedAt: NOW - 8 * DAY }),
+    open: false,
+    ...overrides,
+  }, 7);
+
+  test('a session idle longer than the setting is a candidate; a recent one is not', () => {
+    expect(candidate()).toBe(true);
+    expect(candidate({ updatedAt: NOW - 6 * DAY })).toBe(false);
+  });
+
+  test('pinned, working, waiting, and open sessions never are', () => {
+    expect(candidate({ pinned: true })).toBe(false);
+    expect(candidate({ working: true })).toBe(false);
+    expect(candidate({ needsInput: true })).toBe(false);
+    expect(candidate({ open: true })).toBe(false);
+  });
+
+  test('a snoozed session waits for its wake, then counts idle time from it', () => {
+    expect(candidate({ entry: { snoozedUntil: NOW + DAY, snoozedAt: NOW - 30 * DAY } })).toBe(false);
+    expect(candidate({ entry: { snoozedUntil: NOW - 2 * DAY, snoozedAt: NOW - 30 * DAY } })).toBe(false);
+    expect(candidate({ entry: { snoozedUntil: NOW - 8 * DAY, snoozedAt: NOW - 30 * DAY } })).toBe(true);
+  });
+
+  test('off (0 days) or a session with no activity time is never a candidate', () => {
+    expect(isAutoArchiveCandidate({ ...input({ updatedAt: NOW - 400 * DAY }), open: false }, 0)).toBe(false);
+    expect(candidate({ updatedAt: 0 })).toBe(false);
   });
 });
 

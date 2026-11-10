@@ -4333,7 +4333,7 @@ export function createSessionDaemon({
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft',
-              'openUrl.publish',
+              'openUrl.publish', 'archive.publish',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
@@ -4585,6 +4585,29 @@ export function createSessionDaemon({
                 ...(typeof command.sourceInfo?.scope === 'string' ? { scope: command.sourceInfo.scope } : {}),
               })),
           },
+        });
+        return;
+      }
+      case 'archive.publish': {
+        // The PiChamber server changed a session's archive mark (its own
+        // metadata, not Pi state). Publishing it on the session's stream
+        // tells every device to re-list that folder; the server's archive
+        // store stays the authority.
+        const sessionId = message.payload?.sessionId;
+        if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256 || typeof message.payload?.archived !== 'boolean') {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'A session id and an archived flag are required.');
+        }
+        const requestedDirectory = typeof message.payload?.directory === 'string' && message.payload.directory.length > 0 && message.payload.directory.length <= 4096
+          ? message.payload.directory
+          : undefined;
+        const residentCwd = runtimeRegistry?.findBySessionId?.(sessionId)?.cwd;
+        const directory = requestedDirectory ?? (typeof residentCwd === 'string' && residentCwd.length > 0 ? residentCwd : undefined);
+        publish('session.archive', { archived: message.payload.archived }, sessionId, directory);
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: { published: true },
         });
         return;
       }

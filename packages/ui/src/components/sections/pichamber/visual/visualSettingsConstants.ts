@@ -150,16 +150,20 @@ export const WEEK_START_OPTIONS: Option<'auto' | 'monday' | 'sunday'>[] = [
 export const SIDEBAR_VIEW_MODE_OPTIONS: Option<SidebarViewMode>[] = [
   { id: 'workspace', label: 'Workspace' },
   { id: 'folder', label: 'By folder' },
-  { id: 'timeline', label: 'Timeline' },
   { id: 'threads', label: 'Threads' },
+];
+
+/** Kept for people who use them, behind Legacy views. */
+export const LEGACY_SIDEBAR_VIEW_MODE_OPTIONS: Option<SidebarViewMode>[] = [
+  { id: 'timeline', label: 'Timeline' },
 ];
 
 /** One line under each Sidebar view preview; the drawings are too small to say what a view does. */
 export const SIDEBAR_VIEW_DESCRIPTION: Record<SidebarViewMode, string> = {
   workspace: 'Pick a folder, see its sessions.',
   folder: 'Sessions under each folder.',
-  timeline: 'All sessions by date.',
-  threads: 'By state, with Snoozed and Settled.',
+  timeline: 'All sessions by date, archived too.',
+  threads: 'By state, with Snoozed below.',
 };
 
 export const FOLLOW_UP_BEHAVIOR_OPTIONS: Option<FollowUpBehavior>[] = [
