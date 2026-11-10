@@ -6,6 +6,7 @@ import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { normalizePwaName } from '@/lib/pwaKeys';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
 import { isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
+import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { sanitizeCommandTriggers } from '@/lib/pi/command-triggers';
 import {
   type LegacySkillCatalog,
@@ -514,6 +515,12 @@ export const sanitizeWebSettings = (payload: unknown): DesktopSettings | null =>
   }
   if (isAutoSettleAfterDaysSetting(candidate.sidebarAutoSettleAfterDays)) {
     result.sidebarAutoSettleAfterDays = candidate.sidebarAutoSettleAfterDays;
+  }
+  if (isSessionRetentionDaysSetting(candidate.sessionAutoArchiveAfterDays)) {
+    result.sessionAutoArchiveAfterDays = candidate.sessionAutoArchiveAfterDays;
+  }
+  if (isSessionRetentionDaysSetting(candidate.sessionAutoDeleteAfterDays)) {
+    result.sessionAutoDeleteAfterDays = candidate.sessionAutoDeleteAfterDays;
   }
   if (typeof candidate.expandedEditorToolbar === 'boolean') {
     result.expandedEditorToolbar = candidate.expandedEditorToolbar;

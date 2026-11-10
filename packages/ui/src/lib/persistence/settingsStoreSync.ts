@@ -4,6 +4,7 @@ import { useMessageQueueStore, type FollowUpBehavior, isFollowUpBehavior, normal
 import { isTerminalShell } from '@/lib/terminalShell';
 import { isSidebarViewMode } from '@/lib/sidebarViewMode';
 import { isAutoSettleAfterDaysSetting } from '@/lib/sessionShelf';
+import { isSessionRetentionDaysSetting } from '@/lib/sessionRetention';
 import { isUiFontOption, isMonoFontOption } from '@/lib/fontOptions';
 import { sanitizeStarterRefs } from '@/lib/draftStarters';
 import { normalizeMobileKeyboardMode } from '@/lib/mobileKeyboardMode';
@@ -189,6 +190,18 @@ export const applyDesktopUiPreferences = (settings: DesktopSettings): void => {
     settings.sidebarAutoSettleAfterDays !== store.sidebarAutoSettleAfterDays
   ) {
     store.setSidebarAutoSettleAfterDays(settings.sidebarAutoSettleAfterDays);
+  }
+  if (
+    isSessionRetentionDaysSetting(settings.sessionAutoArchiveAfterDays) &&
+    settings.sessionAutoArchiveAfterDays !== store.sessionAutoArchiveAfterDays
+  ) {
+    store.setSessionAutoArchiveAfterDays(settings.sessionAutoArchiveAfterDays);
+  }
+  if (
+    isSessionRetentionDaysSetting(settings.sessionAutoDeleteAfterDays) &&
+    settings.sessionAutoDeleteAfterDays !== store.sessionAutoDeleteAfterDays
+  ) {
+    store.setSessionAutoDeleteAfterDays(settings.sessionAutoDeleteAfterDays);
   }
   if (
     typeof settings.expandedEditorToolbar === 'boolean' &&
