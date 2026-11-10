@@ -251,7 +251,9 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
         {shelves.active.map(renderItem)}
         {shelves.active.length === 0 && !hasSessionSearchQuery ? (
           <div className="px-3 py-1.5 typography-micro text-subtle-foreground">
-            {isDragging ? 'Drop here to keep it in the list' : 'Nothing recent. Snoozed sessions are below.'}
+            {isDragging
+              ? 'Drop here to keep it in the list'
+              : shelves.snoozed.length > 0 ? 'Nothing recent. Snoozed sessions are below.' : 'Nothing recent.'}
           </div>
         ) : null}
       </DropZone>

@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createPiArchiveStore } from './archive-store.js';
 import { createPiSessionShelfStore } from './session-shelf-store.js';
@@ -111,7 +111,7 @@ describe('Pi session shelf sidecar', () => {
       await expect(archive.read()).resolves.toEqual({});
     });
 
-    it('leaves the shelf file untouched when the archive write fails, and retries on the next read', async () => {
+    it('keeps settled marks while the archive write fails, lets snooze writes through, and retries on the next read', async () => {
       const real = createPiArchiveStore({ file: join(await mkdtemp(join(tmpdir(), 'pichamber-pi-archive-')), 'a.json') });
       let failing = true;
       const archiveStore = {
@@ -122,21 +122,45 @@ describe('Pi session shelf sidecar', () => {
           return real.archiveMissing(entries);
         },
       };
-      const { store, file } = await createStore(undefined, { archiveStore });
-      const legacy = { s1: { settled: 'settled', settledAt: 500 }, s2: { snoozedUntil: 9_000, snoozedAt: 800 } };
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { store, file, clock } = await createStore(undefined, { archiveStore });
+      const legacy = {
+        s1: { settled: 'settled', settledAt: 500 },
+        s2: { snoozedUntil: 9_000, snoozedAt: 800 },
+        s4: { settled: 'settled', settledAt: 600, snoozedUntil: 9_500, snoozedAt: 700 },
+      };
       await writeLegacyShelf(file, legacy);
 
-      // Reads still answer with the snooze state; the file keeps the legacy data.
-      await expect(store.read()).resolves.toEqual({ s2: { snoozedUntil: 9_000, snoozedAt: 800 } });
+      // Reads answer with the snooze state; the file keeps the legacy data.
+      await expect(store.read()).resolves.toEqual({
+        s2: { snoozedUntil: 9_000, snoozedAt: 800 },
+        s4: { snoozedUntil: 9_500, snoozedAt: 700 },
+      });
       expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(legacy);
-      // A write would drop the settled marks, so it fails instead.
-      await expect(store.update('s3', { snoozedUntil: 9_000 })).rejects.toMatchObject({ code: 'EIO' });
-      expect(JSON.parse(await readFile(file, 'utf8'))).toEqual(legacy);
+
+      // Snooze and wake still write and leave the settled fields as they
+      // were. A send or a delete drops that session's settled mark too, so
+      // the retried migration never archives a session the user just used.
+      clock.now = 2_000;
+      await expect(store.update('s3', { snoozedUntil: 9_000 })).resolves.toEqual({ snoozedUntil: 9_000, snoozedAt: 2_000 });
+      await expect(store.update('s1', { snoozedUntil: 8_000 })).resolves.toEqual({ snoozedUntil: 8_000, snoozedAt: 2_000 });
+      await expect(store.clearForActivity('s4')).resolves.toBeNull();
+      await expect(store.update('s2', { snoozedUntil: null })).resolves.toBeNull();
+      expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({
+        s1: { settled: 'settled', settledAt: 500, snoozedUntil: 8_000, snoozedAt: 2_000 },
+        s3: { snoozedUntil: 9_000, snoozedAt: 2_000 },
+      });
+      await expect(real.read()).resolves.toEqual({});
+      expect(warn).toHaveBeenCalled();
 
       failing = false;
       await store.read();
       await expect(real.read()).resolves.toEqual({ s1: 500 });
-      expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ s2: { snoozedUntil: 9_000, snoozedAt: 800 } });
+      expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({
+        s1: { snoozedUntil: 8_000, snoozedAt: 2_000 },
+        s3: { snoozedUntil: 9_000, snoozedAt: 2_000 },
+      });
+      warn.mockRestore();
     });
 
     it('migrates before a write so settled sessions are never dropped unarchived', async () => {

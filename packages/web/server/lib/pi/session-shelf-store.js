@@ -74,6 +74,24 @@ const withoutSettled = (shelf) => {
   return next;
 };
 
+// The snooze-only shelf with the settled fields from `stored` put back, for
+// a write while the migration is still pending. `dropSessionId` loses its
+// settled mark.
+const withSettledKept = (shelf, stored, dropSessionId) => {
+  const next = {};
+  for (const sessionId of new Set([...Object.keys(stored), ...Object.keys(shelf)])) {
+    const entry = {};
+    const legacy = stored[sessionId];
+    if (legacy?.settled !== undefined && sessionId !== dropSessionId) {
+      entry.settled = legacy.settled;
+      if (legacy.settled === 'settled') entry.settledAt = legacy.settledAt;
+    }
+    if (shelf[sessionId]) Object.assign(entry, shelf[sessionId]);
+    if (Object.keys(entry).length > 0) next[sessionId] = entry;
+  }
+  return next;
+};
+
 /**
  * PiChamber-owned sidebar shelf metadata: when a snoozed session wakes. Like
  * the archive sidecar, it is keyed only by opaque Pi session IDs, leaves Pi
@@ -86,9 +104,11 @@ const withoutSettled = (shelf) => {
  * migrated once, under the shelf lock: hand-settled sessions are archived at
  * their settle time (sessions already archived keep theirs), the archive
  * file is written first, then the shelf file without the settled fields. If
- * the archive write fails the shelf file is left as it was and the
- * migration runs again on the next read; reads still answer with the
- * snooze state, and writes fail rather than drop the settled marks.
+ * the archive write fails, the migration runs again on the next read or
+ * write. Until then reads answer with the snooze state, and snooze writes
+ * still go through with every settled mark left in the file. A send or a
+ * delete drops that one session's settled mark, so the retried migration
+ * never archives a session the user just used.
  */
 export const createPiSessionShelfStore = ({
   file = join(resolvePiChamberDataDir(), 'pi', 'session-shelf.json'),
@@ -142,13 +162,27 @@ export const createPiSessionShelfStore = ({
   };
 
   // Serializes writes in this process and across processes sharing the data
-  // directory. `change` receives the migrated shelf and may edit it in
-  // place; it returns whether the file needs writing and the result.
+  // directory. `change` receives the migrated shelf (snooze state only) and
+  // may edit it in place; it returns whether the file needs writing, the
+  // result, and optionally a session whose settled mark should go too.
+  // While the migration keeps failing, writes still go through: the file
+  // keeps every other unmigrated settled mark, so the next read retries.
   const locked = (change) => {
     const operation = writeChain.then(() => withCrossProcessLock(`${file}.lock`, async () => {
-      const shelf = await migrateLocked(await readStored());
-      const { write, result } = change(shelf);
-      if (write) await writeStored(shelf);
+      const stored = await readStored();
+      let shelf;
+      let unmigrated = null;
+      try {
+        shelf = await migrateLocked(stored);
+      } catch (error) {
+        if (error?.code === 'SESSION_SHELF_INVALID') throw error;
+        console.warn('[pi] could not migrate settled sessions to the archive; will retry', error?.code ?? error);
+        shelf = withoutSettled(stored);
+        unmigrated = stored;
+      }
+      const { write, result, dropSettled } = change(shelf);
+      const dropsMark = unmigrated !== null && dropSettled !== undefined && unmigrated[dropSettled]?.settled !== undefined;
+      if (write || dropsMark) await writeStored(unmigrated ? withSettledKept(shelf, unmigrated, dropSettled) : shelf);
       return result;
     }));
     writeChain = operation.catch(() => {});
@@ -162,19 +196,25 @@ export const createPiSessionShelfStore = ({
       return await locked((shelf) => ({ write: false, result: shelf }));
     } catch (error) {
       if (error?.code === 'SESSION_SHELF_INVALID') throw error;
-      console.warn('[pi] could not migrate settled sessions to the archive; will retry', error?.code ?? error);
+      console.warn('[pi] could not read the session shelf under its lock', error?.code ?? error);
       return withoutSettled(stored);
     }
   };
 
   // `change` receives the current entry (or null) and returns the next entry
-  // (or null to remove it).
-  const mutate = (sessionId, change) => locked((shelf) => {
+  // (or null to remove it). `dropSettled` also removes the session's
+  // unmigrated settled mark (a send or a delete), so a retried migration
+  // cannot archive it afterwards.
+  const mutate = (sessionId, change, { dropSettled = false } = {}) => locked((shelf) => {
     const previous = shelf[sessionId] ?? null;
     const next = change(previous);
     if (next) shelf[sessionId] = next;
     else delete shelf[sessionId];
-    return { write: JSON.stringify(previous) !== JSON.stringify(next ?? null), result: next ?? null };
+    return {
+      write: JSON.stringify(previous) !== JSON.stringify(next ?? null),
+      result: next ?? null,
+      ...(dropSettled ? { dropSettled: sessionId } : {}),
+    };
   });
 
   /**
@@ -191,19 +231,21 @@ export const createPiSessionShelfStore = ({
       : { snoozedUntil: patch.snoozedUntil, snoozedAt: now() }));
   };
 
+  // Whether the file holds anything for this session: a snooze or an
+  // unmigrated settled mark (empty entries are never kept).
+  const holds = async (sessionId) => Boolean((await readStored())[sessionId]);
+
   /** A message the user sent ends a snooze. */
   const clearForActivity = async (sessionId) => {
     if (!isSessionId(sessionId)) return null;
-    const shelf = await read();
-    if (!shelf[sessionId]) return null;
-    return mutate(sessionId, () => null);
+    if (!(await holds(sessionId))) return null;
+    return mutate(sessionId, () => null, { dropSettled: true });
   };
 
   const remove = async (sessionId) => {
     if (!isSessionId(sessionId)) return;
-    const shelf = await read();
-    if (!shelf[sessionId]) return;
-    await mutate(sessionId, () => null);
+    if (!(await holds(sessionId))) return;
+    await mutate(sessionId, () => null, { dropSettled: true });
   };
 
   return { read, update, clearForActivity, remove };

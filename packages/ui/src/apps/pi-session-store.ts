@@ -1051,10 +1051,11 @@ export class PiSessionStore {
     return sessions.filter((item) => !this.deletedSessionIds.has(item.session.id));
   }
   private readonly cadence = new PiStreamCadence((events) => this.commitEvents(events));
-  // Sending to an archived session unarchives it on the server. The server
-  // broadcasts nothing for archive changes, so a client that sees a send to
-  // a session it has archived re-lists that folder once the server has had
-  // time to write the change. Keyed by directory so a burst coalesces.
+  // Archive changes made elsewhere re-list the session's folder: a
+  // `session.archive` event that disagrees with this client's row, or a send
+  // to a session this client holds as archived (the server unarchives it;
+  // this also covers servers whose daemon cannot publish `session.archive`).
+  // Keyed by directory so a burst coalesces.
   private remoteSendRefreshDelayMs = 1_500;
   private readonly remoteSendRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // Sessions this client unarchived for a send that has not answered yet,
@@ -2562,7 +2563,7 @@ export class PiSessionStore {
   }
   /**
    * Clear the archived mark for a send this client is making (the server
-   * clears it when it accepts the send). Returns the settle callback for the
+   * clears it when it accepts the send). Returns the finish callback for the
    * send's outcome: a definite rejection puts the mark back; an unconfirmed
    * outcome re-lists the folder so the server's state decides.
    */
@@ -2832,7 +2833,7 @@ export class PiSessionStore {
     const promptTopics: string[] = [`session:${sessionId}`, TOPIC_CHROME];
     if (catalogChanged) promptTopics.push(TOPIC_CATALOG);
     this.emit(promptTopics);
-    const settleUnarchive = this.unarchiveForSend(sessionId);
+    const finishUnarchive = this.unarchiveForSend(sessionId);
     try {
       let result;
       if (delivery === 'steer') result = await piClient.sendSteer(input, scope);
@@ -2853,10 +2854,10 @@ export class PiSessionStore {
         // turn starts and therefore pay no snapshot request.
         void this.reconcileAcceptedSlashPrompt(sessionId, generation, expected);
       }
-      settleUnarchive();
+      finishUnarchive();
       return result;
     } catch (error) {
-      settleUnarchive(error);
+      finishUnarchive(error);
       recordMobileDiagnosticError('prompt-send', error);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) throw error;
       if (isSessionInUseError(error)) {
@@ -3011,17 +3012,17 @@ export class PiSessionStore {
   }, this.scope());
   runBash = async (sessionId: string, command: string, options?: { excludeFromContext?: boolean }) => {
     const scope = this.scope();
-    const settleUnarchive = this.unarchiveForSend(sessionId);
+    const finishUnarchive = this.unarchiveForSend(sessionId);
     try {
       const result = await piClient.runBash({
         sessionId,
         command,
         ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
       }, scope);
-      settleUnarchive();
+      finishUnarchive();
       return result;
     } catch (error) {
-      settleUnarchive(error);
+      finishUnarchive(error);
       throw error;
     }
   };
@@ -4224,6 +4225,13 @@ export class PiSessionStore {
     const nextCatalog = this.applyCatalogFromEvents(acceptedEvents, working);
     const catalogChanged = nextCatalog !== this.state.catalog;
     for (const event of acceptedEvents) {
+      if (event.name === 'session.archive') {
+        // The server's archive store decides; re-list only when this
+        // client's row disagrees (its own optimistic change already agrees).
+        const row = nextCatalog.byId.get(event.sessionId);
+        if (row && row.archived !== event.payload.archived) this.scheduleRemoteSendRefresh(row.directory || event.directory);
+        continue;
+      }
       const isSend = (event.name === 'assistant.message.start' && event.payload.role === 'user') || event.name === 'session.bash';
       if (!isSend) continue;
       const row = nextCatalog.byId.get(event.sessionId);

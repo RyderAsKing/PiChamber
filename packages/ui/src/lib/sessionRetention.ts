@@ -12,3 +12,6 @@ export const isSessionRetentionDaysSetting = (value: unknown): value is number =
   && Number.isInteger(value)
   && value >= 0
   && value <= MAX_SESSION_RETENTION_DAYS;
+
+/** "1 session" or "N sessions", for archive and delete messages. */
+export const formatSessionCount = (count: number): string => (count === 1 ? '1 session' : `${count} sessions`);

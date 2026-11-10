@@ -869,6 +869,7 @@ export type PiEventName =
   | 'session.error'
   | 'session.interrupted'
   | 'session.openUrl'
+  | 'session.archive'
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
@@ -1139,6 +1140,18 @@ export type PiSessionOpenUrlEvent = PiEventEnvelope<
     /** Server wall clock when this event was delivered; with `createdAt`
      *  it tells a live request from a replayed one without device clocks. */
     serverNow: number;
+  }
+>;
+
+/**
+ * A session's archive mark changed on the server (archive, unarchive, or
+ * unarchive on send, from any device). Not transcript state: a device whose
+ * catalog row disagrees re-lists the session's folder.
+ */
+export type PiSessionArchiveEvent = PiEventEnvelope<
+  'session.archive',
+  {
+    archived: boolean;
   }
 >;
 
@@ -1468,6 +1481,7 @@ export type PiSessionEvent =
   | PiSessionErrorEvent
   | PiSessionInterruptedEvent
   | PiSessionOpenUrlEvent
+  | PiSessionArchiveEvent
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
@@ -1516,6 +1530,7 @@ export const PI_EVENT_KINDS = [
   'session.error',
   'session.interrupted',
   'session.openUrl',
+  'session.archive',
   'extension.entry',
   'extension.message',
   'extension.notify',

@@ -166,10 +166,12 @@ expanded, desktop only); `add-folder` (the sidebar's Add folder dialog on its
 first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
-`settings-projects` (project cards with their icons, desktop only); `settings-archive` (Sessions settings at Archive and delete, desktop only); `settings-sidebar-view` (Appearance at Sidebar view with Legacy views open, desktop only); `command-palette`
-(opened with Ctrl+P, desktop only). Desktop captures report a mouse, so
-`hover:` styles apply; a page's `hoverScript` returns the point to rest the
-pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
+`settings-projects` (project cards with their icons, desktop only);
+`settings-archive` (Sessions settings at Archive and delete, desktop only);
+`settings-sidebar-view` (Appearance at Sidebar view with Legacy views open,
+desktop only); `command-palette` (opened with Ctrl+P, desktop only).
+Desktop captures report a mouse, so `hover:` styles apply; a page's
+`hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
 `PICHAMBER_BROWSER_NO_SANDBOX=1`. For before/after, run a second dev
 server from a `main` worktree on other ports (`PICHAMBER_HMR_UI_PORT`,

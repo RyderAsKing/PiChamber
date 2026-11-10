@@ -1,4 +1,5 @@
 import { toast } from '@/components/ui';
+import { formatSessionCount } from '@/lib/sessionRetention';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 
@@ -16,7 +17,10 @@ interface SessionArchiveTarget {
   forkIds: readonly string[];
 }
 
-const sessionsLabel = (count: number) => (count === 1 ? '1 session' : `${count} sessions`);
+// One wording for every failure toast here: "the session" or "the sessions".
+const failureMessage = (verb: 'archive' | 'unarchive', count: number) => (
+  count === 1 ? `Could not ${verb} the session` : `Could not ${verb} the sessions`
+);
 
 const setPinned = (target: SessionArchiveTarget, pinned: boolean) => {
   if (!target.directory) return;
@@ -58,12 +62,12 @@ export const archiveSessionsWithUndo = async (
     // A fork that archived without its session is put back, so nothing
     // half-archived stays behind.
     if (archivedIds.size > 0) void useSessionUIStore.getState().unarchiveSessions([...archivedIds]);
-    toast.error(targets.length === 1 ? 'Could not archive the session' : 'Could not archive the sessions');
+    toast.error(failureMessage('archive', targets.length));
     return;
   }
 
   const single = targets.length === 1 && options.title;
-  const message = single ? `Archived “${options.title}”` : `Archived ${sessionsLabel(archivedTargets.length)}`;
+  const message = single ? `Archived “${options.title}”` : `Archived ${formatSessionCount(archivedTargets.length)}`;
   const undoIds = result.archivedIds;
   toast.success(message, {
     action: {
@@ -72,13 +76,11 @@ export const archiveSessionsWithUndo = async (
         restorePins(archivedTargets);
         void useSessionUIStore.getState().unarchiveSessions(undoIds)
           .then(({ failedIds }) => {
-            if (failedIds.length > 0) {
-              toast.error(undoIds.length === 1 ? 'Could not unarchive the session' : 'Could not unarchive the sessions');
-            }
+            if (failedIds.length > 0) toast.error(failureMessage('unarchive', undoIds.length));
           })
           .catch((error) => {
             console.warn('[session-archive] undo failed', error);
-            toast.error(undoIds.length === 1 ? 'Could not unarchive the session' : 'Could not unarchive the sessions');
+            toast.error(failureMessage('unarchive', undoIds.length));
           });
       },
     },
@@ -86,5 +88,5 @@ export const archiveSessionsWithUndo = async (
 
   // Counts forks too: a fork that stayed behind is still in the list.
   const failedCount = ids.length - archivedIds.size;
-  if (failedCount > 0) toast.error(`Could not archive ${sessionsLabel(failedCount)}`);
+  if (failedCount > 0) toast.error(`Could not archive ${formatSessionCount(failedCount)}`);
 };
