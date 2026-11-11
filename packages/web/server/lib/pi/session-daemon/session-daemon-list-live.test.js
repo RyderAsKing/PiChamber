@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -257,7 +257,33 @@ describe('session daemon list live status', () => {
     const file = join(root, 'not-a-folder.txt');
     await writeFile(file, 'x');
     expect(await rejects(file)).toBe('INVALID_ARGUMENT');
-    expect(await rejects('C:/Users/Someone')).toBe('INVALID_ARGUMENT');
+    expect(await rejects('relative/folder')).toBe('INVALID_ARGUMENT');
+    // A Windows client's home is not an absolute path on a POSIX server.
+    if (process.platform !== 'win32') expect(await rejects('C:/Users/Someone')).toBe('INVALID_ARGUMENT');
+  });
+
+  it("deletes a removed folder's session from a freshly started daemon", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-list-live-'));
+    await mkdir(join(root, 'agent'), { recursive: true });
+    const removed = join(root, 'removed-worktree');
+    // The transcript lives in the session store; its folder is gone.
+    const sessionFile = join(root, 'orphan.jsonl');
+    await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'orphan', cwd: removed })}\n`);
+    // A new daemon has never seen the folder, as after a restart.
+    const { daemon, endpoint } = await startDaemon(root, new FakeSession('unused'), async ({ cwd }) => (
+      cwd === removed ? [{ ...diskRow(root, 'orphan'), cwd: removed }] : []
+    ));
+    daemons.push(daemon);
+    const client = connectClient(endpoint);
+    sockets.push(client);
+    await client.authenticate();
+
+    const deleted = await client.request('sessions.delete', { sessionId: 'orphan', directory: removed });
+    expect(deleted.error).toBeUndefined();
+    await expect(stat(sessionFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    // The removed folder does not become a known project.
+    const projects = await client.request('projects.list', {});
+    expect(JSON.stringify(projects.result)).not.toContain('removed-worktree');
   });
 
   it('an unpersisted resident session is listed with its live status too', async () => {

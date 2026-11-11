@@ -106,6 +106,27 @@ describe('session engine router', () => {
     })).rejects.toMatchObject({ code: ENGINE_UNSUPPORTED_OPERATION });
   });
 
+  it('resolves a delete through the session store and every other command strictly', async () => {
+    const seen = [];
+    const engine = makeEngine('fake', {
+      ownsSession: (id) => id === 'engine-1',
+      handlers: {
+        'sessions.delete': async (payload) => { seen.push(['delete', payload.directory]); return {}; },
+        'sessions.rename': async (payload) => { seen.push(['rename', payload.directory]); return {}; },
+      },
+    });
+    const { router } = makeRouter({
+      getRegistry: () => makeRegistry([engine]),
+      resolveDirectory: async () => { throw Object.assign(new Error('missing'), { code: 'INVALID_ARGUMENT' }); },
+      resolveSessionStoreDirectory: async (dir) => `store:${dir}`,
+    });
+    await router.dispatch({}, { command: 'sessions.delete', requestId: 'r1', payload: { sessionId: 'engine-1', directory: '/gone' } });
+    expect(seen).toEqual([['delete', 'store:/gone']]);
+    await expect(router.dispatch({}, {
+      command: 'sessions.rename', requestId: 'r2', payload: { sessionId: 'engine-1', directory: '/gone', title: 'x' },
+    })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' });
+  });
+
   it('throws unsupported automatically when the handler is missing', async () => {
     const engine = makeEngine('fake', {
       ownsSession: () => true,
