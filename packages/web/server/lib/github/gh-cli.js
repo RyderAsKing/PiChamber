@@ -92,24 +92,42 @@ export const parsePlainAuthStatus = (text) => {
 };
 
 const parseJsonAuthStatus = (text) => {
-  // Newer `gh auth status --json hosts` shapes:
-  // `{ "hosts": { "github.com": { "user": "...", "token": "...", ... } } }`
-  // or `{ "hosts": [ { "hostname": "...", "user": "..." } ] }`.
+  // `gh auth status --json hosts` shapes seen in the wild:
+  // `{ "hosts": { "github.com": [ { "login": "...", "state": "success", ... } ] } }`
+  // (current gh), a flat `{ "hosts": { "github.com": { ... } } }`, and
+  // `{ "hosts": [ { "hostname": "...", "user": "..." } ] }`.
   const parsed = JSON.parse(String(text || ''));
   const raw = parsed?.hosts;
-  const entries = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === 'object' ? Object.entries(raw).map(([hostname, info]) => ({ hostname, ...(info || {}) })) : []);
+  const entries = [];
+  const push = (hostname, info) => {
+    // A host maps to a list of accounts; each becomes its own entry.
+    const accounts = Array.isArray(info) ? info : [info];
+    for (const account of accounts) {
+      if (account && typeof account === 'object') entries.push({ hostname, ...account });
+    }
+  };
+  if (Array.isArray(raw)) {
+    for (const info of raw) push(info?.hostname || info?.host, info);
+  } else if (raw && typeof raw === 'object') {
+    for (const [hostname, info] of Object.entries(raw)) push(hostname, info);
+  }
   const hosts = [];
   for (const entry of entries) {
     const host = String(entry.hostname || entry.host || '').trim().toLowerCase();
     if (!host) continue;
-    const login = typeof entry.user === 'string' && entry.user ? entry.user : null;
+    const login = [entry.login, entry.user].find((value) => typeof value === 'string' && value) || null;
+    // `scopes` is a comma-separated string on current gh; older shapes used an array.
+    const rawScopes = entry.tokenScopes ?? entry.scopes;
+    const scopes = Array.isArray(rawScopes)
+      ? rawScopes.filter((scope) => typeof scope === 'string')
+      : (typeof rawScopes === 'string'
+        ? rawScopes.split(',').map((scope) => scope.trim()).filter(Boolean)
+        : []);
     hosts.push({
       host,
       authenticated: Boolean(login || entry.active === true),
       login,
-      scopes: Array.isArray(entry.tokenScopes) ? entry.tokenScopes.filter((scope) => typeof scope === 'string') : [],
+      scopes,
     });
   }
   return hosts;

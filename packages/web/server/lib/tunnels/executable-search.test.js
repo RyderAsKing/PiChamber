@@ -59,6 +59,32 @@ describe('findExecutableOnPath', () => {
 
     expect(resolved).toBe(aliasPath);
   });
+
+  it('does not append PATHEXT to a command that already has an extension', () => {
+    // `gh-cli.js` passes `gh.exe` on Windows. Appending PATHEXT again searched
+    // for `gh.exe.com`, `gh.exe.exe`, ... and never matched the real binary.
+    const ghPath = 'C:\\Program Files\\GitHub CLI\\gh.exe';
+    const fsLike = {
+      statSync: (candidate) => {
+        if (candidate === ghPath) {
+          return { isFile: () => true };
+        }
+        throw new Error('not found');
+      },
+      accessSync: () => {},
+    };
+
+    const resolved = findExecutableOnPath('gh.exe', {
+      platform: 'win32',
+      env: {
+        PATH: 'C:\\Program Files\\GitHub CLI',
+        PATHEXT: '.COM;.EXE;.BAT;.CMD',
+      },
+      fsLike,
+    });
+
+    expect(resolved).toBe(ghPath);
+  });
 });
 
 describe('resolveExecutableLaunchTarget', () => {
