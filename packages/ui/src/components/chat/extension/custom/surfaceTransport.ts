@@ -155,9 +155,9 @@ export const closedElsewhere = (dismissal: ExtensionSurfaceDismissal): boolean =
 );
 
 /**
- * The host Close button. The daemon sends the component Esc and ends the
- * surface itself if it is still open after a short grace period; the
- * surface stays until its `cancelled` dismissal arrives.
+ * The host Close button. The daemon presses Esc for the user (twice if the
+ * first does not close it) and ends the surface itself if it is still open
+ * after that; the surface stays until its `cancelled` dismissal arrives.
  */
 export const closeSurface = async (sessionId: string, surfaceId: string): Promise<void> => {
   closedHere.add(`${sessionId}\u0000${surfaceId}`);

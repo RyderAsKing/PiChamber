@@ -35,11 +35,16 @@ const MAX_INPUT_CHARS = MAX_CUSTOM_INPUT_CHARS;
 const FRAME_INTERVAL_MS = 33;
 const SIZE_SETTLE_MS = 150;
 /**
- * How long Close waits for a component to end itself after the Esc it sends
- * (Pi components close on their own keys; an async Esc handler needs a few
- * ticks) before it ends the surface anyway.
+ * How long Close waits for a component to end itself after each Esc it
+ * sends (Pi components close on their own keys; an async Esc handler needs
+ * a few ticks).
  */
 const CLOSE_GRACE_MS = 300;
+/**
+ * Escs Close sends before it ends the surface anyway. The second is the one
+ * a Pi user presses when the first only stopped work or asked to confirm.
+ */
+const CLOSE_ESCAPES = 2;
 
 const CUSTOM_VIEWPORT_LIMITS = Object.freeze({
   columns: [20, 200],
@@ -1173,15 +1178,52 @@ export const createExtensionCustomHost = ({
   };
 
   /**
+   * One Close step: send an Esc and wait, or, with none left (or nowhere to
+   * send one, or an Esc that threw), end the surface. The first Esc goes to
+   * the surface itself (its focused child component when it holds focus),
+   * since Close names that surface. Later ones go where a key typed at it
+   * would: an overlay the first Esc opened and focused (a confirmation)
+   * takes it, so the surface is never asked twice to open one.
+   */
+  const closeStep = (state, surface, escapesLeft) => {
+    if (!state.surfaces.includes(surface)) return;
+    const focus = state.focus;
+    const useFocus = escapesLeft === CLOSE_ESCAPES
+      ? focus?.surface === surface
+      : Boolean(focus?.surface && state.surfaces.includes(focus.surface) && isWithin(state, focus.surface, surface));
+    const target = useFocus ? focus.component : surface.component;
+    const targetSurface = useFocus ? focus.surface : surface;
+    if (escapesLeft === 0 || typeof target?.handleInput !== 'function') {
+      forceClose(state, surface);
+      return;
+    }
+    try {
+      target.handleInput('\x1b');
+    } catch (error) {
+      onError(state.sessionId, 'input', error);
+      forceClose(state, surface);
+      return;
+    }
+    if (!state.surfaces.includes(surface)) return;
+    // Pi's TUI renders after every key it hands to a component.
+    if (state.surfaces.includes(targetSurface)) scheduleRender(state, targetSurface);
+    surface.closeTimer = setTimer(() => {
+      surface.closeTimer = undefined;
+      closeStep(state, surface, escapesLeft - 1);
+    }, CLOSE_GRACE_MS);
+  };
+
+  /**
    * The host Close button. Pi has none: components end on their own keys,
    * and extensions that keep a handle to their overlay (pi-btw) track it
-   * open until their Esc handler runs. So Close first hands the surface's
-   * component an Esc, whether or not it holds focus, as a key typed at it
-   * would reach it (its focused child component when it holds focus). If the
-   * surface is still open `CLOSE_GRACE_MS` later (Esc ignored, or used for
-   * a confirmation), it ends as before: `custom()` resolves `undefined` and
-   * nested overlays go with it. A second Close while it waits changes
-   * nothing; a surface that ends in the meantime takes its timer along.
+   * open until their Esc handler runs. `custom()` has no cancel signal, so
+   * Close presses Esc for the user, whether or not the surface holds focus:
+   * once, and once more `CLOSE_GRACE_MS` later if it is still open (the
+   * first only stopped a running answer, or opened a confirmation). If it
+   * is still open `CLOSE_GRACE_MS` after that, it ends as before:
+   * `custom()` resolves `undefined` and nested overlays go with it. A second
+   * Close while it waits changes nothing; a surface that ends in the
+   * meantime takes its timer along.
    */
   const close = ({ sessionId, surfaceId, clientId, viewport } = {}) => {
     const state = sessions.get(sessionId);
@@ -1190,25 +1232,7 @@ export const createExtensionCustomHost = ({
     recordClient(state, clientId, viewport, true);
     if (surface.closing) return { closed: true };
     surface.closing = true;
-    const target = state.focus?.surface === surface ? state.focus.component : surface.component;
-    if (typeof target?.handleInput !== 'function') {
-      forceClose(state, surface);
-      return { closed: true };
-    }
-    try {
-      target.handleInput('\x1b');
-    } catch (error) {
-      onError(sessionId, 'input', error);
-      forceClose(state, surface);
-      return { closed: true };
-    }
-    if (!state.surfaces.includes(surface)) return { closed: true };
-    // Pi's TUI renders after every key it hands to a component.
-    scheduleRender(state, surface);
-    surface.closeTimer = setTimer(() => {
-      surface.closeTimer = undefined;
-      forceClose(state, surface);
-    }, CLOSE_GRACE_MS);
+    closeStep(state, surface, CLOSE_ESCAPES);
     return { closed: true };
   };
 
