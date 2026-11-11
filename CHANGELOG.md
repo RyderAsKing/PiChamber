@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Project icons are always in colour.** A project's icon and its first-letter mark now show their own colours everywhere, not only while an agent is working in the project. Sessions still show when an agent is working (`ProjectIcon`).
+
 ## [1.0.6] - 2026-11-11
 
 The Threads sidebar view with Snoozed and Archived shelves, Archive and auto-archive, extension UI in the chat, open requests and the Server browser, shell commands from the composer, a new Add folder dialog, update channels on every runtime, cross-site request protection, project icons, and a round of interface polish since 1.0.5.

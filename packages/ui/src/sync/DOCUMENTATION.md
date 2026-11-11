@@ -70,7 +70,6 @@ The Pi cluster belongs to the connected runtime, not the focused project:
 | `PiSessionCatalogFeeder` (`pi-session-catalog-feeder.tsx`) | Subscribes to `useProjectsStore` + `useWorktreeStore`; fills the catalog for every known directory (project roots + worktrees), deduped by sorted signature | All known directories; React-mount lifecycle |
 | `session-catalog-access.ts` | `loadSessionCatalog(directories?)` completeness-checked read path for retention cleanup and mobile restore | All known directories in the active runtime |
 | `session-ordering.ts` | Ephemeral lifecycle rank used by every user-visible session list | All known sessions in the active runtime |
-| `live-project-activity.ts` | Which projects have an agent working now (`useProjectAgentActive`): unarchived busy/retry catalog rows mapped to their owning project root or worktree's project. Scans the catalog once per catalog identity and resolves projects once per change of working directories, shared by every consumer | All known projects in the active runtime |
 | `session-activity-timing.ts` | Elapsed time of the running turn and of the turn that just finished, plus the persisted starts that survive a reload | All known sessions in the active runtime |
 | `notification-store.ts` | Turn-complete and error attention plus OS-notification dispatch; fed only by live `PiSessionStore` terminal lifecycle events | Active runtime |
 | `revert-navigation-store.ts` | UI-owned revert navigation records (`previousLeafId`, abandoned branch, editor text), keyed by `runtimeKey:sessionId` | Active runtime |
@@ -179,7 +178,6 @@ Current consumers:
 - `SessionNodeItem.tsx` / `useSessionNodeItemMetadata`
 - `Header.tsx`
 - agent/session activity surfaces using `useGlobalSessionStatus()`
-- `ProjectIcon` via `useProjectAgentActive()` (color while an agent works in the project, grayscale otherwise)
 
 Live busy/retry state must come from the catalog `lifecycle` mirror, which is flipped by accepted lifecycle/snapshot events in `commitEvents` and restored from authoritative listings — never from persisted history or inferred from message timestamps.
 
