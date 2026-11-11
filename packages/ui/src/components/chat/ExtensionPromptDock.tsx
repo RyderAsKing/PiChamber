@@ -14,8 +14,11 @@ import { stripAnsi } from '@/lib/pi/ansi';
 import { AnsiText } from '@/components/chat/AnsiText';
 import { Button } from '@/components/ui/button';
 import { Icon } from '@/components/icon/Icon';
+import { Radio } from '@/components/ui/radio';
+import { Kbd } from '@/components/ui/KeyHints';
 import { cn } from '@/lib/utils';
 import { resolveSelectKeyAction } from './extensionPromptKeys';
+import { firstPlainLine, splitDialogTitle } from './extensionDialogTitle';
 
 /**
  * Blocking pi extension dialogs (ctx.ui.select / confirm / input / editor / form).
@@ -105,14 +108,18 @@ interface SelectBodyProps {
   request: PiExtensionDialogPayload;
   onRespond: (answer: DialogAnswer) => void;
   messageId: string;
+  name: string;
   highlightedIndex: number;
   setHighlightedIndex: React.Dispatch<React.SetStateAction<number>>;
 }
+
+const ignoreRadioChange = (): void => {};
 
 const SelectBody: React.FC<SelectBodyProps> = ({
   request,
   onRespond,
   messageId,
+  name,
   highlightedIndex,
   setHighlightedIndex,
 }) => {
@@ -123,10 +130,11 @@ const SelectBody: React.FC<SelectBodyProps> = ({
       {request.message && (
         <p id={messageId} className="mb-2 text-sm text-muted-foreground"><AnsiText text={request.message} /></p>
       )}
+      {/* Rows bleed into the card padding so the radios line up with the text above. */}
       <div
-        className="flex flex-col gap-1 max-h-60 overflow-y-auto"
+        className="-mx-2 flex max-h-60 flex-col overflow-y-auto"
         role="listbox"
-        aria-label={stripAnsi(request.title)}
+        aria-label={name}
       >
         {options.map((option, index) => {
           const isHighlighted = index === highlightedIndex;
@@ -143,21 +151,26 @@ const SelectBody: React.FC<SelectBodyProps> = ({
               onFocus={() => setHighlightedIndex(index)}
               onClick={() => onRespond({ value: option })}
               className={cn(
-                'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm transition-colors outline-none',
-                isHighlighted
-                  ? 'bg-interactive-selection text-interactive-selection-foreground font-medium'
-                  : 'text-foreground hover:bg-interactive-hover',
+                'flex w-full items-start gap-2.5 rounded-xl px-2 py-1.5 text-left outline-none',
+                'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-interactive-focusRing',
+                isHighlighted && 'bg-interactive-hover',
               )}
             >
-              <span className="truncate"><AnsiText text={option} /></span>
+              {/* h-5 matches the label's first line box, so the radio and key stay on it when the label wraps. */}
+              <span className="flex h-5 shrink-0 items-center">
+                <Radio checked={isHighlighted} onChange={ignoreRadioChange} decorative />
+              </span>
+              <span
+                className={cn(
+                  'min-w-0 flex-1 break-words typography-ui-label',
+                  isHighlighted ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                <AnsiText text={option} />
+              </span>
               {quickKey !== undefined && (
-                <span
-                  className={cn(
-                    'ml-2 shrink-0 font-mono text-xs opacity-70',
-                    isHighlighted ? 'text-interactive-selection-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  {quickKey}
+                <span className="flex h-5 shrink-0 items-center">
+                  <Kbd>{quickKey}</Kbd>
                 </span>
               )}
             </button>
@@ -206,9 +219,10 @@ interface InputEditorBodyProps {
   request: PiExtensionDialogPayload;
   onRespond: (answer: DialogAnswer) => void;
   messageId: string;
+  name: string;
 }
 
-const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, messageId }) => {
+const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, messageId, name }) => {
   const isEditor = request.method === 'editor';
   const [value, setValue] = React.useState(isEditor ? (request.prefill ?? '') : '');
 
@@ -227,7 +241,7 @@ const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, m
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={request.placeholder ? stripAnsi(request.placeholder) : ''}
-          aria-label={stripAnsi(request.title)}
+          aria-label={name}
           rows={4}
           className="w-full resize-y rounded-md border bg-transparent p-2 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focusRing"
           onKeyDown={(event) => {
@@ -244,7 +258,7 @@ const InputEditorBody: React.FC<InputEditorBodyProps> = ({ request, onRespond, m
           value={value}
           onChange={(event) => setValue(event.target.value)}
           placeholder={request.placeholder ? stripAnsi(request.placeholder) : ''}
-          aria-label={stripAnsi(request.title)}
+          aria-label={name}
           className="w-full rounded-md border bg-transparent px-2.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focusRing"
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
@@ -592,10 +606,15 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
   const [responding, setResponding] = React.useState(false);
   const [responseError, setResponseError] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
+  const [collapsed, setCollapsed] = React.useState(false);
   const respondingRef = React.useRef(false);
 
   const dockRef = React.useRef<HTMLDivElement | null>(null);
   const messageId = React.useId();
+  const questionId = React.useId();
+  const bodyId = React.useId();
+  const requestTitle = target?.request.title ?? '';
+  const titleParts = React.useMemo(() => splitDialogTitle(requestTitle), [requestTitle]);
 
   // Keyed on request identity, not the target object: a queue-length change
   // for the same request must not clear the in-flight guard or highlight.
@@ -605,6 +624,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     setResponding(false);
     setResponseError(false);
     setHighlightedIndex(0);
+    setCollapsed(false);
 
     // Autofocus dock on appearance if not already focused inside and not typing in an editable element
     if (
@@ -648,7 +668,8 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
       return;
     }
 
-    if (!target) return;
+    // A collapsed dialog hides its question, so only Escape answers it.
+    if (!target || collapsed) return;
 
     if (target.request.method === 'confirm') {
       if (event.key === 'y' || event.key === 'Y') {
@@ -693,6 +714,13 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     }
   };
 
+  const { label, text } = titleParts;
+  const name = stripAnsi(label ?? text) || 'Extension';
+  const describedBy = [
+    text && label ? questionId : null,
+    target?.request.message ? messageId : null,
+  ].filter(Boolean).join(' ');
+
   // The strip keeps the dock mounted while other sessions wait, even when
   // the current session has no dialog.
   if (!target && othersNeedingInput.length === 0) return null;
@@ -709,20 +737,46 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
       <div
         ref={dockRef}
         role="dialog"
-        aria-label={stripAnsi(target.request.title)}
-        aria-describedby={target.request.message ? messageId : undefined}
+        aria-label={name}
+        aria-describedby={describedBy || undefined}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="relative z-40 overflow-hidden rounded-xl border border-border/80 bg-card p-3 shadow-md transition-[opacity,transform] duration-150 outline-none"
+        // Same surface as the composer card below it (ChatInput's
+        // data-composer-card): radius, fill, border and shadow.
+        className="relative z-40 overflow-hidden rounded-[1.5rem] border border-border/80 bg-[var(--surface-subtle)] shadow-[0_4px_16px_-4px_rgb(0_0_0_/_0.12)] outline-none"
       >
-        {/* Header */}
-        <div className="mb-2.5 flex items-center justify-between gap-2 border-b border-border/40 pb-2">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Icon name="plug-2" className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate text-xs font-semibold uppercase tracking-wider text-foreground">
-              <AnsiText text={target.request.title} />
+        <div className="flex items-center gap-2 py-2.5 pl-4 pr-2.5">
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            aria-expanded={!collapsed}
+            aria-controls={bodyId}
+            title={collapsed ? 'Show the request' : 'Hide the request'}
+            className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md text-left outline-none focus-visible:ring-1 focus-visible:ring-interactive-focusRing"
+          >
+            <span
+              className={cn(
+                'min-w-0 truncate typography-meta text-muted-foreground',
+                collapsed && text && label ? 'max-w-[50%] shrink-0' : 'flex-1',
+              )}
+            >
+              <AnsiText text={label ?? 'Extension'} />
             </span>
-          </div>
+            {collapsed && text ? (
+              <>
+                <span aria-hidden="true" className="typography-meta text-subtle-foreground">
+                  ·
+                </span>
+                <span className="min-w-0 flex-1 truncate typography-meta text-foreground">
+                  {firstPlainLine(text)}
+                </span>
+              </>
+            ) : null}
+            <Icon
+              name={collapsed ? 'arrow-down-s' : 'arrow-up-s'}
+              className="size-4 shrink-0 text-subtle-foreground"
+            />
+          </button>
           <div className="flex shrink-0 items-center gap-2">
             {target.queueLength > 1 && (
               <span className="rounded-full bg-muted px-2 py-0.5 typography-micro font-medium text-muted-foreground">
@@ -731,7 +785,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
             )}
             {remainingSeconds !== null && (
               <span
-                className="font-mono text-xs tabular-nums text-muted-foreground"
+                className="font-mono typography-micro tabular-nums text-muted-foreground"
                 title={`${remainingSeconds}s remaining`}
               >
                 {remainingSeconds}s
@@ -742,41 +796,57 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
               variant="ghost"
               size="xs"
               onClick={() => submit({ cancelled: true })}
-              className="h-6 px-1.5 typography-micro text-muted-foreground hover:text-foreground"
+              className="shrink-0 px-1.5 font-sans text-muted-foreground hover:text-foreground"
               aria-label="Dismiss extension dialog"
+              title="Dismiss (Esc)"
             >
-              Dismiss (Esc)
+              Esc
             </Button>
           </div>
         </div>
 
-        {/* Body */}
-        <div
-          className={responding ? 'pointer-events-none opacity-60' : undefined}
-          aria-busy={responding || undefined}
-        >
-          {target.request.method === 'select' && (
-            <SelectBody
-              request={target.request}
-              onRespond={submit}
-              messageId={messageId}
-              highlightedIndex={highlightedIndex}
-              setHighlightedIndex={setHighlightedIndex}
-            />
-          )}
-          {target.request.method === 'confirm' && (
-            <ConfirmBody request={target.request} onRespond={submit} messageId={messageId} />
-          )}
-          {(target.request.method === 'input' || target.request.method === 'editor') && (
-            <InputEditorBody request={target.request} onRespond={submit} messageId={messageId} />
-          )}
-          {target.request.method === 'form' && (
-            <FormBody request={target.request} onRespond={submit} messageId={messageId} />
-          )}
-        </div>
+        {!collapsed && (
+          <div id={bodyId} className="px-4 pb-3">
+            {text && (
+              // Extension text is terminal text: keep its line breaks and
+              // spacing, and scroll a long request instead of growing the dock.
+              <div
+                id={questionId}
+                className="mb-2.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words typography-ui-label text-foreground"
+              >
+                <AnsiText text={text} links />
+              </div>
+            )}
+            <div
+              className={responding ? 'pointer-events-none opacity-60' : undefined}
+              aria-busy={responding || undefined}
+            >
+              {target.request.method === 'select' && (
+                <SelectBody
+                  request={target.request}
+                  onRespond={submit}
+                  messageId={messageId}
+                  name={name}
+                  highlightedIndex={highlightedIndex}
+                  setHighlightedIndex={setHighlightedIndex}
+                />
+              )}
+              {target.request.method === 'confirm' && (
+                <ConfirmBody request={target.request} onRespond={submit} messageId={messageId} />
+              )}
+              {(target.request.method === 'input' || target.request.method === 'editor') && (
+                <InputEditorBody request={target.request} onRespond={submit} messageId={messageId} name={name} />
+              )}
+              {target.request.method === 'form' && (
+                <FormBody request={target.request} onRespond={submit} messageId={messageId} />
+              )}
+            </div>
+
+          </div>
+        )}
 
         {responseError && (
-          <p role="alert" className="mt-2 text-xs text-status-error">
+          <p role="alert" className="px-4 pb-3 text-xs text-status-error">
             Could not send the response. Check your connection and try again.
           </p>
         )}
