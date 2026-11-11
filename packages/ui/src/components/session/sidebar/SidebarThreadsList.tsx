@@ -15,10 +15,11 @@ import type { SessionShelfSection } from '@/lib/sessionShelf';
 import { cn } from '@/lib/utils';
 import { isSessionPinned, useSessionPinnedStore } from '@/stores/useSessionPinnedStore';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
+import { useSessionUIStore } from '@/sync/session-ui-store';
 import { updateSessionShelf } from './hooks/useSessionShelves';
 import type { SessionShelves, ShelfListItem } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
-import { SidebarSectionHeading } from './sidebarRowChrome';
+import { SidebarSectionHeading, SidebarSessionLikeButton } from './sidebarRowChrome';
 import type { ProjectSection, SessionNode } from './types';
 
 export interface ThreadsListItem {
@@ -30,12 +31,19 @@ export interface ThreadsListItem {
   globalSession: boolean;
 }
 
-export type ShelfId = 'snoozed';
+export type ShelfId = 'snoozed' | 'archived';
 type DropTarget = 'pinned' | 'active';
 
 const SHELF_LABELS: Record<ShelfId, string> = {
   snoozed: 'Snoozed',
+  archived: 'Archived',
 };
+
+const isShelfId = (id: unknown): id is ShelfId => id === 'snoozed' || id === 'archived';
+
+// Archived can hold hundreds of sessions, so it opens on a short page.
+const ARCHIVED_FIRST_PAGE = 10;
+const ARCHIVED_PAGE = 20;
 
 const EXPANDED_SHELVES_STORAGE_KEY = 'oc.sidebar.shelves.expanded';
 
@@ -45,7 +53,7 @@ const readExpandedShelves = (): Set<ShelfId> => {
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     if (!Array.isArray(parsed)) return new Set();
     // Values from retired shelves (`settled`) are ignored.
-    return new Set(parsed.filter((id): id is ShelfId => id === 'snoozed'));
+    return new Set(parsed.filter(isShelfId));
   } catch {
     return new Set();
   }
@@ -101,47 +109,75 @@ const DropZone: React.FC<{
   );
 };
 
-const THREADS_SHELVES: readonly ShelfId[] = ['snoozed'];
+const THREADS_SHELVES: readonly ShelfId[] = ['snoozed', 'archived'];
 
 /**
- * The collapsible Snoozed section below the Threads list and the By folder
- * tree. A collapsed section shows only its heading, even when it holds the
- * open session.
+ * The collapsible Snoozed and Archived sections at the bottom of the Threads
+ * list, the By folder tree, and Workspace. A collapsed section shows only its
+ * heading, even when it holds the open session; Archived pages its rows.
  */
 export const SessionShelfStack = <T extends ShelfListItem>({
   shelfIds,
   shelves,
   renderItem,
   hasSessionSearchQuery,
+  mobileVariant = false,
   className,
 }: {
   shelfIds: readonly ShelfId[];
-  shelves: SessionShelves<T>;
+  shelves: Partial<Record<ShelfId, readonly T[]>>;
   renderItem: (item: T) => React.ReactNode;
   hasSessionSearchQuery: boolean;
+  mobileVariant?: boolean;
   className?: string;
 }): React.ReactNode => {
   const { expanded, toggle } = useExpandedShelves();
+  const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
+  const [archivedLimit, setArchivedLimit] = React.useState(ARCHIVED_FIRST_PAGE);
 
   // While searching, every match shows; shelves open so results are not hidden.
   const isExpanded = (id: ShelfId) => hasSessionSearchQuery || expanded.has(id);
-  const visibleIds = shelfIds.filter((id) => shelves[id].length > 0);
+  const visibleIds = shelfIds.filter((id) => (shelves[id]?.length ?? 0) > 0);
   if (visibleIds.length === 0) return null;
+
+  const pagedRows = (id: ShelfId, rows: readonly T[]): readonly T[] => {
+    if (id !== 'archived' || hasSessionSearchQuery || rows.length <= archivedLimit) return rows;
+    const visible = rows.slice(0, archivedLimit);
+    // The open session stays visible even past the page.
+    const current = rows.find((item) => item.node.session.id === currentSessionId);
+    return current && !visible.includes(current) ? [...visible, current] : visible;
+  };
 
   return (
     <div className={className}>
       {visibleIds.map((id) => {
-        const rows = shelves[id];
+        const rows = shelves[id] ?? [];
         const shelfExpanded = isExpanded(id);
+        const visibleRows = shelfExpanded ? pagedRows(id, rows) : [];
+        const remaining = id === 'archived' && shelfExpanded && !hasSessionSearchQuery
+          ? rows.length - Math.min(archivedLimit, rows.length)
+          : 0;
         return (
           <section key={id} aria-label={SHELF_LABELS[id]} data-session-shelf={id}>
             <SidebarSectionHeading
               label={SHELF_LABELS[id]}
               count={rows.length}
               expanded={shelfExpanded}
-              onToggle={() => toggle(id)}
+              onToggle={() => {
+                if (id === 'archived') setArchivedLimit(ARCHIVED_FIRST_PAGE);
+                toggle(id);
+              }}
             />
-            {shelfExpanded ? rows.map(renderItem) : null}
+            {visibleRows.map(renderItem)}
+            {remaining > 0 ? (
+              <SidebarSessionLikeButton
+                icon="arrow-down-s"
+                mobileVariant={mobileVariant}
+                onClick={() => setArchivedLimit((limit) => limit + ARCHIVED_PAGE)}
+              >
+                {`Show ${Math.min(ARCHIVED_PAGE, remaining)} more`}
+              </SidebarSessionLikeButton>
+            ) : null}
           </section>
         );
       })}
@@ -152,6 +188,8 @@ export const SessionShelfStack = <T extends ShelfListItem>({
 interface SidebarThreadsListProps {
   items: readonly ThreadsListItem[];
   shelves: SessionShelves<ThreadsListItem>;
+  /** Archived sessions, newest first; empty while searching, when they show in place. */
+  archived: readonly ThreadsListItem[];
   renderSessionNode: RenderSessionNode;
   hasSessionSearchQuery: boolean;
   mobileVariant: boolean;
@@ -161,13 +199,14 @@ interface SidebarThreadsListProps {
 
 /**
  * The Threads view: Pinned, then sessions running now, then every other
- * session by when it was last active, with the collapsible Snoozed section
- * anchored at the bottom of the sidebar. On desktop a session can be dragged
- * to Pinned or back to the list. Archived sessions are not listed.
+ * session by when it was last active, with the collapsible Snoozed and
+ * Archived sections anchored at the bottom of the sidebar. On desktop a
+ * session can be dragged to Pinned or back to the list.
  */
 const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
   items,
   shelves,
+  archived,
   renderSessionNode,
   hasSessionSearchQuery,
   mobileVariant,
@@ -216,7 +255,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
     moveSession(sessionId, directory, from, over.target);
   };
 
-  if (items.length === 0) {
+  if (items.length === 0 && archived.length === 0) {
     return <>{hasSessionSearchQuery ? searchEmptyState : emptyState}</>;
   }
 
@@ -225,7 +264,7 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
   const showWorking = shelves.working.length > 0;
   // "Recent" only needs a name when another section sits beside it.
   const showRecentHeading = showPinned || showWorking
-    || shelves.snoozed.length > 0;
+    || shelves.snoozed.length > 0 || archived.length > 0;
 
   const list = (
     <div className="flex min-h-full flex-1 flex-col" data-sidebar-threads="">
@@ -253,16 +292,19 @@ const SidebarThreadsListComponent: React.FC<SidebarThreadsListProps> = ({
           <div className="px-3 py-1.5 typography-micro text-subtle-foreground">
             {isDragging
               ? 'Drop here to keep it in the list'
-              : shelves.snoozed.length > 0 ? 'Nothing recent. Snoozed sessions are below.' : 'Nothing recent.'}
+              : shelves.snoozed.length > 0
+                ? 'Nothing recent. Snoozed sessions are below.'
+                : archived.length > 0 ? 'Nothing recent. Archived sessions are below.' : 'Nothing recent.'}
           </div>
         ) : null}
       </DropZone>
 
       <SessionShelfStack
         shelfIds={THREADS_SHELVES}
-        shelves={shelves}
+        shelves={{ snoozed: shelves.snoozed, archived }}
         renderItem={renderItem}
         hasSessionSearchQuery={hasSessionSearchQuery}
+        mobileVariant={mobileVariant}
         className="mt-auto border-t border-border pt-1"
       />
     </div>

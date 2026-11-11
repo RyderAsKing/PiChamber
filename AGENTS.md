@@ -135,8 +135,8 @@ session with `!!git diff --stat` typed into the composer); `sidebar-projects`
 (desktop only: the folder list with project icons and the fallback mark, and
 session cards with a middle-truncated branch); `sidebar-projects-mobile` (the
 same list in the mobile sessions drawer); `sidebar-threads` (desktop only: the
-Threads view with its Snoozed shelf open and one session snoozed; two seeded
-sessions are archived and so absent); `sidebar-threads-hover`
+Threads view with its Snoozed and Archived shelves open, one session snoozed
+and the two seeded archived sessions under Archived); `sidebar-threads-hover`
 (the same view with the pointer on an active session, showing its Archive
 action, desktop only); `sidebar-threads-archive` (the same view with its
 shelf collapsed, just after the open session's Archive button: the session

@@ -16,11 +16,14 @@ import {
 } from './timelineBuckets';
 import { SidebarFolderTree } from './SidebarFolderTree';
 import { SessionRowVariantContext } from './sessionRowVariant';
-import { SidebarThreadsList, type ThreadsListItem } from './SidebarThreadsList';
+import { SessionShelfStack, SidebarThreadsList, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
 import { useSessionShelves } from './hooks/useSessionShelves';
 import { isSessionPinned } from '@/stores/useSessionPinnedStore';
 
 export type { ProjectSection };
+
+const NO_ARCHIVED: readonly ThreadsListItem[] = [];
+const WORKSPACE_SHELVES: readonly ShelfId[] = ['archived'];
 
 type Props = {
   topContent?: React.ReactNode;
@@ -36,6 +39,8 @@ type Props = {
   searchEmptyState: React.ReactNode;
   isAllFoldersView?: boolean;
   pinnedSessionIds?: Set<string>;
+  /** Archived sessions for the bottom shelf, newest first; empty while searching. */
+  archivedShelfItems?: readonly ThreadsListItem[];
   viewMode?: SidebarViewMode;
   timelineBoundaries?: TimelineBoundaries | null;
   onOpenDirectoryDialog?: () => void;
@@ -111,6 +116,10 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
 
   const isThreads = viewMode === 'threads';
   const isFolder = viewMode === 'folder';
+  const archived = props.archivedShelfItems ?? NO_ARCHIVED;
+  // Workspace has no other shelves; Threads and By folder stack Archived under Snoozed.
+  const showWorkspaceArchived = viewMode === 'workspace' && archived.length > 0
+    && !props.hasSessionSearchQuery && !props.showOnlyMainWorkspace;
   const shouldComputeAllFolderSessions = Boolean(props.isAllFoldersView || isTimeline || isThreads || isFolder);
 
   const allFolderSessions = React.useMemo(() => {
@@ -254,9 +263,9 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
       outerClassName="flex-1 min-h-0"
       className="oc-sidebar-scroller pt-2 pb-1 [overflow-anchor:none]"
     >
-      {/* Threads and By folder (with shelves) fill the scroller so their
-          Snoozed section sits at the bottom. */}
-      <div className={cn((isThreads || (isFolder && shelves && !props.hasSessionSearchQuery)) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
+      {/* Views with shelves fill the scroller so their Snoozed and Archived
+          sections sit at the bottom. */}
+      <div className={cn((isThreads || (isFolder && shelves && !props.hasSessionSearchQuery) || showWorkspaceArchived) && !props.showOnlyMainWorkspace ? 'flex min-h-full flex-col gap-1 px-2' : 'space-y-1 px-2')}>
       {props.topContent}
       {props.showOnlyMainWorkspace ? (
         <div className="space-y-[0.6rem]">
@@ -295,6 +304,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
         <SidebarThreadsList
           items={allFolderSessions}
           shelves={shelves}
+          archived={archived}
           renderSessionNode={props.renderSessionNode}
           hasSessionSearchQuery={props.hasSessionSearchQuery}
           mobileVariant={props.mobileVariant}
@@ -305,6 +315,7 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
         <SessionRowVariantContext.Provider value="tree">
         <SidebarFolderTree
           shelves={shelves}
+          archived={archived}
           sections={props.sectionsForRender}
           homeSection={props.allFoldersOnlySection}
           homeDirectory={props.homeDirectory}
@@ -426,6 +437,29 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
           })}
         </div>
       )}
+      {showWorkspaceArchived && props.renderSessionNode ? (
+        <SessionShelfStack
+          shelfIds={WORKSPACE_SHELVES}
+          shelves={{ archived }}
+          renderItem={(item: ThreadsListItem) => (
+            <React.Fragment key={item.node.session.id}>
+              {props.renderSessionNode!(
+                item.node,
+                0,
+                item.node.session.directory ?? item.project.normalizedPath,
+                item.project.id,
+                true,
+                // One folder selected: the folder name would repeat on every row.
+                { projectLabel: item.projectLabel, showFolderLabel: Boolean(props.isAllFoldersView), globalSession: item.globalSession },
+                'project',
+              )}
+            </React.Fragment>
+          )}
+          hasSessionSearchQuery={false}
+          mobileVariant={props.mobileVariant}
+          className="mt-auto border-t border-border pt-1"
+        />
+      ) : null}
       </div>
     </ScrollableOverlay>
     </div>

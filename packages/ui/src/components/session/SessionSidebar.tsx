@@ -29,6 +29,7 @@ import { resolveTimelineWeekStart } from './sidebar/timelineBuckets';
 import { useTimelineBoundaries } from './sidebar/hooks/useTimelineBoundaries';
 import { useGroupOrdering } from './sidebar/hooks/useGroupOrdering';
 import { useSessionSidebarSections } from './sidebar/hooks/useSessionSidebarSections';
+import { useArchivedShelfItems } from './sidebar/hooks/useArchivedShelfItems';
 import { ProjectSessionSelectionEffect } from './sidebar/hooks/useProjectSessionSelection';
 import { useSessionGrouping } from './sidebar/hooks/useSessionGrouping';
 import { canShowQuickArchiveAction } from './sidebar/sessionQuickActions';
@@ -897,6 +898,27 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
     sidebarViewMode,
   ]);
 
+  const isGlobalSession = React.useCallback(
+    (session: Session) => isGlobalSessionDirectory(resolveGlobalSessionDirectory(session), homeDirectory),
+    [homeDirectory],
+  );
+  const archivedShelfItems = useArchivedShelfItems({
+    viewMode: sidebarViewMode,
+    enabled: !hasSessionSearchQuery && !showOnlyMainWorkspace,
+    projects: sortedProjects,
+    archivedSessions,
+    getArchivedSessionsForProject,
+    isGlobalSession,
+    buildGroupedSessions,
+    availableWorktreesByProject,
+    projectRepoStatus,
+    projectRootBranches,
+    lastRepoStatus: lastRepoStatusRef.current,
+    selectedSpaceId,
+    selectedWorktreePath,
+    homeDirectory,
+  });
+
   const allFoldersOnlySearchMatchCount = React.useMemo(() => {
     if (!hasSessionSearchQuery || !allFoldersOnlySection) return 0;
     const countNodes = (nodes: SessionNode[]): number => nodes.reduce(
@@ -1397,6 +1419,7 @@ const SessionSidebarComponent: React.FC<SessionSidebarProps> = ({
         emptyState={emptyState}
         searchEmptyState={searchEmptyState}
         pinnedSessionIds={pinnedSessionIds}
+        archivedShelfItems={archivedShelfItems}
         renderSessionNode={renderSessionNode}
         renderGroupSessions={renderGroupSessions}
         homeDirectory={homeDirectory}

@@ -5,7 +5,7 @@ import type { PiSessionShelfEntry, PiSessionShelfInput } from '@/lib/pi/protocol
  * Working, Snoozed) and the snooze menu. The server stores only what the user
  * chose (`PiSessionShelfEntry`); everything time-based is derived here so
  * every client applies the same rule. Putting a session away for good is
- * Archive, which hides it from these views.
+ * Archive, which moves it to the Archived shelf.
  */
 
 export type SessionShelfSection = 'pinned' | 'active' | 'working' | 'snoozed';

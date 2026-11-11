@@ -178,8 +178,8 @@ const PAGES = {
     idleRequestPrefix: '/api/fs/project-icon',
   },
   'sidebar-threads': {
-    // The Threads view: recent sessions across folders, then the Snoozed
-    // shelf opened (archived sessions are not listed), with the selected title in medium weight.
+    // The Threads view: recent sessions across folders, then the Snoozed and
+    // Archived shelves opened, with the selected title in medium weight.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'threads',
     readyText: SHELF_SESSION_TEXT,
@@ -250,7 +250,7 @@ const PAGES = {
   },
   'sidebar-folder': {
     // By folder: folders with their active sessions; snoozed sessions
-    // moved to a shelf under the folder list, archived ones left out.
+    // moved to a shelf under the folder list, archived ones to Archived below it.
     path: SHELF_SESSION_PATH,
     sidebarViewMode: 'folder',
     readyText: SHELF_SESSION_TEXT,
