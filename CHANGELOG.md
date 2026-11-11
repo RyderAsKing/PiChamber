@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.0.6-rc.6] - 2026-11-11
+
+Update channels for the mobile app and browsers since 1.0.6-rc.5.
+
+- **Update channels on phones and in browsers (#228).** The Android and iOS app was always checked against stable releases, so an installed release candidate said it was on the latest version while newer release candidates were out. Settings → About now has **App channel** in the mobile app, and **Server channel** everywhere except the desktop app's built-in server, including desktop and phone browsers, which had no way to change it. The app's channel is stored on the device; until one is picked, a release candidate build follows release candidates. The server compares the app against the channel it sends, and an app that sends none still gets stable. About on a phone now uses the desktop layout: the Version row shows the version and its status on one line (1.0.5 · Up to date) with Check for updates beside it at every width, and each channel sits beside its label under Updates, whose rows are now named Desktop app channel, App channel, and Server channel. About says Up to date only after a check returns, and Check failed when one doesn't. A check that finishes after a newer one, or after switching to another server, no longer replaces its result, and the server channel stays off until the connected server's setting loads, with Retry after a failure (`updateChannel`, `UpdateChannelSettings`, `useServerUpdateChannel`, `AboutSettings`, `useUpdateStore`, `pi/routes`).
+
 ## [1.0.6-rc.5] - 2026-11-11
 
 Archive replaces Settle, a fix for the mobile app crashing on launch, and phone layout polish since 1.0.6-rc.4.
