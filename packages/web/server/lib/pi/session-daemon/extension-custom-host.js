@@ -34,6 +34,12 @@ const MAX_INPUT_ITEMS = MAX_CUSTOM_INPUT_ITEMS;
 const MAX_INPUT_CHARS = MAX_CUSTOM_INPUT_CHARS;
 const FRAME_INTERVAL_MS = 33;
 const SIZE_SETTLE_MS = 150;
+/**
+ * How long Close waits for a component to end itself after the Esc it sends
+ * (Pi components close on their own keys; an async Esc handler needs a few
+ * ticks) before it ends the surface anyway.
+ */
+const CLOSE_GRACE_MS = 300;
 
 const CUSTOM_VIEWPORT_LIMITS = Object.freeze({
   columns: [20, 200],
@@ -517,9 +523,16 @@ export const createExtensionCustomHost = ({
 
   // ---------------------------------------------------------------- surfaces
 
-  const removeSurface = (state, surface, reason) => {
+  const removeSurface = (state, surface, givenReason) => {
     const index = state.surfaces.indexOf(surface);
     if (index === -1) return false;
+    if (surface.closeTimer !== undefined) {
+      clearTimer(surface.closeTimer);
+      surface.closeTimer = undefined;
+    }
+    // A component that ends itself on the Esc a Close sent it still ends
+    // by the host Close: clients read `cancelled` as exactly that.
+    const reason = surface.closing && givenReason === 'done' ? 'cancelled' : givenReason;
     // Nested overlays a component opened go with it.
     for (const child of state.surfaces.filter((candidate) => candidate.parentId === surface.id)) {
       removeSurface(state, child, reason);
@@ -628,6 +641,9 @@ export const createExtensionCustomHost = ({
       frame: null,
       settle: fields.settle ?? null,
       pendingRegistered: false,
+      // Set once Close sent Esc; the timer ends the surface if it stays.
+      closing: false,
+      closeTimer: undefined,
     };
     // Through resolveOptions, so these options are the fallback if a later
     // call throws.
@@ -1150,14 +1166,49 @@ export const createExtensionCustomHost = ({
     return { accepted: true };
   };
 
-  /** The host Close button: resolve `undefined`, as Pi's Escape would not. */
+  const forceClose = (state, surface) => {
+    if (!state.surfaces.includes(surface)) return;
+    if (surface.settle) surface.settle('cancelled');
+    else removeSurface(state, surface, 'cancelled');
+  };
+
+  /**
+   * The host Close button. Pi has none: components end on their own keys,
+   * and extensions that keep a handle to their overlay (pi-btw) track it
+   * open until their Esc handler runs. So Close first hands the surface's
+   * component an Esc, whether or not it holds focus, as a key typed at it
+   * would reach it (its focused child component when it holds focus). If the
+   * surface is still open `CLOSE_GRACE_MS` later (Esc ignored, or used for
+   * a confirmation), it ends as before: `custom()` resolves `undefined` and
+   * nested overlays go with it. A second Close while it waits changes
+   * nothing; a surface that ends in the meantime takes its timer along.
+   */
   const close = ({ sessionId, surfaceId, clientId, viewport } = {}) => {
     const state = sessions.get(sessionId);
     const surface = findSurface(state, surfaceId);
     if (!surface) return { closed: false };
     recordClient(state, clientId, viewport, true);
-    if (surface.settle) surface.settle('cancelled');
-    else removeSurface(state, surface, 'cancelled');
+    if (surface.closing) return { closed: true };
+    surface.closing = true;
+    const target = state.focus?.surface === surface ? state.focus.component : surface.component;
+    if (typeof target?.handleInput !== 'function') {
+      forceClose(state, surface);
+      return { closed: true };
+    }
+    try {
+      target.handleInput('\x1b');
+    } catch (error) {
+      onError(sessionId, 'input', error);
+      forceClose(state, surface);
+      return { closed: true };
+    }
+    if (!state.surfaces.includes(surface)) return { closed: true };
+    // Pi's TUI renders after every key it hands to a component.
+    scheduleRender(state, surface);
+    surface.closeTimer = setTimer(() => {
+      surface.closeTimer = undefined;
+      forceClose(state, surface);
+    }, CLOSE_GRACE_MS);
     return { closed: true };
   };
 

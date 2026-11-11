@@ -154,7 +154,11 @@ export const closedElsewhere = (dismissal: ExtensionSurfaceDismissal): boolean =
   && !closedHere.has(`${dismissal.sessionId}\u0000${dismissal.surface.surfaceId}`)
 );
 
-/** The host Close button: the extension's `custom()` call resolves `undefined`. */
+/**
+ * The host Close button. The daemon sends the component Esc and ends the
+ * surface itself if it is still open after a short grace period; the
+ * surface stays until its `cancelled` dismissal arrives.
+ */
 export const closeSurface = async (sessionId: string, surfaceId: string): Promise<void> => {
   closedHere.add(`${sessionId}\u0000${surfaceId}`);
   if (closedHere.size > MAX_CLOSED_HERE) closedHere.delete(closedHere.values().next().value as string);

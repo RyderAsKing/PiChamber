@@ -156,6 +156,200 @@ describe('createExtensionCustomHost', () => {
     expect(harness.host.input({ sessionId: SESSION, surfaceId, items: ['x'] })).toEqual({ accepted: false });
   });
 
+  describe('Close', () => {
+    const dismissals = (harness) => harness.events
+      .filter((entry) => entry.event === 'extension.custom.dismiss')
+      .map((entry) => entry.payload);
+
+    /**
+     * An extension like pi-btw: it keeps its own "open" flag, clears it only
+     * when its component's Esc handler calls done() (after an await), and
+     * refuses to open again while the flag is set. Its overlay is
+     * non-capturing and takes focus through its handle.
+     */
+    const btwExtension = (host) => {
+      const ext = { open: false, handle: null, result: null };
+      ext.run = () => {
+        if (ext.open) {
+          ext.handle?.focus();
+          return false;
+        }
+        ext.open = true;
+        ext.result = host.open(SESSION, (_tui, _theme, _kb, done) => ({
+          render: () => ['btw'],
+          handleInput: (data) => {
+            if (data !== '\x1b') return;
+            void Promise.resolve().then(() => {
+              ext.open = false;
+              done();
+            });
+          },
+          dispose: vi.fn(),
+        }), {
+          overlay: true,
+          overlayOptions: { nonCapturing: true, anchor: 'top-center', width: '78%' },
+          onHandle: (handle) => {
+            ext.handle = handle;
+            handle.focus();
+          },
+        });
+        return true;
+      };
+      return ext;
+    };
+
+    it('sends Esc so an extension that tracks its overlay can open it again', async () => {
+      const harness = createHarness();
+      const btw = btwExtension(harness.host);
+      expect(btw.run()).toBe(true);
+      await flushPromises();
+      const [surfaceId] = harness.opened();
+
+      expect(harness.host.close({ sessionId: SESSION, surfaceId, clientId: 'a' })).toEqual({ closed: true });
+      await flushPromises();
+      await expect(btw.result).resolves.toBeUndefined();
+      expect(btw.open).toBe(false);
+      // Still the host Close to every client, so other devices say so.
+      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'cancelled' }]);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+
+      expect(btw.run()).toBe(true);
+      await flushPromises();
+      expect(new Set(harness.opened().filter((id) => id !== surfaceId)).size).toBe(1);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+    });
+
+    it('sends Esc to an overlay that does not hold focus', async () => {
+      const harness = createHarness();
+      const btw = btwExtension(harness.host);
+      btw.run();
+      await flushPromises();
+      const [surfaceId] = harness.opened();
+      btw.handle.unfocus();
+      expect(btw.handle.isFocused()).toBe(false);
+
+      harness.host.close({ sessionId: SESSION, surfaceId });
+      await flushPromises();
+      expect(btw.open).toBe(false);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+    });
+
+    it('force-closes a component that ignores Esc after the grace period, once', async () => {
+      const harness = createHarness();
+      const handleInput = vi.fn();
+      const dispose = vi.fn();
+      const result = harness.host.open(SESSION, () => ({ render: () => ['stubborn'], handleInput, dispose }));
+      await flushPromises();
+      const [surfaceId] = harness.opened();
+
+      expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: true });
+      expect(handleInput).toHaveBeenCalledExactlyOnceWith('\x1b');
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+      // A second click while it waits sends no second Esc.
+      expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: true });
+      expect(handleInput).toHaveBeenCalledOnce();
+
+      vi.advanceTimersByTime(299);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+      vi.advanceTimersByTime(1);
+      await expect(result).resolves.toBeUndefined();
+      expect(dispose).toHaveBeenCalledOnce();
+      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'cancelled' }]);
+      expect(harness.pending.map((entry) => entry.op)).toEqual(['open', 'close']);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('closes a component without handleInput, or whose Esc throws, at once', async () => {
+      const harness = createHarness();
+      const plain = harness.host.open(SESSION, () => ({ render: () => ['plain'] }));
+      await flushPromises();
+      harness.host.close({ sessionId: SESSION, surfaceId: harness.opened()[0] });
+      await expect(plain).resolves.toBeUndefined();
+
+      const throwing = harness.host.open(SESSION, () => ({
+        render: () => ['throws'],
+        handleInput: () => {
+          throw new Error('esc boom');
+        },
+      }));
+      await flushPromises();
+      harness.host.close({ sessionId: SESSION, surfaceId: harness.opened().at(-1) });
+      await expect(throwing).resolves.toBeUndefined();
+      expect(harness.errors).toEqual([{ sessionId: SESSION, stage: 'input', message: 'esc boom' }]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('ends the whole family when Esc opens a confirmation instead', async () => {
+      const harness = createHarness();
+      const result = harness.host.open(SESSION, (tui) => ({
+        render: () => ['editor'],
+        handleInput: (data) => {
+          if (data === '\x1b') tui.showOverlay(listComponent(['Discard?'], () => {}), { anchor: 'center', width: 20 });
+        },
+      }), { overlay: true });
+      await flushPromises();
+      const [surfaceId] = harness.opened();
+
+      harness.host.close({ sessionId: SESSION, surfaceId });
+      const confirmId = harness.opened().at(-1);
+      expect(confirmId).not.toBe(surfaceId);
+      vi.advanceTimersByTime(300);
+      await expect(result).resolves.toBeUndefined();
+      expect(dismissals(harness).map((entry) => entry.surfaceId)).toEqual([confirmId, surfaceId]);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+    });
+
+    it('leaves no timer when the session closes during the grace period', async () => {
+      const harness = createHarness();
+      const result = harness.host.open(SESSION, () => ({ render: () => ['x'], handleInput: vi.fn() }));
+      await flushPromises();
+      const [surfaceId] = harness.opened();
+      harness.host.close({ sessionId: SESSION, surfaceId });
+      harness.host.clear(SESSION, 'session-closed');
+      await expect(result).resolves.toBeUndefined();
+      vi.advanceTimersByTime(1000);
+      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'session-closed' }]);
+      expect(harness.settled).toEqual([SESSION]);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('sends Esc to a nested panel and force-closes only that panel if it stays', async () => {
+      const harness = createHarness();
+      let tuiRef;
+      const result = harness.host.open(SESSION, (tui, _theme, _kb, done) => {
+        tuiRef = tui;
+        return listComponent(['parent'], done);
+      }, { overlay: true });
+      await flushPromises();
+      const [parentId] = harness.opened();
+
+      // A panel that closes itself on Esc, as Pi panels do.
+      const panelHandle = tuiRef.showOverlay({
+        render: () => ['panel'],
+        handleInput: (data) => {
+          if (data === '\x1b') panelHandle.hide();
+        },
+      }, { anchor: 'top-left', width: 10 });
+      const panelId = harness.opened().at(-1);
+      expect(harness.host.close({ sessionId: SESSION, surfaceId: panelId })).toEqual({ closed: true });
+      expect(dismissals(harness)).toEqual([{ surfaceId: panelId, reason: 'cancelled' }]);
+
+      // A panel that ignores Esc goes after the grace period.
+      const stubborn = vi.fn();
+      tuiRef.showOverlay({ render: () => ['stuck'], handleInput: stubborn }, { anchor: 'top-left', width: 10 });
+      const stuckId = harness.opened().at(-1);
+      harness.host.close({ sessionId: SESSION, surfaceId: stuckId });
+      expect(stubborn).toHaveBeenCalledExactlyOnceWith('\x1b');
+      vi.advanceTimersByTime(300);
+      expect(dismissals(harness).at(-1)).toEqual({ surfaceId: stuckId, reason: 'cancelled' });
+
+      // The parent never saw the Esc and is still open.
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+      harness.host.input({ sessionId: SESSION, surfaceId: parentId, items: ['\r'] });
+      await expect(result).resolves.toBe('parent');
+    });
+  });
+
   it('rejects when the factory throws and shows nothing', async () => {
     const harness = createHarness();
     await expect(harness.host.open(SESSION, () => {
