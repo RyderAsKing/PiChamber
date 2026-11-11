@@ -289,6 +289,20 @@ const PAGES = {
     // model's context; each insert is a separate edit, like typing.
     typeIntoComposer: ['!', '!', 'git diff --stat'],
   },
+  'extension-dialog': {
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // The seed's demo extension answers `!git log` with a select() dialog
+    // whose title packs a whole permission request, like permission
+    // extensions send.
+    typeIntoComposer: ['!', 'git log --oneline && echo hello && ls -la src | head -5'],
+    submitComposer: true,
+    settledScript: `Boolean(document.querySelector('[role="dialog"][aria-label^="Permission Required"]'))`,
+    // The dialog is pending in the daemon and comes back on reload, so later
+    // pages on the demo session would show it: answer it once this page's
+    // viewports are done.
+    dismissAfter: '[role="dialog"] button[aria-label="Dismiss extension dialog"]',
+  },
   'files-panel': {
     path: DEMO_SESSION_PATH,
     // The right rail's Files button opens the tree beside the session.
@@ -613,6 +627,17 @@ const reservePort = () => new Promise((resolvePort, reject) => {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Close what a page left open, then wait until its settled state is gone.
+const dismissAfterPage = async (client, pageName, page) => {
+  const selector = JSON.stringify(page.dismissAfter);
+  await client.evaluate(`document.querySelector(${selector})?.click()`);
+  await waitFor(
+    async () => !(await client.evaluate(page.settledScript)),
+    10_000,
+    `${pageName} dismissed`,
+  );
+};
+
 const waitFor = async (check, timeoutMs, label) => {
   const deadline = Date.now() + timeoutMs;
   let lastError;
@@ -815,7 +840,8 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
         await client.send('Input.dispatchKeyEvent', { type, key, code, modifiers, windowsVirtualKeyCode: keyCode });
       }
     }
-    if (page.settledScript) {
+    // A page that sends from the composer settles on what the send opens.
+    if (page.settledScript && !page.submitComposer) {
       await waitForSettled(client, page, network, `${pageName} settled`);
     }
     if (page.hoverScript) {
@@ -825,7 +851,12 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       await client.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x, y: point.y });
       await wait(150);
     }
-    if (page.typeIntoComposer) {
+    // A send that opened something blocking (a dialog) leaves it open for
+    // the next viewport and theme; sending again would only fail as busy.
+    const alreadySettled = page.submitComposer && page.settledScript
+      ? await waitFor(() => client.evaluate(page.settledScript), 3_000, 'open dialog').then(() => true, () => false)
+      : false;
+    if (page.typeIntoComposer && !alreadySettled) {
       const selector = JSON.stringify(COMPOSER_EDITOR_SELECTOR);
       await waitFor(
         () => client.evaluate(`(() => {
@@ -839,6 +870,12 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       for (const text of page.typeIntoComposer) {
         await client.send('Input.insertText', { text });
         await wait(100);
+      }
+      if (page.submitComposer) {
+        for (const type of ['keyDown', 'keyUp']) {
+          await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+        }
+        if (page.settledScript) await waitForSettled(client, page, network, `${pageName} settled after send`);
       }
     }
   } catch (error) {
@@ -859,6 +896,25 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
   const file = join(outDir, `${pageName}-${viewport.name}-${theme}.png`);
   await writeFile(file, Buffer.from(data, 'base64'));
   return file;
+};
+
+// A Pi extension that gates `!git log` behind a select() dialog the way
+// permission extensions do: a heading line, then the request, in one title.
+const writeDemoExtension = async (home) => {
+  const dir = join(home, '.pi', 'agent', 'extensions');
+  await mkdir(dir, { recursive: true });
+  const title = [
+    'Permission Required',
+    "Requested bash command 'git log --oneline && echo hello && ls -la src | head -5' (matched 'git log *').",
+    'Allow this command?',
+  ].join('\n');
+  await writeFile(join(dir, 'demo-dialog.ts'), `export default function (pi) {
+  pi.on('user_bash', async (event, ctx) => {
+    if (!event.command.startsWith('git log')) return;
+    await ctx.ui.select(${JSON.stringify(title)}, ['Allow Once', 'Allow Always', 'Reject', 'Reject with Reason']);
+  });
+}
+`);
 };
 
 // One Pi session in the repo, in Pi's JSONL format: a prompt, the reply, and
@@ -1053,6 +1109,7 @@ const seed = async (dir) => {
     lastDirectory: repo,
   }, null, 2)}\n`);
   await writeDemoSession(home, repo);
+  await writeDemoExtension(home);
   await writeShelfSessions(home, data, (name) => (name === 'repo' ? repo : join(folders, name)));
   // Folders for the Add folder dialog to list; home holds nothing else visible.
   for (const name of ['api-gateway', 'design-notes', 'sandbox']) {
@@ -1139,6 +1196,7 @@ const main = async () => {
         const file = await capture(client, network, baseUrl, name, PAGES[name], viewport, theme, outDir);
         console.log(file);
       }
+      if (PAGES[name].dismissAfter) await dismissAfterPage(client, name, PAGES[name]);
     }
   } finally {
     client?.close();

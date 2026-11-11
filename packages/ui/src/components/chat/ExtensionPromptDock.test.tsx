@@ -98,6 +98,44 @@ describe('ExtensionPromptDock', () => {
     expect(markup.match(/role="option"[^>]*tabindex="-1"/g)?.length).toBe(2);
   });
 
+  test('splits a multi-line title into a label and the full request text', () => {
+    const session = createTestSession('sess-1', '/repo');
+    const command = 'git log --oneline && echo hello && ls -la /tmp/project | head -5';
+    session.extensionDialogs = [
+      {
+        requestId: 'req-permission',
+        method: 'select',
+        title: `Permission Required\nCurrent agent requested bash command '${command}'.\nAllow this command?`,
+        options: ['Allow Once', 'Allow Always', 'Reject', 'Reject with Reason'],
+      },
+    ];
+    store.getState().reducer.bySession.set('sess-1', session);
+
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-1" />);
+    expect(markup).toContain('role="dialog" aria-label="Permission Required"');
+    expect(markup).toContain('role="listbox" aria-label="Permission Required"');
+    // The whole command is in the page, line breaks intact, not cut into the header.
+    expect(markup).toContain(`Current agent requested bash command &#x27;${command.replaceAll('&', '&amp;')}&#x27;.\nAllow this command?`);
+    const describedBy = markup.match(/role="dialog"[^>]*aria-describedby="([^"]+)"/)?.[1];
+    expect(describedBy).toBeTruthy();
+    expect(markup).toContain(`id="${describedBy}"`);
+    expect(markup).toContain('aria-expanded="true"');
+    expect(markup.match(/<kbd/g)?.length).toBe(4);
+  });
+
+  test('labels a one-line title as an extension request', () => {
+    const session = createTestSession('sess-1', '/repo');
+    session.extensionDialogs = [
+      { requestId: 'req-one', method: 'input', title: 'Name the branch' },
+    ];
+    store.getState().reducer.bySession.set('sess-1', session);
+
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-1" />);
+    expect(markup).toContain('role="dialog" aria-label="Name the branch"');
+    expect(markup).toContain('>Extension<');
+    expect(markup).toContain('>Name the branch<');
+  });
+
   test('renders form dialog with number min and max constraints', () => {
     const session = createTestSession('sess-1', '/repo');
     session.extensionDialogs = [

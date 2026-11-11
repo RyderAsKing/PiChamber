@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Extension dialogs show the whole request (#234).** Extensions often pack a whole request into a dialog's title, such as a permission prompt with the full command it asks about, and the dialog squeezed it into one uppercase line cut off at the edge. A title's first line is now a small label and the rest shows below it in full, keeping its line breaks and colours, and scrolls when long; a one-line title shows under an Extension label. Select options wrap instead of being cut off, with a radio mark on the highlighted one and its number key. The label row collapses the dialog to one line, and while collapsed only Esc answers it. The dialog now has the composer's look, and its dismiss button reads Esc. Extensions that draw their own prompt with `custom()`, such as `@gotgenes/pi-permission-system` in a TUI, are unchanged (`ExtensionPromptDock`).
+
 ## [1.0.7] - 2026-11-12
 
 An Esc button for extension overlays, a fix for stray "Awaiting first prompt" sessions, and project icons in colour since 1.0.6.
