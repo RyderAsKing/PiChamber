@@ -81,6 +81,27 @@ describe('loadSessionCatalog', () => {
     }
   });
 
+  test('the default load includes folders that hold sessions but are no longer projects', async () => {
+    const listed: string[] = [];
+    const restore = stubListSessions(async (scope) => {
+      listed.push(scope.directory ?? '');
+      return { sessions: scope.directory === '/removed-worktree' ? [listItem('orphan', '/removed-worktree')] : [] };
+    });
+    try {
+      await loadSessionCatalog(['/removed-worktree']);
+      // Restored from the startup cache: rows present, status not yet ready.
+      const state = getPiSessionStore().getState() as unknown as { catalog: { listStatusByDirectory: Map<string, string> } };
+      state.catalog = { ...state.catalog, listStatusByDirectory: new Map([['/removed-worktree', 'idle']]) };
+      listed.length = 0;
+
+      const result = await loadSessionCatalog();
+      expect(listed).toContain('/removed-worktree');
+      expect(result.readyDirectories.has('/removed-worktree')).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
   test('ready empty directory is complete with no rows', async () => {
     const restore = stubListSessions(async () => ({ sessions: [] }));
     try {

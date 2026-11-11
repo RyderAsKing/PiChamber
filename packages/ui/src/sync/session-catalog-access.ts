@@ -57,6 +57,15 @@ const collectDefaultCatalogDirectories = (): Set<string> => {
     const normalized = normalizePath(directory);
     if (normalized && normalized !== '~') next.add(normalized);
   }
+  // Every folder that already holds sessions in the catalog, including removed
+  // projects and worktrees: their sessions are shown and counted, so a pass
+  // must load them before it can act on them (the server lists a removed
+  // folder's sessions from Pi's session store).
+  for (const [directory, ids] of getPiSessionStore().getState().catalog.byDirectory) {
+    if (ids.length === 0) continue;
+    const normalized = normalizePath(directory);
+    if (normalized && normalized !== '~') next.add(normalized);
+  }
   return next;
 };
 
