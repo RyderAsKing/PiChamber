@@ -301,6 +301,53 @@ describe('session daemon list live status', () => {
     expect(response.result.sessions[0].live).toMatchObject({ lifecycle: 'idle' });
   });
 
+  it("a folder's catalog read lists no session, while a created empty session is still listed", async () => {
+    // Switching folders reads that folder's catalogs, which starts a runtime
+    // with a fresh, empty Pi session. Nobody asked for that session, so it
+    // must not appear as an "Awaiting first prompt" row.
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-list-live-'));
+    await mkdir(join(root, 'agent'), { recursive: true });
+    const sessions = [];
+    let created = 0;
+    const endpoint = testDaemonEndpoint(root);
+    const daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir: join(root, 'agent'),
+      createRuntime: async () => {
+        const session = new FakeSession(`session-${(created += 1)}`);
+        sessions.push(session);
+        return { session, async dispose() {} };
+      },
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    daemons.push(daemon);
+    const client = connectClient(endpoint);
+    sockets.push(client);
+    await client.authenticate();
+    const ids = async () => {
+      const response = await client.request('sessions.list', { directory: root });
+      expect(response.error).toBeUndefined();
+      return response.result.sessions.map((row) => row.session.id);
+    };
+
+    const catalog = await client.request('extensions.list', { directory: root });
+    expect(catalog.error).toBeUndefined();
+    expect(sessions).toHaveLength(1);
+    expect(await ids()).toEqual([]);
+
+    // An explicitly created session is listed before its first prompt.
+    const createdSession = await client.request('sessions.create', { cwd: root });
+    expect(createdSession.error).toBeUndefined();
+    expect(await ids()).toEqual([createdSession.result.session.id]);
+
+    // The catalog session is listed once it holds a conversation.
+    sessions[0].messages = [{ role: 'user', content: 'hello', timestamp: 1 }];
+    expect(new Set(await ids())).toEqual(new Set([sessions[0].sessionId, createdSession.result.session.id]));
+  });
+
   it('prefers the resident runtime name over the disk name, including clears', async () => {
     const { session, list } = await setup();
     let liveName = 'Not yet flushed';
