@@ -298,6 +298,10 @@ const PAGES = {
     typeIntoComposer: ['!', 'git log --oneline && echo hello && ls -la src | head -5'],
     submitComposer: true,
     settledScript: `Boolean(document.querySelector('[role="dialog"][aria-label^="Permission Required"]'))`,
+    // The dialog is pending in the daemon and comes back on reload, so later
+    // pages on the demo session would show it: answer it once this page's
+    // viewports are done.
+    dismissAfter: '[role="dialog"] button[aria-label="Dismiss extension dialog"]',
   },
   'files-panel': {
     path: DEMO_SESSION_PATH,
@@ -622,6 +626,17 @@ const reservePort = () => new Promise((resolvePort, reject) => {
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Close what a page left open, then wait until its settled state is gone.
+const dismissAfterPage = async (client, pageName, page) => {
+  const selector = JSON.stringify(page.dismissAfter);
+  await client.evaluate(`document.querySelector(${selector})?.click()`);
+  await waitFor(
+    async () => !(await client.evaluate(page.settledScript)),
+    10_000,
+    `${pageName} dismissed`,
+  );
+};
 
 const waitFor = async (check, timeoutMs, label) => {
   const deadline = Date.now() + timeoutMs;
@@ -1181,6 +1196,7 @@ const main = async () => {
         const file = await capture(client, network, baseUrl, name, PAGES[name], viewport, theme, outDir);
         console.log(file);
       }
+      if (PAGES[name].dismissAfter) await dismissAfterPage(client, name, PAGES[name]);
     }
   } finally {
     client?.close();

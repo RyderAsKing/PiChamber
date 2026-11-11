@@ -805,45 +805,45 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
           </div>
         </div>
 
-        {!collapsed && (
-          <div id={bodyId} className="px-4 pb-3">
-            {text && (
-              // Extension text is terminal text: keep its line breaks and
-              // spacing, and scroll a long request instead of growing the dock.
-              <div
-                id={questionId}
-                className="mb-2.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words typography-ui-label text-foreground"
-              >
-                <AnsiText text={text} links />
-              </div>
-            )}
+        {/* Hidden, not unmounted: an input, editor or form keeps what was
+            typed while collapsed, and `hidden` takes its controls out of the
+            tab order. */}
+        <div id={bodyId} hidden={collapsed} className="px-4 pb-3">
+          {text && (
+            // Extension text is terminal text: keep its line breaks and
+            // spacing, and scroll a long request instead of growing the dock.
             <div
-              className={responding ? 'pointer-events-none opacity-60' : undefined}
-              aria-busy={responding || undefined}
+              id={questionId}
+              className="mb-2.5 max-h-60 overflow-y-auto whitespace-pre-wrap break-words typography-ui-label text-foreground"
             >
-              {target.request.method === 'select' && (
-                <SelectBody
-                  request={target.request}
-                  onRespond={submit}
-                  messageId={messageId}
-                  name={name}
-                  highlightedIndex={highlightedIndex}
-                  setHighlightedIndex={setHighlightedIndex}
-                />
-              )}
-              {target.request.method === 'confirm' && (
-                <ConfirmBody request={target.request} onRespond={submit} messageId={messageId} />
-              )}
-              {(target.request.method === 'input' || target.request.method === 'editor') && (
-                <InputEditorBody request={target.request} onRespond={submit} messageId={messageId} name={name} />
-              )}
-              {target.request.method === 'form' && (
-                <FormBody request={target.request} onRespond={submit} messageId={messageId} />
-              )}
+              <AnsiText text={text} links />
             </div>
-
+          )}
+          <div
+            className={responding ? 'pointer-events-none opacity-60' : undefined}
+            aria-busy={responding || undefined}
+          >
+            {target.request.method === 'select' && (
+              <SelectBody
+                request={target.request}
+                onRespond={submit}
+                messageId={messageId}
+                name={name}
+                highlightedIndex={highlightedIndex}
+                setHighlightedIndex={setHighlightedIndex}
+              />
+            )}
+            {target.request.method === 'confirm' && (
+              <ConfirmBody request={target.request} onRespond={submit} messageId={messageId} />
+            )}
+            {(target.request.method === 'input' || target.request.method === 'editor') && (
+              <InputEditorBody request={target.request} onRespond={submit} messageId={messageId} name={name} />
+            )}
+            {target.request.method === 'form' && (
+              <FormBody request={target.request} onRespond={submit} messageId={messageId} />
+            )}
           </div>
-        )}
+        </div>
 
         {responseError && (
           <p role="alert" className="px-4 pb-3 text-xs text-status-error">
