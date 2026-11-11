@@ -11,10 +11,14 @@ type ServerUpdateSettings = { serverUpdateChannel?: unknown };
 
 interface ServerUpdateChannelState {
   channel: UpdateChannel;
+  /** False until the connected server's channel has been read; the select stays off until then. */
+  loaded: boolean;
   loading: boolean;
   saving: boolean;
   error: string | null;
   change: (channel: string) => void;
+  /** Reads the connected server's channel again after a failed load. */
+  retry: () => void;
   /** Bumps when the connected server changes, so callers can refresh what they show for it. */
   runtimeEpoch: number;
 }
@@ -26,7 +30,9 @@ interface ServerUpdateChannelState {
  */
 export const useServerUpdateChannel = (enabled: boolean): ServerUpdateChannelState => {
   const [runtimeEpoch, setRuntimeEpoch] = React.useState(0);
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
   const [channel, setChannel] = React.useState<UpdateChannel>('stable');
+  const [loaded, setLoaded] = React.useState(false);
   const [loading, setLoading] = React.useState(enabled);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -44,6 +50,8 @@ export const useServerUpdateChannel = (enabled: boolean): ServerUpdateChannelSta
       setError(null);
       return;
     }
+    // Another server's channel must not stay selectable while this one loads or fails.
+    setLoaded(false);
     setLoading(true);
     setSaving(false);
 
@@ -58,6 +66,7 @@ export const useServerUpdateChannel = (enabled: boolean): ServerUpdateChannelSta
         if (!settings) throw new Error('Unable to load the server update channel.');
         if (operationRef.current === operation) {
           setChannel(parseUpdateChannel(settings.serverUpdateChannel));
+          setLoaded(true);
           setError(null);
         }
       } catch (loadError) {
@@ -68,7 +77,9 @@ export const useServerUpdateChannel = (enabled: boolean): ServerUpdateChannelSta
         if (operationRef.current === operation) setLoading(false);
       }
     })();
-  }, [enabled, runtimeEpoch]);
+  }, [enabled, runtimeEpoch, loadAttempt]);
+
+  const retry = React.useCallback(() => setLoadAttempt((value) => value + 1), []);
 
   const change = React.useCallback((nextChannel: string) => {
     const parsed = parseUpdateChannel(nextChannel);
@@ -104,5 +115,5 @@ export const useServerUpdateChannel = (enabled: boolean): ServerUpdateChannelSta
     })();
   }, [channel]);
 
-  return { channel, loading, saving, error, change, runtimeEpoch };
+  return { channel, loaded, loading, saving, error, change, retry, runtimeEpoch };
 };

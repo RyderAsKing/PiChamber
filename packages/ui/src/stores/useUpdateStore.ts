@@ -168,6 +168,10 @@ const initialState: UpdateState = {
   nextCheckInSec: null,
 };
 
+// A channel change starts a new check while an older one may still be in
+// flight; only the latest check (and nothing from before a reset) may land.
+let checkGeneration = 0;
+
 export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   ...initialState,
 
@@ -175,6 +179,8 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     const runtime = detectRuntimeType();
     if (!runtime) return null;
 
+    const generation = ++checkGeneration;
+    const isCurrent = () => generation === checkGeneration;
     set({ checking: true, error: null, runtimeType: runtime });
 
     try {
@@ -190,6 +196,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
             ? checkForWebUpdates('web')
             : checkForWebUpdates('desktop', appVersion),
         ]);
+        if (!isCurrent()) return null;
         const desktopInfo = desktopResult.status === 'fulfilled' ? desktopResult.value : null;
         const apiInfo = apiResult.status === 'fulfilled' ? apiResult.value : null;
         suggestedSec = apiInfo?.nextSuggestedCheckInSec ?? null;
@@ -215,6 +222,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
           checkForWebUpdates('mobile', appVersion, getMobileUpdateChannel(appVersion)),
           checkForWebUpdates('web'),
         ]);
+        if (!isCurrent()) return null;
         suggestedSec = clientInfo?.nextSuggestedCheckInSec ?? serverInfo?.nextSuggestedCheckInSec ?? null;
         set({
           checking: false,
@@ -227,6 +235,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         return suggestedSec;
       }
 
+      if (!isCurrent()) return null;
       set({
         checking: false,
         available: info?.available ?? false,
@@ -237,6 +246,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
       });
       return suggestedSec;
     } catch (error) {
+      if (!isCurrent()) return null;
       set({
         checking: false,
         error: error instanceof Error ? error.message : 'Failed to check for updates',
@@ -314,6 +324,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
 
   reset: () => {
+    checkGeneration += 1;
     set(initialState);
   },
 }));

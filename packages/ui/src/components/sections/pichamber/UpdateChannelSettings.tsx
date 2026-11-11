@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { SettingsFieldRow, SettingsSection } from '@/components/sections/shared/SettingsSection';
+import { Button } from '@/components/ui/button';
 import {
   getDesktopUpdateChannel,
   isDesktopLocalOriginActive,
@@ -206,14 +207,23 @@ export const UpdateChannelSettings: React.FC = () => {
             </span>
           )}
           info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
-          description={server.error ? <span className="text-[var(--status-error)]">{server.error}</span> : undefined}
+          description={server.error ? (
+            <span className="flex flex-wrap items-center gap-x-2 text-[var(--status-error)]">
+              {server.error}
+              {!server.loaded && !server.loading ? (
+                <Button type="button" variant="ghost" size="xs" className="!font-normal" onClick={server.retry}>
+                  {"Retry"}
+                </Button>
+              ) : null}
+            </span>
+          ) : undefined}
           settingsItem="about.server-update-channel"
           {...CHANNEL_ROW_LAYOUT}
         >
           <UpdateChannelSelect
             className={CHANNEL_SELECT_CLASS}
             channel={server.channel}
-            disabled={server.loading || server.saving}
+            disabled={!server.loaded || server.loading || server.saving}
             label={serverChannelLabel}
             onChange={server.change}
           />

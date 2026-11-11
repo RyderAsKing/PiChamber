@@ -41,6 +41,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     checking: s.checking,
     available: s.available,
     error: s.error,
+    lastChecked: s.lastChecked,
     downloading: s.downloading,
     downloaded: s.downloaded,
     progress: s.progress,
@@ -134,8 +135,14 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     );
   } else if (hasSeparateServer && anyUpdateAvailable) {
     versionStatus = <span className="text-[var(--primary-base)]">{"Updates available"}</span>;
-  } else if (!anyUpdateAvailable && !updateStore.error) {
-    versionStatus = <span>{"Up to date"}</span>;
+  } else if (!anyUpdateAvailable) {
+    // A failed check returns no result; only a full result reads as "up to date".
+    const checkComplete = updateStore.info !== null && (!hasSeparateServer || updateStore.serverInfo !== null);
+    if (checkComplete && !updateStore.error) {
+      versionStatus = <span>{"Up to date"}</span>;
+    } else if (updateStore.error || updateStore.lastChecked !== null) {
+      versionStatus = <span>{"Check failed"}</span>;
+    }
   }
 
   // One layout on every runtime; a phone gets the same rows as desktop.
