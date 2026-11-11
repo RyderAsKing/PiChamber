@@ -67,9 +67,6 @@ export const SETTINGS_DESCRIPTION_CLASS =
 export const SETTINGS_HELPER_CLASS = 'typography-meta text-muted-foreground';
 /** Callout / alert headline inside a section (not a control-group title). */
 export const SETTINGS_CALLOUT_TITLE_CLASS = 'typography-meta font-medium text-foreground';
-/** Brand / product name under a logo — quieter than L1 page title. */
-export const SETTINGS_BRAND_TITLE_CLASS =
-  'typography-settings-section-title text-foreground';
 
 interface SettingsSectionProps {
   /** Section title. Strings render as the shared h2 style. */

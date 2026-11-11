@@ -1228,9 +1228,13 @@ export const registerPiRuntimeRoutes = (app, {
   app.get('/api/pi/update-check', async (req, res) => {
     try {
       const appType = typeof req.query.appType === 'string' ? req.query.appType : undefined;
+      // Web checks follow the server's channel. The mobile app keeps its own
+      // channel on the device and sends it; older apps send none and get stable.
       const channel = appType === undefined || appType === 'web'
         ? await readServerUpdateChannel()
-        : 'stable';
+        : appType === 'mobile-capacitor'
+          ? normalizeServerUpdateChannel(req.query.channel)
+          : 'stable';
       res.json(await updateChecker({
         currentVersion: typeof req.query.currentVersion === 'string' ? req.query.currentVersion : undefined,
         appType,

@@ -116,8 +116,26 @@ describe("settings separation for snippets and prompt templates", () => {
       runtimeCtx: localDesktopCtx,
       getPageTitle,
     });
-    expect(results.some((result) => result.title === "Desktop app update channel")).toBe(true);
-    expect(results.some((result) => result.title === "Server update channel")).toBe(false);
+    expect(results.some((result) => result.title === "Desktop app channel")).toBe(true);
+    expect(results.some((result) => result.title === "Server channel")).toBe(false);
+  });
+
+  test("shows the server channel in a browser and both channels in the mobile app", () => {
+    const titles = (ctx: typeof runtimeCtx & { isCapacitor?: boolean }) => buildSettingsSearchResults({
+      query: "update channel",
+      runtimeCtx: ctx,
+      getPageTitle,
+    }).map((result) => result.title);
+
+    const browser = titles(runtimeCtx);
+    expect(browser).toContain("Server channel");
+    expect(browser).not.toContain("App channel");
+    expect(browser).not.toContain("Desktop app channel");
+
+    const mobileApp = titles({ ...runtimeCtx, isMobile: true, isCapacitor: true });
+    expect(mobileApp).toContain("App channel");
+    expect(mobileApp).toContain("Server channel");
+    expect(mobileApp).not.toContain("Desktop app channel");
   });
 
   test("shows shell-local desktop settings and the server channel for a remote Electron runtime", () => {
@@ -145,13 +163,13 @@ describe("settings separation for snippets and prompt templates", () => {
       query: "server update channel",
       runtimeCtx: remoteDesktopCtx,
       getPageTitle,
-    }).some((result) => result.title === "Server update channel")).toBe(true);
+    }).some((result) => result.title === "Server channel")).toBe(true);
 
     expect(buildSettingsSearchResults({
       query: "desktop app update channel",
       runtimeCtx: remoteDesktopCtx,
       getPageTitle,
-    }).some((result) => result.title === "Desktop app update channel")).toBe(true);
+    }).some((result) => result.title === "Desktop app channel")).toBe(true);
 
     for (const query of ["desktop ui password", "menu bar"]) {
       expect(buildSettingsSearchResults({
