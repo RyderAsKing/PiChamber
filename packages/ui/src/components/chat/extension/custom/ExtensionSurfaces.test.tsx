@@ -80,7 +80,7 @@ describe('ExtensionSurfaceComposer', () => {
     expect(markup).toContain('aria-label="Extension: /pick"');
     expect(markup).toContain('Pick one');
     expect(markup).toContain('&gt; alpha');
-    expect(markup).toContain('aria-label="Close /pick"');
+    expect(markup).toContain('aria-label="Press Esc in /pick"');
     expect(markup).toContain('<div hidden=""><textarea data-testid="chat-input">');
   });
 
@@ -137,7 +137,7 @@ describe('ExtensionSurfaceOverlays', () => {
     expect(markup).not.toContain('bg-background/60');
   });
 
-  test('stacks the panels a command opened as tabs, with one Close for the command', () => {
+  test('stacks the panels a command opened as tabs, with one Esc button for the command', () => {
     const panel = (surfaceId: string, label: string, extra: Partial<PiExtensionSurfaceState> = {}) => overlay({
       surfaceId,
       parentId: 'custom-2',
@@ -154,7 +154,7 @@ describe('ExtensionSurfaceOverlays', () => {
       panel('custom-5', 'Gamma', { z: 4 }),
     ]);
     const markup = renderToStaticMarkup(<ExtensionSurfaceOverlays sessionId="sess-1" />);
-    expect(markup.match(/aria-label="Close \/overlay-focus"/g)).toHaveLength(1);
+    expect(markup.match(/aria-label="Press Esc in \/overlay-focus"/g)).toHaveLength(1);
     // Tabs in the order the panels opened, named from their first line.
     expect([...markup.matchAll(/role="tab"[^>]*>([^<]+)</g)].map((match) => match[1])).toEqual(['Alpha', 'Beta', 'Gamma']);
     expect(/aria-selected="true"[^>]*>Beta</.test(markup)).toBe(true);

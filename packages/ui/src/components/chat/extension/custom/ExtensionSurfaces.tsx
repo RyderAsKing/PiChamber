@@ -286,19 +286,37 @@ const TerminalLines: React.FC<{
   );
 };
 
-const CloseButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState }> = ({ sessionId, surface }) => (
-  <Button
-    type="button"
-    variant="ghost"
-    size="xs"
-    className="size-6 shrink-0 px-0 text-muted-foreground hover:text-foreground"
-    aria-label={`Close ${surface.title}`}
-    title="Close"
-    onClick={() => void closeSurface(sessionId, surface.surfaceId)}
-  >
-    <Icon name="close" className="size-3.5" />
-  </Button>
-);
+/**
+ * Presses Esc for the extension, Pi's key for closing. It does what Esc does
+ * in Pi's terminal, so an extension that asks first, or only stops work on
+ * the first Esc, stays open until the next press.
+ */
+const EscButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState }> = ({ sessionId, surface }) => {
+  const press = (button: HTMLButtonElement) => {
+    closeSurface(sessionId, surface.surfaceId);
+    // Pressed from the keyboard: give the keys back to the surface at once.
+    // Keys typed now queue behind the Esc, and a confirmation the Esc opens
+    // takes focus from the surface when it arrives.
+    if (document.activeElement !== button) return;
+    const element = document.querySelector<HTMLElement>(`[data-extension-surface="${CSS.escape(surface.surfaceId)}"]`);
+    if (element && element.tabIndex >= 0) focusSurfaceElement(surface.surfaceId);
+  };
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="shrink-0 px-1.5 font-sans text-muted-foreground hover:text-foreground"
+      aria-label={`Press Esc in ${surface.title}`}
+      title="Press Esc"
+      // A click keeps focus (and the keys) where it is.
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={(event) => press(event.currentTarget)}
+    >
+      Esc
+    </Button>
+  );
+};
 
 /** Asks for full frames when a missed patch left a surface stale. */
 const useRefreshStale = (sessionId: string, surfaces: PiExtensionSurfaceState[]): void => {
@@ -461,7 +479,7 @@ const InlineSurface: React.FC<{ sessionId: string; surface: PiExtensionSurfaceSt
                 Stop
               </Button>
             ) : null}
-            <CloseButton sessionId={sessionId} surface={surface} />
+            <EscButton sessionId={sessionId} surface={surface} />
           </div>
         </div>
         <div ref={body} className="relative overflow-auto px-3 py-2" style={{ maxHeight: bodyMaxHeight ?? '60vh' }}>
@@ -499,7 +517,7 @@ const UnshownOverlays: React.FC<{ sessionId: string; surfaces: PiExtensionSurfac
               : `${surface.title} is hidden because the screen is too narrow.`}
             {commandRunning ? ' New messages wait until it closes.' : null}
           </span>
-          <CloseButton sessionId={sessionId} surface={surface} />
+          <EscButton sessionId={sessionId} surface={surface} />
         </div>
       ))}
     </div>
@@ -970,7 +988,7 @@ export const ExtensionSurfaceOverlays: React.FC<{ sessionId: string | null | und
                   isLeaving ? 'pi-surface-out pointer-events-none' : 'pi-surface-pop pointer-events-auto',
                 )}
                 // The daemon places the box on the driving client's screen.
-                // Kept inside this pane, with the Close tab in reach, while
+                // Kept inside this pane, with the Esc tab in reach, while
                 // a narrower client waits for its redraw.
                 style={placementStyle(layout)}
                 onAnimationEnd={isLeaving
@@ -1000,7 +1018,7 @@ export const ExtensionSurfaceOverlays: React.FC<{ sessionId: string | null | und
                     )}
                   >
                     <span className="typography-micro text-muted-foreground">{surface.title}</span>
-                    <CloseButton sessionId={sessionId} surface={surface} />
+                    <EscButton sessionId={sessionId} surface={surface} />
                   </div>
                 )}
                 {/* Exactly the width x height cells Pi composites, on

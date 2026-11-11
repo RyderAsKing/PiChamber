@@ -151,12 +151,12 @@ describe('createExtensionCustomHost', () => {
     expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: true });
     await expect(result).resolves.toBeUndefined();
     expect(component.dispose).toHaveBeenCalledOnce();
-    expect(harness.events.at(-1).payload).toEqual({ surfaceId, reason: 'cancelled' });
+    expect(harness.events.at(-1).payload).toEqual({ surfaceId, reason: 'done' });
     expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: false });
     expect(harness.host.input({ sessionId: SESSION, surfaceId, items: ['x'] })).toEqual({ accepted: false });
   });
 
-  describe('Close', () => {
+  describe('Close (the Esc button)', () => {
     const dismissals = (harness) => harness.events
       .filter((entry) => entry.event === 'extension.custom.dismiss')
       .map((entry) => entry.payload);
@@ -178,7 +178,7 @@ describe('createExtensionCustomHost', () => {
         }
         ext.open = true;
         ext.result = host.open(SESSION, (_tui, _theme, _kb, done) => ({
-          render: () => ['btw'],
+          render: () => [ext.aborting ? 'Aborted. Press Esc again to dismiss.' : 'btw'],
           handleInput: (data) => {
             if (data !== '\x1b') return;
             if (ext.streaming && !ext.aborting) {
@@ -204,7 +204,7 @@ describe('createExtensionCustomHost', () => {
       return ext;
     };
 
-    it('sends Esc so an extension that tracks its overlay can open it again', async () => {
+    it('presses Esc, so an extension that tracks its overlay closes it and can open it again', async () => {
       const harness = createHarness();
       const btw = btwExtension(harness.host);
       expect(btw.run()).toBe(true);
@@ -215,9 +215,10 @@ describe('createExtensionCustomHost', () => {
       await flushPromises();
       await expect(btw.result).resolves.toBeUndefined();
       expect(btw.open).toBe(false);
-      // Still the host Close to every client, so other devices say so.
-      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'cancelled' }]);
+      // The extension closed it on its own key, as Esc in Pi's terminal would.
+      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'done' }]);
       expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
 
       expect(btw.run()).toBe(true);
       await flushPromises();
@@ -225,7 +226,7 @@ describe('createExtensionCustomHost', () => {
       expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
     });
 
-    it('sends Esc again when the first one only stopped work, as a user would press it twice', async () => {
+    it('presses Esc once per click: an Esc that only stopped work leaves the overlay to the next click', async () => {
       const harness = createHarness();
       const btw = btwExtension(harness.host);
       btw.run();
@@ -236,16 +237,22 @@ describe('createExtensionCustomHost', () => {
       harness.host.close({ sessionId: SESSION, surfaceId });
       await flushPromises();
       expect(btw.aborting).toBe(true);
-      expect(btw.open).toBe(true);
-      vi.advanceTimersByTime(300);
+      // The extension's own "press Esc again" stays on screen; nothing else
+      // happens until the user presses again.
+      vi.advanceTimersByTime(5000);
       await flushPromises();
+      expect(btw.open).toBe(true);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+      expect(harness.frames(surfaceId).at(-1).payload.lines[0]).toContain('Press Esc again');
+      expect(vi.getTimerCount()).toBe(0);
+
+      harness.host.close({ sessionId: SESSION, surfaceId });
       await expect(btw.result).resolves.toBeUndefined();
       expect(btw.open).toBe(false);
-      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'cancelled' }]);
-      expect(vi.getTimerCount()).toBe(0);
+      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'done' }]);
     });
 
-    it('sends Esc to an overlay that does not hold focus', async () => {
+    it('presses Esc on an overlay that does not hold focus', async () => {
       const harness = createHarness();
       const btw = btwExtension(harness.host);
       btw.run();
@@ -260,36 +267,26 @@ describe('createExtensionCustomHost', () => {
       expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
     });
 
-    it('force-closes a component that ignores two Escs, and ignores a second click', async () => {
+    it('leaves open a component that ignores Esc, as Pi would', async () => {
       const harness = createHarness();
       const handleInput = vi.fn();
       const dispose = vi.fn();
-      const result = harness.host.open(SESSION, () => ({ render: () => ['stubborn'], handleInput, dispose }));
+      void harness.host.open(SESSION, () => ({ render: () => ['stubborn'], handleInput, dispose }));
       await flushPromises();
       const [surfaceId] = harness.opened();
 
       expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: true });
       expect(handleInput).toHaveBeenCalledExactlyOnceWith('\x1b');
-      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
-      // A second click while it waits sends no second Esc.
-      expect(harness.host.close({ sessionId: SESSION, surfaceId })).toEqual({ closed: true });
+      vi.advanceTimersByTime(5000);
       expect(handleInput).toHaveBeenCalledOnce();
-
-      vi.advanceTimersByTime(299);
-      expect(handleInput).toHaveBeenCalledOnce();
-      vi.advanceTimersByTime(1);
-      expect(handleInput).toHaveBeenCalledTimes(2);
-      expect(handleInput).toHaveBeenLastCalledWith('\x1b');
       expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
-      vi.advanceTimersByTime(299);
-      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
-      vi.advanceTimersByTime(1);
-      await expect(result).resolves.toBeUndefined();
-      expect(handleInput).toHaveBeenCalledTimes(2);
-      expect(dispose).toHaveBeenCalledOnce();
-      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'cancelled' }]);
-      expect(harness.pending.map((entry) => entry.op)).toEqual(['open', 'close']);
+      expect(dispose).not.toHaveBeenCalled();
+      expect(dismissals(harness)).toEqual([]);
       expect(vi.getTimerCount()).toBe(0);
+
+      // Each press is one more Esc.
+      harness.host.close({ sessionId: SESSION, surfaceId });
+      expect(handleInput).toHaveBeenCalledTimes(2);
     });
 
     it('closes a component without handleInput, or whose Esc throws, at once', async () => {
@@ -309,20 +306,27 @@ describe('createExtensionCustomHost', () => {
       harness.host.close({ sessionId: SESSION, surfaceId: harness.opened().at(-1) });
       await expect(throwing).resolves.toBeUndefined();
       expect(harness.errors).toEqual([{ sessionId: SESSION, stage: 'input', message: 'esc boom' }]);
+      expect(dismissals(harness).map((entry) => entry.reason)).toEqual(['cancelled', 'cancelled']);
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('sends the second Esc to a confirmation the first one opened, then ends the family', async () => {
+    it('sends the next press to a confirmation the first one opened', async () => {
       const harness = createHarness();
       const editorKeys = [];
       const confirmKeys = [];
-      const result = harness.host.open(SESSION, (tui) => ({
+      void harness.host.open(SESSION, (tui) => ({
         render: () => ['editor'],
         handleInput: (data) => {
           editorKeys.push(data);
-          // Esc asks before discarding; that confirmation ignores Esc.
+          // Esc asks before discarding; the confirmation hides on Esc.
           if (data === '\x1b') {
-            tui.showOverlay({ render: () => ['Discard?'], handleInput: (key) => confirmKeys.push(key) }, { anchor: 'center', width: 20 });
+            const confirm = tui.showOverlay({
+              render: () => ['Discard?'],
+              handleInput: (key) => {
+                confirmKeys.push(key);
+                if (key === '\x1b') confirm.hide();
+              },
+            }, { anchor: 'center', width: 20 });
           }
         },
       }), { overlay: true });
@@ -333,33 +337,21 @@ describe('createExtensionCustomHost', () => {
       const confirmId = harness.opened().at(-1);
       expect(confirmId).not.toBe(surfaceId);
       expect(harness.lastMeta(confirmId)).toMatchObject({ parentId: surfaceId, focused: true });
-      // The second Esc goes where a key typed now would: the confirmation,
-      // so the editor never opens a second one.
-      vi.advanceTimersByTime(300);
+      vi.advanceTimersByTime(5000);
+      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
+      expect(confirmKeys).toEqual([]);
+
+      // The next press goes where a key typed now would: the confirmation.
+      harness.host.close({ sessionId: SESSION, surfaceId });
       expect(confirmKeys).toEqual(['\x1b']);
       expect(editorKeys).toEqual(['\x1b']);
-      vi.advanceTimersByTime(300);
-      await expect(result).resolves.toBeUndefined();
-      expect(dismissals(harness).map((entry) => entry.surfaceId)).toEqual([confirmId, surfaceId]);
-      expect(harness.host.hasOpenSurfaces(SESSION)).toBe(false);
+      expect(dismissals(harness)).toEqual([{ surfaceId: confirmId, reason: 'done' }]);
+      // Only the redraw after the key; Close itself leaves no timer.
+      vi.advanceTimersByTime(100);
       expect(vi.getTimerCount()).toBe(0);
     });
 
-    it('leaves no timer when the session closes during the grace period', async () => {
-      const harness = createHarness();
-      const result = harness.host.open(SESSION, () => ({ render: () => ['x'], handleInput: vi.fn() }));
-      await flushPromises();
-      const [surfaceId] = harness.opened();
-      harness.host.close({ sessionId: SESSION, surfaceId });
-      harness.host.clear(SESSION, 'session-closed');
-      await expect(result).resolves.toBeUndefined();
-      vi.advanceTimersByTime(1000);
-      expect(dismissals(harness)).toEqual([{ surfaceId, reason: 'session-closed' }]);
-      expect(harness.settled).toEqual([SESSION]);
-      expect(vi.getTimerCount()).toBe(0);
-    });
-
-    it('sends Esc to a nested panel and force-closes only that panel if it stays', async () => {
+    it('presses Esc on a nested panel without touching its parent', async () => {
       const harness = createHarness();
       let tuiRef;
       const result = harness.host.open(SESSION, (tui, _theme, _kb, done) => {
@@ -378,17 +370,7 @@ describe('createExtensionCustomHost', () => {
       }, { anchor: 'top-left', width: 10 });
       const panelId = harness.opened().at(-1);
       expect(harness.host.close({ sessionId: SESSION, surfaceId: panelId })).toEqual({ closed: true });
-      expect(dismissals(harness)).toEqual([{ surfaceId: panelId, reason: 'cancelled' }]);
-
-      // A panel that ignores Esc goes after the grace period.
-      const stubborn = vi.fn();
-      tuiRef.showOverlay({ render: () => ['stuck'], handleInput: stubborn }, { anchor: 'top-left', width: 10 });
-      const stuckId = harness.opened().at(-1);
-      harness.host.close({ sessionId: SESSION, surfaceId: stuckId });
-      expect(stubborn).toHaveBeenCalledExactlyOnceWith('\x1b');
-      vi.advanceTimersByTime(600);
-      expect(stubborn).toHaveBeenCalledTimes(2);
-      expect(dismissals(harness).at(-1)).toEqual({ surfaceId: stuckId, reason: 'cancelled' });
+      expect(dismissals(harness)).toEqual([{ surfaceId: panelId, reason: 'done' }]);
 
       // The parent never saw the Esc and is still open.
       expect(harness.host.hasOpenSurfaces(SESSION)).toBe(true);
@@ -548,11 +530,13 @@ describe('createExtensionCustomHost', () => {
     const harness = createHarness();
     const panelKeys = vi.fn();
     const panelHandles = [];
+    let finishController;
     const result = harness.host.open(SESSION, (tui, _theme, _kb, done) => {
       for (const label of ['alpha', 'beta']) {
         const panel = { render: () => [label], handleInput: panelKeys, invalidate: vi.fn(), dispose: vi.fn() };
         panelHandles.push(tui.showOverlay(panel, { nonCapturing: true, anchor: 'top-left', width: 12 }));
       }
+      finishController = done;
       return listComponent(['controller'], done);
     }, { overlay: true });
     await flushPromises();
@@ -565,8 +549,12 @@ describe('createExtensionCustomHost', () => {
     expect(harness.host.input({ sessionId: SESSION, surfaceId: controllerId, items: ['x'] })).toEqual({ accepted: true });
     expect(panelKeys).toHaveBeenCalledWith('x');
 
-    // Ending the controller takes its panels along.
+    // Esc from Close goes there too, as a typed Esc would.
     harness.host.close({ sessionId: SESSION, surfaceId: controllerId });
+    expect(panelKeys).toHaveBeenLastCalledWith('\x1b');
+
+    // Ending the controller takes its panels along.
+    finishController(undefined);
     await expect(result).resolves.toBeUndefined();
     const dismissed = harness.events.filter((entry) => entry.event === 'extension.custom.dismiss').map((entry) => entry.payload.surfaceId);
     expect(dismissed).toEqual(expect.arrayContaining([alphaId, betaId, controllerId]));

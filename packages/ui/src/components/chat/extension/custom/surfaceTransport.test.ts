@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { piClient } from '@/lib/pi/client';
 import { getTabClientId } from '@/lib/pi/tab-client-id';
 import type { PiExtensionSurfaceState } from '@/lib/pi/reducers/customSurfaceReducers';
-import { claimSurfaceSize, closeSurface, closedElsewhere, reportSurfaceViewport, resetSurfaceViewport } from './surfaceTransport';
+import { claimSurfaceSize, closeSurface, closedElsewhere, reportSurfaceViewport, resetSurfaceViewport, sendSurfaceInput } from './surfaceTransport';
 
 type Sent = { action: string; payload: Record<string, unknown> };
 
@@ -68,5 +68,43 @@ describe('closed on another device', () => {
     expect(closedElsewhere({ sessionId: 's-1', reason: 'done', surface: surface('c') })).toBe(false);
     expect(closedElsewhere({ sessionId: 's-1', reason: 'session-closed', surface: surface('c') })).toBe(false);
     expect(closedElsewhere({ sessionId: 's-1', reason: 'cancelled', surface: surface('d', { parentId: 'a' }) })).toBe(false);
+  });
+});
+
+describe('Esc button ordering', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const order = (sent: Sent[]) => sent.map((entry) => [entry.action, (entry.payload.items as string[] | undefined) ?? null]);
+
+  test('waits behind keys already typed, and keys typed after it wait for it', async () => {
+    const sent: Sent[] = [];
+    let release = () => {};
+    piClient.sendExtensionSurface = (async (action: string, payload: Record<string, unknown>) => {
+      sent.push({ action, payload });
+      if (sent.length === 1) await new Promise<void>((resolve) => { release = resolve; });
+    }) as typeof piClient.sendExtensionSurface;
+
+    sendSurfaceInput('s-9', 'q', ['a']);
+    sendSurfaceInput('s-9', 'q', ['\r']);
+    closeSurface('s-9', 'q');
+    sendSurfaceInput('s-9', 'q', ['y']);
+    expect(order(sent)).toEqual([['input', ['a']]]);
+
+    release();
+    await settle();
+    // The Enter typed before Esc lands first; the y typed after it, last.
+    expect(order(sent)).toEqual([['input', ['a']], ['input', ['\r']], ['close', null], ['input', ['y']]]);
+  });
+
+  test('keys typed after an Esc that may not have arrived are dropped', async () => {
+    const sent: Sent[] = [];
+    piClient.sendExtensionSurface = (async (action: string, payload: Record<string, unknown>) => {
+      sent.push({ action, payload });
+      if (action === 'close') throw new Error('network');
+    }) as typeof piClient.sendExtensionSurface;
+
+    closeSurface('s-10', 'q');
+    sendSurfaceInput('s-10', 'q', ['y']);
+    await settle();
+    expect(order(sent)).toEqual([['close', null]]);
   });
 });
