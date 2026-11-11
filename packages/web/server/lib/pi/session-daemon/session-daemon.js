@@ -300,6 +300,8 @@ export function createSessionDaemon({
   // zero-engine path runs exactly the Pi-only code.
   let engineRegistry;
   const runtimeStartPromises = new Map();
+  // Fresh Pi sessions started implicitly by `startRuntime` (see there).
+  const implicitSessions = new WeakSet();
   let idleDisposeTimer;
   let dormantSession;
   let sequence = 0;
@@ -1023,6 +1025,11 @@ export function createSessionDaemon({
       });
     }
     runtimeRegistry.register(newRuntime, { cwd: canonicalRuntimeCwd });
+    // With no JSONL to reopen, Pi starts a fresh empty session that only
+    // answers catalog reads (models, resources, extensions) for this folder.
+    // No client asked for it, so listings skip it until it holds a
+    // conversation or a name.
+    if (!sessionFile && newRuntime.session) implicitSessions.add(newRuntime.session);
     rebuildSessionExtensionState(newRuntime);
     if (activate) {
       runtime = newRuntime;
@@ -1473,11 +1480,20 @@ export function createSessionDaemon({
     const extra = [];
     for (const entry of activeEntries) {
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
+        const name = entry.session.sessionManager?.getSessionName?.() || entry.session.title || undefined;
+        const messageCount = entry.session.messages?.length || 0;
+        // A session started only to answer this folder's catalogs is not a
+        // conversation; listing it shows an "Awaiting first prompt" row on
+        // every folder switch. What an extension adds at session_start
+        // (custom messages, shown or hidden, and appended entries) lands in
+        // every such session, so only a non-custom message or a name lists it.
+        if (implicitSessions.has(entry.session) && !name
+          && !(entry.session.messages ?? []).some((message) => message?.role !== 'custom')) continue;
         extra.push({
           id: entry.session.sessionId,
           cwd: targetDir,
-          name: entry.session.sessionManager?.getSessionName?.() || entry.session.title || undefined,
-          messageCount: entry.session.messages?.length || 0,
+          name,
+          messageCount,
           created: new Date(),
           modified: new Date(),
         });
