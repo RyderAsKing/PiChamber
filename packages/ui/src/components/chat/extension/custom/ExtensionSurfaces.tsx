@@ -292,10 +292,11 @@ const TerminalLines: React.FC<{
  * the first Esc, stays open until the next press.
  */
 const EscButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState }> = ({ sessionId, surface }) => {
-  const press = async (button: HTMLButtonElement) => {
-    await closeSurface(sessionId, surface.surfaceId);
-    // Pressed from the keyboard and still open: give the keys back to the
-    // surface, unless the Esc moved focus itself (a confirmation took it).
+  const press = (button: HTMLButtonElement) => {
+    closeSurface(sessionId, surface.surfaceId);
+    // Pressed from the keyboard: give the keys back to the surface at once.
+    // Keys typed now queue behind the Esc, and a confirmation the Esc opens
+    // takes focus from the surface when it arrives.
     if (document.activeElement !== button) return;
     const element = document.querySelector<HTMLElement>(`[data-extension-surface="${CSS.escape(surface.surfaceId)}"]`);
     if (element && element.tabIndex >= 0) focusSurfaceElement(surface.surfaceId);
@@ -310,7 +311,7 @@ const EscButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState 
       title="Press Esc"
       // A click keeps focus (and the keys) where it is.
       onPointerDown={(event) => event.preventDefault()}
-      onClick={(event) => void press(event.currentTarget)}
+      onClick={(event) => press(event.currentTarget)}
     >
       Esc
     </Button>

@@ -6,9 +6,9 @@ import { getRuntimeKey } from '@/lib/runtime-switch';
 import { getTabClientId } from '@/lib/pi/tab-client-id';
 
 /**
- * Browser side of `ctx.ui.custom()` input. Keys go to the daemon in order:
- * one POST in flight per surface, and keys typed while it runs are batched
- * into the next one. A request carries at most 256 items and 65,536
+ * Browser side of `ctx.ui.custom()` input. Keys and Esc button presses go to
+ * the daemon in order: one POST in flight per surface, and keys typed while
+ * it runs are batched into the next one. A request carries at most 256 items and 65,536
  * characters in all, as the route and daemon require.
  */
 
@@ -79,43 +79,68 @@ export const resetSurfaceViewport = (sessionId: string): void => {
   pendingClaims.delete(sessionId);
 };
 
+/** An Esc button press, queued among the keys so it lands where it was pressed. */
+const ESC_PRESS = Symbol('esc-press');
+type QueuedInput = string | typeof ESC_PRESS;
+
 interface InputQueue {
-  pending: string[];
+  pending: QueuedInput[];
   inFlight: boolean;
 }
 
 const queues = new Map<string, InputQueue>();
 
-const takeBatch = (pending: string[]): string[] => {
+/** Keys up to the next Esc button press. */
+const takeBatch = (pending: QueuedInput[]): string[] => {
   const batch: string[] = [];
   let chars = 0;
   while (pending.length > 0 && batch.length < MAX_BATCH_ITEMS) {
     const next = pending[0]!;
+    if (next === ESC_PRESS) break;
     if (batch.length > 0 && chars + next.length > MAX_SURFACE_INPUT_CHARS) break;
-    batch.push(pending.shift()!);
+    pending.shift();
+    batch.push(next);
     chars += next.length;
   }
   return batch;
 };
 
+/**
+ * The Esc button: one Esc where a key typed at the surface would go, even
+ * when it is unfocused or hidden. Never retried (`piClient`), so a lost
+ * reply may hide an Esc that arrived.
+ */
+const sendEscPress = (sessionId: string, surfaceId: string) => piClient.sendExtensionSurface('close', {
+  sessionId,
+  surfaceId,
+  clientId: surfaceClientId(),
+  ...(viewports.has(sessionId) ? { viewport: viewports.get(sessionId) } : {}),
+}, scope());
+
 const drain = async (sessionId: string, surfaceId: string, queue: InputQueue): Promise<void> => {
   queue.inFlight = true;
   try {
     while (queue.pending.length > 0) {
-      const items = takeBatch(queue.pending);
+      const escPress = queue.pending[0] === ESC_PRESS;
+      if (escPress) queue.pending.shift();
+      const items = escPress ? [] : takeBatch(queue.pending);
       try {
-        await piClient.sendExtensionSurface('input', {
-          sessionId,
-          surfaceId,
-          clientId: surfaceClientId(),
-          ...(viewports.has(sessionId) ? { viewport: viewports.get(sessionId) } : {}),
-          items,
-        }, scope());
+        if (escPress) await sendEscPress(sessionId, surfaceId);
+        else {
+          await piClient.sendExtensionSurface('input', {
+            sessionId,
+            surfaceId,
+            clientId: surfaceClientId(),
+            ...(viewports.has(sessionId) ? { viewport: viewports.get(sessionId) } : {}),
+            items,
+          }, scope());
+        }
       } catch (error) {
         // Keys are not replayed later: a late Enter could confirm something
-        // the user no longer sees.
+        // the user no longer sees, such as a question the Esc opened.
         queue.pending.length = 0;
         if (isNotOpen(error)) getPiSessionStore().dropExtensionSurface(sessionId, surfaceId);
+        else if (escPress) toast.error('Esc may not have reached the extension. Check it before you press Esc again.');
         else toast.error('Keys did not reach the extension. Try again.');
       }
     }
@@ -125,18 +150,22 @@ const drain = async (sessionId: string, surfaceId: string, queue: InputQueue): P
   }
 };
 
-/** Queues terminal input items (single keys or one bracketed paste each). */
-export const sendSurfaceInput = (sessionId: string, surfaceId: string, items: string[]): void => {
-  const accepted = items.filter((item) => item.length > 0 && item.length <= MAX_SURFACE_INPUT_CHARS);
-  if (accepted.length === 0) return;
+const enqueue = (sessionId: string, surfaceId: string, items: QueuedInput[]): void => {
   const key = `${sessionId}\u0000${surfaceId}`;
   let queue = queues.get(key);
   if (!queue) {
     queue = { pending: [], inFlight: false };
     queues.set(key, queue);
   }
-  queue.pending.push(...accepted);
+  queue.pending.push(...items);
   if (!queue.inFlight) void drain(sessionId, surfaceId, queue);
+};
+
+/** Queues terminal input items (single keys or one bracketed paste each). */
+export const sendSurfaceInput = (sessionId: string, surfaceId: string, items: string[]): void => {
+  const accepted = items.filter((item) => item.length > 0 && item.length <= MAX_SURFACE_INPUT_CHARS);
+  if (accepted.length === 0) return;
+  enqueue(sessionId, surfaceId, accepted);
 };
 
 /** Surfaces this tab asked to close, so their dismissal is not news here. */
@@ -155,28 +184,16 @@ export const closedElsewhere = (dismissal: ExtensionSurfaceDismissal): boolean =
 );
 
 /**
- * The host Esc button. The daemon presses Esc once for the user, where a key
- * typed at the surface would go; the surface stays until the extension
+ * The host Esc button. Queued behind the keys already typed at the surface,
+ * and ahead of keys typed after it; the daemon presses Esc once, where a key
+ * typed at the surface would go. The surface stays until the extension
  * closes it and its dismissal arrives. One that cannot take keys at all is
  * ended at once (`cancelled`).
  */
-export const closeSurface = async (sessionId: string, surfaceId: string): Promise<void> => {
+export const closeSurface = (sessionId: string, surfaceId: string): void => {
   closedHere.add(`${sessionId}\u0000${surfaceId}`);
   if (closedHere.size > MAX_CLOSED_HERE) closedHere.delete(closedHere.values().next().value as string);
-  try {
-    await piClient.sendExtensionSurface('close', {
-      sessionId,
-      surfaceId,
-      clientId: surfaceClientId(),
-      ...(viewports.has(sessionId) ? { viewport: viewports.get(sessionId) } : {}),
-    }, scope());
-  } catch (error) {
-    if (isNotOpen(error)) {
-      getPiSessionStore().dropExtensionSurface(sessionId, surfaceId);
-      return;
-    }
-    toast.error('Could not close the extension surface. Try again.');
-  }
+  enqueue(sessionId, surfaceId, [ESC_PRESS]);
 };
 
 /**
