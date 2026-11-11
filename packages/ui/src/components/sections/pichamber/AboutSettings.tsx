@@ -124,7 +124,21 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
 
   const isChecking = updateStore.checking || showChecking;
 
-  // One layout on every runtime; its rows stack in a narrow pane such as a phone.
+  let versionStatus: React.ReactNode = null;
+  if (isChecking) {
+    versionStatus = (
+      <span className="flex items-center gap-1.5">
+        <Icon name="loader" className="size-3.5 animate-spin" aria-hidden="true" />
+        {"Checking..."}
+      </span>
+    );
+  } else if (hasSeparateServer && anyUpdateAvailable) {
+    versionStatus = <span className="text-[var(--primary-base)]">{"Updates available"}</span>;
+  } else if (!anyUpdateAvailable && !updateStore.error) {
+    versionStatus = <span>{"Up to date"}</span>;
+  }
+
+  // One layout on every runtime; a phone gets the same rows as desktop.
   return (
     <>
       <SettingsSection divider={false}>
@@ -132,37 +146,36 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         {/* One line at every width: the version and its status on the left,
             the actions on the right, so a phone reads it like desktop. */}
         <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
-          <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-col gap-1">
             <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
-            {hasSeparateServer ? (
-              <div className="flex flex-wrap items-center gap-x-2 typography-meta text-muted-foreground">
-                <AboutVersionTarget
-                  label="Client"
-                  version={clientVersion}
-                  updateInfo={updateStore.info}
-                  onOpen={() => setUpdateDialogTarget('client')}
-                />
-                <span className="text-subtle-foreground" aria-hidden="true">·</span>
-                <AboutVersionTarget
-                  label="Server"
-                  version={serverVersion}
-                  updateInfo={updateStore.serverInfo}
-                  onOpen={() => setUpdateDialogTarget('server')}
-                />
-              </div>
-            ) : (
-              <span className="typography-meta text-muted-foreground font-mono">{currentVersion}</span>
-            )}
-            {isChecking ? (
-              <span className="flex items-center gap-1.5 typography-meta text-muted-foreground">
-                <Icon name="loader" className="size-3.5 animate-spin" aria-hidden="true" />
-                {"Checking..."}
-              </span>
-            ) : hasSeparateServer && anyUpdateAvailable ? (
-              <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
-            ) : !anyUpdateAvailable && !updateStore.error ? (
-              <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
-            ) : null}
+            {/* Versions and their status share one line, wrapping only when it is too long. */}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 typography-meta text-muted-foreground">
+              {hasSeparateServer ? (
+                <>
+                  <AboutVersionTarget
+                    label="Client"
+                    version={clientVersion}
+                    updateInfo={updateStore.info}
+                    onOpen={() => setUpdateDialogTarget('client')}
+                  />
+                  <span className="text-subtle-foreground" aria-hidden="true">·</span>
+                  <AboutVersionTarget
+                    label="Server"
+                    version={serverVersion}
+                    updateInfo={updateStore.serverInfo}
+                    onOpen={() => setUpdateDialogTarget('server')}
+                  />
+                </>
+              ) : (
+                <span className="font-mono">{currentVersion}</span>
+              )}
+              {versionStatus ? (
+                <>
+                  <span className="text-subtle-foreground" aria-hidden="true">·</span>
+                  {versionStatus}
+                </>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-2 @xl:flex-row @xl:items-center">
