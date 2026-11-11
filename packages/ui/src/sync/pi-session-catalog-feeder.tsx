@@ -124,12 +124,18 @@ export const PiSessionCatalogFeeder: React.FC = () => {
     refresh();
     const unsubscribeProjects = useProjectsStore.subscribe(refresh);
     const unsubscribeWorktrees = useWorktreeStore.subscribe(refresh);
+    // A remote server's home arrives after mount (the desktop app's own home
+    // is used only on its built-in server), so list it once it is known.
+    const unsubscribeHome = useDirectoryStore.subscribe((state, previous) => {
+      if (state.homeDirectory && state.homeDirectory !== previous.homeDirectory) refresh();
+    });
     const unsubscribePi = store.subscribe(refresh, 'chrome');
 
     return () => {
       cancelled = true;
       unsubscribeProjects();
       unsubscribeWorktrees();
+      unsubscribeHome();
       unsubscribePi();
     };
   }, []);

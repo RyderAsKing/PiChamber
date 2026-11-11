@@ -208,7 +208,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   const remainingHomeCount = allHomeSessions.length - visibleHomeSessions.length;
   const isHomeCollapsed = hasSessionSearchQuery ? false : collapsedProjects.has('__home__');
 
-  if (sections.length === 0 && !homeSection) {
+  if (sections.length === 0 && !homeSection && !(shelves && archived.length > 0)) {
     return hasSessionSearchQuery ? searchEmptyState : emptyState;
   }
 

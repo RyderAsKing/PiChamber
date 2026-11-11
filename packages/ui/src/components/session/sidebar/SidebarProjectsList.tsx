@@ -215,11 +215,13 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
   }
 
   const hasAllFoldersOnlySection = (props.isAllFoldersView || viewMode === 'timeline' || viewMode === 'folder') && Boolean(props.allFoldersOnlySection);
-  if (props.projectSections.length === 0 && !hasAllFoldersOnlySection) {
+  // Archived sessions alone still render the list, so their shelf is reachable.
+  const hasArchivedOnly = archived.length > 0 && !props.hasSessionSearchQuery && !props.showOnlyMainWorkspace;
+  if (props.projectSections.length === 0 && !hasAllFoldersOnlySection && !hasArchivedOnly) {
     return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 12 : 20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.topContent}{props.emptyState}</div></ScrollableOverlay>;
   }
 
-  if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection) {
+  if (props.sectionsForRender.length === 0 && !hasAllFoldersOnlySection && !hasArchivedOnly) {
     return <ScrollableOverlay useScrollShadow scrollShadowSize={props.mobileVariant ? 12 : 20} outerClassName="flex-1 min-h-0" className="pt-2 pb-1"><div className="space-y-1 px-2">{props.searchEmptyState}</div></ScrollableOverlay>;
   }
 

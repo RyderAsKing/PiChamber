@@ -338,6 +338,13 @@ describe('Archived shelf', () => {
       .not.toContain('data-session-shelf="archived"');
   });
 
+  for (const viewMode of ['threads', 'folder', 'workspace'] as const) {
+    test(`${viewMode} with no folders and only archived sessions still offers the shelf`, () => {
+      const markup = render({ viewMode, sections: [], homeSection: null, archivedShelfItems: archivedItems });
+      expect(markup).toContain('data-session-shelf="archived"');
+    });
+  }
+
   test('Threads whose every session is archived shows the shelf instead of the empty state', () => {
     const emptied = makeSection('alpha', 'Alpha', []);
     const markup = render({ viewMode: 'threads', sections: [emptied], homeSection: null, archivedShelfItems: archivedItems });
