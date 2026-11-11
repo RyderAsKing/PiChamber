@@ -169,7 +169,10 @@ desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons, desktop only);
 `settings-archive` (Sessions settings at Archive and delete, desktop only);
 `settings-sidebar-view` (Appearance at Sidebar view with Legacy views open,
-desktop only); `command-palette` (opened with Ctrl+P, desktop only).
+desktop only); `command-palette` (opened with Ctrl+P, desktop only);
+`extension-dialog` (the seed's demo extension answers `!git log` in the demo
+session with a select() dialog whose title packs a whole permission request;
+the dialog stays open, so later captures reuse it instead of sending again).
 Desktop captures report a mouse, so `hover:` styles apply; a page's
 `hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root
