@@ -145,8 +145,8 @@ const MAX_CLOSED_HERE = 256;
 
 /**
  * Whether a dismissal means another device closed a surface this tab showed:
- * the host Close (`cancelled`, which nothing else sends) on a top-level
- * surface, not pressed here. Nested panels go with their parent.
+ * the host ending it (`cancelled`, as the Esc button does to a surface that
+ * cannot take keys) on a top-level surface, not pressed here. Nested panels go with their parent.
  */
 export const closedElsewhere = (dismissal: ExtensionSurfaceDismissal): boolean => (
   dismissal.reason === 'cancelled'
@@ -155,9 +155,10 @@ export const closedElsewhere = (dismissal: ExtensionSurfaceDismissal): boolean =
 );
 
 /**
- * The host Close button. The daemon presses Esc for the user (twice if the
- * first does not close it) and ends the surface itself if it is still open
- * after that; the surface stays until its `cancelled` dismissal arrives.
+ * The host Esc button. The daemon presses Esc once for the user, where a key
+ * typed at the surface would go; the surface stays until the extension
+ * closes it and its dismissal arrives. One that cannot take keys at all is
+ * ended at once (`cancelled`).
  */
 export const closeSurface = async (sessionId: string, surfaceId: string): Promise<void> => {
   closedHere.add(`${sessionId}\u0000${surfaceId}`);

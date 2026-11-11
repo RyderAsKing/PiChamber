@@ -65,7 +65,7 @@ Pi puts an inline component in place of the editor. PiChamber does the same:
 - The surface takes `ChatInput`'s place in the composer column as a card: a
   header with the plug icon, the title, `blocked.message` when given, "N more
   below" when inline surfaces are stacked, Stop while an agent turn runs, and
-  an X Close button (labelled "Close {title}"); then the terminal lines; then
+  an Esc button (labelled "Press Esc in {title}"); then the terminal lines; then
   the hint "Keys go to the extension. Your draft is kept when it closes."
 - `ChatInput` stays mounted and hidden, so the draft, history and editor
   state survive. It fades back in when the last inline surface closes and
@@ -95,7 +95,7 @@ command PiChamber dispatched, else "Extension" (decision 2).
   rounded corners, the inline card's shadow) that sits 5 px outside the
   cells. A terminal has no such edge, but an overlay that draws no border
   would otherwise read as loose text over the chat; one that draws its own
-  border shows it just inside this edge. A small tab with the title and an X Close button sits above the box,
+  border shows it just inside this edge. A small tab with the title and an Esc button sits above the box,
   below it when the box is at the top of the pane, or over its top right
   corner when the box is as tall as the pane (`titleTabSpot`; on a touch
   screen the key bar's rows do not count as room). Only the command's own
@@ -119,7 +119,7 @@ command PiChamber dispatched, else "Extension" (decision 2).
   Clicking the dimmed area returns focus to that overlay and makes this tab
   the driver (5.3), so on a device narrower than the driver the overlay
   redraws to fit or shows its notice. Until then the box is kept inside the
-  pane, cut at its right edge, with Close in reach. `nonCapturing` overlays
+  pane, cut at its right edge, with the Esc button in reach. `nonCapturing` overlays
   and inline surfaces dim nothing. A `nonCapturing` overlay that focused
   itself (pi-btw's side chat) takes the keyboard without dimming: it takes
   focus back when code moves it (the composer refocusing after a send)
@@ -139,8 +139,8 @@ command PiChamber dispatched, else "Extension" (decision 2).
 - An overlay whose `visible(w, h)` rejects the current size, or that the
   extension hid with `setHidden(true)`, neither captures nor dims. A strip
   above the composer says it is open but needs a wider window (or is hidden
-  by the extension) and offers Close, so it cannot block the session
-  unseen.
+  by the extension) and offers the Esc button, so it cannot block the
+  session unseen. One that ignores Esc stays, as it would in Pi.
 - `onHandle` gets a real handle: `hide`, `setHidden`, `isHidden`, `focus`,
   `unfocus`, `isFocused` and `getBounds` change server state and publish
   updates. Overlays a component opens itself (`tui.showOverlay`) are nested
@@ -199,9 +199,11 @@ Implemented:
 - A device that opens the session later gets every surface and its current
   frame from the snapshot or session detail, and can drive it straight away.
 - Closing a surface anywhere closes it everywhere.
-- When another device presses Close on a top-level surface this tab shows,
-  a toast says "/title was closed on another device." Only Close sends the
-  `cancelled` reason, and the tab remembers the surfaces it closed itself
+- When another device ends a top-level surface this tab shows (the Esc
+  button on a surface that cannot take keys), a toast says "/title was
+  closed on another device." An extension that closes itself on the Esc
+  ends with `done`, as with a typed Esc, so no toast. Only the host sends
+  `cancelled`, and the tab remembers the surfaces it closed itself
   (`closedElsewhere`, fed by the store's `subscribeExtensionSurfaceDismissals`).
 
 ### 4.5 Look and motion
@@ -250,7 +252,7 @@ Implemented:
 | Event | Result |
 |---|---|
 | `done(result)` | Resolve with `result`, dispose, publish dismiss `done` |
-| Close button | Send Esc to the component, and again 300 ms later if it is still open; if it is still open 300 ms after that, resolve `undefined` and dispose. Dismiss `cancelled` either way |
+| Esc button | Send one Esc where a key typed at the surface would go; the extension closes it or not, as in Pi. A component with no `handleInput`, or whose Esc throws, is ended at once: resolve `undefined`, dispose, dismiss `cancelled` |
 | `done()` during the factory | The component is disposed and never shown |
 | Factory throws or rejects | Reject, publish `extension.error` (`source: 'extension.custom'`), nothing mounts |
 | `render()` throws | `extension.error`, then the surface is cancelled |
@@ -265,7 +267,7 @@ Implemented:
 Each session has one size, `{ columns, screenColumns, rows }`: `columns` is
 the inline column, `screenColumns` the overlay screen (the chat pane).
 
-- The last client that acted drives the size: input and Close carry the
+- The last client that acted drives the size: input and the Esc button carry the
   sender's viewport and make it the driver. So does a tap or click on a
   surface or its dimmed pane (a viewport report with `claim`). Opening one
   does too: prompts carry the tab's `clientId`, and a new top-level surface
