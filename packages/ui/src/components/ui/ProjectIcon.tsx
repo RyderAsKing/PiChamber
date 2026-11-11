@@ -4,7 +4,6 @@ import { useProjectIconUrl } from '@/lib/projectIcon';
 import { getProjectMark } from '@/lib/projectIdentity';
 import { getCachedIconTone, measureIconTone, type ProjectIconTone } from '@/lib/projectIconTone';
 import { cn } from '@/lib/utils';
-import { useProjectAgentActive } from '@/sync/live-project-activity';
 
 type ProjectIconProps = {
   /** Project directory used to look up the icon the project ships. */
@@ -17,17 +16,14 @@ type ProjectIconProps = {
 
 /**
  * The project's own icon (favicon, app icon, or logo) when it has one,
- * otherwise its first letter on a tint derived from its name. Shown in color
- * only while an agent is working in the project; grayscale otherwise. An icon
- * that is almost all dark (or all light) gets a plate in the theme's text
- * color so it stays visible on a background of the same tone.
+ * otherwise its first letter on a tint derived from its name, always in its
+ * own colors. An icon that is almost all dark (or all light) gets a plate in
+ * the theme's text color so it stays visible on a background of the same tone.
  */
 export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
   const url = useProjectIconUrl(directory);
-  const active = useProjectAgentActive(directory);
   const [failedUrl, setFailedUrl] = React.useState<string | null>(null);
   const [measured, setMeasured] = React.useState<{ url: string; tone: ProjectIconTone } | null>(null);
-  const stateClassName = active ? undefined : 'grayscale';
   const tone = url ? (measured?.url === url ? measured.tone : getCachedIconTone(url)) : undefined;
 
   if (url && url !== failedUrl) {
@@ -44,22 +40,20 @@ export function ProjectIcon({ directory, label, className }: ProjectIconProps) {
         }}
         data-project-icon="image"
         data-icon-tone={tone && tone !== 'mixed' ? tone : undefined}
-        data-agent-active={active ? '' : undefined}
-        className={cn('size-4 shrink-0 rounded-[25%] object-contain', stateClassName, className)}
+        className={cn('size-4 shrink-0 rounded-[25%] object-contain', className)}
       />
     );
   }
 
-  return <ProjectMark label={label} active={active} className={cn(stateClassName, className)} />;
+  return <ProjectMark label={label} className={className} />;
 }
 
-function ProjectMark({ label, active, className }: { label: string; active: boolean; className?: string }) {
+function ProjectMark({ label, className }: { label: string; className?: string }) {
   const mark = React.useMemo(() => getProjectMark(label), [label]);
   return (
     <span
       aria-hidden="true"
       data-project-icon="mark"
-      data-agent-active={active ? '' : undefined}
       className={cn('inline-flex size-4 shrink-0 items-center justify-center overflow-hidden rounded-[25%]', className)}
       // The tint lives on the wrapper: global button styles strip fills from
       // SVG rects, which would erase a background drawn inside the SVG.
