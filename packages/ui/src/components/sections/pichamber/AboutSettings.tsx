@@ -2,20 +2,17 @@ import React from 'react';
 import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useShallow } from 'zustand/react/shallow';
 import { UpdateDialog } from '@/components/ui/UpdateDialog';
-import { useDeviceInfo } from '@/lib/device';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { Icon } from "@/components/icon/Icon";
-import { PiChamberLogo } from '@/components/ui/PiChamberLogo';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { isDesktopLocalOriginActive, isElectronShell } from '@/lib/desktop';
 import { isCapacitorApp } from '@/lib/platform';
 import type { UpdateInfo } from '@/lib/desktop';
 import { InstanceServiceUrls } from './InstanceServiceUrls';
-import { DesktopUpdateChannelSettings } from './DesktopUpdateChannelSettings';
+import { UpdateChannelSettings } from './UpdateChannelSettings';
 import {
   SettingsSection,
-  SETTINGS_BRAND_TITLE_CLASS,
   SETTINGS_FIELD_LABEL_CLASS,
 } from '@/components/sections/shared/SettingsSection';
 
@@ -48,12 +45,10 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     downloaded: s.downloaded,
     progress: s.progress,
     runtimeType: s.runtimeType,
-    lastChecked: s.lastChecked,
     checkForUpdates: s.checkForUpdates,
     downloadUpdate: s.downloadUpdate,
     restartToUpdate: s.restartToUpdate,
   })));
-  const { isMobile } = useDeviceInfo();
   const isRemoteDesktop = isElectronShell() && !isDesktopLocalOriginActive();
   // The native app is its own bundle, connected to a separately versioned
   // server. Hosted mobile is served by that server, so it has one version.
@@ -129,130 +124,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
 
   const isChecking = updateStore.checking || showChecking;
 
-  if (isMobile) {
-    return (
-      <div className="w-full space-y-6 pb-2">
-        <div className="flex flex-col items-center text-center">
-          <PiChamberLogo width={72} height={72} />
-          <h2 className={`mt-4 ${SETTINGS_BRAND_TITLE_CLASS}`}>PiChamber</h2>
-          <InstanceServiceUrls className="mt-3 justify-center" />
-        </div>
-
-        <div className="space-y-3">
-          <div className="divide-y divide-border/40 overflow-hidden rounded-lg bg-[var(--surface-elevated)]/70">
-            {isNativeMobile ? (
-              <>
-                <MobileVersionRow
-                  label="Client"
-                  version={clientVersion}
-                  updateInfo={updateStore.info}
-                  checked={updateStore.lastChecked !== null}
-                  checking={isChecking}
-                  onOpen={() => setUpdateDialogTarget('client')}
-                />
-                <MobileVersionRow
-                  label="Server"
-                  version={serverVersion}
-                  updateInfo={updateStore.serverInfo}
-                  checked={updateStore.lastChecked !== null}
-                  checking={isChecking}
-                  onOpen={() => setUpdateDialogTarget('server')}
-                />
-              </>
-            ) : (
-              <>
-                {/* Hosted mobile runs the UI bundle its server serves, so the
-                    client has no update of its own: it updates with the server. */}
-                <MobileVersionRow
-                  label="Client"
-                  version={typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown'}
-                  updateInfo={null}
-                  note="Updates with server"
-                  checked={false}
-                  checking={false}
-                  onOpen={() => undefined}
-                />
-                {/* The web check reports the server, and stores it as the
-                    store's primary `info`, so it opens the 'client' target. */}
-                <MobileVersionRow
-                  label="Server"
-                  version={updateStore.info?.currentVersion || piChamberVersion || 'unknown'}
-                  updateInfo={updateStore.info}
-                  checked={updateStore.lastChecked !== null}
-                  checking={isChecking}
-                  onOpen={() => setUpdateDialogTarget('client')}
-                />
-              </>
-            )}
-          </div>
-          <div className="flex justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => updateStore.checkForUpdates()}
-              disabled={isChecking}
-              className="h-10 w-auto justify-center gap-2 rounded-xl px-4"
-            >
-              {isChecking ? <Icon name="loader" className="size-4 animate-spin" /> : <Icon name="refresh" className="size-4" />}
-              {isChecking ? "Checking..." : "Check for updates"}
-            </Button>
-          </div>
-        </div>
-
-        {updateStore.error && (
-          <p className="rounded-xl border border-[var(--status-error-border)] bg-[var(--status-error-background)] px-3 py-2 typography-meta text-[var(--status-error)]">
-            {updateStore.error}
-          </p>
-        )}
-
-        <div className="flex flex-col items-center gap-3 text-center">
-          <div className="flex items-center justify-center gap-5">
-            <a
-              href={GITHUB_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Icon name="github-fill" className="size-5" />
-              <span>GitHub</span>
-            </a>
-
-            <a
-              href={PI_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 typography-ui-label text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <Icon name="information" className="size-5" />
-              <span>Pi Agent</span>
-            </a>
-          </div>
-        </div>
-
-        <AboutDetails />
-
-        <p className="text-center typography-ui text-subtle-foreground">
-          {"Made with care for the community"}
-        </p>
-
-        <UpdateDialog
-          open={updateDialogTarget !== null}
-          onOpenChange={(open) => { if (!open) setUpdateDialogTarget(null); }}
-          info={activeUpdateInfo}
-          downloading={updateStore.downloading}
-          downloaded={updateStore.downloaded}
-          progress={updateStore.progress}
-          error={updateStore.error}
-          onDownload={updateStore.downloadUpdate}
-          onRestart={updateStore.restartToUpdate}
-          runtimeType={activeRuntimeType}
-        />
-      </div>
-    );
-  }
-
-  // Desktop layout
+  // One layout on every runtime; its rows stack in a narrow pane such as a phone.
   return (
     <>
       <SettingsSection divider={false}>
@@ -260,7 +132,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
         <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
           <div className="flex min-w-0 flex-col">
             <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
-            {isRemoteDesktop ? (
+            {hasSeparateServer ? (
               <div className="flex flex-wrap items-center gap-2 typography-meta text-muted-foreground">
                 <AboutVersionTarget
                   label="Client"
@@ -282,14 +154,14 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           </div>
           
           <div className="flex items-center gap-3">
-            {updateStore.checking && (
+            {isChecking && (
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Icon name="loader" className="h-4 w-4 animate-spin" />
                 <span className="typography-meta">{"Checking..."}</span>
               </div>
             )}
 
-            {!updateStore.checking && !isRemoteDesktop && updateStore.available && (
+            {!isChecking && !hasSeparateServer && updateStore.available && (
               <Button size="sm"
                 variant="default"
                 onClick={() => setUpdateDialogTarget('client')}
@@ -299,18 +171,18 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
               </Button>
             )}
 
-            {!updateStore.checking && isRemoteDesktop && anyUpdateAvailable && (
+            {!isChecking && hasSeparateServer && anyUpdateAvailable && (
               <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
             )}
 
-            {!updateStore.checking && !anyUpdateAvailable && !updateStore.error && (
+            {!isChecking && !anyUpdateAvailable && !updateStore.error && (
               <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
             )}
 
             <Button size="sm"
               variant="outline"
               onClick={() => updateStore.checkForUpdates()}
-              disabled={updateStore.checking}
+              disabled={isChecking}
             >
               {"Check for updates"}
             </Button>
@@ -364,7 +236,7 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           runtimeType={activeRuntimeType}
         />
       </SettingsSection>
-      <DesktopUpdateChannelSettings />
+      <UpdateChannelSettings />
       <AboutDetails />
     </>
   );
@@ -400,60 +272,6 @@ const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
       <span>{`${label} ${version}`}</span>
       <Icon name="arrow-up" className="size-3.5" aria-hidden="true" />
     </Button>
-  );
-};
-
-type MobileVersionRowProps = {
-  label: 'Client' | 'Server';
-  version: string;
-  updateInfo: UpdateInfo | null;
-  /** Fixed status for a target that has no update check of its own. */
-  note?: string;
-  /** A check has completed, so a missing result means that check failed. */
-  checked: boolean;
-  checking: boolean;
-  onOpen: () => void;
-};
-
-const MobileVersionRow: React.FC<MobileVersionRowProps> = ({
-  label,
-  version,
-  updateInfo,
-  note,
-  checked,
-  checking,
-  onOpen,
-}) => {
-  let status: React.ReactNode = null;
-  if (note) {
-    status = <span className="typography-meta text-muted-foreground">{note}</span>;
-  } else if (updateInfo?.available) {
-    status = (
-      <Button
-        type="button"
-        variant="default"
-        size="sm"
-        onClick={onOpen}
-        aria-label={`Open ${label.toLowerCase()} updater${updateInfo.version ? ` for ${updateInfo.version}` : ''}`}
-      >
-        <Icon name="download" className="size-4" />
-        {updateInfo.version ? `Update to ${updateInfo.version}` : 'Update'}
-      </Button>
-    );
-  } else if (!checking && updateInfo) {
-    status = <span className="typography-meta text-muted-foreground">{"Up to date"}</span>;
-  } else if (!checking && checked) {
-    status = <span className="typography-meta text-muted-foreground">{"Couldn't check"}</span>;
-  }
-
-  return (
-    <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-2">
-      <div className="flex min-w-0 items-baseline gap-2">
-        <span className={SETTINGS_FIELD_LABEL_CLASS}>{label}</span>
-        <span className="truncate typography-meta font-mono text-muted-foreground">{version}</span>
-      </div>
-      {status ? <div className="shrink-0">{status}</div> : null}
-    </div>
   );
 };
 
