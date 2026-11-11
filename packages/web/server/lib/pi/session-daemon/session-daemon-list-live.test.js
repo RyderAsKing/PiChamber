@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -225,6 +225,39 @@ describe('session daemon list live status', () => {
     expect(live.lifecycle).toBe('retry');
     expect(live.retry).toEqual({ attempt: 2, next: expect.any(Number), message: 'rate limited' });
     expect(Object.keys(live).sort()).toEqual(['lifecycle', 'retry', 'runStartedAt', 'sequence', 'serverNow']);
+  });
+
+  it("lists a removed folder's sessions from the session store, and rejects a path that is not a folder", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-list-live-'));
+    await mkdir(join(root, 'agent'), { recursive: true });
+    const removed = join(root, 'removed-worktree');
+    const listedDirectories = [];
+    const { daemon, endpoint } = await startDaemon(root, new FakeSession('unused'), async ({ cwd }) => {
+      listedDirectories.push(cwd);
+      return cwd === removed ? [{ ...diskRow(removed, 'orphan'), cwd: removed }] : [];
+    });
+    daemons.push(daemon);
+    const client = connectClient(endpoint);
+    sockets.push(client);
+    await client.authenticate();
+
+    const listed = await client.request('sessions.list', { directory: removed });
+    expect(listed.error).toBeUndefined();
+    expect(listed.result.sessions.map((item) => item.session.id)).toEqual(['orphan']);
+    expect(listedDirectories).toContain(removed);
+
+    // A failed request closes the connection with an error frame, so each case gets its own client.
+    const rejects = async (directory) => {
+      const other = connectClient(endpoint);
+      sockets.push(other);
+      await other.authenticate();
+      other.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'bad', command: 'sessions.list', payload: { directory } })}\n`);
+      return (await other.next((message) => message.kind === 'error')).error.code;
+    };
+    const file = join(root, 'not-a-folder.txt');
+    await writeFile(file, 'x');
+    expect(await rejects(file)).toBe('INVALID_ARGUMENT');
+    expect(await rejects('C:/Users/Someone')).toBe('INVALID_ARGUMENT');
   });
 
   it('an unpersisted resident session is listed with its live status too', async () => {
