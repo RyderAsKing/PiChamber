@@ -92,7 +92,7 @@
     },
     "packages/electron": {
       "name": "@pichamber/electron",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "dependencies": {
         "@pi-chamber/web": "workspace:*",
         "electron-context-menu": "^4.1.2",
@@ -127,7 +127,7 @@
     },
     "packages/ui": {
       "name": "@pichamber/ui",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "dependencies": {
         "@aparajita/capacitor-secure-storage": "^8.0.1",
         "@base-ui/react": "^1.9.0",
@@ -225,7 +225,7 @@
     },
     "packages/web": {
       "name": "@pi-chamber/web",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "bin": {
         "pichamber": "./bin/cli.js",
       },

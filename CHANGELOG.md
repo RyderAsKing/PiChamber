@@ -4,9 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- **Switching folders no longer adds "Awaiting first prompt" sessions.** Loading a folder's models, skills, and extensions started an empty Pi session for it, and the session list showed it as a new untitled session. Those sessions now stay out of the list until they hold a prompt or a name, even when an extension adds a message to them; a session you create still shows before its first prompt.
-- **Project icons are always in colour.** A project's icon and its first-letter mark now show their own colours everywhere, not only while an agent is working in the project. Sessions still show when an agent is working (`ProjectIcon`).
-- **Extension overlays get an Esc button instead of Close.** The Close tab on an extension surface removed it without telling the extension, so one that tracks its overlay still thought it was open: after Close, pi-btw's `/btw` did nothing until PiChamber restarted. The tab is now an Esc button that presses Esc for you, Pi's own key for closing, and the extension closes the overlay the normal way. Each press is one Esc and does what Esc does in Pi's terminal: if it only stops a running answer or asks you to confirm, the overlay stays until you press again or answer. The Esc reaches only that extension, never the session's turn. A component that takes no keys at all is closed at once. One that takes keys but ignores Esc stays open however often you press, as in Pi's terminal, until the extension closes it or the session closes or reloads (`extension-custom-host`, `ExtensionSurfaces`).
+## [1.0.7] - 2026-11-12
+
+An Esc button for extension overlays, a fix for stray "Awaiting first prompt" sessions, and project icons in colour since 1.0.6.
+
+- **Switching folders no longer adds "Awaiting first prompt" sessions (#231).** Loading a folder's models, skills, and extensions started an empty Pi session for it, and the session list showed it as a new untitled session. Those sessions now stay out of the list until they hold a prompt or a name, even when an extension adds a message to them; a session you create still shows before its first prompt.
+- **Project icons are always in colour (#230).** A project's icon and its first-letter mark now show their own colours everywhere, not only while an agent is working in the project. Sessions still show when an agent is working (`ProjectIcon`).
+- **Extension overlays get an Esc button instead of Close (#232, #233).** The Close tab on an extension surface removed it without telling the extension, so one that tracks its overlay still thought it was open: after Close, pi-btw's `/btw` did nothing until PiChamber restarted. The tab is now an Esc button that presses Esc for you, Pi's own key for closing, and the extension closes the overlay the normal way. Each press is one Esc and does what Esc does in Pi's terminal: if it only stops a running answer or asks you to confirm, the overlay stays until you press again or answer. The Esc reaches only that extension, never the session's turn. A component that takes no keys at all is closed at once. One that takes keys but ignores Esc stays open however often you press, as in Pi's terminal, until the extension closes it or the session closes or reloads (`extension-custom-host`, `ExtensionSurfaces`).
 
 ## [1.0.6] - 2026-11-11
 
