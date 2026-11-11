@@ -250,7 +250,7 @@ Implemented:
 | Event | Result |
 |---|---|
 | `done(result)` | Resolve with `result`, dispose, publish dismiss `done` |
-| Close button | Resolve `undefined`, dispose, dismiss `cancelled` |
+| Close button | Send Esc to the component, and again 300 ms later if it is still open; if it is still open 300 ms after that, resolve `undefined` and dispose. Dismiss `cancelled` either way |
 | `done()` during the factory | The component is disposed and never shown |
 | Factory throws or rejects | Reject, publish `extension.error` (`source: 'extension.custom'`), nothing mounts |
 | `render()` throws | `extension.error`, then the surface is cancelled |

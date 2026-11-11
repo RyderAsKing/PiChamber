@@ -34,6 +34,17 @@ const MAX_INPUT_ITEMS = MAX_CUSTOM_INPUT_ITEMS;
 const MAX_INPUT_CHARS = MAX_CUSTOM_INPUT_CHARS;
 const FRAME_INTERVAL_MS = 33;
 const SIZE_SETTLE_MS = 150;
+/**
+ * How long Close waits for a component to end itself after each Esc it
+ * sends (Pi components close on their own keys; an async Esc handler needs
+ * a few ticks).
+ */
+const CLOSE_GRACE_MS = 300;
+/**
+ * Escs Close sends before it ends the surface anyway. The second is the one
+ * a Pi user presses when the first only stopped work or asked to confirm.
+ */
+const CLOSE_ESCAPES = 2;
 
 const CUSTOM_VIEWPORT_LIMITS = Object.freeze({
   columns: [20, 200],
@@ -517,9 +528,16 @@ export const createExtensionCustomHost = ({
 
   // ---------------------------------------------------------------- surfaces
 
-  const removeSurface = (state, surface, reason) => {
+  const removeSurface = (state, surface, givenReason) => {
     const index = state.surfaces.indexOf(surface);
     if (index === -1) return false;
+    if (surface.closeTimer !== undefined) {
+      clearTimer(surface.closeTimer);
+      surface.closeTimer = undefined;
+    }
+    // A component that ends itself on the Esc a Close sent it still ends
+    // by the host Close: clients read `cancelled` as exactly that.
+    const reason = surface.closing && givenReason === 'done' ? 'cancelled' : givenReason;
     // Nested overlays a component opened go with it.
     for (const child of state.surfaces.filter((candidate) => candidate.parentId === surface.id)) {
       removeSurface(state, child, reason);
@@ -628,6 +646,9 @@ export const createExtensionCustomHost = ({
       frame: null,
       settle: fields.settle ?? null,
       pendingRegistered: false,
+      // Set once Close sent Esc; the timer ends the surface if it stays.
+      closing: false,
+      closeTimer: undefined,
     };
     // Through resolveOptions, so these options are the fallback if a later
     // call throws.
@@ -1150,14 +1171,68 @@ export const createExtensionCustomHost = ({
     return { accepted: true };
   };
 
-  /** The host Close button: resolve `undefined`, as Pi's Escape would not. */
+  const forceClose = (state, surface) => {
+    if (!state.surfaces.includes(surface)) return;
+    if (surface.settle) surface.settle('cancelled');
+    else removeSurface(state, surface, 'cancelled');
+  };
+
+  /**
+   * One Close step: send an Esc and wait, or, with none left (or nowhere to
+   * send one, or an Esc that threw), end the surface. The first Esc goes to
+   * the surface itself (its focused child component when it holds focus),
+   * since Close names that surface. Later ones go where a key typed at it
+   * would: an overlay the first Esc opened and focused (a confirmation)
+   * takes it, so the surface is never asked twice to open one.
+   */
+  const closeStep = (state, surface, escapesLeft) => {
+    if (!state.surfaces.includes(surface)) return;
+    const focus = state.focus;
+    const useFocus = escapesLeft === CLOSE_ESCAPES
+      ? focus?.surface === surface
+      : Boolean(focus?.surface && state.surfaces.includes(focus.surface) && isWithin(state, focus.surface, surface));
+    const target = useFocus ? focus.component : surface.component;
+    const targetSurface = useFocus ? focus.surface : surface;
+    if (escapesLeft === 0 || typeof target?.handleInput !== 'function') {
+      forceClose(state, surface);
+      return;
+    }
+    try {
+      target.handleInput('\x1b');
+    } catch (error) {
+      onError(state.sessionId, 'input', error);
+      forceClose(state, surface);
+      return;
+    }
+    if (!state.surfaces.includes(surface)) return;
+    // Pi's TUI renders after every key it hands to a component.
+    if (state.surfaces.includes(targetSurface)) scheduleRender(state, targetSurface);
+    surface.closeTimer = setTimer(() => {
+      surface.closeTimer = undefined;
+      closeStep(state, surface, escapesLeft - 1);
+    }, CLOSE_GRACE_MS);
+  };
+
+  /**
+   * The host Close button. Pi has none: components end on their own keys,
+   * and extensions that keep a handle to their overlay (pi-btw) track it
+   * open until their Esc handler runs. `custom()` has no cancel signal, so
+   * Close presses Esc for the user, whether or not the surface holds focus:
+   * once, and once more `CLOSE_GRACE_MS` later if it is still open (the
+   * first only stopped a running answer, or opened a confirmation). If it
+   * is still open `CLOSE_GRACE_MS` after that, it ends as before:
+   * `custom()` resolves `undefined` and nested overlays go with it. A second
+   * Close while it waits changes nothing; a surface that ends in the
+   * meantime takes its timer along.
+   */
   const close = ({ sessionId, surfaceId, clientId, viewport } = {}) => {
     const state = sessions.get(sessionId);
     const surface = findSurface(state, surfaceId);
     if (!surface) return { closed: false };
     recordClient(state, clientId, viewport, true);
-    if (surface.settle) surface.settle('cancelled');
-    else removeSurface(state, surface, 'cancelled');
+    if (surface.closing) return { closed: true };
+    surface.closing = true;
+    closeStep(state, surface, CLOSE_ESCAPES);
     return { closed: true };
   };
 
