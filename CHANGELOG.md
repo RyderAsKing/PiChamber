@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-- **Switching folders no longer adds "Awaiting first prompt" sessions.** Loading a folder's models, skills, and extensions started an empty Pi session for it, and the session list showed it as a new untitled session. Those sessions now stay out of the list until they hold a message or a name; a session you create still shows before its first prompt.
+- **Switching folders no longer adds "Awaiting first prompt" sessions.** Loading a folder's models, skills, and extensions started an empty Pi session for it, and the session list showed it as a new untitled session. Those sessions now stay out of the list until they hold a prompt or a name, even when an extension adds a message to them; a session you create still shows before its first prompt.
 - **Project icons are always in colour.** A project's icon and its first-letter mark now show their own colours everywhere, not only while an agent is working in the project. Sessions still show when an agent is working (`ProjectIcon`).
 
 ## [1.0.6] - 2026-11-11

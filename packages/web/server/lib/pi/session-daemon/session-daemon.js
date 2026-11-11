@@ -1484,8 +1484,11 @@ export function createSessionDaemon({
         const messageCount = entry.session.messages?.length || 0;
         // A session started only to answer this folder's catalogs is not a
         // conversation; listing it shows an "Awaiting first prompt" row on
-        // every folder switch.
-        if (implicitSessions.has(entry.session) && messageCount === 0 && !name) continue;
+        // every folder switch. What an extension adds at session_start
+        // (custom messages, shown or hidden, and appended entries) lands in
+        // every such session, so only a non-custom message or a name lists it.
+        if (implicitSessions.has(entry.session) && !name
+          && !(entry.session.messages ?? []).some((message) => message?.role !== 'custom')) continue;
         extra.push({
           id: entry.session.sessionId,
           cwd: targetDir,

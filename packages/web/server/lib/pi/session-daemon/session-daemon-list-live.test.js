@@ -343,8 +343,16 @@ describe('session daemon list live status', () => {
     expect(createdSession.error).toBeUndefined();
     expect(await ids()).toEqual([createdSession.result.session.id]);
 
+    // An extension's session_start message, shown or hidden, lands in every
+    // such session and does not make it a conversation.
+    sessions[0].messages = [
+      { role: 'custom', customType: 'greeting', content: 'hi', display: true, timestamp: 1 },
+      { role: 'custom', customType: 'state', content: '', display: false, timestamp: 1 },
+    ];
+    expect(await ids()).toEqual([createdSession.result.session.id]);
+
     // The catalog session is listed once it holds a conversation.
-    sessions[0].messages = [{ role: 'user', content: 'hello', timestamp: 1 }];
+    sessions[0].messages.push({ role: 'user', content: 'hello', timestamp: 2 });
     expect(new Set(await ids())).toEqual(new Set([sessions[0].sessionId, createdSession.result.session.id]));
   });
 
