@@ -27,6 +27,16 @@ mock.module('@/lib/desktop', () => ({
   isWebRuntime: () => false,
 }));
 
+type RuntimeChange = { runtimeKey: string; previousRuntimeKey: string };
+let runtimeChanged: ((detail: RuntimeChange) => void) | null = null;
+
+mock.module('@/lib/runtime-switch', () => ({
+  subscribeRuntimeEndpointChanged: (callback: (detail: RuntimeChange) => void) => {
+    runtimeChanged = callback;
+    return () => {};
+  },
+}));
+
 mock.module('@/lib/runtime-fetch', () => ({
   runtimeFetch: async (url: string) => {
     requestedUrls.push(url);
@@ -156,5 +166,42 @@ describe('useUpdateStore native mobile checks', () => {
     expect(state.checking).toBe(false);
     expect(state.available).toBe(false);
     expect(state.info).toMatchObject({ channel: 'stable', version: '1.1.0' });
+  });
+});
+
+describe('useUpdateStore server switches', () => {
+  beforeEach(() => {
+    requestedUrls.length = 0;
+    localDesktop = false;
+    capacitorApp = false;
+    useUpdateStore.getState().reset();
+  });
+
+  test("drops the old server's result and its check in flight, and keeps the app's", async () => {
+    await useUpdateStore.getState().checkForUpdates();
+    expect(useUpdateStore.getState().serverInfo).not.toBeNull();
+
+    let releaseOldCheck = () => {};
+    fetchGate = new Promise<void>((resolve) => {
+      releaseOldCheck = resolve;
+    });
+    const oldCheck = useUpdateStore.getState().checkForUpdates();
+    fetchGate = null;
+    runtimeChanged?.({ runtimeKey: 'server-b', previousRuntimeKey: 'server-a' });
+    releaseOldCheck();
+    expect(await oldCheck).toBeNull();
+
+    const state = useUpdateStore.getState();
+    expect(state.checking).toBe(false);
+    expect(state.serverInfo).toBeNull();
+    expect(state.lastChecked).toBeNull();
+    // The remote desktop app's own updater result is not the server's.
+    expect(state.info).toMatchObject({ currentVersion: '1.2.0' });
+  });
+
+  test('keeps results when only the route to the same server changes', async () => {
+    await useUpdateStore.getState().checkForUpdates();
+    runtimeChanged?.({ runtimeKey: 'server-a', previousRuntimeKey: 'server-a' });
+    expect(useUpdateStore.getState().serverInfo).not.toBeNull();
   });
 });

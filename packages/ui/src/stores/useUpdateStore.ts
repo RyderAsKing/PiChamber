@@ -10,6 +10,7 @@ import {
   isWebRuntime,
 } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
 import { getMobileUpdateChannel, type UpdateChannel } from '@/lib/updateChannel';
 
@@ -328,3 +329,26 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     set(initialState);
   },
 }));
+
+// Switching servers drops any check still in flight and the results that
+// described the old server. The desktop app's own result and any update it is
+// downloading belong to the app, so they stay.
+const clearServerUpdateResults = () => {
+  checkGeneration += 1;
+  const { runtimeType } = useUpdateStore.getState();
+  // A browser's only result is its server's.
+  const clientResultIsServer = runtimeType === 'web';
+  useUpdateStore.setState({
+    checking: false,
+    serverInfo: null,
+    lastChecked: null,
+    nextCheckInSec: null,
+    error: null,
+    ...(clientResultIsServer ? { info: null, available: false } : {}),
+  });
+};
+
+subscribeRuntimeEndpointChanged((detail) => {
+  if (detail.runtimeKey === detail.previousRuntimeKey) return;
+  clearServerUpdateResults();
+});
