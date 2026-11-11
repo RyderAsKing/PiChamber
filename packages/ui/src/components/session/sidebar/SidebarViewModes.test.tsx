@@ -291,6 +291,13 @@ describe('Threads and By folder shelves', () => {
     expect(projectOf(markup, 'alpha-archived')).toBe('alpha');
   });
 
+  test('a Threads search that matches only No folder sessions lists them', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'threads', sections: [], searching: true });
+    expect(sessionIds(markup)).toEqual(['home-today']);
+    expect(markup).not.toContain('data-testid="search-empty"');
+  });
+
   test('Timeline lists archived sessions by recency', () => {
     setNow(NOW);
     const markup = render({ viewMode: 'timeline', sections: [alphaWithArchived, beta] });

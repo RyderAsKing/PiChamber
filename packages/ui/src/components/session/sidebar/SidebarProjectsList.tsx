@@ -214,7 +214,8 @@ function SidebarProjectsListComponent(props: Props): React.ReactNode {
     );
   }
 
-  const hasAllFoldersOnlySection = (props.isAllFoldersView || viewMode === 'timeline' || viewMode === 'folder') && Boolean(props.allFoldersOnlySection);
+  // Views that list No folder sessions beside the folders keep rendering when only No folder has rows.
+  const hasAllFoldersOnlySection = (props.isAllFoldersView || isTimeline || isThreads || isFolder) && Boolean(props.allFoldersOnlySection);
   // Archived sessions alone still render the list, so their shelf is reachable.
   const hasArchivedOnly = archived.length > 0 && !props.hasSessionSearchQuery && !props.showOnlyMainWorkspace;
   if (props.projectSections.length === 0 && !hasAllFoldersOnlySection && !hasArchivedOnly) {
