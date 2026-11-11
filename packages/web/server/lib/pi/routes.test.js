@@ -188,6 +188,9 @@ describe('Pi runtime route', () => {
     await expect((await fetch(`${base}/api/pi/themes`)).json()).resolves.toEqual({ themes: [{ metadata: { id: 'custom' } }] });
     await expect((await fetch(`${base}/api/pi/update-check?appType=web`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'rc' });
     await expect((await fetch(`${base}/api/pi/update-check?appType=mobile-capacitor`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'stable' });
+    await expect((await fetch(`${base}/api/pi/update-check?appType=mobile-capacitor&channel=rc`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'rc' });
+    await expect((await fetch(`${base}/api/pi/update-check?appType=mobile-capacitor&channel=nightly`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'stable' });
+    await expect((await fetch(`${base}/api/pi/update-check?appType=desktop-electron&channel=rc`)).json()).resolves.toEqual({ available: false, currentVersion: '1.0.0', channel: 'stable' });
     const installResponse = await fetch(`${base}/api/pi/update-install`, { method: 'POST' });
     expect(installResponse.status).toBe(202);
     await expect(installResponse.json()).resolves.toEqual({

@@ -11,6 +11,7 @@ import {
 } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
 import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
+import { getMobileUpdateChannel, type UpdateChannel } from '@/lib/updateChannel';
 
 declare const __APP_VERSION__: string | undefined;
 
@@ -99,10 +100,16 @@ function mapRuntimeParams(runtime: ClientRuntime): URLSearchParams {
   return params;
 }
 
-async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: string): Promise<UpdateInfo | null> {
+async function checkForWebUpdates(
+  runtime: ClientRuntime,
+  currentVersion?: string,
+  channel?: UpdateChannel,
+): Promise<UpdateInfo | null> {
   try {
     const params = mapRuntimeParams(runtime);
     if (currentVersion) params.set('currentVersion', currentVersion);
+    // Only the mobile app sends a channel; the server reads its own for web checks.
+    if (channel) params.set('channel', channel);
     const response = await runtimeFetch(`/api/pi/update-check?${params.toString()}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -205,7 +212,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         // stays the app's: the app update toast keys off it.
         const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined;
         const [clientInfo, serverInfo] = await Promise.all([
-          checkForWebUpdates('mobile', appVersion),
+          checkForWebUpdates('mobile', appVersion, getMobileUpdateChannel(appVersion)),
           checkForWebUpdates('web'),
         ]);
         suggestedSec = clientInfo?.nextSuggestedCheckInSec ?? serverInfo?.nextSuggestedCheckInSec ?? null;

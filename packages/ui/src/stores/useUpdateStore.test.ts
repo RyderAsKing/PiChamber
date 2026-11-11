@@ -105,4 +105,23 @@ describe('useUpdateStore native mobile checks', () => {
     expect(serverCheck).toBeDefined();
     expect(serverCheck).not.toContain('currentVersion=');
   });
+
+  test("sends the app's own update channel, and none for the server check", async () => {
+    // Bun runs this without a DOM; the app's channel lives in localStorage.
+    const stored = new Map([['pichamber.mobileUpdateChannel', 'rc']]);
+    (globalThis as { window?: unknown }).window = {
+      localStorage: { getItem: (key: string) => stored.get(key) ?? null },
+    };
+    try {
+      await useUpdateStore.getState().checkForUpdates();
+    } finally {
+      delete (globalThis as { window?: unknown }).window;
+    }
+
+    const appCheck = requestedUrls.find((url) => url.includes('appType=mobile-capacitor'));
+    const serverCheck = requestedUrls.find((url) => url.includes('appType=web'));
+    expect(appCheck).toContain('channel=rc');
+    // The server reads its own channel for web checks.
+    expect(serverCheck).not.toContain('channel=');
+  });
 });
