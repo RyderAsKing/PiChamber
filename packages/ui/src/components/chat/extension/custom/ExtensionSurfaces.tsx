@@ -291,19 +291,31 @@ const TerminalLines: React.FC<{
  * in Pi's terminal, so an extension that asks first, or only stops work on
  * the first Esc, stays open until the next press.
  */
-const EscButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState }> = ({ sessionId, surface }) => (
-  <Button
-    type="button"
-    variant="ghost"
-    size="xs"
-    className="shrink-0 px-1.5 font-sans text-muted-foreground hover:text-foreground"
-    aria-label={`Press Esc in ${surface.title}`}
-    title="Press Esc"
-    onClick={() => void closeSurface(sessionId, surface.surfaceId)}
-  >
-    Esc
-  </Button>
-);
+const EscButton: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState }> = ({ sessionId, surface }) => {
+  const press = async (button: HTMLButtonElement) => {
+    await closeSurface(sessionId, surface.surfaceId);
+    // Pressed from the keyboard and still open: give the keys back to the
+    // surface, unless the Esc moved focus itself (a confirmation took it).
+    if (document.activeElement !== button) return;
+    const element = document.querySelector<HTMLElement>(`[data-extension-surface="${CSS.escape(surface.surfaceId)}"]`);
+    if (element && element.tabIndex >= 0) focusSurfaceElement(surface.surfaceId);
+  };
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      className="shrink-0 px-1.5 font-sans text-muted-foreground hover:text-foreground"
+      aria-label={`Press Esc in ${surface.title}`}
+      title="Press Esc"
+      // A click keeps focus (and the keys) where it is.
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={(event) => void press(event.currentTarget)}
+    >
+      Esc
+    </Button>
+  );
+};
 
 /** Asks for full frames when a missed patch left a surface stale. */
 const useRefreshStale = (sessionId: string, surfaces: PiExtensionSurfaceState[]): void => {
