@@ -201,18 +201,27 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
   {
     id: 'about.desktop-update-channel',
     page: 'about',
-    title: "Desktop app update channel",
+    title: "Desktop app channel",
     description: "Choose stable desktop releases only, or check stable releases before desktop release candidates. Switching channels does not downgrade the installed app.",
-    keywords: ['updates', 'release candidate', 'rc', 'electron', 'prerelease'],
+    keywords: ['updates', 'update channel', 'release candidate', 'rc', 'electron', 'prerelease'],
     isAvailable: (ctx) => ctx.isDesktop,
   },
   {
     id: 'about.server-update-channel',
     page: 'about',
-    title: "Server update channel",
+    title: "Server channel",
     description: "Choose stable server releases only, or check stable releases before server release candidates. Switching channels does not downgrade the installed server.",
-    keywords: ['updates', 'release candidate', 'rc', 'server', 'remote', 'prerelease'],
-    isAvailable: (ctx) => ctx.isDesktop && !ctx.isDesktopLocalOrigin,
+    keywords: ['updates', 'update channel', 'release candidate', 'rc', 'server', 'remote', 'prerelease'],
+    // Everywhere but the desktop app's built-in server, which updates with the app.
+    isAvailable: (ctx) => !(ctx.isDesktop && ctx.isDesktopLocalOrigin),
+  },
+  {
+    id: 'about.app-update-channel',
+    page: 'about',
+    title: "App channel",
+    description: "Choose stable app releases only, or include release candidates. Switching channels does not downgrade the installed app.",
+    keywords: ['updates', 'update channel', 'release candidate', 'rc', 'android', 'ios', 'mobile', 'prerelease'],
+    isAvailable: (ctx) => ctx.isCapacitor === true,
   },
   {
     id: 'general.chat-link-target',

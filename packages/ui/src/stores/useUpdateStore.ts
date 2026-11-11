@@ -10,7 +10,9 @@ import {
   isWebRuntime,
 } from '@/lib/desktop';
 import { runtimeFetch } from '@/lib/runtime-fetch';
+import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 import { getClientPlatform, isCapacitorApp } from '@/lib/platform';
+import { getMobileUpdateChannel, type UpdateChannel } from '@/lib/updateChannel';
 
 declare const __APP_VERSION__: string | undefined;
 
@@ -99,10 +101,16 @@ function mapRuntimeParams(runtime: ClientRuntime): URLSearchParams {
   return params;
 }
 
-async function checkForWebUpdates(runtime: ClientRuntime, currentVersion?: string): Promise<UpdateInfo | null> {
+async function checkForWebUpdates(
+  runtime: ClientRuntime,
+  currentVersion?: string,
+  channel?: UpdateChannel,
+): Promise<UpdateInfo | null> {
   try {
     const params = mapRuntimeParams(runtime);
     if (currentVersion) params.set('currentVersion', currentVersion);
+    // Only the mobile app sends a channel; the server reads its own for web checks.
+    if (channel) params.set('channel', channel);
     const response = await runtimeFetch(`/api/pi/update-check?${params.toString()}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
@@ -161,6 +169,10 @@ const initialState: UpdateState = {
   nextCheckInSec: null,
 };
 
+// A channel change starts a new check while an older one may still be in
+// flight; only the latest check (and nothing from before a reset) may land.
+let checkGeneration = 0;
+
 export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   ...initialState,
 
@@ -168,6 +180,8 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
     const runtime = detectRuntimeType();
     if (!runtime) return null;
 
+    const generation = ++checkGeneration;
+    const isCurrent = () => generation === checkGeneration;
     set({ checking: true, error: null, runtimeType: runtime });
 
     try {
@@ -183,6 +197,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
             ? checkForWebUpdates('web')
             : checkForWebUpdates('desktop', appVersion),
         ]);
+        if (!isCurrent()) return null;
         const desktopInfo = desktopResult.status === 'fulfilled' ? desktopResult.value : null;
         const apiInfo = apiResult.status === 'fulfilled' ? apiResult.value : null;
         suggestedSec = apiInfo?.nextSuggestedCheckInSec ?? null;
@@ -205,9 +220,10 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         // stays the app's: the app update toast keys off it.
         const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined;
         const [clientInfo, serverInfo] = await Promise.all([
-          checkForWebUpdates('mobile', appVersion),
+          checkForWebUpdates('mobile', appVersion, getMobileUpdateChannel(appVersion)),
           checkForWebUpdates('web'),
         ]);
+        if (!isCurrent()) return null;
         suggestedSec = clientInfo?.nextSuggestedCheckInSec ?? serverInfo?.nextSuggestedCheckInSec ?? null;
         set({
           checking: false,
@@ -220,6 +236,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
         return suggestedSec;
       }
 
+      if (!isCurrent()) return null;
       set({
         checking: false,
         available: info?.available ?? false,
@@ -230,6 +247,7 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
       });
       return suggestedSec;
     } catch (error) {
+      if (!isCurrent()) return null;
       set({
         checking: false,
         error: error instanceof Error ? error.message : 'Failed to check for updates',
@@ -307,6 +325,30 @@ export const useUpdateStore = create<UpdateStore>()((set, get) => ({
   },
 
   reset: () => {
+    checkGeneration += 1;
     set(initialState);
   },
 }));
+
+// Switching servers drops any check still in flight and the results that
+// described the old server. The desktop app's own result and any update it is
+// downloading belong to the app, so they stay.
+const clearServerUpdateResults = () => {
+  checkGeneration += 1;
+  const { runtimeType } = useUpdateStore.getState();
+  // A browser's only result is its server's.
+  const clientResultIsServer = runtimeType === 'web';
+  useUpdateStore.setState({
+    checking: false,
+    serverInfo: null,
+    lastChecked: null,
+    nextCheckInSec: null,
+    error: null,
+    ...(clientResultIsServer ? { info: null, available: false } : {}),
+  });
+};
+
+subscribeRuntimeEndpointChanged((detail) => {
+  if (detail.runtimeKey === detail.previousRuntimeKey) return;
+  clearServerUpdateResults();
+});
