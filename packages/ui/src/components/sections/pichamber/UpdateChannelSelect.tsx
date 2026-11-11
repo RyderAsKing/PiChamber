@@ -6,6 +6,7 @@ import {
 } from '@/components/sections/shared/SettingsSection';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { parseUpdateChannel, type UpdateChannel } from '@/lib/updateChannel';
+import { cn } from '@/lib/utils';
 
 const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   stable: 'Stable',
@@ -17,11 +18,12 @@ export const UpdateChannelSelect: React.FC<{
   disabled: boolean;
   label: string;
   onChange: (channel: string) => void;
-}> = ({ channel, disabled, label, onChange }) => (
+  className?: string;
+}> = ({ channel, disabled, label, onChange, className }) => (
   <Select value={channel} onValueChange={onChange} disabled={disabled}>
     <SelectTrigger
       size={SETTINGS_SELECT_SIZE}
-      className={SETTINGS_SELECT_ROW_TRIGGER_CLASS}
+      className={cn(SETTINGS_SELECT_ROW_TRIGGER_CLASS, className)}
       aria-label={label}
     >
       <SelectValue>{(value) => UPDATE_CHANNEL_LABELS[parseUpdateChannel(value)]}</SelectValue>

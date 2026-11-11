@@ -30,6 +30,15 @@ declare const __APP_VERSION__: string | undefined;
 
 const APP_VERSION = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : undefined;
 
+// Channel rows keep the label beside the select at every width, so a phone
+// reads them like desktop instead of stacking a short select under its label.
+const CHANNEL_ROW_LAYOUT = {
+  className: 'flex-row items-center justify-between gap-3',
+  labelClassName: '@xl:w-auto',
+  controlClassName: 'flex-none justify-end',
+} as const;
+const CHANNEL_SELECT_CLASS = 'w-44 min-w-0 max-w-none';
+
 /** The connected server's address when the client has one; a same-origin browser has none. */
 const getServerAddress = (): string | null => {
   const runtimeUrl = getRuntimeApiBaseUrl().trim();
@@ -37,7 +46,9 @@ const getServerAddress = (): string | null => {
 };
 
 type ClientChannelTarget = {
+  /** Visible label; the Updates heading already says what the channel is for. */
   label: string;
+  ariaLabel: string;
   info: string;
   settingsItem: string;
   load: () => Promise<UpdateChannel>;
@@ -45,7 +56,8 @@ type ClientChannelTarget = {
 };
 
 const DESKTOP_APP_CHANNEL: ClientChannelTarget = {
-  label: 'Desktop app update channel',
+  label: 'Desktop app channel',
+  ariaLabel: 'Desktop app update channel',
   info: 'Stable receives production desktop releases only. Release candidate offers the highest available version across stable and desktop RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC.',
   settingsItem: 'about.desktop-update-channel',
   load: getDesktopUpdateChannel,
@@ -54,7 +66,8 @@ const DESKTOP_APP_CHANNEL: ClientChannelTarget = {
 
 // The Android and iOS app keeps its channel on the device (see lib/updateChannel).
 const MOBILE_APP_CHANNEL: ClientChannelTarget = {
-  label: 'App update channel',
+  label: 'App channel',
+  ariaLabel: 'App update channel',
   info: 'Stable receives production app releases only. Release candidate offers the highest available version across stable and app RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC.',
   settingsItem: 'about.app-update-channel',
   load: async () => getMobileUpdateChannel(APP_VERSION),
@@ -127,7 +140,7 @@ export const UpdateChannelSettings: React.FC = () => {
         }
       })
       .catch((error) => {
-        if (!cancelled) setClientError(error instanceof Error ? error.message : `Unable to load the ${clientTarget.label.toLowerCase()}.`);
+        if (!cancelled) setClientError(error instanceof Error ? error.message : `Unable to load the ${clientTarget.ariaLabel.toLowerCase()}.`);
       })
       .finally(() => {
         if (!cancelled) setClientLoading(false);
@@ -155,7 +168,7 @@ export const UpdateChannelSettings: React.FC = () => {
       })
       .catch((error) => {
         setClientChannel(previous);
-        setClientError(error instanceof Error ? error.message : `Unable to save the ${clientTarget.label.toLowerCase()}.`);
+        setClientError(error instanceof Error ? error.message : `Unable to save the ${clientTarget.ariaLabel.toLowerCase()}.`);
       })
       .finally(() => setClientSaving(false));
   };
@@ -172,13 +185,13 @@ export const UpdateChannelSettings: React.FC = () => {
           info={clientTarget.info}
           description={clientError ? <span className="text-[var(--status-error)]">{clientError}</span> : undefined}
           settingsItem={clientTarget.settingsItem}
-          labelClassName="@xl:w-auto"
-          controlClassName="@xl:flex-1"
+          {...CHANNEL_ROW_LAYOUT}
         >
           <UpdateChannelSelect
+            className={CHANNEL_SELECT_CLASS}
             channel={clientChannel}
             disabled={clientLoading || clientSaving}
-            label={clientTarget.label}
+            label={clientTarget.ariaLabel}
             onChange={changeClientChannel}
           />
         </SettingsFieldRow>
@@ -188,17 +201,17 @@ export const UpdateChannelSettings: React.FC = () => {
         <SettingsFieldRow
           label={(
             <span className="@xl:whitespace-nowrap">
-              Server update channel
+              Server channel
               {serverIdentity ? <span className="font-normal text-muted-foreground"> · {serverIdentity}</span> : null}
             </span>
           )}
           info="Stable receives production server releases only. Release candidate offers the highest available version across stable and server RC builds. Switching to Stable changes future update eligibility and does not downgrade an installed RC."
           description={server.error ? <span className="text-[var(--status-error)]">{server.error}</span> : undefined}
           settingsItem="about.server-update-channel"
-          labelClassName="@xl:w-auto"
-          controlClassName="@xl:flex-1"
+          {...CHANNEL_ROW_LAYOUT}
         >
           <UpdateChannelSelect
+            className={CHANNEL_SELECT_CLASS}
             channel={server.channel}
             disabled={server.loading || server.saving}
             label={serverChannelLabel}

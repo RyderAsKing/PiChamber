@@ -129,11 +129,13 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
     <>
       <SettingsSection divider={false}>
         <div className="rounded-lg bg-[var(--surface-elevated)]/70 overflow-hidden flex flex-col">
-        <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
-          <div className="flex min-w-0 flex-col">
+        {/* One line at every width: the version and its status on the left,
+            the actions on the right, so a phone reads it like desktop. */}
+        <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40">
+          <div className="flex min-w-0 flex-col gap-0.5">
             <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Version"}</span>
             {hasSeparateServer ? (
-              <div className="flex flex-wrap items-center gap-2 typography-meta text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-x-2 typography-meta text-muted-foreground">
                 <AboutVersionTarget
                   label="Client"
                   version={clientVersion}
@@ -151,16 +153,19 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
             ) : (
               <span className="typography-meta text-muted-foreground font-mono">{currentVersion}</span>
             )}
+            {isChecking ? (
+              <span className="flex items-center gap-1.5 typography-meta text-muted-foreground">
+                <Icon name="loader" className="size-3.5 animate-spin" aria-hidden="true" />
+                {"Checking..."}
+              </span>
+            ) : hasSeparateServer && anyUpdateAvailable ? (
+              <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
+            ) : !anyUpdateAvailable && !updateStore.error ? (
+              <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
+            ) : null}
           </div>
-          
-          <div className="flex items-center gap-3">
-            {isChecking && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Icon name="loader" className="h-4 w-4 animate-spin" />
-                <span className="typography-meta">{"Checking..."}</span>
-              </div>
-            )}
 
+          <div className="flex shrink-0 flex-col items-end gap-2 @xl:flex-row @xl:items-center">
             {!isChecking && !hasSeparateServer && updateStore.available && (
               <Button size="sm"
                 variant="default"
@@ -169,14 +174,6 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
                 <Icon name="download" className="h-4 w-4 mr-1" />
                 {`Update to ${updateStore.info?.version || ''}`}
               </Button>
-            )}
-
-            {!isChecking && hasSeparateServer && anyUpdateAvailable && (
-              <span className="typography-meta text-[var(--primary-base)]">{"Updates available"}</span>
-            )}
-
-            {!isChecking && !anyUpdateAvailable && !updateStore.error && (
-              <span className="typography-meta text-muted-foreground">{"Up to date"}</span>
             )}
 
             <Button size="sm"
@@ -195,9 +192,10 @@ export const AboutSettings: React.FC<AboutSettingsProps> = ({ initialUpdateDialo
           </div>
         )}
 
-        <div className="flex flex-col gap-2 border-b border-border/40 px-4 py-3 @xl:flex-row @xl:items-center @xl:justify-between">
+        {/* Label and addresses share a line, wrapping only when an address doesn't fit. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border/40 px-4 py-3">
           <span className={SETTINGS_FIELD_LABEL_CLASS}>{"Instance URLs"}</span>
-          <InstanceServiceUrls />
+          <InstanceServiceUrls className="min-w-0 justify-end" />
         </div>
 
         <div className="flex items-center gap-4 px-4 py-4">
@@ -277,7 +275,7 @@ const AboutVersionTarget: React.FC<AboutVersionTargetProps> = ({
 
 const AboutDetails: React.FC = () => (
   <>
-    <SettingsSection title="What is PiChamber" divider={false}>
+    <SettingsSection title="What is PiChamber">
       <div className="max-w-2xl space-y-3 typography-ui text-muted-foreground">
         <p>
           PiChamber is an open-source workspace for running and supervising Pi Coding Agent
