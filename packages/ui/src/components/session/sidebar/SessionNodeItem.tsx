@@ -587,11 +587,8 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                       // they are put away. By folder titles stay full strength
                       // too, so the work outranks the folder headers above it.
                       className={cn(
-                        // A card's title may take a second line before it truncates, so
-                        // similar titles keep the words that tell them apart; By folder
-                        // rows stay one line.
-                        'min-w-0 flex-1 typography-ui-label',
-                        isTree ? 'block truncate' : 'line-clamp-2 text-pretty [overflow-wrap:anywhere]',
+                        // One line in every view; a long title truncates.
+                        'block min-w-0 flex-1 truncate typography-ui-label',
                         isActive ? 'font-medium text-foreground' : 'font-normal',
                         !isActive && (isPutAway ? 'text-muted-foreground group-hover:text-foreground' : 'text-foreground'),
                       )}

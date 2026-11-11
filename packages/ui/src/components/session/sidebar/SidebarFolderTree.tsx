@@ -25,7 +25,8 @@ import type { SessionShelves } from './sessionShelves';
 import { SessionShelfRowContext, type SessionShelfRowState } from './sessionShelfRowContext';
 import { SessionShelfStack, type ShelfId, type ThreadsListItem } from './SidebarThreadsList';
 
-const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed'];
+const NO_ARCHIVED: readonly ThreadsListItem[] = [];
+const FOLDER_SHELVES: readonly ShelfId[] = ['snoozed', 'archived'];
 
 /**
  * Takes pinned and snoozed sessions out of their folders; they show
@@ -53,6 +54,8 @@ interface SidebarFolderTreeProps {
   /** Shelf partition. While searching it only feeds row menus (Archive, Snooze,
    *  Wake); every match stays in its folder and no shelf sections render. */
   shelves?: SessionShelves<ThreadsListItem> | null;
+  /** Archived sessions, newest first; empty while searching, when they show in place. */
+  archived?: readonly ThreadsListItem[];
   sections: ProjectSection[];
   homeSection?: ProjectSection | null;
   homeDirectory: string | null;
@@ -100,6 +103,7 @@ interface SidebarFolderTreeProps {
 
 const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   shelves: allShelves = null,
+  archived = NO_ARCHIVED,
   sections: allSections,
   homeSection: allHomeSection,
   homeDirectory,
@@ -150,7 +154,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
     () => (allShelves ? { sectionById: allShelves.sectionById, wokeIds: allShelves.wokeIds } : null),
     [allShelves],
   );
-  // Pinned and Snoozed mix folders, so their rows are cards that
+  // Pinned, Snoozed and Archived mix folders, so their rows are cards that
   // name the folder, as in Threads.
   const renderShelfItem = (item: ThreadsListItem) => (
     <React.Fragment key={item.node.session.id}>
@@ -204,7 +208,7 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
   const remainingHomeCount = allHomeSessions.length - visibleHomeSessions.length;
   const isHomeCollapsed = hasSessionSearchQuery ? false : collapsedProjects.has('__home__');
 
-  if (sections.length === 0 && !homeSection) {
+  if (sections.length === 0 && !homeSection && !(shelves && archived.length > 0)) {
     return hasSessionSearchQuery ? searchEmptyState : emptyState;
   }
 
@@ -386,9 +390,10 @@ const SidebarFolderTreeComponent: React.FC<SidebarFolderTreeProps> = ({
         <SessionRowVariantContext.Provider value="card">
           <SessionShelfStack
             shelfIds={FOLDER_SHELVES}
-            shelves={shelves}
+            shelves={{ snoozed: shelves.snoozed, archived }}
             renderItem={renderShelfItem}
             hasSessionSearchQuery={hasSessionSearchQuery}
+            mobileVariant={mobileVariant}
             className="mt-auto border-t border-border pt-1"
           />
         </SessionRowVariantContext.Provider>

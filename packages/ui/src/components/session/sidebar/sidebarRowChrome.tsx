@@ -46,7 +46,7 @@ export const SidebarSessionLikeButton = ({
 // Every section label shares one role: label size, semibold, muted. The
 // weight sets it apart from row metadata at the same tone, and a plain heading
 // (Recent, Today) and a shelf toggle (Snoozed) read as peers.
-const sectionHeadingClassName = 'select-none px-3 pb-1 typography-ui-label font-semibold text-muted-foreground';
+const sectionHeadingClassName = 'select-none px-3 pb-1 typography-ui-label font-medium text-muted-foreground';
 
 /**
  * Small heading above a run of session rows: Timeline's date buckets and the
@@ -87,7 +87,7 @@ export const SidebarSectionHeading = ({
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
-        className="group/heading flex h-7 w-full select-none items-center gap-1.5 rounded-md px-3 text-left typography-ui-label font-semibold text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+        className="group/heading flex h-7 w-full select-none items-center gap-1.5 rounded-md px-3 text-left typography-ui-label font-medium text-muted-foreground transition-colors hover:bg-interactive-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
       >
         {label}
         {countLabel}

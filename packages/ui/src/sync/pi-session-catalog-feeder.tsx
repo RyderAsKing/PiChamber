@@ -30,6 +30,7 @@ import { useProjectsStore } from '@/stores/useProjectsStore';
 import { buildKnownSessionDirectories } from '@/sync/known-session-directories';
 import { buildAvailableWorktreesByProject, useWorktreeStore } from '@/stores/useWorktreeStore';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
+import { isDesktopLocalOriginActive } from '@/lib/desktop';
 import { normalizePath } from '@/lib/pathNormalization';
 import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 
@@ -44,7 +45,10 @@ const collectProjectDirectories = (): string[] => {
     const homeCandidates: Array<string | null | undefined> = [
       useDirectoryStore.getState().homeDirectory,
       getDeferredSafeStorage().getItem('homeDirectory'),
-      typeof window !== 'undefined' ? (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__ : null,
+      // Only the desktop app's built-in server shares the app's own home.
+      typeof window !== 'undefined' && isDesktopLocalOriginActive()
+        ? (window as unknown as { __PICHAMBER_HOME__?: string }).__PICHAMBER_HOME__
+        : null,
     ];
     const seen = new Set(base.map((entry) => normalizePath(entry)?.toLowerCase() ?? entry));
     for (const candidate of homeCandidates) {
@@ -120,12 +124,18 @@ export const PiSessionCatalogFeeder: React.FC = () => {
     refresh();
     const unsubscribeProjects = useProjectsStore.subscribe(refresh);
     const unsubscribeWorktrees = useWorktreeStore.subscribe(refresh);
+    // A remote server's home arrives after mount (the desktop app's own home
+    // is used only on its built-in server), so list it once it is known.
+    const unsubscribeHome = useDirectoryStore.subscribe((state, previous) => {
+      if (state.homeDirectory && state.homeDirectory !== previous.homeDirectory) refresh();
+    });
     const unsubscribePi = store.subscribe(refresh, 'chrome');
 
     return () => {
       cancelled = true;
       unsubscribeProjects();
       unsubscribeWorktrees();
+      unsubscribeHome();
       unsubscribePi();
     };
   }, []);

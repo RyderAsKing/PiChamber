@@ -43,6 +43,7 @@ const invalidArgument = (createError, message) => {
  * @param {{
  *   getRegistry: () => ({ size: number } | undefined),
  *   resolveDirectory: (requested: unknown) => Promise<string>,
+ *   resolveSessionStoreDirectory?: (requested: unknown) => Promise<string>,
  *   sessionInput: (payload: object, delivery?: string, execute?: (payload: object) => Promise<object>) => Promise<object>,
  *   redact: (value: unknown) => unknown,
  *   createError: (code: string, message: string) => Error,
@@ -60,6 +61,8 @@ const invalidArgument = (createError, message) => {
 export const createSessionEngineRouter = ({
   getRegistry,
   resolveDirectory,
+  // Deleting reads the session store, so a removed folder still resolves.
+  resolveSessionStoreDirectory = resolveDirectory,
   sessionInput,
   redact,
   createError,
@@ -228,8 +231,9 @@ export const createSessionEngineRouter = ({
         if (owner) {
           const payload = message.payload ?? {};
           const requestedDir = payload.directory || payload.cwd;
+          const resolve = message.command === 'sessions.delete' ? resolveSessionStoreDirectory : resolveDirectory;
           const enginePayload = requestedDir !== undefined
-            ? { ...payload, directory: await resolveDirectory(requestedDir) }
+            ? { ...payload, directory: await resolve(requestedDir) }
             : payload;
           if (PROMPT_COMMANDS.has(message.command)) {
             const delivery = deliveryOf(message.command);

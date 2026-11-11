@@ -7,6 +7,8 @@ import { SidebarProjectsList, type ProjectSection } from './SidebarProjectsList'
 import { getTimelineBoundaries } from './timelineBuckets';
 import type { SessionGroup, SessionNode } from './types';
 import { SessionShelfRowContext } from './sessionShelfRowContext';
+import type { ThreadsListItem } from './SidebarThreadsList';
+import { getDeferredSafeStorage } from '@/stores/utils/safeStorage';
 
 // One dataset rendered through every sidebar view: switching the view changes
 // the arrangement only, and a folder or session that disappears from the data
@@ -52,6 +54,7 @@ type RenderOptions = {
   homeSection?: ProjectSection | null;
   collapsed?: string[];
   searching?: boolean;
+  archivedShelfItems?: ThreadsListItem[];
 };
 
 // A folder row as SessionNodeItem sees it: the shelf its menu acts on, read
@@ -61,7 +64,7 @@ const FolderRow: React.FC<{ id: string; projectId: string }> = ({ id, projectId 
   return React.createElement('span', { 'data-session-id': id, 'data-project-id': projectId, 'data-row-shelf': shelfSection });
 };
 
-const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [], searching = false }: RenderOptions): string => {
+const render = ({ viewMode, sections, selected = null, homeSection = home, collapsed = [], searching = false, archivedShelfItems }: RenderOptions): string => {
   const workspace = viewMode === undefined || viewMode === 'workspace';
   return renderToStaticMarkup(
     React.createElement(TooltipProvider, null, React.createElement(SidebarProjectsList, {
@@ -76,6 +79,7 @@ const render = ({ viewMode, sections, selected = null, homeSection = home, colla
       activeProjectId: selected?.project.id ?? null,
       showOnlyMainWorkspace: false,
       hasSessionSearchQuery: searching,
+      archivedShelfItems,
       emptyState: React.createElement('div', { 'data-testid': 'empty' }),
       searchEmptyState: React.createElement('div', { 'data-testid': 'search-empty' }),
       renderSessionNode: (node, _depth, _directory, projectId, _archived, secondaryMeta) =>
@@ -287,9 +291,71 @@ describe('Threads and By folder shelves', () => {
     expect(projectOf(markup, 'alpha-archived')).toBe('alpha');
   });
 
+  test('a Threads search that matches only No folder sessions lists them', () => {
+    setNow(NOW);
+    const markup = render({ viewMode: 'threads', sections: [], searching: true });
+    expect(sessionIds(markup)).toEqual(['home-today']);
+    expect(markup).not.toContain('data-testid="search-empty"');
+  });
+
   test('Timeline lists archived sessions by recency', () => {
     setNow(NOW);
     const markup = render({ viewMode: 'timeline', sections: [alphaWithArchived, beta] });
     expect(sessionIds(markup).slice(0, 2)).toEqual(['alpha-archived', 'alpha-today']);
+  });
+});
+
+describe('Archived shelf', () => {
+  const EXPANDED_KEY = 'oc.sidebar.shelves.expanded';
+  afterEach(() => {
+    getDeferredSafeStorage().removeItem(EXPANDED_KEY);
+  });
+
+  const archivedItem = (id: string, archivedAt: number): ThreadsListItem => {
+    const node = makeNode(id, '/work/alpha', archivedAt - HOUR);
+    node.session = { ...node.session, time: { ...node.session.time, archived: archivedAt } } as SessionNode['session'];
+    return { node, project: alpha.project, projectLabel: 'Alpha', isPinned: false, timestamp: archivedAt, globalSession: false };
+  };
+  const archivedItems = Array.from({ length: 12 }, (_, index) => archivedItem(`archived-${index}`, NOW - index * HOUR));
+
+  for (const viewMode of ['threads', 'folder', 'workspace'] as const) {
+    test(`${viewMode} ends with a collapsed Archived shelf that counts its sessions`, () => {
+      const markup = render({ viewMode, sections: [alpha, beta], archivedShelfItems: archivedItems });
+      expect(markup).toContain('data-session-shelf="archived"');
+      expect(markup).toContain('Archived');
+      expect(markup).toContain('>12<');
+      expect(sessionIds(markup).some((id) => id.startsWith('archived-'))).toBe(false);
+      // Nothing follows the shelf: it is the last section of the list.
+      expect(markup.indexOf('data-session-shelf="archived"')).toBeGreaterThan(markup.lastIndexOf('data-session-id="'));
+    });
+  }
+
+  test('an open Archived shelf shows its first page, newest first, then offers the rest', () => {
+    getDeferredSafeStorage().setItem(EXPANDED_KEY, JSON.stringify(['archived']));
+    const markup = render({ viewMode: 'threads', sections: [alpha, beta], archivedShelfItems: archivedItems });
+    const shown = sessionIds(markup).filter((id) => id.startsWith('archived-'));
+    expect(shown).toEqual(archivedItems.slice(0, 10).map((item) => item.node.session.id));
+    expect(markup).toContain('Show 2 more');
+  });
+
+  test('Timeline and a search have no Archived shelf', () => {
+    expect(render({ viewMode: 'timeline', sections: [alpha, beta], archivedShelfItems: archivedItems }))
+      .not.toContain('data-session-shelf="archived"');
+    expect(render({ viewMode: 'workspace', sections: [alpha, beta], archivedShelfItems: archivedItems, searching: true }))
+      .not.toContain('data-session-shelf="archived"');
+  });
+
+  for (const viewMode of ['threads', 'folder', 'workspace'] as const) {
+    test(`${viewMode} with no folders and only archived sessions still offers the shelf`, () => {
+      const markup = render({ viewMode, sections: [], homeSection: null, archivedShelfItems: archivedItems });
+      expect(markup).toContain('data-session-shelf="archived"');
+    });
+  }
+
+  test('Threads whose every session is archived shows the shelf instead of the empty state', () => {
+    const emptied = makeSection('alpha', 'Alpha', []);
+    const markup = render({ viewMode: 'threads', sections: [emptied], homeSection: null, archivedShelfItems: archivedItems });
+    expect(markup).toContain('data-session-shelf="archived"');
+    expect(markup).not.toContain('data-testid="empty"');
   });
 });

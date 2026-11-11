@@ -544,6 +544,26 @@ export function createSessionDaemon({
     return activeDirectory || cwd;
   };
 
+  // Listing or deleting a folder's sessions reads Pi's session store, not the
+  // folder, so a folder that has since been removed still resolves: its
+  // sessions stay listable, archivable, and deletable. A path that exists must
+  // still be a directory, and opening or creating a session keeps the strict
+  // check in `resolveDirectory`.
+  const resolveSessionStoreDirectory = async (requested) => {
+    if (typeof requested !== 'string' || requested.trim().length === 0) return activeDirectory || cwd;
+    const trimmed = requested.trim();
+    const normalized = trimmed === '~' ? homedir() : trimmed;
+    if (!isAbsolute(normalized)) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The directory path must be absolute.');
+    }
+    try {
+      await stat(normalized);
+    } catch (error) {
+      if (error?.code === 'ENOENT') return normalized;
+    }
+    return resolveDirectory(normalized);
+  };
+
   const deriveSessionTitle = (text, maxLength = 50) => {
     if (!text || typeof text !== 'string') return '';
     const cleaned = text
@@ -1499,7 +1519,7 @@ export function createSessionDaemon({
   };
 
   const listSessionItems = async (requestedDirectory) => {
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const targetDir = await resolveSessionStoreDirectory(requestedDirectory);
     const inflight = listInflightByDirectory.get(targetDir);
     if (inflight) return inflight;
     const pending = listSessionItemsUnshared(targetDir).finally(() => {
@@ -1541,15 +1561,18 @@ export function createSessionDaemon({
     publish('session.updated', { title: redactAttachmentPaths(title) }, sessionId, targetDir);
   };
 
-  const findPersistedSession = async (sessionId, requestedDirectory) => {
+  // Deletion passes `allowRemovedDirectory`: a session whose folder has since
+  // been removed is still found in the store. Opening keeps the strict check.
+  const findPersistedSession = async (sessionId, requestedDirectory, { allowRemovedDirectory = false } = {}) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
+    const resolve = allowRemovedDirectory ? resolveSessionStoreDirectory : resolveDirectory;
     const candidateDirs = new Set();
     let requestedTargetDirectory;
     if (requestedDirectory) {
       try {
-        requestedTargetDirectory = await resolveDirectory(requestedDirectory);
+        requestedTargetDirectory = await resolve(requestedDirectory);
         candidateDirs.add(requestedTargetDirectory);
       } catch {}
     }
@@ -1587,8 +1610,9 @@ export function createSessionDaemon({
       const named = await findPiSessionJsonlById({ sessionId, agentDir });
       if (named?.path && named.cwd) {
         await validatePiSessionJsonlFile(named.path);
-        const directory = await resolveDirectory(named.cwd);
-        knownDirectories.add(directory);
+        // `resolveDirectory` records an existing folder as known; a removed
+        // one is never added.
+        const directory = await resolve(named.cwd);
         return { target: { id: sessionId, path: named.path }, directory };
       }
     } catch {
@@ -1629,8 +1653,7 @@ export function createSessionDaemon({
             lines.close();
             if (fileId === sessionId && sessionCwd) {
               await validatePiSessionJsonlFile(fullPath);
-              const validated = await resolveDirectory(sessionCwd);
-              knownDirectories.add(validated);
+              const validated = await resolve(sessionCwd);
               return { target: { id: sessionId, path: fullPath }, directory: validated };
             }
           } catch {}
@@ -3793,7 +3816,7 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('RUNTIME_DISPOSAL_FAILED', 'The Pi session runtime could not be disposed.');
       }
       const active = runtimeRegistry?.findBySessionId(sessionId);
-      let targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+      let targetDir = requestedDirectory ? await resolveSessionStoreDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
       const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
       if (active) {
         if (active.session?.isStreaming) await active.session.abort();
@@ -3804,7 +3827,7 @@ export function createSessionDaemon({
       if (active && typeof activeSessionFile === 'string' && activeSessionFile.length > 0) {
         await rm(activeSessionFile, { force: true });
       } else if (!active) {
-        const { target, directory } = await findPersistedSession(sessionId, targetDir);
+        const { target, directory } = await findPersistedSession(sessionId, targetDir, { allowRemovedDirectory: true });
         targetDir = directory;
         await acquireResidentLease({ cwd: targetDir, sessionId });
         try {
@@ -4281,6 +4304,7 @@ export function createSessionDaemon({
   const engineRouter = createSessionEngineRouter({
     getRegistry: () => engineRegistry,
     resolveDirectory,
+    resolveSessionStoreDirectory,
     sessionInput,
     redact: (value) => redactAttachmentValues(value),
     createError: (code, message) => new SessionDaemonProtocolError(code, message),
@@ -4677,7 +4701,7 @@ export function createSessionDaemon({
           return;
         }
         const listDir = message.payload?.directory || message.payload?.cwd;
-        const listTargetDir = listDir ? await resolveDirectory(listDir) : (activeDirectory || cwd);
+        const listTargetDir = await resolveSessionStoreDirectory(listDir);
         const merged = await engineRouter.mergeSessionList(sessions, listTargetDir);
         writeFrame(socket, {
           protocolVersion: PROTOCOL_VERSION,

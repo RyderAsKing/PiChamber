@@ -167,7 +167,7 @@ export const SessionRetentionSettings: React.FC = () => {
     <SettingsSection
       title={"Archive and delete"}
       contentClassName="space-y-4"
-      info={"Archived sessions leave Workspace, By folder, and Threads. Search and Timeline still show them, and sending a message brings one back."}
+      info={"Archived sessions move to the Archived section at the bottom of the sidebar. Search and Timeline show them in place, and sending a message brings one back."}
     >
       <ArchiveAndDeleteFields
         archiveAfterDays={archiveAfterDays}
