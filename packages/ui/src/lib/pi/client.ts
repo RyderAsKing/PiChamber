@@ -1207,8 +1207,9 @@ export class PiService {
         method: 'POST',
         body,
         // Keys are not idempotent: a batch the daemon handled but whose reply
-        // was lost must not be sent again. Failed keys are dropped.
-        ...(action === 'input' ? { retry: false } : {}),
+        // was lost must not be sent again. Failed keys are dropped. `close`
+        // is the Esc button, one Esc per press, so it is a key too.
+        ...(action === 'input' || action === 'close' ? { retry: false } : {}),
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );

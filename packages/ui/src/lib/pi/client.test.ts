@@ -497,7 +497,7 @@ describe("send retry safety", () => {
     expect(attempt).toBe(2)
   })
 
-  test("custom-surface key input is attempted once; other surface actions retry", async () => {
+  test("custom-surface keys and the Esc button are attempted once; other surface actions retry", async () => {
     let attempt = 0
     installFetchMock(() => {
       attempt += 1
@@ -505,6 +505,11 @@ describe("send retry safety", () => {
     })
     const client = new PiService()
     await expect(client.sendExtensionSurface("input", { sessionId: "s1", surfaceId: "x", items: ["\r"] })).rejects.toThrow()
+    expect(attempt).toBe(1)
+
+    // `close` presses Esc: a retry after a lost reply would press it twice.
+    attempt = 0
+    await expect(client.sendExtensionSurface("close", { sessionId: "s1", surfaceId: "x" })).rejects.toThrow()
     expect(attempt).toBe(1)
 
     attempt = 0
