@@ -92,24 +92,50 @@ export const parsePlainAuthStatus = (text) => {
 };
 
 const parseJsonAuthStatus = (text) => {
-  // Newer `gh auth status --json hosts` shapes:
-  // `{ "hosts": { "github.com": { "user": "...", "token": "...", ... } } }`
-  // or `{ "hosts": [ { "hostname": "...", "user": "..." } ] }`.
+  // `gh auth status --json hosts` shapes seen in the wild:
+  // `{ "hosts": { "github.com": [ { "login": "...", "state": "success", ... } ] } }`
+  // (current gh), a flat `{ "hosts": { "github.com": { ... } } }`, and
+  // `{ "hosts": [ { "hostname": "...", "user": "..." } ] }`.
   const parsed = JSON.parse(String(text || ''));
   const raw = parsed?.hosts;
-  const entries = Array.isArray(raw)
-    ? raw
-    : (raw && typeof raw === 'object' ? Object.entries(raw).map(([hostname, info]) => ({ hostname, ...(info || {}) })) : []);
+  const entries = [];
+  const push = (hostname, info) => {
+    // A host maps to every account signed in there. The module follows gh's
+    // active account, so keep that one (or the first, if none is marked).
+    const accounts = (Array.isArray(info) ? info : [info])
+      .filter((account) => account && typeof account === 'object');
+    const account = accounts.find((candidate) => candidate.active === true) || accounts[0];
+    if (account) entries.push({ hostname, ...account });
+  };
+  if (Array.isArray(raw)) {
+    for (const info of raw) push(info?.hostname || info?.host, info);
+  } else if (raw && typeof raw === 'object') {
+    for (const [hostname, info] of Object.entries(raw)) push(hostname, info);
+  }
   const hosts = [];
   for (const entry of entries) {
     const host = String(entry.hostname || entry.host || '').trim().toLowerCase();
     if (!host) continue;
-    const login = typeof entry.user === 'string' && entry.user ? entry.user : null;
+    const login = [entry.login, entry.user].find((value) => typeof value === 'string' && value) || null;
+    // `scopes` is a comma-separated string on current gh; older shapes used an array.
+    const rawScopes = entry.tokenScopes ?? entry.scopes;
+    const scopes = Array.isArray(rawScopes)
+      ? rawScopes.filter((scope) => typeof scope === 'string')
+      : (typeof rawScopes === 'string'
+        ? rawScopes.split(',').map((scope) => scope.trim()).filter(Boolean)
+        : []);
+    // `state` is the verdict. A record for a rejected token still carries
+    // `active: true` (and can carry a login), so neither proves the token
+    // works: `gh` exits successfully in JSON mode and the error is only in
+    // `state`. Shapes without `state` fall back to the legacy predicate.
+    const authenticated = typeof entry.state === 'string'
+      ? entry.state === 'success'
+      : Boolean(login || entry.active === true);
     hosts.push({
       host,
-      authenticated: Boolean(login || entry.active === true),
+      authenticated,
       login,
-      scopes: Array.isArray(entry.tokenScopes) ? entry.tokenScopes.filter((scope) => typeof scope === 'string') : [],
+      scopes,
     });
   }
   return hosts;

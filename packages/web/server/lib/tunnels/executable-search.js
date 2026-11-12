@@ -93,8 +93,12 @@ export function findExecutableOnPath(command, {
 
   const pathApi = platform === 'win32' ? path.win32 : path;
   const directories = getExecutableSearchDirectories({ env, platform });
-  const extensions = getExecutableExtensions({ env, platform });
   const commandName = command.trim();
+  // A caller that already spelled the extension (`gh.exe`) must not have
+  // PATHEXT appended again: that searched for `gh.exe.com`, `gh.exe.exe`, ...
+  // and never matched the real binary. Same rule cmd.exe uses.
+  const hasExtension = platform === 'win32' && pathApi.extname(commandName).length > 0;
+  const extensions = hasExtension ? [''] : getExecutableExtensions({ env, platform });
 
   for (const directory of directories) {
     for (const extension of extensions) {
