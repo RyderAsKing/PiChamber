@@ -123,9 +123,16 @@ const parseJsonAuthStatus = (text) => {
       : (typeof rawScopes === 'string'
         ? rawScopes.split(',').map((scope) => scope.trim()).filter(Boolean)
         : []);
+    // `state` is the verdict. A record for a rejected token still carries
+    // `active: true` (and can carry a login), so neither proves the token
+    // works: `gh` exits successfully in JSON mode and the error is only in
+    // `state`. Shapes without `state` fall back to the legacy predicate.
+    const authenticated = typeof entry.state === 'string'
+      ? entry.state === 'success'
+      : Boolean(login || entry.active === true);
     hosts.push({
       host,
-      authenticated: Boolean(login || entry.active === true),
+      authenticated,
       login,
       scopes,
     });
