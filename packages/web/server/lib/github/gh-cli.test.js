@@ -33,6 +33,21 @@ describe('parseJsonAuthStatus', () => {
     ]);
   });
 
+  it('keeps only the active account when a host has several', () => {
+    const hosts = parseJsonAuthStatus(JSON.stringify({
+      hosts: {
+        'github.com': [
+          { state: 'success', active: false, host: 'github.com', login: 'work-account', scopes: 'repo' },
+          { state: 'success', active: true, host: 'github.com', login: 'octocat', scopes: 'gist, repo' },
+        ],
+      },
+    }));
+
+    expect(hosts).toEqual([
+      { host: 'github.com', authenticated: true, login: 'octocat', scopes: ['gist', 'repo'] },
+    ]);
+  });
+
   it('reads a flat per-host object', () => {
     const hosts = parseJsonAuthStatus(JSON.stringify({
       hosts: { 'github.com': { user: 'octocat', tokenScopes: ['repo'] } },
@@ -87,10 +102,11 @@ describe('parseJsonAuthStatus', () => {
       },
     }));
 
+    // The host reports its active account only. The valid inactive one is not
+    // what `gh auth token` hands out, so it must not make the host read as
+    // signed in.
     expect(hosts).toEqual([
       { host: 'github.com', authenticated: false, login: null, scopes: [] },
-      // A valid account that is merely not the active one is still signed in.
-      { host: 'github.com', authenticated: true, login: 'octocat', scopes: ['repo'] },
     ]);
   });
 

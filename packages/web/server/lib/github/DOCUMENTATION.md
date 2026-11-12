@@ -73,8 +73,10 @@ no per-route auth is added here.
 - Minimum gh version: `2.4.0` (`MIN_GH_VERSION` in `gh-cli.js`), floored by
   the flags used (`gh auth token --hostname`, plain `gh auth status`).
   `gh auth status --json hosts` is attempted first and plain-text parsing
-  is the fallback — installed gh 2.46 does not accept `--json`, so the
-  fallback is currently the working path.
+  is the fallback for gh versions that reject `--json` (2.46 does). Current
+  gh lists every account signed in to a host; status reports one entry per
+  host, the active account, and counts it signed in only when its `state`
+  is `success`.
 - Token: `gh auth token --hostname <host>` via `execFile` (arg array, no
   shell), 5 s timeout, memory only, ~30 s cache per host.
 - Pinning: `withPinnedCredential(host, task)` reads the token once per

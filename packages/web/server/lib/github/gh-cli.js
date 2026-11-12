@@ -100,11 +100,12 @@ const parseJsonAuthStatus = (text) => {
   const raw = parsed?.hosts;
   const entries = [];
   const push = (hostname, info) => {
-    // A host maps to a list of accounts; each becomes its own entry.
-    const accounts = Array.isArray(info) ? info : [info];
-    for (const account of accounts) {
-      if (account && typeof account === 'object') entries.push({ hostname, ...account });
-    }
+    // A host maps to every account signed in there. The module follows gh's
+    // active account, so keep that one (or the first, if none is marked).
+    const accounts = (Array.isArray(info) ? info : [info])
+      .filter((account) => account && typeof account === 'object');
+    const account = accounts.find((candidate) => candidate.active === true) || accounts[0];
+    if (account) entries.push({ hostname, ...account });
   };
   if (Array.isArray(raw)) {
     for (const info of raw) push(info?.hostname || info?.host, info);
