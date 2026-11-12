@@ -34,7 +34,7 @@ describe('ExtensionsSurface', () => {
 
   test('renders empty state when session has no widgets', () => {
     const markup = renderToStaticMarkup(<ExtensionsSurface sessionId="sess-empty" />);
-    expect(markup).toContain('No extension widgets yet');
+    expect(markup).toContain('No extensions installed');
     expect(markup).toContain('data-testid="extensions-surface-empty"');
   });
 

@@ -3,6 +3,8 @@ import * as React from 'react';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { AnsiText } from '@/components/chat/AnsiText';
 import { Icon } from '@/components/icon/Icon';
+import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
+import { useInstalledExtensions } from '@/hooks/useInstalledExtensions';
 import { cn } from '@/lib/utils';
 
 const humanizeKey = (key: string): string => {
@@ -19,11 +21,14 @@ export interface ExtensionsSurfaceProps {
 export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId, className }) => {
   const selectedSessionId = usePiSessionSnapshot((state) => state.selectedSessionId);
   const activeSessionId = sessionId ?? selectedSessionId;
+  const directory = useEffectiveDirectory();
+  const installed = useInstalledExtensions(directory);
 
-  // Pi-native `ctx.ui.setWidget` content only. Statuses belong to the composer
-  // strip; PiChamber-only panels/apps are intentionally not rendered here yet.
-  // The reducer replaces the widget map copy-on-write, so reference equality
-  // is exact and stays cheap while unrelated session state streams.
+  // Pi-native `ctx.ui.setWidget` content, plus what Pi loaded for this folder.
+  // Statuses belong to the composer strip; PiChamber-only panels/apps are
+  // intentionally not rendered here yet. The reducer replaces the widget map
+  // copy-on-write, so reference equality is exact and stays cheap while
+  // unrelated session state streams.
   const widgetMap = usePiSessionSnapshot(
     (state) => (activeSessionId ? state.reducer.bySession.get(activeSessionId)?.extensionWidgets : undefined),
     (a, b) => a === b,
@@ -37,16 +42,19 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
     setCollapsedWidgets((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  if (widgets.length === 0) {
+  if (widgets.length === 0 && installed.extensions.length === 0) {
     return (
       <div
         className={cn('flex h-full flex-col items-center justify-center gap-1.5 p-6 text-center', className)}
         data-testid="extensions-surface-empty"
       >
         <Icon name="plug-2" aria-hidden="true" className="size-6 text-subtle-foreground" />
-        <p className="typography-ui-label font-medium text-foreground">No extension widgets yet</p>
+        <p className="typography-ui-label font-medium text-foreground">
+          {installed.isLoading ? 'Loading extensions…' : 'No extensions installed'}
+        </p>
         <p className="max-w-60 typography-micro text-muted-foreground">
-          Widgets that extensions set with ctx.ui.setWidget show up here.
+          Extensions loaded by Pi for this folder show up here, along with any widgets they set with
+          ctx.ui.setWidget.
         </p>
       </div>
     );
@@ -57,26 +65,72 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
       className={cn('flex h-full min-h-0 flex-col overflow-y-auto', className)}
       data-testid="extensions-surface"
     >
-      <SurfaceSection title="Widgets" count={widgets.length}>
-        {widgets.map(([key, widget]) => (
-          <CollapsibleRow
-            key={key}
-            title={humanizeKey(key)}
-            meta={widget.placement === 'belowEditor' ? 'below editor' : 'above editor'}
-            collapsed={Boolean(collapsedWidgets[key])}
-            onToggle={() => toggleWidget(key)}
-            testId={`extension-widget-${key}`}
-          >
-            <div className="max-h-64 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 font-mono typography-micro leading-relaxed text-foreground">
-              {widget.lines.map((line, index) => (
-                <span key={index} className="block whitespace-pre-wrap">
-                  <AnsiText text={line} />
-                </span>
-              ))}
+      {installed.extensions.length > 0 ? (
+        <SurfaceSection title="Installed" count={installed.extensions.length}>
+          {installed.extensions.map((extension) => (
+            <div
+              key={extension.id}
+              className="flex items-center gap-2 rounded-md px-2 py-1"
+              data-testid={`extension-installed-${extension.id}`}
+            >
+              <span className="inline-flex w-4 shrink-0 items-center justify-center">
+                <Icon name="plug-2" aria-hidden="true" className="size-3.5 text-muted-foreground" />
+              </span>
+              <span className="min-w-0 flex-1 truncate typography-ui-label text-foreground" title={extension.name}>
+                {extension.name}
+              </span>
             </div>
-          </CollapsibleRow>
-        ))}
-      </SurfaceSection>
+          ))}
+        </SurfaceSection>
+      ) : null}
+
+      {installed.commands.length > 0 ? (
+        <SurfaceSection title="Commands" count={installed.commands.length}>
+          {installed.commands.map((command) => (
+            <div
+              key={`${command.source ?? 'extension'}:${command.name}`}
+              className="flex items-baseline gap-2 rounded-md px-2 py-1"
+              data-testid={`extension-command-${command.name}`}
+            >
+              <span className="inline-flex w-4 shrink-0 items-center justify-center">
+                <Icon name="command" aria-hidden="true" className="size-3.5 text-muted-foreground" />
+              </span>
+              <span className="shrink-0 font-mono typography-ui-label text-foreground">/{command.name}</span>
+              {command.description ? (
+                <span className="min-w-0 flex-1 truncate typography-micro text-muted-foreground" title={command.description}>
+                  {command.description}
+                </span>
+              ) : null}
+              {command.scope && command.scope !== 'user' ? (
+                <span className="shrink-0 whitespace-nowrap typography-micro text-subtle-foreground">{command.scope}</span>
+              ) : null}
+            </div>
+          ))}
+        </SurfaceSection>
+      ) : null}
+
+      {widgets.length > 0 ? (
+        <SurfaceSection title="Widgets" count={widgets.length}>
+          {widgets.map(([key, widget]) => (
+            <CollapsibleRow
+              key={key}
+              title={humanizeKey(key)}
+              meta={widget.placement === 'belowEditor' ? 'below editor' : 'above editor'}
+              collapsed={Boolean(collapsedWidgets[key])}
+              onToggle={() => toggleWidget(key)}
+              testId={`extension-widget-${key}`}
+            >
+              <div className="max-h-64 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 font-mono typography-micro leading-relaxed text-foreground">
+                {widget.lines.map((line, index) => (
+                  <span key={index} className="block whitespace-pre-wrap">
+                    <AnsiText text={line} />
+                  </span>
+                ))}
+              </div>
+            </CollapsibleRow>
+          ))}
+        </SurfaceSection>
+      ) : null}
     </div>
   );
 };
