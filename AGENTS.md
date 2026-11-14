@@ -142,6 +142,11 @@ action, desktop only); `sidebar-threads-archive` (the same view with its
 shelf collapsed, just after the open session's Archive button: the session
 leaves the list and a toast names it with Undo; it archives that session in
 the data directory, so capture it last, desktop only);
+`sidebar-timeline-unarchive` (Timeline just after Unarchive from the row menu
+of the 5-day-old archived session, which stays under This week; it
+unarchives that session in the data directory, so capture it last, desktop
+only); `sidebar-timeline-unarchive-mobile` (the same in the mobile sessions
+drawer, mobile only);
 `sidebar-search-archived` (a search for `checkout` that matches an archived
 session, shown in place with a muted title, desktop only); `sidebar-folder`
 (the same sessions in the By folder view); `sidebar-folder-actions` (By folder
