@@ -78,6 +78,23 @@ const SHELF_SESSIONS = [
   { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24, archived: true },
 ];
 const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
+// Opens the row menu of the 5-day-old archived session, picks Unarchive, and
+// settles once the list has had time to regroup.
+const TIMELINE_UNARCHIVE = `(() => {
+  const title = ${JSON.stringify(SHELF_SESSIONS[4].title)};
+  if (window.__unarchivedAt) return Date.now() - window.__unarchivedAt > 1500;
+  const item = [...document.querySelectorAll('[role="menuitem"]')].find((node) => node.textContent.trim() === 'Unarchive');
+  if (item) {
+    item.click();
+    window.__unarchivedAt = Date.now();
+    return false;
+  }
+  const label = [...document.querySelectorAll('body *')].find((node) => node.childElementCount === 0 && node.textContent.trim() === title);
+  const rect = label?.getBoundingClientRect();
+  if (!rect || rect.width === 0) return false;
+  label.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2, clientX: rect.left + 10, clientY: rect.top + rect.height / 2 }));
+  return false;
+})()`;
 const SHELF_SESSION_TEXT = [SHELF_SESSIONS[0].title, SHELF_SESSIONS[1].title];
 // Opens the Snoozed shelf (it starts collapsed) and waits for its row, and for the open session's message and model picker so the
 // transcript beside the sidebar is not caught loading.
@@ -225,6 +242,25 @@ const PAGES = {
       button.click();
       return false;
     })()`,
+  },
+  'sidebar-timeline-unarchive': {
+    // Timeline just after Unarchive from the row menu of the 5-day-old archived
+    // session: it stays under its own date, since unarchiving is not activity.
+    // This unarchives the session in the data directory, so capture it last.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'timeline',
+    readyText: [SHELF_SESSIONS[0].title, SHELF_SESSIONS[4].title],
+    viewports: ['desktop'],
+    settledScript: TIMELINE_UNARCHIVE,
+  },
+  'sidebar-timeline-unarchive-mobile': {
+    // The same in the mobile sessions drawer.
+    path: SHELF_SESSION_PATH,
+    sidebarViewMode: 'timeline',
+    openSelector: '[aria-label="Open sessions and projects"]',
+    readyText: [SHELF_SESSIONS[4].title],
+    viewports: ['mobile'],
+    settledScript: TIMELINE_UNARCHIVE,
   },
   'sidebar-search-archived': {
     // A search that matches an archived session: the match shows in place with

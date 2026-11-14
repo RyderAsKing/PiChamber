@@ -141,6 +141,24 @@ describe('unarchive on send', () => {
     });
   });
 
+  test('a rejected send restores the original archive time with the mark', async () => {
+    await withStore({
+      sendPrompt: (async () => { throw new PiRequestError('INVALID_SESSION', 'gone', 404); }) as typeof piClient.sendPrompt,
+    }, async (store) => {
+      seed(store, { s1: true });
+      const catalog = internal(store).state.catalog;
+      const row = catalog.byId.get('s1');
+      if (!row) throw new Error('row missing');
+      internal(store).state = {
+        ...internal(store).state,
+        catalog: { ...catalog, byId: new Map([['s1', { ...row, archivedAt: 40 }]]) },
+      };
+      await expect(store.prompt('s1', 'hello', 'prompt')).rejects.toBeInstanceOf(PiRequestError);
+      expect(store.getState().catalog.byId.get('s1')?.archivedAt).toBe(40);
+      expect(store.getState().sessions.find((item) => item.session.id === 's1')?.session.archived).toBe(true);
+    });
+  });
+
   test('an unconfirmed send asks the server instead of guessing', async () => {
     const listed: Array<string | undefined> = [];
     await withStore({

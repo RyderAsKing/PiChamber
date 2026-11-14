@@ -502,13 +502,13 @@ export const touchRecordUpdatedAt = (
  * Archiving sets `archivedAt` to the given time; without one an archived
  * row keeps its time and a newly archived row has none (unknown, so
  * auto-delete leaves it until a listing brings the server's). Unarchiving
- * clears it.
+ * clears it. Archive state is not activity: `updatedAt` (last-prompt
+ * recency, which Timeline and the session order read) is never touched.
  */
 export const applyArchiveChange = (
   state: PiSessionCatalogState,
   sessionId: PiSessionId,
   archived: boolean,
-  updatedAt: number,
   archivedAt?: number,
 ): PiSessionCatalogState => {
   const existing = state.byId.get(sessionId);
@@ -516,12 +516,8 @@ export const applyArchiveChange = (
   const nextArchivedAt = !archived
     ? undefined
     : archivedAt ?? (existing.archived ? existing.archivedAt : undefined);
-  if (
-    existing.archived === archived
-    && existing.updatedAt === updatedAt
-    && existing.archivedAt === nextArchivedAt
-  ) return state;
-  const nextRecord: LiveSessionRecord = { ...existing, archived, updatedAt };
+  if (existing.archived === archived && existing.archivedAt === nextArchivedAt) return state;
+  const nextRecord: LiveSessionRecord = { ...existing, archived };
   if (nextArchivedAt === undefined) delete nextRecord.archivedAt;
   else nextRecord.archivedAt = nextArchivedAt;
   const nextById = new Map(state.byId);
@@ -773,7 +769,9 @@ export const liveSessionRecordToUiSession = (record: LiveSessionRecord): Session
     time: {
       created: record.createdAt,
       updated: record.updatedAt,
-      ...(record.archived ? { archived: record.updatedAt } : {}),
+      // The archive time when known (Archive view and shelf sort by it);
+      // otherwise last activity, so an archived row still reads as archived.
+      ...(record.archived ? { archived: record.archivedAt ?? record.updatedAt } : {}),
     },
   };
   uiSessionByRecord.set(record, session);
