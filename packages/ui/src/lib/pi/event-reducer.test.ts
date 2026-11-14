@@ -1094,7 +1094,7 @@ describe("Pi usage", () => {
     expect(message?.usage).toEqual(sampleUsage)
   })
 
-  test("hydrateSessionFromDetail locks model and thinking to the last assistant turn", () => {
+  test("hydrateSessionFromDetail keeps the live model and thinking over the last assistant turn", () => {
     const { session } = hydrateSessionFromDetail({
       session: {
         id: "sess-1",
@@ -1111,6 +1111,26 @@ describe("Pi usage", () => {
           },
           parts: [],
         },
+        {
+          message: {
+            id: "a1", sessionId: "sess-1", directory: "/work", role: "assistant",
+            text: "ok", thinking: "", createdAt: 2,
+            model: { providerId: "anthropic", modelId: "sonnet" },
+            thinkingLevel: "high",
+          },
+          parts: [],
+        },
+      ],
+    })
+    expect(session.model).toEqual({ providerId: "openai", modelId: "gpt-5" })
+    expect(session.thinking).toBe("low")
+  })
+
+  test("hydrateSessionFromDetail fills a missing live model and thinking from the last assistant turn", () => {
+    const { session } = hydrateSessionFromDetail({
+      session: { id: "sess-1", directory: "/work" },
+      lastSequence: 8,
+      messages: [
         {
           message: {
             id: "a1", sessionId: "sess-1", directory: "/work", role: "assistant",

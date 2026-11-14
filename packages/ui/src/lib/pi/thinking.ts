@@ -178,11 +178,12 @@ const asModelRef = (model?: PiModelRef | null): PiModelRef | undefined => {
 };
 
 /**
- * Last model/thinking actually used inside an existing Pi session.
- * The latest assistant turn wins over live session fields so a globally
- * last-selected default cannot clobber an older chat's cache identity.
- * Live `session.model` / `session.thinking` fill gaps when the transcript
- * does not carry them.
+ * Model/thinking an existing Pi session is on. The daemon's live
+ * `session.model` / `session.thinking` win: they are what the next prompt
+ * runs on, and Pi restores them from the branch when a chat is reopened.
+ * The latest assistant turn only fills gaps. It can name a model the session
+ * has left (a revert, a failed turn, a switch not yet prompted on), and a
+ * send that compared the composer against it would skip the model switch.
  */
 export const resolveExistingSessionComposerSelection = (session: {
   model?: PiModelRef | null;
@@ -213,8 +214,8 @@ export const resolveExistingSessionComposerSelection = (session: {
       }
     }
   }
-  const model = lastAssistant?.model ?? asModelRef(session.model);
-  const thinking = lastAssistant?.thinkingLevel ?? parsePiThinkingLevel(session.thinking) ?? undefined;
+  const model = asModelRef(session.model) ?? lastAssistant?.model;
+  const thinking = parsePiThinkingLevel(session.thinking) ?? lastAssistant?.thinkingLevel;
   return {
     ...(model ? { model } : {}),
     ...(thinking ? { thinking } : {}),

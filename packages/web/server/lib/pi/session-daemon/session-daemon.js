@@ -2133,9 +2133,14 @@ export function createSessionDaemon({
         break;
       }
     }
-    const sessionModel = lastAssistant?.model
-      ?? (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined);
-    const sessionThinking = lastAssistant?.thinkingLevel || session.thinkingLevel;
+    // The live session is what the next prompt runs on, so it wins. Pi already
+    // restores a reopened session's model and thinking from its branch. The
+    // last assistant turn only fills a gap: after a revert, a failed turn, or
+    // a switch nobody has prompted on yet, it names a model the session is no
+    // longer on, and a client that trusted it would skip the switch it needs.
+    const sessionModel = (model?.provider && model?.id ? { providerId: model.provider, modelId: model.id } : undefined)
+      ?? lastAssistant?.model;
+    const sessionThinking = session.thinkingLevel || lastAssistant?.thinkingLevel;
     const isStreaming = session.isStreaming === true;
     const retry = retryStateBySession.get(session.sessionId);
     const compaction = compactionStateFor(session);
