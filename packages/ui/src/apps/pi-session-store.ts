@@ -2567,7 +2567,7 @@ export class PiSessionStore {
     if (!existing?.archived) return () => undefined;
     const token = ++this.sendUnarchiveCounter;
     this.sendUnarchiveTokenById.set(sessionId, token);
-    this.setArchivedLocally(sessionId, false);
+    this.commitArchiveFlag(sessionId, false);
     const expected = this.runtimeGeneration;
     const directory = existing.directory;
     const archivedAt = existing.archivedAt;
@@ -2576,25 +2576,11 @@ export class PiSessionStore {
       this.sendUnarchiveTokenById.delete(sessionId);
       if (error === undefined) return;
       if (isDefiniteRequestRejection(error)) {
-        if (this.state.catalog.byId.get(sessionId)?.archived === false) this.setArchivedLocally(sessionId, true, archivedAt);
+        if (this.state.catalog.byId.get(sessionId)?.archived === false) this.commitArchiveFlag(sessionId, true, archivedAt);
         return;
       }
       if (directory) void this.refreshDirectoryCatalog(directory);
     };
-  }
-  private setArchivedLocally(sessionId: PiSessionId, archived: boolean, archivedAt?: number) {
-    const existing = this.state.catalog.byId.get(sessionId);
-    if (!existing) return;
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, archivedAt);
-    const catalogChanged = nextCatalog !== this.state.catalog;
-    this.state = {
-      ...this.state,
-      sessions: this.state.sessions.map((item) => item.session.id === sessionId ? { ...item, session: { ...item.session, archived } } : item),
-      catalog: nextCatalog,
-    };
-    const topics: string[] = [TOPIC_CHROME];
-    if (catalogChanged) topics.push(TOPIC_CATALOG);
-    this.emit(topics);
   }
   private scheduleRemoteSendRefresh(directory: string) {
     if (!directory || this.remoteSendRefreshTimers.has(directory)) return;
