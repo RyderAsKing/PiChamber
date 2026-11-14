@@ -383,6 +383,25 @@ describe('pi-session-catalog helpers', () => {
     expect(ui.time?.archived).toBeFalsy();
   });
 
+  test('liveSessionRecordToUiSession keeps activity and archive times apart', () => {
+    const base: LiveSessionRecord = {
+      id: 'old',
+      directory: '/repo-a',
+      parentId: null,
+      title: 'old',
+      archived: true,
+      createdAt: 1,
+      updatedAt: 10,
+      lifecycle: 'idle',
+      hydrated: false,
+    };
+    const known = liveSessionRecordToUiSession({ ...base, archivedAt: 500 });
+    expect(known.time?.updated).toBe(10);
+    expect(known.time?.archived).toBe(500);
+    // Unknown archive time still reads as archived.
+    expect(liveSessionRecordToUiSession(base).time?.archived).toBe(10);
+  });
+
   test('upsertStubRecord inserts a busy stub when no row exists', () => {
     const empty = initialCatalog();
     const next = upsertStubRecord(empty, 'pre-list', '/repo-a', 'busy', 100);
@@ -1822,7 +1841,7 @@ describe('catalog-owner list/mutation reconciliation', () => {
       listItem('s-1', '/repo-a', { title: 'old', updatedAt: 5 }),
     ], 10);
     let current = applyTitleChange(baseline, 's-1', 'local-new', 99);
-    current = applyArchiveChange(current, 's-1', true, 99, 99);
+    current = applyArchiveChange(current, 's-1', true, 99);
     const reconciled = applyDirectoryListWithReconciliation(
       baseline,
       current,
@@ -1845,18 +1864,21 @@ describe('catalog-owner list/mutation reconciliation', () => {
     expect(state.byId.get('restored')?.archivedAt).toBeUndefined();
     expect(state.byId.get('active')?.archivedAt).toBeUndefined();
 
-    state = applyArchiveChange(state, 'active', true, 50, 50);
+    state = applyArchiveChange(state, 'active', true, 50);
     expect(state.byId.get('active')?.archivedAt).toBe(50);
+    // Archiving is not activity: last-prompt recency stays put.
+    expect(state.byId.get('active')?.updatedAt).toBe(5);
     // Archiving an archived row again keeps its original time.
-    state = applyArchiveChange(state, 'listed', true, 60);
+    state = applyArchiveChange(state, 'listed', true);
     expect(state.byId.get('listed')?.archivedAt).toBe(40);
     // Unarchive, then a rollback that names the time it restores.
-    state = applyArchiveChange(state, 'listed', false, 61);
+    state = applyArchiveChange(state, 'listed', false);
     expect(state.byId.get('listed')?.archivedAt).toBeUndefined();
+    expect(state.byId.get('listed')?.updatedAt).toBe(5);
     // Without a time the archive time is unknown, never guessed.
-    state = applyArchiveChange(state, 'listed', true, 61);
+    state = applyArchiveChange(state, 'listed', true);
     expect(state.byId.get('listed')?.archivedAt).toBeUndefined();
-    state = applyArchiveChange(state, 'listed', true, 62, 40);
+    state = applyArchiveChange(state, 'listed', true, 40);
     expect(state.byId.get('listed')?.archivedAt).toBe(40);
     // A later listing with a new archive time replaces it.
     state = applyDirectoryListToCatalog(state, '/repo-a', [
