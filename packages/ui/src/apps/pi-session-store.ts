@@ -2524,12 +2524,12 @@ export class PiSessionStore {
     const row = this.state.catalog.byId.get(sessionId);
     const previousArchived = row?.archived
       ?? this.state.sessions.find((item) => item.session.id === sessionId)?.session.archived;
-    const previousUpdatedAt = row?.updatedAt;
     const previousArchivedAt = row?.archivedAt;
     const revision = ++this.archiveRevision;
     this.archiveRevisionById.set(sessionId, revision);
-    const optimisticAt = Date.now();
-    this.commitArchiveFlag(sessionId, archived, optimisticAt, archived ? optimisticAt : undefined);
+    // Archive state is not activity: only the flag and its time change, never
+    // the row's last-prompt `updatedAt`.
+    this.commitArchiveFlag(sessionId, archived, archived ? Date.now() : undefined);
     try {
       await piClient.archiveSession({ sessionId, archived }, this.scope(sessionDir));
     } catch (error) {
@@ -2537,20 +2537,15 @@ export class PiSessionStore {
         && runtimeKey === getRuntimeKey()
         && this.archiveRevisionById.get(sessionId) === revision;
       if (current && typeof previousArchived === 'boolean') {
-        // Keep a newer live timestamp; otherwise restore the row's own.
-        const currentUpdatedAt = this.state.catalog.byId.get(sessionId)?.updatedAt;
-        const restoreAt = currentUpdatedAt === optimisticAt && previousUpdatedAt !== undefined
-          ? previousUpdatedAt
-          : currentUpdatedAt ?? optimisticAt;
-        this.commitArchiveFlag(sessionId, previousArchived, restoreAt, previousArchivedAt);
+        this.commitArchiveFlag(sessionId, previousArchived, previousArchivedAt);
       }
       throw error;
     } finally {
       if (this.archiveRevisionById.get(sessionId) === revision) this.archiveRevisionById.delete(sessionId);
     }
   }
-  private commitArchiveFlag(sessionId: string, archived: boolean, updatedAt: number, archivedAt?: number) {
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, updatedAt, archivedAt);
+  private commitArchiveFlag(sessionId: string, archived: boolean, archivedAt?: number) {
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, archivedAt);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
@@ -2590,7 +2585,7 @@ export class PiSessionStore {
   private setArchivedLocally(sessionId: PiSessionId, archived: boolean, archivedAt?: number) {
     const existing = this.state.catalog.byId.get(sessionId);
     if (!existing) return;
-    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, existing.updatedAt, archivedAt);
+    const nextCatalog = applyArchiveChange(this.state.catalog, sessionId, archived, archivedAt);
     const catalogChanged = nextCatalog !== this.state.catalog;
     this.state = {
       ...this.state,
