@@ -9,13 +9,15 @@ import { focusSurfaceElement, surfaceFrameText, surfaceSelector } from './surfac
 
 /**
  * Whether typing reaches the surface: the browser's focus is on its lines or
- * on its key bar. The daemon's own focus (`surface.focused`) says which
- * component inside gets keys, not whether the page sends any.
+ * on its key bar's typing input. A key-bar button reached with Tab sends only
+ * its own key, so typing there does not count. The daemon's own focus
+ * (`surface.focused`) says which component inside gets keys, not whether the
+ * page sends any.
  */
 const useTypingReachesSurface = (surfaceId: string): boolean => {
   const [reaches, setReaches] = React.useState(false);
   React.useEffect(() => {
-    const selector = `${surfaceSelector(surfaceId)}, [data-extension-keybar="${CSS.escape(surfaceId)}"]`;
+    const selector = `${surfaceSelector(surfaceId)}, [data-extension-keybar="${CSS.escape(surfaceId)}"] input`;
     const update = () => setReaches(document.activeElement?.closest(selector) != null);
     // `focusout` fires before focus lands anywhere; read it once it has.
     const later = () => window.setTimeout(update, 0);
