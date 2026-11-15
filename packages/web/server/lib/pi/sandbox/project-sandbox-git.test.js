@@ -70,13 +70,13 @@ const setup = async ({ probe = { available: true, version: '0.82.0' }, corruptSe
 describe('git launch for sandboxed projects', () => {
   it('gives no launch for an unsandboxed project, so its git is unchanged', async () => {
     const ctx = await setup();
-    expect(await manager.gitLaunchFor(ctx.projectB)).toBeNull();
-    expect(await manager.gitLaunchFor(join(ctx.projectB, 'src'))).toBeNull();
+    expect(await manager.gitSandboxForDirectory(ctx.projectB)).toBeNull();
+    expect(await manager.gitSandboxForDirectory(join(ctx.projectB, 'src'))).toBeNull();
   });
 
   it('runs a sandboxed project\'s git through the launcher with the project\'s grants', async () => {
     const ctx = await setup();
-    const launch = await manager.gitLaunchFor(join(ctx.projectA, 'src'));
+    const launch = await manager.gitSandboxForDirectory(join(ctx.projectA, 'src'));
     const result = await launch.prepare({ argv: ['git'], env: { HOME: '/home/u' } });
 
     expect(result).toMatchObject({ command: '/usr/bin/nono', args: ['run', '--', 'git'] });
@@ -97,17 +97,17 @@ describe('git launch for sandboxed projects', () => {
 
   it('covers the project\'s managed worktrees', async () => {
     const ctx = await setup();
-    const launch = await manager.gitLaunchFor(ctx.worktree);
+    const launch = await manager.gitSandboxForDirectory(ctx.worktree);
     expect(launch).not.toBeNull();
   });
 
   it('fails closed with SANDBOX_UNAVAILABLE when the launcher is unavailable', async () => {
     const ctx = await setup({ probe: { available: false, code: 'NO_LANDLOCK' } });
-    await expect(manager.gitLaunchFor(ctx.projectA)).rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' });
+    await expect(manager.gitSandboxForDirectory(ctx.projectA)).rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' });
   });
 
   it('fails closed for an invalid stored setting', async () => {
     const ctx = await setup({ corruptSetting: true });
-    await expect(manager.gitLaunchFor(ctx.projectA)).rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE', reason: 'INVALID_SANDBOX_SETTING' });
+    await expect(manager.gitSandboxForDirectory(ctx.projectA)).rejects.toMatchObject({ code: 'SANDBOX_UNAVAILABLE', reason: 'INVALID_SANDBOX_SETTING' });
   });
 });

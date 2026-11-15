@@ -898,7 +898,7 @@ export const createProjectSandboxManager = ({
      * SANDBOX_UNAVAILABLE when the launcher or setting is unusable, never
      * falling back to unsandboxed git. Starts no daemon.
      */
-    gitLaunchFor: async (directory) => {
+    gitSandboxForDirectory: async (directory) => {
       const owner = daemonPool.forDirectory(directory);
       const entry = [...projects.values()].find((item) => item.runtime === owner);
       if (!entry) return null;

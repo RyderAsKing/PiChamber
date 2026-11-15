@@ -14,6 +14,13 @@ import path from 'node:path';
  * `prepare({ argv, env })` returns `{ command, args, env }`, the launcher's
  * short-lived sandboxed process. `binDir` is a folder the sandbox cannot
  * write; the git wrapper script simple-git runs lives there.
+ *
+ * The resolver is module state set once by the server (`index.js`, from
+ * the sandbox manager's `gitSandboxForDirectory`), not injected: every
+ * git process goes through `service.js`, a module of free functions used
+ * directly by the git, fs, GitHub and STT routes, so injecting it would
+ * turn that whole module into a factory. Without a resolver (tests, a
+ * server with no sandbox manager) git runs unsandboxed.
  */
 let resolver = null;
 

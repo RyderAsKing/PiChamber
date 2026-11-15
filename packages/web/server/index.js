@@ -298,7 +298,7 @@ export async function startWebUiServer(options = {}) {
     },
   });
   // Git the server runs in a sandboxed project goes through its launcher.
-  setGitSandboxResolver(piSandboxManager.gitLaunchFor);
+  setGitSandboxResolver(piSandboxManager.gitSandboxForDirectory);
   piRuntimeRoutes = registerPiRuntimeRoutes(app, {
     daemonPool: piDaemonPool,
     sandboxManager: piSandboxManager,
