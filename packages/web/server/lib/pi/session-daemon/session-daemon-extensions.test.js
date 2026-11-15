@@ -188,7 +188,7 @@ describe('Pi session daemon extension bridging', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     await client.request('sessions.create', { cwd: projectDir });
-    return { client, session, endpoint, runtimeState, projectDir };
+    return { client, session, endpoint, runtimeState, projectDir, agentDir };
   };
 
   afterEach(async () => {
@@ -211,6 +211,22 @@ describe('Pi session daemon extension bridging', () => {
     const response = await client.request('extensions.palette', { terminal });
     expect(response.result).toEqual(palette);
     expect(calls).toEqual([{ themeSetting: 'light/dark', terminal }]);
+  });
+
+  it('reports unreadable Pi settings instead of answering with the system theme', async () => {
+    let calls = 0;
+    const { client, agentDir } = await startWithExtensibleSession({
+      resolveExtensionPalette: async () => {
+        calls += 1;
+        return { theme: 'system', appearance: 'light', colors: {} };
+      },
+    });
+    await writeFile(join(agentDir, 'settings.json'), '{ not json');
+    const terminal = { background: '#ffffff', foreground: '#000000', palette: Array(16).fill('#808080') };
+    const failure = client.next((frame) => frame.kind === 'error');
+    client.request('extensions.palette', { terminal }).catch(() => {});
+    await expect(failure).resolves.toMatchObject({ error: { code: 'PI_SETTINGS_INVALID' } });
+    expect(calls).toBe(0);
   });
 
   it('binds the mode the Extension interface setting resolves to', async () => {
