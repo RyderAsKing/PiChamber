@@ -33,7 +33,6 @@ vi.mock('./index.js', () => ({
 }));
 
 const { registerGitRoutes } = await import('./routes.js');
-const { setGitSandboxResolver } = await import('./sandboxed-git.js');
 
 const createRouteRegistry = () => {
   const routes = new Map();
@@ -500,39 +499,5 @@ describe('git routes init', () => {
     await getRoute('POST', '/api/git/init')({ query: { directory: '/nope' } }, failed);
     expect(failed.statusCode).toBe(400);
     expect(failed.body).toEqual({ error: 'Folder does not exist' });
-  });
-});
-
-describe('git routes for sandboxed projects', () => {
-  beforeEach(() => {
-    gitLibraries.getStatus.mockReset();
-    gitLibraries.checkoutBranch.mockReset();
-    setGitSandboxResolver(null);
-  });
-
-  it('answers SANDBOX_UNAVAILABLE without running git when the project sandbox is unusable', async () => {
-    const { app, getRoute } = createRouteRegistry();
-    registerGitRoutes(app);
-    setGitSandboxResolver(async (directory) => {
-      if (directory !== '/sandboxed') return null;
-      throw Object.assign(new Error('The project sandbox is unavailable.'), { code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' });
-    });
-
-    const status = createMockResponse();
-    await getRoute('GET', '/api/git/status')({ query: { directory: '/sandboxed' } }, status);
-    expect(status.statusCode).toBe(503);
-    expect(status.body).toEqual({ error: 'The project sandbox is unavailable.', code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' });
-
-    const checkout = createMockResponse();
-    await getRoute('POST', '/api/git/checkout')({ query: { directory: '/sandboxed' }, body: { branch: 'main' } }, checkout);
-    expect(checkout.statusCode).toBe(503);
-    expect(gitLibraries.getStatus).not.toHaveBeenCalled();
-    expect(gitLibraries.checkoutBranch).not.toHaveBeenCalled();
-
-    gitLibraries.getStatus.mockResolvedValue({ isGitRepository: true, files: [] });
-    const other = createMockResponse();
-    await getRoute('GET', '/api/git/status')({ query: { directory: '/plain' } }, other);
-    expect(other.statusCode).toBe(200);
-    setGitSandboxResolver(null);
   });
 });

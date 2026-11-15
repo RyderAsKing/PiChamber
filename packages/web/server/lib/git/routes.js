@@ -1,38 +1,4 @@
-import { assertGitSandboxUsable } from './sandboxed-git.js';
-
-const REASON_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
-
-/**
- * Every git route checks the folder's project sandbox first (#248): a
- * sandboxed project whose launcher is unusable answers 503
- * SANDBOX_UNAVAILABLE with its reason code, and the handler never runs.
- * The service enforces the same rule on every git process it starts.
- */
-const withSandboxCheck = (rawApp) => {
-  const guard = (handler) => async (req, res, next) => {
-    const raw = Array.isArray(req.query?.directory) ? req.query.directory[0] : req.query?.directory;
-    try {
-      await assertGitSandboxUsable(typeof raw === 'string' ? raw : null);
-    } catch (error) {
-      if (error?.code !== 'SANDBOX_UNAVAILABLE') throw error;
-      return res.status(503).json({
-        error: 'The project sandbox is unavailable.',
-        code: 'SANDBOX_UNAVAILABLE',
-        ...(typeof error.reason === 'string' && REASON_PATTERN.test(error.reason) ? { reason: error.reason } : {}),
-      });
-    }
-    return handler(req, res, next);
-  };
-  const wrap = (method) => (routePath, ...handlers) => rawApp[method](
-    routePath,
-    ...handlers.slice(0, -1),
-    guard(handlers[handlers.length - 1]),
-  );
-  return { get: wrap('get'), post: wrap('post'), put: wrap('put'), delete: wrap('delete') };
-};
-
-export function registerGitRoutes(rawApp) {
-  const app = withSandboxCheck(rawApp);
+export function registerGitRoutes(app) {
   let gitLibraries = null;
   const getGitLibraries = async () => {
     if (!gitLibraries) {

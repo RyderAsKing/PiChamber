@@ -7,6 +7,8 @@ server runtime. Every GitHub call runs here; the shared UI talks to
 `/api/github/*` through `RuntimeAPIs.github`, so web, desktop, hosted
 mobile, and Capacitor share one code path. Tokens never reach a client.
 
+Sandboxing: Only Pi session daemons (the agent) run in the sandbox. PiChamber's own Git panel, terminal, browser and GitHub features, and worktree hooks and start commands, run outside it with the user's access, so git config, hooks or filters an agent writes into the repo can run when the user or the Git panel runs git. This is a known, accepted trade-off. The GitHub module's git calls run unsandboxed for every folder.
+
 ## Entrypoints and structure
 
 - `packages/web/server/lib/github/`: module directory.
@@ -259,8 +261,6 @@ POST /api/github/invalidate                   { directory?, repo?, kind?, number
   markdown fallback; images load without credentials (UI layer).
 - Never return an empty list on failure; stale serves are explicit. A
   failed section (`sectionErrors`) never reads as an empty section.
-
-- Local git (repo scope, ignored-path filter, PR checkout) starts through `../git/sandboxed-git.js`, so in a sandboxed project it runs under the project's launcher and throws `SANDBOX_UNAVAILABLE` when that launcher is unusable (#248).
 
 ## Notes for contributors
 

@@ -6,7 +6,6 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createRequire } from 'module';
 import { resolvePiChamberDataPath } from '../pichamber-data-dir.js';
-import { resolveGitInvocation, resolveProjectCommand } from './sandboxed-git.js';
 
 const fsp = fs.promises;
 const require = createRequire(import.meta.url);
@@ -335,10 +334,14 @@ const buildGitEnv = async () => {
   return env;
 };
 
-// Every git process for a folder starts here or in runGitIn, so a sandboxed
-// project's git always goes through its launcher (see sandboxed-git.js).
 const createGit = async (directory) => {
+  const env = await buildGitEnv();
   const spawnOptions = { windowsHide: true };
+  const binary = getGitBinary();
+  const hasCustomBinary = typeof binary === 'string' && binary.trim() && binary !== 'git' && binary !== 'git.exe';
+  const unsafe = hasCustomBinary
+    ? { allowUnsafeCustomBinary: true }
+    : undefined;
   // Always pin simple-git to an explicit working directory. Omitting baseDir
   // makes simple-git use process.cwd(), which breaks when the PiChamber
   // server was launched from a neutral directory (e.g. $HOME) and the opened
@@ -348,11 +351,6 @@ const createGit = async (directory) => {
   if (typeof baseDir !== 'string' || !baseDir.trim()) {
     throw new Error('Git directory is required');
   }
-  const { binary, env } = await resolveGitInvocation(baseDir, { binary: getGitBinary(), env: await buildGitEnv() });
-  const hasCustomBinary = typeof binary === 'string' && binary.trim() && binary !== 'git' && binary !== 'git.exe';
-  const unsafe = hasCustomBinary
-    ? { allowUnsafeCustomBinary: true }
-    : undefined;
   return createSimpleGit({
     baseDir,
     env,
@@ -898,19 +896,11 @@ const isMissingDirectoryError = (error) => {
   return /directory that does not exist|does not exist|no such file or directory/i.test(text);
 };
 
-const runGitIn = async (cwd, args, options = {}) => {
-  const { binary, env } = await resolveGitInvocation(cwd, { binary: getGitBinary(), env: await buildGitEnv() });
-  return execFileAsync(binary, args, { ...options, cwd, env });
-};
-
 const runGitCommand = async (cwd, args) => {
-  // Sandbox resolution failures (SANDBOX_UNAVAILABLE) throw, never fold into
-  // a failed-git result.
-  const { binary, env } = await resolveGitInvocation(cwd, { binary: getGitBinary(), env: await buildGitEnv() });
   try {
-    const { stdout, stderr } = await execFileAsync(binary, args, {
+    const { stdout, stderr } = await execFileAsync(getGitBinary(), args, {
       cwd,
-      env,
+      env: await buildGitEnv(),
       windowsHide: true,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -1099,18 +1089,13 @@ const runPostCheckoutHook = async (directory) => {
   if (!head || !gitDir) return;
 
   try {
-    const hook = await resolveProjectCommand(directory, {
-      command: hookPath,
-      args: [GIT_NULL_REF, head, '1'],
+    await execFileAsync(hookPath, [GIT_NULL_REF, head, '1'], {
+      cwd: directory,
       env: {
         ...(await buildGitEnv()),
         GIT_DIR: gitDir,
         GIT_WORK_TREE: path.resolve(directory),
       },
-    });
-    await execFileAsync(hook.command, hook.args, {
-      cwd: directory,
-      env: hook.env,
       windowsHide: true,
     });
   } catch (error) {
@@ -1710,10 +1695,9 @@ const runWorktreeStartCommand = async (directory, command) => {
     return result;
   }
 
-  const shell = await resolveProjectCommand(directory, { command: 'bash', args: ['-lc', text], env: await buildGitEnv() });
-  const result = await execFileAsync(shell.command, shell.args, {
+  const result = await execFileAsync('bash', ['-lc', text], {
     cwd: directory,
-    env: shell.env,
+    env: await buildGitEnv(),
     maxBuffer: 20 * 1024 * 1024,
   }).then(({ stdout, stderr }) => ({ success: true, stdout, stderr })).catch((error) => ({
     success: false,
@@ -2608,7 +2592,8 @@ export async function getFileDiff(directory, { path: filePath, staged = false } 
     if (isImage) {
       // For images, use git show with raw output and convert to base64
       try {
-        const { stdout } = await runGitIn(repoRoot, ['show', `HEAD:${repoPath}`], {
+        const { stdout } = await execFileAsync(getGitBinary(), ['show', `HEAD:${repoPath}`], {
+          cwd: repoRoot,
           encoding: 'buffer',
           windowsHide: true,
           maxBuffer: 50 * 1024 * 1024, // 50MB max
@@ -2630,7 +2615,8 @@ export async function getFileDiff(directory, { path: filePath, staged = false } 
   try {
     if (staged) {
       if (isImage) {
-        const { stdout } = await runGitIn(repoRoot, ['show', `:${repoPath}`], {
+        const { stdout } = await execFileAsync(getGitBinary(), ['show', `:${repoPath}`], {
+          cwd: repoRoot,
           encoding: 'buffer',
           windowsHide: true,
           maxBuffer: 50 * 1024 * 1024,

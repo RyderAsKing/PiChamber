@@ -24,7 +24,9 @@ This module provides Git repository operations for the web server runtime, inclu
   any git config previously written into repositories are left untouched on
   disk.
 
-- Sandboxed projects (#248). `sandboxed-git.js` decides how git starts for a folder. `createGit`, `runGitCommand`/`runGitIn`, the post-checkout hook, the worktree start command, and the GitHub module's git calls resolve through it: unsandboxed folders run exactly as before; a folder in a sandboxed project runs git through the project's launcher (a wrapper script for simple-git, `resolveProjectCommand` for hooks and start commands); an unusable sandbox throws `SANDBOX_UNAVAILABLE` and nothing runs. Every `/api/git/*` route checks `?directory=` first and answers 503 `{ error, code: 'SANDBOX_UNAVAILABLE', reason }`. Add any new git or repo-command spawn through this module. See `../pi/sandbox/DOCUMENTATION.md`, "Git".
+## Sandbox
+
+Only Pi session daemons (the agent) run in the sandbox. PiChamber's own Git panel, terminal, browser and GitHub features, and worktree hooks and start commands, run outside it with the user's access, so git config, hooks or filters an agent writes into the repo can run when the user or the Git panel runs git. This is a known, accepted trade-off. Git runs the same for every folder, sandboxed project or not.
 
 ## Public API
 
