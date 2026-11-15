@@ -1046,8 +1046,11 @@ export function createSessionDaemon({
     // the leases are still held, as idle disposal does. Reopening an absent
     // file fails as SESSION_JSONL_UNREADABLE on every later `ensureRuntime`,
     // so the dormant entry is dropped and the next start opens a fresh session.
-    const ephemeralSession = dormantSession && await isSessionFileAbsent(dormantSession.sessionFile)
-      ? dormantSession
+    // Capture once: the dormant binding can change during the await, and the
+    // session cleared or announced must be the one whose file was checked.
+    const dormantCandidate = dormantSession;
+    const ephemeralSession = dormantCandidate && await isSessionFileAbsent(dormantCandidate.sessionFile)
+      ? dormantCandidate
       : undefined;
     let ephemeralReleased = false;
     for (const lease of leased) {

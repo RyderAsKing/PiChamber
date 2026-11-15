@@ -100,10 +100,13 @@ function connectClient(endpoint) {
 
 describe('Pi session daemon provider changes with the real SDK', () => {
   let daemon;
+  let originalAgentDirEnv;
 
   afterEach(async () => {
     await daemon?.stop();
     daemon = undefined;
+    if (originalAgentDirEnv === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = originalAgentDirEnv;
   });
 
   it('keeps listing providers after a provider is saved before any message', async () => {
@@ -112,6 +115,10 @@ describe('Pi session daemon provider changes with the real SDK', () => {
     await mkdir(projectDir);
     // No agent directory: a fresh install.
     const agentDir = join(root, 'agent');
+    // Extensions such as MCP read the process-wide agent directory, so point it
+    // at the test's directory instead of the developer's real Pi config.
+    originalAgentDirEnv = process.env.PI_CODING_AGENT_DIR;
+    process.env.PI_CODING_AGENT_DIR = agentDir;
 
     const endpoint = testDaemonEndpoint(root);
     daemon = createSessionDaemon({ endpoint, credential, cwd: projectDir, agentDir });
