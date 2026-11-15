@@ -1,7 +1,6 @@
 import type { GitStatus, GitWorktree } from '../api/types';
 import { getRuntimeUrlResolver } from '../runtime-url';
 import { getRuntimeKey } from '../runtime-switch';
-import { sandboxReasonText } from '../pi/sandboxText';
 
 export const API_BASE = '/api/git';
 export const GIT_STATUS_CACHE_TTL_MS = 1200;
@@ -87,31 +86,3 @@ export function buildUrl(
 
   return getRuntimeUrlResolver().api(path, query);
 }
-
-/** Why Git did not run in a sandboxed project whose sandbox cannot start. */
-export const gitSandboxErrorText = (reason: string | undefined): string =>
-  `This project is sandboxed, so Git does not run without the sandbox. ${sandboxReasonText(reason)}`;
-
-/**
- * The error for a failed Git request. A sandboxed project whose sandbox
- * cannot start answers every Git route with 503 `SANDBOX_UNAVAILABLE` and a
- * reason code; that always becomes a readable sentence, with `code` and
- * `reason` kept on the error. Otherwise the server's `error` text is used
- * when `serverMessage` is set (the default), else `fallback`.
- */
-export const readGitError = async (
-  response: Response,
-  fallback: string,
-  options: { serverMessage?: boolean } = {},
-): Promise<Error> => {
-  const payload = await response.json().catch(() => null) as { error?: unknown; code?: unknown; reason?: unknown } | null;
-  if (payload?.code === 'SANDBOX_UNAVAILABLE') {
-    const reason = typeof payload.reason === 'string' ? payload.reason : undefined;
-    return Object.assign(
-      new Error(gitSandboxErrorText(reason)),
-      { code: 'SANDBOX_UNAVAILABLE', reason },
-    );
-  }
-  const useServer = options.serverMessage !== false;
-  return new Error(useServer && typeof payload?.error === 'string' && payload.error ? payload.error : fallback);
-};
