@@ -4,7 +4,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createOpenUrlIntake } from '../../open-url/intake.js';
 import { findPiSessionJsonlById } from '../session-daemon/session-jsonl.js';
 import { createSandboxedPiSessionDaemonSupervisor } from '../session-daemon/supervisor.js';
-import { prepareProjectSandbox } from './project-sandbox.js';
+import { prepareGitSandbox, prepareProjectSandbox } from './project-sandbox.js';
 import { normalizeProjectSandboxSetting, readProjectSandbox } from './project-sandbox-setting.js';
 
 // Commands a sandboxed project may run on the main daemon while its own
@@ -84,6 +84,7 @@ export const createProjectSandboxManager = ({
   readRoots,
   createSupervisor = createSandboxedPiSessionDaemonSupervisor,
   prepareSandbox = prepareProjectSandbox,
+  prepareGit = prepareGitSandbox,
   createIntake = createOpenUrlIntake,
   idleStopMs = DEFAULT_IDLE_STOP_MS,
   idleCheckMs = DEFAULT_IDLE_CHECK_MS,
@@ -413,6 +414,53 @@ export const createProjectSandboxManager = ({
         if (entry.runtime === owner) return { launcher: launcher.id };
       }
       return null;
+    },
+    /**
+     * How git runs for a folder (#248): null when the folder is in no
+     * sandboxed project, so its git is unchanged; otherwise `{ binDir,
+     * prepare }` whose `prepare({ argv, env })` wraps one short-lived
+     * process in the launcher with the project's git grants. Throws
+     * SANDBOX_UNAVAILABLE when the launcher or setting is unusable, never
+     * falling back to unsandboxed git. Starts no daemon.
+     */
+    gitLaunchFor: async (directory) => {
+      const owner = daemonPool.forDirectory(directory);
+      const entry = [...projects.values()].find((item) => item.runtime === owner);
+      if (!entry) return null;
+      const status = await probeLauncher();
+      if (!status.available) throw sandboxUnavailable(status.code);
+      if (entry.invalid) throw sandboxUnavailable('INVALID_SANDBOX_SETTING');
+      // Re-read: the first managed worktree writes the id after reconcile.
+      const gitProjectId = await readGitProjectId(entry.projectRoot);
+      const cacheKey = `${entry.settingKey}\0${gitProjectId ?? ''}`;
+      if (entry.gitSandbox?.key !== cacheKey) {
+        let sandbox;
+        try {
+          sandbox = await prepareGit({
+            dataDir,
+            projectRoot: entry.projectRoot,
+            ...(gitProjectId ? { projectId: gitProjectId } : {}),
+            serverPort: getServerPort(),
+            extraFolders: entry.setting.extraFolders,
+            allowHosts: entry.setting.allowHosts,
+            allowLocalPorts: entry.setting.allowLocalPorts,
+          });
+        } catch (error) {
+          throw sandboxUnavailable(reasonOf(error));
+        }
+        entry.gitSandbox = { key: cacheKey, sandbox };
+      }
+      const { sandbox } = entry.gitSandbox;
+      return {
+        binDir: sandbox.binDir,
+        prepare: async ({ argv, env }) => {
+          try {
+            return await launcher.prepare({ argv, env, grants: sandbox.grants, network: sandbox.network, tmpDir: sandbox.tmpDir });
+          } catch (error) {
+            throw sandboxUnavailable(reasonOf(error));
+          }
+        },
+      };
     },
     /** The folder a persisted session belongs to, from its transcript header. */
     directoryForSession: async (sessionId) => {

@@ -260,6 +260,8 @@ POST /api/github/invalidate                   { directory?, repo?, kind?, number
 - Never return an empty list on failure; stale serves are explicit. A
   failed section (`sectionErrors`) never reads as an empty section.
 
+- Local git (repo scope, ignored-path filter, PR checkout) starts through `../git/sandboxed-git.js`, so in a sandboxed project it runs under the project's launcher and throws `SANDBOX_UNAVAILABLE` when that launcher is unusable (#248).
+
 ## Notes for contributors
 
 - Add domain logic in `pulls.js` / `issues.js` / `checks.js`, keep
