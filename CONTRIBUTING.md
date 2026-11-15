@@ -79,7 +79,8 @@ bun run electron:build
 
 Desktop targets are macOS, Windows, and Linux. macOS produces DMG and ZIP
 artifacts, Windows produces an NSIS installer, and Linux produces AppImage,
-`.deb`, and `.rpm` artifacts for the native x64 or arm64 host. Unsigned local
+`.deb`, `.rpm`, and pacman artifacts for the native x64 or arm64 host. Building
+the pacman package needs `bsdtar` (`libarchive-tools` on Debian and Ubuntu). Unsigned local
 installers are expected when signing credentials are not configured.
 
 ### Shared UI

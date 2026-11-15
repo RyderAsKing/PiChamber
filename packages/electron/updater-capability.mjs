@@ -47,7 +47,7 @@ export const assertUpdaterCapability = ({
 
   if (!appImagePath) {
     throw new Error(
-      'Updates require a packaged Linux installation. Start PiChamber from its AppImage or install the .deb/.rpm package from GitHub Releases.',
+      'Updates require a packaged Linux installation. Start PiChamber from its AppImage or install the .deb, .rpm, or .pacman package from GitHub Releases.',
     );
   }
   if (!path.isAbsolute(appImagePath)) {
