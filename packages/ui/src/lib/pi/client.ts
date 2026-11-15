@@ -255,9 +255,14 @@ export class PiSendUnconfirmedError extends Error {
 
 const isValidPendingInputList = (value: unknown): value is PiPendingInputListResponse => {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as { sessions?: unknown; sequence?: unknown };
+  const candidate = value as { sessions?: unknown; sequence?: unknown; incomplete?: unknown };
   if (!Array.isArray(candidate.sessions)) return false;
-  if (!Number.isSafeInteger(candidate.sequence) || (candidate.sequence as number) < 0) return false;
+  // The main daemon's position is absent only when it failed to answer, and
+  // then the list says so. Project daemon positions are checked per stream
+  // where they are used.
+  if (candidate.sequence === undefined) {
+    if (candidate.incomplete !== true) return false;
+  } else if (!Number.isSafeInteger(candidate.sequence) || (candidate.sequence as number) < 0) return false;
   for (const item of candidate.sessions) {
     if (!item || typeof item !== 'object') return false;
     const entry = item as { sessionId?: unknown; directory?: unknown; pending?: unknown };
@@ -327,8 +332,8 @@ const assertRuntimeUnchanged = (scope?: PiClientScope): void => {
   }
 };
 
-const assertSendEpochCurrent = (runtimeKey: string, streamEpoch: string | undefined): string => {
-  const current = getObservedPiStreamEpoch(runtimeKey);
+const assertSendEpochCurrent = (runtimeKey: string, sessionId: string, streamEpoch: string | undefined): string => {
+  const current = getObservedPiStreamEpoch(runtimeKey, sessionId);
   if (!streamEpoch || !current || streamEpoch !== current) {
     throw new PiRequestError('STALE_STREAM_EPOCH', 'The Pi runtime restarted before this send could be verified.', 409);
   }
@@ -732,7 +737,7 @@ export class PiService {
   async getSendReceipt(input: PiSendReceiptInput, scope?: PiClientScope): Promise<PiSendReceiptResult> {
     const runtimeKey = scope?.runtimeKey ?? getRuntimeKey();
     assertRuntimeUnchanged({ ...scope, runtimeKey });
-    const streamEpoch = assertSendEpochCurrent(runtimeKey, input.streamEpoch ?? scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey));
+    const streamEpoch = assertSendEpochCurrent(runtimeKey, input.sessionId, input.streamEpoch ?? scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey, input.sessionId));
     const directory = scope?.directory ?? this.currentDirectory;
     const result = await jsonRequest<{ kind: PiSendKind; operationId: string; streamEpoch: string }, unknown>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/send-receipt`,
@@ -744,7 +749,7 @@ export class PiService {
       },
     );
     assertRuntimeUnchanged({ ...scope, runtimeKey });
-    assertSendEpochCurrent(runtimeKey, streamEpoch);
+    assertSendEpochCurrent(runtimeKey, input.sessionId, streamEpoch);
     if (!result || typeof result !== 'object') {
       throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send receipt');
     }
@@ -772,7 +777,7 @@ export class PiService {
     let streamEpoch: string;
     try {
       assertRuntimeUnchanged({ ...scope, runtimeKey });
-      streamEpoch = assertSendEpochCurrent(runtimeKey, scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey));
+      streamEpoch = assertSendEpochCurrent(runtimeKey, input.sessionId, scope?.streamEpoch ?? getObservedPiStreamEpoch(runtimeKey, input.sessionId));
     } catch (error) {
       throw toSendUnconfirmedError(error);
     }
@@ -792,7 +797,7 @@ export class PiService {
         throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Malformed send response');
       }
       assertRuntimeUnchanged({ ...scope, runtimeKey });
-      assertSendEpochCurrent(runtimeKey, streamEpoch);
+      assertSendEpochCurrent(runtimeKey, input.sessionId, streamEpoch);
       return result;
     } catch (error) {
       if (error instanceof PiRequestError && error.code === 'STALE_STREAM_EPOCH') {

@@ -32,7 +32,8 @@ import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
 import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
 import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
-import { createPiDaemonPool } from './session-daemon/daemon-pool.js';
+import { createPiDaemonPool, MAIN_DAEMON_KEY, publicDaemonStreamId } from './session-daemon/daemon-pool.js';
+import { decodePiEventCursor, subscribeMergedPiEvents } from './merged-event-stream.js';
 import { registerPiSandboxRoutes } from './sandbox/sandbox-routes.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
@@ -167,21 +168,29 @@ const projectListLiveStatus = (value) => {
 // Fill in live state the owning daemon lacks from daemons still draining
 // sessions for the same folder, matched by session id. Membership and every
 // other field stay the owner's.
-const mergeDrainingLiveState = (items, drainedLists) => {
-  if (drainedLists.length === 0) return items;
-  const drainedById = new Map();
-  for (const list of drainedLists) {
-    for (const item of list) {
-      if (!drainedById.get(item.session.id)?.live) drainedById.set(item.session.id, item);
+// Live state (`live`, `inputState`) another daemon samples for rows the
+// list's own daemon lacks, merged by session id. Its sequences belong to
+// that daemon's stream, so a merged row says which: `stream` (`main` for
+// the main daemon) and that daemon's `streamEpoch`. `others` is a list of
+// `{ stream, streamEpoch, items }`.
+const mergeOtherDaemonsLiveState = (items, others) => {
+  if (others.length === 0) return items;
+  const byId = new Map();
+  for (const other of others) {
+    for (const item of other.items) {
+      if (!item.live && !item.inputState) continue;
+      if (!byId.get(item.session.id)?.item.live) byId.set(item.session.id, { other, item });
     }
   }
   return items.map((item) => {
-    const drained = drainedById.get(item.session.id);
-    if (!drained || item.live) return item;
+    const found = byId.get(item.session.id);
+    if (!found || item.live || item.inputState) return item;
     return {
       ...item,
-      ...(drained.live ? { live: drained.live } : {}),
-      ...(!item.inputState && drained.inputState ? { inputState: drained.inputState } : {}),
+      ...(found.item.live ? { live: found.item.live } : {}),
+      ...(found.item.inputState ? { inputState: found.item.inputState } : {}),
+      stream: found.other.stream,
+      ...(found.other.streamEpoch ? { streamEpoch: found.other.streamEpoch } : {}),
     };
   });
 };
@@ -1155,17 +1164,24 @@ export const projectEventFrame = (frame) => {
   }
 };
 
+const sessionOperationDirectory = (req) => (typeof req.query?.directory === 'string' && req.query.directory.length > 0
+  ? req.query.directory
+  : (typeof req.body?.directory === 'string' && req.body.directory.length > 0
+    ? req.body.directory
+    : (typeof req.body?.cwd === 'string' && req.body.cwd.length > 0 ? req.body.cwd : undefined)));
+
+// The folder a session operation was routed by: the request's own, or the
+// transcript's when `requestSessionOperation` looked it up. Stream stamps
+// use it so a response names the daemon that actually served it.
+const sessionRouteDirectory = (req, res) => res.locals?.piRouteDirectory ?? sessionOperationDirectory(req);
+
 const requestSessionOperation = async (req, res, daemonPool, command, payload = {}, sandboxManager) => {
   const sessionId = sessionIdFrom(req);
   if (!sessionId) {
     res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
     return undefined;
   }
-  const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
-    ? req.query.directory
-    : (typeof req.body?.directory === 'string' && req.body.directory.length > 0
-      ? req.body.directory
-      : (typeof req.body?.cwd === 'string' && req.body.cwd.length > 0 ? req.body.cwd : undefined));
+  const directory = sessionOperationDirectory(req);
   try {
     // Without a directory the main daemon would look the session up itself
     // and could run a sandboxed project's session outside its sandbox. When
@@ -1174,6 +1190,7 @@ const requestSessionOperation = async (req, res, daemonPool, command, payload = 
     let routeDirectory = directory;
     if (!routeDirectory && sandboxManager?.hasSandboxedProjects()) {
       routeDirectory = await sandboxManager.directoryForSession(sessionId) ?? undefined;
+      if (routeDirectory && res.locals) res.locals.piRouteDirectory = routeDirectory;
     }
     return await requireDaemon(daemonPool.forDirectory(routeDirectory)).request(command, {
       ...payload,
@@ -1216,6 +1233,7 @@ export const registerPiRuntimeRoutes = (app, {
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
+  eventStreamRetryBaseMs,
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
   // Directory-less commands (providers, settings, projects, engines,
@@ -1230,6 +1248,13 @@ export const registerPiRuntimeRoutes = (app, {
     : item);
   if (sandboxManager) registerPiSandboxRoutes(app, { sandboxManager });
   const daemonFor = (directory) => requireDaemon(daemonPool.forDirectory(directory));
+  // A stamped response (`streamEpoch`, sequences) from a project daemon says
+  // which daemon stream its sequences belong to; main responses are
+  // unchanged.
+  const withStream = (body, directory) => {
+    const stream = daemonPool.streamFor(directory);
+    return stream ? { ...body, stream } : body;
+  };
   // Tell every device an archive mark changed (a `session.archive` event on
   // the session's stream) so other clients re-list that folder. The change is
   // already saved, so this never delays or fails the request: an older
@@ -2014,8 +2039,19 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
       return;
     }
+    // Opaque resume position of every project daemon (merged-event-stream.js).
+    // Only epoch-aware clients receive one, so it requires the same marker.
+    const rawEventCursor = req.query.cursor;
+    const eventCursor = rawEventCursor === undefined ? undefined : decodePiEventCursor(rawEventCursor);
+    if (eventCursor === null) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    if (eventCursor !== undefined && !hasEpochCapability) {
+      res.status(400).json({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
+      return;
+    }
     try {
-      // The public stream stays on the main daemon until streams merge.
       const runtime = mainDaemon();
       if (typeof runtime.subscribe !== 'function') throw protocolMismatch();
       res.status(200).set({
@@ -2031,8 +2067,19 @@ export const registerPiRuntimeRoutes = (app, {
       openPiEventStream({
         req,
         res,
-        subscribe: (handlers) => runtime.subscribe({ sessionId, directory, fromSequence, streamEpoch, ...handlers }),
-        projectFrame: projectEventFrame,
+        // Every live daemon's stream, merged. Frames arrive projected.
+        subscribe: (handlers) => subscribeMergedPiEvents({
+          pool: daemonPool,
+          projectFrame: projectEventFrame,
+          sessionId,
+          directory,
+          fromSequence,
+          streamEpoch,
+          cursor: eventCursor,
+          ...(eventStreamRetryBaseMs !== undefined ? { retryBaseMs: eventStreamRetryBaseMs } : {}),
+          ...handlers,
+        }),
+        projectFrame: (event) => event,
         heartbeatMs: eventHeartbeatMs,
         maxBufferedBytes: eventStreamMaxBufferedBytes,
         registry: eventStreamRegistry,
@@ -2056,28 +2103,36 @@ export const registerPiRuntimeRoutes = (app, {
 
     try {
       const payload = typeof directory === 'string' ? { directory } : {};
-      // While a switch drains, an old daemon still runs some of this
-      // folder's sessions. The owner's rows are the list (JSONL is the
-      // authority); a draining daemon only fills in `live`/`inputState` the
-      // owner lacks. A failed draining daemon leaves those rows unknown.
-      const draining = typeof directory === 'string' ? daemonPool.drainingFor(directory) : [];
-      const [result, ...drained] = await Promise.all([
+      // The owner's rows are the list (JSONL is the authority). Other
+      // daemons only fill in `live`/`inputState` the owner lacks: daemons
+      // still draining this folder after a switch, or, for the all-sessions
+      // list, every project daemon (the main daemon lists every folder but
+      // only knows its own residents). A failed other daemon leaves those
+      // rows unknown.
+      const others = typeof directory === 'string'
+        ? daemonPool.drainingFor(directory)
+        : daemonPool.live().filter((item) => item.key !== MAIN_DAEMON_KEY);
+      const [result, ...otherLists] = await Promise.all([
         daemonFor(directory).request('sessions.list', payload),
-        ...draining.map((runtime) => runtime.request('sessions.list', payload)
-          .then((value) => projectSessionList(value?.sessions))
-          .catch(() => [])),
+        ...others.map(({ key, runtime }) => runtime.request('sessions.list', payload)
+          .then((value) => ({
+            stream: publicDaemonStreamId(key),
+            ...(isValidStreamEpoch(value?.streamEpoch) ? { streamEpoch: value.streamEpoch } : {}),
+            items: projectSessionList(value?.sessions),
+          }))
+          .catch(() => ({ stream: publicDaemonStreamId(key), items: [] }))),
       ]);
       const archived = await archiveStore.read();
       const incompleteEngines = Array.isArray(result?.incompleteEngines)
         ? result.incompleteEngines.filter((engineId) => isValidEngineId(engineId))
         : [];
-      res.json({
+      res.json(withStream({
         ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         ...(incompleteEngines.length > 0 ? { incompleteEngines } : {}),
-        sessions: mergeDrainingLiveState(projectSessionList(result?.sessions), drained).map(withSandbox).map((item) => archived[item.session.id]
+        sessions: mergeOtherDaemonsLiveState(projectSessionList(result?.sessions), otherLists).map(withSandbox).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),
-      });
+      }, directory));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2090,19 +2145,39 @@ export const registerPiRuntimeRoutes = (app, {
       // Fan out to every live daemon. One failed (or malformed) daemon
       // must not empty the others' lists; the response then says
       // `incomplete` so clients do not treat its absent rows as cleared.
-      // The cursor is the first answering daemon's, main first: the public
-      // event stream is still the main daemon's.
+      // Each daemon numbers its own stream: the top-level cursor is the
+      // main daemon's (absent when it failed), and a project daemon's
+      // entries carry `stream`, with its cursor under `streams[stream]`.
       const daemons = daemonPool.live();
       if (daemons.length === 0) requireDaemon(null);
       const settled = await Promise.allSettled(daemons.map(async ({ runtime }) => (
         projectPendingInputList(await runtime.request('sessions.pendingInput'))
       )));
-      const lists = settled.filter((item) => item.status === 'fulfilled').map((item) => item.value);
-      if (lists.length === 0) throw settled[0].reason;
+      if (!settled.some((item) => item.status === 'fulfilled')) throw settled[0].reason;
+      let mainList = null;
+      const sessions = [];
+      const streams = {};
+      settled.forEach((item, index) => {
+        if (item.status !== 'fulfilled') return;
+        const { key } = daemons[index];
+        if (key === MAIN_DAEMON_KEY) {
+          mainList = item.value;
+          sessions.push(...item.value.sessions);
+          return;
+        }
+        const stream = publicDaemonStreamId(key);
+        streams[stream] = {
+          sequence: item.value.sequence,
+          ...(item.value.streamEpoch ? { streamEpoch: item.value.streamEpoch } : {}),
+        };
+        for (const entry of item.value.sessions) sessions.push({ ...entry, stream });
+      });
       res.json({
-        ...lists[0],
-        sessions: lists.flatMap((list) => list.sessions),
-        ...(lists.length < settled.length ? { incomplete: true } : {}),
+        sessions,
+        ...(mainList ? { sequence: mainList.sequence } : {}),
+        ...(mainList?.streamEpoch ? { streamEpoch: mainList.streamEpoch } : {}),
+        ...(Object.keys(streams).length > 0 ? { streams } : {}),
+        ...(settled.some((item) => item.status !== 'fulfilled') ? { incomplete: true } : {}),
       });
     } catch (error) {
       writeDaemonError(res, error);
@@ -2138,9 +2213,9 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       const detail = withSandbox(projectSessionDetail(result));
       const archived = await archiveStore.read();
-      res.json(archived[detail.session.id]
+      res.json(withStream(archived[detail.session.id]
         ? { ...detail, session: { ...detail.session, archived: true, timeArchived: archived[detail.session.id] } }
-        : detail);
+        : detail, sessionRouteDirectory(req, res)));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2164,7 +2239,7 @@ export const registerPiRuntimeRoutes = (app, {
     }, sandboxManager);
     if (result === undefined) return;
     try {
-      res.json(projectSessionDetail(result));
+      res.json(withStream(projectSessionDetail(result), sessionRouteDirectory(req, res)));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2422,13 +2497,13 @@ export const registerPiRuntimeRoutes = (app, {
     const detail = projectSessionDetail(result);
     const navigation = sanitizeNavigation(result.navigation);
     if (navigation) detail.navigation = navigation;
-    res.json(detail);
+    res.json(withStream(detail, sessionRouteDirectory(req, res)));
   });
 
   for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {}, sandboxManager);
-      if (result !== undefined) res.status(201).json(withSandbox(projectSessionDetail(result)));
+      if (result !== undefined) res.status(201).json(withStream(withSandbox(projectSessionDetail(result)), sessionRouteDirectory(req, res)));
     });
   }
 
@@ -2623,7 +2698,7 @@ export const registerPiRuntimeRoutes = (app, {
       // entries or messages from `session_start`. Project it exactly like a
       // session read so those items, the stream epoch, and extension UI state
       // reach the client instead of failing creation.
-      res.status(201).json(withSandbox(projectSessionDetail(result)));
+      res.status(201).json(withStream(withSandbox(projectSessionDetail(result)), cwd));
     } catch (error) {
       writeDaemonError(res, error);
     }

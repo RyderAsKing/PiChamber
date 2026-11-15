@@ -32,7 +32,7 @@ export const queryQueuedSendReceipt = async (
   attempt: QueuedDeliveryAttempt,
 ): Promise<QueuedReceiptStatus> => {
   try {
-    const currentEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+    const currentEpoch = getObservedPiStreamEpoch(target.runtimeKey, target.sessionId);
     if (!attempt.streamEpoch || attempt.streamEpoch !== currentEpoch) return 'unknown';
     const result = await piClient.getSendReceipt({
       sessionId: target.sessionId,

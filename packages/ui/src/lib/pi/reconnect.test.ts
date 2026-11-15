@@ -243,6 +243,54 @@ describe("reconnectPiSession", () => {
     expect(result.reducerState.bySession.get("s1")?.lastSequence).toBe(12)
   })
 
+  test("a session on a project daemon resumes main from the client cursor and passes the project cursor through", async () => {
+    // The detail's epoch and lastSequence belong to the project daemon's
+    // stream, not the main daemon's: neither is compared with or mixed into
+    // the main cursor.
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-main",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work" },
+          messages: [],
+          lastSequence: 900,
+          streamEpoch: "epoch-box",
+          stream: "box-stream-id-01",
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 5,
+      streamEpoch: "epoch-main",
+      cursor: "cursor-7",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.epochChanged).toBeUndefined()
+    expect(result.lastSequence).toBe(5)
+    expect(result.sessionStream).toEqual({ stream: "box-stream-id-01", epoch: "epoch-box" })
+    const streamOptions = mockCreatePiEventStream.mock.calls[0]?.[1]
+    expect(streamOptions?.fromSequence).toBe(5)
+    expect(streamOptions?.streamEpoch).toBe("epoch-main")
+    expect(streamOptions?.cursor).toBe("cursor-7")
+    expect(result.reducerState.bySession.get("s1")?.lastSequence).toBe(900)
+  })
+
   test("returns failed when the session is not indexed", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

@@ -154,6 +154,13 @@ export const applyPiEvent = (
     };
   }
 
+  // A move notice is a server note that the session changed daemons, not
+  // session state, and carries no sequence: the store resets the session
+  // and re-fetches it; the reducer never applies it.
+  if (event.name === 'session.moved') {
+    return { state, didApply: false, sessionId: event.sessionId };
+  }
+
   // An open request is a device-side side effect (lib/pi/open-request.ts),
   // and an archive change is catalog metadata the store re-lists for, not
   // session state: advance the cursor without touching or creating the

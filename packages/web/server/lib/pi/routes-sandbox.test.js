@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { registerPiRuntimeRoutes } from './routes.js';
-import { createPiDaemonPool } from './session-daemon/daemon-pool.js';
+import { createPiDaemonPool, publicDaemonStreamId } from './session-daemon/daemon-pool.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createProjectSandboxManager } from './sandbox/project-sandbox-manager.js';
 import { getPiSessionDirectory } from './session-daemon/session-jsonl.js';
@@ -25,10 +25,24 @@ const close = (server) => new Promise((resolve) => {
 // keyed by command name (a function receives the payload).
 const fakeDaemon = (name, answers = {}) => {
   const calls = [];
+  const subscriptions = [];
   return {
     name,
     calls,
+    subscriptions,
     commands: () => calls.map((call) => call.command),
+    // Event stream: each subscription is recorded; `emit` writes a frame to
+    // every open one.
+    subscribe: async (options) => {
+      const record = { options, closed: false };
+      subscriptions.push(record);
+      return () => { record.closed = true; };
+    },
+    emit: (event, sequence, payload) => {
+      for (const record of subscriptions.filter((item) => !item.closed)) {
+        record.options.onEvent({ protocolVersion: 1, kind: 'event', event, sequence, streamEpoch: `epoch-${name}`, payload });
+      }
+    },
     request: async (command, payload) => {
       calls.push({ command, payload });
       const answer = answers[command];
@@ -300,6 +314,23 @@ describe('Pi routes for sandboxed projects', () => {
     expect(ctx.main.calls).toEqual([]);
   });
 
+  it('stamps a session read routed by its transcript with the sandbox daemon\'s stream', async () => {
+    // A daemon answers a directory-less read with the session's own folder.
+    let sessionFolder;
+    const ctx = await setup({ sandboxAnswers: { 'sessions.open': (p) => detail(p.sessionId, p.directory ?? sessionFolder) } });
+    sessionFolder = ctx.projectA;
+    await ctx.sandboxOn();
+    const sessions = getPiSessionDirectory({ cwd: ctx.projectA, agentDir: ctx.agentDir });
+    await mkdir(sessions, { recursive: true });
+    await writeFile(join(sessions, '2026-01-01_s-9.jsonl'), `${JSON.stringify({ type: 'session', id: 's-9', cwd: ctx.projectA, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+
+    const response = await ctx.call('/api/pi/sessions/s-9');
+    expect(response.status).toBe(200);
+    // Its sequences belong to the sandbox daemon's stream, not the main one.
+    expect((await response.json()).stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+    expect(ctx.main.commands()).not.toContain('sessions.open');
+  });
+
   it('reports the launcher status and re-checks it on request, without paths or raw nono output', async () => {
     const ctx = await setup({ probe: { available: false, code: 'NOT_INSTALLED' } });
     const first = await ctx.call('/api/pi/sandbox');
@@ -378,6 +409,53 @@ describe('Pi routes for sandboxed projects', () => {
     // The next open starts it again.
     await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
     expect(ctx.launched).toHaveLength(2);
+  });
+
+  it('joins a started sandbox daemon to the merged event stream and leaves it when the daemon stops idle', async () => {
+    let resident = 1;
+    const ctx = await setup({
+      idleStopMs: 10_000,
+      sandboxAnswers: { 'runtime.health': () => ({ state: 'ready', residentSessions: resident }) },
+    });
+    await ctx.sandboxOn();
+    const events = await fetch(`http://127.0.0.1:${server.address().port}/api/pi/events?capabilities=events.streamEpoch`);
+    const reader = events.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    const readUntil = async (predicate) => {
+      for (let i = 0; i < 50 && !predicate(text); i += 1) {
+        const next = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r({ timeout: true }), 100))]);
+        if (next.done) break;
+        if (!next.timeout) text += decoder.decode(next.value);
+      }
+      return text;
+    };
+    const waitFor = async (predicate) => {
+      for (let i = 0; i < 50 && !predicate(); i += 1) await new Promise((r) => setTimeout(r, 10));
+    };
+    await waitFor(() => ctx.main.subscriptions.length > 0);
+    // Not started yet, so nothing subscribes to it.
+    expect(ctx.launched).toEqual([]);
+
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [daemon] = ctx.launched;
+    await waitFor(() => daemon.subscriptions.some((item) => !item.closed));
+    daemon.emit('session.updated', 1, { sessionId: 's-1', directory: ctx.projectA, title: 'Boxed' });
+    const stream = publicDaemonStreamId('sandbox:proj-a');
+    await readUntil((body) => body.includes('Boxed'));
+    const frame = text.split('\n').filter((line) => line.startsWith('data: ')).map((line) => JSON.parse(line.slice(6)))
+      .find((item) => item.payload?.title === 'Boxed');
+    expect(frame).toMatchObject({ stream, sessionId: 's-1', payload: { title: 'Boxed' } });
+
+    resident = 0;
+    await ctx.tick(1_000);
+    await ctx.tick(11_000);
+    expect(daemon.stopped).toBe(true);
+    await waitFor(() => daemon.subscriptions.every((item) => item.closed));
+    expect(daemon.subscriptions.every((item) => item.closed)).toBe(true);
+    // The main daemon's subscription is untouched.
+    expect(ctx.main.subscriptions.filter((item) => !item.closed)).toHaveLength(1);
+    await reader.cancel();
   });
 
   it('fails a sandbox start closed when the main daemon cannot name the provider hosts', async () => {

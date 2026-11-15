@@ -160,7 +160,7 @@ describe('Pi routes over a daemon pool', () => {
 
   const pending = (sessionId, directory) => ({ sessionId, directory, pending: { count: 1, kind: 'input', since: 5 } });
 
-  it('merges pending input from every live daemon, keeping the main stream cursor', async () => {
+  it('merges pending input from every live daemon with each daemon\'s own cursor', async () => {
     const main = fakeDaemon('main', { 'sessions.pendingInput': { sessions: [pending('s-main', '/work/other')], sequence: 40, streamEpoch: 'epoch-main' } });
     const sandbox = fakeDaemon('sandbox', { 'sessions.pendingInput': { sessions: [pending('s-box', '/work/a')], sequence: 7, streamEpoch: 'epoch-box' } });
     const pool = createPiDaemonPool({ getMainRuntime: () => main });
@@ -169,10 +169,13 @@ describe('Pi routes over a daemon pool', () => {
 
     const response = await call('/api/pi/sessions/pending-input');
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      sessions: [pending('s-main', '/work/other'), pending('s-box', '/work/a')],
+    const body = await response.json();
+    const stream = pool.streamFor('/work/a');
+    expect(body).toEqual({
+      sessions: [pending('s-main', '/work/other'), { ...pending('s-box', '/work/a'), stream }],
       sequence: 40,
       streamEpoch: 'epoch-main',
+      streams: { [stream]: { sequence: 7, streamEpoch: 'epoch-box' } },
     });
   });
 
@@ -191,6 +194,81 @@ describe('Pi routes over a daemon pool', () => {
       streamEpoch: 'epoch-main',
       incomplete: true,
     });
+  });
+
+  it('serves project daemons\' pending input when the main daemon fails, without a main cursor', async () => {
+    const main = fakeDaemon('main', { 'sessions.pendingInput': daemonError('DAEMON_UNAVAILABLE') });
+    const sandbox = fakeDaemon('sandbox', { 'sessions.pendingInput': { sessions: [pending('s-box', '/work/a')], sequence: 7, streamEpoch: 'epoch-box' } });
+    const pool = createPiDaemonPool({ getMainRuntime: () => main });
+    pool.register('project-a', { runtime: sandbox, directories: ['/work/a'] });
+    const call = await start(pool);
+
+    const response = await call('/api/pi/sessions/pending-input');
+    const stream = pool.streamFor('/work/a');
+    expect(await response.json()).toEqual({
+      sessions: [{ ...pending('s-box', '/work/a'), stream }],
+      streams: { [stream]: { sequence: 7, streamEpoch: 'epoch-box' } },
+      incomplete: true,
+    });
+  });
+
+  it('tags responses from a project daemon with its stream, and main responses with none', async () => {
+    const answers = {
+      'sessions.open': (p) => ({ ...detail(p.sessionId, p.directory), streamEpoch: 'epoch' }),
+      'sessions.create': (p) => ({ ...detail('s-new', p.cwd), streamEpoch: 'epoch' }),
+      'sessions.list': { streamEpoch: 'epoch', sessions: [] },
+      'sessions.navigate': (p) => ({ ...detail(p.sessionId, p.directory), streamEpoch: 'epoch' }),
+      'sessions.fork': (p) => ({ ...detail('s-fork', p.directory), streamEpoch: 'epoch' }),
+    };
+    const main = fakeDaemon('main', answers);
+    const sandbox = fakeDaemon('sandbox', answers);
+    const pool = createPiDaemonPool({ getMainRuntime: () => main });
+    pool.register('project-a', { runtime: sandbox, directories: ['/work/a'] });
+    const call = await start(pool);
+    const stream = pool.streamFor('/work/a');
+    expect(stream).toMatch(/^[A-Za-z0-9_-]{16}$/);
+
+    const read = async (path, init) => (await call(path, init)).json();
+    expect((await read('/api/pi/sessions/s-1?directory=/work/a')).stream).toBe(stream);
+    expect((await read('/api/pi/sessions', { method: 'POST', body: { cwd: '/work/a' } })).stream).toBe(stream);
+    expect((await read('/api/pi/sessions?directory=/work/a')).stream).toBe(stream);
+    expect((await read('/api/pi/sessions/s-1/navigate', { method: 'POST', body: { messageId: 'm', directory: '/work/a' } })).stream).toBe(stream);
+    expect((await read('/api/pi/sessions/s-1/fork', { method: 'POST', body: { directory: '/work/a' } })).stream).toBe(stream);
+
+    expect((await read('/api/pi/sessions/s-1?directory=/work/other'))).not.toHaveProperty('stream');
+    expect((await read('/api/pi/sessions', { method: 'POST', body: { cwd: '/work/other' } }))).not.toHaveProperty('stream');
+    expect((await read('/api/pi/sessions?directory=/work/other'))).not.toHaveProperty('stream');
+  });
+
+  it('adds project daemons\' live status to the all-sessions list, tagged with their stream', async () => {
+    const busy = { lifecycle: 'busy', sequence: 12 };
+    const main = fakeDaemon('main', {
+      'sessions.list': {
+        streamEpoch: 'epoch-main',
+        sessions: [row('s-main', '/work/other', { live: { lifecycle: 'idle', sequence: 50 } }), row('s-box', '/work/a'), row('s-cold', '/work/a')],
+      },
+    });
+    const sandbox = fakeDaemon('sandbox', {
+      'sessions.list': {
+        streamEpoch: 'epoch-box',
+        sessions: [row('s-box', '/work/a', { live: busy, inputState: { pending: null, sequence: 12 } }), row('s-cold', '/work/a')],
+      },
+    });
+    const pool = createPiDaemonPool({ getMainRuntime: () => main });
+    pool.register('project-a', { runtime: sandbox, directories: ['/work/a'] });
+    const call = await start(pool);
+    const stream = pool.streamFor('/work/a');
+
+    const response = await call('/api/pi/sessions');
+    expect(await response.json()).toEqual({
+      streamEpoch: 'epoch-main',
+      sessions: [
+        row('s-main', '/work/other', { live: { lifecycle: 'idle', sequence: 50 } }),
+        row('s-box', '/work/a', { live: busy, inputState: { pending: null, sequence: 12 }, stream, streamEpoch: 'epoch-box' }),
+        row('s-cold', '/work/a'),
+      ],
+    });
+    expect(sandbox.calls).toEqual([{ command: 'sessions.list', payload: {} }]);
   });
 
   it('fails pending input when every daemon fails', async () => {
@@ -232,8 +310,10 @@ describe('Pi routes over a daemon pool', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       streamEpoch: 'epoch-box',
+      stream: pool.streamFor('/work/a'),
       sessions: [
-        row('s-1', '/work/a', { live: busy, inputState: { pending: null, sequence: 12 } }),
+        // Live state from the draining main daemon is in main's sequence space.
+        row('s-1', '/work/a', { live: busy, inputState: { pending: null, sequence: 12 }, stream: 'main', streamEpoch: 'epoch-main' }),
         row('s-2', '/work/a', { live: { lifecycle: 'idle', sequence: 3 } }),
       ],
     });
@@ -251,7 +331,7 @@ describe('Pi routes over a daemon pool', () => {
 
     const response = await call('/api/pi/sessions?directory=/work/a');
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ sessions: rows });
+    expect(await response.json()).toEqual({ sessions: rows, stream: pool.streamFor('/work/a') });
   });
 
   it('fails the list when the owning daemon fails, even if a draining daemon answers', async () => {
