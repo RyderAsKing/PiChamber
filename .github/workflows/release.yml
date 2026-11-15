@@ -709,7 +709,7 @@ jobs:
           bun run test:updater
 
       - name: Install Linux packaging tools
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y rpm
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y rpm libarchive-tools
 
       - name: Download web assets
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -738,7 +738,7 @@ jobs:
           set -euo pipefail
           APPIMAGE="dist/PiChamber-${VERSION}-${ARTIFACT_ARCH}.AppImage"
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
-          for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm; do
+          for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm dist/PiChamber-${VERSION}-linux-*.pacman; do
             node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$artifact" "$VERSION"
           done
 
@@ -750,6 +750,7 @@ jobs:
             packages/electron/dist/PiChamber-${{ needs.create-release.outputs.version }}-${{ matrix.artifact_arch }}.AppImage
             packages/electron/dist/*.deb
             packages/electron/dist/*.rpm
+            packages/electron/dist/*.pacman
             packages/electron/dist/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: 1
@@ -843,9 +844,11 @@ jobs:
             "artifacts/x64/PiChamber-${VERSION}-x86_64.AppImage"
             "artifacts/x64/PiChamber-${VERSION}-linux-amd64.deb"
             "artifacts/x64/PiChamber-${VERSION}-linux-x86_64.rpm"
+            "artifacts/x64/PiChamber-${VERSION}-linux-x64.pacman"
             "artifacts/arm64/PiChamber-${VERSION}-arm64.AppImage"
             "artifacts/arm64/PiChamber-${VERSION}-linux-arm64.deb"
             "artifacts/arm64/PiChamber-${VERSION}-linux-aarch64.rpm"
+            "artifacts/arm64/PiChamber-${VERSION}-linux-aarch64.pacman"
           )
           if [ "$IS_PRERELEASE" = "true" ]; then
             cp artifacts/x64/latest-linux.yml release-assets/rc-linux.yml
@@ -859,7 +862,7 @@ jobs:
             test -s "$file"
             cp "$file" release-assets/
           done
-          expected_count=$([ "$IS_PRERELEASE" = "true" ] && echo 21 || echo 22)
+          expected_count=$([ "$IS_PRERELEASE" = "true" ] && echo 23 || echo 24)
           actual_count=$(find release-assets -maxdepth 1 -type f | wc -l)
           test "$actual_count" -eq "$expected_count"
           echo "Staged $actual_count validated desktop release files."
@@ -971,9 +974,11 @@ jobs:
             `PiChamber-${version}-x86_64.AppImage`,
             `PiChamber-${version}-linux-amd64.deb`,
             `PiChamber-${version}-linux-x86_64.rpm`,
+            `PiChamber-${version}-linux-x64.pacman`,
             `PiChamber-${version}-arm64.AppImage`,
             `PiChamber-${version}-linux-arm64.deb`,
             `PiChamber-${version}-linux-aarch64.rpm`,
+            `PiChamber-${version}-linux-aarch64.pacman`,
             prerelease ? 'rc-linux.yml' : 'latest-linux.yml',
             prerelease ? 'rc-linux-arm64.yml' : 'latest-linux-arm64.yml',
             prerelease ? 'rc.yml' : 'latest.yml',
