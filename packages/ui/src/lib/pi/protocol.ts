@@ -248,6 +248,11 @@ export interface PiSessionDetailResponse extends Pick<
   isStreaming: boolean;
   /** Authoritative lifecycle at getSession time. Idle is not proof the stream is dead. */
   lifecycle: PiSessionLifecycleState;
+  /** Set when the server read this detail from the transcript on disk
+   *  because the session's sandboxed project cannot run its daemon: history
+   *  only, with `stream` but no `streamEpoch`, `lastSequence` -1, and no
+   *  live or input state. Sends still fail with `SANDBOX_UNAVAILABLE`. */
+  readOnly?: true;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */

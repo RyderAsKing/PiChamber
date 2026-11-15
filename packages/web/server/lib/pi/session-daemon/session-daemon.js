@@ -13,6 +13,7 @@ import {
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
+  parseSessionEntries,
   ProjectTrustStore,
   SessionManager,
   SettingsManager,
@@ -2230,6 +2231,51 @@ export function createSessionDaemon({
       ...(extensionSnapshot.surfaces ? { extensionSurfaces: extensionSnapshot.surfaces } : {}),
       inputState: { pending: pendingInput.summaryFor(session.sessionId) },
       bashExecutions: userBash.snapshot(session.sessionId) ?? [],
+    };
+  };
+
+  /**
+   * A transcript read straight from its JSONL file (#242, fail closed). The
+   * server asks for it when a sandboxed project's session cannot open in its
+   * sandbox: no Pi runtime, extension, or tool starts, nothing is written
+   * (an in-memory session manager over the parsed entries), and no lease is
+   * taken. The detail is metadata only: `readOnly`, idle, `lastSequence` -1,
+   * and no stream epoch, input state, extension state, or bash executions,
+   * because none of that is this daemon's to claim.
+   */
+  const readPersistedSession = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const { target, directory } = await findPersistedSession(sessionId, payload?.directory || payload?.cwd);
+    const entries = parseSessionEntries(await readFile(target.path, 'utf8'));
+    const header = entries[0];
+    const createdAt = Date.parse(header?.timestamp);
+    if (header?.type !== 'session' || header.id !== sessionId || !Number.isFinite(createdAt)) {
+      throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
+    }
+    const sessionManager = SessionManager.inMemory(directory, undefined, entries);
+    const session = { sessionId, sessionManager, sessionName: sessionManager.getSessionName(), isStreaming: false };
+    const allMessages = projectMessageEntries({ cwd: directory, session }, directory);
+    const page = projectMessagePage(allMessages, { before: payload?.before, limit: payload?.limit });
+    let lastAssistant;
+    for (let index = allMessages.length - 1; index >= 0 && !lastAssistant; index -= 1) {
+      if (allMessages[index]?.message?.role === 'assistant') lastAssistant = allMessages[index].message;
+    }
+    return {
+      session: {
+        id: sessionId, directory, createdAt, updatedAt: createdAt,
+        ...(session.sessionName ? { title: session.sessionName } : {}),
+        ...(lastAssistant?.model ? { model: lastAssistant.model } : {}),
+        ...(lastAssistant?.thinkingLevel ? { thinking: lastAssistant.thinkingLevel } : {}),
+        messageCount: allMessages.length,
+      },
+      messages: page.messages,
+      hasMoreBefore: page.hasMoreBefore === true,
+      ...(page.hasMoreBefore ? { beforeCursor: page.beforeCursor } : {}),
+      lastSequence: -1,
+      isStreaming: false,
+      lifecycle: 'idle',
+      readOnly: true,
+      serverNow: Date.now(),
     };
   };
 
@@ -4479,7 +4525,7 @@ export function createSessionDaemon({
               // responses stamp it so clients can reject stale-epoch data.
               'events.streamEpoch',
               'runtime.claim', 'runtime.shutdown',
-              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
+              'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.readPersisted', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
               'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'sessions.release', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.oauth.refresh', 'providers.login',
@@ -4895,6 +4941,15 @@ export function createSessionDaemon({
           ...detail,
           hasMoreBefore: detail.hasMoreBefore === true,
         });
+        return;
+      }
+      case 'sessions.readPersisted': {
+        const detail = await readPersistedSession(message.payload);
+        const frame = { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: detail };
+        if (Buffer.byteLength(JSON.stringify(frame)) > MAX_FRAME_BYTES) {
+          throw new SessionDaemonProtocolError('DAEMON_RESPONSE_TOO_LARGE', 'The daemon response exceeds the IPC frame limit.');
+        }
+        writeFrame(socket, frame);
         return;
       }
       case 'sessions.rename': {

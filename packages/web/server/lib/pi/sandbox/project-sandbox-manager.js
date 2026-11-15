@@ -15,6 +15,10 @@ import { normalizeProjectSandboxSetting, readProjectSandbox } from './project-sa
 // else would start a Pi runtime (extensions, tools) and must run in the
 // sandbox or not at all.
 const MAIN_DAEMON_READS = new Set(['sessions.list', 'archive.publish']);
+// Transcript reads a sandboxed project answers from disk when its sandbox
+// cannot start: the main daemon's `sessions.readPersisted` parses the JSONL
+// into a read-only detail and starts no Pi runtime, extension, or tool.
+const READ_ONLY_FALLBACK = new Set(['sessions.open', 'sessions.messages']);
 // Polling and status reads that do not count as using a project: the
 // sidebar and pending-input polls must not keep an idle daemon running.
 const PASSIVE_COMMANDS = new Set(['sessions.list', 'sessions.pendingInput', 'sessions.sendReceipt']);
@@ -531,6 +535,20 @@ export const createProjectSandboxManager = ({
     return !entry.launchedWorktrees.some((dir) => directory === dir || directory.startsWith(`${dir}/`));
   };
 
+  // A transcript the sandbox cannot open, read from its JSONL by the main
+  // daemon. The detail is the project stream's, not main's: anything main
+  // could number (epoch, input state) is dropped, and it is marked
+  // read-only so clients commit it as history without live state. Sends
+  // still go to the sandbox and fail with SANDBOX_UNAVAILABLE.
+  const readPersisted = async (payload) => {
+    const main = daemonPool.main();
+    if (!main) throw Object.assign(new Error('The Pi session daemon is unavailable.'), { code: 'DAEMON_UNAVAILABLE' });
+    const result = await main.request('sessions.readPersisted', payload);
+    if (!result || typeof result !== 'object') return result;
+    const { streamEpoch: _epoch, inputState: _inputState, ...detail } = result;
+    return { ...detail, readOnly: true };
+  };
+
   const createRuntime = (entry) => ({
     // Only a running sandbox daemon is live: pending input and the
     // notification watcher fan out to it, and never start one.
@@ -564,7 +582,13 @@ export const createProjectSandboxManager = ({
         // A new worktree changes the grants: the running daemon drains and
         // a new one with the worktree starts.
         if (active && entry.supervisor && isUngrantedWorktree(entry, requestDirectory(payload))) await retire(entry);
-        const supervisor = await ensureStarted(entry);
+        let supervisor;
+        try {
+          supervisor = await ensureStarted(entry);
+        } catch (error) {
+          if (error?.code !== 'SANDBOX_UNAVAILABLE' || !READ_ONLY_FALLBACK.has(command)) throw error;
+          return await readPersisted(payload);
+        }
         return await supervisor.request(command, payload);
       } finally {
         if (active) {

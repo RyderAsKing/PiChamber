@@ -468,6 +468,9 @@ const projectSessionDetail = (value) => {
     lastSequence: value.lastSequence,
     isStreaming,
     lifecycle,
+    // Read from the transcript on disk while the session's sandbox cannot
+    // run: history only, no live state (see the project sandbox manager).
+    ...(value.readOnly === true ? { readOnly: true } : {}),
     ...projectRunningCommand(lifecycle, value.command),
     ...(retry ? { retry } : {}),
     ...(compaction ? { compaction } : {}),

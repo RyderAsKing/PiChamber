@@ -451,6 +451,47 @@ describe('project daemon streams', () => {
     });
   });
 
+  test('a read-only detail of a project with no daemon running shows its transcript without binding live state', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: [], streamEpoch: 'epoch-main' });
+      // The sandbox cannot run: the server reads the transcript from disk.
+      // The detail names the project stream, carries no epoch, and is marked
+      // read-only (history, idle, lastSequence -1).
+      const readOnly = (id: string) => ({
+        ...detail(id, '/box', -1),
+        stream: BOX,
+        readOnly: true,
+        lifecycle: 'idle',
+        isStreaming: false,
+        messages: [{
+          message: { id: `${id}-m1`, sessionId: id, directory: '/box', role: 'user', text: 'kept on disk', createdAt: 1 },
+          parts: [],
+        }],
+      });
+      const stubs = stubPiClient({ getSession: async (id) => readOnly(id) });
+      try {
+        await store.ensureHydrated('b1');
+        await flushMicrotasks();
+        const hydrated = store.getState().reducer.bySession.get('b1');
+        expect(hydrated?.messages.get('b1-m1')).toBeDefined();
+        expect(hydrated?.lifecycle).toBe('idle');
+        // Nothing was bound to the project stream: when its daemon starts,
+        // its first epoch is adopted and its frames apply.
+        internal(store).commitEvents([boxEvent(messageStartEvent('b1', '/box', 1), 'box-1')]);
+        expect(store.getState().reducer.lastSequence.get('b1')).toBe(1);
+        // Once a project stream numbers a session's live state, a read-only
+        // detail could only roll it back: it is not committed.
+        internal(store).commitEvents([boxEvent(messageStartEvent('b3', '/box', 2), 'box-1')]);
+        await store.ensureHydrated('b3');
+        await flushMicrotasks();
+        expect(store.getState().reducer.bySession.get('b3')?.messages.has('b3-m1') ?? false).toBe(false);
+        expect(store.getState().reducer.lastSequence.get('b3')).toBe(2);
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
   test('a reconnect whose selected session is on a project daemon keeps the main epoch', async () => {
     await withStore(async (store) => {
       seed(store, { residents: ['s1'], cursor: 50, streamEpoch: 'epoch-main' });

@@ -63,6 +63,7 @@ const row = (id, directory) => ({ session: session(id, directory), updatedAt: 2 
 
 const daemonAnswers = (extra = {}) => ({
   'sessions.open': (p) => detail(p.sessionId, p.directory),
+  'sessions.readPersisted': (p) => ({ ...detail(p.sessionId, p.directory), lastSequence: -1, isStreaming: false, lifecycle: 'idle', readOnly: true }),
   'sessions.create': (p) => detail('s-new', p.cwd),
   'sessions.list': (p) => ({ sessions: [row('s-1', p.directory)] }),
   'sessions.prompt': {},
@@ -86,9 +87,10 @@ const fakeLauncher = (probe = { available: true, version: '0.82.0', capabilities
   return launcher;
 };
 
+// Transcript reads (session detail and older pages) are answered read-only
+// from JSONL while the sandbox cannot run; see the fail-closed tests.
 const PI_RUNNING = [
-  ['GET', '/api/pi/sessions/s-1?directory=DIR'],
-  ['GET', '/api/pi/sessions/s-1/messages?directory=DIR'],
+  ['GET', '/api/pi/sessions/s-1/tree?directory=DIR'],
   ['POST', '/api/pi/sessions', { cwd: 'DIR' }],
   ['POST', '/api/pi/sessions/s-1/prompt', { directory: 'DIR', text: 'hi', streamEpoch: 'epoch-1' }],
   ['POST', '/api/pi/sessions/s-1/steer', { directory: 'DIR', text: 'hi', streamEpoch: 'epoch-1' }],
@@ -306,6 +308,24 @@ describe('Pi routes for sandboxed projects', () => {
     // Asking main to release the project's folders runs no Pi code.
     expect(ctx.main.calls.filter((c) => !['sessions.list', 'sessions.release'].includes(c.command))).toEqual([]);
 
+    // Transcripts stay readable: main reads the JSONL and starts no runtime.
+    for (const path of ['/api/pi/sessions/s-1', '/api/pi/sessions/s-1/messages']) {
+      const read = await ctx.call(`${path}?directory=${ctx.projectA}`);
+      expect([path, read.status]).toEqual([path, 200]);
+      const body = await read.json();
+      // Metadata only: no epoch or input state, the project's stream named,
+      // and the row still sandboxed (a send fails with SANDBOX_UNAVAILABLE).
+      expect(body).toMatchObject({ readOnly: true, lastSequence: -1, lifecycle: 'idle', session: { id: 's-1' } });
+      if (path === '/api/pi/sessions/s-1') expect(body.session.sandboxed).toBe(true);
+      expect(body.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+      expect(body).not.toHaveProperty('streamEpoch');
+      expect(body).not.toHaveProperty('inputState');
+    }
+    expect(ctx.main.commands()).not.toContain('sessions.open');
+    expect(ctx.main.commands()).not.toContain('sessions.messages');
+    expect(ctx.main.calls.filter((c) => c.command === 'sessions.readPersisted').map((c) => c.payload))
+      .toEqual([{ sessionId: 's-1', directory: ctx.projectA }, { sessionId: 's-1', directory: ctx.projectA }]);
+
     // Listing still works: it reads transcripts on disk and runs no Pi code.
     const list = await ctx.call(`/api/pi/sessions?directory=${ctx.projectA}`);
     expect(list.status).toBe(200);
@@ -323,10 +343,10 @@ describe('Pi routes for sandboxed projects', () => {
   it('fails closed with the launch failure code when the sandbox daemon cannot start', async () => {
     const ctx = await setup({ startError: 'DAEMON_START_TIMEOUT' });
     await ctx.sandboxOn();
-    const response = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const response = await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'DAEMON_START_TIMEOUT' } });
-    expect(ctx.main.commands()).not.toContain('sessions.open');
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
     expect(ctx.intakes[0].stopped).toBe(true);
     const projects = await (await ctx.call('/api/pi/sandbox/projects')).json();
     expect(projects.projects.find((p) => p.projectId === 'proj-a').availability)
@@ -334,16 +354,30 @@ describe('Pi routes for sandboxed projects', () => {
   });
 
   it('routes a session command without a directory by the transcript\'s folder, so it cannot reach the main daemon', async () => {
-    const ctx = await setup({ probe: { available: false, code: 'NOT_INSTALLED' } });
+    // Main finds a directory-less read's transcript itself and answers with
+    // the session's own folder.
+    let sessionFolder;
+    const ctx = await setup({
+      probe: { available: false, code: 'NOT_INSTALLED' },
+      mainAnswers: { 'sessions.readPersisted': (p) => ({ ...detail(p.sessionId, p.directory ?? sessionFolder), lastSequence: -1, readOnly: true }) },
+    });
+    sessionFolder = ctx.projectA;
     await ctx.sandboxOn();
     const sessions = getPiSessionDirectory({ cwd: ctx.projectA, agentDir: ctx.agentDir });
     await mkdir(sessions, { recursive: true });
     await writeFile(join(sessions, '2026-01-01_s-9.jsonl'), `${JSON.stringify({ type: 'session', id: 's-9', cwd: ctx.projectA, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
 
-    const response = await ctx.call('/api/pi/sessions/s-9');
+    const response = await ctx.call('/api/pi/sessions/s-9/tree');
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'NOT_INSTALLED' } });
     expect(ctx.main.commands()).toEqual(['sessions.release']);
+
+    // A read of it is answered from its transcript, stamped with the
+    // project's stream.
+    const read = await ctx.call('/api/pi/sessions/s-9');
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ readOnly: true, stream: publicDaemonStreamId('sandbox:proj-a') });
+    expect(ctx.main.commands()).toEqual(['sessions.release', 'sessions.readPersisted']);
   });
 
   it('stamps a session read routed by its transcript with the sandbox daemon\'s stream', async () => {
@@ -407,7 +441,7 @@ describe('Pi routes for sandboxed projects', () => {
     const ctx = await setup({ probe: { available: false, code: 'NO_LANDLOCK' } });
     await ctx.sandboxOn();
     await ctx.call('/api/pi/ui-settings', { method: 'PUT', body: { projects: [{ id: 'proj-b', path: ctx.projectB }, { id: 'proj-a', path: ctx.projectA }] } });
-    const response = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const response = await ctx.call('/api/pi/sessions', { method: 'POST', body: { cwd: ctx.projectA } });
     expect(response.status).toBe(503);
   });
 
@@ -493,7 +527,7 @@ describe('Pi routes for sandboxed projects', () => {
   it('fails a sandbox start closed when the main daemon cannot name the provider hosts', async () => {
     const ctx = await setup({ mainAnswers: { 'providers.hosts': daemonError('DAEMON_UNAVAILABLE') } });
     await ctx.sandboxOn();
-    const response = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const response = await ctx.call('/api/pi/sessions', { method: 'POST', body: { cwd: ctx.projectA } });
     expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'PROVIDER_HOSTS_UNAVAILABLE' } });
     expect(ctx.launched).toEqual([]);
   });

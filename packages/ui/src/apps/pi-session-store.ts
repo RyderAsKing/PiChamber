@@ -441,6 +441,14 @@ export class PiSessionStore {
     const epoch = typeof (response as { streamEpoch?: unknown } | null | undefined)?.streamEpoch === 'string' && ((response as { streamEpoch: string }).streamEpoch.length > 0) ? (response as { streamEpoch: string }).streamEpoch : undefined;
     const stream = projectStreamOf(response);
     const sessionId = (response as { session?: { id?: unknown } } | null | undefined)?.session?.id;
+    // A read-only detail (`readOnly`, a project stream, no epoch) was read
+    // from the transcript on disk while that project's daemon cannot run.
+    // It is history with no sequence space: committed only while no project
+    // stream numbers the session's live state, and never bound to one, so
+    // the daemon's first epoch is adopted as usual once it starts.
+    if (!epoch && stream !== undefined && (response as { readOnly?: unknown } | null | undefined)?.readOnly === true) {
+      return typeof sessionId === 'string' && !this.projectStreamBySession.has(sessionId);
+    }
     if (stream !== undefined || (typeof sessionId === 'string' && this.projectStreamBySession.has(sessionId))) {
       // A project daemon's response, or a main response for a session last
       // seen on a project daemon: checked against that stream's epoch, and a
