@@ -163,5 +163,5 @@ export const prepareProjectSandbox = async ({
 
   for (const extra of extraFolders) grants.push({ kind: extra.access, path: extra.path });
 
-  return { projectKey, cwd: projectRoot, agentDir: shadowDir, tmpDir, grants, network };
+  return { projectKey, cwd: projectRoot, agentDir: shadowDir, leaseAgentDir: resolve(agentDir), tmpDir, grants, network };
 };

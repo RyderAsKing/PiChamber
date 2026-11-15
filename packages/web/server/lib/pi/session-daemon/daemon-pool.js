@@ -74,12 +74,17 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
       }
       return [...keys].map(runtimeFor).filter(Boolean);
     },
-    /** Every daemon that currently exists, main first. */
+    /** Every daemon that is running, main first. */
     live: () => {
       const result = [];
       const main = getMainRuntime();
       if (main) result.push({ key: MAIN_DAEMON_KEY, runtime: main });
-      for (const [key, entry] of projects) result.push({ key, runtime: entry.runtime });
+      // A project runtime whose daemon is not running (`isLive()` false)
+      // is left out: fan-out never starts a daemon.
+      for (const [key, entry] of projects) {
+        if (entry.runtime.isLive?.() === false) continue;
+        result.push({ key, runtime: entry.runtime });
+      }
       return result;
     },
     register: (key, { runtime, directories }) => {

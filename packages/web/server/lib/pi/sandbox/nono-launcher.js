@@ -1,7 +1,8 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { launchIdentity, normalizeGrants, normalizeNetwork, SandboxLaunchError } from './launcher.js';
@@ -43,6 +44,38 @@ const defaultReadProcVersion = async () => {
   }
 };
 
+// Electron reads files inside app.asar through its patched fs; nono is a
+// separate binary and sees only the archive file.
+const ASAR_SEGMENT = /[\\/][^\\/]+\.asar(?:[\\/]|$)/i;
+
+/**
+ * The profile path to hand nono. A profile inside an asar archive (packaged
+ * desktop) is copied to a real file under `stageDir`, named by its content
+ * hash so a changed policy never reuses an old copy.
+ */
+const createProfileResolver = ({ profileFile, profileContent, profileHash, stageDir }) => {
+  if (!ASAR_SEGMENT.test(profileFile)) return async () => profileFile;
+  let staged = null;
+  return async () => {
+    if (staged) return staged;
+    if (typeof stageDir !== 'string' || !stageDir.startsWith('/')) {
+      throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
+    }
+    try {
+      await mkdir(stageDir, { recursive: true, mode: 0o700 });
+      const target = join(stageDir, `nono-profile-${profileHash.slice(0, 12)}.json`);
+      const temporary = `${target}.${process.pid}.tmp`;
+      await writeFile(temporary, profileContent, { mode: 0o600 });
+      await chmod(temporary, 0o600);
+      await rename(temporary, target);
+      staged = target;
+      return staged;
+    } catch {
+      throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
+    }
+  };
+};
+
 const GRANT_FLAGS = {
   read: '--read',
   readWrite: '--allow',
@@ -80,9 +113,14 @@ export const createNonoLauncher = ({
   execFile = execFileCallback,
   readProcVersion = defaultReadProcVersion,
   profileFile = NONO_PROFILE_FILE,
+  // A real folder for the profile copy when `profileFile` sits inside an
+  // asar archive (`<dataDir>/pi/sandbox`).
+  stageDir,
   env = process.env,
 } = {}) => {
-  const profileHash = createHash('sha256').update(readFileSync(profileFile)).digest('hex');
+  const profileContent = readFileSync(profileFile);
+  const profileHash = createHash('sha256').update(profileContent).digest('hex');
+  const resolveProfileFile = createProfileResolver({ profileFile, profileContent, profileHash, stageDir });
   let probedVersion = null;
 
   const probe = async () => {
@@ -129,10 +167,11 @@ export const createNonoLauncher = ({
     if (!Array.isArray(argv) || argv.length === 0) throw new SandboxLaunchError('SANDBOX_INVALID_COMMAND');
     if (typeof tmpDir !== 'string' || !tmpDir.startsWith('/')) throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
     const grantFlags = normalizeGrants(grants).flatMap((grant) => [GRANT_FLAGS[grant.kind], grant.path]);
+    const readableProfile = await resolveProfileFile();
     return {
       command,
       args: [
-        'run', '-s', '--profile', profileFile, '--no-rollback', '--no-audit', '--no-diagnostics',
+        'run', '-s', '--profile', readableProfile, '--no-rollback', '--no-audit', '--no-diagnostics',
         ...grantFlags,
         ...networkFlags(normalizeNetwork(network)),
         '--', ...argv,

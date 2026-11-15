@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createNonoLauncher } from './nono-launcher.js';
+import { createNonoLauncher, NONO_PROFILE_FILE } from './nono-launcher.js';
 
 // A fake `nono` that answers `--version` and `setup --check-only` the way the
 // real binary does (output captured from nono 0.82.0 on a Landlock V6 kernel
@@ -88,5 +88,39 @@ describe('nono launcher probe', () => {
       readProcVersion: async () => 'Linux version 6.6.87.2-microsoft-standard-WSL2',
     });
     await expect(wsl.probe()).resolves.toEqual({ available: false, code: 'UNSUPPORTED_PLATFORM' });
+  });
+});
+
+describe('nono launcher profile file', () => {
+  // A packaged desktop app keeps the server package inside app.asar. Electron
+  // reads files there, but nono is a separate binary and cannot, so the
+  // profile is copied to a real file before launch.
+  it('copies a profile that sits inside an asar archive to a real file nono can read', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-nono-asar-'));
+    const packaged = join(root, 'resources', 'app.asar', 'node_modules', '@pi-chamber', 'web', 'server', 'lib', 'pi', 'sandbox');
+    await mkdir(packaged, { recursive: true });
+    const profileFile = join(packaged, 'nono-profile.json');
+    const policy = await readFile(NONO_PROFILE_FILE, 'utf8');
+    await writeFile(profileFile, policy);
+    const stageDir = join(root, 'data', 'pi', 'sandbox');
+    const command = await writeFakeNono({ setupOutput: LANDLOCK_OK });
+    const launcher = createNonoLauncher({ command, platform: 'linux', readProcVersion: async () => '', profileFile, stageDir });
+    await launcher.probe();
+
+    const { args } = await launcher.prepare({ argv: ['node', 'daemon.js'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x' });
+    const staged = args[args.indexOf('--profile') + 1];
+    expect(staged.startsWith(`${stageDir}/`)).toBe(true);
+    expect(staged).not.toMatch(/\.asar/);
+    await expect(readFile(staged, 'utf8')).resolves.toBe(policy);
+    expect((await stat(staged)).mode & 0o777).toBe(0o600);
+  });
+
+  it('passes a profile outside any archive unchanged', async () => {
+    const command = await writeFakeNono({ setupOutput: LANDLOCK_OK });
+    const stageDir = join(await mkdtemp(join(tmpdir(), 'pichamber-nono-stage-')), 'sandbox');
+    const launcher = createNonoLauncher({ command, platform: 'linux', readProcVersion: async () => '', stageDir });
+    await launcher.probe();
+    const { args } = await launcher.prepare({ argv: ['node'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x' });
+    expect(args[args.indexOf('--profile') + 1]).toBe(NONO_PROFILE_FILE);
   });
 });

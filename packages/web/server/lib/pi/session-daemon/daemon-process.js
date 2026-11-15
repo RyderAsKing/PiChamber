@@ -19,6 +19,7 @@ const credentialFile = argument('--credential-file');
 const stateFile = argument('--state-file');
 const cwd = argument('--cwd');
 const agentDir = argument('--agent-dir');
+const leaseAgentDir = argument('--lease-agent-dir');
 const profileKey = argument('--profile-key');
 const serverInstanceId = argument('--server-instance-id');
 const serverPid = Number(argument('--server-pid'));
@@ -128,6 +129,7 @@ if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !server
       credential,
       cwd,
       ...(agentDir ? { agentDir } : {}),
+      ...(leaseAgentDir ? { leaseAgentDir } : {}),
       engines: sessionEngineFactories,
       profileKey,
       serverInstanceId,

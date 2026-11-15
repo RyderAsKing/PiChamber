@@ -237,6 +237,7 @@ export const createPiSessionDaemonSupervisor = ({
   runtime,
   version,
   launch,
+  leaseAgentDir,
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
   const serverPid = processLike.pid;
@@ -563,6 +564,7 @@ export const createPiSessionDaemonSupervisor = ({
         '--runtime', paths.profileRuntime,
         '--build-id', paths.buildId,
         ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+        ...(leaseAgentDir ? ['--lease-agent-dir', leaseAgentDir] : []),
         ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
       ];
       let childEnv = buildSessionDaemonChildEnv({
@@ -779,6 +781,9 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
     env: { ...ownEnv, PICHAMBER_PI_AGENT_DIR: sandbox.agentDir },
     cwd: sandbox.cwd,
     profile,
+    // The daemon reads Pi config through the shadow folder but keys session
+    // leases on the real one, like the main daemon.
+    leaseAgentDir: sandbox.leaseAgentDir,
     launch: ({ command, args, env: childEnv, cwd, paths }) => launcher.prepare({
       argv: [command, ...args],
       env: childEnv,

@@ -1135,6 +1135,36 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('lists the hosts of signed-in providers for a sandbox allowlist, without paths or credentials', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-1');
+    const signedIn = new Set(['anthropic', 'local']);
+    session.modelRuntime.getModels = () => [
+      { provider: 'anthropic', id: 'a', baseUrl: 'https://api.anthropic.com' },
+      { provider: 'anthropic', id: 'b', baseUrl: 'https://API.anthropic.com/v1' },
+      { provider: 'openai', id: 'c', baseUrl: 'https://api.openai.com/v1' },
+      { provider: 'local', id: 'd', baseUrl: 'http://127.0.0.1:8080/v1' },
+      { provider: 'local', id: 'e', baseUrl: 'not a url' },
+      { provider: 'local', id: 'f' },
+    ];
+    session.modelRuntime.getProviderAuthStatus = (providerId) => ({ configured: signedIn.has(providerId) });
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    // Loopback hosts are reached by port, never by host name, so they are
+    // left out; the user allows a local server's port per project.
+    await expect(client.request('providers.hosts')).resolves.toMatchObject({ result: { hosts: ['api.anthropic.com'] } });
+    await client.close();
+  });
+
   it('handles every session command with path-selected identities and preserves busy-session configuration on rejection', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -3656,6 +3686,68 @@ describe('Pi session daemon spike', () => {
       await safeClose(clientA);
       await safeClose(clientB);
       await daemonB.stop();
+    }
+  });
+  it('keys leases on the real agent folder, so a sandbox daemon on a shadow folder and the main daemon exclude each other', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-lease-shadow-'));
+    const endpointA = join(root, 'a.sock');
+    const endpointB = join(root, 'b.sock');
+    const agentDir = join(root, 'agent');
+    const shadowDir = join(root, 'shadow');
+    await mkdir(agentDir, { recursive: true });
+    await mkdir(shadowDir, { recursive: true });
+    const file1 = join(root, 'session-1.jsonl');
+    await writeFile(file1, `{"type":"session","id":"session-1","cwd":"${root}"}\n`);
+    const session1 = new FakeSession('session-1', file1);
+    const createRuntime = async () => new FakeRuntime({ cwd: root, session: session1 });
+    const listSessions = async () => [
+      { path: file1, id: 'session-1', cwd: root, created: new Date(), modified: new Date(), messageCount: 0 },
+    ];
+    daemon = createSessionDaemon({
+      endpoint: endpointA,
+      credential,
+      cwd: root,
+      agentDir,
+      profileKey: 'web-p3000',
+      serverInstanceId: 'server-a',
+      daemonId: 'daemon-a',
+      createRuntime,
+      listSessions,
+    });
+    const sandboxDaemon = createSessionDaemonImpl({
+      endpoint: endpointB,
+      credential,
+      cwd: root,
+      agentDir: shadowDir,
+      leaseAgentDir: agentDir,
+      profileKey: 'web-p3000-sbx-abc-def',
+      serverInstanceId: 'server-a',
+      daemonId: 'daemon-b',
+      createRuntime,
+      listSessions,
+    });
+    let clientA;
+    let clientB;
+    try {
+      await daemon.start();
+      await sandboxDaemon.start();
+      clientA = connectClient(endpointA);
+      await clientA.authenticate();
+      clientB = connectClient(endpointB);
+      await clientB.authenticate();
+      await expect(clientA.request('sessions.open', { sessionId: 'session-1' })).resolves.toMatchObject({
+        result: { session: { id: 'session-1' } },
+      });
+      clientB.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'contended', command: 'sessions.open', payload: { sessionId: 'session-1' } })}\n`);
+      await expect(clientB.next((message) => message.kind === 'error'))
+        .resolves.toMatchObject({ error: { code: 'SESSION_IN_USE' } });
+    } finally {
+      for (const client of [clientA, clientB]) {
+        try {
+          if (client && !client.socket.destroyed) await Promise.race([client.close(), new Promise((r) => setTimeout(r, 1_000))]);
+        } catch {}
+      }
+      await sandboxDaemon.stop();
     }
   });
 });

@@ -154,6 +154,9 @@ describe('sandboxed Pi session daemon supervisor', () => {
       '--runtime', 'web',
       '--build-id', 'unknown',
       '--agent-dir', shadow,
+      // Leases key on the real agent folder, so this daemon and the main
+      // daemon exclude each other on the same session.
+      '--lease-agent-dir', ctx.agentDir,
       '--open-url-socket', join(ctx.runtime, 'pichamber', 'pi-daemons', paths.profileKey, 'open-url.sock'),
     ]);
     expect(options).toMatchObject({ cwd: ctx.project, detached: true });

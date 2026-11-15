@@ -24,6 +24,8 @@ import { createPiNotificationWatcher } from './lib/notifications/pi-notification
 import { registerWorkspaceIntegrations } from './lib/workspace/host.js';
 import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervisor.js';
 import { createOpenUrlIntake } from './lib/open-url/intake.js';
+import { createNonoLauncher } from './lib/pi/sandbox/nono-launcher.js';
+import { createProjectSandboxManager } from './lib/pi/sandbox/project-sandbox-manager.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -264,8 +266,34 @@ export async function startWebUiServer(options = {}) {
   });
   // The main daemon is today's supervisor; project daemons register here.
   const piDaemonPool = createPiDaemonPool({ getMainRuntime: () => piSessionDaemonRuntime });
-  const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
+  // Sandboxed projects get their own daemon, started through nono on first
+  // use. With no sandboxed project this registers nothing and probes nothing.
+  let piRuntimeRoutes = null;
+  const piSandboxManager = createProjectSandboxManager({
     daemonPool: piDaemonPool,
+    uiSettingsStore,
+    launcher: createNonoLauncher({ stageDir: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox') }),
+    dataDir: PICHAMBER_DATA_DIR,
+    agentDir: async () => {
+      const configured = typeof process.env.PICHAMBER_PI_AGENT_DIR === 'string' ? process.env.PICHAMBER_PI_AGENT_DIR.trim() : '';
+      if (configured) return configured;
+      return (await import('@earendil-works/pi-coding-agent')).getAgentDir();
+    },
+    getServerPort: () => {
+      const address = server.address();
+      return typeof address === 'object' && address ? address.port : null;
+    },
+    hasConnectedDevices: () => piRuntimeRoutes?.hasLiveEventStreams() ?? false,
+    // The same port and version as the main daemon, so sandbox profile keys
+    // extend the main daemon's.
+    supervisorOptions: () => {
+      const address = server.address();
+      return { port: typeof address === 'object' && address ? address.port : port, version: PICHAMBER_VERSION };
+    },
+  });
+  piRuntimeRoutes = registerPiRuntimeRoutes(app, {
+    daemonPool: piDaemonPool,
+    sandboxManager: piSandboxManager,
     uiSettingsStore,
   });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).
@@ -343,6 +371,13 @@ export async function startWebUiServer(options = {}) {
   } catch (error) {
     console.warn(`[open-url] Intake unavailable: ${error?.code ?? 'UNKNOWN'}`);
   }
+  // Register sandboxed projects before any request can route; a failure
+  // leaves those projects unregistered, so log it loudly.
+  try {
+    await piSandboxManager.reconcile();
+  } catch (error) {
+    console.warn(`[pi-sandbox] Could not load project sandbox settings: ${error?.code ?? error?.message ?? 'UNKNOWN'}`);
+  }
   void piSessionDaemonRuntime.start()
     .catch((error) => {
       console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
@@ -373,6 +408,7 @@ export async function startWebUiServer(options = {}) {
       await Promise.allSettled([
         notificationWatcher?.stop(),
         openUrlIntake.stop(),
+        piSandboxManager.stop(),
         workspaceRuntime.shutdown(),
         piSessionDaemonRuntime ? piSessionDaemonRuntime.stop() : Promise.resolve(),
         tailscaleService.shutdown(),

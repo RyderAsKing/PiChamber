@@ -33,6 +33,7 @@ import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/sen
 import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
 import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
 import { createPiDaemonPool } from './session-daemon/daemon-pool.js';
+import { registerPiSandboxRoutes } from './sandbox/sandbox-routes.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -41,6 +42,7 @@ import {
 
 const UNAVAILABLE_CODES = new Set([
   'DAEMON_UNAVAILABLE',
+  'SANDBOX_UNAVAILABLE',
   'DAEMON_AUTH_FAILED',
   'DAEMON_REQUEST_FAILED',
   'DAEMON_TIMEOUT',
@@ -90,7 +92,12 @@ const writeDaemonError = (res, error) => {
           : code === 'ATTACHMENT_MISSING'
             ? 410
             : 400;
-  res.status(status).json({ error: { code } });
+  // A sandbox failure carries the launcher's stable reason code (for
+  // example NO_LANDLOCK); never a path or raw launcher output.
+  const reason = code === 'SANDBOX_UNAVAILABLE' && typeof error?.reason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(error.reason)
+    ? error.reason
+    : undefined;
+  res.status(status).json({ error: { code, ...(reason ? { reason } : {}) } });
 };
 
 const requireDaemon = (runtime) => {
@@ -1148,7 +1155,7 @@ export const projectEventFrame = (frame) => {
   }
 };
 
-const requestSessionOperation = async (req, res, daemonPool, command, payload = {}) => {
+const requestSessionOperation = async (req, res, daemonPool, command, payload = {}, sandboxManager) => {
   const sessionId = sessionIdFrom(req);
   if (!sessionId) {
     res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
@@ -1160,7 +1167,15 @@ const requestSessionOperation = async (req, res, daemonPool, command, payload = 
       ? req.body.directory
       : (typeof req.body?.cwd === 'string' && req.body.cwd.length > 0 ? req.body.cwd : undefined));
   try {
-    return await requireDaemon(daemonPool.forDirectory(directory)).request(command, {
+    // Without a directory the main daemon would look the session up itself
+    // and could run a sandboxed project's session outside its sandbox. When
+    // any project is sandboxed, route by the folder in the session's
+    // transcript instead; the daemon payload stays as the client sent it.
+    let routeDirectory = directory;
+    if (!routeDirectory && sandboxManager?.hasSandboxedProjects()) {
+      routeDirectory = await sandboxManager.directoryForSession(sessionId) ?? undefined;
+    }
+    return await requireDaemon(daemonPool.forDirectory(routeDirectory)).request(command, {
       ...payload,
       sessionId,
       ...(directory ? { directory } : {}),
@@ -1182,6 +1197,9 @@ export const registerPiRuntimeRoutes = (app, {
   // one, the single runtime from `getPiSessionDaemonRuntime` is the main
   // daemon and owns every directory.
   daemonPool = createPiDaemonPool({ getMainRuntime: getPiSessionDaemonRuntime }),
+  // Sandboxed projects (sandbox/project-sandbox-manager.js). Without one no
+  // project is sandboxed and no sandbox route exists.
+  sandboxManager,
   archiveStore = createPiArchiveStore(),
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
@@ -1206,6 +1224,11 @@ export const registerPiRuntimeRoutes = (app, {
   // project daemon may only read. Everything scoped to a directory runs on
   // the daemon that owns it.
   const mainDaemon = () => requireDaemon(daemonPool.main());
+  // Sessions of a sandboxed project say so; other rows are unchanged.
+  const withSandbox = (item) => (sandboxManager?.sandboxFor(item?.session?.directory)
+    ? { ...item, session: { ...item.session, sandboxed: true } }
+    : item);
+  if (sandboxManager) registerPiSandboxRoutes(app, { sandboxManager });
   const daemonFor = (directory) => requireDaemon(daemonPool.forDirectory(directory));
   // Tell every device an archive mark changed (a `session.archive` event on
   // the session's stream) so other clients re-list that folder. The change is
@@ -1253,7 +1276,10 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.put('/api/pi/ui-settings', async (req, res) => {
     try {
-      res.json(await uiSettingsStore.write(req.body));
+      const saved = await uiSettingsStore.write(req.body);
+      // A removed sandboxed project releases its daemon.
+      await sandboxManager?.reconcile().catch((error) => console.warn('[pi-sandbox] reconcile failed', error?.code ?? error));
+      res.json(saved);
     } catch {
       res.status(400).json({ error: 'Invalid UI settings' });
     }
@@ -2048,7 +2074,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.json({
         ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         ...(incompleteEngines.length > 0 ? { incompleteEngines } : {}),
-        sessions: mergeDrainingLiveState(projectSessionList(result?.sessions), drained).map((item) => archived[item.session.id]
+        sessions: mergeDrainingLiveState(projectSessionList(result?.sessions), drained).map(withSandbox).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),
       });
@@ -2107,10 +2133,10 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   const sendSessionDetail = async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.open');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.open', {}, sandboxManager);
     if (result === undefined) return;
     try {
-      const detail = projectSessionDetail(result);
+      const detail = withSandbox(projectSessionDetail(result));
       const archived = await archiveStore.read();
       res.json(archived[detail.session.id]
         ? { ...detail, session: { ...detail.session, archived: true, timeArchived: archived[detail.session.id] } }
@@ -2135,7 +2161,7 @@ export const registerPiRuntimeRoutes = (app, {
     const result = await requestSessionOperation(req, res, daemonPool, 'sessions.messages', {
       ...(typeof before === 'string' ? { before } : {}),
       ...(limit !== undefined ? { limit } : {}),
-    });
+    }, sandboxManager);
     if (result === undefined) return;
     try {
       res.json(projectSessionDetail(result));
@@ -2145,7 +2171,7 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.delete');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.delete', {}, sandboxManager);
     if (result === undefined) return;
     try {
       await sessionShelfStore.remove(req.params.sessionId);
@@ -2244,7 +2270,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    const result = await requestSessionOperation(req, res, daemonPool, 'extensions.draft', { text, revision });
+    const result = await requestSessionOperation(req, res, daemonPool, 'extensions.draft', { text, revision }, sandboxManager);
     if (result !== undefined) {
       res.status(204).end();
     }
@@ -2374,7 +2400,7 @@ export const registerPiRuntimeRoutes = (app, {
       ...(viewport ? { viewport } : {}),
       ...(items ? { items } : {}),
       ...(body.claim === true ? { claim: true } : {}),
-    });
+    }, sandboxManager);
     if (result === undefined) return;
     const ok = result && typeof result === 'object'
       && (result.accepted === true || result.closed === true || result.focused === true || result.refreshed === true);
@@ -2386,12 +2412,12 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.get('/api/pi/sessions/:sessionId/tree', async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.tree');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.tree', {}, sandboxManager);
     if (result !== undefined) res.json(projectSessionTree(result));
   });
 
   app.post('/api/pi/sessions/:sessionId/navigate', async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.navigate', { messageId: req.body?.messageId });
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.navigate', { messageId: req.body?.messageId }, sandboxManager);
     if (result === undefined) return;
     const detail = projectSessionDetail(result);
     const navigation = sanitizeNavigation(result.navigation);
@@ -2401,8 +2427,8 @@ export const registerPiRuntimeRoutes = (app, {
 
   for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
-      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {});
-      if (result !== undefined) res.status(201).json(projectSessionDetail(result));
+      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {}, sandboxManager);
+      if (result !== undefined) res.status(201).json(withSandbox(projectSessionDetail(result)));
     });
   }
 
@@ -2433,7 +2459,7 @@ export const registerPiRuntimeRoutes = (app, {
         writeDaemonError(res, error);
         return;
       }
-      const result = await requestSessionOperation(req, res, daemonPool, command, payload);
+      const result = await requestSessionOperation(req, res, daemonPool, command, payload, sandboxManager);
       if (result !== undefined) {
         if (!result || result.accepted !== true || typeof result.messageId !== 'string') {
           writeDaemonError(res, protocolMismatch());
@@ -2495,7 +2521,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
-      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {});
+      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {}, sandboxManager);
       if (result !== undefined) res.status(204).end();
     });
   }
@@ -2514,7 +2540,7 @@ export const registerPiRuntimeRoutes = (app, {
       command: body.command,
       ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
       ...(clientId ? { clientId } : {}),
-    });
+    }, sandboxManager);
     if (result === undefined) return;
     if (!result || result.accepted !== true || typeof result.id !== 'string') {
       writeDaemonError(res, protocolMismatch());
@@ -2525,12 +2551,12 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.post('/api/pi/sessions/:sessionId/bash/abort', async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.abortBash', {});
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.abortBash', {}, sandboxManager);
     if (result !== undefined) res.status(204).end();
   });
 
   app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
-    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {}, sandboxManager);
     if (result === undefined) return;
     if (!result || result.accepted !== true) {
       writeDaemonError(res, protocolMismatch());
@@ -2597,7 +2623,7 @@ export const registerPiRuntimeRoutes = (app, {
       // entries or messages from `session_start`. Project it exactly like a
       // session read so those items, the stream epoch, and extension UI state
       // reach the client instead of failing creation.
-      res.status(201).json(projectSessionDetail(result));
+      res.status(201).json(withSandbox(projectSessionDetail(result)));
     } catch (error) {
       writeDaemonError(res, error);
     }

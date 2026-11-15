@@ -427,10 +427,14 @@ describe('Pi session daemon idle residency', () => {
     expect(runtimes.filter((runtime) => !runtime.disposed)).toHaveLength(sessionCount);
     expect(createdRuntimes).toHaveLength(sessionCount);
 
+    // Health counts resident sessions, so a project daemon with none can be
+    // stopped by its server.
+    await expect(client.request('runtime.health')).resolves.toMatchObject({ result: { residentSessions: sessionCount } });
     await waitFor(() => runtimes.every((runtime) => runtime.disposed), {
       timeoutMs: 8_000,
       message: 'browse-only sessions were not disposed',
     });
+    await expect(client.request('runtime.health')).resolves.toMatchObject({ result: { residentSessions: 0 } });
     for (const sessionFile of sessionFiles) {
       await expect(stat(sessionFile.path)).resolves.toMatchObject({ isFile: expect.any(Function) });
     }

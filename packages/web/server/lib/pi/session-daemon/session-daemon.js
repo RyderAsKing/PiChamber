@@ -190,6 +190,10 @@ export function createSessionDaemon({
   credential,
   cwd,
   agentDir = getAgentDir(),
+  // Session leases key on the real Pi agent folder. A sandbox daemon runs on
+  // a shadow agent folder, so it passes the real one here; leases then match
+  // the main daemon's for the same session.
+  leaseAgentDir = agentDir,
   createRuntime: injectCreateRuntime,
   createServices: injectCreateServices = createAgentSessionServices,
   healthMetadata = {},
@@ -284,7 +288,7 @@ export function createSessionDaemon({
     if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
     let result;
     try {
-      result = await acquireSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+      result = await acquireSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
     } catch (error) {
       throw new SessionDaemonProtocolError('SESSION_LEASE_UNAVAILABLE', 'The session ownership check is temporarily unavailable.');
     }
@@ -296,7 +300,7 @@ export function createSessionDaemon({
     const owner = leaseOwner();
     if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return { released: false };
     try {
-      return await releaseSessionLease({ agentDir, cwd: leaseCwd, sessionId, owner });
+      return await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
     } catch {
       // Lease release is best-effort; a stale lease is reclaimable by the
       // next owner once this daemon pid is dead.
@@ -2348,6 +2352,33 @@ export function createSessionDaemon({
     return { providers: [...providers.values()] };
   };
 
+  // Host names of signed-in providers' model endpoints: the default network
+  // allowlist of a sandboxed project. Loopback hosts are left out; a local
+  // model server is allowed per project by port.
+  const listProviderHosts = async () => {
+    const activeRuntime = await ensureRuntime(activeDirectory || cwd);
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    const models = modelRuntime?.getModels?.();
+    if (!Array.isArray(models)) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'Pi did not provide a model catalog.');
+    const hosts = new Set();
+    for (const model of models) {
+      if (!model || typeof model.provider !== 'string' || typeof model.baseUrl !== 'string') continue;
+      if (modelRuntime.getProviderAuthStatus?.(model.provider)?.configured !== true) continue;
+      let hostname;
+      try {
+        const url = new URL(model.baseUrl);
+        if (url.protocol !== 'https:' && url.protocol !== 'http:') continue;
+        hostname = url.hostname.toLowerCase();
+      } catch {
+        continue;
+      }
+      if (!hostname || hostname === 'localhost' || hostname.endsWith('.localhost')
+        || /^[\d.]+$/.test(hostname) || hostname.startsWith('[')) continue;
+      hosts.add(hostname);
+    }
+    return { hosts: [...hosts].sort() };
+  };
+
   // In-flight refreshes are shared per resolved directory, never across
   // directories, so a concurrent refresh for another project cannot return
   // this project's catalog. Refreshes for different directories still run one
@@ -4378,6 +4409,9 @@ export function createSessionDaemon({
             sessionId: getSessionState().sessionId,
             lastSequence: sequence,
             streamEpoch,
+            // Resident Pi runtimes, starting ones included. A server stops an
+            // idle project daemon only when this is zero.
+            residentSessions: (runtimeRegistry?.size ?? 0) + runtimeStartPromises.size,
             capabilities: [
               // Public stream-lifetime identification: every event, snapshot,
               // and health result carries `streamEpoch`, and session read
@@ -4387,7 +4421,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
@@ -4518,6 +4552,11 @@ export function createSessionDaemon({
       }
       case 'providers.models.add': {
         const result = await addProviderModel(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.hosts': {
+        const result = await listProviderHosts();
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
