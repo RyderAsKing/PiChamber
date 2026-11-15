@@ -98,16 +98,10 @@ export const createGitHubRoutes = (overrides = {}) => {
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
     const execFileAsync = promisify(execFile);
-    const { resolveGitInvocation } = await import('../git/sandboxed-git.js');
-    // A sandboxed project's git runs through its launcher; unusable throws.
-    const { binary, env } = await resolveGitInvocation(cwd, {
-      binary: 'git',
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '' },
-    });
     try {
-      const result = await execFileAsync(binary, args, {
+      const result = await execFileAsync('git', args, {
         cwd,
-        env,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '' },
         timeout: 60_000,
         windowsHide: true,
         maxBuffer: 4 * 1024 * 1024,
