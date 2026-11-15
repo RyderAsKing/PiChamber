@@ -412,6 +412,45 @@ describe('project daemon streams', () => {
     });
   });
 
+  test('a project list with no daemon running (no epoch) lists its rows as metadata only', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: [], streamEpoch: 'epoch-main' });
+      // The sandbox daemon is stopped or cannot start: the main daemon reads
+      // the transcripts, so the list names the project stream with no epoch.
+      // A busy `live` here would be numbered by no verifiable stream.
+      const unstamped = {
+        sessions: [{
+          ...listItem('b1', '/box'),
+          session: { ...listItem('b1', '/box').session, sandboxed: true },
+          live: { lifecycle: 'busy', sequence: 9 },
+        }],
+        stream: BOX,
+      };
+      const stubs = stubPiClient({
+        getSession: async (id) => ({ ...detail(id, '/box', 40), stream: BOX }),
+        listSessions: async () => unstamped,
+      });
+      try {
+        const result = await store.refreshDirectoryCatalog('/box');
+        expect(result.ok).toBe(true);
+        expect(store.getState().catalog.listStatusByDirectory.get('/box')).toBe('ready');
+        const row = store.getState().catalog.byId.get('b1');
+        expect(row?.sandboxed).toBe(true);
+        expect(row?.lifecycle).toBe('idle');
+        // No live state was bound to the project stream: when the daemon
+        // starts, its first epoch is adopted as usual.
+        internal(store).commitEvents([boxEvent(snapshotEvent('b1', '/box', 1), 'box-1')]);
+        expect(store.getState().reducer.lastSequence.get('b1')).toBe(1);
+        // An unstamped detail is still not committed.
+        await store.ensureHydrated('b2');
+        await flushMicrotasks();
+        expect(store.getState().reducer.bySession.has('b2')).toBe(false);
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
   test('a reconnect whose selected session is on a project daemon keeps the main epoch', async () => {
     await withStore(async (store) => {
       seed(store, { residents: ['s1'], cursor: 50, streamEpoch: 'epoch-main' });
