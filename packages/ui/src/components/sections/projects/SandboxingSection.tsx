@@ -58,7 +58,7 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
     <SettingsSection
       title="Sandboxing"
       settingsItem="projects.sandboxing"
-      info="A sandboxed project runs its sessions inside nono, so agents reach only that project's folders and allowed hosts. Turn it on for a project in its settings. The built-in terminal always runs outside the sandbox."
+      info="A sandboxed project runs its sessions inside nono, so agents reach only that project's folders and allowed hosts. Turn it on for a project in its settings. Only the agent is sandboxed: the terminal, Git panel and browser run outside it with your normal access."
     >
       {loadFailed ? (
         <div className="flex flex-wrap items-center gap-2">

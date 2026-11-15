@@ -25,9 +25,9 @@ Open the project in **Settings → Projects** and set **Sandbox** to **nono**.
 The setting applies to every session in the project, including new ones.
 
 - **Allowed hosts.** Hosts the agent may reach, one per line. The model
-  providers you are signed in to are allowed already. For Git fetch and push
-  over HTTPS, add the Git host, such as `github.com`. SSH remotes do not work
-  in the sandbox.
+  providers you are signed in to are allowed already. If the agent runs Git
+  fetch or push itself, add the Git host, such as `github.com`; the agent can
+  use HTTPS remotes only, not SSH.
 - **Local ports.** Ports on the server machine the agent may connect to, such
   as a local llama.cpp server.
 - **Extra folders.** Folders outside the project the agent may use, read only
@@ -59,22 +59,31 @@ extensions can:
 It cannot read other projects or their session transcripts, change Pi's global
 settings, extensions, or credentials, or reach the PiChamber server.
 
-PiChamber's Git panel runs Git for a sandboxed project through the same
-sandbox, so a repository configuration written by the agent cannot run commands
-outside it.
-
 ## What stays outside
 
-- **The built-in terminal** opens your normal shell with your normal access.
-  In a sandboxed project it says so.
+Only the agent is sandboxed. What PiChamber does for you runs with your
+normal access:
+
+- **The built-in terminal** opens your normal shell. In a sandboxed project it
+  says so.
+- **The Git panel** and GitHub features run Git outside the sandbox, so they
+  keep working even when the sandbox cannot start, and SSH remotes work there.
+- **The browser panel** runs on the server machine outside the sandbox.
 - **Provider sign-in** always happens outside the sandbox.
 - **Sessions started with the `pi` command** are not sandboxed by PiChamber,
   even in a sandboxed project.
+
+The agent can write anything inside the project, including the repository's
+Git configuration, hooks, and `.gitattributes` filters. Git runs the commands
+those name. When you or the Git panel run Git in that project outside the
+sandbox, those commands run with your access too. Check the repository's
+`.git/config` and hooks if you do not trust what the agent wrote.
 
 ## When the sandbox cannot start
 
 If nono stops working, for example after it is uninstalled, a sandboxed
 project refuses to run sessions instead of running them unsandboxed. You can
-still list its sessions. Its project card in Settings says **Sandbox
-unavailable**, its settings say why, and sending a message explains the
-reason. Fix nono and choose **Check again**, or turn the project's sandbox off.
+still list its sessions and read their transcripts, and the Git panel keeps
+working. Its project card in Settings says **Sandbox unavailable**, its
+settings say why, and sending a message explains the reason. Fix nono and
+choose **Check again**, or turn the project's sandbox off.

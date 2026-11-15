@@ -178,7 +178,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
 
             <SettingsStackedField
               label="Allowed hosts"
-              info="The model providers you are signed in to are allowed already. Add package registries or APIs the agent needs, one per line. For Git fetch and push over HTTPS, add the Git host, such as github.com. SSH remotes do not work in the sandbox."
+              info="The model providers you are signed in to are allowed already. Add package registries or APIs the agent needs, one per line. If the agent runs Git fetch or push itself, add the Git host, such as github.com; the agent can use HTTPS remotes only. The Git panel runs outside the sandbox."
               controlClassName="w-full max-w-[24rem]"
             >
               <Textarea
