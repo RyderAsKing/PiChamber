@@ -1196,6 +1196,15 @@ describe('Pi runtime route', () => {
       payload: { sessionId: 'pi-session-bash', command: 'ls -la', excludeFromContext: true },
     });
 
+    // The tab that ran it is forwarded, so custom() surfaces it opens get that
+    // tab's size; an invalid id is dropped, not rejected.
+    expect((await post('/bash', { command: 'pwd', clientId: 'tab-1' })).status).toBe(202);
+    expect((await post('/bash', { command: 'pwd', clientId: 'x'.repeat(129) })).status).toBe(202);
+    expect(calls.splice(1).map((call) => call.payload)).toEqual([
+      { sessionId: 'pi-session-bash', command: 'pwd', clientId: 'tab-1' },
+      { sessionId: 'pi-session-bash', command: 'pwd' },
+    ]);
+
     for (const body of [{ command: '  ' }, { command: 42 }, { command: 'ls', excludeFromContext: 'yes' }]) {
       const rejected = await post('/bash', body);
       expect(rejected.status).toBe(400);

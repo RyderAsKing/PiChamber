@@ -865,7 +865,11 @@ export class PiService {
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/bash`,
       {
         method: 'POST',
-        body: { command: input.command, ...(input.excludeFromContext ? { excludeFromContext: true } : {}) },
+        body: {
+          command: input.command,
+          ...(input.excludeFromContext ? { excludeFromContext: true } : {}),
+          ...(input.clientId ? { clientId: input.clientId } : {}),
+        },
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );

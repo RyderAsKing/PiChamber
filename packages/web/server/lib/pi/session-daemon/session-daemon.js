@@ -677,6 +677,13 @@ export function createSessionDaemon({
   // same id it uses for custom() surfaces): surfaces that input opens are
   // drawn at that tab's size.
   const promptClientBySession = new Map();
+  const recordInputClient = (sessionId, clientId) => {
+    if (typeof clientId === 'string' && clientId.length > 0 && clientId.length <= 128) {
+      promptClientBySession.set(sessionId, clientId);
+    } else {
+      promptClientBySession.delete(sessionId);
+    }
+  };
   /**
    * The running extension command while it is the only thing running (no
    * agent turn): the session is busy, as in Pi's interactive mode, which
@@ -3641,11 +3648,7 @@ export function createSessionDaemon({
     // describeCustomOrigin). Cleared when the command settles.
     const commandMarker = isExtensionCommand ? { name: slashInvocation } : undefined;
     if (commandMarker) runningCommandBySession.set(payload.sessionId, commandMarker);
-    if (typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128) {
-      promptClientBySession.set(payload.sessionId, payload.clientId);
-    } else {
-      promptClientBySession.delete(payload.sessionId);
-    }
+    recordInputClient(payload.sessionId, payload.clientId);
     // True SDK acceptance: await the prompt preflight signal, not the full
     // agent turn. In SDK 1.0.0, preflightResult is called on acceptance with
     // a PromptDisposition ("started" | "queued" | "handled"). Rejections
@@ -4928,6 +4931,9 @@ export function createSessionDaemon({
         if (commandOnlyRun(message.payload.sessionId, activeRuntime.session)) {
           throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
         }
+        // A `!command` is input too: an extension's user_bash handler can
+        // open custom() surfaces, drawn at the size of the tab that ran it.
+        recordInputClient(message.payload.sessionId, message.payload.clientId);
         let started;
         try {
           started = userBash.start({

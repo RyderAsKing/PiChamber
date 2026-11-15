@@ -154,8 +154,8 @@ describe("PiService", () => {
     expect(call.init?.method).toBe("POST")
     expect(JSON.parse(call.init?.body as string)).toEqual({ command: "ls -la", excludeFromContext: true })
 
-    await client.runBash({ sessionId: "s1", command: "pwd" })
-    expect(JSON.parse(recordedCalls()[1].init?.body as string)).toEqual({ command: "pwd" })
+    await client.runBash({ sessionId: "s1", command: "pwd", clientId: "tab-1" })
+    expect(JSON.parse(recordedCalls()[1].init?.body as string)).toEqual({ command: "pwd", clientId: "tab-1" })
 
     await client.abortBash({ sessionId: "s1" })
     expect(recordedCalls()[2].url).toBe("/api/pi/sessions/s1/bash/abort")

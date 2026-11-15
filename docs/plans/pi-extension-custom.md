@@ -300,7 +300,7 @@ the inline column, `screenColumns` the overlay screen (the chat pane).
 - The last client that acted drives the size: input and the Esc button carry the
   sender's viewport and make it the driver. So does a tap or click on a
   surface or its dimmed pane (a viewport report with `claim`). Opening one
-  does too: prompts carry the tab's `clientId`, and a new top-level surface
+  does too: prompts and `!commands` carry the tab's `clientId`, and a new top-level surface
   goes to the client that sent the session's latest input, at once if it
   already reported a size, else on its first report, so the device that ran
   the command sees it at its own width even though the driver outlives

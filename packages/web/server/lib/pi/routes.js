@@ -2448,9 +2448,11 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    const clientId = typeof body.clientId === 'string' && body.clientId.length > 0 && body.clientId.length <= 128 ? body.clientId : undefined;
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.bash', {
       command: body.command,
       ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
+      ...(clientId ? { clientId } : {}),
     });
     if (result === undefined) return;
     if (!result || result.accepted !== true || typeof result.id !== 'string') {

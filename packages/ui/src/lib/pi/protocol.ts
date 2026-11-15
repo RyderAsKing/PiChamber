@@ -457,6 +457,8 @@ export interface PiBashInput {
   command: string;
   /** `!!`: run and record the command, but never send it to the model. */
   excludeFromContext?: boolean;
+  /** This tab: custom() surfaces the command opens are drawn at its size. */
+  clientId?: string;
 }
 
 /** Reserved extension custom type for recorded user shell commands. */
