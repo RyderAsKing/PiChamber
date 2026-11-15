@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { resolveGitInvocation } from '../git/sandboxed-git.js';
 import { createTtlCache } from './cache.js';
 import { isSupportedHost } from './client.js';
 import { failed, inputError } from './errors.js';
@@ -160,10 +161,12 @@ const decodeURIComponentSafe = (value) => {
 };
 
 const createDefaultGitRunner = ({ execFileAsync = defaultExecFileAsync, env = process.env } = {}) => async (cwd, args) => {
+  // A sandboxed project's git runs through its launcher; unusable throws.
+  const invocation = await resolveGitInvocation(cwd, { binary: 'git', env: { ...env, ...FAIL_CLOSED_GIT_ENV } });
   try {
-    const result = await execFileAsync('git', args, {
+    const result = await execFileAsync(invocation.binary, args, {
       cwd,
-      env: { ...env, ...FAIL_CLOSED_GIT_ENV },
+      env: invocation.env,
       timeout: GIT_TIMEOUT_MS,
       windowsHide: true,
       maxBuffer: 4 * 1024 * 1024,
@@ -358,9 +361,10 @@ export const createRepoScopeResolver = ({
       const { spawn } = await import('node:child_process');
       const relative = repoPaths.map((repoPath) => pathApi.relative(root, repoPath)).filter(Boolean);
       if (relative.length === 0) return new Set();
+      const invocation = await resolveGitInvocation(root, { binary: 'git', env: { ...process.env, ...FAIL_CLOSED_GIT_ENV } });
       const ignored = await new Promise((resolve) => {
-        const child = spawn('git', ['-C', root, 'check-ignore', '--stdin'], {
-          env: { ...process.env, ...FAIL_CLOSED_GIT_ENV },
+        const child = spawn(invocation.binary, ['-C', root, 'check-ignore', '--stdin'], {
+          env: invocation.env,
           windowsHide: true,
           timeout: 5000,
         });

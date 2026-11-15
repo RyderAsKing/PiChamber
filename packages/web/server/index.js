@@ -27,6 +27,7 @@ import { createOpenUrlIntake } from './lib/open-url/intake.js';
 import { createNonoLauncher } from './lib/pi/sandbox/nono-launcher.js';
 import { createProjectSandboxManager } from './lib/pi/sandbox/project-sandbox-manager.js';
 import { createTrustAskStore } from './lib/pi/sandbox/trust-ask.js';
+import { setGitSandboxResolver } from './lib/git/sandboxed-git.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -296,6 +297,8 @@ export async function startWebUiServer(options = {}) {
       return { port: typeof address === 'object' && address ? address.port : port, version: PICHAMBER_VERSION };
     },
   });
+  // Git the server runs in a sandboxed project goes through its launcher.
+  setGitSandboxResolver(piSandboxManager.gitLaunchFor);
   piRuntimeRoutes = registerPiRuntimeRoutes(app, {
     daemonPool: piDaemonPool,
     sandboxManager: piSandboxManager,
