@@ -61,7 +61,12 @@ A sandboxed project whose sandbox cannot start fails its Pi requests with
 HTTP 503 `SANDBOX_UNAVAILABLE`. `PiRequestError.reason` carries the server's
 reason code (`NOT_INSTALLED`, `NO_LANDLOCK`, `PROVIDER_HOSTS_UNAVAILABLE`, ...).
 It is not a transient daemon error, so the client does not retry it; the
-next request tries to start the sandbox again on the server.
+next request tries to start the sandbox again on the server. Reading a
+transcript is the exception: `getSession` and `getSessionMessages` still
+answer, read from the transcript on disk, with `readOnly: true`, the
+project's `stream`, no `streamEpoch`, `lastSequence: -1`, an idle lifecycle,
+and no live or input state. Sending to that session still fails with
+`SANDBOX_UNAVAILABLE`.
 
 ## Project sandboxes
 
@@ -69,7 +74,7 @@ next request tries to start the sandbox again on the server.
 and `setProjectSandbox(projectId, setting)` wrap `/api/pi/sandbox/*` (types in
 `protocol.ts`). The setting is host-local to the connected server. Listed and
 opened sessions in a sandboxed project carry `session.sandboxed: true`, which
-the catalog keeps as `LiveSessionRecord.sandboxed`; it names the daemon that runs the session: the one running it now, or, when none does, its project's sandbox daemon, which opening starts (or fails with `SANDBOX_UNAVAILABLE`). It never means the main daemon, even when the main daemon answered the list because the sandbox daemon is stopped or unavailable. While a switch waits for a running turn, the session also carries `session.pendingSwitch: { to: 'nono' | 'off' }` (`LiveSessionRecord.pendingSwitch`), and new work on it (prompt, follow-up, model change, fork) fails with HTTP 409 `SESSION_IN_USE`; abort, steer, and reads still work. When the session moves, the event stream sends `session.moved` and the refetched row drops `pendingSwitch`. `sandboxText.ts` turns these into user text: `sandboxReasonText` for reason codes, `sessionSandboxLabel` for the row and header labels ("Sandboxed", or "Switching" with "Moves into / Leaves the sandbox after this turn"), and `describeSandboxSendError` for a refused send. It explains `SESSION_IN_USE` only when the session has a pending switch, since the same code also means another PiChamber instance holds the session. `useSessionSandboxLabel` (`sync/sync-context.tsx`) reads the label from the catalog.
+the catalog keeps as `LiveSessionRecord.sandboxed`; it names the daemon that runs the session: the one running it now, or, when none does, its project's sandbox daemon, which opening starts (while it cannot start, opening shows the transcript read-only and sending fails with `SANDBOX_UNAVAILABLE`). It never means the main daemon, even when the main daemon answered the list because the sandbox daemon is stopped or unavailable. While a switch waits for a running turn, the session also carries `session.pendingSwitch: { to: 'nono' | 'off' }` (`LiveSessionRecord.pendingSwitch`), and new work on it (prompt, follow-up, model change, fork) fails with HTTP 409 `SESSION_IN_USE`; abort, steer, and reads still work. When the session moves, the event stream sends `session.moved` and the refetched row drops `pendingSwitch`. `sandboxText.ts` turns these into user text: `sandboxReasonText` for reason codes, `sessionSandboxLabel` for the row and header labels ("Sandboxed", or "Switching" with "Moves into / Leaves the sandbox after this turn"), and `describeSandboxSendError` for a refused send. It explains `SESSION_IN_USE` only when the session has a pending switch, since the same code also means another PiChamber instance holds the session. `useSessionSandboxLabel` (`sync/sync-context.tsx`) reads the label from the catalog.
 
 ## Pending input ("sessions needing input")
 
