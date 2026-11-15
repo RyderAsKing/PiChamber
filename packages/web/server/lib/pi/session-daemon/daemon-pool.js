@@ -1,6 +1,19 @@
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-const MAIN_DAEMON_KEY = 'main';
+export const MAIN_DAEMON_KEY = 'main';
+
+/**
+ * Public, opaque id of a daemon's event stream. Pool keys may be server
+ * paths, which never leave the server; a project daemon's id is a stable
+ * 16-character hash so a resume cursor stays valid across PiChamber
+ * restarts. The main daemon's id is `main`: frames and responses from it
+ * carry no id at all, and `main` only appears where a value from the main
+ * daemon sits inside a project daemon's response (a draining list row).
+ */
+export const publicDaemonStreamId = (key) => (key === MAIN_DAEMON_KEY ? MAIN_DAEMON_KEY : hashDaemonKey(key));
+
+const hashDaemonKey = (key) => createHash('sha256').update(`pichamber-daemon:${key}`).digest('base64url').slice(0, 16);
 
 const normalizeDirectory = (directory) => (
   typeof directory === 'string' && directory.length > 0 && path.isAbsolute(directory)
@@ -26,6 +39,7 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
   const projects = new Map();
   const draining = new Map();
   const listeners = new Set();
+  const moveListeners = new Set();
 
   const notify = () => {
     for (const listener of [...listeners]) {
@@ -61,8 +75,9 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
     /** The runtime owning `directory` (project root or worktree root, or any
      *  folder inside one); the main daemon when no project daemon owns it. */
     forDirectory: (directory) => runtimeFor(ownerKey(directory)),
-    /** Runtimes whose live state merges into `directory`'s session list
-     *  while a switch drains. Never includes the owner. */
+    /** Daemons (`{ key, runtime }`) whose live state merges into
+     *  `directory`'s session list while a switch drains. Never includes the
+     *  owner. */
     drainingFor: (directory) => {
       const owner = ownerKey(directory);
       const normalized = normalizeDirectory(directory);
@@ -72,7 +87,13 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
         if (!contains(root, normalized)) continue;
         for (const key of rootKeys) if (key !== owner) keys.add(key);
       }
-      return [...keys].map(runtimeFor).filter(Boolean);
+      return [...keys].map((key) => ({ key, runtime: runtimeFor(key) })).filter((item) => item.runtime);
+    },
+    /** Public stream id of the daemon owning `directory`, or undefined for
+     *  the main daemon (whose responses and frames carry none). */
+    streamFor: (directory) => {
+      const key = ownerKey(directory);
+      return key === MAIN_DAEMON_KEY ? undefined : publicDaemonStreamId(key);
     },
     /** Every daemon that currently exists, main first. */
     live: () => {
@@ -101,7 +122,24 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
       if (!Array.isArray(keys) || keys.length === 0) draining.delete(normalized);
       else draining.set(normalized, [...new Set(keys)]);
     },
-    /** Called when a daemon is registered or unregistered. */
+    /** Tell event stream subscribers that a session's live owner changed
+     *  (for example a switch disposed it in one daemon), so clients refetch
+     *  it from its new owner. */
+    announceMove: (sessionId, directory) => {
+      if (typeof sessionId !== 'string' || sessionId.length === 0 || !normalizeDirectory(directory)) return;
+      for (const listener of [...moveListeners]) {
+        try {
+          listener(sessionId, directory);
+        } catch (error) {
+          console.warn('[pi] daemon pool move listener failed', error?.code ?? error);
+        }
+      }
+    },
+    onMove: (listener) => {
+      moveListeners.add(listener);
+      return () => moveListeners.delete(listener);
+    },
+    /** Called when a daemon is registered, replaced, or unregistered. */
     onChange: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
