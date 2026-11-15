@@ -10,6 +10,10 @@ import {
   THEME_COLORS,
 } from "./ansi"
 
+
+// Surfaces can supply a terminal palette; elsewhere the fallback (the app token) applies.
+const term = (name: string, fallback: string) => `var(--term-${name}, ${fallback})`
+
 describe("canonical theme lists", () => {
   test("pins the canonical THEME_COLORS and THEME_BG_COLORS lists in exact order", () => {
     expect(THEME_COLORS).toEqual([
@@ -159,7 +163,7 @@ describe("parseAnsiSegments", () => {
     const raw = "\u001b[1m\u001b[31mboldred\u001b[0mplain"
     const segments = parseAnsiSegments(raw)
     expect(segments).toEqual([
-      { text: "boldred", bold: true, fg: "var(--status-error)" },
+      { text: "boldred", bold: true, fg: term("ansi-1", "var(--status-error)") },
       { text: "plain" },
     ])
   })
@@ -168,16 +172,22 @@ describe("parseAnsiSegments", () => {
     const raw = "\u001b[31merror\u001b[39m \u001b[32msuccess\u001b[39m \u001b[33mwarn\u001b[39m \u001b[34minfo\u001b[39m \u001b[41mbg-err\u001b[49m"
     const segments = parseAnsiSegments(raw)
     expect(segments).toEqual([
-      { text: "error", fg: "var(--status-error)" },
+      { text: "error", fg: term("ansi-1", "var(--status-error)") },
       { text: " " },
-      { text: "success", fg: "var(--status-success)" },
+      { text: "success", fg: term("ansi-2", "var(--status-success)") },
       { text: " " },
-      { text: "warn", fg: "var(--status-warning)" },
+      { text: "warn", fg: term("ansi-3", "var(--status-warning)") },
       { text: " " },
-      { text: "info", fg: "var(--status-info)" },
+      { text: "info", fg: term("ansi-4", "var(--status-info)") },
       { text: " " },
-      { text: "bg-err", bg: "var(--status-error-background, color-mix(in srgb, var(--status-error) 15%, transparent))" },
+      { text: "bg-err", bg: term("ansi-1", "var(--status-error-background, color-mix(in srgb, var(--status-error) 15%, transparent))") },
     ])
+  })
+
+  test("maps bright colors to the upper eight terminal slots", () => {
+    const raw = "\u001b[90ma\u001b[97mb\u001b[39m\u001b[100mc\u001b[107md"
+    const slots = parseAnsiSegments(raw).map((segment) => (segment.fg ?? segment.bg ?? "").slice(0, "var(--term-ansi-NN".length))
+    expect(slots).toEqual(["var(--term-ansi-8,", "var(--term-ansi-15", "var(--term-ansi-8,", "var(--term-ansi-15"])
   })
 
   test("parses 256 colors (38;5;n and 48;5;n)", () => {
@@ -207,9 +217,9 @@ describe("parseAnsiSegments", () => {
     const raw = `\u001b[38;2;1;1;${successIndex}msuccessText\u001b[39m \u001b[48;2;1;1;${selectedBgIndex}mselectedBg\u001b[49m`
     const segments = parseAnsiSegments(raw)
     expect(segments).toEqual([
-      { text: "successText", fg: "var(--status-success)" },
+      { text: "successText", fg: term("success", "var(--status-success)") },
       { text: " " },
-      { text: "selectedBg", bg: "var(--interactive-selection)" },
+      { text: "selectedBg", bg: term("selectedBg", "var(--interactive-selection)") },
     ])
   })
 
@@ -219,8 +229,8 @@ describe("parseAnsiSegments", () => {
     expect(segments).toEqual([
       {
         text: "inverted",
-        fg: "var(--status-error)",
-        bg: "var(--status-success-background, color-mix(in srgb, var(--status-success) 15%, transparent))",
+        fg: term("ansi-1", "var(--status-error)"),
+        bg: term("ansi-2", "var(--status-success-background, color-mix(in srgb, var(--status-success) 15%, transparent))"),
         inverse: true,
       },
     ])
@@ -243,9 +253,9 @@ describe("parseAnsiSegments", () => {
     const mixed = "\u001b[?25h\u001b[32mSuccess\u001b[39m\u001b[?2004l \u001b[38;2;1;1;4mThemeToken\u001b[39m"
     const mixedSegments = parseAnsiSegments(mixed)
     expect(mixedSegments).toEqual([
-      { text: "Success", fg: "var(--status-success)" },
+      { text: "Success", fg: term("ansi-2", "var(--status-success)") },
       { text: " " },
-      { text: "ThemeToken", fg: "var(--status-success)" },
+      { text: "ThemeToken", fg: term("success", "var(--status-success)") },
     ])
   })
 })
@@ -264,7 +274,7 @@ describe("OSC 8 hyperlinks", () => {
   test("survive SGR resets inside the link, as in a terminal", () => {
     const text = "\x1b]8;;https://x.example/\x07\x1b[36mab\x1b[0mcd\x1b]8;;\x07"
     expect(parseAnsiSegments(text)).toEqual([
-      { text: "ab", fg: "var(--status-info)", href: "https://x.example/" },
+      { text: "ab", fg: term("ansi-6", "var(--status-info)"), href: "https://x.example/" },
       { text: "cd", href: "https://x.example/" },
     ])
   })

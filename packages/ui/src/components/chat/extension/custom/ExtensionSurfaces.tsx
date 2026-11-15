@@ -38,6 +38,7 @@ import {
 import { SurfaceKeyBar } from './SurfaceKeyBar';
 import { SurfaceFooter } from './SurfaceFooter';
 import { focusSurfaceElement } from './surfaceDom';
+import { SCREEN_CLASS, useExtensionPaletteStyle } from './extensionPalette';
 import { fitScale, useBoxMetrics } from './useFitScale';
 import { useSurfacePointer } from './useSurfacePointer';
 import { blockRunStyle, hasBlocks, isBlockRun, splitBlockRuns } from './blockGlyphs';
@@ -260,7 +261,7 @@ const TerminalLines: React.FC<{
       onPointerCancel={pointer.onPointerCancel}
       onMouseDown={pointer.onMouseDown}
       style={{ touchAction: pointer.touchAction, ...(zoomSelf && scale !== 1 ? { zoom: scale } : {}) }}
-      className={cn('relative whitespace-pre text-foreground outline-none', MONO)}
+      className={cn('relative whitespace-pre text-[color:var(--term-foreground,var(--foreground))] outline-none', MONO)}
     >
       <span ref={probe} aria-hidden className="invisible absolute left-0 top-0">0000000000</span>
       {(frame?.lines ?? []).map((line, index) => (
@@ -271,7 +272,7 @@ const TerminalLines: React.FC<{
       {frame?.cursor && surface.focused ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute bg-foreground/70"
+          className="pointer-events-none absolute bg-[var(--term-foreground,var(--foreground))] opacity-70"
           style={{
             left: `${frame.cursor.col}ch`,
             top: frame.cursor.row * LINE_HEIGHT + 1,
@@ -433,6 +434,7 @@ const InlineSurface: React.FC<{ sessionId: string; surface: PiExtensionSurfaceSt
 }) => {
   const busy = useSessionBusy(sessionId);
   const { hasTouchOnlyPointer } = useDeviceInfo();
+  const paletteStyle = useExtensionPaletteStyle();
   const card = React.useRef<HTMLDivElement | null>(null);
   const body = React.useRef<HTMLDivElement | null>(null);
   const probe = React.useRef<HTMLSpanElement | null>(null);
@@ -450,6 +452,7 @@ const InlineSurface: React.FC<{ sessionId: string; surface: PiExtensionSurfaceSt
         role="dialog"
         aria-label={`Extension: ${surface.title}`}
         className="pi-surface-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-md"
+        style={paletteStyle}
       >
         <div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-1.5">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -480,7 +483,11 @@ const InlineSurface: React.FC<{ sessionId: string; surface: PiExtensionSurfaceSt
             <EscButton sessionId={sessionId} surface={surface} />
           </div>
         </div>
-        <div ref={body} className="relative overflow-auto px-3 py-2" style={{ maxHeight: bodyMaxHeight ?? '60vh' }}>
+        <div
+          ref={body}
+          className={cn('relative overflow-auto px-3 py-2', paletteStyle && SCREEN_CLASS)}
+          style={{ maxHeight: bodyMaxHeight ?? '60vh' }}
+        >
           <TerminalLines sessionId={sessionId} surface={surface} nativeTouchScroll={scrolls} scale={scale} zoomSelf />
           <span ref={probe} aria-hidden className={cn('invisible absolute left-0 top-0', MONO)}>0000000000</span>
         </div>
@@ -604,8 +611,17 @@ const OVERLAY_SURFACE = 'rounded-lg border border-border/80 bg-card shadow-md';
  */
 const OverlayBox: React.FC<{ sessionId: string; surface: PiExtensionSurfaceState; scale: number }> = ({ sessionId, surface, scale }) => {
   const layout = surface.frame?.layout ?? { row: 0, col: 0, width: 40, height: 1 };
+  const paletteStyle = useExtensionPaletteStyle();
+  // Frames redraw this up to 30 times a second; keep the style object stable.
+  const style = React.useMemo(
+    () => (scale !== 1 ? { ...paletteStyle, zoom: scale } : paletteStyle),
+    [paletteStyle, scale],
+  );
   return (
-    <div className={cn(OVERLAY_SURFACE, 'max-w-full p-1')} style={scale !== 1 ? { zoom: scale } : undefined}>
+    <div
+      className={cn(OVERLAY_SURFACE, 'max-w-full p-1', paletteStyle && SCREEN_CLASS)}
+      style={style}
+    >
       <div
         className="relative overflow-hidden"
         style={{ width: `${layout.width}ch`, maxWidth: '100%', height: layout.height * LINE_HEIGHT }}
@@ -648,6 +664,8 @@ const OverlayStack: React.FC<{
   const layout = { row: anchor.row, col: anchor.col, width: size.width, height: size.height };
   const tabbed = members.length > 1;
   const behind = Math.min(STACK_DEPTH, members.length - 1);
+  // Cards behind wear the same screen as the front one.
+  const paletteStyle = useExtensionPaletteStyle();
   const tabsBelow = layout.row < 3;
   return (
     <div role="group" aria-label={`${title} panels`} className={cn('absolute isolate pointer-events-auto', MONO)} style={placementStyle(layout)}>
@@ -702,8 +720,9 @@ const OverlayStack: React.FC<{
           <div
             key={depth}
             aria-hidden
-            className={cn('absolute inset-0', OVERLAY_SURFACE)}
+            className={cn('absolute inset-0', OVERLAY_SURFACE, paletteStyle && SCREEN_CLASS)}
             style={{
+              ...paletteStyle,
               zIndex: -depth,
               transform: `translateY(-${depth * STACK_PEEK}px) scale(${1 - depth * 0.04})`,
               transformOrigin: 'top center',

@@ -722,6 +722,25 @@ export interface PiSettingsSnapshot {
  */
 export type PiExtensionUiMode = 'terminal' | 'dialogs';
 
+/** A terminal's colours as `#rrggbb`: background, foreground and the 16-colour palette. */
+export interface PiTerminalColors {
+  background: string;
+  foreground: string;
+  palette: string[];
+}
+
+/**
+ * Pi's colours for extension surfaces: Pi theme token names (`accent`,
+ * `border`, `selectedBg`, ...) to `#rrggbb`. Tokens Pi leaves to the
+ * terminal's default are absent. `background` is the theme's own page
+ * background, for named themes that have one.
+ */
+export interface PiExtensionPalette {
+  theme: string;
+  appearance: 'light' | 'dark';
+  background?: string;
+  colors: Record<string, string>;
+}
 
 export interface PiSettingsUpdateInput {
   scope: 'global' | 'project';

@@ -79,6 +79,7 @@ import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
 import { resolveExtensionMode } from './extension-ui-mode.js';
+import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -204,6 +205,8 @@ export function createSessionDaemon({
   sendOperationTtlMs = 10 * 60 * 1_000,
   // The `ctx.mode` each new binding reports; the "Extension interface" setting.
   resolveExtensionMode: resolveBindingExtensionMode = () => resolveExtensionMode({ dataDir: resolvePiChamberDataDir() }),
+  // Pi's colours for extension surfaces in a given terminal palette (extension-palette.js).
+  resolveExtensionPalette = createExtensionPaletteResolver(),
   sessionListCache = createPiSessionJsonlListCache(),
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
@@ -4384,7 +4387,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.draft',
+              'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
               'openUrl.publish', 'archive.publish',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
@@ -4601,6 +4604,17 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The draft payload is invalid.');
         }
         const result = updateExtensionDraft(sessionId, text, revision);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.palette': {
+        const terminal = message.payload?.terminal;
+        if (!isTerminalColors(terminal)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The terminal colours are invalid.');
+        }
+        // Pi's theme setting is global; a project's own setting is not read.
+        const themeSetting = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false }).getTheme();
+        const result = await resolveExtensionPalette({ themeSetting, terminal });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

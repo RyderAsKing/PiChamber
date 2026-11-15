@@ -1208,6 +1208,48 @@ describe('Pi runtime route', () => {
     expect(calls[1]).toEqual({ command: 'sessions.abortBash', payload: { sessionId: 'pi-session-bash' } });
   });
 
+  it('resolves the extension palette through the daemon and whitelists it', async () => {
+    const calls = [];
+    let reply = {
+      theme: 'dark', appearance: 'dark', background: '#21252c', internal: 'drop',
+      colors: { accent: '#a798d7', border: 'url(x)', 'bad token': '#000000' },
+    };
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: ['extensions.palette'] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return reply;
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const post = (body) => fetch(`http://127.0.0.1:${server.address().port}/api/pi/extensions/palette`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const terminal = { background: '#ffffff', foreground: '#000000', palette: Array(16).fill('#123456') };
+
+    const ok = await post({ terminal: { ...terminal, extra: true } });
+    expect(ok.status).toBe(200);
+    await expect(ok.json()).resolves.toEqual({ theme: 'dark', appearance: 'dark', background: '#21252c', colors: { accent: '#a798d7' } });
+    expect(calls).toEqual([{ command: 'extensions.palette', payload: { terminal } }]);
+
+    for (const body of [{}, { terminal: { ...terminal, background: 'white' } }, { terminal: { ...terminal, palette: ['#000000'] } }]) {
+      const rejected = await post(body);
+      expect(rejected.status).toBe(400);
+      await expect(rejected.json()).resolves.toEqual({ error: { code: 'INVALID_ARGUMENT' } });
+    }
+    expect(calls).toHaveLength(1);
+
+    reply = { theme: 'dark', appearance: 'dim', colors: {} };
+    const malformed = await post({ terminal });
+    expect(malformed.status).toBe(502);
+    await expect(malformed.json()).resolves.toEqual({ error: { code: 'MALFORMED_DAEMON_RESPONSE' } });
+  });
+
   it('projects live shell executions on session details', async () => {
     const runtime = {
       health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),

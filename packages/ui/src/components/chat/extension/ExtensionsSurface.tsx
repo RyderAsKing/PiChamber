@@ -2,6 +2,7 @@ import * as React from 'react';
 
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { AnsiText } from '@/components/chat/AnsiText';
+import { useExtensionTextClass } from '@/components/chat/extension/custom/extensionPalette';
 import { Icon } from '@/components/icon/Icon';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,7 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
     activeSessionId ? `session:${activeSessionId}` : 'chrome',
   );
   const widgets = React.useMemo(() => [...(widgetMap?.entries() ?? [])], [widgetMap]);
+  const textClass = useExtensionTextClass(widgets.length > 0);
 
   const [collapsedWidgets, setCollapsedWidgets] = React.useState<Record<string, boolean>>({});
 
@@ -67,7 +69,7 @@ export const ExtensionsSurface: React.FC<ExtensionsSurfaceProps> = ({ sessionId,
             onToggle={() => toggleWidget(key)}
             testId={`extension-widget-${key}`}
           >
-            <div className="max-h-64 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 font-mono typography-micro leading-relaxed text-foreground">
+            <div className={cn('max-h-64 overflow-auto rounded-md bg-muted/40 px-2 py-1.5 font-mono typography-micro leading-relaxed text-foreground', textClass)}>
               {widget.lines.map((line, index) => (
                 <span key={index} className="block whitespace-pre-wrap">
                   <AnsiText text={line} />

@@ -4,6 +4,7 @@ import { RuntimeAPIContext } from '@/contexts/runtimeAPIContext';
 import { cn } from '@/lib/utils';
 import { getToolMetadata } from '@/lib/toolHelpers';
 import { AnsiText } from '@/components/chat/AnsiText';
+import { useExtensionTextClass } from '@/components/chat/extension/custom/extensionPalette';
 import type { ToolPart as ToolPartType } from '@/lib/chat/types';
 import type { PiToolRender } from '@/lib/pi/protocol';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
@@ -118,6 +119,7 @@ const areExtensionRenderBlockPropsEqual = (
 };
 
 const ExtensionRenderBlock: React.FC<ExtensionRenderBlockProps> = React.memo(({ call, result }) => {
+    const textClass = useExtensionTextClass();
     const hasCall = Array.isArray(call) && call.length > 0;
     const hasResult = Array.isArray(result) && result.length > 0;
 
@@ -130,6 +132,7 @@ const ExtensionRenderBlock: React.FC<ExtensionRenderBlockProps> = React.memo(({ 
             className={cn(
                 'my-1 ml-5 overflow-x-auto rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2',
                 'font-mono typography-code whitespace-pre max-h-80 overflow-y-auto',
+                textClass,
             )}
             data-chat-tool-extension-render="true"
         >

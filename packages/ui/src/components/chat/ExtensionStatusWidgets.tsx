@@ -6,6 +6,8 @@ import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import { useDeviceInfo } from '@/lib/device';
 import { ExtensionsSurface } from '@/components/chat/extension/ExtensionsSurface';
 import { AnsiText } from '@/components/chat/AnsiText';
+import { cn } from '@/lib/utils';
+import { useExtensionTextClass } from '@/components/chat/extension/custom/extensionPalette';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 
@@ -79,6 +81,8 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
     useUIStore.getState().openContextSurface(dir, 'extensions');
   }, [isMobile, sessionDirectory]);
 
+  const textClass = useExtensionTextClass(statuses.length > 0);
+
   if (statuses.length === 0 && !contentSummary) return null;
 
   return (
@@ -89,7 +93,7 @@ export const ExtensionStatusStrip: React.FC<{ sessionId?: string | null }> = ({ 
             <Icon name="plug-2" className="size-3" />
           </span>
           {statuses.length > 0 && (
-            <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-hidden touch-pan-x" data-no-drawer-swipe="true">
+            <div className={cn('flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain scrollbar-hidden touch-pan-x', textClass)} data-no-drawer-swipe="true">
               {statuses.map(([key, text]) => (
                 <span
                   key={key}

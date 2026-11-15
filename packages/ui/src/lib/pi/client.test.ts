@@ -859,3 +859,27 @@ describe("listPendingInput", () => {
     }
   })
 })
+
+describe("getExtensionPalette", () => {
+  beforeEach(() => {
+    observePiStreamEpoch(getRuntimeKey(), "epoch-client")
+  })
+  afterEach(() => { globalThis.fetch = originalFetch })
+
+  test("posts the terminal colours and returns Pi's palette", async () => {
+    const terminal = { background: "#ffffff", foreground: "#000000", palette: Array(16).fill("#123456") }
+    const palette = { theme: "system", appearance: "light", colors: { accent: "#b84684" } }
+    installFetchMock((call) => {
+      expect(call.url).toBe("/api/pi/extensions/palette")
+      expect(call.init?.method).toBe("POST")
+      expect(JSON.parse(String(call.init?.body))).toEqual({ terminal })
+      return jsonResponse(palette)
+    })
+    expect(await piClient.getExtensionPalette(terminal)).toEqual(palette)
+  })
+
+  test("rejects a failed request instead of returning no colours", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "DAEMON_UNAVAILABLE" } }, { status: 503 }))
+    await expect(piClient.getExtensionPalette({ background: "#ffffff", foreground: "#000000", palette: Array(16).fill("#000000") })).rejects.toThrow()
+  })
+})
