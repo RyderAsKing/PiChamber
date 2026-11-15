@@ -12,7 +12,7 @@ The daemon side (the supervisor launching a daemon through a launcher, launch id
 - `nono-launcher.js`: the nono probe and the `nono run` command. `nono-profile.json`: PiChamber's static nono policy.
 - `project-sandbox.js`: one project's grants, network, shadow Pi agent folder, and private temp folder (`prepareProjectSandbox`).
 - `project-sandbox-setting.js`: the per-project `sandbox` setting and its normalization.
-- `project-sandbox-manager.js`: registers sandbox daemons in the daemon pool and starts them lazily. It also answers the fail-closed and read-only fallbacks, drains sessions between daemons, replaces stale daemons, refreshes OAuth through the main daemon, resets trust when a project is switched off, and resolves git sandboxes (`gitSandboxForDirectory`).
+- `project-sandbox-manager.js`: registers sandbox daemons in the daemon pool and starts them lazily. It also answers the fail-closed and read-only fallbacks, drains sessions between daemons, replaces stale daemons, refreshes OAuth through the main daemon, resets trust when a project is switched off.
 - `sandbox-routes.js`: `/api/pi/sandbox` and `/api/pi/sandbox/projects`.
 - `trust-ask.js`: the server-owned list of folders whose Pi trust must stay "ask".
 
