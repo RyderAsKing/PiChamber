@@ -654,10 +654,14 @@ const PAGES = {
   },
   'session-sandboxed': {
     // A session in the sandboxed Night Shift project: the chat header and its
-    // sidebar row say Sandboxed, or the session explains why it cannot run.
+    // sidebar row say Sandboxed. Its transcript shows even when the sandbox
+    // cannot run (read from disk), so wait for the message bubble too.
     path: `/?session=${SHELF_SESSIONS[1].id}`,
     readyText: [SHELF_SESSIONS[1].title],
-    settledScript: `(() => /Sandboxed|Sandbox unavailable/.test(document.body.innerText))()`,
+    settledScript: `(() => {
+      const text = document.body.innerText;
+      return /Sandboxed/.test(text) && text.split(${JSON.stringify(SHELF_SESSIONS[1].title)}).length > 3;
+    })()`,
   },
   'terminal-sandboxed': {
     // The terminal beside a sandboxed session says it runs outside the sandbox.
