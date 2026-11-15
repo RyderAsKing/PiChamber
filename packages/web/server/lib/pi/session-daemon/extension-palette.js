@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -30,18 +31,24 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const loadPiThemeModules = async () => {
   const entry = fileURLToPath(import.meta.resolve(PI_PACKAGE));
   const themeDir = join(dirname(entry), 'modes', 'interactive', 'theme');
-  const [theme, system] = await Promise.all([
+  // pi-tui is Pi's dependency, not ours: resolve it from Pi's package.
+  const tuiEntry = createRequire(join(dirname(dirname(entry)), 'package.json')).resolve('@earendil-works/pi-tui');
+  const [theme, system, tui] = await Promise.all([
     import(pathToFileURL(join(themeDir, 'theme.js')).href),
     import(pathToFileURL(join(themeDir, 'system-theme.js')).href),
+    import(pathToFileURL(tuiEntry).href),
   ]);
-  for (const name of ['resolveThemeSetting', 'getResolvedThemeColors', 'getThemeExportColors', 'isLightTheme', 'getAvailableThemes']) {
+  for (const name of ['resolveThemeSetting', 'getResolvedThemeColors', 'getThemeExportColors', 'getThemeByName', 'isLightTheme', 'getAvailableThemes']) {
     if (typeof theme[name] !== 'function') throw new Error(`Pi's theme module has no ${name}()`);
   }
   for (const name of ['generateSystemThemeColors', 'terminalAppearance']) {
     if (typeof system[name] !== 'function') throw new Error(`Pi's system theme module has no ${name}()`);
   }
   if (typeof system.SYSTEM_THEME_NAME !== 'string') throw new Error("Pi's system theme module has no SYSTEM_THEME_NAME");
-  return { theme, system };
+  for (const name of ['parseColor', 'colorToHex']) {
+    if (typeof tui[name] !== 'function') throw new Error(`pi-tui has no ${name}()`);
+  }
+  return { theme, system, toHex: (value) => tui.colorToHex(tui.parseColor(value)) };
 };
 
 const toRgb = (hex) => {
@@ -58,12 +65,34 @@ export const isTerminalColors = (value) => Boolean(
   && value.palette.every((color) => typeof color === 'string' && HEX.test(color)),
 );
 
-/** Known tokens with concrete `#rrggbb` colours; Pi's "" (terminal default) is left out. */
-const concreteColors = (colors) => Object.fromEntries(
+/**
+ * Known tokens with concrete `#rrggbb` colours. Pi's "" (terminal default)
+ * is left out, so the surface's own foreground and background apply; for a
+ * named theme `getResolvedThemeColors` fills those from Pi's process-wide
+ * terminal colours or a guess, so `terminalDefaults` names them to drop.
+ */
+const concreteColors = (colors, terminalDefaults = new Set()) => Object.fromEntries(
   Object.entries(colors ?? {})
-    .filter(([token, color]) => TOKENS.has(token) && typeof color === 'string' && HEX.test(color))
+    .filter(([token, color]) => TOKENS.has(token) && !terminalDefaults.has(token) && typeof color === 'string' && HEX.test(color))
     .map(([token, color]) => [token, color.toLowerCase()]),
 );
+
+/** The tokens a named theme leaves to the terminal default. */
+const terminalDefaultTokens = (themeObject) => new Set([
+  ...(Array.isArray(themeObject?.defaultForegroundTokens) ? themeObject.defaultForegroundTokens : []),
+  ...(Array.isArray(themeObject?.defaultBackgroundTokens) ? themeObject.defaultBackgroundTokens : []),
+]);
+
+/** A theme's export colour as `#rrggbb`: Pi passes `#rgb` and `oklch()` through as written. */
+const exportHex = (value, toHex) => {
+  if (typeof value !== 'string' || value === '') return undefined;
+  try {
+    const hex = toHex(value);
+    return typeof hex === 'string' && HEX.test(hex) ? hex.toLowerCase() : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 export const createExtensionPaletteResolver = ({ loadModules = loadPiThemeModules } = {}) => {
   let modules;
@@ -81,7 +110,7 @@ export const createExtensionPaletteResolver = ({ loadModules = loadPiThemeModule
    */
   return async ({ themeSetting, terminal }) => {
     if (!isTerminalColors(terminal)) throw new TypeError('Terminal colours must be #rrggbb values with 16 palette entries.');
-    const { theme, system } = await load();
+    const { theme, system, toHex } = await load();
     const background = toRgb(terminal.background);
     const foreground = toRgb(terminal.foreground);
     const terminalAppearance = system.terminalAppearance(background, foreground);
@@ -89,12 +118,12 @@ export const createExtensionPaletteResolver = ({ loadModules = loadPiThemeModule
     const known = requested && requested !== system.SYSTEM_THEME_NAME && theme.getAvailableThemes().includes(requested);
     if (known) {
       try {
-        const colors = concreteColors(theme.getResolvedThemeColors(requested));
-        const pageBg = theme.getThemeExportColors(requested)?.pageBg;
+        const colors = concreteColors(theme.getResolvedThemeColors(requested), terminalDefaultTokens(theme.getThemeByName(requested)));
+        const pageBg = exportHex(theme.getThemeExportColors(requested)?.pageBg, toHex);
         return {
           theme: requested,
           appearance: theme.isLightTheme(requested) ? 'light' : 'dark',
-          ...(typeof pageBg === 'string' && HEX.test(pageBg) ? { background: pageBg.toLowerCase() } : {}),
+          ...(pageBg ? { background: pageBg } : {}),
           colors,
         };
       } catch {

@@ -1,3 +1,7 @@
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
@@ -51,6 +55,41 @@ describe('extension palette', () => {
       expect(isTerminalColors(terminal)).toBe(false);
       await expect(resolve({ terminal })).rejects.toThrow(TypeError);
     }
+  });
+
+  it("leaves a named theme's terminal-default tokens to the screen, and converts its page background", async () => {
+    // Pi's own colour conversion, from Pi's copy of pi-tui as the resolver loads it.
+    const piEntry = fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent'));
+    const tui = await import(pathToFileURL(createRequire(join(dirname(dirname(piEntry)), 'package.json')).resolve('@earendil-works/pi-tui')).href);
+    const real = await import(pathToFileURL(join(dirname(piEntry), 'modes', 'interactive', 'theme', 'system-theme.js')).href);
+    let pageBg;
+    const themed = createExtensionPaletteResolver({
+      loadModules: async () => ({
+        system: real,
+        toHex: (value) => tui.colorToHex(tui.parseColor(value)),
+        theme: {
+          resolveThemeSetting: (setting) => setting,
+          getAvailableThemes: () => ['custom'],
+          // `text` and `selectedBg` are "" in the theme file; Pi fills them
+          // from its process-wide terminal colours or a guess.
+          getResolvedThemeColors: () => ({ accent: '#AA00BB', text: '#e5e5e7', selectedBg: '#000000' }),
+          getThemeByName: () => ({ defaultForegroundTokens: ['text'], defaultBackgroundTokens: ['selectedBg'] }),
+          getThemeExportColors: () => ({ pageBg }),
+          isLightTheme: () => false,
+        },
+      }),
+    });
+
+    pageBg = '#123';
+    const first = await themed({ themeSetting: 'custom', terminal: LIGHT_TERMINAL });
+    expect(first).toEqual({ theme: 'custom', appearance: 'dark', background: '#112233', colors: { accent: '#aa00bb' } });
+    const second = await themed({ themeSetting: 'custom', terminal: DARK_TERMINAL });
+    expect(second.colors).toEqual({ accent: '#aa00bb' });
+
+    pageBg = 'oklch(0.3 0.02 250)';
+    expect((await themed({ themeSetting: 'custom', terminal: DARK_TERMINAL })).background).toMatch(/^#[0-9a-f]{6}$/);
+    pageBg = 'not a colour';
+    expect((await themed({ themeSetting: 'custom', terminal: DARK_TERMINAL })).background).toBeUndefined();
   });
 
   it('reports a failed load and tries again on the next request', async () => {

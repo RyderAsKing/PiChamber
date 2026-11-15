@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -154,12 +154,13 @@ describe('Pi session daemon extension bridging', () => {
   let daemon;
   let sessions = [];
 
-  const startWithExtensibleSession = async ({ entries, extensionMode = 'tui' } = {}) => {
+  const startWithExtensibleSession = async ({ entries, extensionMode = 'tui', piSettings, resolveExtensionPalette } = {}) => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-'));
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
     await mkdir(projectDir, { recursive: true });
     await mkdir(agentDir, { recursive: true });
+    if (piSettings) await writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings));
     const endpoint = join(root, 'daemon.sock');
     const session = new ExtensibleFakeSession();
     const runtimeState = { disposeCount: 0 };
@@ -172,6 +173,7 @@ describe('Pi session daemon extension bridging', () => {
       cwd: projectDir,
       agentDir,
       resolveExtensionMode: () => extensionMode,
+      ...(resolveExtensionPalette ? { resolveExtensionPalette } : {}),
       createRuntime: async (_options, hooks) => {
         // Mirror the default factory contract: bind extensions when the daemon
         // supplies bindings hooks.
@@ -193,6 +195,22 @@ describe('Pi session daemon extension bridging', () => {
     await daemon?.stop();
     daemon = undefined;
     sessions = [];
+  });
+
+  it("passes Pi's theme setting to the palette resolver, light/dark pairs intact", async () => {
+    const calls = [];
+    const palette = { theme: 'light', appearance: 'light', colors: { accent: '#5a8080' } };
+    const { client } = await startWithExtensibleSession({
+      piSettings: { theme: 'light/dark' },
+      resolveExtensionPalette: async (input) => {
+        calls.push(input);
+        return palette;
+      },
+    });
+    const terminal = { background: '#ffffff', foreground: '#000000', palette: Array(16).fill('#808080') };
+    const response = await client.request('extensions.palette', { terminal });
+    expect(response.result).toEqual(palette);
+    expect(calls).toEqual([{ themeSetting: 'light/dark', terminal }]);
   });
 
   it('binds the mode the Extension interface setting resolves to', async () => {

@@ -4616,7 +4616,7 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The terminal colours are invalid.');
         }
         // Pi's theme setting is global; a project's own setting is not read.
-        const themeSetting = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false }).getTheme();
+        const themeSetting = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false }).getThemeSetting();
         const result = await resolveExtensionPalette({ themeSetting, terminal });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
