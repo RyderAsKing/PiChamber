@@ -2999,6 +2999,8 @@ export class PiSessionStore {
         sessionId,
         command,
         ...(options?.excludeFromContext ? { excludeFromContext: true } : {}),
+        // custom() surfaces this command opens are drawn at this tab's size.
+        clientId: getTabClientId(),
       }, scope);
       finishUnarchive();
       return result;

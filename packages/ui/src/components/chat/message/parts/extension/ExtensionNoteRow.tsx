@@ -1,6 +1,7 @@
 import * as React from 'react';
 
 import { AnsiText } from '@/components/chat/AnsiText';
+import { useExtensionTextClass } from '@/components/chat/extension/custom/extensionPalette';
 import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import type { PiExtensionMessageRender } from '@/lib/pi/types';
@@ -61,6 +62,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
         ? render.messageExpanded
         : undefined;
     const visibleRenderLines = isRenderExpanded && expandedLines ? expandedLines : renderLines;
+    const textClass = useExtensionTextClass(Boolean(visibleRenderLines));
 
     const header = (
         <>
@@ -115,7 +117,7 @@ export const ExtensionNoteRow: React.FC<ExtensionNoteRowProps> = ({
 
             {visibleRenderLines && (
                 <div
-                    className="my-1 max-h-80 overflow-x-auto overflow-y-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-code"
+                    className={cn('my-1 max-h-80 overflow-x-auto overflow-y-auto whitespace-pre rounded-md border border-[var(--interactive-border)] bg-[var(--surface-elevated)] p-2 font-mono typography-code', textClass)}
                     data-extension-message-render="true"
                 >
                     {visibleRenderLines.map((line, index) => (

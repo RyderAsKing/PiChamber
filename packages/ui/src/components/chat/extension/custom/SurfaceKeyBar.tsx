@@ -29,12 +29,16 @@ const SENTINEL = ' ';
  * Keyboard button that brings up the phone keyboard for text. Typed text goes
  * through a hidden input: keys with a terminal sequence of their own are sent
  * on keydown, text as it lands in the input, including a phone keyboard's
- * in-place edits while composing a word.
+ * in-place edits while composing a word. With a physical keyboard the
+ * Keyboard button is left out (`keyboardButton={false}`): typing goes to the
+ * surface itself.
  */
-export const SurfaceKeyBar: React.FC<{ sessionId: string; surfaceId: string; className?: string }> = ({
+export const SurfaceKeyBar: React.FC<{ id?: string; sessionId: string; surfaceId: string; className?: string; keyboardButton?: boolean }> = ({
+  id,
   sessionId,
   surfaceId,
   className,
+  keyboardButton = true,
 }) => {
   const input = React.useRef<HTMLInputElement | null>(null);
   const sent = React.useRef('');
@@ -75,7 +79,13 @@ export const SurfaceKeyBar: React.FC<{ sessionId: string; surfaceId: string; cla
   };
 
   return (
-    <div role="toolbar" aria-label="Extension keys" className={cn('relative flex items-center gap-0.5 overflow-x-auto', className)}>
+    <div
+      id={id}
+      role="toolbar"
+      aria-label="Extension keys"
+      data-extension-keybar={surfaceId}
+      className={cn('relative flex items-center gap-0.5 overflow-x-auto', className)}
+    >
       {KEYS.map((key) => (
         <Button
           key={key.label}
@@ -91,39 +101,43 @@ export const SurfaceKeyBar: React.FC<{ sessionId: string; surfaceId: string; cla
           {key.icon ? <Icon name={key.icon} className="size-3.5" /> : key.label}
         </Button>
       ))}
-      <Button
-        type="button"
-        variant="chip"
-        size="xs"
-        className="ml-auto h-7 shrink-0 px-1.5 font-sans"
-        aria-pressed={typing}
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={() => {
-          if (typing) input.current?.blur();
-          else input.current?.focus({ preventScroll: true });
-        }}
-      >
-        Keyboard
-      </Button>
-      <input
-        ref={input}
-        aria-label="Type to the extension"
-        className="pointer-events-none absolute left-0 top-0 size-px opacity-0"
-        defaultValue={SENTINEL}
-        autoCapitalize="off"
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        enterKeyHint="enter"
-        onFocus={() => {
-          reset();
-          setTyping(true);
-        }}
-        onBlur={() => setTyping(false)}
-        onInput={onInput}
-        onCompositionEnd={reset}
-        onKeyDown={onKeyDown}
-      />
+      {keyboardButton ? (
+        <>
+          <Button
+            type="button"
+            variant="chip"
+            size="xs"
+            className="ml-auto h-7 shrink-0 px-1.5 font-sans"
+            aria-pressed={typing}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => {
+              if (typing) input.current?.blur();
+              else input.current?.focus({ preventScroll: true });
+            }}
+          >
+            Keyboard
+          </Button>
+          <input
+            ref={input}
+            aria-label="Type to the extension"
+            className="pointer-events-none absolute left-0 top-0 size-px opacity-0"
+            defaultValue={SENTINEL}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="enter"
+            onFocus={() => {
+              reset();
+              setTyping(true);
+            }}
+            onBlur={() => setTyping(false)}
+            onInput={onInput}
+            onCompositionEnd={reset}
+            onKeyDown={onKeyDown}
+          />
+        </>
+      ) : null}
     </div>
   );
 };

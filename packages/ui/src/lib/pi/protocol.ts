@@ -457,6 +457,8 @@ export interface PiBashInput {
   command: string;
   /** `!!`: run and record the command, but never send it to the model. */
   excludeFromContext?: boolean;
+  /** This tab: custom() surfaces the command opens are drawn at its size. */
+  clientId?: string;
 }
 
 /** Reserved extension custom type for recorded user shell commands. */
@@ -710,7 +712,36 @@ export interface PiSettingsSnapshot {
     smallModel?: PiModelRef;
     walkthroughModel?: PiModelRef;
     defaultRetryLimit?: number;
+    /** How extensions draw their UI; unset means `terminal`. */
+    extensionUi?: PiExtensionUiMode;
   };
+}
+
+/**
+ * `terminal`: extensions see Pi's TUI mode and may draw `ctx.ui.custom()`
+ * components. `dialogs`: they see RPC mode, so those that branch on the mode
+ * use Pi's standard dialogs. Applies to sessions started after a change.
+ */
+export type PiExtensionUiMode = 'terminal' | 'dialogs';
+
+/** A terminal's colours as `#rrggbb`: background, foreground and the 16-colour palette. */
+export interface PiTerminalColors {
+  background: string;
+  foreground: string;
+  palette: string[];
+}
+
+/**
+ * Pi's colours for extension surfaces: Pi theme token names (`accent`,
+ * `border`, `selectedBg`, ...) to `#rrggbb`. Tokens Pi leaves to the
+ * terminal's default are absent. `background` is the theme's own page
+ * background, for named themes that have one.
+ */
+export interface PiExtensionPalette {
+  theme: string;
+  appearance: 'light' | 'dark';
+  background?: string;
+  colors: Record<string, string>;
 }
 
 export interface PiSettingsUpdateInput {
@@ -733,6 +764,7 @@ export interface PiChamberDefaultsUpdateInput {
   smallModel?: PiModelRef | null;
   walkthroughModel?: PiModelRef | null;
   defaultRetryLimit?: number | null;
+  extensionUi?: PiExtensionUiMode | null;
 }
 
 // ---------------------------------------------------------------------------

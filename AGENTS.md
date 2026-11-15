@@ -177,7 +177,16 @@ desktop only); `settings-appearance` (a dense settings page, desktop only);
 desktop only); `command-palette` (opened with Ctrl+P, desktop only);
 `extension-dialog` (the seed's demo extension answers `!git log` in the demo
 session with a select() dialog whose title packs a whole permission request;
-the dialog stays open, so later captures reuse it instead of sending again).
+the dialog stays open, so later captures reuse it instead of sending again);
+`settings-extension-interface` (Sessions settings at Extension interface,
+with its info text showing, desktop only); `extension-surface` (the demo
+extension answers `!git push` with a ctx.ui.custom() permission prompt in the
+composer's place on a terminal screen in Pi's theme colours, focus on it; on
+mobile with its key bar); `extension-surface-unfocused`
+(the same prompt with focus on another control, so its footer offers to type
+to it, desktop only); `extension-surface-keys` (the same prompt with its
+footer's Show key buttons pressed; its Esc button answers the prompt afterwards, so capture it
+last of the three, desktop only).
 Desktop captures report a mouse, so `hover:` styles apply; a page's
 `hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root

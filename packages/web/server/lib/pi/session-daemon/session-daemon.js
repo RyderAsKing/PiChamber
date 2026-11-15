@@ -78,6 +78,8 @@ import {
 import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
+import { resolveExtensionMode } from './extension-ui-mode.js';
+import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -94,8 +96,11 @@ if (!globalThis.__PICHAMBER__) {
     globalThis.__PICHAMBER__ = Object.freeze({
       version: 1,
       protocol: 'pichamber-extension-ui',
-      // Matches `ctx.mode` (extension-bridge.js).
-      mode: 'tui',
+      // The `ctx.mode` new sessions get (extension-ui-mode.js). A session
+      // keeps the mode it started with; its `ctx.mode` is authoritative.
+      get mode() {
+        return resolveExtensionMode({ dataDir: resolvePiChamberDataDir() });
+      },
     });
   } catch {}
 }
@@ -198,6 +203,10 @@ export function createSessionDaemon({
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
   sendOperationTtlMs = 10 * 60 * 1_000,
+  // The `ctx.mode` each new binding reports; the "Extension interface" setting.
+  resolveExtensionMode: resolveBindingExtensionMode = () => resolveExtensionMode({ dataDir: resolvePiChamberDataDir() }),
+  // Pi's colours for extension surfaces in a given terminal palette (extension-palette.js).
+  resolveExtensionPalette = createExtensionPaletteResolver(),
   sessionListCache = createPiSessionJsonlListCache(),
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
@@ -668,6 +677,13 @@ export function createSessionDaemon({
   // same id it uses for custom() surfaces): surfaces that input opens are
   // drawn at that tab's size.
   const promptClientBySession = new Map();
+  const recordInputClient = (sessionId, clientId) => {
+    if (typeof clientId === 'string' && clientId.length > 0 && clientId.length <= 128) {
+      promptClientBySession.set(sessionId, clientId);
+    } else {
+      promptClientBySession.delete(sessionId);
+    }
+  };
   /**
    * The running extension command while it is the only thing running (no
    * agent turn): the session is busy, as in Pi's interactive mode, which
@@ -721,6 +737,7 @@ export function createSessionDaemon({
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
     pendingInput,
     customHost,
+    resolveExtensionMode: resolveBindingExtensionMode,
   });
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a
@@ -3631,11 +3648,7 @@ export function createSessionDaemon({
     // describeCustomOrigin). Cleared when the command settles.
     const commandMarker = isExtensionCommand ? { name: slashInvocation } : undefined;
     if (commandMarker) runningCommandBySession.set(payload.sessionId, commandMarker);
-    if (typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128) {
-      promptClientBySession.set(payload.sessionId, payload.clientId);
-    } else {
-      promptClientBySession.delete(payload.sessionId);
-    }
+    recordInputClient(payload.sessionId, payload.clientId);
     // True SDK acceptance: await the prompt preflight signal, not the full
     // agent turn. In SDK 1.0.0, preflightResult is called on acceptance with
     // a PromptDisposition ("started" | "queued" | "handled"). Rejections
@@ -4377,7 +4390,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.draft',
+              'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
               'openUrl.publish', 'archive.publish',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
@@ -4594,6 +4607,21 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The draft payload is invalid.');
         }
         const result = updateExtensionDraft(sessionId, text, revision);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.palette': {
+        const terminal = message.payload?.terminal;
+        if (!isTerminalColors(terminal)) {
+          throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The terminal colours are invalid.');
+        }
+        // Pi's theme setting is global; a project's own setting is not read.
+        const settings = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false });
+        // Unreadable settings are a failure, not the system theme: the
+        // browser keeps PiChamber's colours instead of caching a wrong answer.
+        if (settings.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be read.');
+        const themeSetting = settings.getThemeSetting();
+        const result = await resolveExtensionPalette({ themeSetting, terminal });
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -4907,6 +4935,9 @@ export function createSessionDaemon({
         if (commandOnlyRun(message.payload.sessionId, activeRuntime.session)) {
           throw new SessionDaemonProtocolError('SESSION_BUSY', 'An extension command is still running.');
         }
+        // A `!command` is input too: an extension's user_bash handler can
+        // open custom() surfaces, drawn at the size of the tab that ran it.
+        recordInputClient(message.payload.sessionId, message.payload.clientId);
         let started;
         try {
           started = userBash.start({

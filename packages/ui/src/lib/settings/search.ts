@@ -285,6 +285,13 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['retry', 'retries', 'retry limit', 'auto retry', 'max retries', 'agent run'],
   },
   {
+    id: 'sessions.extension-interface',
+    page: 'sessions',
+    title: "Extension interface",
+    description: "Let extensions draw their terminal UI, or ask them for standard dialogs.",
+    keywords: ['extension', 'extensions', 'terminal', 'tui', 'custom ui', 'dialogs', 'permission prompts', 'keyboard'],
+  },
+  {
     id: 'sessions.thinking-defaults',
     page: 'sessions',
     title: "Thinking defaults",

@@ -82,7 +82,15 @@ export const THEME_BG_COLORS = Object.freeze([
 
 export type ThemeBgName = (typeof THEME_BG_COLORS)[number];
 
-export const THEME_COLOR_VARS: Readonly<Record<number, string>> = Object.freeze({
+/**
+ * Each colour below can be overridden by `--term-<name>` (Pi's theme names,
+ * `--term-ansi-0..15` for the 16 basic colours, `--term-background` and
+ * `--term-foreground`). Only extension surfaces set them, to draw with a
+ * terminal palette; everywhere else the app's tokens apply.
+ */
+const termVar = (name: string, fallback: string): string => `var(--term-${name}, ${fallback})`;
+
+const APP_THEME_COLOR_VARS: Readonly<Record<number, string>> = Object.freeze({
   0: 'var(--primary)', // accent
   1: 'var(--border)', // border
   2: 'var(--primary)', // borderAccent
@@ -134,7 +142,11 @@ export const THEME_COLOR_VARS: Readonly<Record<number, string>> = Object.freeze(
   48: 'var(--primary)', // bashMode
 });
 
-export const THEME_BG_VARS: Readonly<Record<number, string>> = Object.freeze({
+export const THEME_COLOR_VARS: Readonly<Record<number, string>> = Object.freeze(Object.fromEntries(
+  Object.entries(APP_THEME_COLOR_VARS).map(([index, fallback]) => [index, termVar(THEME_COLORS[Number(index)]!, fallback)]),
+));
+
+const APP_THEME_BG_VARS: Readonly<Record<number, string>> = Object.freeze({
   0: 'var(--interactive-selection)', // selectedBg
   1: 'var(--interactive-selection)', // searchMatchBg
   2: 'var(--surface-elevated, var(--card))', // userMessageBg
@@ -144,7 +156,14 @@ export const THEME_BG_VARS: Readonly<Record<number, string>> = Object.freeze({
   6: 'var(--status-error-background, color-mix(in srgb, var(--status-error) 15%, transparent))', // toolErrorBg
 });
 
-const BASIC_FG_COLORS: Readonly<Record<number, string>> = Object.freeze({
+export const THEME_BG_VARS: Readonly<Record<number, string>> = Object.freeze(Object.fromEntries(
+  Object.entries(APP_THEME_BG_VARS).map(([index, fallback]) => [index, termVar(THEME_BG_COLORS[Number(index)]!, fallback)]),
+));
+
+/** Palette slot (0-15) of an SGR colour code: 30-37/40-47 and 90-97/100-107. */
+const ansiSlot = (code: number): number => (code >= 90 ? (code >= 100 ? code - 92 : code - 82) : code % 10);
+
+const APP_BASIC_FG_COLORS: Readonly<Record<number, string>> = Object.freeze({
   30: 'var(--muted-foreground)', // black
   31: 'var(--status-error)', // red
   32: 'var(--status-success)', // green
@@ -163,7 +182,11 @@ const BASIC_FG_COLORS: Readonly<Record<number, string>> = Object.freeze({
   97: 'var(--foreground)', // bright white
 });
 
-const BASIC_BG_COLORS: Readonly<Record<number, string>> = Object.freeze({
+const BASIC_FG_COLORS: Readonly<Record<number, string>> = Object.freeze(Object.fromEntries(
+  Object.entries(APP_BASIC_FG_COLORS).map(([code, fallback]) => [code, termVar(`ansi-${ansiSlot(Number(code))}`, fallback)]),
+));
+
+const APP_BASIC_BG_COLORS: Readonly<Record<number, string>> = Object.freeze({
   40: 'var(--muted)', // black
   41: 'var(--status-error-background, color-mix(in srgb, var(--status-error) 15%, transparent))', // red
   42: 'var(--status-success-background, color-mix(in srgb, var(--status-success) 15%, transparent))', // green
@@ -181,6 +204,10 @@ const BASIC_BG_COLORS: Readonly<Record<number, string>> = Object.freeze({
   106: 'var(--status-info-background, color-mix(in srgb, var(--status-info) 15%, transparent))',
   107: 'var(--surface-elevated)',
 });
+
+const BASIC_BG_COLORS: Readonly<Record<number, string>> = Object.freeze(Object.fromEntries(
+  Object.entries(APP_BASIC_BG_COLORS).map(([code, fallback]) => [code, termVar(`ansi-${ansiSlot(Number(code))}`, fallback)]),
+));
 
 function xterm256ToColor(code: number): string {
   if (code < 0 || code > 255) return 'var(--foreground)';
@@ -488,8 +515,8 @@ export const renderSegmentStyle = (segment: AnsiSegment): CSSProperties | undefi
   if (segment.inverse) {
     // Swap foreground and background when inverse is requested
     const temp = fg;
-    fg = bg ?? 'var(--surface-background, var(--background))';
-    bg = temp ?? 'var(--foreground)';
+    fg = bg ?? termVar('background', 'var(--surface-background, var(--background))');
+    bg = temp ?? termVar('foreground', 'var(--foreground)');
     hasStyle = true;
   }
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -154,12 +154,13 @@ describe('Pi session daemon extension bridging', () => {
   let daemon;
   let sessions = [];
 
-  const startWithExtensibleSession = async ({ entries } = {}) => {
+  const startWithExtensibleSession = async ({ entries, extensionMode = 'tui', piSettings, resolveExtensionPalette } = {}) => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-'));
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
     await mkdir(projectDir, { recursive: true });
     await mkdir(agentDir, { recursive: true });
+    if (piSettings) await writeFile(join(agentDir, 'settings.json'), JSON.stringify(piSettings));
     const endpoint = join(root, 'daemon.sock');
     const session = new ExtensibleFakeSession();
     const runtimeState = { disposeCount: 0 };
@@ -171,6 +172,8 @@ describe('Pi session daemon extension bridging', () => {
       credential,
       cwd: projectDir,
       agentDir,
+      resolveExtensionMode: () => extensionMode,
+      ...(resolveExtensionPalette ? { resolveExtensionPalette } : {}),
       createRuntime: async (_options, hooks) => {
         // Mirror the default factory contract: bind extensions when the daemon
         // supplies bindings hooks.
@@ -185,13 +188,50 @@ describe('Pi session daemon extension bridging', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     await client.request('sessions.create', { cwd: projectDir });
-    return { client, session, endpoint, runtimeState, projectDir };
+    return { client, session, endpoint, runtimeState, projectDir, agentDir };
   };
 
   afterEach(async () => {
     await daemon?.stop();
     daemon = undefined;
     sessions = [];
+  });
+
+  it("passes Pi's theme setting to the palette resolver, light/dark pairs intact", async () => {
+    const calls = [];
+    const palette = { theme: 'light', appearance: 'light', colors: { accent: '#5a8080' } };
+    const { client } = await startWithExtensibleSession({
+      piSettings: { theme: 'light/dark' },
+      resolveExtensionPalette: async (input) => {
+        calls.push(input);
+        return palette;
+      },
+    });
+    const terminal = { background: '#ffffff', foreground: '#000000', palette: Array(16).fill('#808080') };
+    const response = await client.request('extensions.palette', { terminal });
+    expect(response.result).toEqual(palette);
+    expect(calls).toEqual([{ themeSetting: 'light/dark', terminal }]);
+  });
+
+  it('reports unreadable Pi settings instead of answering with the system theme', async () => {
+    let calls = 0;
+    const { client, agentDir } = await startWithExtensibleSession({
+      resolveExtensionPalette: async () => {
+        calls += 1;
+        return { theme: 'system', appearance: 'light', colors: {} };
+      },
+    });
+    await writeFile(join(agentDir, 'settings.json'), '{ not json');
+    const terminal = { background: '#ffffff', foreground: '#000000', palette: Array(16).fill('#808080') };
+    const failure = client.next((frame) => frame.kind === 'error');
+    client.request('extensions.palette', { terminal }).catch(() => {});
+    await expect(failure).resolves.toMatchObject({ error: { code: 'PI_SETTINGS_INVALID' } });
+    expect(calls).toBe(0);
+  });
+
+  it('binds the mode the Extension interface setting resolves to', async () => {
+    const { session } = await startWithExtensibleSession({ extensionMode: 'rpc' });
+    expect(session.boundBindings.mode).toBe('rpc');
   });
 
   it('binds extensions into every created runtime and resolves blocking dialogs via extensions.respond', async () => {

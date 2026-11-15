@@ -21,7 +21,7 @@ describe('AnsiText', () => {
     expect(markup).toContain('Active');
     expect(markup).toContain('Deprecated');
     expect(markup).toContain('font-weight:600');
-    expect(markup).toContain('color:var(--status-success)');
+    expect(markup).toContain('color:var(--term-success, var(--status-success))');
     expect(markup).toContain('font-style:italic');
     expect(markup).toContain('text-decoration:line-through');
   });
@@ -30,7 +30,7 @@ describe('AnsiText', () => {
     const raw = '\x1b[2m\x1b[48;2;1;1;0mSelected\x1b[0m';
     const markup = renderToStaticMarkup(<AnsiText text={raw} />);
     expect(markup).toContain('Selected');
-    expect(markup).toContain('background-color:var(--interactive-selection)');
+    expect(markup).toContain('background-color:var(--term-selectedBg, var(--interactive-selection))');
     expect(markup).toContain('opacity:0.65');
   });
 

@@ -76,6 +76,8 @@ import {
   isValidSessionShelfResponse,
   type PiAbortInput,
   type PiExtensionListResponse,
+  type PiExtensionPalette,
+  type PiTerminalColors,
   type PiExtensionDialogResponseInput,
   type PiExtensionSurfaceViewport,
   isValidPendingInputSummary,
@@ -863,7 +865,11 @@ export class PiService {
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/bash`,
       {
         method: 'POST',
-        body: { command: input.command, ...(input.excludeFromContext ? { excludeFromContext: true } : {}) },
+        body: {
+          command: input.command,
+          ...(input.excludeFromContext ? { excludeFromContext: true } : {}),
+          ...(input.clientId ? { clientId: input.clientId } : {}),
+        },
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
     );
@@ -1168,6 +1174,17 @@ export class PiService {
       method: 'GET',
       ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /**
+   * Pi's colours for extension surfaces drawn with these terminal colours:
+   * Pi's system theme generated from them, or the user's named Pi theme.
+   */
+  async getExtensionPalette(terminal: PiTerminalColors, scope?: PiClientScope): Promise<PiExtensionPalette> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ terminal: PiTerminalColors }, PiExtensionPalette>('/api/pi/extensions/palette', {
+      method: 'POST', body: { terminal }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
 

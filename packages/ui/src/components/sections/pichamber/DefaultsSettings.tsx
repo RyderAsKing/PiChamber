@@ -30,7 +30,7 @@ import {
 } from '@/lib/pi/thinking';
 import { reportSettingsSaveState, updateDesktopSettings } from '@/lib/persistence';
 import { getRuntimeKey } from '@/lib/runtime-switch';
-import type { PiChamberDefaultsUpdateInput, PiSettingsSnapshot } from '@/lib/pi/protocol';
+import type { PiChamberDefaultsUpdateInput, PiExtensionUiMode, PiSettingsSnapshot } from '@/lib/pi/protocol';
 import type { PiModelRef, PiThinkingLevel } from '@/lib/pi/types';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -38,6 +38,11 @@ import { useUIStore } from '@/stores/useUIStore';
 const providerScope = () => ({ runtimeKey: getRuntimeKey() });
 
 const FALLBACK_THINKING = '__pi_fallback__';
+
+const EXTENSION_UI_LABELS: Record<PiExtensionUiMode, string> = {
+  terminal: 'Terminal UI',
+  dialogs: 'Standard dialogs',
+};
 
 const thinkingSelectOptions = (levels: PiThinkingLevel[], stored?: PiThinkingLevel) => {
   const options = [...levels];
@@ -277,6 +282,27 @@ export const DefaultsSettings: React.FC = () => {
               <span className={SETTINGS_NUMBER_UNIT_CLASS}>retries</span>
             </div>
           </div>
+        </SettingsFieldRow>
+
+        <SettingsFieldRow
+          settingsItem="sessions.extension-interface"
+          label="Extension interface"
+          info="Pi extensions can draw their own terminal UI, the way they look in Pi's terminal, where you answer with the keys they show. Standard dialogs tells extensions there is no terminal. Each extension decides what to do then: some ask with Pi's clickable dialogs, some show less or skip their screen. Applies to sessions started after you change it."
+        >
+          <Select
+            value={pichamber?.extensionUi ?? 'terminal'}
+            onValueChange={(value) => { void persist({ extensionUi: value as PiExtensionUiMode }); }}
+          >
+            <SelectTrigger size={SETTINGS_SELECT_SIZE} className={SETTINGS_SELECT_ROW_TRIGGER_CLASS} aria-label="Extension interface">
+              <SelectValue>
+                {(value) => EXTENSION_UI_LABELS[value as PiExtensionUiMode] ?? ''}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="terminal">{EXTENSION_UI_LABELS.terminal}</SelectItem>
+              <SelectItem value="dialogs">{EXTENSION_UI_LABELS.dialogs}</SelectItem>
+            </SelectContent>
+          </Select>
         </SettingsFieldRow>
 
         <SettingsInset className={SETTINGS_OPTION_STACK_CLASS}>

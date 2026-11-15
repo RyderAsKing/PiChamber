@@ -132,6 +132,17 @@ describe('Pi settings sidecar', () => {
     await expect(store.read()).resolves.toEqual({ version: 1, defaultRetryLimit: 3 });
   });
 
+  it('round-trips the extension UI mode, rejects unknown modes, and clears with null', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));
+    const file = join(root, 'pi', 'settings.json');
+    const store = createPiSettingsStore({ file });
+    await expect(store.update({ extensionUi: 'dialogs' })).resolves.toEqual({ version: 1, extensionUi: 'dialogs' });
+    await expect(store.update({ defaultRetryLimit: 4 })).resolves.toEqual({ version: 1, defaultRetryLimit: 4, extensionUi: 'dialogs' });
+    await expect(store.update({ extensionUi: 'tui' })).rejects.toMatchObject({ code: 'PI_SETTINGS_INVALID' });
+    await expect(store.read()).resolves.toEqual({ version: 1, defaultRetryLimit: 4, extensionUi: 'dialogs' });
+    await expect(store.update({ extensionUi: null })).resolves.toEqual({ version: 1, defaultRetryLimit: 4 });
+  });
+
   it('preserves explicit per-run retry over stored default', async () => {
     const resolveEffective = (explicit, stored) => {
       if (Number.isInteger(explicit)) return explicit;

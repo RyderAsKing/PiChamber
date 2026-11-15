@@ -641,6 +641,40 @@ const projectExtensionAppPayload = (app) => ({
 const EXTENSION_COMMAND_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 const OPAQUE_EXTENSION_ID_PATTERN = /^[a-f0-9]{16}$/;
 
+const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
+const PALETTE_TOKEN_PATTERN = /^[A-Za-z]{1,40}$/;
+
+/** `{ background, foreground, palette[16] }` of `#rrggbb` colours, or null. */
+const projectTerminalColors = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { background, foreground, palette } = value;
+  if (typeof background !== 'string' || !HEX_COLOR_PATTERN.test(background)) return null;
+  if (typeof foreground !== 'string' || !HEX_COLOR_PATTERN.test(foreground)) return null;
+  if (!Array.isArray(palette) || palette.length !== 16) return null;
+  if (!palette.every((color) => typeof color === 'string' && HEX_COLOR_PATTERN.test(color))) return null;
+  return { background, foreground, palette: [...palette] };
+};
+
+/** Pi's theme name, appearance, optional page background and token colours, or null. */
+const projectExtensionPalette = (result) => {
+  if (!result || typeof result !== 'object') return null;
+  if (typeof result.theme !== 'string' || result.theme.length === 0 || result.theme.length > 128) return null;
+  if (result.appearance !== 'light' && result.appearance !== 'dark') return null;
+  if (result.background !== undefined && (typeof result.background !== 'string' || !HEX_COLOR_PATTERN.test(result.background))) return null;
+  if (!result.colors || typeof result.colors !== 'object' || Array.isArray(result.colors)) return null;
+  const colors = {};
+  for (const [token, color] of Object.entries(result.colors)) {
+    if (!PALETTE_TOKEN_PATTERN.test(token) || typeof color !== 'string' || !HEX_COLOR_PATTERN.test(color)) continue;
+    colors[token] = color;
+  }
+  return {
+    theme: result.theme,
+    appearance: result.appearance,
+    ...(result.background !== undefined ? { background: result.background } : {}),
+    colors,
+  };
+};
+
 export const projectExtensionList = (result) => {
   if (!result || typeof result !== 'object' || typeof result.directory !== 'string'
     || !Array.isArray(result.extensions) || !Array.isArray(result.commands)) throw protocolMismatch();
@@ -2174,6 +2208,27 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  // Pi's colours for extension surfaces drawn with the given terminal
+  // colours (session-daemon/extension-palette.js).
+  app.post('/api/pi/extensions/palette', async (req, res) => {
+    const terminal = projectTerminalColors(req.body?.terminal);
+    if (!terminal) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.palette', { terminal });
+      const palette = projectExtensionPalette(result);
+      if (!palette) {
+        res.status(502).json({ error: { code: 'MALFORMED_DAEMON_RESPONSE' } });
+        return;
+      }
+      res.json(palette);
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
   app.post('/api/pi/extensions/respond', async (req, res) => {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)
@@ -2393,9 +2448,11 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
+    const clientId = typeof body.clientId === 'string' && body.clientId.length > 0 && body.clientId.length <= 128 ? body.clientId : undefined;
     const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.bash', {
       command: body.command,
       ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
+      ...(clientId ? { clientId } : {}),
     });
     if (result === undefined) return;
     if (!result || result.accepted !== true || typeof result.id !== 'string') {
