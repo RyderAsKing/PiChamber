@@ -66,18 +66,80 @@ export const createPiNotificationTracker = ({ emit }) => {
   return { accept };
 };
 
+// One daemon's subscription: its own replay cursor (sequence and stream
+// epoch are per daemon), retry timer, and close. A subscription that
+// resolves after `close()` is closed at once.
+const createDaemonConnection = ({ runtime, retryMs, onEvent }) => {
+  let closed = false;
+  let closeSubscription = null;
+  let retryTimer = null;
+  let fromSequence;
+  let streamEpoch;
+
+  const scheduleReconnect = () => {
+    if (closed || retryTimer) return;
+    closeSubscription?.();
+    closeSubscription = null;
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      void connect();
+    }, retryMs);
+  };
+
+  const connect = async () => {
+    if (closed) return;
+    try {
+      closeSubscription?.();
+      closeSubscription = null;
+      const close = await runtime.subscribe({
+        ...(Number.isSafeInteger(fromSequence) && streamEpoch ? { fromSequence, streamEpoch } : {}),
+        onEvent: (event) => {
+          if (typeof event.streamEpoch === 'string') streamEpoch = event.streamEpoch;
+          if (Number.isSafeInteger(event.sequence)) fromSequence = event.sequence;
+          onEvent(event);
+        },
+        onError: scheduleReconnect,
+      });
+      if (closed) close?.();
+      else closeSubscription = close;
+    } catch {
+      scheduleReconnect();
+    }
+  };
+
+  return {
+    runtime,
+    connect,
+    close: () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+      closeSubscription?.();
+      closeSubscription = null;
+    },
+  };
+};
+
+/**
+ * Watches every live session daemon in `daemonPool` (or the single
+ * `supervisor`) and follows daemons as they are registered and removed.
+ * One daemon failing only retries that daemon.
+ */
 export const createPiNotificationWatcher = ({
   supervisor,
+  daemonPool = {
+    live: () => (supervisor ? [{ key: 'main', runtime: supervisor }] : []),
+    onChange: () => () => {},
+  },
   uiSettingsStore,
   notify,
   retryMs = 1_000,
   notifyTimeoutMs = 15_000,
 }) => {
   let stopped = false;
-  let closeSubscription = null;
-  let retryTimer = null;
-  let fromSequence;
-  let streamEpoch;
+  let started = false;
+  let unsubscribePool = null;
+  const connections = new Map();
   let notifyChain = Promise.resolve();
 
   const tracker = createPiNotificationTracker({
@@ -113,42 +175,39 @@ export const createPiNotificationWatcher = ({
     },
   });
 
-  const scheduleReconnect = () => {
-    if (stopped || retryTimer) return;
-    closeSubscription?.();
-    closeSubscription = null;
-    retryTimer = setTimeout(() => {
-      retryTimer = null;
-      void connect();
-    }, retryMs);
-  };
-
-  const connect = async () => {
+  // Bring subscriptions in line with the pool: connect new daemons, close
+  // removed ones, and start over (fresh cursor) for a replaced runtime.
+  const sync = async () => {
     if (stopped) return;
-    try {
-      closeSubscription?.();
-      closeSubscription = await supervisor.subscribe({
-        ...(Number.isSafeInteger(fromSequence) && streamEpoch ? { fromSequence, streamEpoch } : {}),
-        onEvent: (event) => {
-          if (typeof event.streamEpoch === 'string') streamEpoch = event.streamEpoch;
-          if (Number.isSafeInteger(event.sequence)) fromSequence = event.sequence;
-          tracker.accept(event);
-        },
-        onError: scheduleReconnect,
-      });
-    } catch {
-      scheduleReconnect();
+    const live = new Map(daemonPool.live().map(({ key, runtime }) => [key, runtime]));
+    for (const [key, connection] of connections) {
+      if (live.get(key) === connection.runtime) continue;
+      connection.close();
+      connections.delete(key);
     }
+    const opening = [];
+    for (const [key, runtime] of live) {
+      if (connections.has(key)) continue;
+      const connection = createDaemonConnection({ runtime, retryMs, onEvent: tracker.accept });
+      connections.set(key, connection);
+      opening.push(connection.connect());
+    }
+    await Promise.all(opening);
   };
 
   return {
-    start: connect,
+    start: async () => {
+      if (stopped || started) return;
+      started = true;
+      unsubscribePool = daemonPool.onChange(() => { void sync(); });
+      await sync();
+    },
     stop: async () => {
       stopped = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = null;
-      closeSubscription?.();
-      closeSubscription = null;
+      unsubscribePool?.();
+      unsubscribePool = null;
+      for (const connection of connections.values()) connection.close();
+      connections.clear();
       await notifyChain;
     },
   };

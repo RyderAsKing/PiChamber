@@ -32,6 +32,7 @@ import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
 import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
 import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
+import { createPiDaemonPool } from './session-daemon/daemon-pool.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -92,8 +93,7 @@ const writeDaemonError = (res, error) => {
   res.status(status).json({ error: { code } });
 };
 
-const getDaemonRuntime = (getPiSessionDaemonRuntime) => {
-  const runtime = getPiSessionDaemonRuntime();
+const requireDaemon = (runtime) => {
   if (!runtime) {
     const error = new Error('The Pi session daemon is unavailable.');
     error.code = 'DAEMON_UNAVAILABLE';
@@ -155,6 +155,28 @@ const projectListLiveStatus = (value) => {
     ...(value.lifecycle !== 'idle' && Number.isFinite(value.runStartedAt) && value.runStartedAt >= 0 ? { runStartedAt: value.runStartedAt } : {}),
     ...(Number.isFinite(value.serverNow) && value.serverNow >= 0 ? { serverNow: value.serverNow } : {}),
   };
+};
+
+// Fill in live state the owning daemon lacks from daemons still draining
+// sessions for the same folder, matched by session id. Membership and every
+// other field stay the owner's.
+const mergeDrainingLiveState = (items, drainedLists) => {
+  if (drainedLists.length === 0) return items;
+  const drainedById = new Map();
+  for (const list of drainedLists) {
+    for (const item of list) {
+      if (!drainedById.get(item.session.id)?.live) drainedById.set(item.session.id, item);
+    }
+  }
+  return items.map((item) => {
+    const drained = drainedById.get(item.session.id);
+    if (!drained || item.live) return item;
+    return {
+      ...item,
+      ...(drained.live ? { live: drained.live } : {}),
+      ...(!item.inputState && drained.inputState ? { inputState: drained.inputState } : {}),
+    };
+  });
 };
 
 const projectSessionList = (sessions) => {
@@ -1126,7 +1148,7 @@ export const projectEventFrame = (frame) => {
   }
 };
 
-const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, command, payload = {}) => {
+const requestSessionOperation = async (req, res, daemonPool, command, payload = {}) => {
   const sessionId = sessionIdFrom(req);
   if (!sessionId) {
     res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
@@ -1138,7 +1160,7 @@ const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, comm
       ? req.body.directory
       : (typeof req.body?.cwd === 'string' && req.body.cwd.length > 0 ? req.body.cwd : undefined));
   try {
-    return await getDaemonRuntime(getPiSessionDaemonRuntime).request(command, {
+    return await requireDaemon(daemonPool.forDirectory(directory)).request(command, {
       ...payload,
       sessionId,
       ...(directory ? { directory } : {}),
@@ -1156,6 +1178,10 @@ const requestSessionOperation = async (req, res, getPiSessionDaemonRuntime, comm
  */
 export const registerPiRuntimeRoutes = (app, {
   getPiSessionDaemonRuntime,
+  // Which daemon serves a request (session-daemon/daemon-pool.js). Without
+  // one, the single runtime from `getPiSessionDaemonRuntime` is the main
+  // daemon and owns every directory.
+  daemonPool = createPiDaemonPool({ getMainRuntime: getPiSessionDaemonRuntime }),
   archiveStore = createPiArchiveStore(),
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
@@ -1174,6 +1200,13 @@ export const registerPiRuntimeRoutes = (app, {
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
+  // Directory-less commands (providers, settings, projects, engines,
+  // provider login, the extension palette) and resource writes always run on
+  // the main daemon: they write Pi's own config and credentials, which a
+  // project daemon may only read. Everything scoped to a directory runs on
+  // the daemon that owns it.
+  const mainDaemon = () => requireDaemon(daemonPool.main());
+  const daemonFor = (directory) => requireDaemon(daemonPool.forDirectory(directory));
   // Tell every device an archive mark changed (a `session.archive` event on
   // the session's stream) so other clients re-list that folder. The change is
   // already saved, so this never delays or fails the request: an older
@@ -1182,7 +1215,7 @@ export const registerPiRuntimeRoutes = (app, {
   const publishArchiveChange = (sessionId, archived, directory) => {
     void (async () => {
       try {
-        await getDaemonRuntime(getPiSessionDaemonRuntime).request('archive.publish', {
+        await daemonFor(directory).request('archive.publish', {
           sessionId,
           archived,
           ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
@@ -1349,7 +1382,7 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.get('/api/pi/runtime', async (_req, res) => {
-    const runtime = getPiSessionDaemonRuntime();
+    const runtime = daemonPool.main();
     if (!runtime) {
       res.status(503).json({
         protocolVersion: 1,
@@ -1382,7 +1415,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/projects', async (_req, res) => {
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('projects.list');
+      const result = await mainDaemon().request('projects.list');
       if (!Array.isArray(result?.projects) || result.projects.some((project) => !project || typeof project.directory !== 'string' || typeof project.selected !== 'boolean')) throw protocolMismatch();
       res.json({ projects: result.projects.map((project) => ({ directory: project.directory, selected: project.selected })) });
     } catch (error) {
@@ -1397,7 +1430,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('projects.select', { directory });
+      const result = await mainDaemon().request('projects.select', { directory });
       if (typeof result?.directory !== 'string') throw protocolMismatch();
       res.json({ directory: result.directory });
     } catch (error) {
@@ -1407,7 +1440,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/providers', async (_req, res) => {
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.list');
+      const result = await mainDaemon().request('providers.list');
       res.json(projectProviders(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1416,7 +1449,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/engines', async (_req, res) => {
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('engines.list');
+      const result = await mainDaemon().request('engines.list');
       res.json(projectEngines(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1426,7 +1459,7 @@ export const registerPiRuntimeRoutes = (app, {
   app.post('/api/pi/providers/refresh', async (req, res) => {
     const directory = typeof req.body?.directory === 'string' && req.body.directory.length > 0 ? req.body.directory : undefined;
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.refresh', directory ? { directory } : undefined);
+      const result = await mainDaemon().request('providers.refresh', directory ? { directory } : undefined);
       res.json(projectProviders(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1440,7 +1473,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.config.get', { providerId });
+      const result = await mainDaemon().request('providers.config.get', { providerId });
       res.json(projectProviderConfig(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1455,7 +1488,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.models.set', { ...payload, providerId });
+      const result = await mainDaemon().request('providers.models.set', { ...payload, providerId });
       res.json(projectProviderConfig(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1482,7 +1515,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.models.add', {
+      const result = await mainDaemon().request('providers.models.add', {
         providerId,
         model: {
           id,
@@ -1507,7 +1540,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.status', { providerId });
+      const result = await mainDaemon().request('providers.status', { providerId });
       res.json(projectProviderStatus(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1524,7 +1557,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login', {
+      const result = await mainDaemon().request('providers.login', {
         providerId, type, ...(typeof apiKey === 'string' ? { apiKey } : {}),
       });
       res.status(202).json(projectProviderLogin(result));
@@ -1541,7 +1574,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login.status', { providerId, loginId });
+      const result = await mainDaemon().request('providers.login.status', { providerId, loginId });
       res.json(projectProviderLogin(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1557,7 +1590,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.login.respond', { providerId, loginId, value });
+      const result = await mainDaemon().request('providers.login.respond', { providerId, loginId, value });
       res.json(projectProviderLogin(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1571,7 +1604,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('providers.logout', { providerId });
+      const result = await mainDaemon().request('providers.logout', { providerId });
       res.json(projectProviderStatus(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1610,7 +1643,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   app.get('/api/pi/settings', async (_req, res) => {
     try {
-      const pi = projectPiSettings(await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.get'));
+      const pi = projectPiSettings(await mainDaemon().request('settings.get'));
       const pichamber = await settingsStore.read();
       res.json({ ...pi, pichamber });
     } catch (error) {
@@ -1621,7 +1654,7 @@ export const registerPiRuntimeRoutes = (app, {
   app.put('/api/pi/settings/pi', async (req, res) => {
     const payload = req.body;
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('settings.set', payload);
+      const result = await mainDaemon().request('settings.set', payload);
       res.json(projectPiSettings(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1642,7 +1675,7 @@ export const registerPiRuntimeRoutes = (app, {
       ? req.query.directory
       : undefined;
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+      res.json(projectResources(await daemonFor(directory).request(
         'resources.list',
         directory ? { directory } : undefined,
       )));
@@ -1656,7 +1689,7 @@ export const registerPiRuntimeRoutes = (app, {
       ? req.query.directory
       : undefined;
     try {
-      const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
+      const runtime = daemonFor(directory);
       const [resources, extensionList] = await Promise.all([
         runtime.request('resources.list', { ...(directory ? { directory } : {}) }),
         runtime.request('extensions.list', { ...(directory ? { directory } : {}) }),
@@ -1846,7 +1879,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     const directory = resourceDirectoryFrom(req);
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.update', { resourceId, content, ...(directory ? { directory } : {}) })));
+      res.json(projectResources(await mainDaemon().request('resources.update', { resourceId, content, ...(directory ? { directory } : {}) })));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1864,7 +1897,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     const directory = resourceDirectoryFrom(req);
     try {
-      res.status(201).json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.create', { name, description, content, location, ...(directory ? { directory } : {}) })));
+      res.status(201).json(projectResources(await mainDaemon().request('resources.prompts.create', { name, description, content, location, ...(directory ? { directory } : {}) })));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1894,7 +1927,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     const directory = resourceDirectoryFrom(req);
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.update', {
+      res.json(projectResources(await mainDaemon().request('resources.prompts.update', {
         resourceId,
         ...(directory ? { directory } : {}),
         ...(name !== undefined ? { name } : {}),
@@ -1915,7 +1948,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     const directory = resourceDirectoryFrom(req);
     try {
-      res.json(projectResources(await getDaemonRuntime(getPiSessionDaemonRuntime).request('resources.prompts.delete', { resourceId, ...(directory ? { directory } : {}) })));
+      res.json(projectResources(await mainDaemon().request('resources.prompts.delete', { resourceId, ...(directory ? { directory } : {}) })));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1956,7 +1989,8 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const runtime = getDaemonRuntime(getPiSessionDaemonRuntime);
+      // The public stream stays on the main daemon until streams merge.
+      const runtime = mainDaemon();
       if (typeof runtime.subscribe !== 'function') throw protocolMismatch();
       res.status(200).set({
         'Content-Type': 'text/event-stream',
@@ -1995,9 +2029,18 @@ export const registerPiRuntimeRoutes = (app, {
     }
 
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.list', {
-        ...(typeof directory === 'string' ? { directory } : {}),
-      });
+      const payload = typeof directory === 'string' ? { directory } : {};
+      // While a switch drains, an old daemon still runs some of this
+      // folder's sessions. The owner's rows are the list (JSONL is the
+      // authority); a draining daemon only fills in `live`/`inputState` the
+      // owner lacks. A failed draining daemon leaves those rows unknown.
+      const draining = typeof directory === 'string' ? daemonPool.drainingFor(directory) : [];
+      const [result, ...drained] = await Promise.all([
+        daemonFor(directory).request('sessions.list', payload),
+        ...draining.map((runtime) => runtime.request('sessions.list', payload)
+          .then((value) => projectSessionList(value?.sessions))
+          .catch(() => [])),
+      ]);
       const archived = await archiveStore.read();
       const incompleteEngines = Array.isArray(result?.incompleteEngines)
         ? result.incompleteEngines.filter((engineId) => isValidEngineId(engineId))
@@ -2005,7 +2048,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.json({
         ...(typeof result?.streamEpoch === 'string' && result.streamEpoch ? { streamEpoch: result.streamEpoch } : {}),
         ...(incompleteEngines.length > 0 ? { incompleteEngines } : {}),
-        sessions: projectSessionList(result?.sessions).map((item) => archived[item.session.id]
+        sessions: mergeDrainingLiveState(projectSessionList(result?.sessions), drained).map((item) => archived[item.session.id]
           ? { ...item, session: { ...item.session, archived: true, timeArchived: archived[item.session.id] } }
           : item),
       });
@@ -2018,8 +2061,23 @@ export const registerPiRuntimeRoutes = (app, {
   // is not captured as a session id.
   app.get('/api/pi/sessions/pending-input', async (_req, res) => {
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.pendingInput');
-      res.json(projectPendingInputList(result));
+      // Fan out to every live daemon. One failed (or malformed) daemon
+      // must not empty the others' lists; the response then says
+      // `incomplete` so clients do not treat its absent rows as cleared.
+      // The cursor is the first answering daemon's, main first: the public
+      // event stream is still the main daemon's.
+      const daemons = daemonPool.live();
+      if (daemons.length === 0) requireDaemon(null);
+      const settled = await Promise.allSettled(daemons.map(async ({ runtime }) => (
+        projectPendingInputList(await runtime.request('sessions.pendingInput'))
+      )));
+      const lists = settled.filter((item) => item.status === 'fulfilled').map((item) => item.value);
+      if (lists.length === 0) throw settled[0].reason;
+      res.json({
+        ...lists[0],
+        sessions: lists.flatMap((list) => list.sessions),
+        ...(lists.length < settled.length ? { incomplete: true } : {}),
+      });
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2037,7 +2095,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
 
     try {
-      await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.rename', {
+      await daemonFor(directory).request('sessions.rename', {
         sessionId,
         title,
         ...(directory ? { directory } : {}),
@@ -2049,7 +2107,7 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   const sendSessionDetail = async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.open');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.open');
     if (result === undefined) return;
     try {
       const detail = projectSessionDetail(result);
@@ -2074,7 +2132,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.messages', {
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.messages', {
       ...(typeof before === 'string' ? { before } : {}),
       ...(limit !== undefined ? { limit } : {}),
     });
@@ -2087,7 +2145,7 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.delete');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.delete');
     if (result === undefined) return;
     try {
       await sessionShelfStore.remove(req.params.sessionId);
@@ -2124,7 +2182,7 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       // Same membership check as archive: shelf state is PiChamber metadata
       // for a session that exists, not a Pi session mutation.
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+      const result = await daemonFor(directory).request(
         'sessions.list',
         directory ? { directory } : undefined,
       );
@@ -2159,7 +2217,7 @@ export const registerPiRuntimeRoutes = (app, {
     try {
       // Confirm membership without selecting/replacing the daemon's active
       // runtime: archive is PiChamber metadata, not a Pi session mutation.
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request(
+      const result = await daemonFor(directory).request(
         'sessions.list',
         directory ? { directory } : undefined,
       );
@@ -2186,7 +2244,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'extensions.draft', { text, revision });
+    const result = await requestSessionOperation(req, res, daemonPool, 'extensions.draft', { text, revision });
     if (result !== undefined) {
       res.status(204).end();
     }
@@ -2199,7 +2257,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.list', {
+      const result = await daemonFor(directory).request('extensions.list', {
         ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
       });
       res.json(projectExtensionList(result));
@@ -2217,7 +2275,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.palette', { terminal });
+      const result = await mainDaemon().request('extensions.palette', { terminal });
       const palette = projectExtensionPalette(result);
       if (!palette) {
         res.status(502).json({ error: { code: 'MALFORMED_DAEMON_RESPONSE' } });
@@ -2253,7 +2311,7 @@ export const registerPiRuntimeRoutes = (app, {
       }
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.respond', {
+      const result = await daemonFor(body.directory).request('extensions.respond', {
         requestId: body.requestId,
         ...(typeof body.directory === 'string' && body.directory.length > 0 ? { directory: body.directory } : {}),
         ...(body.cancelled === true ? { cancelled: true } : {}),
@@ -2310,7 +2368,7 @@ export const registerPiRuntimeRoutes = (app, {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, {
+    const result = await requestSessionOperation(req, res, daemonPool, command, {
       ...(surfaceId ? { surfaceId } : {}),
       ...(clientId ? { clientId } : {}),
       ...(viewport ? { viewport } : {}),
@@ -2328,12 +2386,12 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.get('/api/pi/sessions/:sessionId/tree', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.tree');
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.tree');
     if (result !== undefined) res.json(projectSessionTree(result));
   });
 
   app.post('/api/pi/sessions/:sessionId/navigate', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.navigate', { messageId: req.body?.messageId });
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.navigate', { messageId: req.body?.messageId });
     if (result === undefined) return;
     const detail = projectSessionDetail(result);
     const navigation = sanitizeNavigation(result.navigation);
@@ -2343,7 +2401,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
-      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {});
       if (result !== undefined) res.status(201).json(projectSessionDetail(result));
     });
   }
@@ -2375,7 +2433,7 @@ export const registerPiRuntimeRoutes = (app, {
         writeDaemonError(res, error);
         return;
       }
-      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, payload);
+      const result = await requestSessionOperation(req, res, daemonPool, command, payload);
       if (result !== undefined) {
         if (!result || result.accepted !== true || typeof result.messageId !== 'string') {
           writeDaemonError(res, protocolMismatch());
@@ -2414,7 +2472,10 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.sendReceipt', {
+      const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
+        ? req.query.directory
+        : (typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined);
+      const result = await daemonFor(directory).request('sessions.sendReceipt', {
         kind,
         sessionId,
         operationId,
@@ -2434,7 +2495,7 @@ export const registerPiRuntimeRoutes = (app, {
 
   for (const [suffix, command] of [['abort', 'sessions.abort'], ['model', 'sessions.setModel'], ['thinking', 'sessions.setThinking']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
-      const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, command, req.body && typeof req.body === 'object' ? req.body : {});
+      const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {});
       if (result !== undefined) res.status(204).end();
     });
   }
@@ -2449,7 +2510,7 @@ export const registerPiRuntimeRoutes = (app, {
       return;
     }
     const clientId = typeof body.clientId === 'string' && body.clientId.length > 0 && body.clientId.length <= 128 ? body.clientId : undefined;
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.bash', {
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.bash', {
       command: body.command,
       ...(body.excludeFromContext === true ? { excludeFromContext: true } : {}),
       ...(clientId ? { clientId } : {}),
@@ -2464,12 +2525,12 @@ export const registerPiRuntimeRoutes = (app, {
   });
 
   app.post('/api/pi/sessions/:sessionId/bash/abort', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.abortBash', {});
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.abortBash', {});
     if (result !== undefined) res.status(204).end();
   });
 
   app.post('/api/pi/sessions/:sessionId/compact', async (req, res) => {
-    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.compact', req.body && typeof req.body === 'object' ? req.body : {});
     if (result === undefined) return;
     if (!result || result.accepted !== true) {
       writeDaemonError(res, protocolMismatch());
@@ -2531,7 +2592,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
 
     try {
-      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('sessions.create', { ...input, cwd });
+      const result = await daemonFor(cwd).request('sessions.create', { ...input, cwd });
       // A fresh session is not necessarily empty: extensions may append
       // entries or messages from `session_start`. Project it exactly like a
       // session read so those items, the stream epoch, and extension UI state

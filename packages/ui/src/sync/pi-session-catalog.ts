@@ -573,7 +573,8 @@ export const applyPendingInputObservation = (
  * emptiness for a row we never observed. Entries for sessions outside the
  * catalog insert stub rows so the badge can show before the directory is
  * listed. The whole response is rejected when its `streamEpoch` differs
- * from the established epoch.
+ * from the established epoch. An `incomplete` response (a session daemon
+ * failed to answer) sets its entries and clears nothing.
  */
 export const applyPendingInputListToCatalog = (
   state: PiSessionCatalogState,
@@ -581,6 +582,7 @@ export const applyPendingInputListToCatalog = (
     sessions: ReadonlyArray<{ sessionId: PiSessionId; directory: string; pending: PiPendingInputSummary }>;
     sequence: number;
     streamEpoch?: string;
+    incomplete?: true;
   },
   options?: {
     /** Per-session ordering gate; mirrors the list `live` gate. */
@@ -611,6 +613,8 @@ export const applyPendingInputListToCatalog = (
     if (!accept(entry.sessionId, sequence)) continue;
     next = applyPendingInputObservation(next, entry.sessionId, entry.directory, entry.pending, sequence);
   }
+  // A list some daemon failed to answer proves nothing by absence.
+  if (response.incomplete === true) return next;
   for (const [id, record] of next.byId) {
     if (seen.has(id)) continue;
     // `null` is already authoritatively empty and `undefined` is unknown —

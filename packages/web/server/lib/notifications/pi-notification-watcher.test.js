@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createPiNotificationTracker, createPiNotificationWatcher } from './pi-notification-watcher.js';
+import { createPiDaemonPool } from '../pi/session-daemon/daemon-pool.js';
 
 const event = (name, sequence, payload = {}, sessionId = 'session-1') => ({
   protocolVersion: 1,
@@ -166,5 +167,83 @@ describe('Pi notification tracker', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+
+  it('watches every live daemon in the pool and follows daemons that come and go', async () => {
+    const seen = [];
+    const subscriptions = new Map();
+    const fakeDaemon = (name, { fail = false } = {}) => ({
+      request: async () => ({}),
+      subscribe: async (options) => {
+        if (fail) throw new Error('unavailable');
+        const entry = { options, closed: false };
+        subscriptions.set(name, [...(subscriptions.get(name) ?? []), entry]);
+        return () => { entry.closed = true; };
+      },
+    });
+    const main = fakeDaemon('main');
+    const broken = fakeDaemon('broken', { fail: true });
+    const sandbox = fakeDaemon('sandbox');
+    const pool = createPiDaemonPool({ getMainRuntime: () => main });
+    pool.register('project-broken', { runtime: broken, directories: ['/broken'] });
+    const watcher = createPiNotificationWatcher({
+      daemonPool: pool,
+      uiSettingsStore: { read: async () => ({ nativeNotificationsEnabled: true }) },
+      notify: async (payload) => { seen.push(payload.sessionId); },
+      retryMs: 60_000,
+    });
+
+    await watcher.start();
+    pool.register('project-a', { runtime: sandbox, directories: ['/work/a'] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const emit = (name, sessionId, sequence, state) => subscriptions.get(name).at(-1).options
+      .onEvent(event('session.lifecycle', sequence, { state }, sessionId));
+    emit('main', 'main-session', 1, 'busy');
+    emit('sandbox', 'box-session', 1, 'busy');
+    emit('sandbox', 'box-session', 2, 'idle');
+    emit('main', 'main-session', 2, 'idle');
+
+    // Each daemon resumes from its own cursor.
+    subscriptions.get('sandbox').at(-1).options.onError(new Error('gone'));
+    pool.unregister('project-a');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(subscriptions.get('sandbox').at(-1).closed).toBe(true);
+
+    await watcher.stop();
+    expect(subscriptions.get('main').at(-1).closed).toBe(true);
+    expect(seen).toEqual(['box-session', 'main-session']);
+    expect(subscriptions.get('main')).toHaveLength(1);
+  });
+
+  it('reconnects each daemon with its own cursor', async () => {
+    const subscriptions = { main: [], sandbox: [] };
+    const fakeDaemon = (name) => ({
+      request: async () => ({}),
+      subscribe: async (options) => {
+        subscriptions[name].push(options);
+        return () => {};
+      },
+    });
+    const main = fakeDaemon('main');
+    const pool = createPiDaemonPool({ getMainRuntime: () => main });
+    pool.register('project-a', { runtime: fakeDaemon('sandbox'), directories: ['/work/a'] });
+    const watcher = createPiNotificationWatcher({
+      daemonPool: pool,
+      uiSettingsStore: { read: async () => ({}) },
+      notify: async () => undefined,
+      retryMs: 1,
+    });
+
+    await watcher.start();
+    subscriptions.main[0].onEvent({ ...event('session.lifecycle', 30, { state: 'busy' }), streamEpoch: 'epoch-main' });
+    subscriptions.sandbox[0].onEvent({ ...event('session.lifecycle', 4, { state: 'busy' }), streamEpoch: 'epoch-box' });
+    subscriptions.sandbox[0].onError(new Error('disconnected'));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await watcher.stop();
+
+    expect(subscriptions.main).toHaveLength(1);
+    expect(subscriptions.sandbox).toHaveLength(2);
+    expect(subscriptions.sandbox[1]).toMatchObject({ fromSequence: 4, streamEpoch: 'epoch-box' });
   });
 });
