@@ -17,6 +17,7 @@ import { createTailscaleService } from './lib/tailscale/service.js';
 import { createServerIdResolver } from './lib/relay/server-id.js';
 import { registerTailscaleRoutes } from './lib/tailscale/routes.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
+import { createPiDaemonPool } from './lib/pi/session-daemon/daemon-pool.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
@@ -261,8 +262,10 @@ export async function startWebUiServer(options = {}) {
     getServerId: serverIdResolver.getServerId,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
+  // The main daemon is today's supervisor; project daemons register here.
+  const piDaemonPool = createPiDaemonPool({ getMainRuntime: () => piSessionDaemonRuntime });
   const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
-    getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
+    daemonPool: piDaemonPool,
     uiSettingsStore,
   });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).
@@ -323,7 +326,7 @@ export async function startWebUiServer(options = {}) {
   // supplies its native notification callback.
   if (typeof options.onDesktopNotification === 'function') {
     notificationWatcher = createPiNotificationWatcher({
-      supervisor: piSessionDaemonRuntime,
+      daemonPool: piDaemonPool,
       uiSettingsStore,
       notify: options.onDesktopNotification,
     });
