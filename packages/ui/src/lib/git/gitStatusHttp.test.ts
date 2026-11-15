@@ -431,7 +431,7 @@ describe('sandbox refusals', () => {
     installFetchMock(() => jsonResponse({ error: 'boom' }, 500));
     try {
       const failure = await checkIsGitRepository('/repo').catch((error: unknown) => error) as Error;
-      expect(failure.message).toStartWith('Failed to check git repository');
+      expect(failure.message.startsWith('Failed to check git repository')).toBe(true);
       const listing = await listGitWorktrees('/repo').catch((error: unknown) => error) as Error;
       expect(listing.message).toBe('boom');
     } finally {
