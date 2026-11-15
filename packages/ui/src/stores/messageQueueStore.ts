@@ -452,7 +452,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
 
                 markDeliveryAttempt: (target, messageId, kind) => {
                     if (target.runtimeKey !== getRuntimeKey()) return null;
-                    const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+                    const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey, target.sessionId);
                     if (!streamEpoch) return null;
                     const key = getMessageQueueKey(target);
                     let attempt: QueuedDeliveryAttempt | null = null;
@@ -507,7 +507,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const current = queue[index];
                         if (current.deliveryAttempt) return state;
                         const nextQueue = queue.slice();
-                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey, target.sessionId);
                         nextQueue[index] = {
                             ...current,
                             deliveryAttempt: {
@@ -521,7 +521,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                 },
 
                 requeueWithNewIntent: (target, messageId) => {
-                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey)) return null;
+                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey, target.sessionId)) return null;
                     const key = getMessageQueueKey(target);
                     const newId = `queued-${createBrowserUuid()}`;
                     let requeued = false;
@@ -587,7 +587,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         if (sending.includes(messageId)) return state;
                         const found = queue.find((message) => message.id === messageId);
                         if (!found) return state;
-                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey);
+                        const streamEpoch = getObservedPiStreamEpoch(target.runtimeKey, target.sessionId);
                         if (target.runtimeKey !== getRuntimeKey() || !streamEpoch) return state;
                         // An uncertain attempt holds: Check status first. A
                         // cross-kind resend cannot dedupe (receipt key includes
@@ -604,7 +604,7 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                     const state = get();
                     const queue = state.queuedMessages[key] ?? [];
                     const sending = state.sendingIds[key] ?? [];
-                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey)) return null;
+                    if (target.runtimeKey !== getRuntimeKey() || !getObservedPiStreamEpoch(target.runtimeKey, target.sessionId)) return null;
                     for (const message of queue) {
                         // FIFO hold: an earlier uncertain or in-flight delivery
                         // blocks later entries to preserve order and avoid

@@ -167,6 +167,12 @@ export interface PiSessionListItem {
   /** Pending-input state sampled with the same daemon sequence as `live`.
    *  Absent means unknown (older server), never authoritatively empty. */
   inputState?: PiSessionListInputState;
+  /** Set when `live`/`inputState` came from a daemon other than the one that
+   *  produced the list (a draining daemon, or a project daemon's residents
+   *  in the all-sessions list): that daemon's stream (`'main'` for the main
+   *  daemon) and stream epoch, whose sequence space the values belong to. */
+  stream?: string;
+  streamEpoch?: string;
 }
 
 export interface PiSessionListResponse {
@@ -180,6 +186,9 @@ export interface PiSessionListResponse {
    *  A value different from the client's established epoch means the
    *  response predates a daemon restart and must not be committed. */
   streamEpoch?: string;
+  /** Opaque id of the project daemon stream `streamEpoch` belongs to. Absent
+   *  for the main daemon. See `PiEventEnvelope.stream`. */
+  stream?: string;
 }
 
 export interface PiSessionCreateInput {
@@ -220,6 +229,9 @@ export interface PiSessionDetailResponse extends Pick<
 > {
   session: PiSession;
   messages: PiMessageView[];
+  /** Opaque id of the project daemon stream this detail's `streamEpoch` and
+   *  `lastSequence` belong to. Absent for the main daemon. */
+  stream?: string;
   /** True when older projected messages remain before this response page. */
   hasMoreBefore?: boolean;
   /** Opaque cursor accepted by the older-message endpoint. */
@@ -360,11 +372,19 @@ export interface PiPendingInputListResponse {
     sessionId: PiSessionId;
     directory: string;
     pending: PiPendingInputSummary;
+    /** Project daemon stream that numbers this entry; absent for the main
+     *  daemon. Its position is `streams[stream]`. */
+    stream?: string;
   }>;
-  /** Daemon event sequence at sampling time; gates per-session adoption. */
-  sequence: number;
-  /** Opaque stream-lifetime id of the daemon that produced this response. */
+  /** Main daemon event sequence at sampling time; gates per-session adoption
+   *  of entries without `stream`. Absent only when the main daemon failed to
+   *  answer (then `incomplete` is set). */
+  sequence?: number;
+  /** Opaque stream-lifetime id of the main daemon. */
   streamEpoch?: string;
+  /** Sampling cursor of each project daemon that answered, keyed by the
+   *  `stream` its entries carry. */
+  streams?: Record<string, { sequence: number; streamEpoch?: string }>;
   /** Set when some session daemon failed to answer: the listed entries are
    *  real, but a session missing from the list may still be pending. */
   incomplete?: true;
@@ -905,6 +925,7 @@ export type PiEventName =
   | 'session.interrupted'
   | 'session.openUrl'
   | 'session.archive'
+  | 'session.moved'
   | 'extension.entry'
   | 'extension.message'
   | 'extension.notify'
@@ -938,6 +959,14 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
    *  different from the client's established epoch means the daemon
    *  restarted: only a snapshot may establish the new baseline. */
   streamEpoch?: string;
+  /** Opaque id of the project daemon (sandboxed project) that emitted the
+   *  event. Absent for the main daemon. `streamEpoch` and `sequence` belong
+   *  to that daemon's own stream. */
+  stream?: string;
+  /** Opaque resume position of every project daemon after this event. The
+   *  client sends the newest one back as the `cursor` subscribe parameter
+   *  next to its main `fromSequence`/`streamEpoch`. */
+  cursor?: string;
 }
 
 export type PiSessionSnapshotEvent = PiEventEnvelope<
@@ -1177,6 +1206,15 @@ export type PiSessionOpenUrlEvent = PiEventEnvelope<
     serverNow: number;
   }
 >;
+
+/**
+ * The session's live owner changed: it moved to another session daemon (a
+ * project switched sandboxing), or the daemon that ran it restarted or
+ * stopped. Its sequences and live state from the old daemon no longer
+ * apply: drop them and refetch the session. Server-made, so `sequence` is
+ * 0 and it carries no `streamEpoch` or `stream`.
+ */
+export type PiSessionMovedEvent = PiEventEnvelope<'session.moved', Record<string, never>>;
 
 /**
  * A session's archive mark changed on the server (archive, unarchive, or
@@ -1517,6 +1555,7 @@ export type PiSessionEvent =
   | PiSessionInterruptedEvent
   | PiSessionOpenUrlEvent
   | PiSessionArchiveEvent
+  | PiSessionMovedEvent
   | PiExtensionEntryEvent
   | PiExtensionMessageEvent
   | PiExtensionNotifyEvent
@@ -1566,6 +1605,7 @@ export const PI_EVENT_KINDS = [
   'session.interrupted',
   'session.openUrl',
   'session.archive',
+  'session.moved',
   'extension.entry',
   'extension.message',
   'extension.notify',

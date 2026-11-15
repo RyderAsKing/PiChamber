@@ -59,6 +59,10 @@ export interface PiReconnectResult {
    *  established epoch (daemon restart). The caller's replay cursor is from
    *  a retired sequence space and must not be merged into the new baseline. */
   epochChanged?: boolean;
+  /** Set when the session lives on a project daemon: its stream and the
+   *  epoch the detail was read under. The owner checks that epoch against
+   *  its own record of that stream; it is unrelated to `epoch`. */
+  sessionStream?: { stream: string; epoch: string };
   /** Server timing for the selected active turn, when available. */
   runStartedAt?: number;
   serverNow?: number;
@@ -97,6 +101,9 @@ export interface PiReconnectOptions {
    *  When the verified daemon epoch differs, the cursor belongs to a retired
    *  sequence space and the snapshot's baseline is used verbatim. */
   streamEpoch?: string;
+  /** Opaque project-daemon resume cursor the caller last accepted. Passed to
+   *  the new stream unchanged. */
+  cursor?: string;
   signal?: AbortSignal;
   retry?: <T>(task: () => Promise<T>) => Promise<T>;
 }
@@ -188,7 +195,13 @@ export const reconnectPiSession = async (
     if (typeof detail.streamEpoch !== 'string' || detail.streamEpoch.length === 0) {
       throw new PiRequestError('DAEMON_PROTOCOL_MISMATCH', 'Session detail omitted the current stream epoch');
     }
-    if (detail.streamEpoch !== result.epoch) {
+    // A session on a project daemon (sandboxed project) is numbered by that
+    // daemon's stream. Its epoch is the owner's to check; its sequence never
+    // feeds the main cursor below.
+    const projectStream = typeof detail.stream === 'string' && detail.stream.length > 0 ? detail.stream : null;
+    if (projectStream) {
+      result.sessionStream = { stream: projectStream, epoch: detail.streamEpoch };
+    } else if (detail.streamEpoch !== result.epoch) {
       throw new PiRequestError('DAEMON_REQUEST_FAILED', 'Session detail predates the current stream epoch');
     }
     const hydrated = hydrateSessionFromDetail(detail);
@@ -241,7 +254,11 @@ export const reconnectPiSession = async (
     // baseline is used verbatim; a cursor without an epoch keeps the
     // higher of the two.
     const lastKnownSequence = options.lastKnownSequence ?? -1;
-    result.lastSequence = epochChanged
+    // A project daemon's detail head says nothing about the main stream:
+    // keep the client's main cursor, or none after a main restart.
+    result.lastSequence = projectStream
+      ? (epochChanged ? -1 : lastKnownSequence)
+      : epochChanged
       ? detail.lastSequence
       : establishedEpoch !== null && lastKnownSequence >= 0
         ? lastKnownSequence
@@ -276,6 +293,7 @@ export const reconnectPiSession = async (
       {
         fromSequence: result.lastSequence,
         streamEpoch: result.epoch,
+        ...(options.cursor ? { cursor: options.cursor } : {}),
         ...(options.runtimeKey ? { runtimeKey: options.runtimeKey } : {}),
         signal: options.signal,
       },
