@@ -87,6 +87,7 @@ import {
   isInvalidSessionError,
   isSessionInUseError,
   isSessionRuntimeConflictError,
+  isSessionScopedRefusal,
   delayBeforeRetry,
   initialSessionStoreState,
   applyDetailMessageCount,
@@ -3756,10 +3757,11 @@ export class PiSessionStore {
             this.handleInvalidSession(sessionId, directory, expected, buffered);
             return;
           }
-          if (expected === this.runtimeGeneration && isSessionInUseError(error)) {
-            // Another owner holds this session: keep the id selected so the
-            // chat surfaces its load error instead of navigating away.
-            // Buffered live events for unrelated sessions still apply.
+          if (expected === this.runtimeGeneration && isSessionScopedRefusal(error)) {
+            // Another owner holds this session, or its project's sandbox
+            // cannot start: keep the id selected so the chat surfaces its
+            // load error instead of navigating away, and keep the cluster
+            // stream. Buffered live events for unrelated sessions still apply.
             if (buffered.length > 0) this.commitEvents(buffered);
             this.failSessionLoad(sessionId, asError(error));
             return;
@@ -3793,9 +3795,10 @@ export class PiSessionStore {
         this.handleInvalidSession(sessionId, directory, expected);
         return;
       }
-      if (isSessionInUseError(error)) {
-        // Another owner holds this session: keep the id selected so the chat
-        // surfaces its load error instead of navigating away.
+      if (isSessionScopedRefusal(error)) {
+        // Another owner holds this session, or its project's sandbox cannot
+        // start: keep the id selected so the chat surfaces its load error
+        // instead of navigating away. Neither is a connection failure.
         this.failSessionLoad(sessionId, asError(error));
         return;
       }
