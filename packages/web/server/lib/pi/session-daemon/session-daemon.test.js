@@ -1165,6 +1165,38 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('refreshes OAuth tokens near expiry for sandbox daemons, reporting only provider ids that failed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-oauth-'));
+    const endpoint = testDaemonEndpoint(root);
+    const session = new FakeSession('pi-session-1');
+    const refreshed = [];
+    session.modelRuntime.getProviders = () => [{ id: 'anthropic' }, { id: 'openai-codex' }, { id: 'openai' }];
+    session.modelRuntime.isUsingOAuth = (providerId) => providerId !== 'openai';
+    session.modelRuntime.getAuth = async (providerId, overrides) => {
+      refreshed.push([providerId, overrides]);
+      if (providerId === 'openai-codex') throw new Error('OAuth refresh failed for openai-codex: secret-token');
+      return { auth: { apiKey: 'secret' } };
+    };
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      createRuntime: async () => new FakeRuntime({ cwd: root, session }),
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    const response = await client.request('providers.oauth.refresh', { minValidityMs: 1_800_000 });
+    expect(response.result).toEqual({ checked: 2, failed: ['openai-codex'] });
+    expect(JSON.stringify(response)).not.toContain('secret');
+    expect(refreshed).toEqual([
+      ['anthropic', { minOAuthValidityMs: 1_800_000 }],
+      ['openai-codex', { minOAuthValidityMs: 1_800_000 }],
+    ]);
+    await client.close();
+  });
+
   it('handles every session command with path-selected identities and preserves busy-session configuration on rejection', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
@@ -1498,6 +1530,32 @@ describe('Pi session daemon spike', () => {
       payload: { sessionId: 'pi-session-oversized', directory: root },
     })).rejects.toMatchObject({ code: 'DAEMON_RESPONSE_TOO_LARGE' });
   }, 30_000);
+
+  it('does not auto-trust a folder whose trust was reset when its sandbox was turned off', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-trust-ask-'));
+    const asked = join(root, 'was-sandboxed');
+    const other = join(root, 'other');
+    const agentDir = join(root, 'agent');
+    const endpoint = testDaemonEndpoint(root);
+    // Project config that needs trust (a sandboxed agent could have written it).
+    await Promise.all([mkdir(join(asked, '.pi'), { recursive: true }), mkdir(join(other, '.pi'), { recursive: true }), mkdir(agentDir)]);
+    await Promise.all([writeFile(join(asked, '.pi', 'settings.json'), '{}'), writeFile(join(other, '.pi', 'settings.json'), '{}')]);
+    daemon = createSessionDaemon({
+      endpoint, credential, cwd: root, agentDir,
+      isTrustAskDirectory: (directory) => directory === asked,
+      createRuntime: async () => ({ session: new FakeSession(), async dispose() {} }),
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('settings.set', { scope: 'project', directory: asked, trust: null }))
+      .resolves.toMatchObject({ result: { project: { trusted: false, requiresTrust: true } } });
+    await expect(client.request('settings.get', { directory: asked })).resolves.toMatchObject({ result: { project: { trusted: false, requiresTrust: true } } });
+    // Other known projects keep PiChamber's automatic trust.
+    await expect(client.request('settings.set', { scope: 'project', directory: other, trust: null }))
+      .resolves.toMatchObject({ result: { project: { trusted: true } } });
+    await client.close();
+  });
 
   it('keeps Pi global/project defaults and trust decisions authoritative', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-settings-'));

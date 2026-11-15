@@ -750,4 +750,61 @@ describe('Pi session daemon idle residency', () => {
     expect(disposeCalls).toBe(1);
     expect(targetRuntime.disposed).toBe(true);
   });
+
+  it('releases a folder: idle sessions are disposed now, a busy one at its next idle edge', async () => {
+    const root = await createTemporaryRoot('pichamber-pi-daemon-release-');
+    const endpoint = testDaemonEndpoint(root);
+    const other = await createTemporaryRoot('pichamber-pi-daemon-release-other-');
+    const files = [
+      { id: 'idle-one', path: join(root, 'idle.jsonl'), cwd: root },
+      { id: 'busy-one', path: join(root, 'busy.jsonl'), cwd: root },
+      { id: 'elsewhere', path: join(other, 'elsewhere.jsonl'), cwd: other },
+    ];
+    for (const file of files) await writeFile(file.path, createSessionHeaderLine(file.id, file.cwd));
+    const runtimes = new Map();
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      idleTimeoutMs: 60_000,
+      listSessions: async ({ cwd: listCwd }) => files.filter((file) => file.cwd === listCwd),
+      createRuntime: async (daemonOptions) => {
+        const file = files.find((candidate) => candidate.path === daemonOptions.sessionFile);
+        const runtime = new FakeRuntime({ cwd: file.cwd, session: new FakeSession(file.id, file.path) });
+        runtimes.set(file.id, runtime);
+        return runtime;
+      },
+    });
+    await daemon.start();
+    const client = await connectAuthenticatedClient(endpoint);
+    for (const file of files) await openSession(client, file.id, file.cwd);
+    const busy = runtimes.get('busy-one').session;
+    busy.isStreaming = true;
+    busy.emit({ type: 'agent_start' });
+
+    const health = await client.request('runtime.health');
+    expect(health.result.capabilities).toContain('sessions.release');
+    const first = await client.request('sessions.release', { directories: [root] });
+    expect(first.result).toEqual({
+      released: [{ sessionId: 'idle-one', directory: root }],
+      pending: [{ sessionId: 'busy-one', directory: root }],
+      streamEpoch: health.result.streamEpoch,
+    });
+    expect(runtimes.get('idle-one').disposed).toBe(true);
+    expect(runtimes.get('busy-one').disposed).toBe(false);
+    expect(runtimes.get('elsewhere').disposed).toBe(false);
+
+    // The turn ends: disposed at once, not after the idle timeout.
+    busy.isStreaming = false;
+    busy.emit({ type: 'agent_settled' });
+    await waitFor(() => runtimes.get('busy-one').disposed === true, { timeoutMs: 2_000, message: 'busy session was not released at its idle edge' });
+    const second = await client.request('sessions.release', { directories: [root] });
+    expect(second.result).toMatchObject({ released: [], pending: [] });
+    expect(runtimes.get('elsewhere').disposed).toBe(false);
+
+    const errorFrame = client.waitForMessage((message) => message.kind === 'error');
+    client.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'bad-release', command: 'sessions.release', payload: { directories: ['relative'] } })}\n`);
+    await expect(errorFrame).resolves.toMatchObject({ error: { code: 'INVALID_ARGUMENT' } });
+  });
 });
+

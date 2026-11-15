@@ -5,7 +5,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 import { StringDecoder } from 'node:string_decoder';
 import {
@@ -71,6 +71,7 @@ import {
   validatePiSessionJsonlFile,
 } from './session-jsonl.js';
 import { resolvePiChamberDataDir } from '../../pichamber-data-dir.js';
+import { createTrustAskReader } from '../sandbox/trust-ask.js';
 import {
   createSessionEngineRegistry,
   logSessionEngineError,
@@ -223,6 +224,9 @@ export function createSessionDaemon({
     { projectTrusted },
   ),
   createTrustStore = (settingsAgentDir = agentDir) => new ProjectTrustStore(settingsAgentDir),
+  // Folders whose trust a server reset to "ask" when their sandbox was
+  // turned off (../sandbox/trust-ask.js): never trusted automatically.
+  isTrustAskDirectory = createTrustAskReader({ dataDir: resolvePiChamberDataDir() }),
   modelConfigStore = createPiModelConfigStore({ file: join(agentDir, 'models.json') }),
   renamePersistedSession = ({ sessionFile, title, cwd: sessionCwd = cwd, agentDir: sessionAgentDir = agentDir }) => {
     const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }), sessionCwd);
@@ -466,6 +470,10 @@ export function createSessionDaemon({
     if (!hasPendingUserStarts(buckets)) pendingUserStartsBySession.delete(sessionId);
   };
   const shutdownRequestedBySession = new Set();
+  // Sessions in folders the server asked this daemon to release (#247):
+  // the session moves to another daemon, so it is disposed at its next idle
+  // edge instead of after the idle timeout.
+  const releaseRequestedBySession = new Set();
   const disposingSessionIds = new Set();
   const streamingRedactionBuffers = new Map();
   const loginAttempts = new Map();
@@ -550,7 +558,7 @@ export function createSessionDaemon({
       // so skills (and other resources) never trigger the trust popup for known dirs.
       try {
         const trustStore = createTrustStore(agentDir);
-        if (trustStore.get(validated) === null && hasTrustRequiringProjectResources(validated)) {
+        if (trustStore.get(validated) === null && !isTrustAskDirectory(validated) && hasTrustRequiringProjectResources(validated)) {
           trustStore.set(validated, true);
         }
       } catch {}
@@ -1304,6 +1312,7 @@ export function createSessionDaemon({
         extensionToolRenderer.clearSession(sessionId);
         runningToolsBySession.delete(sessionId);
         await runtimeRegistry.dispose(targetRuntime);
+        releaseRequestedBySession.delete(sessionId);
         // Positively determine ephemerality while the resident lease is
         // still held, before any release. A stat success means persisted;
         // ENOENT means the assigned JSONL never reached disk; any other
@@ -1358,6 +1367,32 @@ export function createSessionDaemon({
     return tracked;
   };
 
+  // Let go of every resident session in `directories` (and folders inside
+  // them): idle ones are disposed now, busy ones (turn, compaction, shell
+  // command, custom surface, pending dialog) at their next idle edge. The
+  // server polls until nothing is pending, announcing each move.
+  const releaseDirectories = async (payload) => {
+    const directories = payload?.directories;
+    if (!Array.isArray(directories) || directories.length === 0 || directories.length > 64
+      || directories.some((directory) => typeof directory !== 'string' || !isAbsolute(directory))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The folders to release are invalid.');
+    }
+    const roots = directories.map((directory) => resolve(directory));
+    const owns = (directory) => roots.some((root) => directory === root || directory.startsWith(root.endsWith(sep) ? root : `${root}${sep}`));
+    const released = [];
+    const pending = [];
+    for (const target of runtimeRegistry?.listAll() ?? []) {
+      const sessionId = target.session?.sessionId;
+      const directory = typeof target.cwd === 'string' && target.cwd.length > 0 ? resolve(target.cwd) : null;
+      if (!isValidIdleSessionId(sessionId) || !directory || !owns(directory)) continue;
+      releaseRequestedBySession.add(sessionId);
+      await disposeIdleSessionRuntime(sessionId);
+      if (runtimeRegistry.findBySessionId(sessionId) === target) pending.push({ sessionId, directory });
+      else released.push({ sessionId, directory });
+    }
+    return { released, pending, streamEpoch };
+  };
+
   const completeRequestedShutdown = (sessionId) => {
     if (!shutdownRequestedBySession.has(sessionId)) return false;
     void disposeIdleSessionRuntime(sessionId);
@@ -1370,7 +1405,7 @@ export function createSessionDaemon({
     const timer = setTimeout(() => {
       idleDisposeTimers.delete(sessionId);
       void disposeIdleSessionRuntime(sessionId);
-    }, idleTimeoutMs);
+    }, releaseRequestedBySession.has(sessionId) ? 0 : idleTimeoutMs);
     idleDisposeTimers.set(sessionId, timer);
   };
 
@@ -2609,6 +2644,32 @@ export function createSessionDaemon({
     return { config, ...(deferred ? { deferred: true } : {}) };
   };
 
+  // The main daemon owns OAuth token refresh: a sandbox daemon reads
+  // auth.json through a read-only grant, so before one starts (and after a
+  // sandboxed turn failed to refresh) the server asks here. Each signed-in
+  // OAuth provider whose token expires within `minValidityMs` is refreshed
+  // through Pi under its auth lock. Only failed provider ids are reported.
+  const refreshOAuthTokens = async (payload) => {
+    const minValidityMs = payload?.minValidityMs;
+    if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 24 * 60 * 60_000) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The OAuth refresh window is invalid.');
+    }
+    const activeRuntime = await ensureRuntime();
+    const modelRuntime = activeRuntime.session?.modelRuntime;
+    const providers = typeof modelRuntime?.getProviders === 'function' ? modelRuntime.getProviders() : [];
+    const ids = [...new Set(providers.map((provider) => provider?.id).filter((id) => typeof id === 'string' && id.length > 0))]
+      .filter((id) => modelRuntime.isUsingOAuth?.(id) === true);
+    const failed = [];
+    for (const id of ids) {
+      try {
+        await modelRuntime.getAuth(id, { minOAuthValidityMs: minValidityMs });
+      } catch {
+        failed.push(id);
+      }
+    }
+    return { checked: ids.length, failed };
+  };
+
   const providerStatus = async (providerId) => {
     if (typeof providerId !== 'string' || providerId.length === 0 || providerId.length > 256) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested provider is invalid.');
@@ -2773,7 +2834,7 @@ export function createSessionDaemon({
     let trust = trustStore.get(targetDir);
     // Auto-trust known PiChamber projects so the skills popup never appears.
     // `knownDirectories` tracks every dir the user explicitly added/selected.
-    if (trust === null && knownDirectories.has(targetDir) && hasTrustRequiringProjectResources(targetDir)) {
+    if (trust === null && knownDirectories.has(targetDir) && !isTrustAskDirectory(targetDir) && hasTrustRequiringProjectResources(targetDir)) {
       try {
         trustStore.set(targetDir, true);
         trust = true;
@@ -4421,7 +4482,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.login',
+              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'sessions.release', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.hosts', 'providers.oauth.refresh', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
@@ -4552,6 +4613,11 @@ export function createSessionDaemon({
       }
       case 'providers.models.add': {
         const result = await addProviderModel(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'providers.oauth.refresh': {
+        const result = await refreshOAuthTokens(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -4760,6 +4826,15 @@ export function createSessionDaemon({
           result: target
             ? { published: true, sessionId: target.sessionId, attributed: target.attributed }
             : { published: false },
+        });
+        return;
+      }
+      case 'sessions.release': {
+        writeFrame(socket, {
+          protocolVersion: PROTOCOL_VERSION,
+          kind: 'response',
+          requestId: message.requestId,
+          result: await releaseDirectories(message.payload),
         });
         return;
       }
@@ -5220,6 +5295,7 @@ export function createSessionDaemon({
       toolStartedAt.clear();
       completedToolTimings.clear();
       shutdownRequestedBySession.clear();
+      releaseRequestedBySession.clear();
       sendGenerationBySession.clear();
       settledSendGenerationBySession.clear();
       runningToolsBySession.clear();

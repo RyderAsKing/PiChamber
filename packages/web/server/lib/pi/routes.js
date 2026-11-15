@@ -1175,6 +1175,27 @@ const sessionOperationDirectory = (req) => (typeof req.query?.directory === 'str
 // use it so a response names the daemon that actually served it.
 const sessionRouteDirectory = (req, res) => res.locals?.piRouteDirectory ?? sessionOperationDirectory(req);
 
+// Commands that let a session waiting to switch daemons finish its turn
+// (or be read) where it runs now. Anything else would start new work in the
+// old daemon, so it is refused until the session has moved.
+const DRAINING_SESSION_COMMANDS = new Set([
+  'sessions.open', 'sessions.messages', 'sessions.tree', 'sessions.abort', 'sessions.abortBash', 'sessions.steer',
+  'sessions.sendReceipt', 'extensions.draft',
+  'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
+]);
+
+const sessionInUse = () => Object.assign(new Error('The session is finishing a turn before it switches.'), { code: 'SESSION_IN_USE' });
+
+// The daemon still running a session that waits to switch, or undefined.
+// Marks the response so its stream stamp names that daemon.
+const drainingSessionRuntime = (res, sandboxManager, sessionId, command) => {
+  const draining = sandboxManager?.drainingSession?.(sessionId);
+  if (!draining) return undefined;
+  if (!DRAINING_SESSION_COMMANDS.has(command)) throw sessionInUse();
+  if (res.locals) res.locals.piDrainingStream = { stream: draining.stream };
+  return draining.runtime;
+};
+
 const requestSessionOperation = async (req, res, daemonPool, command, payload = {}, sandboxManager) => {
   const sessionId = sessionIdFrom(req);
   if (!sessionId) {
@@ -1183,6 +1204,10 @@ const requestSessionOperation = async (req, res, daemonPool, command, payload = 
   }
   const directory = sessionOperationDirectory(req);
   try {
+    const draining = drainingSessionRuntime(res, sandboxManager, sessionId, command);
+    if (draining) {
+      return await draining.request(command, { ...payload, sessionId, ...(directory ? { directory } : {}) });
+    }
     // Without a directory the main daemon would look the session up itself
     // and could run a sandboxed project's session outside its sandbox. When
     // any project is sandboxed, route by the folder in the session's
@@ -1192,8 +1217,13 @@ const requestSessionOperation = async (req, res, daemonPool, command, payload = 
       routeDirectory = await sandboxManager.directoryForSession(sessionId) ?? undefined;
       if (routeDirectory && res.locals) res.locals.piRouteDirectory = routeDirectory;
     }
-    return await requireDaemon(daemonPool.forDirectory(routeDirectory)).request(command, {
-      ...payload,
+    const runtime = requireDaemon(daemonPool.forDirectory(routeDirectory));
+    // A send made with the old daemon's epoch right after the session moved.
+    const sendPayload = typeof payload.streamEpoch === 'string' && sandboxManager?.sendEpochFor
+      ? { ...payload, streamEpoch: await sandboxManager.sendEpochFor(sessionId, payload.streamEpoch, runtime) }
+      : payload;
+    return await runtime.request(command, {
+      ...sendPayload,
       sessionId,
       ...(directory ? { directory } : {}),
     });
@@ -1217,6 +1247,9 @@ export const registerPiRuntimeRoutes = (app, {
   // Sandboxed projects (sandbox/project-sandbox-manager.js). Without one no
   // project is sandboxed and no sandbox route exists.
   sandboxManager,
+  // Folders whose trust must stay "ask" after a sandbox was turned off
+  // (sandbox/trust-ask.js); an explicit trust decision clears one.
+  trustAsk,
   archiveStore = createPiArchiveStore(),
   attachmentStore = createPiAttachmentStore(),
   settingsStore = createPiSettingsStore(),
@@ -1242,17 +1275,36 @@ export const registerPiRuntimeRoutes = (app, {
   // project daemon may only read. Everything scoped to a directory runs on
   // the daemon that owns it.
   const mainDaemon = () => requireDaemon(daemonPool.main());
-  // Sessions of a sandboxed project say so; other rows are unchanged.
-  const withSandbox = (item) => (sandboxManager?.sandboxFor(item?.session?.directory)
-    ? { ...item, session: { ...item.session, sandboxed: true } }
-    : item);
+  // Sessions run by a sandbox daemon say so, and a session waiting to
+  // switch modes after its turn says where to; other rows are unchanged.
+  const withSandbox = (item) => {
+    if (!sandboxManager || !item?.session) return item;
+    const state = sandboxManager.sessionState(item.session.id, item.session.directory);
+    if (!state.sandboxed && !state.pendingSwitch) return item;
+    return {
+      ...item,
+      session: {
+        ...item.session,
+        ...(state.sandboxed ? { sandboxed: true } : {}),
+        ...(state.pendingSwitch ? { pendingSwitch: state.pendingSwitch } : {}),
+      },
+    };
+  };
+  // PiChamber changed Pi's config files: running sandbox daemons are
+  // replaced at their next idle edge. Never fails the write.
+  const piConfigChanged = () => {
+    sandboxManager?.configChanged().catch((error) => console.warn('[pi-sandbox] config change handling failed', error?.code ?? error));
+  };
   if (sandboxManager) registerPiSandboxRoutes(app, { sandboxManager });
   const daemonFor = (directory) => requireDaemon(daemonPool.forDirectory(directory));
   // A stamped response (`streamEpoch`, sequences) from a project daemon says
   // which daemon stream its sequences belong to; main responses are
   // unchanged.
-  const withStream = (body, directory) => {
-    const stream = daemonPool.streamFor(directory);
+  // A response served by a daemon draining the session (see
+  // `drainingSessionRuntime`) names that daemon instead of the owner.
+  const withStream = (body, directory, res) => {
+    const draining = res?.locals?.piDrainingStream;
+    const stream = draining ? draining.stream : daemonPool.streamFor(directory);
     return stream ? { ...body, stream } : body;
   };
   // Tell every device an archive mark changed (a `session.archive` event on
@@ -1540,6 +1592,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       const result = await mainDaemon().request('providers.models.set', { ...payload, providerId });
+      piConfigChanged();
       res.json(projectProviderConfig(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1578,6 +1631,7 @@ export const registerPiRuntimeRoutes = (app, {
           ...(maxTokens !== undefined ? { maxTokens } : {}),
         },
       });
+      piConfigChanged();
       res.status(201).json(projectProviderConfig(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1611,7 +1665,9 @@ export const registerPiRuntimeRoutes = (app, {
       const result = await mainDaemon().request('providers.login', {
         providerId, type, ...(typeof apiKey === 'string' ? { apiKey } : {}),
       });
-      res.status(202).json(projectProviderLogin(result));
+      const login = projectProviderLogin(result);
+      if (login.state === 'complete') piConfigChanged();
+      res.status(202).json(login);
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1626,7 +1682,9 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       const result = await mainDaemon().request('providers.login.status', { providerId, loginId });
-      res.json(projectProviderLogin(result));
+      const login = projectProviderLogin(result);
+      if (login.state === 'complete') piConfigChanged();
+      res.json(login);
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1642,7 +1700,9 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       const result = await mainDaemon().request('providers.login.respond', { providerId, loginId, value });
-      res.json(projectProviderLogin(result));
+      const login = projectProviderLogin(result);
+      if (login.state === 'complete') piConfigChanged();
+      res.json(login);
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -1656,6 +1716,7 @@ export const registerPiRuntimeRoutes = (app, {
     }
     try {
       const result = await mainDaemon().request('providers.logout', { providerId });
+      piConfigChanged();
       res.json(projectProviderStatus(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -1706,6 +1767,10 @@ export const registerPiRuntimeRoutes = (app, {
     const payload = req.body;
     try {
       const result = await mainDaemon().request('settings.set', payload);
+      if (typeof payload?.trust === 'boolean' && typeof payload.directory === 'string') {
+        await trustAsk?.remove(payload.directory).catch((error) => console.warn('[pi-sandbox] could not clear a trust reset', error?.code ?? error));
+      }
+      piConfigChanged();
       res.json(projectPiSettings(result));
     } catch (error) {
       writeDaemonError(res, error);
@@ -2215,7 +2280,7 @@ export const registerPiRuntimeRoutes = (app, {
       const archived = await archiveStore.read();
       res.json(withStream(archived[detail.session.id]
         ? { ...detail, session: { ...detail.session, archived: true, timeArchived: archived[detail.session.id] } }
-        : detail, sessionRouteDirectory(req, res)));
+        : detail, sessionRouteDirectory(req, res), res));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2239,7 +2304,7 @@ export const registerPiRuntimeRoutes = (app, {
     }, sandboxManager);
     if (result === undefined) return;
     try {
-      res.json(withStream(projectSessionDetail(result), sessionRouteDirectory(req, res)));
+      res.json(withStream(projectSessionDetail(result), sessionRouteDirectory(req, res), res));
     } catch (error) {
       writeDaemonError(res, error);
     }
@@ -2412,14 +2477,24 @@ export const registerPiRuntimeRoutes = (app, {
       }
     }
     try {
-      const result = await daemonFor(body.directory).request('extensions.respond', {
+      const respondPayload = {
         requestId: body.requestId,
         ...(typeof body.directory === 'string' && body.directory.length > 0 ? { directory: body.directory } : {}),
         ...(body.cancelled === true ? { cancelled: true } : {}),
         ...(body.confirmed === true ? { confirmed: true } : {}),
         ...(typeof body.value === 'string' ? { value: body.value } : {}),
         ...(values ? { values } : {}),
-      });
+      };
+      let result = await daemonFor(body.directory).request('extensions.respond', respondPayload);
+      // A dialog from a session still finishing its turn in a daemon that
+      // drains this folder is answered there. Request ids are unique, so
+      // asking each in turn cannot answer the wrong dialog.
+      if (result?.resolved !== true && typeof body.directory === 'string') {
+        for (const { runtime } of daemonPool.drainingFor(body.directory)) {
+          result = await runtime.request('extensions.respond', respondPayload).catch(() => null);
+          if (result?.resolved === true) break;
+        }
+      }
       if (!result || typeof result !== 'object' || result.resolved !== true) {
         res.status(404).json({ error: { code: 'EXTENSION_DIALOG_NOT_PENDING' } });
         return;
@@ -2497,13 +2572,13 @@ export const registerPiRuntimeRoutes = (app, {
     const detail = projectSessionDetail(result);
     const navigation = sanitizeNavigation(result.navigation);
     if (navigation) detail.navigation = navigation;
-    res.json(withStream(detail, sessionRouteDirectory(req, res)));
+    res.json(withStream(detail, sessionRouteDirectory(req, res), res));
   });
 
   for (const [suffix, command] of [['fork', 'sessions.fork'], ['clone', 'sessions.clone']]) {
     app.post(`/api/pi/sessions/:sessionId/${suffix}`, async (req, res) => {
       const result = await requestSessionOperation(req, res, daemonPool, command, req.body && typeof req.body === 'object' ? req.body : {}, sandboxManager);
-      if (result !== undefined) res.status(201).json(withStream(withSandbox(projectSessionDetail(result)), sessionRouteDirectory(req, res)));
+      if (result !== undefined) res.status(201).json(withStream(withSandbox(projectSessionDetail(result)), sessionRouteDirectory(req, res), res));
     });
   }
 
@@ -2576,11 +2651,17 @@ export const registerPiRuntimeRoutes = (app, {
       const directory = typeof req.query?.directory === 'string' && req.query.directory.length > 0
         ? req.query.directory
         : (typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined);
-      const result = await daemonFor(directory).request('sessions.sendReceipt', {
+      // A session still finishing its turn in a draining daemon has its
+      // receipts there; one that just moved may still name the old epoch.
+      const runtime = drainingSessionRuntime(res, sandboxManager, sessionId, 'sessions.sendReceipt') ?? daemonFor(directory);
+      const receiptEpoch = streamEpoch !== undefined && !res.locals?.piDrainingStream && sandboxManager?.sendEpochFor
+        ? await sandboxManager.sendEpochFor(sessionId, streamEpoch, runtime)
+        : streamEpoch;
+      const result = await runtime.request('sessions.sendReceipt', {
         kind,
         sessionId,
         operationId,
-        ...(streamEpoch !== undefined ? { streamEpoch } : {}),
+        ...(receiptEpoch !== undefined ? { streamEpoch: receiptEpoch } : {}),
       });
       if (!result || typeof result !== 'object' || !['accepted', 'pending', 'expired', 'unknown'].includes(result.status)) {
         throw protocolMismatch();

@@ -111,12 +111,16 @@ export const createPiDaemonPool = ({ getMainRuntime }) => {
     register: (key, { runtime, directories }) => {
       if (typeof key !== 'string' || key.length === 0 || key === MAIN_DAEMON_KEY) throw new TypeError('Invalid daemon key');
       if (!runtime || typeof runtime.request !== 'function') throw new TypeError('Invalid daemon runtime');
+      // An empty list owns nothing: a daemon kept only to finish sessions
+      // while a switch drains (see `setDraining`).
       const roots = (directories ?? []).map(normalizeDirectory);
-      if (roots.length === 0 || roots.some((root) => root === null)) throw new TypeError('Invalid daemon directories');
+      if (roots.some((root) => root === null)) throw new TypeError('Invalid daemon directories');
       projects.set(key, { runtime, directories: roots });
       notify();
     },
-    unregister: (key) => {
+    /** Remove `key`; with `runtime`, only while the key still holds it. */
+    unregister: (key, runtime) => {
+      if (runtime && projects.get(key)?.runtime !== runtime) return;
       if (projects.delete(key)) notify();
     },
     /** Name the daemons still holding live sessions for `directory`; an

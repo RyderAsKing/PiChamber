@@ -26,6 +26,7 @@ import { createPiSessionDaemonSupervisor } from './lib/pi/session-daemon/supervi
 import { createOpenUrlIntake } from './lib/open-url/intake.js';
 import { createNonoLauncher } from './lib/pi/sandbox/nono-launcher.js';
 import { createProjectSandboxManager } from './lib/pi/sandbox/project-sandbox-manager.js';
+import { createTrustAskStore } from './lib/pi/sandbox/trust-ask.js';
 import {
   getUnauthenticatedLanErrorMessage,
   isNetworkExposedBindHost,
@@ -269,8 +270,12 @@ export async function startWebUiServer(options = {}) {
   // Sandboxed projects get their own daemon, started through nono on first
   // use. With no sandboxed project this registers nothing and probes nothing.
   let piRuntimeRoutes = null;
+  // Folders whose Pi trust stays "ask" after their sandbox was turned off;
+  // the daemons read the same file (sandbox/trust-ask.js).
+  const piTrustAsk = createTrustAskStore({ dataDir: PICHAMBER_DATA_DIR });
   const piSandboxManager = createProjectSandboxManager({
     daemonPool: piDaemonPool,
+    trustAsk: piTrustAsk,
     uiSettingsStore,
     launcher: createNonoLauncher({ stageDir: path.join(PICHAMBER_DATA_DIR, 'pi', 'sandbox') }),
     dataDir: PICHAMBER_DATA_DIR,
@@ -294,6 +299,7 @@ export async function startWebUiServer(options = {}) {
   piRuntimeRoutes = registerPiRuntimeRoutes(app, {
     daemonPool: piDaemonPool,
     sandboxManager: piSandboxManager,
+    trustAsk: piTrustAsk,
     uiSettingsStore,
   });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).

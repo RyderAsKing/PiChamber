@@ -69,7 +69,7 @@ next request tries to start the sandbox again on the server.
 and `setProjectSandbox(projectId, setting)` wrap `/api/pi/sandbox/*` (types in
 `protocol.ts`). The setting is host-local to the connected server. Listed and
 opened sessions in a sandboxed project carry `session.sandboxed: true`, which
-the catalog keeps as `LiveSessionRecord.sandboxed`. The settings UI is #249.
+the catalog keeps as `LiveSessionRecord.sandboxed`; it names the daemon running the session now. While a switch waits for a running turn, the session also carries `session.pendingSwitch: { to: 'nono' | 'off' }` (`LiveSessionRecord.pendingSwitch`), and new work on it (prompt, follow-up, model change, fork) fails with HTTP 409 `SESSION_IN_USE`; abort, steer, and reads still work. When the session moves, the event stream sends `session.moved` and the refetched row drops `pendingSwitch`. The settings UI is #249.
 
 ## Pending input ("sessions needing input")
 

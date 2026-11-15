@@ -33,7 +33,7 @@ import { getGlobalSessionDirectories } from './global-session-directory';
 
 import type { PiSessionListItem, PiPendingInputSummary } from '@/lib/pi/protocol';
 import { isValidPendingInputSummary } from '@/lib/pi/protocol';
-import type { PiRetryInfo, PiSessionId } from '@/lib/pi/types';
+import type { PiRetryInfo, PiSessionId, PiSessionPendingSwitch } from '@/lib/pi/types';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -82,6 +82,10 @@ export interface LiveSessionRecord {
   /** The session's project runs Pi in a sandbox. The listing is
    *  authoritative: a row without the flag is not sandboxed. */
   sandboxed?: true;
+  /** The session finishes its turn in its old daemon, then switches to the
+   *  project's new sandbox mode. Authoritative from the listing like
+   *  `sandboxed`: a row without it has no pending switch. */
+  pendingSwitch?: PiSessionPendingSwitch;
   /** Live lifecycle mirror — see `LiveSessionLifecycle`. */
   lifecycle: LiveSessionLifecycle;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
@@ -184,6 +188,7 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.preview === right.preview
   && left.messageCount === right.messageCount
   && left.sandboxed === right.sandboxed
+  && left.pendingSwitch?.to === right.pendingSwitch?.to
   && left.lifecycle === right.lifecycle
   && left.retry === right.retry
   && left.hydrated === right.hydrated
@@ -323,6 +328,9 @@ export const applyDirectoryListToCatalog = (
         ? { messageCount: session.messageCount }
         : existing?.messageCount !== undefined ? { messageCount: existing.messageCount } : {}),
       ...(session.sandboxed === true ? { sandboxed: true as const } : {}),
+      ...(session.pendingSwitch?.to === 'nono' || session.pendingSwitch?.to === 'off'
+        ? { pendingSwitch: existing?.pendingSwitch?.to === session.pendingSwitch.to ? existing.pendingSwitch : { to: session.pendingSwitch.to } }
+        : {}),
       lifecycle,
       ...(retry ? { retry } : {}),
       ...(pendingInput !== undefined ? { pendingInput } : {}),

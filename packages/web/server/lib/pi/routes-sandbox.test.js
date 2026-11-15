@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,6 +8,7 @@ import { registerPiRuntimeRoutes } from './routes.js';
 import { createPiDaemonPool, publicDaemonStreamId } from './session-daemon/daemon-pool.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createProjectSandboxManager } from './sandbox/project-sandbox-manager.js';
+import { createTrustAskStore } from './sandbox/trust-ask.js';
 import { getPiSessionDirectory } from './session-daemon/session-jsonl.js';
 
 const listen = (app) => new Promise((resolve, reject) => {
@@ -67,6 +68,7 @@ const daemonAnswers = (extra = {}) => ({
   'sessions.prompt': {},
   'providers.hosts': { hosts: ['api.anthropic.com'] },
   'runtime.health': { state: 'ready', residentSessions: 1 },
+  'sessions.release': { released: [], pending: [] },
   ...extra,
 });
 
@@ -101,6 +103,96 @@ const PI_RUNNING = [
   ['GET', '/api/pi/resources?directory=DIR'],
 ];
 
+const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, idleStopMs = 60_000, agentFiles = {} } = {}) => {
+  const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
+  const dataDir = join(root, 'data');
+  const agentDir = join(root, 'agent');
+  const projectA = join(root, 'code', 'a');
+  const projectB = join(root, 'code', 'b');
+  const gitId = 'f'.repeat(40);
+  const worktree = join(dataDir, 'worktree', gitId, 'feature');
+  await Promise.all([
+    mkdir(join(projectA, '.git'), { recursive: true }),
+    mkdir(projectB, { recursive: true }),
+    mkdir(worktree, { recursive: true }),
+    mkdir(agentDir, { recursive: true }),
+  ]);
+  await writeFile(join(projectA, '.git', 'pichamber'), gitId);
+  const uiSettingsStore = createPiUiSettingsStore({ file: join(dataDir, 'settings.json') });
+  await uiSettingsStore.write({ projects: [{ id: 'proj-a', path: projectA }, { id: 'proj-b', path: projectB }] });
+
+  const main = fakeDaemon('main', daemonAnswers(mainAnswers));
+  const pool = createPiDaemonPool({ getMainRuntime: () => main });
+  const launcher = fakeLauncher(probe);
+  const launched = [];
+  const intakes = [];
+  const trustAsk = createTrustAskStore({ dataDir });
+  let clock = 0;
+  const timers = [];
+  const manager = createProjectSandboxManager({
+    daemonPool: pool,
+    uiSettingsStore,
+    launcher,
+    dataDir,
+    agentDir,
+    getServerPort: () => 3000,
+    readRoots: ['/opt/node'],
+    now: () => clock,
+    setInterval: (fn) => { timers.push(fn); return timers.length; },
+    clearInterval: () => {},
+    idleStopMs,
+    trustAsk,
+    createIntake: ({ socketPath, publish }) => {
+      const intake = { socketPath, publish, started: false, stopped: false };
+      intakes.push(intake);
+      return {
+        start: async () => { intake.started = true; return true; },
+        stop: async () => { intake.stopped = true; },
+      };
+    },
+    createSupervisor: async ({ sandbox, launcher: used }) => {
+      const probed = await used.probe();
+      if (!probed.available) throw Object.assign(daemonError('SANDBOX_UNAVAILABLE'), { reason: probed.code });
+      const daemon = fakeDaemon(`sandbox-${launched.length}`, daemonAnswers(sandboxAnswers));
+      daemon.sandbox = sandbox;
+      daemon.stopped = false;
+      daemon.paths = { openUrlSocket: join(root, 'run', `${launched.length}`, 'open-url.sock') };
+      daemon.start = async () => { if (startError) throw daemonError(startError); };
+      daemon.stop = async () => { daemon.stopped = true; };
+      launched.push(daemon);
+      return daemon;
+    },
+  });
+  await manager.reconcile();
+
+  const app = express();
+  app.use(express.json());
+  registerPiRuntimeRoutes(app, {
+    daemonPool: pool,
+    sandboxManager: manager,
+    uiSettingsStore,
+    trustAsk,
+    archiveStore: { read: async () => ({}), set: async () => undefined },
+  });
+  const server = await listen(app);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = (path, init) => fetch(`${base}${path}`, init?.body
+    ? { ...init, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(init.body) }
+    : init);
+  const sandboxOn = (projectId = 'proj-a', setting = {}) => call(`/api/pi/sandbox/projects/${projectId}`, {
+    method: 'PUT',
+    body: { mode: 'nono', allowHosts: [], allowLocalPorts: [], extraFolders: [], ...setting },
+  });
+  const tick = async (ms) => {
+    clock += ms;
+    for (const timer of timers) await timer();
+  };
+  const moves = [];
+  pool.onMove((sessionId, directory) => moves.push([sessionId, directory]));
+  return { server, manager, root, dataDir, agentDir, projectA, projectB, worktree, gitId, main, pool, launcher, launched, intakes, call, sandboxOn, tick, uiSettingsStore, moves, trustAsk };
+};
+
+
 describe('Pi routes for sandboxed projects', () => {
   let server;
   let manager;
@@ -111,88 +203,11 @@ describe('Pi routes for sandboxed projects', () => {
     server = undefined;
   });
 
-  const setup = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, idleStopMs = 60_000 } = {}) => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
-    const dataDir = join(root, 'data');
-    const agentDir = join(root, 'agent');
-    const projectA = join(root, 'code', 'a');
-    const projectB = join(root, 'code', 'b');
-    const gitId = 'f'.repeat(40);
-    const worktree = join(dataDir, 'worktree', gitId, 'feature');
-    await Promise.all([
-      mkdir(join(projectA, '.git'), { recursive: true }),
-      mkdir(projectB, { recursive: true }),
-      mkdir(worktree, { recursive: true }),
-      mkdir(agentDir, { recursive: true }),
-    ]);
-    await writeFile(join(projectA, '.git', 'pichamber'), gitId);
-    const uiSettingsStore = createPiUiSettingsStore({ file: join(dataDir, 'settings.json') });
-    await uiSettingsStore.write({ projects: [{ id: 'proj-a', path: projectA }, { id: 'proj-b', path: projectB }] });
-
-    const main = fakeDaemon('main', daemonAnswers(mainAnswers));
-    const pool = createPiDaemonPool({ getMainRuntime: () => main });
-    const launcher = fakeLauncher(probe);
-    const launched = [];
-    const intakes = [];
-    let clock = 0;
-    const timers = [];
-    manager = createProjectSandboxManager({
-      daemonPool: pool,
-      uiSettingsStore,
-      launcher,
-      dataDir,
-      agentDir,
-      getServerPort: () => 3000,
-      readRoots: ['/opt/node'],
-      now: () => clock,
-      setInterval: (fn) => { timers.push(fn); return timers.length; },
-      clearInterval: () => {},
-      idleStopMs,
-      createIntake: ({ socketPath, publish }) => {
-        const intake = { socketPath, publish, started: false, stopped: false };
-        intakes.push(intake);
-        return {
-          start: async () => { intake.started = true; return true; },
-          stop: async () => { intake.stopped = true; },
-        };
-      },
-      createSupervisor: async ({ sandbox, launcher: used }) => {
-        const probed = await used.probe();
-        if (!probed.available) throw Object.assign(daemonError('SANDBOX_UNAVAILABLE'), { reason: probed.code });
-        const daemon = fakeDaemon(`sandbox-${launched.length}`, daemonAnswers(sandboxAnswers));
-        daemon.sandbox = sandbox;
-        daemon.stopped = false;
-        daemon.paths = { openUrlSocket: join(root, 'run', `${launched.length}`, 'open-url.sock') };
-        daemon.start = async () => { if (startError) throw daemonError(startError); };
-        daemon.stop = async () => { daemon.stopped = true; };
-        launched.push(daemon);
-        return daemon;
-      },
-    });
-    await manager.reconcile();
-
-    const app = express();
-    app.use(express.json());
-    registerPiRuntimeRoutes(app, {
-      daemonPool: pool,
-      sandboxManager: manager,
-      uiSettingsStore,
-      archiveStore: { read: async () => ({}), set: async () => undefined },
-    });
-    server = await listen(app);
-    const base = `http://127.0.0.1:${server.address().port}`;
-    const call = (path, init) => fetch(`${base}${path}`, init?.body
-      ? { ...init, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(init.body) }
-      : init);
-    const sandboxOn = (projectId = 'proj-a', setting = {}) => call(`/api/pi/sandbox/projects/${projectId}`, {
-      method: 'PUT',
-      body: { mode: 'nono', allowHosts: [], allowLocalPorts: [], extraFolders: [], ...setting },
-    });
-    const tick = async (ms) => {
-      clock += ms;
-      for (const timer of timers) await timer();
-    };
-    return { root, dataDir, agentDir, projectA, projectB, worktree, gitId, main, pool, launcher, launched, intakes, call, sandboxOn, tick, uiSettingsStore };
+  const setup = async (options = {}) => {
+    const built = await buildSandboxRoutes(options);
+    server = built.server;
+    manager = built.manager;
+    return built;
   };
 
   it('changes nothing while no project is sandboxed', async () => {
@@ -280,7 +295,8 @@ describe('Pi routes for sandboxed projects', () => {
       expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' } });
     }
     expect(ctx.launched).toEqual([]);
-    expect(ctx.main.calls.filter((c) => c.command !== 'sessions.list')).toEqual([]);
+    // Asking main to release the project's folders runs no Pi code.
+    expect(ctx.main.calls.filter((c) => !['sessions.list', 'sessions.release'].includes(c.command))).toEqual([]);
 
     // Listing still works: it reads transcripts on disk and runs no Pi code.
     const list = await ctx.call(`/api/pi/sessions?directory=${ctx.projectA}`);
@@ -311,7 +327,7 @@ describe('Pi routes for sandboxed projects', () => {
     const response = await ctx.call('/api/pi/sessions/s-9');
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'NOT_INSTALLED' } });
-    expect(ctx.main.calls).toEqual([]);
+    expect(ctx.main.commands()).toEqual(['sessions.release']);
   });
 
   it('stamps a session read routed by its transcript with the sandbox daemon\'s stream', async () => {
@@ -463,6 +479,329 @@ describe('Pi routes for sandboxed projects', () => {
     await ctx.sandboxOn();
     const response = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
     expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'PROVIDER_HOSTS_UNAVAILABLE' } });
+    expect(ctx.launched).toEqual([]);
+  });
+});
+
+describe('switching a project between daemons', () => {
+  let server;
+  let manager;
+  afterEach(async () => {
+    await manager?.stop();
+    manager = undefined;
+    await close(server);
+    server = undefined;
+  });
+
+  // Same wiring as above, kept separate so switch tests can script the
+  // old daemon's `sessions.release` answers.
+  const setup = async (options = {}) => {
+    const built = await buildSandboxRoutes(options);
+    server = built.server;
+    manager = built.manager;
+    return built;
+  };
+
+  it('moves idle sessions at once and holds a busy one in the old daemon until its turn ends', async () => {
+    // The main daemon runs s-idle (idle) and s-busy (mid-turn) in project A.
+    let busy = true;
+    const ctx = await setup({
+      mainAnswers: {
+        'sessions.release': (p) => (busy
+          ? { released: [{ sessionId: 's-idle', directory: p.directories[0] }], pending: [{ sessionId: 's-busy', directory: p.directories[0] }], streamEpoch: 'epoch-main' }
+          : { released: [{ sessionId: 's-busy', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-main' }),
+        'sessions.list': (p) => ({
+          sessions: [{ ...row('s-busy', p.directory), live: { lifecycle: 'busy', sequence: 7 } }, row('s-idle', p.directory)],
+          streamEpoch: 'epoch-main',
+        }),
+      },
+      sandboxAnswers: { 'sessions.list': (p) => ({ sessions: [row('s-busy', p.directory), row('s-idle', p.directory)], streamEpoch: 'epoch-box' }) },
+    });
+    const saved = await ctx.sandboxOn();
+    expect(saved.status).toBe(200);
+
+    // The old daemon was asked to let go of the project's folders.
+    const release = ctx.main.calls.find((c) => c.command === 'sessions.release');
+    expect(release.payload.directories).toEqual([ctx.projectA, join(ctx.dataDir, 'worktree', ctx.gitId)]);
+    // Clients refetch both: the idle one from its new daemon, the busy one
+    // to learn it switches after this turn.
+    expect(ctx.moves.map(([id]) => id).sort()).toEqual(['s-busy', 's-idle']);
+
+    // The list comes from the sandbox daemon; the busy row keeps its live
+    // state from the main daemon and says it switches after this turn.
+    const list = await (await ctx.call(`/api/pi/sessions?directory=${ctx.projectA}`)).json();
+    const busyRow = list.sessions.find((item) => item.session.id === 's-busy');
+    expect(busyRow).toMatchObject({ live: { lifecycle: 'busy', sequence: 7 }, stream: 'main', streamEpoch: 'epoch-main' });
+    expect(busyRow.session.pendingSwitch).toEqual({ to: 'nono' });
+    expect(busyRow.session.sandboxed).toBeUndefined();
+    const idleRow = list.sessions.find((item) => item.session.id === 's-idle');
+    expect(idleRow.session).toMatchObject({ sandboxed: true });
+    expect(idleRow.session.pendingSwitch).toBeUndefined();
+
+    // Reading and stopping the busy session reach the daemon running it.
+    const detail = await ctx.call(`/api/pi/sessions/s-busy?directory=${ctx.projectA}`);
+    const detailBody = await detail.json();
+    expect(detailBody.session).toMatchObject({ id: 's-busy', pendingSwitch: { to: 'nono' } });
+    expect(detailBody.stream).toBeUndefined();
+    expect((await ctx.call(`/api/pi/sessions/s-busy/abort`, { method: 'POST', body: { directory: ctx.projectA } })).status).toBe(204);
+    expect(ctx.main.calls.filter((c) => ['sessions.open', 'sessions.abort'].includes(c.command)).map((c) => c.payload.sessionId)).toEqual(['s-busy', 's-busy']);
+
+    // New work for it is refused until it has moved.
+    const prompt = await ctx.call('/api/pi/sessions/s-busy/prompt', { method: 'POST', body: { directory: ctx.projectA, text: 'more', streamEpoch: 'epoch-main' } });
+    expect(prompt.status).toBe(409);
+    expect(await prompt.json()).toEqual({ error: { code: 'SESSION_IN_USE' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+
+    // Its turn ends; the next drain check moves it.
+    busy = false;
+    ctx.moves.length = 0;
+    await ctx.tick(1_000);
+    expect(ctx.moves.map(([id]) => id)).toEqual(['s-busy']);
+    const after = await (await ctx.call(`/api/pi/sessions?directory=${ctx.projectA}`)).json();
+    expect(after.sessions.every((item) => item.session.pendingSwitch === undefined && item.session.sandboxed === true)).toBe(true);
+    expect(ctx.pool.drainingFor(ctx.projectA)).toEqual([]);
+    const reopened = await ctx.call(`/api/pi/sessions/s-busy?directory=${ctx.projectA}`);
+    expect((await reopened.json()).stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+  });
+
+  it('turning a project off drains its sandbox daemon into the main daemon and resets the project\'s trust to ask', async () => {
+    let busy = true;
+    const ctx = await setup({
+      sandboxAnswers: {
+        'sessions.release': (p) => (busy
+          ? { released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-box' }
+          : { released: [{ sessionId: 's-1', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-box' }),
+        'extensions.respond': (p) => ({ resolved: p.requestId === 'dialog-in-box' }),
+      },
+      mainAnswers: { 'extensions.respond': { resolved: false } },
+    });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [box] = ctx.launched;
+    ctx.moves.length = 0;
+
+    const off = await ctx.sandboxOn('proj-a', { mode: 'off' });
+    expect(await off.json()).toMatchObject({ project: { mode: 'off' } });
+    // Trust goes back to "ask" for the project and its worktrees, through
+    // the main daemon, and stays recorded so auto-trust skips them.
+    const trustCalls = ctx.main.calls.filter((c) => c.command === 'settings.set').map((c) => c.payload);
+    expect(trustCalls).toEqual([
+      { scope: 'project', directory: ctx.projectA, trust: null },
+      { scope: 'project', directory: ctx.worktree, trust: null },
+    ]);
+    expect(await ctx.trustAsk.list()).toEqual([ctx.projectA, ctx.worktree]);
+
+    // The sandbox daemon keeps running the busy session.
+    expect(box.stopped).toBe(false);
+    expect(ctx.moves).toEqual([['s-1', ctx.projectA]]);
+    const detail = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
+    expect(detail.session).toMatchObject({ sandboxed: true, pendingSwitch: { to: 'off' } });
+    expect(detail.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+    // A dialog it shows is answered there.
+    const respond = await ctx.call('/api/pi/extensions/respond', { method: 'POST', body: { requestId: 'dialog-in-box', directory: ctx.projectA, cancelled: true } });
+    expect(respond.status).toBe(204);
+    // New sessions in the project already run in the main daemon.
+    await ctx.call(`/api/pi/sessions/s-2?directory=${ctx.projectA}`);
+    expect(ctx.main.calls.filter((c) => c.command === 'sessions.open').map((c) => c.payload.sessionId)).toEqual(['s-2']);
+
+    busy = false;
+    await ctx.tick(1_000);
+    expect(box.stopped).toBe(true);
+    expect(ctx.intakes[0].stopped).toBe(true);
+    expect(ctx.pool.live().map((d) => d.key)).toEqual(['main']);
+    const moved = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
+    expect(moved.session.sandboxed).toBeUndefined();
+    expect(moved.session.pendingSwitch).toBeUndefined();
+  });
+
+  it('an explicit trust decision clears the recorded reset', async () => {
+    const ctx = await setup({ mainAnswers: { 'settings.set': { global: {}, project: { trusted: true } } } });
+    await ctx.sandboxOn();
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    expect(await ctx.trustAsk.list()).toContain(ctx.projectA);
+    await ctx.call('/api/pi/settings/pi', { method: 'PUT', body: { scope: 'project', directory: ctx.projectA, trust: true } });
+    expect(await ctx.trustAsk.list()).not.toContain(ctx.projectA);
+  });
+
+  const waitFor = async (predicate) => {
+    for (let i = 0; i < 100 && !predicate(); i += 1) await new Promise((r) => setTimeout(r, 5));
+  };
+
+  it('a models.json save replaces a running sandbox daemon at its next idle edge', async () => {
+    let busy = true;
+    const ctx = await setup({
+      mainAnswers: { 'providers.models.set': { config: null } },
+      sandboxAnswers: {
+        'sessions.release': (p) => (busy
+          ? { released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-box' }
+          : { released: [{ sessionId: 's-1', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-box' }),
+      },
+    });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [first] = ctx.launched;
+    ctx.moves.length = 0;
+
+    const saved = await ctx.call('/api/pi/providers/local/models', { method: 'PUT', body: { models: [] } });
+    expect(saved.status).toBe(200);
+    await waitFor(() => first.commands().includes('sessions.release'));
+    // The busy session finishes in the old daemon; it is not a mode switch.
+    expect(first.stopped).toBe(false);
+    const detail = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
+    expect(detail.session).toMatchObject({ sandboxed: true });
+    expect(detail.session.pendingSwitch).toBeUndefined();
+    expect(detail.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+
+    // Another session starts a fresh daemon that reads the new file.
+    await ctx.call(`/api/pi/sessions/s-2?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(2);
+    expect(ctx.launched[1].commands()).toEqual(['sessions.open']);
+
+    busy = false;
+    await ctx.tick(1_000);
+    expect(first.stopped).toBe(true);
+    expect(ctx.moves).toEqual([['s-1', ctx.projectA]]);
+    expect(ctx.pool.live().map((d) => d.key)).toEqual(['main', 'sandbox:proj-a:1']);
+  });
+
+  it('a Pi config file changed outside PiChamber replaces an idle sandbox daemon on the next check', async () => {
+    const ctx = await setup();
+    await writeFile(join(ctx.agentDir, 'models.json'), '{}');
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    await ctx.tick(60_000);
+    expect(ctx.launched[0].stopped).toBe(false);
+
+    await writeFile(join(ctx.agentDir, 'models.json.tmp'), '{"providers":{}}');
+    await rename(join(ctx.agentDir, 'models.json.tmp'), join(ctx.agentDir, 'models.json'));
+    await ctx.tick(60_000);
+    expect(ctx.launched[0].commands()).toContain('sessions.release');
+    expect(ctx.launched[0].stopped).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(2);
+  });
+
+  it('a worktree added after the daemon started starts a daemon that has it', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const added = join(ctx.dataDir, 'worktree', ctx.gitId, 'second');
+    await mkdir(added, { recursive: true });
+    await ctx.call(`/api/pi/sessions/s-2?directory=${added}`);
+    expect(ctx.launched).toHaveLength(2);
+    expect(ctx.launched[0].stopped).toBe(true);
+    expect(ctx.launched[1].calls.map((c) => c.payload?.sessionId)).toEqual(['s-2']);
+    expect(ctx.launched[1].sandbox.grants).toEqual(expect.arrayContaining([
+      { kind: 'readWrite', path: getPiSessionDirectory({ cwd: added, agentDir: ctx.agentDir }) },
+    ]));
+  });
+
+  it('a changed setting drains the running daemon instead of cutting it off', async () => {
+    const ctx = await setup({
+      sandboxAnswers: { 'sessions.release': (p) => ({ released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }] }) },
+    });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    await ctx.sandboxOn('proj-a', { allowHosts: ['registry.npmjs.org'] });
+    expect(ctx.launched[0].stopped).toBe(false);
+    expect(ctx.launched[0].commands()).toContain('sessions.release');
+    await ctx.call(`/api/pi/sessions/s-2?directory=${ctx.projectA}`);
+    expect(ctx.launched[1].sandbox.network.allowHosts).toContain('registry.npmjs.org');
+  });
+
+  it('asks the main daemon to refresh OAuth tokens before a sandbox daemon starts, without making it stale', async () => {
+    let agentDir;
+    const ctx = await setup({
+      mainAnswers: {
+        // The refresh rewrites auth.json, as Pi does.
+        'providers.oauth.refresh': async () => {
+          await writeFile(join(agentDir, 'auth.json.tmp'), '{"anthropic":{"type":"oauth"}}');
+          await rename(join(agentDir, 'auth.json.tmp'), join(agentDir, 'auth.json'));
+          return {};
+        },
+      },
+    });
+    agentDir = ctx.agentDir;
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.main.commands().filter((c) => ['providers.oauth.refresh', 'providers.hosts'].includes(c)))
+      .toEqual(['providers.oauth.refresh', 'providers.hosts']);
+    expect(ctx.main.calls.find((c) => c.command === 'providers.oauth.refresh').payload).toEqual({ minValidityMs: 30 * 60_000 });
+    await ctx.tick(60_000);
+    expect(ctx.launched[0].stopped).toBe(false);
+  });
+
+  it('starts the sandbox anyway when the main daemon cannot refresh OAuth tokens', async () => {
+    const ctx = await setup({ mainAnswers: { 'providers.oauth.refresh': daemonError('UNKNOWN_COMMAND') } });
+    await ctx.sandboxOn();
+    const response = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(response.status).toBe(200);
+  });
+
+  it('a sandboxed turn that fails to refresh its OAuth token gets the main daemon to refresh and replaces the daemon', async () => {
+    let agentDir;
+    let refreshes = 0;
+    const ctx = await setup({
+      mainAnswers: {
+        'providers.oauth.refresh': async () => {
+          refreshes += 1;
+          if (refreshes > 1) {
+            await writeFile(join(agentDir, 'auth.json'), `{"refresh":${refreshes}}`);
+          }
+          return {};
+        },
+      },
+    });
+    agentDir = ctx.agentDir;
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [box] = ctx.launched;
+    await waitFor(() => box.subscriptions.some((item) => !item.closed));
+    // An unrelated error does nothing.
+    box.emit('session.error', 3, { code: 'ASSISTANT_ERROR', message: 'Rate limited' });
+    box.emit('session.error', 4, { code: 'ASSISTANT_ERROR', message: 'Credential store modify failed for anthropic' });
+    await waitFor(() => box.stopped);
+    expect(refreshes).toBe(2);
+    expect(box.stopped).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(2);
+  });
+
+  it('accepts a send made with the old daemon\'s epoch right after its session moved', async () => {
+    const ctx = await setup({
+      mainAnswers: { 'sessions.release': (p) => ({ released: [{ sessionId: 's-1', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-main' }) },
+      sandboxAnswers: {
+        'runtime.health': { state: 'ready', residentSessions: 1, streamEpoch: 'epoch-box' },
+        'sessions.prompt': (p) => {
+          if (p.streamEpoch !== 'epoch-box') throw daemonError('STALE_STREAM_EPOCH');
+          return { accepted: true, messageId: 'm-1' };
+        },
+      },
+    });
+    await ctx.sandboxOn();
+    const send = (sessionId, streamEpoch) => ctx.call(`/api/pi/sessions/${sessionId}/prompt`, {
+      method: 'POST',
+      body: { directory: ctx.projectA, text: 'hi', streamEpoch },
+    });
+    expect((await send('s-1', 'epoch-main')).status).toBe(202);
+    // Only the moved session, and only its old daemon's epoch.
+    expect((await send('s-1', 'epoch-older')).status).toBe(409);
+    expect((await send('s-2', 'epoch-main')).status).toBe(409);
+  });
+
+  it('looks up a send receipt in the daemon still running a session that waits to switch', async () => {
+    const ctx = await setup({
+      mainAnswers: {
+        'sessions.release': (p) => ({ released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-main' }),
+        'sessions.sendReceipt': { status: 'accepted', receipt: { messageId: 'm-1' } },
+      },
+    });
+    await ctx.sandboxOn();
+    const response = await ctx.call(`/api/pi/sessions/s-1/send-receipt?directory=${ctx.projectA}`, {
+      method: 'POST',
+      body: { kind: 'prompt', operationId: 'op-1', streamEpoch: 'epoch-main' },
+    });
+    expect(await response.json()).toEqual({ status: 'accepted', receipt: { messageId: 'm-1' } });
     expect(ctx.launched).toEqual([]);
   });
 });
