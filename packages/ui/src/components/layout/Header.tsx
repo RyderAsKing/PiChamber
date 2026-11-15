@@ -20,7 +20,7 @@ import { SortableTabsStrip, type SortableTabsStripItem } from '@/components/ui/s
 import { DiffIcon } from '@/components/icons/DiffIcon';
 import { useUIStore, type MainTab } from '@/stores/useUIStore';
 import { useSessionUIStore } from '@/sync/session-ui-store';
-import { useGlobalSessionStatus, useSession, useSessionMessages } from '@/sync/sync-context';
+import { useGlobalSessionStatus, useSession, useSessionMessages, useSessionSandboxLabel } from '@/sync/sync-context';
 import { useSync } from '@/sync/use-sync';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useDirectoryStore as useDirectoryMetadataStore } from '@/stores/useDirectoryStore';
@@ -144,6 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
   const currentSessionId = useSessionUIStore((state) => state.currentSessionId);
   const currentSessionStatus = useGlobalSessionStatus(currentSessionId ?? '');
   const currentSessionRecord = useSession(currentSessionId);
+  const headerSandboxLabel = useSessionSandboxLabel(currentSessionId ?? '');
   const currentGlobalSession = React.useMemo((): HeaderSessionSnapshot | null => {
     if (!currentSessionRecord) return null;
     const record = currentSessionRecord as typeof currentSessionRecord & { directory?: string | null; slug?: string | null };
@@ -1227,6 +1228,14 @@ export const Header: React.FC<HeaderProps> = ({
                         <span className="truncate">{currentBranchLabel}</span>
                       </span>
                     ) : null}
+                  </span>
+                </>
+              ) : null}
+              {headerSandboxLabel && !isNewSessionDraftOpen && !isRenamingHeaderSession ? (
+                <>
+                  <span aria-hidden="true" className="h-3 w-px shrink-0 bg-border" />
+                  <span className="shrink-0 whitespace-nowrap typography-ui-label font-normal leading-tight text-subtle-foreground">
+                    {headerSandboxLabel.long}
                   </span>
                 </>
               ) : null}

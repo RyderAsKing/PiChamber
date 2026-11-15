@@ -14,6 +14,7 @@ import type { SendMessageOptions } from "@/sync/session-ui-types";
 import { isNewSessionDraftSendPending } from "@/sync/session-ui-draft-helpers";
 import { usePiSessionSnapshot } from "@/sync/pi-session-context";
 import { getPiSessionStore } from "@/apps/pi-session-store";
+import { describeSandboxSendError } from "@/lib/pi/sandboxText";
 import { useSelectionStore } from "@/sync/selection-store";
 import {
   serializeAttachmentsForQueue,
@@ -1845,6 +1846,21 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
               });
               toast.error(copy.title, { description: copy.description });
             }
+          }
+
+          // A sandboxed project's refusals (sandbox cannot start, or the
+          // session is finishing a turn before a switch) say why.
+          const failedSessionId = capturedTarget?.sessionId ?? currentSessionId;
+          const failedRecord = failedSessionId
+            ? getPiSessionStore().getState().catalog.byId.get(failedSessionId)
+            : undefined;
+          const sandboxCopy = describeSandboxSendError(error, {
+            sandboxed: failedRecord?.sandboxed === true,
+            pendingSwitch: failedRecord?.pendingSwitch,
+          });
+          if (sandboxCopy) {
+            toast.error("Message not sent", { description: sandboxCopy });
+            return;
           }
 
           const isSoftNetworkError =

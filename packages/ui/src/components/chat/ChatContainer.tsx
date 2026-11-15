@@ -62,6 +62,7 @@ import {
 } from './chatContainerNavigation';
 import { DraftWelcome } from './DraftWelcome';
 import { ChatViewport } from './ChatViewport';
+import { sandboxReasonText } from '@/lib/pi/sandboxText';
 
 type ChatContainerProps = {
     active?: boolean;
@@ -516,12 +517,18 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
 								<Icon name="error-warning" className="size-4" />
 							</div>
 							<p className="typography-ui-label font-medium text-foreground">
-								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE' ? "Session is open elsewhere" : "Session could not be loaded"}
+								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE'
+									? "Session is open elsewhere"
+									: sessionMessageLoadState.errorCode === 'SANDBOX_UNAVAILABLE'
+										? "Sandbox unavailable"
+										: "Session could not be loaded"}
 							</p>
 							<p className="typography-meta mt-1 text-muted-foreground">
 								{sessionMessageLoadState.errorCode === 'SESSION_IN_USE'
 									? "Another PiChamber instance is using this session. Close it there, then try again."
-									: "Check the connection and try loading this session again."}
+									: sessionMessageLoadState.errorCode === 'SANDBOX_UNAVAILABLE'
+										? `This project is sandboxed, so its sessions do not run without the sandbox. ${sandboxReasonText(sessionMessageLoadState.errorReason ?? undefined)}`
+										: "Check the connection and try loading this session again."}
 							</p>
 							<Button variant="outline" size="sm" className="mt-4" onClick={retrySessionLoad}>
 								{"Try again"}

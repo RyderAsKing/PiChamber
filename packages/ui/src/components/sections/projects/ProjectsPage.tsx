@@ -10,6 +10,8 @@ import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLay
 import { SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { ProjectCard } from '@/components/sections/projects/ProjectCard';
 import { ProjectSettingsPanel } from '@/components/sections/projects/ProjectSettingsPanel';
+import { SandboxingSection } from '@/components/sections/projects/SandboxingSection';
+import { useProjectSandboxStore } from '@/stores/useProjectSandboxStore';
 import { useDeviceInfo } from '@/lib/device';
 import { useProjectsStore } from '@/stores/useProjectsStore';
 import { useUIStore } from '@/stores/useUIStore';
@@ -24,6 +26,13 @@ export const ProjectsPage: React.FC = () => {
   const setSelectedId = useUIStore((state) => state.setSettingsProjectsSelectedId);
 
   const [projectQuery, setProjectQuery] = React.useState('');
+  const sandboxes = useProjectSandboxStore((state) => state.projects);
+  const sandboxesStatus = useProjectSandboxStore((state) => state.projectsStatus);
+  const loadSandboxes = useProjectSandboxStore((state) => state.loadProjects);
+
+  React.useEffect(() => {
+    if (sandboxesStatus === 'idle') void loadSandboxes();
+  }, [loadSandboxes, sandboxesStatus]);
 
   const handleAddProject = React.useCallback(() => {
     sessionEvents.requestDirectoryDialog();
@@ -124,6 +133,7 @@ export const ProjectsPage: React.FC = () => {
             </Button>
           </div>
         </SettingsSection>
+        <SandboxingSection />
       </SettingsPageLayout>
     );
   }
@@ -176,11 +186,12 @@ export const ProjectsPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 gap-3 @xl:grid-cols-2 @3xl:grid-cols-3">
             {filteredProjects.map((project) => (
-              <ProjectCard key={project.id} project={project} onSelect={setSelectedId} />
+              <ProjectCard key={project.id} project={project} sandbox={sandboxes[project.id]} onSelect={setSelectedId} />
             ))}
           </div>
         )}
       </SettingsSection>
+      <SandboxingSection />
     </SettingsPageLayout>
   );
 };

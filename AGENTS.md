@@ -186,7 +186,16 @@ mobile with its key bar); `extension-surface-unfocused`
 (the same prompt with focus on another control, so its footer offers to type
 to it, desktop only); `extension-surface-keys` (the same prompt with its
 footer's Show key buttons pressed; its Esc button answers the prompt afterwards, so capture it
-last of the three, desktop only).
+last of the three, desktop only); `settings-sandboxing` (Projects settings
+scrolled to Sandboxing: whether nono can run on the server machine, with Check
+again, and the seed's Night Shift card labelled sandboxed or unavailable,
+desktop only); `settings-project-sandbox` (Night Shift's Sandbox section: nono
+with an allowed host, a local port and an extra folder, or why it cannot run,
+desktop only); `session-sandboxed` (a Night Shift session: its header and row
+say Sandboxed, or the chat says the sandbox is unavailable);
+`terminal-sandboxed` (the terminal beside that session says it runs outside
+the sandbox, desktop only). The seed sandboxes Night Shift with nono; on a
+machine without Landlock those pages show the unavailable states.
 Desktop captures report a mouse, so `hover:` styles apply; a page's
 `hoverScript` returns the point to rest the pointer on before the shot. Server-route captures need Chrome on the server: under the throwaway
 `HOME`, set `PICHAMBER_BROWSER_CHROME`, and as root

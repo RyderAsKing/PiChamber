@@ -458,6 +458,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['worktree', 'setup commands', 'bootstrap', 'wait'],
   },
   {
+    id: 'projects.sandbox',
+    page: 'projects',
+    title: "Sandbox",
+    description: "Run a project's sessions inside nono, with allowed hosts, local ports and extra folders.",
+    keywords: ['sandbox', 'nono', 'isolation', 'landlock', 'allowed hosts', 'ports', 'extra folders'],
+  },
+  {
+    id: 'projects.sandboxing',
+    page: 'projects',
+    title: "Sandboxing",
+    description: "Whether nono can run on the server machine.",
+    keywords: ['sandbox', 'nono', 'landlock', 'check again', 'isolation'],
+  },
+  {
     id: 'remote-access.client-auth',
     page: 'remote-access',
     title: "Add a device",

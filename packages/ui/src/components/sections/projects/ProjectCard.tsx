@@ -6,25 +6,33 @@ import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { cn, formatPathForDisplay } from '@/lib/utils';
 import { useDirectoryStore } from '@/stores/useDirectoryStore';
 import type { ProjectEntry } from '@/lib/api/types';
+import type { PiProjectSandboxState } from '@/lib/pi/protocol';
 
 interface ProjectCardProps {
   project: ProjectEntry;
+  /** The project's sandbox state, when loaded. */
+  sandbox?: PiProjectSandboxState;
   onSelect: (projectId: string) => void;
 }
 
 /** Grid card for project browse. Mirrors Provider/Skill/Snippet cards. */
-export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) => {
+export const ProjectCard: React.FC<ProjectCardProps> = ({ project, sandbox, onSelect }) => {
   const label = getProjectDisplayLabel(project);
   const hasCustomLabel = Boolean(project.label?.trim());
   const homeDirectory = useDirectoryStore((state) => state.homeDirectory);
   // Home-relative, so the card spends its width on the part that differs.
   const displayPath = formatPathForDisplay(project.path, homeDirectory);
+  const sandboxText = !sandbox || sandbox.mode === 'off'
+    ? null
+    : sandbox.availability.state === 'unavailable'
+      ? 'Sandbox unavailable'
+      : 'Sandboxed';
 
   return (
     <button
       type="button"
       onClick={() => onSelect(project.id)}
-      aria-label={`${label} project, ${project.path}`}
+      aria-label={`${label} project, ${project.path}${sandboxText ? `, ${sandboxText.toLowerCase()}` : ''}`}
       className={cn(
         'group flex min-h-[118px] flex-col gap-3 rounded-xl border bg-[var(--surface-elevated)] p-4 text-left',
         'border-border/60 hover:bg-interactive-hover hover:border-border',
@@ -34,6 +42,16 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, onSelect }) =
     >
       <div className="flex items-start justify-between gap-2">
         <ProjectIcon directory={project.path} label={label} className="size-8" />
+        {sandboxText ? (
+          <span
+            className={cn(
+              'typography-micro whitespace-nowrap',
+              sandbox?.availability.state === 'unavailable' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
+            )}
+          >
+            {sandboxText}
+          </span>
+        ) : null}
       </div>
 
       <div className="min-w-0 flex-1">

@@ -16,6 +16,7 @@ import { SessionActivityDuration } from '@/components/session/SessionActivityDur
 import { SessionUnreadDot } from './SessionUnreadDot';
 import { SessionNeedsInputIndicator } from './SessionNeedsInputIndicator';
 import { formatNeedsInputLabel } from './sessionAttention';
+import { useSessionSandboxLabel } from '@/sync/sync-context';
 import { getRuntimeBearerTokenSync } from '@/lib/runtime-auth';
 import { getRuntimeApiBaseUrl } from '@/lib/runtime-switch';
 import { streamPerfCount } from '@/stores/utils/streamDebug';
@@ -304,13 +305,14 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
   const hasBranchMeta = Boolean(tooltipBranchLabel) || isGitRepo;
   const showAgentName = Boolean(agentName && agentName !== 'default');
   const hasPrBadge = Boolean(prSummary) && prNumber != null;
+  const sandboxLabel = useSessionSandboxLabel(session.id);
   // The details line leads with the folder (mixed lists) or the branch (one
   // folder); everything else is pushed to the right edge.
   // The working overlay carries the turn time while it is shown, so a turn
   // starting or ending never reflows the details line beneath it.
   const showInlineActivityDuration = showActivityDuration && !showWorkingOverlay;
   const hasTrailingMeta =
-    (showFolderLabel && hasBranchMeta) || hasPrBadge || subtaskCount > 0 || showAgentName || showInlineActivityDuration;
+    (showFolderLabel && hasBranchMeta) || hasPrBadge || subtaskCount > 0 || showAgentName || showInlineActivityDuration || Boolean(sandboxLabel);
   const branchMeta = (shrinkable: boolean) =>
     tooltipBranchLabel ? (
       <span className={cn('inline-flex min-w-0 items-center gap-1', shrinkable ? 'shrink' : 'flex-1')}>
@@ -654,6 +656,12 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
 
                           {showAgentName ? (
                             <span className="min-w-0 max-w-[80px] shrink-0 truncate">{agentName}</span>
+                          ) : null}
+
+                          {sandboxLabel ? (
+                            <span className="shrink-0 whitespace-nowrap" title={sandboxLabel.long} aria-label={sandboxLabel.long}>
+                              {sandboxLabel.short}
+                            </span>
                           ) : null}
 
                           {showInlineActivityDuration ? (

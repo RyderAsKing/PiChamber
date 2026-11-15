@@ -1,0 +1,80 @@
+---
+title: Sandboxing
+description: Run a project's Pi sessions inside nono so agents reach only that project.
+---
+
+Sandboxing is off by default. When you turn it on for a project, every Pi
+session in that project runs inside [nono](https://nono.sh), so its agents can
+reach only that project's folders and the hosts you allow. Projects you leave
+off keep running the way they always have.
+
+## Requirements
+
+- A Linux server machine whose kernel supports Landlock. PiChamber does not
+  sandbox on macOS or Windows yet.
+- nono 0.82.0 or newer installed on the server machine, on the `PATH` of the
+  PiChamber server.
+
+Open **Settings → Projects**. The **Sandboxing** section shows whether nono can
+run on the server machine and, if not, why. After you install or update nono,
+choose **Check again**.
+
+## Turn it on for a project
+
+Open the project in **Settings → Projects** and set **Sandbox** to **nono**.
+The setting applies to every session in the project, including new ones.
+
+- **Allowed hosts.** Hosts the agent may reach, one per line. The model
+  providers you are signed in to are allowed already. For Git fetch and push
+  over HTTPS, add the Git host, such as `github.com`. SSH remotes do not work
+  in the sandbox.
+- **Local ports.** Ports on the server machine the agent may connect to, such
+  as a local llama.cpp server.
+- **Extra folders.** Folders outside the project the agent may use, read only
+  or read and write.
+
+Idle sessions switch right away. A session in the middle of a turn finishes
+that turn first and shows **Switching** until it moves. Sandboxed sessions are
+labelled **Sandboxed** in the session list and the chat header, on every
+device.
+
+Turning the sandbox off resets the project's trust, so Pi asks again before it
+loads project extensions that a sandboxed agent could have written.
+
+The setting stays on the server machine. It is not part of exported or synced
+settings.
+
+## What the sandbox covers
+
+Inside the sandbox, the agent, its tools, `!` shell commands, and Pi
+extensions can:
+
+- read and write the project folder and its worktrees;
+- read and write the extra folders you added;
+- use a private temporary folder;
+- read common language runtimes, Git configuration, and package caches;
+- load your Pi settings, models, and credentials, without changing them;
+- reach your model providers, your allowed hosts, and your allowed local ports.
+
+It cannot read other projects or their session transcripts, change Pi's global
+settings, extensions, or credentials, or reach the PiChamber server.
+
+PiChamber's Git panel runs Git for a sandboxed project through the same
+sandbox, so a repository configuration written by the agent cannot run commands
+outside it.
+
+## What stays outside
+
+- **The built-in terminal** opens your normal shell with your normal access.
+  In a sandboxed project it says so.
+- **Provider sign-in** always happens outside the sandbox.
+- **Sessions started with the `pi` command** are not sandboxed by PiChamber,
+  even in a sandboxed project.
+
+## When the sandbox cannot start
+
+If nono stops working, for example after it is uninstalled, a sandboxed
+project refuses to run sessions instead of running them unsandboxed. You can
+still list its sessions. Its project card in Settings says **Sandbox
+unavailable**, its settings say why, and sending a message explains the
+reason. Fix nono and choose **Check again**, or turn the project's sandbox off.
