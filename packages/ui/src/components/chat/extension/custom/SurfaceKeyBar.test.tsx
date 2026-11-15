@@ -14,4 +14,12 @@ describe('SurfaceKeyBar', () => {
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain('aria-label="Type to the extension"');
   });
+
+  test('leaves out the phone Keyboard button when a physical keyboard types', () => {
+    const html = renderToStaticMarkup(<SurfaceKeyBar sessionId="sess-1" surfaceId="custom-1" keyboardButton={false} />);
+    expect(html).toContain('data-extension-keybar="custom-1"');
+    expect(html).toContain('>Enter</button>');
+    expect(html).not.toContain('Keyboard');
+    expect(html).not.toContain('aria-label="Type to the extension"');
+  });
 });

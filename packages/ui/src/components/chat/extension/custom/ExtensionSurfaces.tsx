@@ -36,6 +36,8 @@ import {
   type StackAnchor,
 } from './overlayStacks';
 import { SurfaceKeyBar } from './SurfaceKeyBar';
+import { SurfaceFooter } from './SurfaceFooter';
+import { focusSurfaceElement } from './surfaceDom';
 import { fitScale, useBoxMetrics } from './useFitScale';
 import { useSurfacePointer } from './useSurfacePointer';
 import { blockRunStyle, hasBlocks, isBlockRun, splitBlockRuns } from './blockGlyphs';
@@ -92,10 +94,6 @@ const useSessionBusy = (sessionId: string): boolean => usePiSessionSnapshot(
   `session:${sessionId}`,
   sessionId,
 );
-
-const focusSurfaceElement = (surfaceId: string): void => {
-  document.querySelector<HTMLElement>(`[data-extension-surface="${CSS.escape(surfaceId)}"]`)?.focus({ preventScroll: true });
-};
 
 /** Hands focus back to the composer when it went nowhere (the focused surface unmounted). */
 const focusComposerIfOrphaned = (): void => {
@@ -489,9 +487,7 @@ const InlineSurface: React.FC<{ sessionId: string; surface: PiExtensionSurfaceSt
         {hasTouchOnlyPointer && surface.capturing ? (
           <SurfaceKeyBar sessionId={sessionId} surfaceId={surface.surfaceId} className="border-t border-border/40 px-3 py-1.5" />
         ) : (
-          <div className="border-t border-border/40 px-3 py-1.5 typography-micro text-muted-foreground">
-            Keys go to the extension. Your draft is kept when it closes.
-          </div>
+          <SurfaceFooter sessionId={sessionId} surface={surface} />
         )}
       </div>
     </div>
