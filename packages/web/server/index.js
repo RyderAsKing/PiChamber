@@ -136,6 +136,11 @@ export async function startWebUiServer(options = {}) {
   const apiOnly = options.apiOnly === true || isEnvFlagEnabled(process.env.PICHAMBER_API_ONLY);
   const app = express();
   const server = http.createServer(app);
+  // The port the server is listening on, or null before it binds.
+  const boundPort = () => {
+    const address = server.address();
+    return typeof address === 'object' && address ? address.port : null;
+  };
   const serverStartedAt = new Date().toISOString();
   const dataPath = (name) => path.join(PICHAMBER_DATA_DIR, name);
   const remoteClientAuthRuntime = createRemoteClientAuthRuntime({ fsPromises: fs.promises, path, crypto: await import('node:crypto'), storePath: dataPath('remote-clients.json') });
@@ -162,10 +167,7 @@ export async function startWebUiServer(options = {}) {
   });
   const tunnelService = createTunnelService({
     dataDir: PICHAMBER_DATA_DIR,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     tunnelAuthController,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
@@ -187,10 +189,7 @@ export async function startWebUiServer(options = {}) {
   const tailscaleService = createTailscaleService({
     dataDir: PICHAMBER_DATA_DIR,
     getServerId: serverIdResolver.getServerId,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     isUiAuthEnabled: hasUiPasswordConfigured,
     isUnsafeUnauthenticatedLanAllowed: () => isUnsafeUnauthenticatedLanAllowed(process.env),
   });
@@ -200,10 +199,7 @@ export async function startWebUiServer(options = {}) {
     console.warn(`[tailscale] Failed to load persisted config: ${error?.message || error}`);
   }
   const pairingTransports = createPairingTransportResolvers({
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     bindHost: host,
     getTailscaleCandidate: () => tailscaleService.getPairingCandidate(),
   });
@@ -241,10 +237,7 @@ export async function startWebUiServer(options = {}) {
     serverStartedAt,
     gracefulShutdown,
     getHealthSnapshot: () => ({ pi: { state: 'ready' }, apiOnly }),
-    getServerPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getServerPort: boundPort,
     getTunnelUrl: () => null,
     getServerId: serverIdResolver.getServerId,
     tunnelAuthController,
@@ -285,17 +278,11 @@ export async function startWebUiServer(options = {}) {
       if (configured) return configured;
       return (await import('@earendil-works/pi-coding-agent')).getAgentDir();
     },
-    getServerPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getServerPort: boundPort,
     hasConnectedDevices: () => piRuntimeRoutes?.hasLiveEventStreams() ?? false,
     // The same port and version as the main daemon, so sandbox profile keys
     // extend the main daemon's.
-    supervisorOptions: () => {
-      const address = server.address();
-      return { port: typeof address === 'object' && address ? address.port : port, version: PICHAMBER_VERSION };
-    },
+    supervisorOptions: () => ({ port: boundPort() ?? port, version: PICHAMBER_VERSION }),
   });
   // Git the server runs in a sandboxed project goes through its launcher.
   setGitSandboxResolver(piSandboxManager.gitSandboxForDirectory);
@@ -343,7 +330,7 @@ export async function startWebUiServer(options = {}) {
   void tailscaleService.reconcile().catch((error) => {
     console.warn(`[tailscale] Failed to apply mapping on startup: ${error?.message || error}`);
   });
-  const resolvedPort = typeof server.address() === 'object' && server.address() ? server.address().port : null;
+  const resolvedPort = boundPort();
   piSessionDaemonRuntime = createPiSessionDaemonSupervisor({
     dataDir: PICHAMBER_DATA_DIR,
     port: typeof resolvedPort === 'number' ? resolvedPort : port,
@@ -397,10 +384,7 @@ export async function startWebUiServer(options = {}) {
   const controller = {
     expressApp: app,
     httpServer: server,
-    getPort: () => {
-      const address = server.address();
-      return typeof address === 'object' && address ? address.port : null;
-    },
+    getPort: boundPort,
     getTunnelUrl: () => null,
     getDaemonProfileKey: () => piSessionDaemonRuntime?.paths?.profileKey ?? null,
     getTailscaleStatus: () => tailscaleService.getStatus(),
