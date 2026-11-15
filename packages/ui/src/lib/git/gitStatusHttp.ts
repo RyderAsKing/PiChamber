@@ -35,6 +35,7 @@ import {
   invalidateGitRepoCheckCache,
   invalidateGitWorktreesCache,
   buildUrl,
+  readGitError,
 } from './gitHttpHelpers';
 
 export async function checkIsGitRepository(directory: string): Promise<boolean> {
@@ -54,7 +55,7 @@ export async function checkIsGitRepository(directory: string): Promise<boolean> 
     const cacheVersion = getRepoCheckCacheVersion(key);
     const response = await runtimeFetch(buildUrl(`${API_BASE}/check`, directory));
     if (!response.ok) {
-      throw new Error(`Failed to check git repository: ${response.statusText}`);
+      throw await readGitError(response, `Failed to check git repository: ${response.statusText}`, { serverMessage: false });
     }
     const data = await response.json();
     const isGitRepository = Boolean(data.isGitRepository);
@@ -98,7 +99,7 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
     const cacheVersion = getStatusCacheVersion(runtimeKey, directory);
     const response = await runtimeFetch(buildUrl(`${API_BASE}/status`, directory, mode ? { mode } : undefined));
     if (!response.ok) {
-      throw new Error(`Failed to get git status: ${response.statusText}`);
+      throw await readGitError(response, `Failed to get git status: ${response.statusText}`, { serverMessage: false });
     }
     const payload = await response.json() as GitStatus;
     if (getStatusCacheVersion(runtimeKey, directory) === cacheVersion) {
@@ -119,11 +120,6 @@ export async function getGitStatus(directory: string, options?: { mode?: 'light'
     }
   }
 }
-
-const readGitError = async (response: Response, fallback: string): Promise<Error> => {
-  const payload = await response.json().catch(() => null) as { error?: unknown } | null;
-  return new Error(typeof payload?.error === 'string' && payload.error ? payload.error : fallback);
-};
 
 export async function listGitWorktrees(directory: string): Promise<GitWorktree[]> {
   const key = getDirectoryCacheKey(getRuntimeKey(), directory);
@@ -223,7 +219,7 @@ export async function getGitWorktreeBootstrapStatus(directory: string): Promise<
 export async function resolveGitPrimaryRoot(directory: string): Promise<{ root: string }> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/primary-root`, directory));
   if (!response.ok) {
-    throw new Error(`Failed to resolve git primary root: ${response.statusText}`);
+    throw await readGitError(response, `Failed to resolve git primary root: ${response.statusText}`, { serverMessage: false });
   }
   const payload = await response.json().catch(() => ({})) as { root?: string };
   return { root: typeof payload.root === 'string' && payload.root ? payload.root : directory };
@@ -232,7 +228,7 @@ export async function resolveGitPrimaryRoot(directory: string): Promise<{ root: 
 export async function resolveGitTopLevel(directory: string): Promise<{ root: string }> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/toplevel`, directory));
   if (!response.ok) {
-    throw new Error(`Failed to resolve git toplevel: ${response.statusText}`);
+    throw await readGitError(response, `Failed to resolve git toplevel: ${response.statusText}`, { serverMessage: false });
   }
   const payload = await response.json().catch(() => ({})) as { root?: string };
   return { root: typeof payload.root === 'string' && payload.root ? payload.root : directory };
@@ -248,7 +244,7 @@ export async function getGitCommitSummaries(
     body: JSON.stringify({ shas }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to get git commit summaries: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get git commit summaries: ${response.statusText}`, { serverMessage: false });
   }
   const payload = await response.json().catch(() => ({})) as {
     commits?: Array<{ sha?: string; short?: string; subject?: string }>;
@@ -283,7 +279,7 @@ export async function getGitDiff(directory: string, options: GetGitDiffOptions):
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to get git diff: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get git diff: ${response.statusText}`, { serverMessage: false });
   }
 
   return response.json();
@@ -308,7 +304,7 @@ export async function getGitRangeDiff(
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to get git range diff: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get git range diff: ${response.statusText}`, { serverMessage: false });
   }
 
   return response.json();
@@ -328,7 +324,7 @@ export async function getGitFileDiff(directory: string, options: GetGitFileDiffO
   );
 
   if (!response.ok) {
-    throw new Error(`Failed to get git file diff: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get git file diff: ${response.statusText}`, { serverMessage: false });
   }
 
   return response.json();
@@ -350,10 +346,7 @@ export async function revertGitFile(
   });
 
   if (!response.ok) {
-    const message = await response
-      .json()
-      .catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to revert git changes');
+    throw await readGitError(response, 'Failed to revert git changes');
   }
 
   invalidateGitStatusCache(directory);
@@ -377,8 +370,7 @@ export async function stageGitFiles(directory: string, filePaths: string[]): Pro
   });
 
   if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to stage git changes');
+    throw await readGitError(response, 'Failed to stage git changes');
   }
 
   invalidateGitStatusCache(directory);
@@ -402,8 +394,7 @@ export async function unstageGitFiles(directory: string, filePaths: string[]): P
   });
 
   if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to unstage git changes');
+    throw await readGitError(response, 'Failed to unstage git changes');
   }
 
   invalidateGitStatusCache(directory);
@@ -441,8 +432,7 @@ async function applyGitHunk(
   });
 
   if (!response.ok) {
-    const message = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(message.error || 'Failed to apply git hunk');
+    throw await readGitError(response, 'Failed to apply git hunk');
   }
 
   invalidateGitStatusCache(directory);

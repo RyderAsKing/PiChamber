@@ -26,12 +26,14 @@ import {
   API_BASE,
   invalidateGitStatusCache,
   buildUrl,
+  readGitError,
+  gitSandboxErrorText,
 } from './gitHttpHelpers';
 
 export async function getGitBranches(directory: string): Promise<GitBranch> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/branches`, directory));
   if (!response.ok) {
-    throw new Error(`Failed to get branches: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get branches: ${response.statusText}`, { serverMessage: false });
   }
   return response.json();
 }
@@ -48,8 +50,7 @@ export async function deleteGitBranch(directory: string, payload: GitDeleteBranc
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete branch');
+    throw await readGitError(response, 'Failed to delete branch');
   }
 
   return response.json();
@@ -67,8 +68,7 @@ export async function deleteRemoteBranch(directory: string, payload: GitDeleteRe
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to delete remote branch');
+    throw await readGitError(response, 'Failed to delete remote branch');
   }
 
   return response.json();
@@ -87,8 +87,7 @@ export async function removeRemote(directory: string, payload: GitRemoveRemotePa
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to remove remote');
+    throw await readGitError(response, 'Failed to remove remote');
   }
 
   return response.json();
@@ -110,8 +109,7 @@ export async function createGitCommit(
     }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create commit');
+    throw await readGitError(response, 'Failed to create commit');
   }
   const result = await response.json();
   invalidateGitStatusCache(directory);
@@ -128,8 +126,7 @@ export async function gitPush(
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to push');
+    throw await readGitError(response, 'Failed to push');
   }
   const result = await response.json();
   invalidateGitStatusCache(directory);
@@ -146,8 +143,7 @@ export async function gitPull(
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to pull');
+    throw await readGitError(response, 'Failed to pull');
   }
   const result = await response.json();
   invalidateGitStatusCache(directory);
@@ -164,8 +160,7 @@ export async function gitFetch(
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to fetch');
+    throw await readGitError(response, 'Failed to fetch');
   }
   const result = await response.json();
   invalidateGitStatusCache(directory);
@@ -175,8 +170,7 @@ export async function gitFetch(
 export async function listGitStashes(directory: string): Promise<{ stashes: GitStashEntry[] }> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/stashes`, directory));
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to list stashes');
+    throw await readGitError(response, 'Failed to list stashes');
   }
   return response.json();
 }
@@ -188,8 +182,7 @@ export async function countGitStashFiles(directory: string, refs: string[]): Pro
     body: JSON.stringify({ refs }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to count stash files');
+    throw await readGitError(response, 'Failed to count stash files');
   }
   return response.json();
 }
@@ -201,8 +194,7 @@ export async function stashGitChanges(directory: string, options: { message?: st
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to stash changes');
+    throw await readGitError(response, 'Failed to stash changes');
   }
   return response.json();
 }
@@ -214,8 +206,7 @@ const postStashRef = async (directory: string, path: string, options: { ref: str
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || `Failed to ${path}`);
+    throw await readGitError(response, `Failed to ${path}`);
   }
   return response.json();
 };
@@ -236,7 +227,10 @@ export async function checkoutBranch(
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => ({ error: response.statusText }));
-    const error = new Error(payload.error || 'Failed to checkout branch') as Error & {
+    const message = payload.code === 'SANDBOX_UNAVAILABLE'
+      ? gitSandboxErrorText(typeof payload.reason === 'string' ? payload.reason : undefined)
+      : payload.error || 'Failed to checkout branch';
+    const error = new Error(message) as Error & {
       code?: string;
       currentBranch?: string | null;
     };
@@ -260,8 +254,7 @@ export async function createBranch(
     body: JSON.stringify({ name, startPoint }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to create branch');
+    throw await readGitError(response, 'Failed to create branch');
   }
   return response.json();
 }
@@ -277,8 +270,7 @@ export async function renameBranch(
     body: JSON.stringify({ oldName, newName }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to rename branch');
+    throw await readGitError(response, 'Failed to rename branch');
   }
   return response.json();
 }
@@ -297,8 +289,7 @@ export async function getGitLog(
     })
   );
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(`Failed to get git log: ${errorBody.error || response.statusText}`);
+    throw await readGitError(response, `Failed to get git log: ${response.statusText}`);
   }
   return response.json();
 }
@@ -311,7 +302,7 @@ export async function getCommitFiles(
     buildUrl(`${API_BASE}/commit-files`, directory, { hash })
   );
   if (!response.ok) {
-    throw new Error(`Failed to get commit files: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get commit files: ${response.statusText}`, { serverMessage: false });
   }
   return response.json();
 }
@@ -330,7 +321,7 @@ export async function getCommitFileDiff(
     })
   );
   if (!response.ok) {
-    throw new Error(`Failed to get commit file diff: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get commit file diff: ${response.statusText}`, { serverMessage: false });
   }
   return response.json();
 }
@@ -363,7 +354,7 @@ export async function getRemoteUrl(directory: string, remote?: string): Promise<
 export async function getRemotes(directory: string): Promise<Array<{ name: string; fetchUrl: string; pushUrl: string }>> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/remotes`, directory));
   if (!response.ok) {
-    throw new Error(`Failed to get remotes: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get remotes: ${response.statusText}`, { serverMessage: false });
   }
   return response.json();
 }
@@ -378,8 +369,7 @@ export async function rebase(
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to rebase');
+    throw await readGitError(response, 'Failed to rebase');
   }
   return response.json();
 }
@@ -389,8 +379,7 @@ export async function abortRebase(directory: string): Promise<{ success: boolean
     method: 'POST',
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to abort rebase');
+    throw await readGitError(response, 'Failed to abort rebase');
   }
   return response.json();
 }
@@ -405,8 +394,7 @@ export async function merge(
     body: JSON.stringify(options),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to merge');
+    throw await readGitError(response, 'Failed to merge');
   }
   return response.json();
 }
@@ -421,8 +409,7 @@ export async function checkoutCommit(
     body: JSON.stringify({ hash }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to checkout commit');
+    throw await readGitError(response, 'Failed to checkout commit');
   }
   return response.json();
 }
@@ -437,8 +424,7 @@ export async function cherryPick(
     body: JSON.stringify({ hash }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to cherry-pick');
+    throw await readGitError(response, 'Failed to cherry-pick');
   }
   return response.json();
 }
@@ -453,8 +439,7 @@ export async function revertCommit(
     body: JSON.stringify({ hash }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to revert commit');
+    throw await readGitError(response, 'Failed to revert commit');
   }
   return response.json();
 }
@@ -471,8 +456,7 @@ export async function resetToCommit(
     body: JSON.stringify({ hash, mode, force }),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to reset');
+    throw await readGitError(response, 'Failed to reset');
   }
   return response.json();
 }
@@ -482,8 +466,7 @@ export async function abortMerge(directory: string): Promise<{ success: boolean 
     method: 'POST',
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to abort merge');
+    throw await readGitError(response, 'Failed to abort merge');
   }
   return response.json();
 }
@@ -493,8 +476,7 @@ export async function continueRebase(directory: string): Promise<{ success: bool
     method: 'POST',
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to continue rebase');
+    throw await readGitError(response, 'Failed to continue rebase');
   }
   return response.json();
 }
@@ -504,8 +486,7 @@ export async function continueMerge(directory: string): Promise<{ success: boole
     method: 'POST',
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(error.error || 'Failed to continue merge');
+    throw await readGitError(response, 'Failed to continue merge');
   }
   return response.json();
 }
@@ -513,7 +494,7 @@ export async function continueMerge(directory: string): Promise<{ success: boole
 export async function getConflictDetails(directory: string): Promise<MergeConflictDetails> {
   const response = await runtimeFetch(buildUrl(`${API_BASE}/conflict-details`, directory));
   if (!response.ok) {
-    throw new Error(`Failed to get conflict details: ${response.statusText}`);
+    throw await readGitError(response, `Failed to get conflict details: ${response.statusText}`, { serverMessage: false });
   }
   return response.json();
 }

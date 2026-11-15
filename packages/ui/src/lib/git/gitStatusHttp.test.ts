@@ -390,3 +390,52 @@ describe('in-flight reads racing a mutation', () => {
     }
   });
 });
+
+describe('sandbox refusals', () => {
+  beforeEach(() => {
+    resetGitHttpCachesForRuntimeSwitch();
+    installWindowMock();
+  });
+
+  const sandboxRefusal = () => jsonResponse(
+    { error: 'The project sandbox is unavailable.', code: 'SANDBOX_UNAVAILABLE', reason: 'NO_LANDLOCK' },
+    503,
+  );
+
+  test('a worktree listing names why the sandbox cannot start', async () => {
+    installFetchMock(() => sandboxRefusal());
+    try {
+      const failure = await listGitWorktrees('/repo').catch((error: unknown) => error) as Error & { code?: string; reason?: string };
+      expect(failure.message).toBe(
+        'This project is sandboxed, so Git does not run without the sandbox. The server machine\'s kernel does not support Landlock, which nono needs.',
+      );
+      expect(failure.code).toBe('SANDBOX_UNAVAILABLE');
+      expect(failure.reason).toBe('NO_LANDLOCK');
+      expect(gitWorktreesCache.size).toBe(0);
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  test('a repository check that names its own failure still explains a sandbox refusal', async () => {
+    installFetchMock(() => sandboxRefusal());
+    try {
+      const failure = await checkIsGitRepository('/repo').catch((error: unknown) => error) as Error;
+      expect(failure.message).toContain('Git does not run without the sandbox');
+    } finally {
+      restoreMocks();
+    }
+  });
+
+  test('other failures keep their own message', async () => {
+    installFetchMock(() => jsonResponse({ error: 'boom' }, 500));
+    try {
+      const failure = await checkIsGitRepository('/repo').catch((error: unknown) => error) as Error;
+      expect(failure.message).toStartWith('Failed to check git repository');
+      const listing = await listGitWorktrees('/repo').catch((error: unknown) => error) as Error;
+      expect(listing.message).toBe('boom');
+    } finally {
+      restoreMocks();
+    }
+  });
+});
