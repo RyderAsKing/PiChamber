@@ -90,12 +90,18 @@ export type PiErrorCode =
   | 'ENGINE_UNSUPPORTED_OPERATION'
   | 'RUNTIME_DISPOSAL_FAILED'
   | 'ARCHIVE_METADATA_INVALID'
-  | 'ASSISTANT_ERROR';
+  | 'ASSISTANT_ERROR'
+  | 'SANDBOX_UNAVAILABLE'
+  | 'INVALID_SANDBOX_SETTING'
+  | 'PROJECT_NOT_FOUND';
 
 /** A stable error object returned in response and event payloads. */
 export interface PiError {
   code: PiErrorCode;
   message?: string;
+  /** Why, for `SANDBOX_UNAVAILABLE`: a launcher reason code such as
+   *  `NOT_INSTALLED` or `NO_LANDLOCK`. */
+  reason?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -562,6 +568,58 @@ export interface PiSessionShelfEntry {
 
 export interface PiSessionShelfResponse {
   sessions: Record<PiSessionId, PiSessionShelfEntry>;
+}
+
+// ---------------------------------------------------------------------------
+// Project sandboxes (`/api/pi/sandbox/*`). Host-local: the setting lives in
+// this server's runtime state and never travels with portable settings.
+// ---------------------------------------------------------------------------
+
+export type PiSandboxMode = 'off' | 'nono';
+
+/** A sandbox launcher on this server. Unavailable launchers carry a reason
+ *  code (`NOT_INSTALLED`, `NO_LANDLOCK`, `TOO_OLD`, `VERSION_UNKNOWN`,
+ *  `SETUP_CHECK_FAILED`, `UNSUPPORTED_PLATFORM`). */
+export interface PiSandboxLauncherStatus {
+  id: string;
+  available: boolean;
+  version?: string;
+  reason?: string;
+}
+
+/** `GET /api/pi/sandbox` and `POST /api/pi/sandbox/recheck`. */
+export interface PiSandboxStatusResponse {
+  launchers: PiSandboxLauncherStatus[];
+}
+
+export interface PiSandboxExtraFolder {
+  path: string;
+  access: 'read' | 'readWrite';
+}
+
+/** What a client sends to `PUT /api/pi/sandbox/projects/:projectId`. */
+export interface PiProjectSandboxSetting {
+  mode: PiSandboxMode;
+  allowHosts?: string[];
+  allowLocalPorts?: number[];
+  extraFolders?: PiSandboxExtraFolder[];
+}
+
+/** One project's sandbox setting and whether it can run now. `off` means no
+ *  sandbox; `unavailable` means its Pi requests fail closed with
+ *  `SANDBOX_UNAVAILABLE` and the same reason. */
+export interface PiProjectSandboxState {
+  projectId: string;
+  mode: PiSandboxMode;
+  launcher?: string;
+  availability: { state: 'off' | 'available' | 'unavailable'; reason?: string };
+  allowHosts: string[];
+  allowLocalPorts: number[];
+  extraFolders: PiSandboxExtraFolder[];
+}
+
+export interface PiProjectSandboxListResponse {
+  projects: PiProjectSandboxState[];
 }
 
 /** Omitted fields are left alone; `null` clears them. */

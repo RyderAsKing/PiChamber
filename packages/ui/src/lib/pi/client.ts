@@ -72,6 +72,10 @@ import {
   type PiSessionShelfEntry,
   type PiSessionShelfInput,
   type PiSessionShelfResponse,
+  type PiSandboxStatusResponse,
+  type PiProjectSandboxListResponse,
+  type PiProjectSandboxSetting,
+  type PiProjectSandboxState,
   isValidSessionShelfEntry,
   isValidSessionShelfResponse,
   type PiAbortInput,
@@ -170,7 +174,7 @@ const jsonRequest = async <TBody, TResponse>(
           lastError = new PiRequestError(error.code, error.message, response.status);
           continue;
         }
-        throw new PiRequestError(error.code, error.message, response.status);
+        throw new PiRequestError(error.code, error.message, response.status, error.reason);
       }
       if (response.status === 204) {
         if (requestRuntimeKey && requestRuntimeKey !== getRuntimeKey()) {
@@ -210,11 +214,14 @@ const jsonRequest = async <TBody, TResponse>(
 export class PiRequestError extends Error {
   readonly code: string;
   readonly status?: number;
-  constructor(code: string, message?: string, status?: number) {
+  /** The server's reason code, for `SANDBOX_UNAVAILABLE`. */
+  readonly reason?: string;
+  constructor(code: string, message?: string, status?: number, reason?: string) {
     super(message ?? `Pi request failed: ${code}`);
     this.name = 'PiRequestError';
     this.code = code;
     if (status !== undefined) this.status = status;
+    if (typeof reason === 'string') this.reason = reason;
   }
 }
 
@@ -968,6 +975,48 @@ export class PiService {
       `/api/pi/providers/${encodeURIComponent(input.providerId)}/models`,
       { method: 'POST', body: input.model, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
+  }
+
+  // ----- Project sandboxes -----------------------------------------------
+
+  /** Sandbox launchers on this server and whether each can run. */
+  async getSandboxStatus(scope?: PiClientScope): Promise<PiSandboxStatusResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiSandboxStatusResponse>('/api/pi/sandbox', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Probe the launchers again (after installing one, say). */
+  async recheckSandbox(scope?: PiClientScope): Promise<PiSandboxStatusResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiSandboxStatusResponse>('/api/pi/sandbox/recheck', {
+      method: 'POST',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  async listProjectSandboxes(scope?: PiClientScope): Promise<PiProjectSandboxListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiProjectSandboxListResponse>('/api/pi/sandbox/projects', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Replace one project's sandbox setting. Returns its state after the write. */
+  async setProjectSandbox(
+    projectId: string,
+    setting: PiProjectSandboxSetting,
+    scope?: PiClientScope,
+  ): Promise<PiProjectSandboxState> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<PiProjectSandboxSetting, { project: PiProjectSandboxState }>(
+      `/api/pi/sandbox/projects/${encodeURIComponent(projectId)}`,
+      { method: 'PUT', body: setting, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+    return result.project;
   }
 
   // ----- Pi settings ------------------------------------------------------

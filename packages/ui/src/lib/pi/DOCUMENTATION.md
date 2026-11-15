@@ -57,6 +57,20 @@ fails, and `phase: 'unavailable'` would have been a misnomer — the probe
 path returns `phase: 'failed'` with an explicit `errors[]` entry so the
 caller can render the correct message.
 
+A sandboxed project whose sandbox cannot start fails its Pi requests with
+HTTP 503 `SANDBOX_UNAVAILABLE`. `PiRequestError.reason` carries the server's
+reason code (`NOT_INSTALLED`, `NO_LANDLOCK`, `PROVIDER_HOSTS_UNAVAILABLE`, ...).
+It is not a transient daemon error, so the client does not retry it; the
+next request tries to start the sandbox again on the server.
+
+## Project sandboxes
+
+`piClient.getSandboxStatus()`, `recheckSandbox()`, `listProjectSandboxes()`,
+and `setProjectSandbox(projectId, setting)` wrap `/api/pi/sandbox/*` (types in
+`protocol.ts`). The setting is host-local to the connected server. Listed and
+opened sessions in a sandboxed project carry `session.sandboxed: true`, which
+the catalog keeps as `LiveSessionRecord.sandboxed`. The settings UI is #249.
+
 ## Pending input ("sessions needing input")
 
 A session needs input while the daemon holds an open blocking request for

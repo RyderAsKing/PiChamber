@@ -56,6 +56,7 @@ const listItem = (id: string, directory: string, overrides?: {
   parentId?: string | null;
   preview?: string;
   messageCount?: number;
+  sandboxed?: boolean;
 }) => ({
   session: {
     id,
@@ -67,6 +68,7 @@ const listItem = (id: string, directory: string, overrides?: {
     ...(overrides?.archived !== undefined ? { archived: overrides.archived } : {}),
     ...(overrides?.timeArchived !== undefined ? { timeArchived: overrides.timeArchived } : {}),
     ...(overrides?.messageCount !== undefined ? { messageCount: overrides.messageCount } : {}),
+    ...(overrides?.sandboxed !== undefined ? { sandboxed: overrides.sandboxed } : {}),
   },
   updatedAt: overrides?.updatedAt ?? 1,
   ...(overrides?.preview !== undefined ? { preview: overrides.preview } : {}),
@@ -1852,6 +1854,21 @@ describe('catalog-owner list/mutation reconciliation', () => {
     expect(reconciled.byId.get('s-1')?.title).toBe('local-new');
     expect(reconciled.byId.get('s-1')?.archived).toBe(true);
     expect(reconciled.byId.get('s-1')?.archivedAt).toBe(99);
+  });
+
+  test('sandboxed: the listing marks a session run in a project sandbox, and a later listing without it clears it', () => {
+    let state = applyDirectoryListToCatalog(initialCatalog(), '/repo-a', [
+      listItem('boxed', '/repo-a', { sandboxed: true }),
+      listItem('plain', '/repo-a'),
+    ], 10);
+    expect(state.byId.get('boxed')?.sandboxed).toBe(true);
+    expect(state.byId.get('plain')?.sandboxed).toBeUndefined();
+
+    state = applyDirectoryListToCatalog(state, '/repo-a', [
+      listItem('boxed', '/repo-a'),
+      listItem('plain', '/repo-a'),
+    ], 20);
+    expect(state.byId.get('boxed')?.sandboxed).toBeUndefined();
   });
 
   test('archive time: the listing carries it, a local archive stamps it, unarchive clears it', () => {

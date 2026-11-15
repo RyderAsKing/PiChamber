@@ -61,6 +61,8 @@ export interface PiSession {
   timeArchived?: number;
   /** Total message count from the most recent authoritative snapshot. */
   messageCount?: number;
+  /** Set by the server when the session's project runs Pi in a sandbox. */
+  sandboxed?: boolean;
 }
 
 /** A reference to a model the user can pick in PiChamber. */

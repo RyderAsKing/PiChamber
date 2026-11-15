@@ -79,6 +79,9 @@ export interface LiveSessionRecord {
   preview?: string;
   /** Optional message count from the listing API. */
   messageCount?: number;
+  /** The session's project runs Pi in a sandbox. The listing is
+   *  authoritative: a row without the flag is not sandboxed. */
+  sandboxed?: true;
   /** Live lifecycle mirror — see `LiveSessionLifecycle`. */
   lifecycle: LiveSessionLifecycle;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
@@ -180,6 +183,7 @@ const recordsStructurallyEqual = (left: LiveSessionRecord, right: LiveSessionRec
   && left.updatedAt === right.updatedAt
   && left.preview === right.preview
   && left.messageCount === right.messageCount
+  && left.sandboxed === right.sandboxed
   && left.lifecycle === right.lifecycle
   && left.retry === right.retry
   && left.hydrated === right.hydrated
@@ -318,6 +322,7 @@ export const applyDirectoryListToCatalog = (
       ...(typeof session.messageCount === 'number'
         ? { messageCount: session.messageCount }
         : existing?.messageCount !== undefined ? { messageCount: existing.messageCount } : {}),
+      ...(session.sandboxed === true ? { sandboxed: true as const } : {}),
       lifecycle,
       ...(retry ? { retry } : {}),
       ...(pendingInput !== undefined ? { pendingInput } : {}),
