@@ -101,10 +101,29 @@ describe('thinking levels', () => {
     })).toBe(undefined);
   });
 
-  test('locks an existing session to the last assistant model and thinking', () => {
+  test('keeps the live session model and thinking over the last assistant turn', () => {
+    // A revert, a failed turn, or a switch not yet prompted on: the transcript
+    // names a model the session has left.
     expect(resolveExistingSessionComposerSelection({
       model: { providerId: 'openai', modelId: 'gpt-5' },
       thinking: 'low',
+      messages: [
+        { role: 'user', createdAt: 1 },
+        {
+          role: 'assistant',
+          createdAt: 2,
+          model: { providerId: 'anthropic', modelId: 'sonnet' },
+          thinkingLevel: 'max',
+        },
+      ],
+    })).toEqual({
+      model: { providerId: 'openai', modelId: 'gpt-5' },
+      thinking: 'low',
+    });
+  });
+
+  test('fills missing live fields from the latest assistant turn', () => {
+    expect(resolveExistingSessionComposerSelection({
       messages: [
         { role: 'user', createdAt: 1 },
         {
@@ -126,7 +145,7 @@ describe('thinking levels', () => {
     });
   });
 
-  test('falls back to live session fields when the transcript has no assistant model', () => {
+  test('uses live session fields when the transcript has no assistant model', () => {
     expect(resolveExistingSessionComposerSelection({
       model: { providerId: 'openai', modelId: 'gpt-5' },
       thinking: 'medium',

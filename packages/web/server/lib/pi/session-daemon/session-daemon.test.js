@@ -3398,7 +3398,7 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
-  it('projects the last assistant model and thinking onto an opened session', async () => {
+  it('projects the live model and thinking onto an opened session, not the last assistant turn', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-last-model-'));
     const endpoint = testDaemonEndpoint(root);
     const projectDir = join(root, 'project');
@@ -3436,9 +3436,19 @@ describe('Pi session daemon spike', () => {
     const client = connectClient(endpoint);
     await client.authenticate();
     const detail = await client.request('sessions.create', { cwd: projectDir });
-    expect(detail.result.session.model).toEqual({ providerId: 'anthropic', modelId: 'sonnet' });
-    expect(detail.result.session.thinking).toBe('high');
+    // The session left anthropic/sonnet after that turn (a switch, a revert):
+    // the detail names what the next prompt runs on, the message keeps its own.
+    expect(detail.result.session.model).toEqual({ providerId: 'openai', modelId: 'gpt-5' });
+    expect(detail.result.session.thinking).toBe('low');
+    expect(detail.result.messages[0].message.model).toEqual({ providerId: 'anthropic', modelId: 'sonnet' });
     expect(detail.result.messages[0].message.thinkingLevel).toBe('high');
+
+    // Only a session with no live model or thinking falls back to that turn.
+    session.model = undefined;
+    session.thinkingLevel = undefined;
+    const fallback = await client.request('sessions.open', { sessionId: session.sessionId, directory: projectDir });
+    expect(fallback.result.session.model).toEqual({ providerId: 'anthropic', modelId: 'sonnet' });
+    expect(fallback.result.session.thinking).toBe('high');
     await client.close();
   });
 
