@@ -1724,6 +1724,151 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  describe('provider changes before any session reaches disk', () => {
+    const customProvider = {
+      providerId: 'custom',
+      label: 'Custom',
+      baseUrl: 'https://api.example.test/v1',
+      api: 'openai-completions',
+      models: [{ id: 'model', providerId: 'custom', label: 'Model' }],
+    };
+    const echoStore = () => ({
+      get: async () => null,
+      update: async (input) => ({ providerId: input.providerId, label: input.label, baseUrl: input.baseUrl, api: input.api, models: input.models }),
+    });
+
+    // Issue #252: Pi assigns a JSONL path to a fresh session but writes it
+    // only with the first message. Recreating the runtime after a provider
+    // save must not try to reopen that never-written file.
+    it('recreates a fresh catalog runtime instead of reopening an unwritten JSONL', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-fresh-'));
+      const endpoint = testDaemonEndpoint(root);
+      const created = [];
+      daemon = createSessionDaemon({
+        endpoint,
+        credential,
+        cwd: root,
+        modelConfigStore: echoStore(),
+        createRuntime: async (options) => {
+          created.push(options);
+          const sessionId = `pi-session-${created.length}`;
+          return { cwd: root, session: new FakeSession(sessionId, join(root, `${sessionId}.jsonl`)), async dispose() {} };
+        },
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+
+      await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test' }] } });
+      const saved = await client.request('providers.models.set', customProvider);
+      expect(saved.result).toEqual({ config: expect.objectContaining({ providerId: 'custom' }) });
+      await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test' }] } });
+
+      expect(created).toHaveLength(2);
+      expect(created[1]).not.toHaveProperty('sessionFile');
+      await client.close();
+    });
+
+    it('still reopens the active session after a provider save once its JSONL exists', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-persisted-'));
+      const endpoint = testDaemonEndpoint(root);
+      const sessionFile = join(root, 'persisted.jsonl');
+      await writeFile(sessionFile, `${JSON.stringify({ type: 'session', id: 'pi-session-persisted', cwd: root })}\n`);
+      const created = [];
+      daemon = createSessionDaemon({
+        endpoint,
+        credential,
+        cwd: root,
+        modelConfigStore: echoStore(),
+        createRuntime: async (options) => {
+          created.push(options);
+          return { cwd: root, session: new FakeSession('pi-session-persisted', sessionFile), async dispose() {} };
+        },
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+
+      await client.request('providers.list');
+      await client.request('providers.models.set', customProvider);
+      await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test' }] } });
+
+      expect(created).toHaveLength(2);
+      expect(created[1]).toMatchObject({ sessionFile });
+      await client.close();
+    });
+
+    it('reopens the session the runtime holds at recreation, not the one it activated with', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-switched-'));
+      const endpoint = testDaemonEndpoint(root);
+      const firstFile = join(root, 'first.jsonl');
+      const switchedFile = join(root, 'switched.jsonl');
+      await writeFile(firstFile, `${JSON.stringify({ type: 'session', id: 'pi-session-first', cwd: root })}\n`);
+      await writeFile(switchedFile, `${JSON.stringify({ type: 'session', id: 'pi-session-switched', cwd: root })}\n`);
+      const created = [];
+      let activeSession;
+      daemon = createSessionDaemon({
+        endpoint,
+        credential,
+        cwd: root,
+        modelConfigStore: echoStore(),
+        createRuntime: async (options) => {
+          created.push(options);
+          activeSession = new FakeSession('pi-session-first', firstFile);
+          return { cwd: root, session: activeSession, async dispose() {} };
+        },
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+
+      await client.request('providers.list');
+      // The runtime moves to another session in place, as navigate or fork does.
+      activeSession.sessionId = 'pi-session-switched';
+      activeSession.sessionManager.getSessionFile = () => switchedFile;
+      await client.request('providers.models.set', customProvider);
+
+      expect(created).toHaveLength(2);
+      expect(created[1]).toMatchObject({ sessionFile: switchedFile });
+      await client.close();
+    });
+
+    it('reports an unsent created session as deleted when a provider save recreates its runtime', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-provider-unsent-'));
+      const endpoint = testDaemonEndpoint(root);
+      const created = [];
+      daemon = createSessionDaemon({
+        endpoint,
+        credential,
+        cwd: root,
+        // A lease owner, as every supervised daemon has: only a released
+        // lease lets the daemon announce the session as deleted.
+        profileKey: 'web-p3000',
+        serverInstanceId: 'server-a',
+        serverPid: process.pid,
+        daemonId: 'daemon-a',
+        modelConfigStore: echoStore(),
+        createRuntime: async (options) => {
+          created.push(options);
+          const sessionId = `pi-session-${created.length}`;
+          return { cwd: root, session: new FakeSession(sessionId, join(root, `${sessionId}.jsonl`)), async dispose() {} };
+        },
+      });
+      await daemon.start();
+      const client = connectClient(endpoint);
+      await client.authenticate();
+
+      const createdSession = await client.request('sessions.create', { cwd: root });
+      const sessionId = createdSession.result.session.id;
+      const deletedEvent = client.next((frame) => frame.event === 'session.deleted');
+      await client.request('providers.models.set', customProvider);
+      await expect(deletedEvent).resolves.toMatchObject({ payload: { sessionId, directory: root } });
+      await expect(client.request('providers.list')).resolves.toMatchObject({ result: { providers: [{ id: 'test' }] } });
+      expect(created.at(-1)).not.toHaveProperty('sessionFile');
+      await client.close();
+    });
+  });
+
   it('adds a single model to an existing file provider without replacing other models', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-'));
     const endpoint = testDaemonEndpoint(root);
