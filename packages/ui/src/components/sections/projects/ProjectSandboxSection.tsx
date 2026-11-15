@@ -214,7 +214,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
               info="Folders outside the project the agent may use, such as a shared docs folder. Use full paths on the server machine."
               controlClassName="w-full max-w-[40rem]"
             >
-              <div className="space-y-2">
+              <div className="w-full min-w-0 space-y-2">
                 {draft.folders.map((folder, index) => (
                   <div key={index} className="flex min-w-0 items-center gap-2">
                     <Input
