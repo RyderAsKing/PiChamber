@@ -282,7 +282,15 @@ describe('Pi routes for sandboxed projects', () => {
   });
 
   it('fails closed: an unavailable launcher answers SANDBOX_UNAVAILABLE for every Pi-running command and never uses the main daemon', async () => {
-    const ctx = await setup({ probe: { available: false, code: 'NO_LANDLOCK' } });
+    const ctx = await setup({
+      probe: { available: false, code: 'NO_LANDLOCK' },
+      mainAnswers: {
+        'sessions.list': (p) => ({
+          sessions: [{ ...row('s-1', p.directory), live: { lifecycle: 'idle', sequence: 3 }, inputState: { pending: null, sequence: 3 } }],
+          streamEpoch: 'epoch-main',
+        }),
+      },
+    });
     const saved = await ctx.sandboxOn();
     expect(await saved.json()).toMatchObject({ project: { mode: 'nono', availability: { state: 'unavailable', reason: 'NO_LANDLOCK' } } });
 
@@ -301,7 +309,15 @@ describe('Pi routes for sandboxed projects', () => {
     // Listing still works: it reads transcripts on disk and runs no Pi code.
     const list = await ctx.call(`/api/pi/sessions?directory=${ctx.projectA}`);
     expect(list.status).toBe(200);
-    expect((await list.json()).sessions.map((item) => item.session.id)).toEqual(['s-1']);
+    // The list names the project's stream but carries no epoch and no live
+    // state (both are the main daemon's), so clients commit its rows as
+    // metadata only. A row says sandboxed: opening it runs in the sandbox
+    // or fails with SANDBOX_UNAVAILABLE, never on the main daemon.
+    const listed = await list.json();
+    expect(typeof listed.stream).toBe('string');
+    expect(listed.stream).not.toBe('main');
+    expect(listed.streamEpoch).toBeUndefined();
+    expect(listed.sessions).toEqual([{ session: { ...session('s-1', ctx.projectA), sandboxed: true }, updatedAt: 2 }]);
   });
 
   it('fails closed with the launch failure code when the sandbox daemon cannot start', async () => {
