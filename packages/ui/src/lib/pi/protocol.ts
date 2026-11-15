@@ -365,6 +365,9 @@ export interface PiPendingInputListResponse {
   sequence: number;
   /** Opaque stream-lifetime id of the daemon that produced this response. */
   streamEpoch?: string;
+  /** Set when some session daemon failed to answer: the listed entries are
+   *  real, but a session missing from the list may still be pending. */
+  incomplete?: true;
 }
 
 /** Validate a pending-input summary. Malformed values are unknown (never
