@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
-import { mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { registerPiRuntimeRoutes } from './routes.js';
 import { createPiDaemonPool, publicDaemonStreamId } from './session-daemon/daemon-pool.js';
@@ -815,6 +816,56 @@ describe('switching a project between daemons', () => {
     expect(box.stopped).toBe(true);
     await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
     expect(ctx.launched).toHaveLength(2);
+  });
+
+  // The manager recognises Pi's own error text. Produce it with the pi-ai
+  // the Pi SDK actually loads (its `refreshStoredOAuthCredential`, not part
+  // of pi-ai's public exports), so a rewording upstream fails this test.
+  it('recognises the OAuth refresh failures pi-ai reports', async () => {
+    let sdkDir = await realpath(fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent')));
+    while (!sdkDir.endsWith('/pi-coding-agent')) sdkDir = dirname(sdkDir);
+    const { refreshStoredOAuthCredential } = await import(pathToFileURL(join(dirname(sdkDir), 'pi-ai', 'dist', 'auth', 'resolve.js')).href);
+    const piError = async (credentials) => {
+      try {
+        await refreshStoredOAuthCredential(
+          credentials,
+          'anthropic',
+          { refresh: async () => { throw new Error('invalid_grant'); } },
+          () => true,
+          new AbortController().signal,
+        );
+      } catch (error) {
+        return error.message;
+      }
+      throw new Error('pi-ai did not fail the refresh');
+    };
+    const messages = [
+      // The provider refused the refresh.
+      await piError({ modify: async (_id, update) => update({ type: 'oauth', expires: 0 }) }),
+      // auth.json is read-only in the sandbox: the store cannot be modified.
+      await piError({ modify: async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); } }),
+    ];
+    // pi-ai appends the cause (`...: invalid_grant`).
+    expect(messages[0]).toMatch(/^OAuth refresh failed for anthropic\b/);
+    expect(messages[1]).toMatch(/^Credential store modify failed for anthropic\b/);
+
+    let refreshes = 0;
+    const ctx = await setup({ mainAnswers: { 'providers.oauth.refresh': async () => { refreshes += 1; return {}; } } });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [box] = ctx.launched;
+    const waitFor = async (predicate) => {
+      for (let tries = 0; tries < 200 && !predicate(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    };
+    await waitFor(() => box.subscriptions.some((item) => !item.closed));
+    expect(refreshes).toBe(1);
+    for (const [index, message] of messages.entries()) {
+      box.emit('session.error', 10 + index, { code: 'ASSISTANT_ERROR', message });
+      await waitFor(() => refreshes === index + 2);
+      expect(refreshes).toBe(index + 2);
+      // Let the shared (single-flight) refresh settle before the next error.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
   });
 
   it('accepts a send made with the old daemon\'s epoch right after its session moved', async () => {

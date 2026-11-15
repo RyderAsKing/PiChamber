@@ -30,6 +30,9 @@ const DEFAULT_DRAIN_POLL_MS = 1_000;
 // How long a token must stay valid after the main daemon's refresh before
 // a sandbox daemon starts or keeps running (Pi itself refreshes inside the
 // last five minutes, which a sandbox cannot do: auth.json is read-only).
+// Deliberate deviation from #242, which only asks that refreshes keep
+// sandboxed sessions working: refreshing ahead of time means a sandbox
+// rarely meets an expiring token mid-turn. See ./DOCUMENTATION.md, "OAuth".
 const OAUTH_MIN_VALIDITY_MS = 30 * 60_000;
 // A send made from the old daemon's epoch right after its session moved is
 // accepted by the new daemon for this long (see `sendEpochFor`).
@@ -192,8 +195,7 @@ export const createProjectSandboxManager = ({
   };
 
   // Ask the main daemon to refresh OAuth tokens near expiry. Shared by
-  // concurrent callers; a failure (or an older daemon) only logs, because a
-  // sandbox can still use API keys and a stale token fails its own turn.
+  // concurrent callers.
   const refreshOAuth = () => {
     if (!oauthRefreshing) {
       oauthRefreshing = (async () => {
@@ -202,7 +204,12 @@ export const createProjectSandboxManager = ({
         try {
           await main.request('providers.oauth.refresh', { minValidityMs: OAUTH_MIN_VALIDITY_MS });
         } catch (error) {
-          log('OAuth refresh failed', error?.code);
+          // Not fatal, on purpose: the sandbox may use API keys or tokens
+          // that are still valid, and a turn that needs an expired token
+          // fails visibly in its chat (Pi's own error), which also triggers
+          // another refresh (`watchDaemon`). Only the error code is logged,
+          // never a token or Pi's message.
+          log('OAuth refresh in the main daemon failed; the sandbox starts anyway', error?.code);
         }
       })().finally(() => { oauthRefreshing = null; });
     }
