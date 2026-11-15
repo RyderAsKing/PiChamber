@@ -236,7 +236,7 @@ jobs:
           bun run test:updater
 
       - name: Install Linux packaging tools
-        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y rpm
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y rpm libarchive-tools
 
       - name: Build and package Linux desktop artifacts
         working-directory: packages/electron
@@ -260,7 +260,7 @@ jobs:
           set -euo pipefail
           APPIMAGE="dist/PiChamber-${VERSION}-${ARTIFACT_ARCH}.AppImage"
           node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$APPIMAGE" "$VERSION"
-          for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm; do
+          for artifact in dist/PiChamber-${VERSION}-linux-*.deb dist/PiChamber-${VERSION}-linux-*.rpm dist/PiChamber-${VERSION}-linux-*.pacman; do
             node ./scripts/verify-update-manifest.mjs "dist/${MANIFEST}" "$artifact" "$VERSION"
           done
 
@@ -272,6 +272,7 @@ jobs:
             packages/electron/dist/PiChamber-${{ steps.versions.outputs.app }}-${{ matrix.artifact_arch }}.AppImage
             packages/electron/dist/*.deb
             packages/electron/dist/*.rpm
+            packages/electron/dist/*.pacman
             packages/electron/dist/${{ matrix.manifest }}
           if-no-files-found: error
           retention-days: ${{ fromJSON(inputs.retention_days) }}

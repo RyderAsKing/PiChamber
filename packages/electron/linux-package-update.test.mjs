@@ -54,6 +54,28 @@ test('repairs a failed dpkg configuration asynchronously', async () => {
   ]);
 });
 
+test('installs a pacman update with pacman -U through the elevation helper', async () => {
+  const commands = [];
+  const result = await installLinuxPackageUpdate({
+    packageType: 'pacman',
+    installerPath: '/tmp/PiChamber-1.0.8-linux-x64.pacman',
+    isRoot: false,
+    commandExists: async (command) => command === 'pacman' || command === 'pkexec',
+    runCommand: async (command, args) => {
+      commands.push({ command, args });
+      return { code: 0, signal: null };
+    },
+  });
+
+  assert.equal(result.packageManager, 'pacman');
+  assert.deepEqual(commands, [
+    {
+      command: 'pkexec',
+      args: ['--disable-internal-agent', 'pacman', '-U', '--noconfirm', '/tmp/PiChamber-1.0.8-linux-x64.pacman'],
+    },
+  ]);
+});
+
 test('restores paths escaped by electron-updater', async () => {
   const { unescapeUpdaterInstallerPath } = await import('./linux-package-update.mjs');
   assert.equal(
