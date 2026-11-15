@@ -15,6 +15,8 @@ const PROTOCOL_VERSION = 1;
 const OPERATION_TIMEOUT_MS = 5_000;
 const DAEMON_READY_TIMEOUT_MS = 15_000;
 const RETRY_DELAY_MS = 100;
+// Linux sun_path holds 108 bytes including the terminating NUL.
+const MAX_UNIX_SOCKET_PATH_BYTES = 107;
 const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
 
 class PiSessionDaemonUnavailableError extends Error {
@@ -234,6 +236,7 @@ export const createPiSessionDaemonSupervisor = ({
   port,
   runtime,
   version,
+  launch,
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
   const serverPid = processLike.pid;
@@ -546,30 +549,43 @@ export const createPiSessionDaemonSupervisor = ({
       }
       let child;
       let spawnError = null;
+      let command = processLike.execPath;
+      let args = [
+        DAEMON_ENTRYPOINT,
+        '--endpoint', paths.endpoint,
+        '--credential-file', paths.credentialFile,
+        '--state-file', paths.stateFile,
+        '--cwd', cwd,
+        '--profile-key', paths.profileKey,
+        '--server-instance-id', paths.serverInstanceId,
+        '--server-pid', String(serverPid),
+        '--daemon-id', daemonId,
+        '--runtime', paths.profileRuntime,
+        '--build-id', paths.buildId,
+        ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
+        ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
+      ];
+      let childEnv = buildSessionDaemonChildEnv({
+        env,
+        electronVersion: processLike.versions?.electron,
+      });
       try {
-        child = spawn(processLike.execPath, [
-          DAEMON_ENTRYPOINT,
-          '--endpoint', paths.endpoint,
-          '--credential-file', paths.credentialFile,
-          '--state-file', paths.stateFile,
-          '--cwd', cwd,
-          '--profile-key', paths.profileKey,
-          '--server-instance-id', paths.serverInstanceId,
-          '--server-pid', String(serverPid),
-          '--daemon-id', daemonId,
-          '--runtime', paths.profileRuntime,
-          '--build-id', paths.buildId,
-          ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
-          ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
-        ], {
+        // A sandbox launcher wraps the unchanged daemon command. Liveness and
+        // stop keep using the daemon's own PID from its state sidecar.
+        if (launch) ({ command, args, env: childEnv } = await launch({ command, args, env: childEnv, cwd, paths }));
+      } catch (error) {
+        if (logFd !== null) {
+          try { closeSync(logFd); } catch { /* nothing was spawned */ }
+        }
+        throw new PiSessionDaemonUnavailableError(typeof error?.code === 'string' ? error.code : 'SANDBOX_LAUNCH_FAILED');
+      }
+      try {
+        child = spawn(command, args, {
           cwd,
           detached: platform !== 'win32',
           stdio: logFd === null ? 'ignore' : ['ignore', logFd, logFd],
           windowsHide: true,
-          env: buildSessionDaemonChildEnv({
-            env,
-            electronVersion: processLike.versions?.electron,
-          }),
+          env: childEnv,
         });
       } catch {
         throw new PiSessionDaemonUnavailableError('DAEMON_SPAWN_FAILED');
@@ -728,4 +744,61 @@ export const createPiSessionDaemonSupervisor = ({
   };
 
   return { paths, start, health, request: requestDaemon, subscribe, stop };
+};
+
+/**
+ * Supervise a project's sandbox daemon: the same daemon command, started
+ * through a sandbox launcher. The profile key carries the launch identity,
+ * so a changed launcher version, policy, grant set or network never reuses
+ * an older daemon. Fails closed with SANDBOX_UNAVAILABLE and the launcher's
+ * reason code when the launcher cannot sandbox on this host.
+ */
+export const createSandboxedPiSessionDaemonSupervisor = async ({
+  launcher,
+  sandbox,
+  env = process.env,
+  port,
+  runtime,
+  version,
+  ...options
+}) => {
+  const probe = await launcher.probe();
+  if (!probe.available) {
+    const error = new PiSessionDaemonUnavailableError('SANDBOX_UNAVAILABLE');
+    error.reason = probe.code;
+    throw error;
+  }
+  const identity = launcher.identity({ grants: sandbox.grants, network: sandbox.network });
+  const base = resolveServerProfile({ env, port, runtime, version });
+  const profile = { ...base, profileKey: `${base.profileKey}-sbx-${sandbox.projectKey}-${identity}` };
+  // A shared endpoint override would point the sandbox at the main daemon's
+  // socket; sandbox daemons always use their own per-profile socket.
+  const { PICHAMBER_PI_SESSION_DAEMON_ENDPOINT: _sharedEndpoint, ...ownEnv } = env;
+  const supervisor = createPiSessionDaemonSupervisor({
+    ...options,
+    env: { ...ownEnv, PICHAMBER_PI_AGENT_DIR: sandbox.agentDir },
+    cwd: sandbox.cwd,
+    profile,
+    launch: ({ command, args, env: childEnv, cwd, paths }) => launcher.prepare({
+      argv: [command, ...args],
+      env: childEnv,
+      cwd,
+      tmpDir: sandbox.tmpDir,
+      network: sandbox.network,
+      // The daemon's own profile and runtime folders derive from the
+      // identity, so they are added here rather than hashed into it.
+      grants: [
+        ...sandbox.grants,
+        { kind: 'readWrite', path: paths.profileDir },
+        { kind: 'unixSocketBind', dir: paths.runtimeDir },
+      ],
+    }),
+  });
+  // The sandbox key makes the socket path longer than the main daemon's. A
+  // path past the Unix socket address limit makes the daemon's listen fail
+  // with EINVAL, so refuse it up front with a stable code.
+  if (Buffer.byteLength(supervisor.paths.endpoint) > MAX_UNIX_SOCKET_PATH_BYTES) {
+    throw new PiSessionDaemonUnavailableError('SANDBOX_ENDPOINT_TOO_LONG');
+  }
+  return { ...supervisor, sandbox: { launcher: launcher.id, version: probe.version, identity } };
 };
