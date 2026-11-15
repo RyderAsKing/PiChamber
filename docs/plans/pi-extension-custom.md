@@ -21,6 +21,8 @@ This plan covers `custom()` only. `setHeader`, `setFooter`, entry renderers,
 1. **Pi semantics, PiChamber presentation.** Components render on the server
    exactly as Pi would render them. The browser decides only where and how
    large the result is shown, using PiChamber's own cards, sheets and tokens.
+   The screen inside the card is a terminal's: Pi's own colours on the
+   Terminal panel's palette (see 4.5).
 2. **Sized for the device that is using it.** The component renders at the
    width of the device the user is typing on, not a fixed width that a phone
    has to scroll sideways through.
@@ -66,7 +68,12 @@ Pi puts an inline component in place of the editor. PiChamber does the same:
   header with the plug icon, the title, `blocked.message` when given, "N more
   below" when inline surfaces are stacked, Stop while an agent turn runs, and
   an Esc button (labelled "Press Esc in {title}"); then the terminal lines; then
-  the hint "Keys go to the extension. Your draft is kept when it closes."
+  a footer (`SurfaceFooter.tsx`): "Keys go to the extension. Your draft is
+  kept when it closes." while the browser's focus is on the surface or its
+  key bar, else "Click here to type to the extension.", which focuses it;
+  Copy text (the frame without colours); and Show key buttons, which adds the key bar
+  with a mouse too (remembered in local storage). Touch-only devices keep
+  the key bar in its place.
 - `ChatInput` stays mounted and hidden, so the draft, history and editor
   state survive. It fades back in when the last inline surface closes and
   gets focus back if focus had nowhere else to go.
@@ -208,6 +215,30 @@ Implemented:
 
 ### 4.5 Look and motion
 
+- The surface body is a terminal screen. Its background, foreground and 16
+  ANSI colours are the Terminal panel's for the app theme
+  (`convertThemeToXterm`). Pi's theme names (`accent`, `border`, ...) take
+  the colours Pi would draw in that terminal: the daemon resolves the user's
+  Pi theme (`extensions.palette`, `extension-palette.js`), so Pi's default
+  `system` theme is generated from the same palette and follows the app's
+  light or dark mode, and a pinned Pi theme keeps its own colours and page
+  background (Pi's `dark` stays dark in a light app, on the dark app
+  theme's palette). `extensionPalette.ts` sets these as `--term-*`
+  variables on the surface; `lib/pi/ansi.ts` reads them before PiChamber's
+  tokens. Until the daemon answers, or if it cannot, Pi's names use
+  PiChamber's tokens on the terminal screen. Overlays, and the cards
+  stacked behind them, use the same screen.
+- Other Pi-drawn lines (tool `renderCall`/`renderResult`, message
+  renderers, widgets, statuses) get the same colours on PiChamber's own
+  background, with no screen (`useExtensionTextClass`: one shared
+  stylesheet rule per palette, so rows carry a class, not ~70 inline
+  properties each). Pi's names apply
+  only when the Pi theme is made for the app's appearance; a pinned dark
+  theme in the light app would put light text on a light card, so there
+  they keep PiChamber's tokens. These lines reuse an answer for a minute
+  instead of asking per row, and a component with no such lines showing
+  asks nothing. Extension dialogs and notices are PiChamber
+  components and keep its tokens.
 - Lines use `AnsiText`'s colour mapping (`renderSegmentStyle` in
   `lib/pi/ansi.ts`). Graphemes Pi counts as two cells, or zero, are drawn in
   fixed `ch` boxes using the cell widths the daemon sends, so borders stay
@@ -222,7 +253,6 @@ Implemented:
   surface animates; frame updates never do, and the chat reflows once.
   Leaving overlays stay mounted until their exit animation ends. No View
   Transitions.
-- Known issue: Pi's `accent` colour is weak, most visibly in the light theme.
 
 ## 5. Server design
 
@@ -351,6 +381,13 @@ only the MCP extension (and llama.cpp, which PiChamber skips) branches on it:
   their no-ops.
 - The product docs no longer suggest `ctx.mode === "rpc"` for detecting
   PiChamber; the marker and `PICHAMBER=1` remain the way.
+- Later: Settings → Sessions → Extension interface can report `"rpc"`
+  instead (`extension-ui-mode.js`), for people who would rather answer an
+  extension's keyboard-only prompt in Pi's standard dialogs. Extensions that
+  branch on the mode use their fallback; `custom()` stays hosted. Pi keeps a
+  session's mode across reload, so it applies to sessions started afterwards.
+  Reading a frame to guess at buttons was prototyped and dropped: it only
+  covers prompts drawn one way and can send the wrong keys for others.
 
 ## 6. Browser design
 

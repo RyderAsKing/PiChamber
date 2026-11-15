@@ -16,16 +16,33 @@ On top of that compatibility layer, extensions can render rich UI directly insid
 | `pi.registerTool()` | Tools are callable by the model; results render as tool cards |
 | `pi.registerCommand()` | Invokable from the composer as `/command args` |
 | Lifecycle + agent events | Fully supported (`tool_call`, `before_agent_start`, compaction, …) |
-| `ctx.ui.select / confirm / input / editor` | Rendered as a blocking dialog in the chat; the extension waits for your answer |
+| `ctx.ui.select / confirm / input / editor` | Rendered as a blocking dialog in the chat; the extension waits for your answer. A multi-line title shows its first line as a small label and the rest below it as written |
 | `ctx.ui.notify` | Shown as a row in the chat where it arrived; live only, not saved to the session |
 | `ctx.ui.setStatus(key, text)` | Shown above the composer until cleared |
 | `ctx.ui.setWidget(key, lines)` | Lines shown above (or below) the composer |
 | `pi.appendEntry()` / `pi.sendMessage()` | Visible in the chat transcript (see below) |
 | `registerMessageRenderer()` (custom message renderers) | Rendered lines shown as the message body; expanded lines behind Show more, raw text under Raw message (see below) |
-| `ctx.ui.custom()` | Drawn in the chat: inline components take the composer's place, overlays float over the chat. Keys, clicks, drags and the mouse wheel go to the component (Shift+drag selects text). On a phone or tablet a tap is a click, a swipe scrolls, and a key bar adds Esc, Tab, the arrows, Enter and the on-screen keyboard. `ctx.mode` is `"tui"`, so extensions that check for it run |
+| `ctx.ui.custom()` | Drawn in the chat on a terminal screen in the colours of your Pi theme (Pi's default theme follows PiChamber's light or dark mode; a theme you set in Pi keeps its own colours): inline components take the composer's place, overlays float over the chat. Keys, clicks, drags and the mouse wheel go to the component (Shift+drag selects text). On a phone or tablet a tap is a click, a swipe scrolls, and a key bar adds Esc, Tab, the arrows, Enter and the on-screen keyboard; with a mouse, Show key buttons adds the same bar and Copy text copies what the component drew. `ctx.mode` is `"tui"`, so extensions that check for it run (see [Extension interface](#extension-interface)) |
 | Other TUI-only surfaces (`setHeader`/`setFooter`, `onTerminalInput`, `setEditorComponent`, autocomplete providers, theme switching) | Intentional no-ops; use the GUI protocol instead |
 
+Lines an extension draws with Pi's theme (`theme.fg("accent", ...)` and the like) take your Pi theme's colours wherever Pi would draw them: `custom()` components, tool renders, message renderers, widgets and statuses. Outside a `custom()` component they sit on PiChamber's background, so a Pi theme made for the other appearance (Pi's `dark` theme while PiChamber is light) falls back to PiChamber's colours there. Dialogs and notices use PiChamber's colours.
+
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
+
+## Extension interface
+
+**Settings → Sessions → Extension interface** chooses what extensions are told
+about the interface. It applies to sessions started after you change it.
+
+- **Terminal UI** (default): `ctx.mode` is `"tui"`. Extensions that check for a
+  terminal draw their own components with `ctx.ui.custom()`, as in the pi CLI,
+  and you answer with the keys they show.
+- **Standard dialogs**: `ctx.mode` is `"rpc"`, pi's mode for frontends.
+  Each extension decides what to do without a terminal. Some ask with
+  `ctx.ui.select` or `confirm`, which PiChamber shows as clickable dialogs.
+  Some show less or skip their screen, and some may pick a default answer
+  without asking. Extensions that call `ctx.ui.custom()` without checking the
+  mode still draw their terminal UI.
 
 ## Compatibility principle
 
@@ -41,7 +58,8 @@ only adds an optional enhancement when the extension opts in.
 ## Detecting PiChamber (optional)
 
 Do not make PiChamber a hard dependency. Check at runtime. `ctx.mode` does
-not tell PiChamber apart: it is `"tui"`, as in the pi CLI.
+not tell PiChamber apart: it is `"tui"`, as in the pi CLI, or `"rpc"` when the
+user chose standard dialogs.
 
 ```ts
 const isPiChamber = (): boolean => {

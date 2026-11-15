@@ -339,6 +339,67 @@ const PAGES = {
     // viewports are done.
     dismissAfter: '[role="dialog"] button[aria-label="Dismiss extension dialog"]',
   },
+  'extension-surface': {
+    focusEvents: true,
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // The seed's demo extension answers `!git push` with a ctx.ui.custom()
+    // permission prompt; it takes the composer's place with focus on it, so
+    // the footer says keys go to the extension. On mobile the key bar
+    // takes the footer's place.
+    typeIntoComposer: ['!', 'git push --force-with-lease origin feature/session-sidebar'],
+    submitComposer: true,
+    settledScript: `(() => {
+      const surface = document.querySelector('[data-extension-surface]');
+      if (!surface || !surface.innerText.includes('Permission required')) return false;
+      surface.focus({ preventScroll: true });
+      return document.body.innerText.includes('Keys go to the extension.')
+        || Boolean(document.querySelector('[role="toolbar"]'));
+    })()`,
+  },
+  'extension-surface-unfocused': {
+    focusEvents: true,
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // The same prompt after focus has moved to another control: the footer
+    // offers to send typing back to it.
+    typeIntoComposer: ['!', 'git push --force-with-lease origin feature/session-sidebar'],
+    submitComposer: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const surface = document.querySelector('[data-extension-surface]');
+      if (!surface || !surface.innerText.includes('Permission required')) return false;
+      // Focus left on nothing returns to the surface, so move it somewhere,
+      // the way clicking another control would.
+      const elsewhere = [...document.querySelectorAll('button')]
+        .find((button) => button.offsetParent && !button.closest('[data-composer-bound]'));
+      if (!elsewhere) return false;
+      if (document.activeElement !== elsewhere) elsewhere.focus({ preventScroll: true });
+      return document.body.innerText.includes('Click here to type to the extension.');
+    })()`,
+  },
+  'extension-surface-keys': {
+    focusEvents: true,
+    path: DEMO_SESSION_PATH,
+    readyText: [DEMO_REPLY],
+    // The same prompt after its footer's Show key buttons: Esc, Tab, the arrows
+    // and Enter as buttons, for a mouse. Captured last of the three: its
+    // Esc button answers the prompt.
+    typeIntoComposer: ['!', 'git push --force-with-lease origin feature/session-sidebar'],
+    submitComposer: true,
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const surface = document.querySelector('[data-extension-surface]');
+      if (!surface || !surface.innerText.includes('Permission required')) return false;
+      const toggle = [...document.querySelectorAll('button[aria-expanded]')]
+        .find((button) => /key buttons$/.test(button.textContent.trim()));
+      if (!toggle) return false;
+      if (toggle.getAttribute('aria-expanded') !== 'true') { toggle.click(); return false; }
+      surface.focus({ preventScroll: true });
+      return Boolean(document.querySelector('[data-extension-keybar]'));
+    })()`,
+    dismissAfter: 'button[aria-label^="Press Esc in"]',
+  },
   'files-panel': {
     path: DEMO_SESSION_PATH,
     // The right rail's Files button opens the tree beside the session.
@@ -571,6 +632,26 @@ const PAGES = {
       return true;
     })()`,
   },
+  'settings-extension-interface': {
+    // Sessions settings at Extension interface, with the pointer on its info
+    // icon so the explanation of the two choices shows.
+    path: '/?settings=sessions',
+    readyText: ['Extension interface'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const row = document.querySelector('[data-settings-item="sessions.extension-interface"]');
+      if (!row) return false;
+      row.scrollIntoView({ block: 'center' });
+      return true;
+    })()`,
+    hoverScript: `(() => {
+      const row = document.querySelector('[data-settings-item="sessions.extension-interface"]');
+      const icon = row?.querySelector('svg');
+      if (!icon) return null;
+      const box = icon.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    })()`,
+  },
   'settings-sidebar-view': {
     // Appearance scrolled to Sidebar view with Legacy views open, so Timeline shows.
     path: '/?settings=appearance',
@@ -799,6 +880,9 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
     mobile: viewport.mobile,
   });
   await client.send('Emulation.setTouchEmulationEnabled', { enabled: viewport.mobile });
+  // A headless page has no window focus, so moving focus fires no focus
+  // events; pages that show what focus does ask for them.
+  await client.send('Emulation.setFocusEmulationEnabled', { enabled: Boolean(page.focusEvents) });
   await client.send('Emulation.setEmulatedMedia', {
     features: [
       { name: 'prefers-color-scheme', value: theme },
@@ -951,7 +1035,61 @@ const writeDemoExtension = async (home) => {
   });
 }
 `);
+  await writeFile(join(dir, 'demo-surface.ts'), DEMO_SURFACE_EXTENSION);
 };
+
+// A permission prompt drawn the way terminal-first extensions draw theirs:
+// with ctx.ui.custom() under the terminal UI, and select() otherwise, which
+// is what Settings > Sessions > Extension interface > Standard dialogs gets.
+const DEMO_SURFACE_EXTENSION = `const OPTIONS = ['Allow once', 'Allow for this session', 'Deny', 'Deny with feedback'];
+
+export default function (pi) {
+  pi.on('user_bash', async (event, ctx) => {
+    if (!event.command.startsWith('git push')) return;
+    if (ctx.mode !== 'tui') {
+      await ctx.ui.select('Permission required\\nbash: ' + event.command, OPTIONS);
+      return;
+    }
+    await ctx.ui.custom((tui, theme, keybindings, done) => {
+      let selected = 0;
+      // Colours come from Pi's theme, as extensions use them; the branch name
+      // is plain SGR green, as a command's own output would be.
+      const branch = event.command.split(' ').pop();
+      const command = event.command.slice(0, event.command.length - branch.length) + '\\x1b[32m' + branch + '\\x1b[39m';
+      return {
+        render(width) {
+          const rule = theme.fg('border', '─'.repeat(Math.max(0, width)));
+          return [
+            rule,
+            ' ' + theme.bold(theme.fg('warning', 'Permission required')) + theme.fg('dim', '  bash'),
+            '',
+            '   ' + theme.bold(command),
+            '',
+            ' ' + theme.fg('muted', 'Rule  ') + theme.fg('text', "bash 'git push *' asks before it runs"),
+            '',
+            ...OPTIONS.map((option, index) => (index === selected
+              ? theme.bg('selectedBg', ' ' + theme.fg('accent', '› ' + (index + 1) + '. ' + option) + ' '.repeat(Math.max(0, width - option.length - 6)))
+              : '   ' + theme.fg('dim', (index + 1) + '. ') + (index >= 2 ? theme.fg('error', option) : option))),
+            '',
+            ' ' + theme.fg('dim', '↑↓ choose · enter confirm · 1-4 quick pick · esc deny'),
+            rule,
+          ];
+        },
+        handleInput(data) {
+          if (data === '\\x1b') return done(undefined);
+          if (data === '\\r') return done(OPTIONS[selected]);
+          if (data === '\\x1b[A') selected = (selected + OPTIONS.length - 1) % OPTIONS.length;
+          else if (data === '\\x1b[B') selected = (selected + 1) % OPTIONS.length;
+          else if (/^[1-4]$/.test(data)) return done(OPTIONS[Number(data) - 1]);
+          else return;
+          tui.requestRender();
+        },
+        invalidate() {},
+      };
+    });
+  });
+}
+`;
 
 // One Pi session in the repo, in Pi's JSONL format: a prompt, the reply, and
 // shell commands the user then ran with `!cmd` (bashExecution entries).
