@@ -74,6 +74,17 @@ const normalizeRetryLimit = (value) => {
   return value;
 };
 
+// How extensions are told to draw their UI. `terminal` (the default) reports
+// Pi's TUI mode so `ctx.ui.custom()` components render; `dialogs` reports RPC
+// mode so extensions that branch on `ctx.mode` use Pi's standard dialogs.
+export const PI_EXTENSION_UI_MODES = ['terminal', 'dialogs'];
+
+const normalizeExtensionUi = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (!PI_EXTENSION_UI_MODES.includes(value)) throw invalidSettings();
+  return value;
+};
+
 const normalize = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalidSettings();
   const model = normalizeModel(value.defaultModel);
@@ -89,6 +100,7 @@ const normalize = (value) => {
     fallbackThinking = undefined;
   }
   const retryLimit = normalizeRetryLimit(value.defaultRetryLimit);
+  const extensionUi = normalizeExtensionUi(value.extensionUi);
   return {
     version: 1,
     ...(model ? { defaultModel: model } : {}),
@@ -97,6 +109,7 @@ const normalize = (value) => {
     ...(Object.keys(thinkingByModel).length > 0 ? { defaultThinkingByModel: thinkingByModel } : {}),
     ...(fallbackThinking ? { defaultThinking: fallbackThinking } : {}),
     ...(retryLimit !== undefined ? { defaultRetryLimit: retryLimit } : {}),
+    ...(extensionUi !== undefined ? { extensionUi } : {}),
   };
 };
 
@@ -133,6 +146,7 @@ export const createPiSettingsStore = ({ file = join(resolvePiChamberDataDir(), '
         ...(Object.hasOwn(patch, 'smallModel') ? { smallModel: patch.smallModel } : {}),
         ...(Object.hasOwn(patch, 'walkthroughModel') ? { walkthroughModel: patch.walkthroughModel } : {}),
         ...(Object.hasOwn(patch, 'defaultRetryLimit') ? { defaultRetryLimit: patch.defaultRetryLimit } : {}),
+        ...(Object.hasOwn(patch, 'extensionUi') ? { extensionUi: patch.extensionUi } : {}),
         defaultThinkingByModel: Object.hasOwn(patch, 'defaultThinkingByModel')
           ? mergeThinkingByModel(current.defaultThinkingByModel ?? {}, patch.defaultThinkingByModel)
           : (current.defaultThinkingByModel ?? {}),

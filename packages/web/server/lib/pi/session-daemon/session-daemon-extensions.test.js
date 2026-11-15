@@ -154,7 +154,7 @@ describe('Pi session daemon extension bridging', () => {
   let daemon;
   let sessions = [];
 
-  const startWithExtensibleSession = async ({ entries } = {}) => {
+  const startWithExtensibleSession = async ({ entries, extensionMode = 'tui' } = {}) => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-ext-'));
     const projectDir = join(root, 'project');
     const agentDir = join(root, 'agent');
@@ -171,6 +171,7 @@ describe('Pi session daemon extension bridging', () => {
       credential,
       cwd: projectDir,
       agentDir,
+      resolveExtensionMode: () => extensionMode,
       createRuntime: async (_options, hooks) => {
         // Mirror the default factory contract: bind extensions when the daemon
         // supplies bindings hooks.
@@ -192,6 +193,11 @@ describe('Pi session daemon extension bridging', () => {
     await daemon?.stop();
     daemon = undefined;
     sessions = [];
+  });
+
+  it('binds the mode the Extension interface setting resolves to', async () => {
+    const { session } = await startWithExtensibleSession({ extensionMode: 'rpc' });
+    expect(session.boundBindings.mode).toBe('rpc');
   });
 
   it('binds extensions into every created runtime and resolves blocking dialogs via extensions.respond', async () => {

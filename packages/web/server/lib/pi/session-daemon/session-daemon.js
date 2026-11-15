@@ -78,6 +78,7 @@ import {
 import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
+import { resolveExtensionMode } from './extension-ui-mode.js';
 
 const textFromContent = (content) => (
   Array.isArray(content)
@@ -94,8 +95,11 @@ if (!globalThis.__PICHAMBER__) {
     globalThis.__PICHAMBER__ = Object.freeze({
       version: 1,
       protocol: 'pichamber-extension-ui',
-      // Matches `ctx.mode` (extension-bridge.js).
-      mode: 'tui',
+      // The `ctx.mode` new sessions get (extension-ui-mode.js). A session
+      // keeps the mode it started with; its `ctx.mode` is authoritative.
+      get mode() {
+        return resolveExtensionMode({ dataDir: resolvePiChamberDataDir() });
+      },
     });
   } catch {}
 }
@@ -198,6 +202,8 @@ export function createSessionDaemon({
   onShutdown,
   idleTimeoutMs = 5 * 60 * 1_000,
   sendOperationTtlMs = 10 * 60 * 1_000,
+  // The `ctx.mode` each new binding reports; the "Extension interface" setting.
+  resolveExtensionMode: resolveBindingExtensionMode = () => resolveExtensionMode({ dataDir: resolvePiChamberDataDir() }),
   sessionListCache = createPiSessionJsonlListCache(),
   listSessions = ({ cwd: sessionCwd, agentDir: sessionAgentDir = agentDir }) => listPiSessionJsonlDirectory({
     cwd: sessionCwd,
@@ -721,6 +727,7 @@ export function createSessionDaemon({
     requestSessionShutdown: (sessionId) => shutdownRequestedBySession.add(sessionId),
     pendingInput,
     customHost,
+    resolveExtensionMode: resolveBindingExtensionMode,
   });
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a

@@ -710,8 +710,18 @@ export interface PiSettingsSnapshot {
     smallModel?: PiModelRef;
     walkthroughModel?: PiModelRef;
     defaultRetryLimit?: number;
+    /** How extensions draw their UI; unset means `terminal`. */
+    extensionUi?: PiExtensionUiMode;
   };
 }
+
+/**
+ * `terminal`: extensions see Pi's TUI mode and may draw `ctx.ui.custom()`
+ * components. `dialogs`: they see RPC mode, so those that branch on the mode
+ * use Pi's standard dialogs. Applies to sessions started after a change.
+ */
+export type PiExtensionUiMode = 'terminal' | 'dialogs';
+
 
 export interface PiSettingsUpdateInput {
   scope: 'global' | 'project';
@@ -733,6 +743,7 @@ export interface PiChamberDefaultsUpdateInput {
   smallModel?: PiModelRef | null;
   walkthroughModel?: PiModelRef | null;
   defaultRetryLimit?: number | null;
+  extensionUi?: PiExtensionUiMode | null;
 }
 
 // ---------------------------------------------------------------------------

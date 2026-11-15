@@ -66,6 +66,8 @@ export const createExtensionBridge = ({
   requestSessionShutdown,
   pendingInput,
   customHost,
+  // The `ctx.mode` new bindings report (extension-ui-mode.js).
+  resolveExtensionMode = () => 'tui',
 }) => {
   const extensionStatusesBySession = new Map();
   const extensionWidgetsBySession = new Map();
@@ -633,9 +635,12 @@ export const createExtensionBridge = ({
     return {
       uiContext: createExtensionUIContext(session.sessionId),
       // PiChamber hosts `ctx.ui.custom()` components and draws them in the
-      // browser (extension-custom-host.js), so extensions see a TUI. Header,
-      // footer, editor and raw terminal input stay no-ops (plan 5.5).
-      mode: 'tui',
+      // browser (extension-custom-host.js), so extensions see a TUI by
+      // default. The "Extension interface" setting can report RPC instead, so
+      // extensions that branch on the mode use standard dialogs; custom()
+      // stays hosted. Header, footer, editor and raw terminal input stay
+      // no-ops (plan 5.5).
+      mode: resolveExtensionMode(),
       commandContextActions: {
         waitForIdle: () => session.waitForIdle(),
         newSession: async (options) => {
