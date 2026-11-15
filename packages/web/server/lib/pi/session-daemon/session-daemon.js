@@ -980,7 +980,36 @@ export function createSessionDaemon({
     idleDisposeTimers.clear();
   };
 
+  // A disposed session whose assigned JSONL is positively absent never
+  // reached disk, so nothing can reopen it. Clears the same safe per-session
+  // state as explicit deletion and tells clients it is gone. Callers decide
+  // absence (ENOENT only) and hold a successful lease release first.
+  const forgetEphemeralSession = ({ cwd: sessionCwd, sessionId }) => {
+    if (dormantSession?.sessionId === sessionId) dormantSession = undefined;
+    messageEntryAliases.clearSession({ cwd: sessionCwd, sessionId });
+    retryStateBySession.delete(sessionId);
+    compactionStateBySession.delete(sessionId);
+    activeRunStartedAt.delete(sessionId);
+    shutdownRequestedBySession.delete(sessionId);
+    publish('session.deleted', {}, sessionId, sessionCwd);
+    pendingInput.forgetSession(sessionId);
+  };
+
+  const isSessionFileAbsent = async (sessionFile) => {
+    if (typeof sessionFile !== 'string' || sessionFile.length === 0) return false;
+    try {
+      await stat(sessionFile);
+      return false;
+    } catch (error) {
+      return error?.code === 'ENOENT';
+    }
+  };
+
   const disposeRuntime = async () => {
+    // Record the session the active runtime holds now (navigate, fork, or a
+    // first message may have changed it since activation) so the dormant
+    // entry names the file a later `ensureRuntime` would reopen.
+    rememberRuntimeSession();
     clearAllIdleDisposals();
     extensionToolRenderer.dispose();
     activeSessionInputs.clear();
@@ -1011,9 +1040,28 @@ export function createSessionDaemon({
       await runtime?.dispose?.();
     }
     runtime = undefined;
+    // Pi defers the JSONL until the first user or assistant message, so the
+    // remembered session may never have reached disk (a catalog read on a
+    // fresh install, or a new session with nothing sent). Decide that while
+    // the leases are still held, as idle disposal does. Reopening an absent
+    // file fails as SESSION_JSONL_UNREADABLE on every later `ensureRuntime`,
+    // so the dormant entry is dropped and the next start opens a fresh session.
+    // Capture once: the dormant binding can change during the await, and the
+    // session cleared or announced must be the one whose file was checked.
+    const dormantCandidate = dormantSession;
+    const ephemeralSession = dormantCandidate && await isSessionFileAbsent(dormantCandidate.sessionFile)
+      ? dormantCandidate
+      : undefined;
+    let ephemeralReleased = false;
     for (const lease of leased) {
-      await releaseResidentLease(lease);
+      const result = await releaseResidentLease(lease);
+      if (ephemeralSession && lease.sessionId === ephemeralSession.sessionId && result?.released === true) ephemeralReleased = true;
     }
+    if (!ephemeralSession) return;
+    if (dormantSession === ephemeralSession) dormantSession = undefined;
+    // Only an owned, released session is announced as gone; an implicit
+    // catalog session held no lease and was never listed.
+    if (ephemeralReleased) forgetEphemeralSession({ cwd: ephemeralSession.cwd, sessionId: ephemeralSession.sessionId });
   };
 
   const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile, activate = true } = {}) => {
@@ -1308,14 +1356,7 @@ export function createSessionDaemon({
         // here (after dispose, before release) keeps the check
         // authoritative: no cross-daemon owner can interleave a recreate
         // while this lease is held.
-        let ephemeral = false;
-        if (typeof assignedSessionFile === 'string' && assignedSessionFile.length > 0) {
-          try {
-            await stat(assignedSessionFile);
-          } catch (error) {
-            if (error?.code === 'ENOENT') ephemeral = true;
-          }
-        }
+        const ephemeral = await isSessionFileAbsent(assignedSessionFile);
         const releaseResult = await releaseResidentLease({ cwd: targetCwd, sessionId });
         const released = releaseResult?.released === true;
         shutdownRequestedBySession.delete(sessionId);
@@ -1329,16 +1370,7 @@ export function createSessionDaemon({
         // deletion. A confirmed ephemeral expiration clears the same safe
         // per-session auxiliary state as explicit deletion where
         // applicable (aliases, retry/compaction/run-start/shutdown).
-        if (ephemeral && released) {
-          if (dormantSession?.sessionId === sessionId) dormantSession = undefined;
-          messageEntryAliases.clearSession({ cwd: targetCwd, sessionId });
-          retryStateBySession.delete(sessionId);
-          compactionStateBySession.delete(sessionId);
-          activeRunStartedAt.delete(sessionId);
-          shutdownRequestedBySession.delete(sessionId);
-          publish('session.deleted', {}, sessionId, targetCwd);
-          pendingInput.forgetSession(sessionId);
-        }
+        if (ephemeral && released) forgetEphemeralSession({ cwd: targetCwd, sessionId });
       } catch {
         // A failed disposal retains ownership (registry entry, lease, and
         // global runtime are all still held) and never emits deletion.
