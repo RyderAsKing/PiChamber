@@ -12,7 +12,7 @@ test('preserves updater behavior outside packaged Linux', () => {
 test('rejects packaged Linux execution without a recognized package', () => {
   assert.throws(
     () => assertUpdaterCapability({ platform: 'linux', packaged: true, appImagePath: '' }),
-    /packaged Linux installation.*\.deb\/\.rpm package/,
+    /packaged Linux installation.*\.deb, \.rpm, or \.pacman package/,
   );
 });
 

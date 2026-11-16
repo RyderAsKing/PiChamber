@@ -29,7 +29,7 @@
     "Bun available for sidecar compilation",
     "macOS: Xcode + build tools for notarized packaging",
     "Windows: NSIS installed for installer creation",
-    "Linux: native x64 or arm64 host (no cross-arch packaging); AppImages need FUSE/libfuse2 or APPIMAGE_EXTRACT_AND_RUN=1, while .deb/.rpm packages are recommended for installed desktop use"
+    "Linux: native x64 or arm64 host (no cross-arch packaging); AppImages need FUSE/libfuse2 or APPIMAGE_EXTRACT_AND_RUN=1, while .deb/.rpm/pacman packages are recommended; pacman packages need bsdtar (libarchive-tools) for installed desktop use"
   ],
   "scripts": {
     "dev": "node ./scripts/electron-dev.mjs",
@@ -121,7 +121,8 @@
       "target": [
         "AppImage",
         "deb",
-        "rpm"
+        "rpm",
+        "pacman"
       ],
       "category": "Development",
       "synopsis": "PiChamber desktop application",
@@ -137,6 +138,25 @@
           "StartupWMClass": "pichamber"
         }
       }
+    },
+    "pacman": {
+      "packageName": "pichamber",
+      "fpm": [
+        "--license",
+        "MIT"
+      ],
+      "depends": [
+        "gtk3",
+        "nss",
+        "alsa-lib",
+        "libnotify",
+        "libsecret",
+        "libxss",
+        "libxtst",
+        "at-spi2-core",
+        "util-linux-libs",
+        "xdg-utils"
+      ]
     },
     "appImage": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
