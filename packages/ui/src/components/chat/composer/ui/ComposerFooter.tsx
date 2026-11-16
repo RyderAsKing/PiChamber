@@ -8,6 +8,9 @@
  * send control stays reachable with one thumb, with the attach button
  * immediately to the left of the model and variant pickers in that footer.
  * The mobile attach button opens the shared native picker directly.
+ * Plugin toggles (`composer.toggles`) follow the model controls in the
+ * stacked footer and sit beside Send on phones; the one-line mini-chat pill
+ * has no room.
  */
 
 import React from 'react';
@@ -26,6 +29,8 @@ export interface ComposerFooterProps {
     messageLength: number;
     children?: React.ReactNode;
     leadingExtra?: React.ReactNode;
+    /** `composer.toggles` plugin slot: after the leading controls (stacked footer), beside Send (mobile). */
+    pluginToggles?: React.ReactNode;
     trailingExtra?: React.ReactNode;
     actionsOverride?: React.ReactNode;
 
@@ -71,6 +76,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
         newSessionDraftOpen,
         children,
         leadingExtra,
+        pluginToggles,
         trailingExtra,
         actionsOverride,
         footerPaddingClass,
@@ -136,11 +142,14 @@ export function ComposerFooter(props: ComposerFooterProps) {
                     data-chat-input-footer="true"
                 >
                     <div className="flex w-full items-center justify-between gap-x-1.5">
-                        <div className="composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1" data-no-drawer-swipe="true">
+                        <div className={cn('composer-mobile-actions flex min-w-0 items-center gap-x-2 overflow-x-auto pl-1', pluginToggles ? 'flex-1' : null)} data-no-drawer-swipe="true">
                             {attachments}
                             {leadingExtra ? (
                                 <div
-                                    className={cn('w-max shrink-0', isSending && 'pointer-events-none opacity-60')}
+                                    // With a plugin button beside Send, the strip fills the free
+                                    // space and the model controls shrink to it (ChatInput turns
+                                    // off keepLabels) instead of scrolling a label out of view.
+                                    className={cn(pluginToggles ? 'min-w-0 flex-1' : 'w-max shrink-0', isSending && 'pointer-events-none opacity-60')}
                                     inert={isSending || undefined}
                                 >
                                     {leadingExtra}
@@ -148,6 +157,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             ) : null}
                         </div>
                         <div className="flex min-w-0 shrink-0 items-center justify-end gap-x-1">
+                            {/* Beside Send, outside the scrolling strip, so it never scrolls out of view. */}
+                            {pluginToggles}
                             {trailingExtra}
                             {actions}
                         </div>
@@ -191,7 +202,8 @@ export function ComposerFooter(props: ComposerFooterProps) {
                 )}
                 data-chat-input-footer="true"
             >
-                <div className={cn('flex min-w-0 items-center', footerGapClass)}>
+                {/* Grows only for plugin toggles, which need the free space to measure. */}
+                <div className={cn('flex min-w-0 items-center', pluginToggles ? 'flex-1' : null, footerGapClass)}>
                     {attachments}
                     {leadingExtra ? (
                         <div
@@ -201,6 +213,7 @@ export function ComposerFooter(props: ComposerFooterProps) {
                             {leadingExtra}
                         </div>
                     ) : null}
+                    {pluginToggles}
                 </div>
                 <div className={cn('flex flex-shrink-0 items-center', footerGapClass)}>
                     {trailingExtra}

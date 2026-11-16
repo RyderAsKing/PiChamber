@@ -38,20 +38,25 @@ function WidthReservedText({
   prefix = '',
   className,
   truncateAt,
+  reserve = true,
 }: {
   options: ReadonlyArray<PiThinkingLevel | undefined>;
   value: string;
   prefix?: string;
   className?: string;
   truncateAt?: number;
+  /** Size to the longest option. Off, it hugs the current label. */
+  reserve?: boolean;
 }) {
   const truncate = (label: string) => {
     if (truncateAt == null || label.length <= truncateAt) return label;
     return `${label.slice(0, truncateAt)}...`;
   };
   return (
-    <span className={cn('grid min-w-0 justify-items-start', className)}>
-      {options.map((option) => (
+    // `minmax(0, 1fr)` lets the column shrink with the control, so a squeezed
+    // label truncates with an ellipsis instead of being clipped.
+    <span className={cn('grid min-w-0 grid-cols-[minmax(0,1fr)] justify-items-start', className)}>
+      {reserve ? options.map((option) => (
         <span
           key={optionKey(option)}
           className="invisible col-start-1 row-start-1 overflow-hidden whitespace-nowrap"
@@ -59,8 +64,8 @@ function WidthReservedText({
         >
           {prefix}{truncate(thinkingLevelLabel(option))}
         </span>
-      ))}
-      <span className="col-start-1 row-start-1 truncate">{prefix}{truncate(value)}</span>
+      )) : null}
+      <span className="col-start-1 row-start-1 max-w-full truncate">{prefix}{truncate(value)}</span>
     </span>
   );
 }
@@ -318,6 +323,9 @@ export function ThinkingLevelControl({
       onClick={compact ? onCompactOpen : undefined}
       className={cn(
         'model-controls__variant-trigger flex items-center gap-1.5 min-w-0',
+        // On phones the short level label stays whole; the model name beside
+        // it truncates (and scrolls) first when the footer is tight.
+        isMobile && 'shrink-0',
         buttonHeight,
         'cursor-pointer hover:bg-transparent hover:opacity-70',
         compact ? 'transition-opacity focus:outline-none' : 'transition-opacity',
@@ -325,10 +333,14 @@ export function ThinkingLevelControl({
       aria-label={`Thinking: ${displayLabel}`}
     >
       <Icon name="brain-ai-3" className={cn(iconSize, 'flex-shrink-0', colorClass)} />
+      {/* The label keeps the longest option's width only while the slider is
+          open, so the popover stays put while dragging; closed, it hugs the
+          label so controls after it (plugin toggles) keep an even gap. */}
       <WidthReservedText
         options={labelOptions}
         value={displayLabel}
         truncateAt={variantTruncateAt}
+        reserve={open}
         className={cn(
           'model-controls__variant-label',
           textSize,
