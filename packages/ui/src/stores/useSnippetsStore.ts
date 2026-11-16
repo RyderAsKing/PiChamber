@@ -16,6 +16,8 @@ interface SnippetDraft {
 
 interface SnippetsStore {
   snippets: Snippet[];
+  /** Server path of the snippets file, from the last list response; null until known. */
+  snippetsFile: string | null;
   isLoading: boolean;
   selectedSnippetId: string | null;
   activeCacheKey: string;
@@ -118,6 +120,7 @@ export const useSnippetsStore = create<SnippetsStore>()(
   devtools(
     (set, get) => ({
       snippets: [],
+      snippetsFile: null,
       isLoading: false,
       selectedSnippetId: null,
       activeCacheKey: "",
@@ -129,7 +132,7 @@ export const useSnippetsStore = create<SnippetsStore>()(
         inFlightByKey.clear();
         snippetsByKey.clear();
         revisionByKey.clear();
-        set({ snippets: [], isLoading: false, selectedSnippetId: null, activeCacheKey: "", snippetDraft: null });
+        set({ snippets: [], snippetsFile: null, isLoading: false, selectedSnippetId: null, activeCacheKey: "", snippetDraft: null });
       },
       loadSnippets: async (directory?: string) => {
         const runtimeKey = getRuntimeKey();
@@ -155,6 +158,12 @@ export const useSnippetsStore = create<SnippetsStore>()(
               runtimeKey,
             });
             if (getRuntimeKey() !== runtimeKey) return false;
+            set({
+              snippetsFile:
+                typeof response.file === "string" && response.file.length > 0
+                  ? response.file
+                  : null,
+            });
             if ((revisionByKey.get(cacheKey) ?? 0) !== requestRevision) {
               set((state) =>
                 state.activeCacheKey === cacheKey ? { isLoading: false } : state,
