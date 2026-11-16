@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createOpenUrlIntake } from '../../open-url/intake.js';
@@ -91,6 +91,18 @@ const waitForFile = async (path, timeoutMs = 60_000) => {
   throw new Error(`Timed out waiting for ${path}`);
 };
 
+// The test's HOME holds nono's state folder (~/.local/state/nono), which
+// nono refuses to start inside a folder its profile grants. macOS's temp
+// folder sits under /private/var, which nono's macOS system group grants, so
+// on macOS the test works under the real home, as a real home would be.
+const testRootParent = process.platform === 'darwin' ? homedir() : tmpdir();
+const roots = [];
+const makeRoot = async () => {
+  const root = await mkdtemp(join(testRootParent, process.platform === 'darwin' ? '.pichamber-nono-e2e-' : 'pichamber-nono-e2e-'));
+  roots.push(root);
+  return root;
+};
+
 describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
   let supervisor;
   let intake;
@@ -100,10 +112,12 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     intake = undefined;
     await supervisor?.stop().catch(() => {});
     supervisor = undefined;
+    // Kept on failure in CI, whose log step reads the daemon logs.
+    if (!process.env.CI) await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
   it('lets a turn\'s bash tool write in the project and denies everything outside it', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-nono-e2e-'));
+    const root = await makeRoot();
     const home = join(root, 'home');
     const agentDir = join(home, '.pi', 'agent');
     const dataDir = join(root, 'data');
@@ -196,7 +210,7 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
   }, 120_000);
 
   it('keys its session lease on the real agent folder and reaches its own Open request intake', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-nono-e2e-'));
+    const root = await makeRoot();
     const home = join(root, 'home');
     const agentDir = join(home, '.pi', 'agent');
     const dataDir = join(root, 'data');

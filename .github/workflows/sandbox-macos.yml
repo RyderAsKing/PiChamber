@@ -69,7 +69,7 @@ jobs:
       - name: Show the sandbox daemon logs
         if: failure()
         run: |
-          find "${TMPDIR:-/tmp}" /tmp -path '*pichamber-nono-e2e-*/logs/*.log' 2>/dev/null | while read -r log; do
+          find "$HOME" -maxdepth 4 -path '*pichamber-nono-e2e-*/logs/*.log' 2>/dev/null | while read -r log; do
             echo "::group::$log"
             tail -n 80 "$log"
             echo "::endgroup::"
