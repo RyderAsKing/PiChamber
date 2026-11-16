@@ -5,13 +5,15 @@ import { Icon } from '@/components/icon/Icon';
 import { toast } from '@/components/ui';
 import { Button } from '@/components/ui/button';
 import { copyTextToClipboard } from '@/lib/clipboard';
-import { saveServerBrowserDownload, saveServerBrowserDownloadToServer } from '@/lib/serverBrowser/api';
+import { fetchServerBrowserDownload, isUserActivationError, saveServerBrowserDownloadToServer, saveServerBrowserFile } from '@/lib/serverBrowser/api';
 import { downloadStatusText, formatDownloadBytes } from '@/lib/serverBrowser/downloads';
 import type { ServerBrowserDownload } from '@/lib/serverBrowser/protocol';
 
 type DeviceSave =
   | { state: 'saving'; receivedBytes: number; totalBytes: number }
   | { state: 'saved' }
+  /** Fetched, but the share sheet wants a fresh tap. */
+  | { state: 'ready'; blob: Blob }
   | { state: 'failed' };
 
 const ProgressBar: React.FC<{ fraction: number | null; label: string }> = ({ fraction, label }) => {
@@ -53,6 +55,8 @@ const DownloadRow: React.FC<{
       : 'Copying to this device';
   } else if (done && download.savedPath) {
     status = `Saved on the server: ${download.savedPath}`;
+  } else if (done && deviceSave?.state === 'ready') {
+    status = 'Copied to this device. Tap Share to save it.';
   } else if (done && deviceSave?.state === 'saved') {
     status = `${status} · Saved to this device`;
   }
@@ -94,14 +98,13 @@ const DownloadRow: React.FC<{
           <div className="-ml-1.5 flex flex-wrap items-center gap-1">
             <Button type="button" variant="ghost" size="xs" disabled={copying} onClick={onSaveToDevice}>
               <Icon name="download" className="size-3.5" />
-              {'Save to this device'}
+              {deviceSave?.state === 'ready' ? 'Share' : 'Save to this device'}
             </Button>
-            {download.savedPath ? null : (
-              <Button type="button" variant="ghost" size="xs" disabled={savingToServer} onClick={onSaveToServer} title="Copy it into the Downloads folder on the server">
-                <Icon name="server" className="size-3.5" />
-                {savingToServer ? 'Saving...' : 'Save to server'}
-              </Button>
-            )}
+            {/* Stays offered: the saved copy may have been moved or deleted, and the server makes a new one then. */}
+            <Button type="button" variant="ghost" size="xs" disabled={savingToServer} onClick={onSaveToServer} title="Copy it into the Downloads folder on the server">
+              <Icon name="server" className="size-3.5" />
+              {savingToServer ? 'Saving...' : 'Save to server'}
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -136,17 +139,39 @@ export const ServerBrowserDownloads: React.FC<{
 
   const setDeviceSave = (id: string, next: DeviceSave) => setDeviceSaves((current) => ({ ...current, [id]: next }));
 
-  const saveToDevice = async (download: ServerBrowserDownload) => {
-    setDeviceSave(download.id, { state: 'saving', receivedBytes: 0, totalBytes: download.totalBytes });
+  const share = async (download: ServerBrowserDownload, blob: Blob) => {
     try {
-      const result = await saveServerBrowserDownload(download.id, download.filename, {
-        onProgress: (receivedBytes, totalBytes) => setDeviceSave(download.id, { state: 'saving', receivedBytes, totalBytes }),
-      });
-      setDeviceSave(download.id, result === 'cancelled' ? { state: 'failed' } : { state: 'saved' });
+      const result = await saveServerBrowserFile(blob, download.filename);
+      setDeviceSave(download.id, result === 'cancelled' ? { state: 'ready', blob } : { state: 'saved' });
     } catch (error) {
+      if (isUserActivationError(error)) {
+        setDeviceSave(download.id, { state: 'ready', blob });
+        return;
+      }
       setDeviceSave(download.id, { state: 'failed' });
       toast.error(error instanceof Error ? error.message : `Could not save ${download.filename} to this device`);
     }
+  };
+
+  const saveToDevice = async (download: ServerBrowserDownload) => {
+    const current = deviceSaves[download.id];
+    // Already fetched: this tap is the fresh one the share sheet needs.
+    if (current?.state === 'ready') {
+      await share(download, current.blob);
+      return;
+    }
+    setDeviceSave(download.id, { state: 'saving', receivedBytes: 0, totalBytes: download.totalBytes });
+    let blob: Blob;
+    try {
+      blob = await fetchServerBrowserDownload(download.id, download.filename, {
+        onProgress: (receivedBytes, totalBytes) => setDeviceSave(download.id, { state: 'saving', receivedBytes, totalBytes }),
+      });
+    } catch (error) {
+      setDeviceSave(download.id, { state: 'failed' });
+      toast.error(error instanceof Error ? error.message : `Could not save ${download.filename} to this device`);
+      return;
+    }
+    await share(download, blob);
   };
 
   const saveToServer = async (download: ServerBrowserDownload) => {

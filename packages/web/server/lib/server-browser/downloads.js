@@ -46,6 +46,8 @@ export const createDownloadStore = ({
   const downloads = new Map();
   // Chrome downloads not yet paired with an entry, by Chrome's guid.
   const unpaired = new Map();
+  // Save to server in progress, by download id, shared by overlapping calls.
+  const savingToServer = new Map();
   let dirPromise = null;
   let disposed = false;
 
@@ -102,6 +104,8 @@ export const createDownloadStore = ({
       const [oldest] = downloads.values();
       downloads.delete(oldest.id);
       clearTimeout(oldest.progressTimer);
+      // Its viewers drop the row: nothing can be saved from it any more.
+      broadcast(oldest.tabKey, { type: 'download-removed', id: oldest.id });
       if (oldest.state === 'inProgress') void oldest.download?.cancel().catch(() => {});
       removeFiles(oldest);
     }
@@ -161,6 +165,27 @@ export const createDownloadStore = ({
       await download.delete().catch(() => {});
     }
     if (downloads.get(entry.id) === entry) send(entry);
+  };
+
+  const saveCopy = async (id) => {
+    const entry = downloads.get(id);
+    if (!entry || entry.state !== 'completed' || !entry.path) return null;
+    if (entry.savedPath && fs.existsSync(entry.savedPath)) return { path: entry.savedPath };
+    const dir = serverDownloadsDir();
+    await fs.promises.mkdir(dir, { recursive: true });
+    for (let n = 0; n < MAX_NAME_ATTEMPTS; n += 1) {
+      const target = path.join(dir, numberedName(entry.filename, n));
+      try {
+        await fs.promises.copyFile(entry.path, target, fs.constants.COPYFILE_EXCL);
+      } catch (error) {
+        if (error?.code === 'EEXIST') continue;
+        throw error;
+      }
+      entry.savedPath = target;
+      if (downloads.get(id) === entry) send(entry);
+      return { path: target };
+    }
+    throw new Error(`${entry.filename} and its numbered names are all taken in ${dir}`);
   };
 
   return {
@@ -248,25 +273,12 @@ export const createDownloadStore = ({
      * its own name (numbered when taken) and returns where. A second call
      * returns the same copy while it exists.
      */
-    async saveToServer(id) {
-      const entry = downloads.get(id);
-      if (!entry || entry.state !== 'completed' || !entry.path) return null;
-      if (entry.savedPath && fs.existsSync(entry.savedPath)) return { path: entry.savedPath };
-      const dir = serverDownloadsDir();
-      await fs.promises.mkdir(dir, { recursive: true });
-      for (let n = 0; n < MAX_NAME_ATTEMPTS; n += 1) {
-        const target = path.join(dir, numberedName(entry.filename, n));
-        try {
-          await fs.promises.copyFile(entry.path, target, fs.constants.COPYFILE_EXCL);
-        } catch (error) {
-          if (error?.code === 'EEXIST') continue;
-          throw error;
-        }
-        entry.savedPath = target;
-        if (downloads.get(id) === entry) send(entry);
-        return { path: target };
-      }
-      throw new Error(`${entry.filename} and its numbered names are all taken in ${dir}`);
+    saveToServer(id) {
+      const pending = savingToServer.get(id);
+      if (pending) return pending;
+      const saving = saveCopy(id).finally(() => savingToServer.delete(id));
+      savingToServer.set(id, saving);
+      return saving;
     },
 
     /** The downloads of `tabKey`, oldest first, as viewer messages. */

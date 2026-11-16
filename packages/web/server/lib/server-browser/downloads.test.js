@@ -133,4 +133,39 @@ describe('server browser downloads', () => {
     expect(safeFileName('../../etc/passwd')).toBe('passwd');
     expect(safeFileName('a:b?.txt')).toBe('a_b_.txt');
   });
+
+  it('shares one copy between overlapping Save to server calls', async () => {
+    const download = fakeDownload();
+    const done = store.add('tab-a', download);
+    download.finish();
+    await done;
+    const { id, path: tempPath } = sent.at(-1);
+
+    const [first, second] = await Promise.all([store.saveToServer(id), store.saveToServer(id)]);
+    expect(first).toEqual({ path: path.join(serverDownloads, 'report.pdf') });
+    expect(second).toEqual(first);
+    expect(fs.readdirSync(serverDownloads)).toEqual(['report.pdf']);
+    // The temp copy stays for Save to this device.
+    expect(fs.existsSync(tempPath)).toBe(true);
+  });
+
+  it('tells viewers when an old download is dropped', async () => {
+    const first = fakeDownload();
+    const firstDone = store.add('tab-a', first);
+    first.finish();
+    await firstDone;
+    const { id: oldestId, path: oldestPath } = sent.at(-1);
+
+    const later = [];
+    for (let n = 0; n < 50; n += 1) {
+      const download = fakeDownload({ url: `https://files.example/${n}`, filename: `file-${n}.txt` });
+      later.push(store.add('tab-a', download));
+      download.finish();
+    }
+    await Promise.all(later);
+
+    expect(sent).toContainEqual({ key: 'tab-a', type: 'download-removed', id: oldestId });
+    expect(store.get(oldestId)).toBeNull();
+    await expect.poll(() => fs.existsSync(oldestPath)).toBe(false);
+  });
 });

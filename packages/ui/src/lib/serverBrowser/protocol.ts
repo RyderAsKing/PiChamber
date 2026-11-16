@@ -82,6 +82,8 @@ export type ServerBrowserMessage =
   /** The page opened a popup for this device to show; claim it with `id`. */
   | { type: 'popup'; id: string }
   | ({ type: 'download' } & ServerBrowserDownload)
+  /** The server dropped this download (only the newest are kept); its file is gone. */
+  | { type: 'download-removed'; id: string }
   | { type: 'inspect-hover'; requestId: number; target: PreviewElementMetadata | null }
   | { type: 'inspect-pick'; requestId: number; target: PreviewElementMetadata | null; screenshot: ServerBrowserScreenshot | null }
   | { type: 'unavailable'; status: ServerBrowserStatus; message?: string };

@@ -96,15 +96,14 @@ export const uploadServerBrowserFile = async (file: File): Promise<string> => {
 type DownloadProgress = (receivedBytes: number, totalBytes: number) => void;
 
 /**
- * Copies a finished download from the server to this device: a download
- * on the web and desktop, the share sheet on mobile. `onProgress` follows
- * the transfer from the server.
+ * Fetches a finished download from the server to this device, for
+ * `saveServerBrowserFile`. `onProgress` follows the transfer.
  */
-export const saveServerBrowserDownload = async (
+export const fetchServerBrowserDownload = async (
   id: string,
   filename: string,
   { onProgress, signal }: { onProgress?: DownloadProgress; signal?: AbortSignal } = {},
-): Promise<NativeFileSaveResult> => {
+): Promise<Blob> => {
   // A signal also keeps runtimeFetch from sharing (and so copying) the body.
   const response = await runtimeFetch(`/api/server-browser/downloads/${encodeURIComponent(id)}`, { signal: signal ?? new AbortController().signal });
   if (!response.ok) throw await readError(response, `Could not download ${filename}`);
@@ -127,8 +126,21 @@ export const saveServerBrowserDownload = async (
   } else {
     blob = await response.blob();
   }
-  return saveOrShareFile({ filename, mimeType: type, data: blob });
+  return blob;
 };
+
+/**
+ * Saves a fetched download on this device: a download on the web and
+ * desktop, the share sheet on mobile. The share sheet needs a recent tap;
+ * after a long transfer it may refuse (`isUserActivationError`), and the
+ * caller offers a Share button to try again on a fresh tap.
+ */
+export const saveServerBrowserFile = (blob: Blob, filename: string): Promise<NativeFileSaveResult> =>
+  saveOrShareFile({ filename, mimeType: blob.type || undefined, data: blob });
+
+/** The share sheet refused because the tap that asked for it was too long ago. */
+export const isUserActivationError = (error: unknown): boolean =>
+  error instanceof Error && (error.name === 'NotAllowedError' || error.message.includes('NotAllowedError'));
 
 /** Copies a finished download into the server's Downloads folder; returns where. */
 export const saveServerBrowserDownloadToServer = async (id: string): Promise<string> => {

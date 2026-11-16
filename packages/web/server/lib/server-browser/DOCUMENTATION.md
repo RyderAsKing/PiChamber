@@ -77,8 +77,9 @@ per-run directory in the system temp directory (see Downloads below).
   `Content-Length`.
 - `POST /api/server-browser/downloads/:id/save-to-server`: copies a finished
   download into `~/Downloads` on the server under its own name (`name (1).ext`
-  when taken) and returns `{ path }`; again returns the same copy while it
-  exists.
+  when taken) and returns `{ path }`. Overlapping calls share one copy, and a
+  later call returns the same copy while it exists. The temp copy stays, so
+  Save to this device keeps working.
 - `GET /api/server-browser/dev-servers?directory=`: web servers on the
   server, the project's own first. Each entry has the port, page title,
   process name, and whether the process runs inside `directory`; never
@@ -127,7 +128,7 @@ a desktop browser.
 
 Text messages from the server: `state` (address, title, loading, history,
 crashed), `cursor`, `dialog` / `dialog-closed`, `file-chooser`
-/ `file-chooser-closed`, `download` (see Downloads), `clipboard`, `inspect-hover`,
+/ `file-chooser-closed`, `download` and `download-removed` (see Downloads), `clipboard`, `inspect-hover`,
 `inspect-pick`, `notice`, `popup` (`id`, a page opened a popup for this
 device to show), and `unavailable`.
 
@@ -247,8 +248,10 @@ reopens the tab at its last address.
   waits at `<tmp>/pichamber-downloads-<random>/<id>/<filename>` (directories
   owner-only, the file `0600`), so the path a viewer copies ends in the real
   name. The temp directory is made on the first download and deleted on
-  shutdown; the index is in memory only. The newest 50 downloads are kept;
-  an older one is canceled or deleted. On Linux `/tmp` is often in memory,
+  shutdown; the index is in memory only. Save to server copies the file and
+  leaves the temp copy in place. The newest 50 downloads are kept; an older
+  one is canceled or deleted, and its viewers get `download-removed` (`id`)
+  so they drop the row. On Linux `/tmp` is often in memory,
   so large downloads use RAM until saved elsewhere.
 
 ## Limits

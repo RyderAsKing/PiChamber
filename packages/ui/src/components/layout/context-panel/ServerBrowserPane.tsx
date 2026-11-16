@@ -241,6 +241,11 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
         }
         return;
       }
+      case 'download-removed':
+        if (typeof message.id !== 'string') return;
+        seenDownloadsRef.current.delete(message.id);
+        setDownloads((current) => current.filter((download) => download.id !== message.id));
+        return;
       case 'inspect-hover': {
         const inspect = inspectRef.current;
         if (message.requestId !== inspect.seq) return;
