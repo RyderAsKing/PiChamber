@@ -1,11 +1,12 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import { MAIN_DAEMON_KEY, publicDaemonStreamId } from '../session-daemon/daemon-pool.js';
 
 import { createOpenUrlIntake } from '../../open-url/intake.js';
-import { findPiSessionJsonlById, getPiSessionDirectory } from '../session-daemon/session-jsonl.js';
+import { findPiSessionJsonlsById, getPiSessionDirectory, readPiSessionJsonlHeader } from '../session-daemon/session-jsonl.js';
+import { readSmallRegularFile } from '../../server/cross-process-lock.js';
 import { createSandboxedPiSessionDaemonSupervisor } from '../session-daemon/supervisor.js';
 import { isAllowedSandboxHost } from './launcher.js';
 import { prepareProjectSandbox } from './project-sandbox.js';
@@ -42,6 +43,7 @@ const OAUTH_MIN_VALIDITY_MS = 30 * 60_000;
 // accepted by the new daemon for this long (see `sendEpochFor`).
 const MOVED_EPOCH_TTL_MS = 2 * 60_000;
 const MOVED_LIMIT = 4096;
+const TRANSCRIPT_PATH_LIMIT = 4096;
 const DRAIN_FAILURE_LIMIT = 3;
 // A draining daemon known to hold a busy session gets longer: a few failed
 // polls must not cut a running turn off.
@@ -72,7 +74,9 @@ const reasonOf = (error) => (error?.code === 'SANDBOX_UNAVAILABLE' ? error.reaso
  */
 const readGitProjectId = async (projectRoot) => {
   try {
-    const id = (await readFile(join(projectRoot, '.git', 'pichamber'), 'utf8')).trim();
+    // The sandboxed agent can put anything at this path: the read follows no
+    // symlink, waits on no FIFO, and takes no more than an id's worth.
+    const id = (await readSmallRegularFile(join(projectRoot, '.git', 'pichamber'), 256)).trim();
     return GIT_PROJECT_ID.test(id) ? id : null;
   } catch {
     return null;
@@ -122,9 +126,12 @@ const effectiveProjectSandbox = (project, settings) => {
 };
 
 
-const isEntryList = (value) => Array.isArray(value) && value.every((item) => item
+const RELEASE_ENTRY_LIMIT = 4096;
+const isEntryList = (value) => Array.isArray(value) && value.length <= RELEASE_ENTRY_LIMIT && value.every((item) => item
   && typeof item.sessionId === 'string' && item.sessionId.length > 0
   && typeof item.directory === 'string' && isAbsolute(item.directory));
+
+const isInside = (parent, child) => child === parent || child.startsWith(parent.endsWith(sep) ? parent : `${parent}${sep}`);
 
 /** Whether a sandboxed turn's error is Pi failing to refresh an OAuth token. */
 const isOAuthRefreshFailure = (message) => typeof message === 'string' && OAUTH_REFRESH_FAILURE.test(message);
@@ -365,9 +372,13 @@ export const createProjectSandboxManager = ({
         return;
       }
       if (typeof result.streamEpoch === 'string' && result.streamEpoch.length > 0) drain.epoch = result.streamEpoch;
-      const stillPending = new Map(result.pending.map((item) => [item.sessionId, item.directory]));
+      // A sandbox daemon's answer is not trusted: it may only speak for
+      // sessions of the folders it is draining. Naming another project's
+      // session would route that session's commands into the sandbox.
+      const released = await ownSessions(drain, result.released);
+      const stillPending = new Map((await ownSessions(drain, result.pending)).map((item) => [item.sessionId, item.directory]));
       const moves = [];
-      for (const item of result.released) {
+      for (const item of released) {
         if (!stillPending.has(item.sessionId)) moves.push([item.sessionId, item.directory]);
       }
       for (const [sessionId, directory] of drain.pending) {
@@ -390,6 +401,24 @@ export const createProjectSandboxManager = ({
     return drain.polling;
   };
 
+  // The items of a draining daemon's answer that are its own to report.
+  // The main daemon is trusted; a sandbox daemon is checked per session,
+  // once (`drain.verified`), against where the server finds the session.
+  const ownSessions = async (drain, items) => {
+    if (!drain.sandboxed) return items;
+    const own = [];
+    for (const item of items) {
+      let verdict = drain.verified.get(item.sessionId);
+      if (verdict === undefined) {
+        verdict = await sessionWithin(drain.directories, item.sessionId, item.directory);
+        drain.verified.set(item.sessionId, verdict);
+        if (!verdict) log('Ignored a session a sandbox daemon reported outside its folders');
+      }
+      if (verdict) own.push(item);
+    }
+    return own;
+  };
+
   const ensureDrainTimer = () => {
     if (drainTimer || stopped) return;
     drainTimer = startTimer(() => {
@@ -404,11 +433,15 @@ export const createProjectSandboxManager = ({
    * the daemon is replaced (setting or config change), which clients do not
    * see as a switch. `sandboxed` says whether the old daemon is a sandbox.
    */
-  const startDrain = async ({ key, runtime, directories, to = null, sandboxed, stop, unregister = false }) => {
+  const startDrain = async ({ key, runtime, directories, to = null, sandboxed, stop, unregister = false, sessionRoots = [] }) => {
     const drain = {
       key,
       runtime,
       directories: [...directories],
+      // Session ids this drain checked (`ownSessions`), and the folders
+      // whose Pi session folders the draining sandbox can write.
+      verified: new Map(),
+      sessionRoots,
       to,
       sandboxed,
       stop,
@@ -463,6 +496,7 @@ export const createProjectSandboxManager = ({
       to,
       sandboxed: true,
       unregister: true,
+      sessionRoots: [{ projectRoot: entry.projectRoot, worktreeRoot: entry.worktreeRoot ?? null }],
       stop: async () => { await Promise.allSettled([supervisor.stop(), intake?.stop()]); },
     });
   };
@@ -474,6 +508,7 @@ export const createProjectSandboxManager = ({
     if (!status.available) throw sandboxUnavailable(status.code);
     if (unacceptedLimits(status).length > 0) throw sandboxUnavailable('SANDBOX_LIMITS_NOT_ACCEPTED');
     if (entry.invalid) throw sandboxUnavailable('INVALID_SANDBOX_SETTING');
+    if (entry.idUnverified) throw sandboxUnavailable('SANDBOX_WORKTREE_IDS_UNREADABLE');
     // The setting this launch is built from, taken before anything waits:
     // one saved meanwhile must not be answered by a daemon holding the old
     // grants (`ensureStarted` compares the key).
@@ -617,13 +652,13 @@ export const createProjectSandboxManager = ({
   // could number (epoch, input state) is dropped, and it is marked
   // read-only so clients commit it as history without live state. Sends
   // still go to the sandbox and fail with SANDBOX_UNAVAILABLE.
-  const readPersisted = async (payload) => {
+  const readPersisted = async (payload, reason) => {
     const main = daemonPool.main();
     if (!main) throw Object.assign(new Error('The Pi session daemon is unavailable.'), { code: 'DAEMON_UNAVAILABLE' });
     const result = await main.request('sessions.readPersisted', payload);
     if (!result || typeof result !== 'object') return result;
     const { streamEpoch: _epoch, inputState: _inputState, ...detail } = result;
-    return { ...detail, readOnly: true };
+    return { ...detail, readOnly: true, ...(REASON_PATTERN.test(reason ?? '') ? { readOnlyReason: reason } : {}) };
   };
 
   const createRuntime = (entry) => ({
@@ -664,7 +699,7 @@ export const createProjectSandboxManager = ({
           supervisor = await ensureStarted(entry);
         } catch (error) {
           if (error?.code !== 'SANDBOX_UNAVAILABLE' || !READ_ONLY_FALLBACK.has(command)) throw error;
-          return await readPersisted(payload);
+          return await readPersisted(payload, error.reason);
         }
         return await supervisor.request(command, payload);
       } finally {
@@ -727,6 +762,7 @@ export const createProjectSandboxManager = ({
       entry.idleSince = entry.idleSince ?? now();
       if (now() - since >= idleStopMs) await stopDaemon(entry);
     }
+    await resumeTrustResets();
     if (trustResets.size > 0 || trustMarks.size > 0) await resetTrust([]);
   };
 
@@ -743,6 +779,20 @@ export const createProjectSandboxManager = ({
   // apart from `trustResets`: retrying the mark must not unset a trust the
   // user gave since.
   const trustMarks = new Set();
+  // The pending resets of an earlier server process are not remembered, but
+  // the trust-ask list is: a folder still on it has had no trust decision
+  // since its sandbox was turned off (a decision removes it), so a stored
+  // "trusted" is from before and is reset again. Read once.
+  let trustListRead = !trustAsk;
+  const resumeTrustResets = async () => {
+    if (trustListRead) return;
+    try {
+      for (const directory of await trustAsk.list()) trustResets.add(directory);
+      trustListRead = true;
+    } catch (error) {
+      log('Could not read the trust resets', error?.code);
+    }
+  };
   const resetTrust = async (directories) => {
     for (const directory of directories) {
       trustResets.add(directory);
@@ -777,6 +827,13 @@ export const createProjectSandboxManager = ({
   const removeEntry = async (entry, { switchOff = true } = {}) => {
     projects.delete(entry.projectId);
     if (entry.starting) await entry.starting.catch(() => {});
+    // Sessions the main daemon was still finishing before they moved into
+    // this sandbox stay where they are: the folder is the main daemon's
+    // again, so nothing is left to wait for.
+    for (const drain of [...drains]) {
+      if (drain.key !== MAIN_DAEMON_KEY || !drain.directories.some((directory) => entry.directories?.includes(directory))) continue;
+      await finishDrain(drain);
+    }
     if (switchOff && !stopped) {
       const worktrees = entry.worktreeRoot ? await listWorktreeDirs(entry.worktreeRoot) : [];
       await resetTrust([entry.projectRoot, ...worktrees]);
@@ -791,10 +848,11 @@ export const createProjectSandboxManager = ({
     await stopDaemon(entry);
   };
 
-  // Whether the pool may be out of line with the stored settings because
-  // the last reconcile failed. Routes refuse Pi-running
-  // commands until a reconcile succeeds (`needsReconcile`).
-  let reconcileFailed = false;
+  // Whether the pool may be out of line with the stored settings: no
+  // reconcile has succeeded yet (the server listens before its first one),
+  // or the last one failed. Routes refuse Pi-running commands until a
+  // reconcile succeeds (`needsReconcile`).
+  let reconcileFailed = true;
   let reconcileChain = Promise.resolve();
 
   const reconcileNow = async () => {
@@ -819,25 +877,46 @@ export const createProjectSandboxManager = ({
       const next = wanted.get(entry.projectId);
       if (!next || next.projectRoot !== entry.projectRoot) await removeEntry(entry);
     }
-    // A project that left the sandbox is the main daemon's again.
-    await recordFolders();
+    const plans = new Map();
     for (const [projectId, next] of wanted) {
-      let entry = projects.get(projectId);
+      const entry = projects.get(projectId);
       // The id is taken from the project's file only the first time it is
       // seen; afterwards the remembered one stands, whatever the file says.
       const fileId = await readGitProjectId(next.projectRoot);
       let gitProjectId;
+      // No remembered id can be had (the record is unreadable or full). The
+      // sandboxed agent can write the file, so its id is used only to keep
+      // those worktrees away from the main daemon; no sandbox starts on it.
+      let idUnverified = false;
       try {
         gitProjectId = await worktreeIds.remember(next.projectRoot, fileId);
       } catch (error) {
         log('Could not read the remembered worktree ids', error?.code);
-        gitProjectId = entry?.gitProjectId ?? fileId;
+        if (entry?.gitProjectId && !entry.idUnverified) {
+          gitProjectId = entry.gitProjectId;
+        } else {
+          gitProjectId = fileId;
+          idUnverified = true;
+        }
       }
       const worktreeRoot = gitProjectId ? join(dataDir, 'worktree', gitProjectId) : null;
       // The project is also owned under its real path, so a symlinked
       // spelling of it cannot route to the main daemon.
       const realRoot = await realpath(next.projectRoot).catch(() => next.projectRoot);
       const directories = [...new Set([next.projectRoot, realRoot, ...(worktreeRoot ? [worktreeRoot] : [])])];
+      plans.set(projectId, { gitProjectId, worktreeRoot, directories, idUnverified });
+    }
+    // Written before anything is registered or drained: a project that left
+    // the sandbox is the main daemon's again, and the main daemon must
+    // already refuse every folder about to be sandboxed, or a request on
+    // its way there could start a runtime the drain below never sees.
+    await folderRecord.set([
+      ...[...projects.values()].flatMap((entry) => entry.directories ?? []),
+      ...[...plans.values()].flatMap((plan) => plan.directories),
+    ]);
+    for (const [projectId, next] of wanted) {
+      let entry = projects.get(projectId);
+      const { gitProjectId, worktreeRoot, directories, idUnverified } = plans.get(projectId);
       const created = !entry;
       if (!entry) {
         // A daemon of this project that is still draining keeps its pool
@@ -868,7 +947,8 @@ export const createProjectSandboxManager = ({
         entry.runtime = createRuntime(entry);
         projects.set(projectId, entry);
       }
-      const changed = entry.settingKey !== settingKey(next.setting) || entry.invalid !== next.invalid;
+      const changed = entry.settingKey !== settingKey(next.setting) || entry.invalid !== next.invalid
+        || Boolean(entry.idUnverified) !== idUnverified;
       Object.assign(entry, {
         setting: next.setting,
         settingKey: settingKey(next.setting),
@@ -876,6 +956,7 @@ export const createProjectSandboxManager = ({
         gitProjectId,
         worktreeRoot,
         directories,
+        idUnverified,
       });
       if (changed) entry.failure = null;
       daemonPool.register(entry.key, { runtime: entry.runtime, directories });
@@ -896,7 +977,9 @@ export const createProjectSandboxManager = ({
     // fails the reconcile, so routes stay closed rather than run a sandboxed
     // project on it.
     await recordFolders();
-    if (projects.size > 0) ensureTimer();
+    await resumeTrustResets();
+    if (trustResets.size > 0) await resetTrust([]);
+    if (projects.size > 0 || trustResets.size > 0 || trustMarks.size > 0 || !trustListRead) ensureTimer();
   };
 
   /**
@@ -966,6 +1049,52 @@ export const createProjectSandboxManager = ({
     return directory;
   };
 
+  // The Pi session folders some sandbox daemon, running or draining, can
+  // write: those of each sandboxed project root and of its worktrees.
+  const sandboxWritableSessionDirs = async (agentDirectory) => {
+    const roots = [
+      ...[...projects.values()].map((entry) => ({ projectRoot: entry.projectRoot, worktreeRoot: entry.worktreeRoot ?? null })),
+      ...[...drains].flatMap((drain) => drain.sessionRoots),
+    ];
+    const dirs = new Set();
+    for (const { projectRoot, worktreeRoot } of roots) {
+      const worktrees = worktreeRoot ? await listWorktreeDirs(worktreeRoot) : [];
+      for (const cwd of [projectRoot, ...worktrees]) dirs.add(getPiSessionDirectory({ cwd, agentDir: agentDirectory }));
+    }
+    return dirs;
+  };
+
+  // Where each session's transcript was last found. Every session request
+  // asks while a project is sandboxed, and a transcript never moves, so the
+  // search through every session folder runs once per session; afterwards
+  // only the header of the remembered file is read. A file that is gone, or
+  // no longer holds the session, is searched for again.
+  const transcriptPaths = new Map();
+  const findTranscript = async (sessionId, agentDirectory) => {
+    const remembered = transcriptPaths.get(sessionId);
+    if (remembered) {
+      try {
+        const header = await readPiSessionJsonlHeader(remembered);
+        if (header.id === sessionId) return { id: sessionId, path: remembered, cwd: header.cwd };
+      } catch {}
+      transcriptPaths.delete(sessionId);
+    }
+    const matches = await findPiSessionJsonlsById({ sessionId, agentDir: agentDirectory });
+    let found = matches[0] ?? null;
+    if (matches.length > 1) {
+      // Session ids are unique, so a second transcript with this id is a
+      // copy something planted. A sandbox can only write its own project's
+      // session folders: a transcript stored anywhere else is the real one.
+      const writable = await sandboxWritableSessionDirs(agentDirectory);
+      found = matches.find((match) => !writable.has(dirname(match.path))) ?? found;
+    }
+    if (found) {
+      transcriptPaths.set(sessionId, found.path);
+      while (transcriptPaths.size > TRANSCRIPT_PATH_LIMIT) transcriptPaths.delete(transcriptPaths.keys().next().value);
+    }
+    return found;
+  };
+
   /**
    * The folder that decides which daemon runs a persisted session, or null
    * when it has no transcript. A transcript stored in a sandboxed project's
@@ -975,7 +1104,7 @@ export const createProjectSandboxManager = ({
    */
   const directoryForSession = async (sessionId) => {
     const agentDirectory = await resolveAgentDir();
-    const found = await findPiSessionJsonlById({ sessionId, agentDir: agentDirectory });
+    const found = await findTranscript(sessionId, agentDirectory);
     if (!found) return null;
     const stored = dirname(found.path);
     for (const entry of projects.values()) {
@@ -987,9 +1116,27 @@ export const createProjectSandboxManager = ({
     return typeof found.cwd === 'string' && isAbsolute(found.cwd) ? found.cwd : null;
   };
 
+  /**
+   * Whether a session belongs to `directories`, by what the server itself
+   * finds: the folder of its transcript, or, for a session not yet written
+   * to disk, the folder it is reported in. Used to check what a sandbox
+   * daemon says about a session (drain answers, event frames).
+   */
+  const sessionWithin = async (directories, sessionId, reportedDirectory) => {
+    let directory = null;
+    try {
+      directory = await directoryForSession(sessionId);
+    } catch {
+      return false;
+    }
+    if (!directory && typeof reportedDirectory === 'string' && isAbsolute(reportedDirectory)) directory = resolve(reportedDirectory);
+    return Boolean(directory) && directories.some((owned) => isInside(owned, directory));
+  };
+
   const availabilityOf = (entry, status) => {
     if (!entry) return { state: 'off' };
     if (entry.invalid) return { state: 'unavailable', reason: 'INVALID_SANDBOX_SETTING' };
+    if (entry.idUnverified) return { state: 'unavailable', reason: 'SANDBOX_WORKTREE_IDS_UNREADABLE' };
     if (status && !status.available) return { state: 'unavailable', reason: status.code };
     if (unacceptedLimits(status).length > 0) return { state: 'unavailable', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' };
     if (entry.failure) return { state: 'unavailable', reason: entry.failure };
@@ -1092,9 +1239,12 @@ export const createProjectSandboxManager = ({
     sessionState: (sessionId, directory) => {
       const drain = pendingBySession.get(sessionId);
       if (drain) {
+        // The switch is to wherever the folder's sessions run now: a project
+        // turned off and on again while a turn runs is no switch at all.
+        const target = sandboxForDirectory(directory) ? 'nono' : 'off';
         return {
           sandboxed: drain.sandboxed,
-          ...(drain.to ? { pendingSwitch: { to: drain.to } } : {}),
+          ...(drain.to && (target === 'nono') !== drain.sandboxed ? { pendingSwitch: { to: target } } : {}),
         };
       }
       return { sandboxed: Boolean(sandboxForDirectory(directory)) };
@@ -1103,6 +1253,17 @@ export const createProjectSandboxManager = ({
      * The daemon still running a session that waits to move: `{ runtime,
      * stream }` (stream undefined for the main daemon), or null.
      */
+    /**
+     * Whether the daemon registered as `key` may report on a session: the
+     * session must belong to a folder that daemon owns or is draining. The
+     * event stream asks before it passes a project daemon's frames on.
+     */
+    sessionOnDaemon: (key, sessionId, directory) => {
+      const folders = new Set();
+      for (const entry of projects.values()) if (entry.key === key) for (const owned of entry.directories ?? []) folders.add(owned);
+      for (const drain of drains) if (drain.key === key) for (const owned of drain.directories) folders.add(owned);
+      return sessionWithin([...folders], sessionId, directory);
+    },
     drainingSession: (sessionId) => {
       const drain = pendingBySession.get(sessionId);
       return drain ? { runtime: drain.runtime, stream: drain.stream } : null;

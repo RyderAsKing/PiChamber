@@ -95,7 +95,10 @@ const writeDaemonError = (res, error) => {
             : 400;
   // A sandbox failure carries the launcher's stable reason code (for
   // example NO_LANDLOCK); never a path or raw launcher output.
-  const reason = code === 'SANDBOX_UNAVAILABLE' && typeof error?.reason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(error.reason)
+  // A session refused while it finishes a turn before changing daemons says
+  // so (`SESSION_SWITCHING`), since `SESSION_IN_USE` otherwise means another
+  // PiChamber instance holds it.
+  const reason = (code === 'SANDBOX_UNAVAILABLE' || code === 'SESSION_IN_USE') && typeof error?.reason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(error.reason)
     ? error.reason
     : undefined;
   res.status(status).json({ error: { code, ...(reason ? { reason } : {}) } });
@@ -470,7 +473,11 @@ const projectSessionDetail = (value) => {
     lifecycle,
     // Read from the transcript on disk while the session's sandbox cannot
     // run: history only, no live state (see the project sandbox manager).
-    ...(value.readOnly === true ? { readOnly: true } : {}),
+    // `readOnlyReason` is why the sandbox cannot run (a stable code).
+    ...(value.readOnly === true ? {
+      readOnly: true,
+      ...(typeof value.readOnlyReason === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(value.readOnlyReason) ? { readOnlyReason: value.readOnlyReason } : {}),
+    } : {}),
     ...projectRunningCommand(lifecycle, value.command),
     ...(retry ? { retry } : {}),
     ...(compaction ? { compaction } : {}),
@@ -1187,7 +1194,7 @@ const DRAINING_SESSION_COMMANDS = new Set([
   'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
 ]);
 
-const sessionInUse = () => Object.assign(new Error('The session is finishing a turn before it switches.'), { code: 'SESSION_IN_USE' });
+const sessionInUse = () => Object.assign(new Error('The session is finishing a turn before it switches.'), { code: 'SESSION_IN_USE', reason: 'SESSION_SWITCHING' });
 
 // The daemon still running a session that waits to switch, or undefined.
 // Marks the response so its stream stamp names that daemon.
@@ -2191,6 +2198,8 @@ export const registerPiRuntimeRoutes = (app, {
           streamEpoch,
           cursor: eventCursor,
           ...(eventStreamRetryBaseMs !== undefined ? { retryBaseMs: eventStreamRetryBaseMs } : {}),
+          // A sandbox daemon only reports on its own project's sessions.
+          ...(sandboxManager?.sessionOnDaemon ? { ownsSession: sandboxManager.sessionOnDaemon } : {}),
           ...handlers,
         }),
         projectFrame: (event) => event,
@@ -2539,16 +2548,19 @@ export const registerPiRuntimeRoutes = (app, {
         ...(typeof body.value === 'string' ? { value: body.value } : {}),
         ...(values ? { values } : {}),
       };
-      let result = await (await daemonForClientDirectory(body.directory)).request('extensions.respond', respondPayload);
       // A dialog from a session still finishing its turn in a daemon that
-      // drains this folder is answered there. Request ids are unique, so
-      // asking each in turn cannot answer the wrong dialog.
-      if (result?.resolved !== true && typeof body.directory === 'string') {
-        for (const { runtime } of daemonPool.drainingFor(body.directory)) {
-          result = await runtime.request('extensions.respond', respondPayload).catch(() => null);
-          if (result?.resolved === true) break;
-        }
+      // drains this folder is answered there, and those daemons are asked
+      // first: the folder's new owner may be a sandbox that is not running
+      // (or cannot start), and it holds no dialog of that session. Request
+      // ids are unique, so asking each in turn cannot answer the wrong
+      // dialog.
+      const respondDirectory = await routeDirectoryFor(body.directory);
+      let result = null;
+      for (const { runtime } of typeof respondDirectory === 'string' ? daemonPool.drainingFor(respondDirectory) : []) {
+        result = await runtime.request('extensions.respond', respondPayload).catch(() => null);
+        if (result?.resolved === true) break;
       }
+      if (result?.resolved !== true) result = await daemonFor(respondDirectory).request('extensions.respond', respondPayload);
       if (!result || typeof result !== 'object' || result.resolved !== true) {
         res.status(404).json({ error: { code: 'EXTENSION_DIALOG_NOT_PENDING' } });
         return;

@@ -17,9 +17,13 @@ const MAX_FOLDERS = 32;
 const REFUSED_PORTS = new Set([80, 443]);
 
 export class ProjectSandboxSettingError extends Error {
-  constructor(code = 'INVALID_SANDBOX_SETTING') {
+  /** `reason` names the part that was refused (`HOSTS`, `PORTS`,
+   *  `REFUSED_PORT`, `FOLDERS`, or `MODE` for a default update that must
+   *  name a mode), so the form can say which to fix. */
+  constructor(reason, code = 'INVALID_SANDBOX_SETTING') {
     super('The project sandbox setting is invalid.');
     this.code = code;
+    if (reason) this.reason = reason;
   }
 }
 
@@ -40,14 +44,21 @@ export const normalizeProjectSandboxSetting = (value) => {
   try {
     network = normalizeNetwork({ mode: 'proxy', allowHosts, allowLocalPorts });
   } catch {
-    throw new ProjectSandboxSettingError();
+    // Find out which list it was, for the reason.
+    let hostsValid = true;
+    try {
+      normalizeNetwork({ mode: 'proxy', allowHosts, allowLocalPorts: [] });
+    } catch {
+      hostsValid = false;
+    }
+    throw new ProjectSandboxSettingError(hostsValid ? 'PORTS' : 'HOSTS');
   }
-  if (network.allowLocalPorts.some((port) => REFUSED_PORTS.has(port))) throw new ProjectSandboxSettingError();
+  if (network.allowLocalPorts.some((port) => REFUSED_PORTS.has(port))) throw new ProjectSandboxSettingError('REFUSED_PORT');
   const folders = new Map();
   for (const folder of extraFolders) {
     if (!folder || typeof folder.path !== 'string' || !isAbsolute(folder.path) || /[\0\n\r]/.test(folder.path)
       || !['read', 'readWrite'].includes(folder.access)) {
-      throw new ProjectSandboxSettingError();
+      throw new ProjectSandboxSettingError('FOLDERS');
     }
     const path = normalize(folder.path).replace(/(.)\/+$/, '$1');
     folders.set(path, { path, access: folder.access });

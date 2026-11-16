@@ -143,6 +143,11 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     const mainCredential = join(dataDir, 'pi', 'daemons', 'web-p3000', 'session-daemon.key');
     await mkdir(join(dataDir, 'pi', 'daemons', 'web-p3000'), { recursive: true });
     await writeFile(mainCredential, 'main-daemon-credential\n');
+    const sharedLeases = join(agentDir, '.pichamber', 'locks', 'sessions');
+    await mkdir(sharedLeases, { recursive: true });
+    // The user's cache folders, so a refused write is the sandbox's doing.
+    await mkdir(join(home, '.cache'), { recursive: true });
+    await mkdir(join(home, 'Library', 'Caches'), { recursive: true });
 
     const env = {
       ...process.env,
@@ -181,6 +186,11 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       check('piSettings', `echo pwn >> ${join(agentDir, 'settings.json')}`),
       check('piExtensions', `mkdir ${join(agentDir, 'extensions', 'evil')}`),
       check('mainCredential', `cat ${mainCredential}`),
+      // Other projects' live session leases.
+      check('sharedLeases', `ls ${sharedLeases}`),
+      // The user's cache folders are not the sandbox's; it has its own.
+      check('userCache', `echo x > "$HOME/.cache/probe" || echo x > "$HOME/Library/Caches/probe"`),
+      check('ownCache', `echo x > "$XDG_CACHE_HOME/probe"`),
       check('unixOutside', `node ${probeFile} unix ${outsideSocket}`),
       check('tcpLoopback', `node ${probeFile} tcp 127.0.0.1:${tcpServer.address().port}`),
       check('tcpGranted', `node ${probeFile} tcp 127.0.0.1:${grantedPort}`),
@@ -202,6 +212,9 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     expect(text).toContain('piSettings=denied');
     expect(text).toContain('piExtensions=denied');
     expect(text).toContain('mainCredential=denied');
+    expect(text).toContain('sharedLeases=denied');
+    expect(text).toContain('userCache=denied');
+    expect(text).toContain('ownCache=allowed');
     expect(text).toContain('tcpLoopback=denied');
     expect(text).toContain('tcpGranted=allowed');
     // The limit a WSL2 owner accepts: the socket is reachable there.
@@ -252,10 +265,12 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     await supervisor.request('sessions.prompt', { sessionId: created.session.id, text: script });
     await waitForFile(results);
 
-    // The main daemon computes the same lease file, so the two exclude each
-    // other on this session.
-    await expect(readSessionLeaseOwner({ agentDir, cwd: project, sessionId: created.session.id }))
+    // The lease sits in the project's own lease folder under the real agent
+    // folder, where a daemon outside the sandbox looks before it takes the
+    // session.
+    await expect(readSessionLeaseOwner({ agentDir, cwd: project, sessionId: created.session.id, scope: sandbox.leaseScope }))
       .resolves.toMatchObject({ profileKey: supervisor.paths.profileKey });
+    await expect(readSessionLeaseOwner({ agentDir, cwd: project, sessionId: created.session.id })).resolves.toBeNull();
     expect(published).toContainEqual(expect.objectContaining({ url: 'https://example.test/from-sandbox' }));
   }, 120_000);
 });

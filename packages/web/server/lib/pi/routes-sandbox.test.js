@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -108,7 +110,7 @@ const PI_RUNNING = [
   ['GET', '/api/pi/resources?directory=DIR'],
 ];
 
-const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, onStart, idleStopMs = 60_000, agentFiles = {} } = {}) => {
+const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, onStart, idleStopMs = 60_000, agentFiles = {}, beforeReconcile } = {}) => {
   const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
   const dataDir = join(root, 'data');
   const agentDir = join(root, 'agent');
@@ -171,6 +173,7 @@ const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}
       return daemon;
     },
   });
+  await beforeReconcile?.({ trustAsk, projectA, projectB });
   await manager.reconcile();
 
   const app = express();
@@ -290,6 +293,27 @@ describe('Pi routes for sandboxed projects', () => {
     expect(created.session.sandboxed).toBe(true);
   });
 
+  it('keeps routing a session by its transcript after the file was first found, and follows it when it is gone', async () => {
+    const ctx = await setup({ probe: { available: false, code: 'NOT_INSTALLED' } });
+    await ctx.sandboxOn();
+    const sessions = getPiSessionDirectory({ cwd: ctx.projectA, agentDir: ctx.agentDir });
+    await mkdir(sessions, { recursive: true });
+    const file = join(sessions, '2026-01-01_s-9.jsonl');
+    await writeFile(file, `${JSON.stringify({ type: 'session', id: 's-9', cwd: ctx.projectA, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      expect((await ctx.call('/api/pi/sessions/s-9/tree')).status).toBe(503);
+    }
+    // The file now holds another session: s-9 has no transcript, so the
+    // request's own folder decides.
+    await writeFile(file, `${JSON.stringify({ type: 'session', id: 's-other', cwd: ctx.projectA, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+    expect(ctx.main.commands()).not.toContain('sessions.tree');
+    await ctx.call(`/api/pi/sessions/s-9/tree?directory=${ctx.projectB}`);
+    expect(ctx.main.commands().filter((command) => command === 'sessions.tree')).toHaveLength(1);
+    await rm(file);
+    await ctx.call(`/api/pi/sessions/s-9/tree?directory=${ctx.projectB}`);
+    expect(ctx.main.commands().filter((command) => command === 'sessions.tree')).toHaveLength(2);
+  });
+
   it('fails closed: an unavailable launcher answers SANDBOX_UNAVAILABLE for every Pi-running command and never uses the main daemon', async () => {
     const ctx = await setup({
       probe: { available: false, code: 'NO_LANDLOCK' },
@@ -322,7 +346,7 @@ describe('Pi routes for sandboxed projects', () => {
       const body = await read.json();
       // Metadata only: no epoch or input state, the project's stream named,
       // and the row still sandboxed (a send fails with SANDBOX_UNAVAILABLE).
-      expect(body).toMatchObject({ readOnly: true, lastSequence: -1, lifecycle: 'idle', session: { id: 's-1' } });
+      expect(body).toMatchObject({ readOnly: true, readOnlyReason: 'NO_LANDLOCK', lastSequence: -1, lifecycle: 'idle', session: { id: 's-1' } });
       if (path === '/api/pi/sessions/s-1') expect(body.session.sandboxed).toBe(true);
       expect(body.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
       expect(body).not.toHaveProperty('streamEpoch');
@@ -494,8 +518,12 @@ describe('Pi routes for sandboxed projects', () => {
     const body = JSON.stringify(listed);
     expect(body).not.toContain(ctx.root);
 
-    expect((await ctx.sandboxOn('proj-a', { allowLocalPorts: [443] })).status).toBe(400);
-    expect((await ctx.sandboxOn('proj-a', { mode: 'docker' })).status).toBe(400);
+    const refusedPort = await ctx.sandboxOn('proj-a', { allowLocalPorts: [443] });
+    expect(refusedPort.status).toBe(400);
+    expect(await refusedPort.json()).toEqual({ error: { code: 'INVALID_SANDBOX_SETTING', reason: 'REFUSED_PORT' } });
+    const unknownMode = await ctx.sandboxOn('proj-a', { mode: 'docker' });
+    expect(unknownMode.status).toBe(400);
+    expect(await unknownMode.json()).toEqual({ error: { code: 'INVALID_SANDBOX_SETTING' } });
     expect((await ctx.sandboxOn('missing')).status).toBe(404);
   });
 
@@ -719,7 +747,7 @@ describe('switching a project between daemons', () => {
     // New work for it is refused until it has moved.
     const prompt = await ctx.call('/api/pi/sessions/s-busy/prompt', { method: 'POST', body: { directory: ctx.projectA, text: 'more', streamEpoch: 'epoch-main' } });
     expect(prompt.status).toBe(409);
-    expect(await prompt.json()).toEqual({ error: { code: 'SESSION_IN_USE' } });
+    expect(await prompt.json()).toEqual({ error: { code: 'SESSION_IN_USE', reason: 'SESSION_SWITCHING' } });
     expect(ctx.main.commands()).not.toContain('sessions.prompt');
 
     // Its turn ends; the next drain check moves it.
@@ -776,12 +804,80 @@ describe('switching a project between daemons', () => {
 
     busy = false;
     await ctx.tick(1_000);
+    // The server checks the released session against its transcripts first.
+    await waitFor(() => ctx.pool.live().length === 1);
     expect(box.stopped).toBe(true);
     expect(ctx.intakes[0].stopped).toBe(true);
     expect(ctx.pool.live().map((d) => d.key)).toEqual(['main']);
     const moved = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
     expect(moved.session.sandboxed).toBeUndefined();
     expect(moved.session.pendingSwitch).toBeUndefined();
+  });
+
+  it('answers a dialog of a session still finishing in the main daemon without starting the sandbox', async () => {
+    // Turned on while s-busy shows a dialog in the main daemon, on a host
+    // where nono cannot run: the answer must reach the main daemon, or the
+    // session could never end its turn.
+    const ctx = await setup({
+      probe: { available: false, code: 'NOT_INSTALLED' },
+      mainAnswers: {
+        'sessions.release': (p) => ({ released: [], pending: [{ sessionId: 's-busy', directory: p.directories[0] }], streamEpoch: 'epoch-main' }),
+        'extensions.respond': (p) => ({ resolved: p.requestId === 'dialog-in-main' }),
+      },
+    });
+    await ctx.sandboxOn();
+    const respond = await ctx.call('/api/pi/extensions/respond', { method: 'POST', body: { requestId: 'dialog-in-main', directory: ctx.projectA, cancelled: true } });
+    expect(respond.status).toBe(204);
+    expect(ctx.launched).toEqual([]);
+    // A dialog nobody holds is still asked of the folder's owner, which
+    // fails closed.
+    const other = await ctx.call('/api/pi/extensions/respond', { method: 'POST', body: { requestId: 'unknown', directory: ctx.projectA, cancelled: true } });
+    expect(other.status).toBe(503);
+  });
+
+  it('turning a project off again while its session still runs in the main daemon leaves the session there', async () => {
+    const ctx = await setup({
+      mainAnswers: {
+        'sessions.release': (p) => ({ released: [], pending: [{ sessionId: 's-busy', directory: p.directories[0] }], streamEpoch: 'epoch-main' }),
+      },
+    });
+    await ctx.sandboxOn();
+    expect((await (await ctx.call(`/api/pi/sessions/s-busy?directory=${ctx.projectA}`)).json()).session.pendingSwitch).toEqual({ to: 'nono' });
+    ctx.moves.length = 0;
+
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    // Clients refetch it: it no longer waits to switch, and takes new work.
+    expect(ctx.moves).toEqual([['s-busy', ctx.projectA]]);
+    expect(ctx.pool.drainingFor(ctx.projectA)).toEqual([]);
+    const detail = await (await ctx.call(`/api/pi/sessions/s-busy?directory=${ctx.projectA}`)).json();
+    expect(detail.session.pendingSwitch).toBeUndefined();
+    expect(detail.session.sandboxed).toBeUndefined();
+    const followUp = await ctx.call('/api/pi/sessions/s-busy/follow-up', { method: 'POST', body: { directory: ctx.projectA, text: 'more', streamEpoch: 'epoch-main' } });
+    expect(followUp.status).not.toBe(409);
+    expect(ctx.main.commands()).toContain('sessions.followUp');
+    // The main daemon is not asked to release the folder any more.
+    const releases = ctx.main.calls.filter((c) => c.command === 'sessions.release').length;
+    await ctx.tick(1_000);
+    expect(ctx.main.calls.filter((c) => c.command === 'sessions.release')).toHaveLength(releases);
+  });
+
+  it('turning a project on again while its session still runs in the old sandbox shows no switch', async () => {
+    const ctx = await setup({
+      sandboxAnswers: {
+        'sessions.release': (p) => ({ released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-box' }),
+      },
+    });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    expect((await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json()).session).toMatchObject({ sandboxed: true, pendingSwitch: { to: 'off' } });
+
+    await ctx.sandboxOn();
+    const detail = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
+    expect(detail.session.sandboxed).toBe(true);
+    expect(detail.session.pendingSwitch).toBeUndefined();
+    // It is still served by the daemon running it.
+    expect(detail.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
   });
 
   it('records the trust reset on a later check when the first write fails, without unsetting trust again', async () => {
@@ -878,6 +974,7 @@ describe('switching a project between daemons', () => {
     const saved = await ctx.call('/api/pi/providers/local/models', { method: 'PUT', body: { models: [] } });
     expect(saved.status).toBe(200);
     await waitFor(() => first.commands().includes('sessions.release'));
+    await waitFor(() => ctx.manager.drainingSession('s-1'));
     // The busy session finishes in the old daemon; it is not a mode switch.
     expect(first.stopped).toBe(false);
     const detail = await (await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).json();
@@ -1120,6 +1217,89 @@ describe('keeping a sandboxed project owned', () => {
     await writeFile(join(sessions, `2026-01-01_${id}.jsonl`), `${JSON.stringify({ type: 'session', id, cwd: headerCwd, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
   };
 
+  const until = async (predicate) => {
+    for (let attempt = 0; attempt < 400 && !await predicate(); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  };
+
+  // A sandbox daemon is not trusted to say which sessions are its own.
+  it('ignores another project\'s session in a draining sandbox daemon\'s answer', async () => {
+    let busy = true;
+    const ctx = await setup({
+      sandboxAnswers: {
+        'sessions.release': (p) => ({
+          released: [],
+          // s-1 is its own; s-b belongs to the unsandboxed project B, and
+          // the daemon claims it runs in its own folder.
+          pending: busy
+            ? [{ sessionId: 's-1', directory: p.directories[0] }, { sessionId: 's-b', directory: p.directories[0] }]
+            : [{ sessionId: 's-b', directory: p.directories[0] }],
+          streamEpoch: 'epoch-box',
+        }),
+      },
+    });
+    await transcript(ctx, ctx.projectB, 's-b', ctx.projectB);
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    await until(() => ctx.manager.drainingSession('s-1'));
+
+    expect(ctx.manager.drainingSession('s-b')).toBeNull();
+    expect(await ctx.manager.sessionOnDaemon('sandbox:proj-a', 's-b', ctx.projectA)).toBe(false);
+    expect(await ctx.manager.sessionOnDaemon('sandbox:proj-a', 's-1', ctx.projectA)).toBe(true);
+    // Project B's session still runs in the main daemon.
+    await ctx.call('/api/pi/sessions/s-b/prompt', { method: 'POST', body: { directory: ctx.projectB, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.main.commands()).toContain('sessions.prompt');
+    expect(ctx.launched[0].commands()).not.toContain('sessions.prompt');
+
+    // The claim does not keep the drain open either.
+    busy = false;
+    await ctx.tick(1_000);
+    await until(() => ctx.pool.live().length === 1);
+    expect(ctx.launched[0].stopped).toBe(true);
+  });
+
+  it('routes a session by its real transcript when a sandboxed project holds a planted copy', async () => {
+    const ctx = await setup({ probe: { available: false, code: 'NOT_INSTALLED' } });
+    await ctx.sandboxOn();
+    // Project A's sandbox wrote a transcript with the id of B's session.
+    await transcript(ctx, ctx.projectA, 's-b', ctx.projectA);
+    await transcript(ctx, ctx.projectB, 's-b', ctx.projectB);
+    expect(await ctx.manager.directoryForSession('s-b')).toBe(ctx.projectB);
+    const response = await ctx.call('/api/pi/sessions/s-b/prompt', { method: 'POST', body: { text: 'hi', streamEpoch: 'epoch-1' } });
+    // The fake daemon's answer is not a real one; that it was asked is the point.
+    expect((await response.json()).error?.code).not.toBe('SANDBOX_UNAVAILABLE');
+    expect(ctx.main.commands()).toContain('sessions.prompt');
+  });
+
+  it('tells the main daemon to stay out of a project before it asks it to let go', async () => {
+    let recorded;
+    const ctx = await setup({
+      mainAnswers: {
+        'sessions.release': () => {
+          recorded ??= JSON.parse(readFileSync(sandboxedFoldersFile(recordDataDir), 'utf8'));
+          return { released: [], pending: [] };
+        },
+      },
+    });
+    const recordDataDir = ctx.dataDir;
+    await ctx.sandboxOn();
+    expect(JSON.stringify(recorded)).toContain(ctx.projectA);
+  });
+
+  it.skipIf(process.platform === 'win32')('does not wait on a project id file the sandbox turned into a FIFO', async () => {
+    const ctx = await setup();
+    await rm(join(ctx.projectB, '.git', 'pichamber'), { force: true });
+    await mkdir(join(ctx.projectB, '.git'), { recursive: true });
+    execFileSync('mkfifo', [join(ctx.projectB, '.git', 'pichamber')]);
+    const saved = await Promise.race([
+      ctx.sandboxOn('proj-b'),
+      new Promise((resolve) => setTimeout(() => resolve('stuck'), 3_000)),
+    ]);
+    expect(saved).not.toBe('stuck');
+    expect(saved.status).toBe(200);
+    expect(ctx.manager.sandboxFor(ctx.projectB)).toEqual({ launcher: 'nono' });
+  });
+
   it('two saves applied at once leave the project owned by its sandbox', async () => {
     const ctx = await setup();
     await ctx.sandboxOn();
@@ -1205,6 +1385,65 @@ describe('keeping a sandboxed project owned', () => {
     }
     // A restart reads the remembered id, not the file.
     expect(JSON.parse(await readFile(worktreeIdsFile(ctx.dataDir), 'utf8')).projects).toEqual({ [ctx.projectA]: ctx.gitId });
+  });
+
+  it('needs a reconcile before the first one has run, so a request at server start cannot reach the main daemon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
+    const fresh = createProjectSandboxManager({
+      daemonPool: createPiDaemonPool({ getMainRuntime: () => null }),
+      uiSettingsStore: createPiUiSettingsStore({ file: join(root, 'data', 'settings.json') }),
+      launcher: fakeLauncher(),
+      dataDir: join(root, 'data'),
+      agentDir: join(root, 'agent'),
+      getServerPort: () => 3000,
+      setInterval: () => 0,
+      clearInterval: () => {},
+    });
+    expect(fresh.needsReconcile()).toBe(true);
+    await fresh.reconcile();
+    expect(fresh.needsReconcile()).toBe(false);
+    await fresh.stop?.();
+  });
+
+  it('resets trust again after a restart for folders still marked to ask', async () => {
+    // An earlier server process recorded the mark, then stopped before the
+    // main daemon had taken the reset.
+    const ctx = await setup({ beforeReconcile: ({ trustAsk, projectB }) => trustAsk.add([projectB]) });
+    const resets = () => ctx.main.calls.filter((c) => c.command === 'settings.set').map((c) => c.payload);
+    expect(resets()).toEqual([{ scope: 'project', directory: ctx.projectB, trust: null }]);
+    // Done once; later passes do not repeat it.
+    await ctx.manager.reconcile();
+    await ctx.tick(1000);
+    expect(resets()).toHaveLength(1);
+    expect(await ctx.trustAsk.list()).toEqual([ctx.projectB]);
+  });
+
+  it('starts no sandbox on an id it cannot check against the remembered ones, and keeps those worktrees off the main daemon', async () => {
+    const ctx = await setup();
+    // The sandboxed agent can write this file; the record that would
+    // confirm it is unreadable.
+    const id = 'e'.repeat(40);
+    await mkdir(join(ctx.projectB, '.git'), { recursive: true });
+    await writeFile(join(ctx.projectB, '.git', 'pichamber'), id);
+    const claimed = join(ctx.dataDir, 'worktree', id, 'feature');
+    await mkdir(claimed, { recursive: true });
+    await mkdir(dirname(worktreeIdsFile(ctx.dataDir)), { recursive: true });
+    await writeFile(worktreeIdsFile(ctx.dataDir), '{');
+    await ctx.sandboxOn('proj-b');
+    const listed = await (await ctx.call('/api/pi/sandbox/projects')).json();
+    expect(listed.projects.find((project) => project.projectId === 'proj-b').availability)
+      .toEqual({ state: 'unavailable', reason: 'SANDBOX_WORKTREE_IDS_UNREADABLE' });
+    for (const directory of [ctx.projectB, claimed]) {
+      const refused = await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory, text: 'hi', streamEpoch: 'epoch-1' } });
+      expect(await refused.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'SANDBOX_WORKTREE_IDS_UNREADABLE' } });
+    }
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    expect(ctx.launched).toHaveLength(0);
+    // Once the record can be read again the project runs.
+    await rm(worktreeIdsFile(ctx.dataDir));
+    await ctx.manager.reconcile();
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectB, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.launched).toHaveLength(1);
   });
 
   it('refuses Pi-running commands while the stored settings could not be applied, and recovers on the next request', async () => {

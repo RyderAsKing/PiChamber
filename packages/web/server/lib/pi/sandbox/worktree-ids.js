@@ -50,8 +50,7 @@ export const createWorktreeIdStore = ({ dataDir, file = worktreeIdsFile(dataDir)
   const write = async (projects) => {
     await mkdir(dirname(file), { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    const entries = [...projects].slice(-MAX_PROJECTS);
-    await writeFile(temp, `${JSON.stringify({ version: 1, projects: Object.fromEntries(entries) }, null, 2)}\n`, { mode: 0o600 });
+    await writeFile(temp, `${JSON.stringify({ version: 1, projects: Object.fromEntries(projects) }, null, 2)}\n`, { mode: 0o600 });
     await rename(temp, file);
   };
   return {
@@ -68,6 +67,11 @@ export const createWorktreeIdStore = ({ dataDir, file = worktreeIdsFile(dataDir)
         const known = current.get(root);
         if (known) return known;
         if (typeof id !== 'string' || !GIT_PROJECT_ID.test(id)) return null;
+        // A full record takes no new project: dropping an older one would
+        // let that project's file name a new id on its next use.
+        if (current.size >= MAX_PROJECTS) {
+          throw Object.assign(new Error('The worktree id record is full.'), { code: 'SANDBOX_WORKTREE_IDS_FULL' });
+        }
         current.set(root, id);
         await write(current);
         return id;

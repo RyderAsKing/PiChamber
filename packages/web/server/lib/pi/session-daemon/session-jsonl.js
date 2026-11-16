@@ -107,7 +107,7 @@ export const matchesPiSessionJsonlName = (fileName, sessionId) => (
  * Read only the session header. Callers that are looking up an id must
  * not scan the rest of a multi-megabyte transcript.
  */
-async function readPiSessionJsonlHeader(filePath) {
+export async function readPiSessionJsonlHeader(filePath) {
   const input = createReadStream(filePath, { encoding: 'utf8' });
   const lines = createInterface({ input, crlfDelay: Infinity });
   try {
@@ -137,17 +137,24 @@ async function readPiSessionJsonlHeader(filePath) {
  * or `<id>.jsonl`) without listing or fully reading every transcript. A miss
  * is `null`, not an empty success.
  */
-export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath = resolve }) {
+/**
+ * Every transcript under `agentDir` whose header holds `sessionId`. Session
+ * ids are unique, so more than one match means some file was written by
+ * something other than Pi; callers that route by transcript choose among
+ * them (see the project sandbox manager).
+ */
+export async function findPiSessionJsonlsById({ sessionId, agentDir, resolvePath = resolve, limit = Infinity }) {
   if (typeof sessionId !== 'string' || sessionId.length === 0 || typeof agentDir !== 'string') {
-    return null;
+    return [];
   }
   const sessionsRoot = join(resolvePath(agentDir), 'sessions');
   let dirEntries;
   try {
     dirEntries = await readdir(sessionsRoot, { withFileTypes: true });
   } catch {
-    return null;
+    return [];
   }
+  const matches = [];
   for (const dirEntry of dirEntries) {
     if (!dirEntry.isDirectory()) continue;
     const dirPath = join(sessionsRoot, dirEntry.name);
@@ -164,14 +171,20 @@ export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath 
       try {
         const header = await readPiSessionJsonlHeader(fullPath);
         if (header.id === sessionId) {
-          return { id: sessionId, path: fullPath, cwd: header.cwd };
+          matches.push({ id: sessionId, path: fullPath, cwd: header.cwd });
+          if (matches.length >= limit) return matches;
         }
       } catch {
         continue;
       }
     }
   }
-  return null;
+  return matches;
+}
+
+export async function findPiSessionJsonlById({ sessionId, agentDir, resolvePath = resolve }) {
+  const [found] = await findPiSessionJsonlsById({ sessionId, agentDir, resolvePath, limit: 1 });
+  return found ?? null;
 }
 
 export async function validatePiSessionJsonlFile(filePath) {

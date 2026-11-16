@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -44,5 +44,18 @@ describe('remembered worktree ids', () => {
       await expect(store.read()).rejects.toMatchObject({ code: 'SANDBOX_WORKTREE_IDS_UNREADABLE' });
       await expect(store.remember('/code/app', A)).rejects.toMatchObject({ code: 'SANDBOX_WORKTREE_IDS_UNREADABLE' });
     }
+  });
+
+  it('takes no new project when the record is full, and forgets none', async () => {
+    const { store, file } = await setup();
+    await mkdir(dirname(file), { recursive: true });
+    const projects = Object.fromEntries(Array.from({ length: 4096 }, (_, index) => [`/code/p${index}`, A]));
+    await writeFile(file, JSON.stringify({ version: 1, projects }));
+    await expect(store.remember('/code/new', B)).rejects.toMatchObject({ code: 'SANDBOX_WORKTREE_IDS_FULL' });
+    const saved = JSON.parse(await readFile(file, 'utf8')).projects;
+    expect(Object.keys(saved)).toHaveLength(4096);
+    expect(saved['/code/p0']).toBe(A);
+    // A project already in it is still answered.
+    expect(await store.remember('/code/p0', B)).toBe(A);
   });
 });

@@ -8,7 +8,6 @@
       "python_runtime",
       "nix_runtime",
       "git_config",
-      { "name": "user_caches_linux", "when": "linux" },
       { "name": "linux_sysfs_read", "when": "linux" }
     ],
     "exclude": ["system_write_linux"]
@@ -17,6 +16,6 @@
   "workdir": { "access": "none" },
   "filesystem": {
     "allow_file": ["/dev/null", "/dev/zero", "/dev/full", "/dev/tty"],
-    "allow": ["/dev/pts", "/proc/self/fd", "/dev/fd"]
+    "allow": ["/proc/self/fd", "/dev/fd"]
   }
 }

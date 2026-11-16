@@ -115,6 +115,7 @@ describe('sandboxed Pi session daemon supervisor', () => {
     const { paths } = supervisor;
     const shadow = join(ctx.dataDir, 'pi', 'sandbox', sandbox.projectKey, 'agent');
     const tmp = join(ctx.dataDir, 'pi', 'sandbox', sandbox.projectKey, 'tmp');
+    const cache = join(ctx.dataDir, 'pi', 'sandbox', sandbox.projectKey, 'cache');
 
     expect(paths.profileKey).toMatch(new RegExp(`^web-p3000-sbx-${sandbox.projectKey}-[0-9a-f]{12}$`));
     expect(paths.profileDir).toBe(join(ctx.dataDir, 'pi', 'daemons', paths.profileKey));
@@ -131,12 +132,13 @@ describe('sandboxed Pi session daemon supervisor', () => {
       '--read-file', join(ctx.agentDir, 'settings.json'),
       ...[
         ctx.project,
-        join(ctx.agentDir, '.pichamber', 'locks', 'sessions'),
+        join(ctx.agentDir, '.pichamber', 'locks', 'sandbox-sessions', sandbox.projectKey),
         getPiSessionDirectory({ cwd: ctx.project, agentDir: ctx.agentDir }),
         getPiSessionDirectory({ cwd: ctx.worktree, agentDir: ctx.agentDir }),
         join(ctx.dataDir, 'pi', 'daemons', paths.profileKey),
         shadow,
         tmp,
+        cache,
         join(ctx.dataDir, 'worktree', ctx.projectId),
         ctx.scratch,
       ].sort().flatMap((path) => ['--allow', path]),
@@ -159,6 +161,8 @@ describe('sandboxed Pi session daemon supervisor', () => {
       // Leases key on the real agent folder, so this daemon and the main
       // daemon exclude each other on the same session.
       '--lease-agent-dir', ctx.agentDir,
+      // In its own lease folder, the only one it is granted.
+      '--lease-scope', sandbox.projectKey,
       '--open-url-socket', join(paths.runtimeDir, 'open-url.sock'),
     ]);
     expect(options).toMatchObject({ cwd: ctx.project, detached: true });
@@ -166,6 +170,9 @@ describe('sandboxed Pi session daemon supervisor', () => {
       NONO_NO_SAVE_PROMPT: '1',
       NONO_NO_UPDATE_CHECK: '1',
       TMPDIR: tmp,
+      // Tool caches go to the sandbox's own folder, not the user's.
+      XDG_CACHE_HOME: cache,
+      npm_config_cache: join(cache, 'npm'),
       PATH: process.env.PATH,
     });
     expect(options.env.ELECTRON_RUN_AS_NODE).toBeUndefined();
@@ -194,7 +201,7 @@ describe('sandboxed Pi session daemon supervisor', () => {
     await expect(readlink(getPiSessionDirectory({ cwd: ctx.worktree, agentDir: shadow })))
       .resolves.toBe(getPiSessionDirectory({ cwd: ctx.worktree, agentDir: ctx.agentDir }));
     await expect(readlink(join(shadow, '.pichamber', 'locks', 'sessions')))
-      .resolves.toBe(join(ctx.agentDir, '.pichamber', 'locks', 'sessions'));
+      .resolves.toBe(join(ctx.agentDir, '.pichamber', 'locks', 'sandbox-sessions', sandbox.projectKey));
 
     // Preparing again (for example after a new worktree) keeps the folder valid.
     await expect(prepareProjectSandbox(ctx.sandboxOptions)).resolves.toMatchObject({ agentDir: shadow });

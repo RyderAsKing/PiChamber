@@ -297,7 +297,7 @@ export const createPiUiSettingsStore = ({
       const current = await readLocked();
       const projects = Array.isArray(current.projects) ? current.projects : [];
       if (typeof projectId !== 'string' || !projects.some((project) => isRecord(project) && project.id === projectId)) {
-        throw new ProjectSandboxSettingError('PROJECT_NOT_FOUND');
+        throw new ProjectSandboxSettingError(undefined, 'PROJECT_NOT_FOUND');
       }
       const nextRuntime = {
         ...selectFields(current, LOCAL_FIELDS),
@@ -319,7 +319,12 @@ export const createPiUiSettingsStore = ({
     mergeSandboxDefaults(readSandboxDefaults({}).defaults, patch);
     return runMutation(async () => {
       const current = await readLocked();
-      const sandboxDefaults = mergeSandboxDefaults(readSandboxDefaults(current).defaults, patch);
+      const stored = readSandboxDefaults(current);
+      // The mode of an unreadable stored default is a placeholder (off),
+      // while projects that follow it stay closed. A patch without a mode
+      // would store that placeholder and run them unsandboxed.
+      if (stored.invalid && patch.mode === undefined) throw new ProjectSandboxSettingError('MODE');
+      const sandboxDefaults = mergeSandboxDefaults(stored.defaults, patch);
       const nextRuntime = { ...selectFields(current, LOCAL_FIELDS), sandboxDefaults };
       await writeRecord(runtimeFile, nextRuntime, fs);
       return { ...selectFields(current, PORTABLE_FIELDS), ...selectFields(nextRuntime, LOCAL_FIELDS) };

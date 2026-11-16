@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -24,14 +24,31 @@ describe('trust reset list', () => {
     expect(isAsk('/work/a')).toBe(false);
   });
 
-  it('treats an unreadable list as every folder for the daemon, and a write replaces it', async () => {
+  it('treats an unreadable list as every folder, and a write refuses to replace it', async () => {
     const dataDir = await mkdtemp(join(tmpdir(), 'pichamber-trust-ask-bad-'));
     await mkdir(join(dataDir, 'pi'), { recursive: true });
-    await writeFile(trustAskFile(dataDir), 'not json');
-    expect(createTrustAskReader({ dataDir })('/anything')).toBe(true);
+    for (const raw of ['not json', '{"directories":["relative"]}', '[]']) {
+      await writeFile(trustAskFile(dataDir), raw);
+      expect(createTrustAskReader({ dataDir })('/anything')).toBe(true);
+      const store = createTrustAskStore({ dataDir });
+      await expect(store.list()).rejects.toMatchObject({ code: 'TRUST_ASK_UNREADABLE' });
+      await expect(store.add(['/work/c'])).rejects.toMatchObject({ code: 'TRUST_ASK_UNREADABLE' });
+      await expect(store.remove('/work/c')).rejects.toMatchObject({ code: 'TRUST_ASK_UNREADABLE' });
+      expect(await readFile(trustAskFile(dataDir), 'utf8')).toBe(raw);
+    }
+  });
+
+  it('keeps earlier entries when the file is repaired, and asks for a symlinked spelling', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'pichamber-trust-ask-link-'));
+    const real = await mkdtemp(join(tmpdir(), 'pichamber-trust-ask-real-'));
+    const link = join(dataDir, 'link');
+    await symlink(real, link);
     const store = createTrustAskStore({ dataDir });
-    await store.add(['/work/c']);
-    expect(await store.list()).toEqual(['/work/c']);
-    expect(createTrustAskReader({ dataDir })('/anything')).toBe(false);
+    await store.add([real]);
+    const isAsk = createTrustAskReader({ dataDir });
+    expect(isAsk(real)).toBe(true);
+    expect(isAsk(link)).toBe(true);
+    expect(isAsk(join(link, 'src'))).toBe(true);
+    expect(isAsk(dataDir)).toBe(false);
   });
 });

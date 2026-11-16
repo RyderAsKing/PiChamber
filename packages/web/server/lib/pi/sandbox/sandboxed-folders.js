@@ -1,4 +1,4 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
@@ -29,8 +29,9 @@ export const createSandboxedFoldersStore = ({ dataDir, file = sandboxedFoldersFi
   let written = null;
   return {
     /**
-     * Replace the list. Writes run one at a time; an unchanged list is not
-     * written again. A list too long to record is refused: a folder left
+     * Replace the list. Writes run one at a time; a list is not written
+     * again while the file still holds it (a deleted or changed file is
+     * put back). A list too long to record is refused: a folder left
      * out would be the main daemon's to run.
      */
     set: (directories) => {
@@ -40,7 +41,7 @@ export const createSandboxedFoldersStore = ({ dataDir, file = sandboxedFoldersFi
           throw Object.assign(new Error('Too many sandboxed folders to record.'), { code: 'SANDBOXED_FOLDERS_FULL' });
         }
         const body = `${JSON.stringify({ version: 1, directories: next }, null, 2)}\n`;
-        if (body === written) return;
+        if (body === written && await readFile(file, 'utf8').catch(() => null) === body) return;
         await mkdir(dirname(file), { recursive: true, mode: 0o700 });
         const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
         await writeFile(temp, body, { mode: 0o600 });

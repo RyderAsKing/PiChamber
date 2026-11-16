@@ -209,4 +209,42 @@ describe('nono launcher profile file', () => {
     const { args } = await launcher.prepare({ argv: ['node'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x' });
     expect(args[args.indexOf('--profile') + 1]).toBe(NONO_PROFILE_FILE);
   });
+  it('points tool caches at the sandbox cache folder, over anything inherited', async () => {
+    const command = await writeFakeNono({ setupOutput: LANDLOCK_OK });
+    const stageDir = join(await mkdtemp(join(tmpdir(), 'pichamber-nono-stage-')), 'sandbox');
+    const launcher = createNonoLauncher({ command, platform: 'linux', readProcVersion: async () => '', stageDir });
+    await launcher.probe();
+    const { env } = await launcher.prepare({
+      argv: ['node'],
+      env: { XDG_CACHE_HOME: '/home/u/.cache', npm_config_cache: '/home/u/.npm', KEEP: '1' },
+      grants: [],
+      network: { mode: 'none' },
+      tmpDir: '/data/sandbox/k/tmp',
+      cacheDir: '/data/sandbox/k/cache',
+    });
+    expect(env).toMatchObject({
+      KEEP: '1',
+      TMPDIR: '/data/sandbox/k/tmp',
+      XDG_CACHE_HOME: '/data/sandbox/k/cache',
+      npm_config_cache: '/data/sandbox/k/cache/npm',
+      PIP_CACHE_DIR: '/data/sandbox/k/cache/pip',
+      UV_CACHE_DIR: '/data/sandbox/k/cache/uv',
+      PLAYWRIGHT_BROWSERS_PATH: '/data/sandbox/k/cache/ms-playwright',
+    });
+    await expect(launcher.prepare({ argv: ['node'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x', cacheDir: 'cache' }))
+      .rejects.toMatchObject({ code: 'SANDBOX_INVALID_GRANT' });
+  });
+
+  // What is cached in the user's cache folders is run later by tools outside
+  // the sandbox, and a pseudo-terminal the sandbox can write belongs to
+  // someone's shell. No profile may grant either.
+  it('grants no user cache folder and no writable pseudo-terminals in any profile', async () => {
+    for (const file of Object.values(NONO_PROFILE_FILES)) {
+      const profile = JSON.parse(await readFile(file, 'utf8'));
+      const groups = profile.groups.include.map((group) => (typeof group === 'string' ? group : group.name));
+      expect(groups.filter((name) => /cache/i.test(name))).toEqual([]);
+      const paths = [...(profile.filesystem.allow ?? []), ...(profile.filesystem.allow_file ?? [])];
+      expect(paths.filter((path) => /^\/dev\/(pts|ptmx)/.test(path) || /cache/i.test(path))).toEqual([]);
+    }
+  });
 });

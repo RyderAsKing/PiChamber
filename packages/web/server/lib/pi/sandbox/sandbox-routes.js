@@ -15,7 +15,8 @@ export const registerPiSandboxRoutes = (app, { sandboxManager }) => {
     const code = typeof error?.code === 'string' ? error.code : 'SANDBOX_REQUEST_FAILED';
     const status = code === 'INVALID_SANDBOX_SETTING' ? 400 : code === 'PROJECT_NOT_FOUND' ? 404 : 500;
     if (status === 500) console.warn('[pi-sandbox] request failed', code);
-    res.status(status).json({ error: { code: status === 500 ? 'SANDBOX_REQUEST_FAILED' : code } });
+    const reason = status === 400 && typeof error?.reason === 'string' && /^[A-Z][A-Z_]{1,31}$/.test(error.reason) ? error.reason : undefined;
+    res.status(status).json({ error: { code: status === 500 ? 'SANDBOX_REQUEST_FAILED' : code, ...(reason ? { reason } : {}) } });
   };
 
   app.get('/api/pi/sandbox', async (_req, res) => {

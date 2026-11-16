@@ -34,6 +34,25 @@ const WSL_PATTERN = /microsoft|wsl/i;
 const PROBE_TIMEOUT_MS = 10_000;
 const PROBE_ENV = { NONO_NO_UPDATE_CHECK: '1', NONO_NO_SAVE_PROMPT: '1' };
 
+/**
+ * Point the tools an agent runs at the sandbox's own cache folder. The
+ * profiles grant no user cache folder (`~/.cache`, `~/Library/Caches`):
+ * what is cached there is run later by tools outside the sandbox. Tools
+ * that follow `XDG_CACHE_HOME` need nothing else; the rest are named.
+ */
+const cacheEnv = (cacheDir) => ({
+  XDG_CACHE_HOME: cacheDir,
+  npm_config_cache: join(cacheDir, 'npm'),
+  YARN_CACHE_FOLDER: join(cacheDir, 'yarn'),
+  BUN_INSTALL_CACHE_DIR: join(cacheDir, 'bun'),
+  COREPACK_HOME: join(cacheDir, 'node', 'corepack'),
+  PIP_CACHE_DIR: join(cacheDir, 'pip'),
+  UV_CACHE_DIR: join(cacheDir, 'uv'),
+  PRE_COMMIT_HOME: join(cacheDir, 'pre-commit'),
+  GOCACHE: join(cacheDir, 'go-build'),
+  PLAYWRIGHT_BROWSERS_PATH: join(cacheDir, 'ms-playwright'),
+});
+
 const runFile = (execFile, command, args, env) => new Promise((resolve) => {
   execFile(command, args, { env, timeout: PROBE_TIMEOUT_MS, windowsHide: true }, (error, stdout, stderr) => {
     resolve({
@@ -234,10 +253,11 @@ export const createNonoLauncher = ({
     });
   };
 
-  const prepare = async ({ argv, env: childEnv = {}, grants, network, tmpDir }) => {
+  const prepare = async ({ argv, env: childEnv = {}, grants, network, tmpDir, cacheDir }) => {
     const { hostKind } = requireProbe();
     if (!Array.isArray(argv) || argv.length === 0) throw new SandboxLaunchError('SANDBOX_INVALID_COMMAND');
     if (typeof tmpDir !== 'string' || !tmpDir.startsWith('/')) throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
+    if (cacheDir !== undefined && (typeof cacheDir !== 'string' || !cacheDir.startsWith('/'))) throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
     const grantFlags = normalizeGrants(grants).flatMap((grant) => [GRANT_FLAGS[grant.kind], grant.path]);
     const readableProfile = await profileFor(hostKind).resolve();
     return {
@@ -248,7 +268,7 @@ export const createNonoLauncher = ({
         ...networkFlags(normalizeNetwork(network), hostKind),
         '--', ...argv,
       ],
-      env: { ...childEnv, NONO_NO_SAVE_PROMPT: '1', NONO_NO_UPDATE_CHECK: '1', TMPDIR: tmpDir },
+      env: { ...childEnv, ...(cacheDir ? cacheEnv(cacheDir) : {}), NONO_NO_SAVE_PROMPT: '1', NONO_NO_UPDATE_CHECK: '1', TMPDIR: tmpDir },
     };
   };
 

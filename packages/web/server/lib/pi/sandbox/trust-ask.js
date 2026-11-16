@@ -1,6 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 const MAX_DIRECTORIES = 4096;
 
@@ -25,14 +25,25 @@ const inside = (root, directory) => directory === root
 
 export const createTrustAskStore = ({ dataDir, file = trustAskFile(dataDir) }) => {
   let queue = Promise.resolve();
+  // Missing means nothing is recorded. A file that exists but cannot be read
+  // or parsed throws: reading it as empty and writing on top of it would
+  // forget folders whose trust was reset, and they would be trusted again.
   const read = async () => {
+    let raw;
     try {
-      return normalizeList(JSON.parse(await readFile(file, 'utf8'))) ?? [];
-    } catch {
-      // Missing means nothing recorded. A malformed file is replaced on
-      // the next write; until then the daemon treats every folder as "ask".
-      return [];
+      raw = await readFile(file, 'utf8');
+    } catch (error) {
+      if (error?.code === 'ENOENT') return [];
+      throw Object.assign(new Error('The trust-ask list is unreadable.'), { code: 'TRUST_ASK_UNREADABLE' });
     }
+    let parsed = null;
+    try {
+      parsed = normalizeList(JSON.parse(raw));
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) throw Object.assign(new Error('The trust-ask list is unreadable.'), { code: 'TRUST_ASK_UNREADABLE' });
+    return parsed;
   };
   const write = async (directories) => {
     await mkdir(dirname(file), { recursive: true, mode: 0o700 });
@@ -74,6 +85,8 @@ export const createTrustAskStore = ({ dataDir, file = trustAskFile(dataDir) }) =
  * Daemon-side check, synchronous because Pi's trust store is: whether
  * `directory` (or a folder containing it) must stay "ask". Reread only when
  * the file changes. A malformed or unreadable file counts as every folder.
+ * Folders are compared by their written and their real path, so a symlinked
+ * spelling of a listed folder still asks.
  */
 export const createTrustAskReader = ({ dataDir, file = dataDir ? trustAskFile(dataDir) : null } = {}) => {
   let cachedStamp = null;
@@ -101,7 +114,22 @@ export const createTrustAskReader = ({ dataDir, file = dataDir ? trustAskFile(da
   return (directory) => {
     const list = load();
     if (list === null) return true;
+    if (typeof directory !== 'string' || directory.length === 0) return true;
     const target = resolve(directory);
-    return list.some((root) => inside(root, target));
+    if (list.some((root) => inside(root, target))) return true;
+    // The real path of the nearest folder that exists, plus the rest, so a
+    // symlinked spelling of a folder that is not there yet still matches.
+    let real = target;
+    let rest = '';
+    for (let probe = target; ; probe = dirname(probe)) {
+      try {
+        real = join(realpathSync(probe), rest);
+        break;
+      } catch {
+        if (dirname(probe) === probe) break;
+        rest = rest ? join(basename(probe), rest) : basename(probe);
+      }
+    }
+    return real !== target && list.some((root) => inside(root, real));
   };
 };

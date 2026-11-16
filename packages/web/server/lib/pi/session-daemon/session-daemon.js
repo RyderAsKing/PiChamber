@@ -196,6 +196,8 @@ export function createSessionDaemon({
   // a shadow agent folder, so it passes the real one here; leases then match
   // the main daemon's for the same session.
   leaseAgentDir = agentDir,
+  // A sandbox daemon's own lease folder (session-lease.js); unset otherwise.
+  leaseScope,
   createRuntime: injectCreateRuntime,
   createServices: injectCreateServices = createAgentSessionServices,
   healthMetadata = {},
@@ -291,12 +293,28 @@ export function createSessionDaemon({
   // Exclusive cross-daemon ownership of one resident session. The session
   // stays visible in listings; contention reports SESSION_IN_USE instead of
   // pretending the session is absent or idle.
-  const acquireResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+  // Lease changes for one session run one at a time, so the retry of a
+  // failed release (`sessions.release`) cannot remove a lease that an
+  // activation of the same session took in the meantime.
+  const leaseChains = new Map();
+  const withSessionLease = (sessionId, work) => {
+    const run = (leaseChains.get(sessionId) ?? Promise.resolve()).then(work);
+    const tail = run.catch(() => {});
+    leaseChains.set(sessionId, tail);
+    void tail.then(() => {
+      if (leaseChains.get(sessionId) === tail) leaseChains.delete(sessionId);
+    });
+    return run;
+  };
+  const acquireResidentLease = ({ cwd: leaseCwd, sessionId }) => {
     const owner = leaseOwner();
-    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return;
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return Promise.resolve();
+    return withSessionLease(sessionId, () => acquireLeaseNow({ owner, leaseCwd, sessionId }));
+  };
+  const acquireLeaseNow = async ({ owner, leaseCwd, sessionId }) => {
     let result;
     try {
-      result = await acquireSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
+      result = await acquireSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner, scope: leaseScope });
     } catch (error) {
       throw new SessionDaemonProtocolError('SESSION_LEASE_UNAVAILABLE', 'The session ownership check is temporarily unavailable.');
     }
@@ -310,11 +328,19 @@ export function createSessionDaemon({
   // other daemon out of the session, so `sessions.release` retries it and
   // reports the session as pending until it is gone.
   const unreleasedLeases = new Map();
-  const releaseResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
+  // `onlyUnreleased` is the retry: it does nothing (`skipped`) when the
+  // lease is no longer one left over from a failed release.
+  const releaseResidentLease = ({ cwd: leaseCwd, sessionId }, { onlyUnreleased = false } = {}) => {
     const owner = leaseOwner();
-    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return { released: false };
+    if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return Promise.resolve({ released: false });
+    return withSessionLease(sessionId, () => {
+      if (onlyUnreleased && !unreleasedLeases.has(sessionId)) return { released: false, skipped: true };
+      return releaseLeaseNow({ owner, leaseCwd, sessionId });
+    });
+  };
+  const releaseLeaseNow = async ({ owner, leaseCwd, sessionId }) => {
     try {
-      const result = await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
+      const result = await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner, scope: leaseScope });
       unreleasedLeases.delete(sessionId);
       return result;
     } catch {
@@ -1454,8 +1480,10 @@ export function createSessionDaemon({
       const directory = typeof lease.cwd === 'string' && lease.cwd.length > 0 ? resolve(lease.cwd) : null;
       if (!directory || !owns(directory) || runtimeRegistry?.findBySessionId(lease.sessionId)) continue;
       if (released.some((item) => item.sessionId === lease.sessionId) || pending.some((item) => item.sessionId === lease.sessionId)) continue;
-      await releaseResidentLease(lease);
-      (unreleasedLeases.has(lease.sessionId) ? pending : released).push({ sessionId: lease.sessionId, directory });
+      // Skipped means the session is being opened here again: still this
+      // daemon's, so not released.
+      const { skipped } = await releaseResidentLease(lease, { onlyUnreleased: true });
+      (skipped || unreleasedLeases.has(lease.sessionId) ? pending : released).push({ sessionId: lease.sessionId, directory });
     }
     return { released, pending, streamEpoch };
   };

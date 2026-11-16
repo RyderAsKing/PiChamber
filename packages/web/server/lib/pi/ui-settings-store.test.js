@@ -454,16 +454,35 @@ describe('Pi UI settings store', () => {
       await expect(store.read()).resolves.toMatchObject({ projects: [{ id: 'one', sandbox: { ...nono, mode: 'off' } }] });
 
       await expect(store.setProjectSandbox('missing', nono)).rejects.toMatchObject({ code: 'PROJECT_NOT_FOUND' });
-      for (const invalid of [
-        { mode: 'docker' },
-        { mode: 'nono', allowHosts: ['https://x'] },
-        { mode: 'nono', allowLocalPorts: [443] },
-        { mode: 'nono', allowLocalPorts: [70000] },
-        { mode: 'nono', extraFolders: [{ path: 'relative', access: 'read' }] },
-        { mode: 'nono', extraFolders: [{ path: '/srv', access: 'write' }] },
+      for (const [invalid, reason] of [
+        [{ mode: 'docker' }, undefined],
+        [{ mode: 'nono', allowHosts: ['https://x'] }, 'HOSTS'],
+        [{ mode: 'nono', allowLocalPorts: [443] }, 'REFUSED_PORT'],
+        [{ mode: 'nono', allowLocalPorts: [70000] }, 'PORTS'],
+        [{ mode: 'nono', extraFolders: [{ path: 'relative', access: 'read' }] }, 'FOLDERS'],
+        [{ mode: 'nono', extraFolders: [{ path: '/srv', access: 'write' }] }, 'FOLDERS'],
       ]) {
-        await expect(store.setProjectSandbox('one', invalid)).rejects.toMatchObject({ code: 'INVALID_SANDBOX_SETTING' });
+        const refused = await store.setProjectSandbox('one', invalid).catch((error) => error);
+        expect(refused).toMatchObject({ code: 'INVALID_SANDBOX_SETTING' });
+        expect(refused.reason).toBe(reason);
       }
+    });
+
+    it('does not store the placeholder mode of an unreadable default: an update must name a mode', async () => {
+      const { store, runtimeFile } = await makeStore();
+      await store.write({ projects: [{ id: 'one', path: '/work/one' }] });
+      const state = JSON.parse(await readFile(runtimeFile, 'utf8'));
+      await writeFile(runtimeFile, JSON.stringify({ ...state, sandboxDefaults: { mode: 'sometimes' } }));
+      for (const patch of [{ acceptedLimits: [] }, { allowHosts: ['github.com'] }]) {
+        const refused = await store.setSandboxDefaults(patch).catch((error) => error);
+        expect(refused).toMatchObject({ code: 'INVALID_SANDBOX_SETTING', reason: 'MODE' });
+      }
+      expect(JSON.parse(await readFile(runtimeFile, 'utf8')).sandboxDefaults).toEqual({ mode: 'sometimes' });
+      await store.setSandboxDefaults({ mode: 'nono', allowHosts: ['github.com'] });
+      expect((await store.read()).sandboxDefaults).toEqual({ mode: 'nono', allowHosts: ['github.com'], acceptedLimits: [] });
+      // Readable again: a later update may leave the mode out.
+      await store.setSandboxDefaults({ allowHosts: [] });
+      expect((await store.read()).sandboxDefaults.mode).toBe('nono');
     });
 
     it('never takes a sandbox setting from a settings file copied from another machine', async () => {

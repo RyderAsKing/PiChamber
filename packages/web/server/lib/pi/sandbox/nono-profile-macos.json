@@ -7,8 +7,7 @@
       "rust_runtime",
       "python_runtime",
       "nix_runtime",
-      "git_config",
-      { "name": "user_caches_macos", "when": "macos" }
+      "git_config"
     ],
     "exclude": ["system_write_macos"]
   },

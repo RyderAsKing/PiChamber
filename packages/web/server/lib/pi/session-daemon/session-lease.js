@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
-import { withCrossProcessLock } from '../../server/cross-process-lock.js';
+import { readSmallRegularFile, withCrossProcessLock } from '../../server/cross-process-lock.js';
 
 export class SessionLeaseError extends Error {
   constructor(code, message = 'The Pi session lease is unavailable.') {
@@ -33,15 +33,38 @@ const leaseHash = ({ agentDir, cwd, sessionId }) => createHash('sha256')
   .digest('hex')
   .slice(0, 32);
 
-export const resolveSessionLeaseFile = ({ agentDir, cwd, sessionId, platform = process.platform } = {}) => {
+const LEASE_SCOPE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** The folder holding every sandbox's own lease folder, one per scope. */
+const scopedLeaseRoot = (agentDir, platform = process.platform) => (
+  join(canonicalizeLeaseDir(agentDir, platform), '.pichamber', 'locks', 'sandbox-sessions')
+);
+
+/** The lease folder of one scope: all a sandbox daemon is granted. */
+export const scopedLeaseDir = (agentDir, scope, platform = process.platform) => {
+  if (typeof scope !== 'string' || !LEASE_SCOPE.test(scope)) throw new SessionLeaseError('INVALID_LEASE_SCOPE');
+  return join(scopedLeaseRoot(agentDir, platform), scope);
+};
+
+/**
+ * Where a session's lease lives. A daemon with a `scope` (a sandbox daemon)
+ * keeps its leases in its own folder, the only lease folder it can reach;
+ * every other daemon uses the shared one. The file name is the same in
+ * both, so a daemon outside a sandbox can look a session up in each scope.
+ */
+export const resolveSessionLeaseFile = ({ agentDir, cwd, sessionId, scope, platform = process.platform } = {}) => {
   if (typeof sessionId !== 'string' || sessionId.length === 0) {
     throw new SessionLeaseError('INVALID_SESSION_ID');
   }
   const canonicalAgentDir = canonicalizeLeaseDir(agentDir, platform);
   const canonicalCwd = canonicalizeLeaseDir(cwd, platform);
   const name = `${leaseHash({ agentDir: canonicalAgentDir, cwd: canonicalCwd, sessionId })}.json`;
+  const directory = scope === undefined
+    ? join(canonicalAgentDir, '.pichamber', 'locks', 'sessions')
+    : scopedLeaseDir(canonicalAgentDir, scope, platform);
   return {
-    file: join(canonicalAgentDir, '.pichamber', 'locks', 'sessions', name),
+    file: join(directory, name),
+    name,
     canonicalAgentDir,
     canonicalCwd,
   };
@@ -67,6 +90,32 @@ const isOwnLease = (lease, owner) => (
   && lease?.daemonPid === owner?.daemonPid
 );
 
+// A live lease a sandbox daemon holds on this session, read from the scope
+// folders. Those folders are written by sandboxed code: a file there is read
+// as a small regular file or not at all, and only a lease for this very
+// session counts.
+const scopedLeaseHolder = async ({ canonicalAgentDir, name, sessionId, owner, platform, processLike }) => {
+  const root = scopedLeaseRoot(canonicalAgentDir, platform);
+  let scopes;
+  try {
+    scopes = await readdir(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const scope of scopes) {
+    if (!scope.isDirectory() || !LEASE_SCOPE.test(scope.name)) continue;
+    let lease;
+    try {
+      lease = JSON.parse(await readSmallRegularFile(join(root, scope.name, name)));
+    } catch {
+      continue;
+    }
+    if (!isValidLease(lease) || lease.sessionId !== sessionId || isOwnLease(lease, owner)) continue;
+    if (isPidAlive(processLike, lease.daemonPid)) return lease;
+  }
+  return null;
+};
+
 /**
  * Acquire exclusive cross-daemon ownership of one Pi session.
  *
@@ -83,14 +132,15 @@ export const acquireSessionLease = async ({
   platform = process.platform,
   processLike = process,
   timeoutMs = 5_000,
+  scope,
 } = {}) => {
   if (!owner || typeof owner !== 'object') throw new SessionLeaseError('INVALID_OWNER');
-  const { file, canonicalAgentDir, canonicalCwd } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, platform });
+  const { file, name, canonicalAgentDir, canonicalCwd } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, scope, platform });
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   return withCrossProcessLock(`${file}.lock`, async () => {
     let current = null;
     try {
-      current = JSON.parse(await readFile(file, 'utf8'));
+      current = JSON.parse(await readSmallRegularFile(file));
     } catch (error) {
       if (error?.code !== 'ENOENT') throw new SessionLeaseError('LEASE_UNREADABLE');
     }
@@ -98,6 +148,12 @@ export const acquireSessionLease = async ({
       if (isPidAlive(processLike, current.daemonPid)) {
         return { acquired: false, owner: current };
       }
+    }
+    // A sandbox daemon may be running the session. It cannot see this
+    // daemon's leases, so the check is made from this side only.
+    if (scope === undefined) {
+      const holder = await scopedLeaseHolder({ canonicalAgentDir, name, sessionId, owner, platform, processLike });
+      if (holder) return { acquired: false, owner: holder };
     }
     const lease = {
       profileKey: owner.profileKey,
@@ -109,9 +165,18 @@ export const acquireSessionLease = async ({
       agentDir: canonicalAgentDir,
       acquiredAt: new Date().toISOString(),
     };
-    const temporary = `${file}.${processLike.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify(lease), { mode: 0o600 });
-    await rename(temporary, file);
+    // Sandbox daemons share this folder, so a name that can be guessed could
+    // be planted as a symlink to any file. A random name created with `wx`
+    // never writes through one, and the rename replaces whatever sits at the
+    // lease path rather than following it.
+    const temporary = `${file}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, JSON.stringify(lease), { flag: 'wx', mode: 0o600 });
+      await rename(temporary, file);
+    } catch {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw new SessionLeaseError('LEASE_UNREADABLE');
+    }
     return { acquired: true, lease };
   }, { timeoutMs, processLike });
 };
@@ -124,12 +189,13 @@ export const releaseSessionLease = async ({
   platform = process.platform,
   processLike = process,
   timeoutMs = 5_000,
+  scope,
 } = {}) => {
-  const { file } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, platform });
+  const { file } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, scope, platform });
   return withCrossProcessLock(`${file}.lock`, async () => {
     let current = null;
     try {
-      current = JSON.parse(await readFile(file, 'utf8'));
+      current = JSON.parse(await readSmallRegularFile(file));
     } catch (error) {
       if (error?.code === 'ENOENT') return { released: false };
       throw new SessionLeaseError('LEASE_UNREADABLE');
@@ -140,10 +206,10 @@ export const releaseSessionLease = async ({
   }, { timeoutMs, processLike });
 };
 
-export const readSessionLeaseOwner = async ({ agentDir, cwd, sessionId, platform = process.platform } = {}) => {
-  const { file } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, platform });
+export const readSessionLeaseOwner = async ({ agentDir, cwd, sessionId, scope, platform = process.platform } = {}) => {
+  const { file } = resolveSessionLeaseFile({ agentDir, cwd, sessionId, scope, platform });
   try {
-    const current = JSON.parse(await readFile(file, 'utf8'));
+    const current = JSON.parse(await readSmallRegularFile(file));
     return isValidLease(current) ? current : null;
   } catch {
     return null;

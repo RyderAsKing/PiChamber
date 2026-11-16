@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -23,6 +23,19 @@ describe('sandboxed folder record', () => {
     expect(isSandboxed('/work/a')).toBe(false);
     await store.set([]);
     expect(isSandboxed('/work/b')).toBe(false);
+  });
+
+  it('puts the list back when its file was deleted or changed', async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'pichamber-sandboxed-folders-'));
+    const file = sandboxedFoldersFile(dataDir);
+    const store = createSandboxedFoldersStore({ dataDir });
+    await store.set(['/work/a']);
+    await rm(file);
+    await store.set(['/work/a']);
+    expect(JSON.parse(await readFile(file, 'utf8')).directories).toEqual(['/work/a']);
+    await writeFile(file, JSON.stringify({ version: 1, directories: [] }));
+    await store.set(['/work/a']);
+    expect(createSandboxedFoldersReader({ file })('/work/a')).toBe(true);
   });
 
   it('matches a folder that reaches a sandboxed one through a symlink', async () => {

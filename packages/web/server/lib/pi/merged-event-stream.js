@@ -22,6 +22,13 @@
  * - a project daemon's subscription failing is the same as a stop, then a
  *   bounded retry while it stays registered; it never ends the connection.
  *
+ * A project daemon runs inside a sandbox and is not trusted to say which
+ * sessions are its own. With `ownsSession`, its frames are delivered only
+ * for sessions the server finds in that daemon's folders; the answer is
+ * asked once per session and connection, and the daemon's later frames
+ * wait for it, so order and cursors are unchanged. Frames for any other
+ * session are dropped.
+ *
  * A session whose frames arrive from a different daemon than before, or
  * one the pool announces (`announceMove`), is also announced with
  * `session.moved`, before any frame from its new owner.
@@ -35,6 +42,7 @@ const MAX_CURSOR_STREAMS = 64;
 const MAX_TRACKED_SESSIONS = 4096;
 const RETRY_BASE_MS = 500;
 const RETRY_CAP_MS = 30_000;
+const MAX_WAITING_FRAMES = 4096;
 
 const isEpoch = (value) => typeof value === 'string' && value.length > 0 && value.length <= 128;
 const isStreamId = (value) => typeof value === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(value);
@@ -89,6 +97,7 @@ export const subscribeMergedPiEvents = async ({
   onError,
   signal,
   retryBaseMs = RETRY_BASE_MS,
+  ownsSession,
 }) => {
   const main = pool.main();
   let closed = false;
@@ -131,18 +140,66 @@ export const subscribeMergedPiEvents = async ({
     deliver(event);
   };
 
-  const onProjectFrame = (key, entry, frame) => {
-    if (closed || attached.get(key) !== entry) return;
-    const event = projectFrame(frame);
-    if (!event) return;
+  // The position advances for a dropped frame too: it is the daemon's own
+  // numbering, and a resume must not ask for the frame again.
+  const passProjectEvent = (key, entry, event, owned) => {
     if (isEpoch(event.streamEpoch)) {
       const known = positions.get(entry.id);
       if (!known || known.epoch !== event.streamEpoch || event.sequence > known.sequence) {
         positions.set(entry.id, { epoch: event.streamEpoch, sequence: event.sequence });
       }
     }
+    if (!owned) return;
     track(key, event);
     deliver({ ...event, stream: entry.id, cursor: encodeCursor(positions) });
+  };
+
+  const passWaiting = async (key, entry) => {
+    entry.checking = true;
+    try {
+      while (entry.waiting.length > 0) {
+        if (closed || attached.get(key) !== entry) return;
+        const event = entry.waiting[0];
+        let owned = entry.owned.get(event.sessionId);
+        if (owned === undefined) {
+          try {
+            owned = Boolean(await ownsSession(key, event.sessionId, event.directory));
+          } catch {
+            owned = false;
+          }
+          if (closed || attached.get(key) !== entry) return;
+          entry.owned.set(event.sessionId, owned);
+          if (entry.owned.size > MAX_TRACKED_SESSIONS) entry.owned.delete(entry.owned.keys().next().value);
+        }
+        entry.waiting.shift();
+        passProjectEvent(key, entry, event, owned);
+      }
+    } finally {
+      entry.checking = false;
+    }
+  };
+
+  const onProjectFrame = (key, entry, frame) => {
+    if (closed || attached.get(key) !== entry) return;
+    const event = projectFrame(frame);
+    if (!event) return;
+    if (!ownsSession || typeof event.sessionId !== 'string') {
+      passProjectEvent(key, entry, event, true);
+      return;
+    }
+    const owned = entry.waiting.length === 0 ? entry.owned.get(event.sessionId) : undefined;
+    if (owned !== undefined) {
+      passProjectEvent(key, entry, event, owned);
+      return;
+    }
+    // A daemon that outruns the check is resubscribed rather than buffered
+    // without bound.
+    if (entry.waiting.length >= MAX_WAITING_FRAMES) {
+      fail(key, entry);
+      return;
+    }
+    entry.waiting.push(event);
+    if (!entry.checking) void passWaiting(key, entry);
   };
 
   const detach = (key) => {
@@ -160,7 +217,7 @@ export const subscribeMergedPiEvents = async ({
 
   const scheduleRetry = (key, runtime, failures) => {
     if (closed) return;
-    const entry = { runtime, id: publicDaemonStreamId(key), failures, close: undefined, retryTimer: undefined };
+    const entry = { runtime, id: publicDaemonStreamId(key), failures, close: undefined, retryTimer: undefined, owned: new Map(), waiting: [], checking: false };
     entry.retryTimer = setTimeout(() => {
       if (attached.get(key) !== entry) return;
       attached.delete(key);
@@ -178,7 +235,7 @@ export const subscribeMergedPiEvents = async ({
 
   const attach = async (key, runtime, failures = 0) => {
     if (closed || typeof runtime?.subscribe !== 'function') return;
-    const entry = { runtime, id: publicDaemonStreamId(key), failures, close: undefined, retryTimer: undefined };
+    const entry = { runtime, id: publicDaemonStreamId(key), failures, close: undefined, retryTimer: undefined, owned: new Map(), waiting: [], checking: false };
     attached.set(key, entry);
     const position = positions.get(entry.id);
     try {

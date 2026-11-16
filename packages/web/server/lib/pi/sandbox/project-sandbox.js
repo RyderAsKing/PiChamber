@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { getPiSessionDirectory } from '../session-daemon/session-jsonl.js';
+import { scopedLeaseDir } from '../session-daemon/session-lease.js';
 import { normalizeNetwork, SandboxLaunchError } from './launcher.js';
 
 // Pi reads these single files from its agent folder. They are granted
@@ -140,13 +141,20 @@ export const prepareProjectSandbox = async ({
   const sandboxRoot = join(dataDir, 'pi', 'sandbox', projectKey);
   const shadowDir = join(sandboxRoot, 'agent');
   const tmpDir = join(sandboxRoot, 'tmp');
-  const leaseDir = join(agentDir, '.pichamber', 'locks', 'sessions');
-  await Promise.all([shadowDir, tmpDir, leaseDir].map((path) => mkdir(path, { recursive: true, mode: 0o700 })));
+  // A cache of its own: the user's cache folders hold code that tools
+  // outside the sandbox run later (browser builds, package managers), so
+  // the sandbox is never given them.
+  const cacheDir = join(sandboxRoot, 'cache');
+  // The project's own lease folder. The shared one holds every other
+  // project's live sessions and is not granted.
+  const leaseDir = scopedLeaseDir(agentDir, projectKey);
+  await Promise.all([shadowDir, tmpDir, cacheDir, leaseDir].map((path) => mkdir(path, { recursive: true, mode: 0o700 })));
 
   const grants = [
     { kind: 'readWrite', path: projectRoot },
     { kind: 'readWrite', path: shadowDir },
     { kind: 'readWrite', path: tmpDir },
+    { kind: 'readWrite', path: cacheDir },
     { kind: 'readWrite', path: leaseDir },
     ...readRoots.map((path) => ({ kind: 'read', path })),
   ];
@@ -181,5 +189,5 @@ export const prepareProjectSandbox = async ({
 
   for (const extra of extraFolders) grants.push({ kind: extra.access, path: extra.path });
 
-  return { projectKey, cwd: projectRoot, agentDir: shadowDir, leaseAgentDir: resolve(agentDir), tmpDir, grants, network };
+  return { projectKey, cwd: projectRoot, agentDir: shadowDir, leaseAgentDir: resolve(agentDir), leaseScope: projectKey, tmpDir, cacheDir, grants, network };
 };
