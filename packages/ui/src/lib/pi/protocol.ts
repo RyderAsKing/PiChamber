@@ -819,6 +819,8 @@ export interface PiSnippet {
 
 export interface PiSnippetListResponse {
   snippets: PiSnippet[];
+  /** Absolute path of the server file holding global and project snippets; absent from older servers. */
+  file?: string;
 }
 
 export interface PiSnippetCreateInput {

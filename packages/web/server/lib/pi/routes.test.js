@@ -2437,6 +2437,20 @@ describe('Pi runtime route', () => {
     expect(invalid.status).toBe(400);
   });
 
+  it('reports where snippets are stored', async () => {
+    const snippetsStore = {
+      file: '/data/pi/snippets.json',
+      list: async () => [{ id: 's1', aliases: [], name: 'note', content: 'Content', scope: 'global' }],
+    };
+    const app = express();
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => ({}), snippetsStore });
+    server = await listen(app);
+    await expect((await fetch(`http://127.0.0.1:${server.address().port}/api/pi/snippets`)).json()).resolves.toEqual({
+      snippets: [{ id: 's1', aliases: [], name: 'note', content: 'Content', scope: 'global' }],
+      file: '/data/pi/snippets.json',
+    });
+  });
+
   it('renames snippets and moves scopes by opaque id', async () => {
     const calls = [];
     const snippetsStore = {
