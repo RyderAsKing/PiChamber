@@ -112,6 +112,7 @@
     "dist",
     "server",
     "bin",
+    "plugins",
     "public",
     "package.json",
     "README.md"
