@@ -6,14 +6,18 @@ import {
   SETTINGS_FIELD_LABEL_CLASS,
   SETTINGS_HELPER_CLASS,
   SettingsCheckboxRow,
+  SettingsControlGroup,
   SettingsSection,
   SettingsStackedField,
+  SettingsTwoColumn,
 } from '@/components/sections/shared/SettingsSection';
+import { cn } from '@/lib/utils';
 import { reportSettingsSaveState } from '@/lib/persistence';
-import { sandboxReasonText } from '@/lib/pi/sandboxText';
+import { sandboxLimitText, sandboxReasonText } from '@/lib/pi/sandboxText';
 import type { PiSandboxDefaults, PiSandboxDefaultsUpdate, PiSandboxLauncherStatus } from '@/lib/pi/protocol';
 import { useProjectSandboxStore } from '@/stores/useProjectSandboxStore';
 import { HOST_PRESETS, hasPreset, parseHosts, withPreset } from './projectSandboxDraft';
+import { sandboxLimitsAccepted, sandboxLimitsUpdate } from './sandboxLimits';
 
 const launcherStatusText = (launcher: PiSandboxLauncherStatus): string => {
   if (launcher.available) {
@@ -23,6 +27,8 @@ const launcherStatusText = (launcher: PiSandboxLauncherStatus): string => {
 };
 
 type SandboxDefaultsInput = PiSandboxDefaultsUpdate;
+
+const NONO_URL = 'https://nono.sh';
 
 /** Server-level sandboxing (#242): whether each launcher can run on the
  *  server machine, with a re-check, and the default every project follows
@@ -53,7 +59,8 @@ export const SandboxingSection: React.FC = () => {
     const current = useProjectSandboxStore.getState().defaults;
     // An unreadable stored default is repaired by saving, even unchanged.
     const unchanged = (next.mode === undefined || next.mode === current?.mode)
-      && (next.allowHosts === undefined || JSON.stringify(next.allowHosts) === JSON.stringify(current?.allowHosts));
+      && (next.allowHosts === undefined || JSON.stringify(next.allowHosts) === JSON.stringify(current?.allowHosts))
+      && (next.acceptedLimits === undefined || JSON.stringify(next.acceptedLimits) === JSON.stringify(current?.acceptedLimits ?? []));
     if (current && !current.invalid && unchanged) return;
     reportSettingsSaveState('saving');
     const saved = await saveDefaults(next);
@@ -120,19 +127,42 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
           <p className={SETTINGS_HELPER_CLASS}>Checking…</p>
         ) : (
           launchers.map((launcher) => (
-            <div key={launcher.id} className="flex min-w-0 max-w-[24rem] items-start justify-between gap-4">
-              <div className="min-w-0 space-y-0.5">
-                <div className={SETTINGS_FIELD_LABEL_CLASS}>{launcher.id}</div>
-                <p
-                  className={launcher.available
-                    ? 'typography-meta text-muted-foreground'
-                    : 'typography-meta text-[var(--status-error)]'}
-                >
-                  {launcherStatusText(launcher)}
-                </p>
+            <React.Fragment key={launcher.id}>
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-2">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className={SETTINGS_FIELD_LABEL_CLASS}>{launcher.id}</span>
+                  <p
+                    className={launcher.available
+                      ? 'typography-meta text-muted-foreground'
+                      : 'typography-meta text-[var(--status-error)]'}
+                  >
+                    {launcherStatusText(launcher)}
+                  </p>
+                  {launcher.id === 'nono' ? (
+                    <a
+                      href={NONO_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="typography-meta text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                    >
+                      nono.sh
+                    </a>
+                  ) : null}
+                </div>
+                <div className="shrink-0">{recheckButton}</div>
               </div>
-              <div className="shrink-0">{recheckButton}</div>
-            </div>
+              {launcher.available && launcher.limits && launcher.limits.length > 0 ? (
+                <SandboxLimitsFields
+                  limits={launcher.limits}
+                  accepted={sandboxLimitsAccepted(launcher, defaults)}
+                  disabled={savingDefaults || !defaults || !onSaveDefaults}
+                  onChange={(accept) => {
+                    if (!defaults || !onSaveDefaults) return;
+                    void onSaveDefaults(sandboxLimitsUpdate(defaults, launcher.limits ?? [], accept));
+                  }}
+                />
+              ) : null}
+            </React.Fragment>
           ))
         )}
 
@@ -158,6 +188,50 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
   );
 };
 
+interface SandboxLimitsFieldsProps {
+  limits: string[];
+  accepted: boolean;
+  disabled: boolean;
+  onChange: (accept: boolean) => void;
+}
+
+/** What the sandbox cannot enforce on this server (WSL2), kept visible, and
+ *  the owner's acceptance, without which sandboxed projects do not run. */
+const SandboxLimitsFields: React.FC<SandboxLimitsFieldsProps> = ({ limits, accepted, disabled, onChange }) => (
+  <SettingsControlGroup
+    title="Not enforced on this server"
+    description="File access is still limited, so the sandbox stops an agent's mistakes, but not code that sets out to escape it."
+    contentClassName="space-y-4"
+  >
+    <div className="grid grid-cols-1 gap-x-10 gap-y-3 @3xl:grid-cols-2">
+      {limits.map((limit) => {
+        const { title, text } = sandboxLimitText(limit);
+        return (
+          <div key={limit} className="min-w-0 space-y-0.5">
+            <p className="typography-meta font-medium text-[var(--status-warning)]">{title}</p>
+            <p className={cn(SETTINGS_HELPER_CLASS, 'text-pretty')}>{text}</p>
+          </div>
+        );
+      })}
+    </div>
+    <div className="space-y-1">
+      <SettingsCheckboxRow
+        checked={accepted}
+        disabled={disabled}
+        onChange={onChange}
+        label={limits.length === 1 ? 'Use sandboxing with this limit' : 'Use sandboxing with these limits'}
+      />
+      {!accepted ? (
+        <p className={SETTINGS_HELPER_CLASS}>
+          {limits.length === 1
+            ? 'Sandboxed projects do not run on this server until you accept it.'
+            : 'Sandboxed projects do not run on this server until you accept them.'}
+        </p>
+      ) : null}
+    </div>
+  </SettingsControlGroup>
+);
+
 interface SandboxDefaultsFieldsProps {
   defaults: PiSandboxDefaults;
   saving: boolean;
@@ -180,24 +254,26 @@ const SandboxDefaultsFields: React.FC<SandboxDefaultsFieldsProps> = ({ defaults,
   };
 
   return (
-    <>
-      <SettingsCheckboxRow
-        checked={defaults.mode === 'nono'}
-        disabled={saving}
-        onChange={(checked) => {
-          const mode = checked ? 'nono' : 'off';
-          void onSave(defaults.invalid ? { mode, allowHosts: hosts } : { mode });
-        }}
-        label="Sandbox projects by default"
-        info="Projects set to Default in their Sandbox settings follow this, including folders you add later. Projects set to On or Off keep their own choice. Turning it off resets the trust of every project that was sandboxed by it."
-        settingsItem="projects.sandbox-default"
-      />
+    <SettingsTwoColumn className="pt-2">
+      <div className="min-w-0">
+        <SettingsCheckboxRow
+          checked={defaults.mode === 'nono'}
+          disabled={saving}
+          onChange={(checked) => {
+            const mode = checked ? 'nono' : 'off';
+            void onSave(defaults.invalid ? { mode, allowHosts: hosts } : { mode });
+          }}
+          label="Sandbox projects by default"
+          info="Projects set to Default in their Sandbox settings follow this, including folders you add later. Projects set to On or Off keep their own choice. Turning it off resets the trust of every project that was sandboxed by it."
+          settingsItem="projects.sandbox-default"
+        />
+      </div>
 
       <SettingsStackedField
         label="Allowed hosts for all projects"
         info="Hosts every sandboxed project's agent may reach, on top of your model providers and each project's own hosts. One per line. Each host lets the agent send data there, so add only what your projects need."
         settingsItem="projects.sandbox-default-hosts"
-        controlClassName="w-full max-w-[24rem] flex-col items-stretch"
+        controlClassName="w-full max-w-[32rem] flex-col items-stretch"
       >
         <Textarea
           value={hostsText}
@@ -230,6 +306,6 @@ const SandboxDefaultsFields: React.FC<SandboxDefaultsFieldsProps> = ({ defaults,
           </Button>
         </div>
       </SettingsStackedField>
-    </>
+    </SettingsTwoColumn>
   );
 };

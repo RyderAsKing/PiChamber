@@ -10,14 +10,41 @@ off keep running the way they always have.
 
 ## Requirements
 
-- A Linux server machine whose kernel supports Landlock. PiChamber does not
-  sandbox on macOS or Windows yet.
+- A server machine running one of:
+  - Linux with a kernel that supports Landlock;
+  - macOS, which nono sandboxes with Seatbelt;
+  - WSL2 with a recent kernel (Landlock V4 or newer). Run `wsl --update` in
+    Windows if Sandboxing says the kernel is too old. See WSL2 limits, below.
 - nono 0.82.0 or newer installed on the server machine, on the `PATH` of the
   PiChamber server.
+
+PiChamber does not sandbox on Windows outside WSL2.
 
 Open **Settings → Projects**. The **Sandboxing** section shows whether nono can
 run on the server machine and, if not, why. After you install or update nono,
 choose **Check again**.
+
+### WSL2 limits
+
+WSL2 keeps nono from using a Linux feature it relies on, so two rules are not
+enforced there:
+
+- **Unix sockets stay open.** Code inside the sandbox can connect to local
+  services that listen on a Unix socket, such as the systemd user manager,
+  D-Bus, an SSH or GPG agent, or Docker, and ask them to run commands outside
+  the sandbox.
+- **Allowed hosts can be bypassed.** nono sends allowed traffic through a
+  proxy on a local port, and on WSL2 that port is open to every host, not only
+  the proxy. Code inside the sandbox can send data to any server that listens
+  on that port.
+
+File access is still limited. On WSL2 the sandbox stops an agent's mistakes,
+but not code that sets out to escape it.
+
+Sandboxing on WSL2 lists these limits and stays off until you check **Use
+sandboxing with these limits**. Until then, sandboxed projects do not run.
+Clear the box to stop sandboxed sessions again: running turns finish first. If
+you need the full sandbox, run PiChamber on Linux or macOS.
 
 ## Turn it on for every project
 
@@ -48,8 +75,10 @@ every session in the project, including new ones.
   add the Git host, such as `github.com`; the agent can use HTTPS remotes only,
   not SSH.
 - **Local ports.** Ports on the server machine the agent may connect to, such
-  as a local llama.cpp server. A local port lets the agent connect to that port
-  on any host, not only the server machine.
+  as a local llama.cpp server. On Linux and WSL2, a local port lets the agent
+  connect to that port on any host, not only the server machine. On macOS it
+  allows only the server machine, but any local port also lets the agent
+  listen on every port.
 - **Extra folders.** Folders outside the project the agent may use, read only
   or read and write.
 
@@ -77,7 +106,8 @@ extensions can:
 - reach your model providers, your allowed hosts, and your allowed local ports.
 
 It cannot read other projects or their session transcripts, change Pi's global
-settings, extensions, or credentials, or reach the PiChamber server.
+settings, extensions, or credentials, or reach the PiChamber server. On WSL2
+some of this can be bypassed (see WSL2 limits).
 
 ## What stays outside
 

@@ -1,0 +1,21 @@
+{
+  "extends": "default",
+  "meta": { "name": "pichamber" },
+  "groups": {
+    "include": [
+      "node_runtime",
+      "rust_runtime",
+      "python_runtime",
+      "nix_runtime",
+      "git_config",
+      { "name": "user_caches_macos", "when": "macos" }
+    ],
+    "exclude": ["system_write_macos"]
+  },
+  "security": { "signal_mode": "isolated", "capability_elevation": false },
+  "workdir": { "access": "none" },
+  "filesystem": {
+    "allow_file": ["/dev/null", "/dev/zero", "/dev/tty"],
+    "allow": ["/dev/fd"]
+  }
+}

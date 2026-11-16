@@ -8,7 +8,7 @@ import { posix } from 'node:path';
  *
  *   {
  *     id, platforms, transport: 'local-socket',
- *     probe(): Promise<{ available: true, version, capabilities } | { available: false, code }>,
+ *     probe(): Promise<{ available: true, version, capabilities, limits? } | { available: false, code }>,
  *     identity({ grants, network }): string,
  *     prepare({ argv, env, cwd, grants, network, tmpDir }): Promise<{ command, args, env, cleanup? }>,
  *   }
@@ -19,7 +19,17 @@ import { posix } from 'node:path';
  *   { kind: 'unixSocketBind', dir }               bind sockets in a folder
  * Network:
  *   { mode: 'proxy', allowHosts: string[], allowLocalPorts: number[] } | { mode: 'none' }
+ *
+ * `limits` names what the sandbox cannot enforce on this host, from
+ * `SANDBOX_LIMIT_CODES`. A host with limits runs sandboxes only after its
+ * owner accepts every one of them (`sandboxDefaults.acceptedLimits`).
  */
+
+/** What a launcher may report it cannot enforce on a host.
+ *  UNIX_SOCKETS: pathname Unix sockets are not mediated (nono on WSL2).
+ *  PROXY_PORT: connections on the proxy's port are not held to the proxy, so
+ *  they reach any host (nono on WSL2). */
+export const SANDBOX_LIMIT_CODES = Object.freeze(['UNIX_SOCKETS', 'PROXY_PORT']);
 
 export class SandboxLaunchError extends Error {
   constructor(code) {

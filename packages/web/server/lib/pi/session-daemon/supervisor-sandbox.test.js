@@ -118,6 +118,8 @@ describe('sandboxed Pi session daemon supervisor', () => {
 
     expect(paths.profileKey).toMatch(new RegExp(`^web-p3000-sbx-${sandbox.projectKey}-[0-9a-f]{12}$`));
     expect(paths.profileDir).toBe(join(ctx.dataDir, 'pi', 'daemons', paths.profileKey));
+    // Named by a hash of the long sandbox key, so the socket path stays short.
+    expect(paths.runtimeDir).toMatch(new RegExp(`^${ctx.runtime}/pichamber/pi-daemons/sbx-[0-9a-f]{16}$`));
     expect(command).toBe(ctx.nono);
     expect(args).toEqual([
       'run', '-s', '--profile', NONO_PROFILE_FILE, '--no-rollback', '--no-audit', '--no-diagnostics',
@@ -138,12 +140,12 @@ describe('sandboxed Pi session daemon supervisor', () => {
         join(ctx.dataDir, 'worktree', ctx.projectId),
         ctx.scratch,
       ].sort().flatMap((path) => ['--allow', path]),
-      '--allow-unix-socket-dir-bind', join(ctx.runtime, 'pichamber', 'pi-daemons', paths.profileKey),
+      '--allow-unix-socket-dir-bind', paths.runtimeDir,
       '--allow-domain', 'api.anthropic.com',
       '--allow-connect-port', '8080',
       '--',
       '/opt/node/bin/node', DAEMON_ENTRYPOINT,
-      '--endpoint', join(ctx.runtime, 'pichamber', 'pi-daemons', paths.profileKey, 'daemon.sock'),
+      '--endpoint', join(paths.runtimeDir, 'daemon.sock'),
       '--credential-file', paths.credentialFile,
       '--state-file', paths.stateFile,
       '--cwd', ctx.project,
@@ -157,7 +159,7 @@ describe('sandboxed Pi session daemon supervisor', () => {
       // Leases key on the real agent folder, so this daemon and the main
       // daemon exclude each other on the same session.
       '--lease-agent-dir', ctx.agentDir,
-      '--open-url-socket', join(ctx.runtime, 'pichamber', 'pi-daemons', paths.profileKey, 'open-url.sock'),
+      '--open-url-socket', join(paths.runtimeDir, 'open-url.sock'),
     ]);
     expect(options).toMatchObject({ cwd: ctx.project, detached: true });
     expect(options.env).toMatchObject({
@@ -291,6 +293,43 @@ describe('sandboxed Pi session daemon supervisor', () => {
       },
     })).rejects.toMatchObject({ code: 'SANDBOX_ENDPOINT_TOO_LONG' });
     expect(spawned).toBe(false);
+  });
+
+  it('keeps a macOS sandbox socket under the data folder within the 103-byte limit', async () => {
+    const ctx = await setup();
+    // A typical macOS data folder, with no XDG_RUNTIME_DIR to shorten it.
+    const dataDir = '/Users/a-long-user-name/.config/pichamber';
+    const { XDG_RUNTIME_DIR: _runtime, ...env } = ctx.env;
+    const supervisor = await createSandboxedPiSessionDaemonSupervisor({
+      env,
+      dataDir,
+      platform: 'darwin',
+      port: 3000,
+      launcher: createNonoLauncher({ command: ctx.nono, platform: 'linux', readProcVersion: async () => '' }),
+      sandbox: await prepareProjectSandbox(ctx.sandboxOptions),
+      processLike: fakeProcess,
+    });
+    expect(supervisor.paths.endpoint).toMatch(new RegExp(`^${dataDir}/runtime/pi-daemons/sbx-[0-9a-f]{16}/daemon\\.sock$`));
+    expect(Buffer.byteLength(supervisor.paths.endpoint)).toBeLessThanOrEqual(103);
+  });
+
+  it('refuses a macOS socket path past 103 bytes that Linux would still accept', async () => {
+    const ctx = await setup();
+    const { XDG_RUNTIME_DIR: _runtime, ...env } = ctx.env;
+    // 104 bytes once the runtime folder and socket name are added.
+    const dataDir = `/${'d'.repeat(104 - '/runtime/pi-daemons/sbx-0123456789abcdef/daemon.sock'.length - 1)}`;
+    const options = {
+      env,
+      dataDir,
+      port: 3000,
+      launcher: createNonoLauncher({ command: ctx.nono, platform: 'linux', readProcVersion: async () => '' }),
+      sandbox: await prepareProjectSandbox(ctx.sandboxOptions),
+      processLike: fakeProcess,
+    };
+    const linux = await createSandboxedPiSessionDaemonSupervisor({ ...options, platform: 'linux' });
+    expect(Buffer.byteLength(linux.paths.endpoint)).toBe(104);
+    await expect(createSandboxedPiSessionDaemonSupervisor({ ...options, platform: 'darwin' }))
+      .rejects.toMatchObject({ code: 'SANDBOX_ENDPOINT_TOO_LONG' });
   });
 
   it('keeps the unsandboxed launch as the plain daemon command', async () => {

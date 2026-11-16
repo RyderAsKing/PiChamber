@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createOpenUrlIntake } from '../../open-url/intake.js';
@@ -10,10 +12,34 @@ import { getPiSessionDirectory } from './session-jsonl.js';
 import { readSessionLeaseOwner } from './session-lease.js';
 import { createSandboxedPiSessionDaemonSupervisor } from './supervisor.js';
 
-// Runs only where nono can sandbox (Linux with Landlock and nono >= 0.82.0).
-// CI and the development container have no Landlock, so this skips there;
-// run it on a Landlock machine before a release.
+// Runs only where nono can sandbox: Linux or WSL2 with Landlock, or macOS,
+// with nono >= 0.82.0. Linux CI and the development container have no
+// Landlock, so this skips there; the macOS CI job runs it. Run it on a
+// Landlock machine before a release.
 const probe = await createNonoLauncher().probe();
+// WSL2 cannot mediate pathname Unix sockets (nono-launcher.js HOST_LIMITS).
+const unixSocketsMediated = !probe.limits?.includes('UNIX_SOCKETS');
+
+// Run inside the sandbox by the turn's bash tool: exits 0 when the attempt
+// succeeds.
+const PROBE_SCRIPT = `
+import { connect } from 'node:net';
+const [kind, target] = process.argv.slice(2);
+const done = (ok) => process.exit(ok ? 0 : 1);
+setTimeout(() => done(false), 8000);
+const socket = kind === 'unix' ? connect(target) : connect(Number(target.split(':')[1]), target.split(':')[0]);
+socket.on('connect', () => done(true)).on('error', () => done(false));
+`;
+
+const listen = (server, ...args) => new Promise((resolve) => server.listen(...args, () => resolve(server)));
+
+// CI sets this where nono must work, so a broken probe fails instead of
+// skipping the suite.
+describe.runIf(process.env.PICHAMBER_REQUIRE_NONO_E2E === '1')('nono on a host that requires the e2e test', () => {
+  it('can sandbox', () => {
+    expect(probe).toMatchObject({ available: true });
+  });
+});
 
 // The faux model answers the first prompt with one bash tool call carrying
 // the prompt text as its command, then with plain text.
@@ -65,6 +91,18 @@ const waitForFile = async (path, timeoutMs = 60_000) => {
   throw new Error(`Timed out waiting for ${path}`);
 };
 
+// The test's HOME holds nono's state folder (~/.local/state/nono), which
+// nono refuses to start inside a folder its profile grants. macOS's temp
+// folder sits under /private/var, which nono's macOS system group grants, so
+// on macOS the test works under the real home, as a real home would be.
+const testRootParent = process.platform === 'darwin' ? homedir() : tmpdir();
+const roots = [];
+const makeRoot = async () => {
+  const root = await mkdtemp(join(testRootParent, process.platform === 'darwin' ? '.pichamber-nono-e2e-' : 'pichamber-nono-e2e-'));
+  roots.push(root);
+  return root;
+};
+
 describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
   let supervisor;
   let intake;
@@ -74,10 +112,12 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     intake = undefined;
     await supervisor?.stop().catch(() => {});
     supervisor = undefined;
+    // Kept on failure in CI, whose log step reads the daemon logs.
+    if (!process.env.CI) await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
   it('lets a turn\'s bash tool write in the project and denies everything outside it', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-nono-e2e-'));
+    const root = await makeRoot();
     const home = join(root, 'home');
     const agentDir = join(home, '.pi', 'agent');
     const dataDir = join(root, 'data');
@@ -113,7 +153,20 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       // Short on purpose: the daemon socket path must fit a Unix socket address.
       XDG_RUNTIME_DIR: await mkdtemp('/tmp/pcx-'),
     };
-    const sandbox = await prepareProjectSandbox({ dataDir, agentDir, projectRoot: project, serverPort: 3000 });
+    // Local services outside the sandbox: a Unix socket (like the systemd
+    // user manager's or Docker's) and a loopback TCP server (like PiChamber's).
+    const outsideSocket = join(outside, 'service.sock');
+    const unixServer = await listen(createNetServer(), outsideSocket);
+    const tcpServer = await listen(createHttpServer((_request, response) => response.end('ok')), 0, '127.0.0.1');
+    // A local port the project allows (like a local model server).
+    const grantedServer = await listen(createHttpServer((_request, response) => response.end('ok')), 0, '127.0.0.1');
+    const grantedPort = grantedServer.address().port;
+    const probeFile = join(project, 'probe.mjs');
+    await writeFile(probeFile, PROBE_SCRIPT);
+
+    const sandbox = await prepareProjectSandbox({
+      dataDir, agentDir, projectRoot: project, serverPort: 3000, allowLocalPorts: [grantedPort],
+    });
     supervisor = await createSandboxedPiSessionDaemonSupervisor({ env, port: 3000, launcher: createNonoLauncher(), sandbox });
     await supervisor.start();
 
@@ -128,12 +181,18 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       check('piSettings', `echo pwn >> ${join(agentDir, 'settings.json')}`),
       check('piExtensions', `mkdir ${join(agentDir, 'extensions', 'evil')}`),
       check('mainCredential', `cat ${mainCredential}`),
+      check('unixOutside', `node ${probeFile} unix ${outsideSocket}`),
+      check('tcpLoopback', `node ${probeFile} tcp 127.0.0.1:${tcpServer.address().port}`),
+      check('tcpGranted', `node ${probeFile} tcp 127.0.0.1:${grantedPort}`),
       `echo END >> ${results}`,
     ].join('; ');
 
     const created = await supervisor.request('sessions.create', { cwd: project });
     await supervisor.request('sessions.prompt', { sessionId: created.session.id, text: script });
     const text = await waitForFile(results);
+    unixServer.close();
+    tcpServer.close();
+    grantedServer.close();
 
     expect(text).toContain('project=allowed');
     expect(text).toContain('outside=denied');
@@ -143,11 +202,15 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     expect(text).toContain('piSettings=denied');
     expect(text).toContain('piExtensions=denied');
     expect(text).toContain('mainCredential=denied');
+    expect(text).toContain('tcpLoopback=denied');
+    expect(text).toContain('tcpGranted=allowed');
+    // The limit a WSL2 owner accepts: the socket is reachable there.
+    expect(text).toContain(unixSocketsMediated ? 'unixOutside=denied' : 'unixOutside=allowed');
     await expect(readFile(join(agentDir, 'settings.json'), 'utf8')).resolves.toBe(settings);
   }, 120_000);
 
   it('keys its session lease on the real agent folder and reaches its own Open request intake', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'pichamber-nono-e2e-'));
+    const root = await makeRoot();
     const home = join(root, 'home');
     const agentDir = join(home, '.pi', 'agent');
     const dataDir = join(root, 'data');

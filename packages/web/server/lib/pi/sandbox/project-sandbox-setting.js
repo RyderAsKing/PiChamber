@@ -1,6 +1,6 @@
 import { isAbsolute, normalize } from 'node:path';
 
-import { normalizeNetwork } from './launcher.js';
+import { normalizeNetwork, SANDBOX_LIMIT_CODES } from './launcher.js';
 
 // A project's sandbox setting (#242 "Settings and storage"). It lives on the
 // project entry in host-local settings (runtime-state.json) and is never
@@ -62,8 +62,9 @@ export const normalizeProjectSandboxSetting = (value) => {
 
 /**
  * The host's sandbox default: whether projects that follow it are sandboxed,
- * and hosts every sandboxed project may reach on top of its own. Host-local,
- * like project settings. Validated, or `ProjectSandboxSettingError`.
+ * hosts every sandboxed project may reach on top of its own, and the host
+ * limits (`SANDBOX_LIMIT_CODES`) the owner accepted. Host-local, like project
+ * settings. Validated, or `ProjectSandboxSettingError`.
  */
 const normalizeSandboxDefaults = (value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !DEFAULT_MODES.includes(value.mode)) {
@@ -71,29 +72,41 @@ const normalizeSandboxDefaults = (value) => {
   }
   const allowHosts = value.allowHosts ?? [];
   if (!Array.isArray(allowHosts) || allowHosts.length > MAX_HOSTS) throw new ProjectSandboxSettingError();
+  const acceptedLimits = value.acceptedLimits ?? [];
+  if (!Array.isArray(acceptedLimits) || acceptedLimits.some((limit) => !SANDBOX_LIMIT_CODES.includes(limit))) {
+    throw new ProjectSandboxSettingError();
+  }
+  let hosts;
   try {
-    return { mode: value.mode, allowHosts: normalizeNetwork({ mode: 'proxy', allowHosts, allowLocalPorts: [] }).allowHosts };
+    hosts = normalizeNetwork({ mode: 'proxy', allowHosts, allowLocalPorts: [] }).allowHosts;
   } catch {
     throw new ProjectSandboxSettingError();
   }
+  return {
+    mode: value.mode,
+    allowHosts: hosts,
+    acceptedLimits: SANDBOX_LIMIT_CODES.filter((limit) => acceptedLimits.includes(limit)),
+  };
 };
 
 /**
- * `current` with the fields of `patch` (`mode`, `allowHosts`, or both) laid
- * over it, validated. A patch with neither field is refused.
+ * `current` with the fields of `patch` (`mode`, `allowHosts`,
+ * `acceptedLimits`, or several) laid over it, validated. A patch with none
+ * of them is refused.
  */
 export const mergeSandboxDefaults = (current, patch) => {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)
-    || (patch.mode === undefined && patch.allowHosts === undefined)) {
+    || (patch.mode === undefined && patch.allowHosts === undefined && patch.acceptedLimits === undefined)) {
     throw new ProjectSandboxSettingError();
   }
   return normalizeSandboxDefaults({
     mode: patch.mode === undefined ? current.mode : patch.mode,
     allowHosts: patch.allowHosts === undefined ? [...current.allowHosts] : patch.allowHosts,
+    acceptedLimits: patch.acceptedLimits === undefined ? [...current.acceptedLimits] : patch.acceptedLimits,
   });
 };
 
-const SANDBOX_DEFAULTS_OFF = Object.freeze({ mode: 'off', allowHosts: Object.freeze([]) });
+const SANDBOX_DEFAULTS_OFF = Object.freeze({ mode: 'off', allowHosts: Object.freeze([]), acceptedLimits: Object.freeze([]) });
 
 /** The stored host default, or off when there is none. An unreadable one
  *  is `invalid`, so projects that follow it fail closed. */

@@ -13,7 +13,9 @@ const REASON_TEXT: Record<string, string> = {
   TOO_OLD: 'The installed nono is too old. Update nono on the server machine.',
   VERSION_UNKNOWN: 'PiChamber could not read the installed nono version.',
   SETUP_CHECK_FAILED: 'nono\'s setup check failed on the server machine.',
-  UNSUPPORTED_PLATFORM: 'PiChamber supports nono sandboxing on Linux servers only for now.',
+  UNSUPPORTED_PLATFORM: 'nono sandboxing needs a Linux, WSL2 or macOS server.',
+  WSL_KERNEL_TOO_OLD: 'This WSL kernel is too old for nono to filter network traffic. Run wsl --update in Windows, then check again.',
+  SANDBOX_LIMITS_NOT_ACCEPTED: 'Sandboxing on this server has a limit you have not accepted. Review it in Settings, Projects, Sandboxing.',
   SANDBOX_NOT_PROBED: 'Sandboxing has not been checked yet.',
   PROVIDER_HOSTS_UNAVAILABLE: 'PiChamber could not read which model providers the sandbox should reach.',
   INVALID_SANDBOX_SETTING: 'This project\'s sandbox setting could not be read. Save it again.',
@@ -21,6 +23,25 @@ const REASON_TEXT: Record<string, string> = {
   SANDBOX_PROFILE_UNREADABLE: 'nono could not read PiChamber\'s sandbox profile.',
   SANDBOX_LAUNCH_FAILED: 'The sandbox failed to start.',
 };
+
+const LIMIT_TEXT: Record<string, { title: string; text: string }> = {
+  UNIX_SOCKETS: {
+    title: 'Unix sockets are not blocked',
+    text: 'Code in the sandbox can ask local services such as the systemd user manager, D-Bus, an SSH or GPG agent, or Docker to run commands outside it.',
+  },
+  PROXY_PORT: {
+    title: 'Allowed hosts can be bypassed',
+    text: 'nono cannot check where connections on its proxy\'s port go, so code in the sandbox can send data to any server that listens on that port.',
+  },
+};
+
+/** What a sandbox cannot enforce on the server machine: a short title and a
+ *  sentence explaining it. */
+export const sandboxLimitText = (limit: string): { title: string; text: string } => (
+  Object.prototype.hasOwnProperty.call(LIMIT_TEXT, limit)
+    ? LIMIT_TEXT[limit]
+    : { title: 'Part of the policy is not enforced', text: 'The sandbox on this server cannot enforce part of its policy.' }
+);
 
 /** One sentence explaining why a sandbox cannot run. */
 export const sandboxReasonText = (reason: string | undefined): string => {

@@ -7,6 +7,7 @@ import type { ProjectEntry } from '@/lib/api/types';
 import { ProjectCard } from './ProjectCard';
 import { ProjectSandboxSectionView } from './ProjectSandboxSection';
 import { SandboxingSectionView } from './SandboxingSection';
+import { sandboxLimitsAccepted, sandboxLimitsUpdate } from './sandboxLimits';
 
 const state = (overrides: Partial<PiProjectSandboxState> = {}): PiProjectSandboxState => ({
   projectId: 'p1',
@@ -98,6 +99,7 @@ describe('SandboxingSection', () => {
     const html = renderLaunchers([{ id: 'nono', available: true, version: '0.82.0' }]);
     expect(html).toContain('Available, version 0.82.0');
     expect(html).toContain('Check again');
+    expect(html).toContain('href="https://nono.sh"');
   });
 
   test('offers the default for all projects and the shared hosts with presets', () => {
@@ -128,6 +130,50 @@ describe('SandboxingSection', () => {
   test('shows why a launcher is unavailable', () => {
     const html = renderLaunchers([{ id: 'nono', available: false, reason: 'NOT_INSTALLED' }]);
     expect(html).toContain('nono is not installed on the server machine.');
+  });
+
+  test('a host with limits explains them and asks the owner to accept them', () => {
+    const wsl = { id: 'nono', available: true, version: '0.82.0', limits: ['UNIX_SOCKETS'], limitsAccepted: false };
+    const render = (defaults: PiSandboxDefaults) => renderToStaticMarkup(
+      <SandboxingSectionView launchers={[wsl]} loadFailed={false} rechecking={false} onRecheck={() => {}} defaults={defaults} onSaveDefaults={async () => {}} />,
+    );
+    const pending = render({ mode: 'off', allowHosts: [], acceptedLimits: [] });
+    expect(pending).toContain('Unix sockets');
+    expect(pending).toContain('Use sandboxing with this limit');
+    expect(pending).toContain('until you accept it.');
+    const accepted = render({ mode: 'off', allowHosts: [], acceptedLimits: ['UNIX_SOCKETS'] });
+    expect(accepted).toContain('Use sandboxing with this limit');
+    expect(accepted).not.toContain('until you accept it.');
+    expect(renderLaunchers([{ id: 'nono', available: true, version: '0.82.0' }])).not.toContain('Use sandboxing with');
+    const both = renderToStaticMarkup(
+      <SandboxingSectionView
+        launchers={[{ ...wsl, limits: ['UNIX_SOCKETS', 'PROXY_PORT'] }]}
+        loadFailed={false}
+        rechecking={false}
+        onRecheck={() => {}}
+        defaults={{ mode: 'off', allowHosts: [], acceptedLimits: ['UNIX_SOCKETS'] }}
+        onSaveDefaults={async () => {}}
+      />,
+    );
+    expect(both).toContain('proxy&#x27;s port');
+    expect(both).toContain('Use sandboxing with these limits');
+    expect(both).toContain('until you accept them.');
+  });
+
+  test('acceptance follows the saved default, else the launcher flag', () => {
+    const launcher = { id: 'nono', available: true, limits: ['UNIX_SOCKETS'], limitsAccepted: true };
+    expect(sandboxLimitsAccepted(launcher, { mode: 'off', allowHosts: [], acceptedLimits: [] })).toBe(false);
+    expect(sandboxLimitsAccepted(launcher, { mode: 'off', allowHosts: [], acceptedLimits: ['UNIX_SOCKETS'] })).toBe(true);
+    expect(sandboxLimitsAccepted(launcher, null)).toBe(true);
+    expect(sandboxLimitsAccepted({ ...launcher, limitsAccepted: false }, null)).toBe(false);
+  });
+
+  test('accepting or withdrawing sends only the limits, or the whole default when it is unreadable', () => {
+    const defaults = { mode: 'nono' as const, allowHosts: ['github.com'], acceptedLimits: [] };
+    expect(sandboxLimitsUpdate(defaults, ['UNIX_SOCKETS'], true)).toEqual({ acceptedLimits: ['UNIX_SOCKETS'] });
+    expect(sandboxLimitsUpdate(defaults, ['UNIX_SOCKETS'], false)).toEqual({ acceptedLimits: [] });
+    expect(sandboxLimitsUpdate({ ...defaults, mode: 'off', invalid: true }, ['UNIX_SOCKETS'], true))
+      .toEqual({ mode: 'off', allowHosts: ['github.com'], acceptedLimits: ['UNIX_SOCKETS'] });
   });
 });
 

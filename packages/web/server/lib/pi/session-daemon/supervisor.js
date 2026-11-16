@@ -19,8 +19,9 @@ const DAEMON_READY_TIMEOUT_MS = 15_000;
 // 15 s; the start still fails closed, it only waits longer.
 const SANDBOX_DAEMON_READY_TIMEOUT_MS = 45_000;
 const RETRY_DELAY_MS = 100;
-// Linux sun_path holds 108 bytes including the terminating NUL.
-const MAX_UNIX_SOCKET_PATH_BYTES = 107;
+// sun_path holds 108 bytes on Linux and 104 on macOS, including the
+// terminating NUL.
+const maxUnixSocketPathBytes = (platform) => (platform === 'darwin' ? 103 : 107);
 const DAEMON_ENTRYPOINT = fileURLToPath(new URL('./daemon-process.js', import.meta.url));
 
 class PiSessionDaemonUnavailableError extends Error {
@@ -143,6 +144,9 @@ const resolvePiSessionDaemonPaths = ({
   port,
   runtime,
   version,
+  // The runtime folder's name (default: the profile key). Sandbox daemons
+  // pass a short one so their socket path fits a Unix socket address.
+  runtimeName,
 } = {}) => {
   const resolvedProfile = profile && typeof profile.profileKey === 'string'
     ? profile
@@ -156,9 +160,10 @@ const resolvePiSessionDaemonPaths = ({
     buildId,
   } = resolvedProfile;
   const profileDir = pathModule.join(dataDir, 'pi', 'daemons', profileKey);
+  const runtimeFolder = runtimeName ?? profileKey;
   const runtimeBaseDir = typeof env.XDG_RUNTIME_DIR === 'string' && env.XDG_RUNTIME_DIR.trim()
-    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber', 'pi-daemons', profileKey)
-    : pathModule.join(dataDir, 'runtime', 'pi-daemons', profileKey);
+    ? pathModule.join(pathModule.resolve(env.XDG_RUNTIME_DIR.trim()), 'pichamber', 'pi-daemons', runtimeFolder)
+    : pathModule.join(dataDir, 'runtime', 'pi-daemons', runtimeFolder);
   const configuredEndpoint = typeof env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT === 'string'
     ? env.PICHAMBER_PI_SESSION_DAEMON_ENDPOINT.trim()
     : '';
@@ -242,8 +247,9 @@ export const createPiSessionDaemonSupervisor = ({
   version,
   launch,
   leaseAgentDir,
+  runtimeName,
 } = {}) => {
-  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
+  const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version, runtimeName });
   const serverPid = processLike.pid;
   let startPromise = null;
   let intentionallyStopped = false;
@@ -780,6 +786,10 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
   const identity = launcher.identity({ grants: sandbox.grants, network: sandbox.network });
   const base = resolveServerProfile({ env, port, runtime, version });
   const profile = { ...base, profileKey: `${base.profileKey}-sbx-${sandbox.projectKey}-${identity}` };
+  // The full key is about 40 characters. Without XDG_RUNTIME_DIR (macOS) the
+  // runtime folder sits under the data folder, where a socket path built
+  // from it would pass macOS's 103-byte limit, so it is named by a hash.
+  const runtimeName = `sbx-${createHash('sha256').update(profile.profileKey).digest('hex').slice(0, 16)}`;
   // A shared endpoint override would point the sandbox at the main daemon's
   // socket; sandbox daemons always use their own per-profile socket.
   const { PICHAMBER_PI_SESSION_DAEMON_ENDPOINT: _sharedEndpoint, ...ownEnv } = env;
@@ -789,6 +799,7 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
     env: { ...ownEnv, PICHAMBER_PI_AGENT_DIR: sandbox.agentDir },
     cwd: sandbox.cwd,
     profile,
+    runtimeName,
     // The daemon reads Pi config through the shadow folder but keys session
     // leases on the real one, like the main daemon.
     leaseAgentDir: sandbox.leaseAgentDir,
@@ -807,10 +818,10 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
       ],
     }),
   });
-  // The sandbox key makes the socket path longer than the main daemon's. A
-  // path past the Unix socket address limit makes the daemon's listen fail
-  // with EINVAL, so refuse it up front with a stable code.
-  if (Buffer.byteLength(supervisor.paths.endpoint) > MAX_UNIX_SOCKET_PATH_BYTES) {
+  // A long data folder or XDG_RUNTIME_DIR can still push the socket path
+  // past the Unix socket address limit, and the daemon's listen would then
+  // fail with EINVAL, so refuse it up front with a stable code.
+  if (Buffer.byteLength(supervisor.paths.endpoint) > maxUnixSocketPathBytes(options.platform ?? process.platform)) {
     throw new PiSessionDaemonUnavailableError('SANDBOX_ENDPOINT_TOO_LONG');
   }
   return { ...supervisor, sandbox: { launcher: launcher.id, version: probe.version, identity } };
