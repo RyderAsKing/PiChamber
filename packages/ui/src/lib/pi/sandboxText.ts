@@ -22,6 +22,13 @@ const REASON_TEXT: Record<string, string> = {
   SANDBOX_GRANT_REFUSED: 'This project cannot be sandboxed: its folder or one of its extra folders overlaps PiChamber\'s own data or Pi\'s settings folder.',
   SANDBOX_PROFILE_UNREADABLE: 'nono could not read PiChamber\'s sandbox profile.',
   SANDBOX_LAUNCH_FAILED: 'The sandbox failed to start.',
+  SANDBOX_SETTING_CHANGED: 'The sandbox setting changed while the sandbox was starting. Try again.',
+  SANDBOX_WORKTREE_IDS_UNREADABLE: 'PiChamber could not read its record of this project\'s worktrees on the server machine.',
+  SANDBOX_SETTINGS_UNREADABLE: 'PiChamber could not read its sandbox settings on the server machine.',
+  SANDBOX_PORT_REFUSED: 'One of this project\'s local ports cannot be allowed in a sandbox.',
+  SANDBOX_INVALID_NETWORK: 'One of this project\'s allowed hosts or local ports is not valid.',
+  SANDBOX_SHADOW_CONFLICT: 'A file in PiChamber\'s sandbox folder for this project is in the way. Remove it on the server machine.',
+  DAEMON_START_TIMEOUT: 'The sandbox took too long to start. Try again.',
 };
 
 const LIMIT_TEXT: Record<string, { title: string; text: string }> = {
@@ -88,6 +95,18 @@ interface ErrorWithCode {
 }
 
 /**
+ * Whether a refusal is the server holding a session back while it finishes
+ * a turn in the daemon it is leaving (`SESSION_IN_USE` with reason
+ * `SESSION_SWITCHING`). Nothing ran, and the same send works once the
+ * session has moved.
+ */
+export const isSessionSwitchingError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+  const { code, reason } = error as ErrorWithCode;
+  return code === 'SESSION_IN_USE' && reason === 'SESSION_SWITCHING';
+};
+
+/**
  * Readable text for the two errors a sandboxed session can return on send:
  * `SANDBOX_UNAVAILABLE` (the project's sandbox cannot start) and
  * `SESSION_IN_USE` while the session has a pending switch (it is finishing a
@@ -104,7 +123,7 @@ export const describeSandboxSendError = (
   if (code === 'SANDBOX_UNAVAILABLE') {
     return `This project is sandboxed, but its sandbox cannot start. ${sandboxReasonText(typeof reason === 'string' ? reason : undefined)}`;
   }
-  if (code === 'SESSION_IN_USE' && session?.pendingSwitch) {
+  if (code === 'SESSION_IN_USE' && (session?.pendingSwitch || reason === 'SESSION_SWITCHING')) {
     return 'This session is finishing its turn before its project\'s sandbox setting applies. Send again when the turn ends.';
   }
   return null;

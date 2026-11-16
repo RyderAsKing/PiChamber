@@ -140,19 +140,28 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
   const [draft, setDraft] = React.useState<ProjectSandboxDraft>(() => draftFromState(state));
   const [localError, setLocalError] = React.useState<string | null>(null);
 
-  // Take the server's answer whenever it changes (load, save, another device).
-  const stateKey = state ? JSON.stringify(state) : '';
+  // Take the server's saved setting whenever it changes (load, save, another
+  // device). Availability is left out: a recheck must not wipe typed text.
+  const stateKey = state ? JSON.stringify(draftFromState(state)) : '';
   React.useEffect(() => {
     setDraft(draftFromState(state));
     setLocalError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, stateKey]);
 
-  const save = React.useCallback(async (next: ProjectSandboxDraft) => {
+  const save = React.useCallback(async (next: ProjectSandboxDraft, report = true) => {
     const { setting, error } = settingToSave(next, state);
-    setLocalError(error);
+    if (report) setLocalError(error);
     if (setting) await onSave(setting);
   }, [onSave, state]);
+
+  // Text typed into a field is saved on blur. Leaving the page (or switching
+  // project) without a blur saves it too, with the save of the project it
+  // was typed for: the ref is updated after this cleanup has run. An
+  // unchanged setting is not sent (`settingDiffers` in the container).
+  const latest = React.useRef({ draft, save });
+  React.useEffect(() => () => { void latest.current.save(latest.current.draft, false); }, [projectId]);
+  React.useEffect(() => { latest.current = { draft, save }; });
 
   const update = (patch: Partial<ProjectSandboxDraft>, commit: boolean) => {
     const next = { ...draft, ...patch };
@@ -212,7 +221,16 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
             { value: 'nono' as const, label: CHOICE_LABELS.nono, disabled: saving },
             { value: 'off' as const, label: CHOICE_LABELS.off, disabled: saving },
           ]}
-          onChange={(mode) => update({ mode }, true)}
+          onChange={(mode) => {
+            // A choice that cannot be saved (an unfinished field below) is
+            // not shown as chosen.
+            const { setting, error } = settingToSave({ ...draft, mode }, state);
+            if (!setting) {
+              setLocalError(error);
+              return;
+            }
+            update({ mode }, true);
+          }}
         />
 
         {unavailable ? (
@@ -247,7 +265,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
                 aria-label="Allowed hosts, one per line"
                 rows={3}
                 className="min-h-0 font-mono"
-                disabled={saving}
+                readOnly={saving}
               />
             </SettingsStackedField>
 
@@ -264,7 +282,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
                 aria-label="Local ports"
                 inputMode="numeric"
                 className="h-8 w-full rounded-md px-3"
-                disabled={saving}
+                readOnly={saving}
               />
             </SettingsStackedField>
 
@@ -286,7 +304,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
                       placeholder="/home/me/docs"
                       aria-label={`Extra folder ${index + 1} path`}
                       className="h-8 min-w-0 flex-1 rounded-md px-3 font-mono"
-                      disabled={saving}
+                      readOnly={saving}
                     />
                     <Select
                       value={folder.access}

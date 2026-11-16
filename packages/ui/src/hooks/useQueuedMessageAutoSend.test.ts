@@ -1019,6 +1019,39 @@ describe('follow-up wire dispatch (red-first)', () => {
     expect(queueFor(target())).toHaveLength(1);
   });
 
+  test('a refusal while the session switches daemons keeps the entry queued and sends it later', async () => {
+    hydrateResident('s1', 'idle');
+    let refusals = 1;
+    sendMessageImpl = async () => {
+      if (refusals > 0) {
+        refusals -= 1;
+        throw new PiRequestError('SESSION_IN_USE', 'Session is busy', 409, 'SESSION_SWITCHING');
+      }
+    };
+    await mountHook();
+
+    await act(async () => {
+      enqueue(target());
+    });
+    await flush();
+
+    // Refused before anything ran: no failure label, no held attempt.
+    expect(sendMessageCalls.length).toBe(1);
+    const held = queueFor(target());
+    expect(held).toHaveLength(1);
+    expect(held[0]?.sendFailed).toBe(undefined);
+    expect(held[0]?.deliveryAttempt).toBe(undefined);
+    expect(sendingFor(target())).toHaveLength(0);
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2300));
+    });
+    await flush();
+
+    expect(sendMessageCalls.length).toBe(2);
+    expect(queueFor(target())).toHaveLength(0);
+  });
+
   test('captured variant absent stays absent — never falls back to mutable current variant', async () => {
     hydrateResident('s1', 'idle');
     await mountHook();

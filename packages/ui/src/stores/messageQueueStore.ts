@@ -177,6 +177,12 @@ interface MessageQueueActions {
      */
     markSendFailed: (target: MessageQueueTarget, messageId: string) => void;
     /**
+     * Drop the attempt of a send the server refused before anything ran and
+     * that will work later unchanged (the session is changing daemons). The
+     * entry stays queued with no failure label, so auto-send takes it again.
+     */
+    releaseRefusedSend: (target: MessageQueueTarget, messageId: string) => void;
+    /**
      * Retain the uncertain attempt after a PiSendUnconfirmedError. Ensures an
      *  attempt exists (same kind) so reload holds; never sets the failure
      *  label and never replays the send.
@@ -493,6 +499,21 @@ export const useMessageQueueStore = create<MessageQueueStore>()(
                         const { deliveryAttempt: _dropped, ...rest } = current;
                         void _dropped;
                         nextQueue[index] = { ...rest, sendFailed: true };
+                        return { queuedMessages: { ...state.queuedMessages, [key]: nextQueue } };
+                    });
+                },
+
+                releaseRefusedSend: (target, messageId) => {
+                    const key = getMessageQueueKey(target);
+                    set((state) => {
+                        const queue = state.queuedMessages[key];
+                        if (!queue) return state;
+                        const index = queue.findIndex((message) => message.id === messageId);
+                        if (index === -1 || !queue[index].deliveryAttempt) return state;
+                        const { deliveryAttempt: _dropped, ...rest } = queue[index];
+                        void _dropped;
+                        const nextQueue = queue.slice();
+                        nextQueue[index] = rest;
                         return { queuedMessages: { ...state.queuedMessages, [key]: nextQueue } };
                     });
                 },

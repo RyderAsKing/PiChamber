@@ -22,7 +22,7 @@ const state = (overrides: Partial<PiProjectSandboxState> = {}): PiProjectSandbox
 
 const renderSection = (
   project: PiProjectSandboxState | undefined,
-  extra: { loadFailed?: boolean; unavailable?: boolean; saveError?: string; defaults?: PiSandboxDefaults | null } = {},
+  extra: { loadFailed?: boolean; unavailable?: boolean; saving?: boolean; saveError?: string; defaults?: PiSandboxDefaults | null } = {},
 ) => renderToStaticMarkup(
   <ProjectSandboxSectionView
     projectId="p1"
@@ -30,7 +30,7 @@ const renderSection = (
     defaults={extra.defaults ?? null}
     loadFailed={extra.loadFailed ?? false}
     unavailable={extra.unavailable ?? false}
-    saving={false}
+    saving={extra.saving ?? false}
     saveError={extra.saveError}
     onReload={() => {}}
     onSave={async () => {}}
@@ -85,6 +85,17 @@ describe('ProjectSandboxSection', () => {
   test('a refused save shows its error', () => {
     const html = renderSection(state(), { saveError: 'The server refused this setting. Check the hosts, ports and folders.' });
     expect(html).toContain('The server refused this setting.');
+  });
+
+  test('a save in flight keeps the text fields focusable: read-only, not disabled', () => {
+    const fields = (html: string) => html.match(/<(?:input|textarea)[^>]*>/g) ?? [];
+    const idle = fields(renderSection(state()));
+    const saving = fields(renderSection(state(), { saving: true }));
+    expect(idle.length).toBeGreaterThanOrEqual(3);
+    expect(idle.some((field) => /readOnly|readonly/.test(field))).toBe(false);
+    const readOnly = saving.filter((field) => /readOnly|readonly/.test(field));
+    expect(readOnly.length).toBeGreaterThanOrEqual(3);
+    expect(readOnly.some((field) => /\sdisabled(?:=""|\s|\/?>)/.test(field))).toBe(false);
   });
 
   test('a failed load offers to try again instead of showing Off', () => {
@@ -168,12 +179,25 @@ describe('SandboxingSection', () => {
     expect(sandboxLimitsAccepted({ ...launcher, limitsAccepted: false }, null)).toBe(false);
   });
 
-  test('accepting or withdrawing sends only the limits, or the whole default when it is unreadable', () => {
-    const defaults = { mode: 'nono' as const, allowHosts: ['github.com'], acceptedLimits: [] };
-    expect(sandboxLimitsUpdate(defaults, ['UNIX_SOCKETS'], true)).toEqual({ acceptedLimits: ['UNIX_SOCKETS'] });
-    expect(sandboxLimitsUpdate(defaults, ['UNIX_SOCKETS'], false)).toEqual({ acceptedLimits: [] });
-    expect(sandboxLimitsUpdate({ ...defaults, mode: 'off', invalid: true }, ['UNIX_SOCKETS'], true))
-      .toEqual({ mode: 'off', allowHosts: ['github.com'], acceptedLimits: ['UNIX_SOCKETS'] });
+  test('accepting or withdrawing sends only the limits, never a mode', () => {
+    expect(sandboxLimitsUpdate(['UNIX_SOCKETS'], true)).toEqual({ acceptedLimits: ['UNIX_SOCKETS'] });
+    expect(sandboxLimitsUpdate(['UNIX_SOCKETS'], false)).toEqual({ acceptedLimits: [] });
+  });
+
+  test('an unreadable default cannot have its limits accepted until a mode is chosen', () => {
+    const render = (defaults: PiSandboxDefaults) => renderToStaticMarkup(
+      <SandboxingSectionView
+        launchers={[{ id: 'nono', available: true, version: '0.82.0', limits: ['UNIX_SOCKETS'] }]}
+        loadFailed={false}
+        rechecking={false}
+        onRecheck={() => {}}
+        defaults={defaults}
+        onSaveDefaults={async () => {}}
+      />,
+    );
+    const limitsBox = (html: string) => html.slice(html.indexOf('Use sandboxing with this limit') - 600, html.indexOf('Use sandboxing with this limit'));
+    expect(/\sdisabled(?:=""|\s|\/?>)/.test(limitsBox(render({ mode: 'off', allowHosts: [], invalid: true })))).toBe(true);
+    expect(/\sdisabled(?:=""|\s|\/?>)/.test(limitsBox(render({ mode: 'off', allowHosts: [] })))).toBe(false);
   });
 });
 

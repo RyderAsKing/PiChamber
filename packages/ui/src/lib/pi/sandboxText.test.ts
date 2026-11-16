@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { PiRequestError } from './client';
-import { describeSandboxSendError, sandboxLimitText, sandboxReasonText, sessionSandboxLabel } from './sandboxText';
+import { describeSandboxSendError, isSessionSwitchingError, sandboxLimitText, sandboxReasonText, sessionSandboxLabel } from './sandboxText';
 
 describe('sandboxReasonText', () => {
   test('explains each launcher reason code', () => {
@@ -62,6 +62,27 @@ describe('describeSandboxSendError', () => {
     // Without a pending switch it means another PiChamber instance holds it.
     expect(describeSandboxSendError(error, { sandboxed: true })).toBeNull();
     expect(describeSandboxSendError(error)).toBeNull();
+  });
+
+  test('explains a switching refusal from its reason, whatever the session state says', () => {
+    const error = new PiRequestError('SESSION_IN_USE', 'busy', 409, 'SESSION_SWITCHING');
+    expect(isSessionSwitchingError(error)).toBe(true);
+    expect(describeSandboxSendError(error)).toContain('finishing its turn');
+    expect(isSessionSwitchingError(new PiRequestError('SESSION_IN_USE', 'busy', 409))).toBe(false);
+    expect(isSessionSwitchingError(new Error('network'))).toBe(false);
+  });
+
+  test('has text for every reason the server reports', () => {
+    for (const reason of [
+      'SANDBOX_SETTING_CHANGED',
+      'SANDBOX_SETTINGS_UNREADABLE',
+      'SANDBOX_PORT_REFUSED',
+      'SANDBOX_INVALID_NETWORK',
+      'SANDBOX_SHADOW_CONFLICT',
+      'DAEMON_START_TIMEOUT',
+    ]) {
+      expect(sandboxReasonText(reason)).not.toBe(sandboxReasonText('SOMETHING_UNKNOWN'));
+    }
   });
 
   test('leaves other errors to the caller', () => {

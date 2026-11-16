@@ -73,6 +73,22 @@ On reconnect the open session's read-only answer is accepted as
 and only when no project stream owns the session. `PiSendUnconfirmedError.reason`
 carries the server's reason code when the original failure had one.
 
+A read-only answer also carries `readOnlyReason`, the reason its sandbox
+cannot start. `hydrateSessionFromDetail` keeps both as `session.readOnly`
+(`{ reason? }`) on the reducer session and a live detail clears it.
+`SessionReadOnlyNote` shows that state above the composer with a Try again
+button. `PiSessionStore` reads such a session again (`reloadSession`, a
+forced hydrate) when the user returns to it, before a send to it, and, through
+`useReloadWhenSandboxChanges`, when the sandbox status or a project's sandbox
+setting changes on this client. The same hook reloads a session whose load
+failed with `SANDBOX_UNAVAILABLE`.
+
+A session finishing its turn in the daemon it is leaving refuses new work with
+HTTP 409 `SESSION_IN_USE` and `reason: 'SESSION_SWITCHING'`
+(`isSessionSwitchingError` in `sandboxText.ts`). The command never ran. The
+store does not treat it as a session held by another instance (no load
+failure, no composer lock), and `describeSandboxSendError` gives its text.
+
 ## Project sandboxes
 
 `piClient.getSandboxStatus()`, `recheckSandbox()`, `listProjectSandboxes()`,

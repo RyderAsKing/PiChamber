@@ -16,6 +16,7 @@ import { recordMobileDiagnostic, recordMobileDiagnosticError } from '@/lib/mobil
 import { createBrowserUuid } from '@/lib/uuid';
 import { getTabClientId } from '@/lib/pi/tab-client-id';
 import { PiRequestError, piClient, type PiClientScope } from '@/lib/pi/client';
+import { isSessionSwitchingError } from '@/lib/pi/sandboxText';
 import { reconnectPiSession } from '@/lib/pi/reconnect';
 import { PiStreamCadence } from '@/lib/pi/stream-cadence';
 import { invalidateCommandCatalogCache } from '@/lib/pi/commandCatalog';
@@ -2665,11 +2666,22 @@ export class PiSessionStore {
     this.emitChrome();
     this.touchLastAccess(sessionId);
     const resident = this.state.reducer.bySession.get(sessionId);
-    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident) {
+    // A transcript read from disk while its sandbox could not start is read
+    // again on every visit: the sandbox may work by now.
+    if (this.stream && this.hydratedSessionIds.has(sessionId) && resident && !resident.readOnly) {
       this.scheduleIdleEviction();
       return;
     }
-    await this.hydrate(sessionId, this.runtimeGeneration);
+    await this.hydrate(sessionId, this.runtimeGeneration, undefined, resident?.readOnly ? { force: true } : undefined);
+  }
+
+  /** Read a session's detail again, whatever is resident. Used for a
+   *  transcript shown read-only because its sandbox could not start: the
+   *  answer is live once the sandbox works, and read-only again (or a load
+   *  error) while it does not. */
+  async reloadSession(sessionId: PiSessionId): Promise<void> {
+    if (!sessionId) return;
+    await this.hydrate(sessionId, this.runtimeGeneration, undefined, { force: true });
   }
 
   /** Last selection the cluster recorded for this directory. Returns
@@ -3000,6 +3012,16 @@ export class PiSessionStore {
     // Existing sessions with a missing or blank resident row must restore the
     // append-only log before going busy. A just-created session is the narrow
     // exception: its creation detail authoritatively established an empty log.
+    // A read-only transcript (its sandbox could not start) is read again
+    // first: when the sandbox works now, the answer binds the session to its
+    // daemon, so the send carries that daemon's epoch.
+    if (existing?.readOnly) {
+      await this.hydrate(sessionId, expected, undefined, { force: true });
+      if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
+        throw new Error('Runtime changed before sending message.');
+      }
+      existing = this.state.reducer.bySession.get(sessionId);
+    }
     if ((!existing || existing.messages.size === 0) && !hasAuthoritativeCreatedEmptyTranscript) {
       await this.hydrate(sessionId, expected);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) {
@@ -3108,10 +3130,12 @@ export class PiSessionStore {
       finishUnarchive(error);
       recordMobileDiagnosticError('prompt-send', error);
       if (expected !== this.runtimeGeneration || runtimeKey !== getRuntimeKey()) throw error;
-      if (isSessionInUseError(error)) {
+      if (isSessionInUseError(error) && !isSessionSwitchingError(error)) {
         // Another PiChamber instance owns this session. Record the chrome
         // signal so the composer locks for this session until a later
         // successful hydrate clears it; the transcript itself is preserved.
+        // A session only finishing its turn before it changes daemons is
+        // not locked: the same send works once it has moved.
         this.failSessionLoad(sessionId, error);
       }
       if (this.promptGenerationById.get(sessionId) === generation) {

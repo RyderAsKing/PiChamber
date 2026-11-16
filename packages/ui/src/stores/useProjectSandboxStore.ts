@@ -8,7 +8,7 @@ import type {
   PiSandboxDefaultsUpdate,
   PiSandboxLauncherStatus,
 } from '@/lib/pi/protocol';
-import { subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
+import { getRuntimeKey, subscribeRuntimeEndpointChanged } from '@/lib/runtime-switch';
 
 /**
  * Project sandboxes (#242) as the server reports them: launcher status and
@@ -62,9 +62,24 @@ const initial = () => ({
 });
 
 let generation = 0;
-// Bumped by every save that the server answered. A project list or default
-// that was requested before such a save is older than it and is dropped.
+// Bumped when a save starts and again when it ends, whether or not the
+// server answered. A project list or default requested before either is
+// older than the save and is loaded again instead of committed. A save that
+// finds another save started or ended while it was out cannot tell which
+// the server took last, so it loads the list again instead of trusting its
+// own answer for the parts both touch.
 let saveRevision = 0;
+// The newest request of each kind. An answer to an older one is dropped: it
+// may have been read before the newer one and arrive after it.
+let projectsRequest = 0;
+let defaultsRequest = 0;
+
+/** Requests are held to the runtime they started on; a retry after a
+ *  runtime switch must not reach the other server. */
+const runtimeScope = (): { runtimeKey: string } | undefined => {
+  const runtimeKey = getRuntimeKey();
+  return runtimeKey ? { runtimeKey } : undefined;
+};
 
 /** Refused by validation or an unknown project: nothing was stored. */
 const savedNothing = (error: unknown): boolean => {
@@ -74,7 +89,14 @@ const savedNothing = (error: unknown): boolean => {
 
 const errorText = (error: unknown): string => {
   const code = (error as { code?: unknown } | null)?.code;
-  if (code === 'INVALID_SANDBOX_SETTING') return 'The server refused this setting. Check the hosts, ports and folders.';
+  if (code === 'INVALID_SANDBOX_SETTING') {
+    const reason = (error as { reason?: unknown }).reason;
+    if (reason === 'HOSTS') return 'The server refused an allowed host. Use host names such as api.example.com, without a scheme, path or port.';
+    if (reason === 'PORTS') return 'The server refused a local port. Use port numbers from 1 to 65535.';
+    if (reason === 'REFUSED_PORT') return 'Ports 80 and 443 cannot be local ports, because they would reach any host. Add the host instead.';
+    if (reason === 'FOLDERS') return 'The server refused an extra folder. Use full paths on the server machine.';
+    return 'The server refused this setting. Check the hosts, ports and folders.';
+  }
   if (code === 'PROJECT_NOT_FOUND') return 'This project no longer exists on the server.';
   return 'The sandbox setting could not be saved.';
 };
@@ -116,24 +138,29 @@ export const useProjectSandboxStore = create<ProjectSandboxStoreState>()(
       loadProjects: async () => {
         const at = generation;
         const revision = saveRevision;
+        projectsRequest += 1;
+        const request = projectsRequest;
         set({ projectsStatus: 'loading' });
         try {
-          const { projects } = await piClient.listProjectSandboxes();
-          if (at !== generation) return;
+          const { projects } = await piClient.listProjectSandboxes(runtimeScope());
+          if (at !== generation || request !== projectsRequest) return;
           if (revision !== saveRevision) return get().loadProjects();
           set({ projects: Object.fromEntries(projects.map((project) => [project.projectId, project])), projectsStatus: 'ready' });
         } catch {
-          if (at !== generation) return;
+          if (at !== generation || request !== projectsRequest) return;
           set({ projectsStatus: 'failed' });
         }
       },
 
       saveProject: async (projectId, setting) => {
         const at = generation;
+        saveRevision += 1;
+        const started = saveRevision;
         set((state) => ({ saving: { ...state.saving, [projectId]: true } }));
         try {
-          const project = await piClient.setProjectSandbox(projectId, setting);
+          const project = await piClient.setProjectSandbox(projectId, setting, runtimeScope());
           if (at !== generation) return false;
+          const overlapped = saveRevision !== started;
           saveRevision += 1;
           set((state) => {
             const saving = { ...state.saving };
@@ -142,9 +169,13 @@ export const useProjectSandboxStore = create<ProjectSandboxStoreState>()(
             delete saveErrors[projectId];
             return { projects: { ...state.projects, [projectId]: project }, saving, saveErrors };
           });
+          // Another save crossed this one (the default decides this
+          // project's mode): the server's list settles it.
+          if (overlapped) await get().loadProjects();
           return true;
         } catch (error) {
           if (at !== generation) return false;
+          saveRevision += 1;
           set((state) => {
             const saving = { ...state.saving };
             delete saving[projectId];
@@ -158,14 +189,16 @@ export const useProjectSandboxStore = create<ProjectSandboxStoreState>()(
       loadDefaults: async () => {
         const at = generation;
         const revision = saveRevision;
+        defaultsRequest += 1;
+        const request = defaultsRequest;
         set({ defaultsStatus: 'loading' });
         try {
-          const defaults = await piClient.getSandboxDefaults();
-          if (at !== generation) return;
+          const defaults = await piClient.getSandboxDefaults(runtimeScope());
+          if (at !== generation || request !== defaultsRequest) return;
           if (revision !== saveRevision) return get().loadDefaults();
           set({ defaults, defaultsStatus: 'ready' });
         } catch {
-          if (at !== generation) return;
+          if (at !== generation || request !== defaultsRequest) return;
           set({ defaultsStatus: 'failed' });
         }
       },
@@ -174,11 +207,21 @@ export const useProjectSandboxStore = create<ProjectSandboxStoreState>()(
       // answer replaces the whole project list.
       saveDefaults: async (next) => {
         const at = generation;
+        saveRevision += 1;
+        const started = saveRevision;
         set({ savingDefaults: true });
         try {
-          const { defaults, projects } = await piClient.setSandboxDefaults(next);
+          const { defaults, projects } = await piClient.setSandboxDefaults(next, runtimeScope());
           if (at !== generation) return false;
+          const overlapped = saveRevision !== started;
           saveRevision += 1;
+          if (overlapped) {
+            // The list in this answer may be from before another save the
+            // server has since taken; it is not committed.
+            set({ savingDefaults: false, defaultsError: null });
+            await Promise.all([get().loadProjects(), get().loadDefaults()]);
+            return true;
+          }
           set({
             defaults,
             defaultsStatus: 'ready',
@@ -190,11 +233,14 @@ export const useProjectSandboxStore = create<ProjectSandboxStoreState>()(
           return true;
         } catch (error) {
           if (at !== generation) return false;
+          saveRevision += 1;
           const code = (error as { code?: unknown } | null)?.code;
           set({
             savingDefaults: false,
             defaultsError: code === 'INVALID_SANDBOX_SETTING'
-              ? 'The server refused this setting. Check the hosts.'
+              ? ((error as { reason?: unknown }).reason === 'MODE'
+                ? 'The saved default could not be read. Choose whether projects are sandboxed by default first.'
+                : 'The server refused this setting. Check the hosts.')
               : 'The sandbox default could not be saved.',
           });
           if (!savedNothing(error)) await Promise.all([get().loadProjects(), get().loadDefaults()]);

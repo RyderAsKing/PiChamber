@@ -562,6 +562,74 @@ describe('project daemon streams', () => {
     });
   });
 
+  test('a read-only transcript says why, and becomes live when it is read again after the sandbox works', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: [], streamEpoch: 'epoch-main' });
+      observePiStreamEpoch(getRuntimeKey(), 'epoch-main');
+      let sandboxWorks = false;
+      const stubs = stubPiClient({
+        getSession: async (id) => (sandboxWorks
+          ? { ...detail(id, '/box', 4, 'box-1'), stream: BOX }
+          : { ...detail(id, '/box', -1), stream: BOX, readOnly: true, readOnlyReason: 'NOT_INSTALLED', lifecycle: 'idle', isStreaming: false }),
+      });
+      try {
+        await store.ensureHydrated('b1');
+        await flushMicrotasks();
+        expect(store.getState().reducer.bySession.get('b1')?.readOnly).toEqual({ reason: 'NOT_INSTALLED' });
+        // Another look while the sandbox still cannot start changes nothing.
+        await store.reloadSession('b1');
+        expect(store.getState().reducer.bySession.get('b1')?.readOnly).toEqual({ reason: 'NOT_INSTALLED' });
+        expect(stubs.calls.getSession).toEqual(['b1', 'b1']);
+
+        // The sandbox works: reading again commits the live detail, bound
+        // to its daemon, so a send carries that daemon's epoch.
+        sandboxWorks = true;
+        await store.reloadSession('b1');
+        const live = store.getState().reducer.bySession.get('b1');
+        expect(live?.readOnly).toBeUndefined();
+        expect(live?.lastSequence).toBe(4);
+        expect(internal(store).projectStreamBySession.get('b1')).toBe(BOX);
+        expect(getObservedPiStreamEpoch(getRuntimeKey(), 'b1')).toBe('box-1');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a send to a read-only transcript reads the session again first', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: [], streamEpoch: 'epoch-main' });
+      observePiStreamEpoch(getRuntimeKey(), 'epoch-main');
+      let sandboxWorks = false;
+      const stubs = stubPiClient({
+        getSession: async (id) => (sandboxWorks
+          ? { ...detail(id, '/box', 4, 'box-1'), stream: BOX }
+          : { ...detail(id, '/box', -1), stream: BOX, readOnly: true, lifecycle: 'idle', isStreaming: false,
+            messages: [{ message: { id: `${id}-m1`, sessionId: id, directory: '/box', role: 'user', text: 'kept on disk', createdAt: 1 }, parts: [] }] }),
+      });
+      const sendPrompt = piClient.sendPrompt.bind(piClient);
+      const sent: Array<string | undefined> = [];
+      piClient.sendPrompt = (async (input: { sessionId: string }) => {
+        sent.push(getObservedPiStreamEpoch(getRuntimeKey(), input.sessionId) ?? undefined);
+        return { accepted: true, messageId: 'm-sent' };
+      }) as typeof piClient.sendPrompt;
+      try {
+        await store.ensureHydrated('b1');
+        await flushMicrotasks();
+        expect(store.getState().reducer.bySession.get('b1')?.readOnly).toEqual({});
+        sandboxWorks = true;
+        await store.prompt('b1', 'continue', 'prompt');
+        expect(stubs.calls.getSession.length).toBeGreaterThan(1);
+        expect(store.getState().reducer.bySession.get('b1')?.readOnly).toBeUndefined();
+        // The send went out under the sandbox daemon's epoch, not main's.
+        expect(sent).toEqual(['box-1']);
+      } finally {
+        piClient.sendPrompt = sendPrompt;
+        stubs.restore();
+      }
+    });
+  });
+
   test('a reconnect whose selected session is on a project daemon keeps the main epoch', async () => {
     await withStore(async (store) => {
       seed(store, { residents: ['s1'], cursor: 50, streamEpoch: 'epoch-main' });

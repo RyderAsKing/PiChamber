@@ -22,6 +22,7 @@ import { useSessionFoldersStore } from "@/stores/useSessionFoldersStore"
 import { getDeferredSafeStorage } from "@/stores/utils/safeStorage"
 import { markPendingUserSendAnimation } from "@/lib/userSendAnimation"
 import { normalizePath } from "@/lib/pathNormalization"
+import { describeSandboxSendError } from "@/lib/pi/sandboxText"
 import { resolveProjectForSessionDirectory } from "@/lib/projectResolution"
 import {
   getAllSyncSessions,
@@ -719,6 +720,9 @@ export const useSessionUIStore = create<SessionUIState>()((set, get) => ({
       return session
     } catch (e) {
       console.error("[session-ui-store] createSession failed", e)
+      // A sandboxed project that cannot start its sandbox says why; callers
+      // show that text. Every other failure stays a null result.
+      if (describeSandboxSendError(e)) throw e
       return null
     }
   },

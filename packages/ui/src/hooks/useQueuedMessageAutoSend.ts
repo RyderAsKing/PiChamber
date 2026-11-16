@@ -1,6 +1,7 @@
 import React from 'react';
 import { getMessageQueueKey, parseMessageQueueKey, useMessageQueueStore, type MessageQueueTarget, type QueuedMessage } from '@/stores/messageQueueStore';
 import { isQueuedSendUnconfirmedError } from '@/stores/queuedSendReceipt';
+import { isSessionSwitchingError } from '@/lib/pi/sandboxText';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -443,6 +444,17 @@ export function useQueuedMessageAutoSend(enabledOrOptions?: boolean | { enabled?
         useMessageQueueStore.getState().completeQueuedSend(target, payload.queuedMessageId);
         sendFailuresRef.current.delete(targetKey);
       } catch (error) {
+        // The session is finishing its turn in the daemon it is leaving (a
+        // sandbox switch or restart). The server refused before anything
+        // ran, so the entry stays queued and is sent after the move.
+        if (isSessionSwitchingError(error)) {
+          const priorFailures = failure?.messageId === payload.queuedMessageId ? failure.failures : 0;
+          const nextAttemptAt = Date.now() + getQueuedAutoSendRetryDelayMs(priorFailures + 1);
+          useMessageQueueStore.getState().releaseRefusedSend(target, payload.queuedMessageId);
+          sendFailuresRef.current.set(targetKey, { messageId: payload.queuedMessageId, failures: priorFailures + 1, nextAttemptAt });
+          retryScheduler.schedule(nextAttemptAt);
+          return;
+        }
         console.warn('[follow-up] auto-send failed:', error);
         // Ambiguous transport failures must NOT auto-retry: the send may
         // have reached the daemon despite the error, and a backoff retry

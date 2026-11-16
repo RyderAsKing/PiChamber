@@ -63,6 +63,8 @@ import {
 import { DraftWelcome } from './DraftWelcome';
 import { ChatViewport } from './ChatViewport';
 import { sandboxReasonText } from '@/lib/pi/sandboxText';
+import { SessionReadOnlyNote } from './SessionReadOnlyNote';
+import { useReloadWhenSandboxChanges } from '@/hooks/useReloadWhenSandboxChanges';
 
 type ChatContainerProps = {
     active?: boolean;
@@ -432,6 +434,12 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
     const isSessionLoading =
         Boolean(currentSessionId)
         && (isSessionHydrating || sessionMessageLoadState.status === 'loading');
+    // A session its sandbox kept from loading is tried again when the
+    // sandbox state changes (Check again, a saved setting).
+    useReloadWhenSandboxChanges(
+        active ? currentSessionId : null,
+        sessionMessageLoadState.status === 'error' && sessionMessageLoadState.errorCode === 'SANDBOX_UNAVAILABLE',
+    );
     const retrySessionLoad = React.useCallback(() => {
         if (!active || !currentSessionId) return;
         void sync.ensureSessionRenderable(currentSessionId);
@@ -647,6 +655,7 @@ export const ChatContainer: React.FC<ChatContainerProps> = ({ active = true, aut
                 <ComposerCommandTriggers sessionId={currentSessionId} />
                 <ExtensionPromptDock sessionId={currentSessionId} />
                 <ExtensionStatusStrip sessionId={currentSessionId} />
+                <SessionReadOnlyNote sessionId={currentSessionId} />
                 <ExtensionSurfaceComposer sessionId={currentSessionId}>
                     <ChatInput scrollToBottom={scrollToBottomOnSend} />
                 </ExtensionSurfaceComposer>

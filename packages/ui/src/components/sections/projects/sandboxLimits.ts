@@ -9,11 +9,9 @@ export const sandboxLimitsAccepted = (launcher: PiSandboxLauncherStatus, default
   return launcher.limitsAccepted === true;
 };
 
-/** The default update that accepts or withdraws `limits`. An unreadable
- *  stored default is saved whole, so the save also repairs it. */
-export const sandboxLimitsUpdate = (defaults: PiSandboxDefaults, limits: string[], accept: boolean): PiSandboxDefaultsUpdate => {
-  const acceptedLimits = accept ? [...limits] : [];
-  return defaults.invalid
-    ? { mode: defaults.mode, allowHosts: defaults.allowHosts, acceptedLimits }
-    : { acceptedLimits };
-};
+/** The default update that accepts or withdraws `limits`. It never carries
+ *  a mode: the mode shown for an unreadable stored default is a placeholder,
+ *  and saving it would turn the default off unasked. */
+export const sandboxLimitsUpdate = (limits: string[], accept: boolean): PiSandboxDefaultsUpdate => ({
+  acceptedLimits: accept ? [...limits] : [],
+});

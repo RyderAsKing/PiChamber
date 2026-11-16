@@ -155,10 +155,10 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
                 <SandboxLimitsFields
                   limits={launcher.limits}
                   accepted={sandboxLimitsAccepted(launcher, defaults)}
-                  disabled={savingDefaults || !defaults || !onSaveDefaults}
+                  disabled={savingDefaults || !defaults || defaults.invalid === true || !onSaveDefaults}
                   onChange={(accept) => {
-                    if (!defaults || !onSaveDefaults) return;
-                    void onSaveDefaults(sandboxLimitsUpdate(defaults, launcher.limits ?? [], accept));
+                    if (!defaults || defaults.invalid || !onSaveDefaults) return;
+                    void onSaveDefaults(sandboxLimitsUpdate(launcher.limits ?? [], accept));
                   }}
                 />
               ) : null}
@@ -177,7 +177,7 @@ export const SandboxingSectionView: React.FC<SandboxingSectionViewProps> = ({
         ) : null}
         {defaults?.invalid ? (
           <p className="typography-meta text-[var(--status-error)]" role="status">
-            The saved default could not be read, so projects that follow it stay sandboxed and do not run. Save it again to fix it.
+            The saved default could not be read, so projects that follow it stay sandboxed and do not run. Turn "Sandbox projects by default" on or off to save it again; the hosts and limits can be changed after that.
           </p>
         ) : null}
         {defaultsError ? (
@@ -250,7 +250,12 @@ const SandboxDefaultsFields: React.FC<SandboxDefaultsFieldsProps> = ({ defaults,
   const addPreset = (preset: readonly string[]) => {
     const next = withPreset(hosts, preset);
     setHostsText(next.join('\n'));
-    void onSave(defaults.invalid ? { mode: defaults.mode, allowHosts: next } : { allowHosts: next });
+    saveHosts(next);
+  };
+  // The mode shown for an unreadable stored default is a placeholder, not a
+  // choice: hosts are saved with the mode once the owner picks one.
+  const saveHosts = (next: string[]) => {
+    if (!defaults.invalid) void onSave({ allowHosts: next });
   };
 
   return (
@@ -278,7 +283,7 @@ const SandboxDefaultsFields: React.FC<SandboxDefaultsFieldsProps> = ({ defaults,
         <Textarea
           value={hostsText}
           onChange={(event) => setHostsText(event.target.value)}
-          onBlur={() => void onSave(defaults.invalid ? { mode: defaults.mode, allowHosts: hosts } : { allowHosts: hosts })}
+          onBlur={() => saveHosts(hosts)}
           placeholder="registry.npmjs.org"
           aria-label="Allowed hosts for all projects, one per line"
           rows={3}

@@ -253,6 +253,9 @@ export interface PiSessionDetailResponse extends Pick<
    *  only, with `stream` but no `streamEpoch`, `lastSequence` -1, and no
    *  live or input state. Sends still fail with `SANDBOX_UNAVAILABLE`. */
   readOnly?: true;
+  /** With `readOnly`: why the sandbox cannot run, as a stable reason code
+   *  (see `sandboxReasonText`). */
+  readOnlyReason?: string;
   /** Retry countdown/error context while `lifecycle` is `retry`. */
   retry?: PiRetryInfo;
   /** Latest active or completed compaction state. */
