@@ -601,6 +601,25 @@ export interface PiSessionShelfResponse {
 // ---------------------------------------------------------------------------
 
 export type PiSandboxMode = 'off' | 'nono';
+/** A project's own choice: `default` follows the server's sandbox default. */
+export type PiProjectSandboxChoice = 'default' | PiSandboxMode;
+
+/** The server's sandbox default (`GET`/`PUT /api/pi/sandbox/defaults`):
+ *  whether projects that follow it are sandboxed, and hosts every sandboxed
+ *  project may reach on top of its own. `invalid` means the stored default
+ *  is unreadable, so projects that follow it fail closed. */
+export interface PiSandboxDefaults {
+  mode: PiSandboxMode;
+  allowHosts: string[];
+  invalid?: boolean;
+}
+
+/** Body of `PUT /api/pi/sandbox/defaults`: at least one field; an omitted
+ *  field keeps the stored value, so a stale page cannot overwrite it. */
+export interface PiSandboxDefaultsUpdate {
+  mode?: PiSandboxMode;
+  allowHosts?: string[];
+}
 
 /** A sandbox launcher on this server. Unavailable launchers carry a reason
  *  code (`NOT_INSTALLED`, `NO_LANDLOCK`, `TOO_OLD`, `VERSION_UNKNOWN`,
@@ -624,7 +643,7 @@ export interface PiSandboxExtraFolder {
 
 /** What a client sends to `PUT /api/pi/sandbox/projects/:projectId`. */
 export interface PiProjectSandboxSetting {
-  mode: PiSandboxMode;
+  mode: PiProjectSandboxChoice;
   allowHosts?: string[];
   allowLocalPorts?: number[];
   extraFolders?: PiSandboxExtraFolder[];
@@ -635,9 +654,13 @@ export interface PiProjectSandboxSetting {
  *  `SANDBOX_UNAVAILABLE` and the same reason. */
 export interface PiProjectSandboxState {
   projectId: string;
+  /** What the project runs with now, after the default is applied. */
   mode: PiSandboxMode;
   launcher?: string;
   availability: { state: 'off' | 'available' | 'unavailable'; reason?: string };
+  /** The project's own choice. Older servers omit it (read as its `mode`). */
+  choice?: PiProjectSandboxChoice;
+  /** The project's own hosts; the default's hosts apply on top. */
   allowHosts: string[];
   allowLocalPorts: number[];
   extraFolders: PiSandboxExtraFolder[];

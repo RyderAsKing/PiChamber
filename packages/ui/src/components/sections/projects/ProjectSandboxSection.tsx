@@ -18,14 +18,16 @@ import { sandboxReasonText } from '@/lib/pi/sandboxText';
 import type {
   PiProjectSandboxSetting,
   PiProjectSandboxState,
+  PiProjectSandboxChoice,
+  PiSandboxDefaults,
   PiSandboxExtraFolder,
-  PiSandboxMode,
 } from '@/lib/pi/protocol';
 import { useProjectSandboxStore } from '@/stores/useProjectSandboxStore';
 import {
-  buildSetting,
+  choiceSandboxes,
   draftFromState,
   settingDiffers,
+  settingToSave,
   type ProjectSandboxDraft,
 } from './projectSandboxDraft';
 
@@ -34,10 +36,12 @@ const FOLDER_ACCESS_LABELS: Record<PiSandboxExtraFolder['access'], string> = {
   readWrite: 'Read and write',
 };
 
-const MODE_OPTIONS: Array<{ value: PiSandboxMode; label: string }> = [
-  { value: 'off', label: 'Off' },
-  { value: 'nono', label: 'nono' },
-];
+const CHOICE_LABELS: Record<Exclude<PiProjectSandboxChoice, 'default'>, string> = {
+  nono: 'On',
+  off: 'Off',
+};
+
+const FIELD_CONTROL_CLASS = 'w-full max-w-[24rem]';
 
 interface ProjectSandboxSectionProps {
   projectId: string;
@@ -52,10 +56,39 @@ export const ProjectSandboxSection: React.FC<ProjectSandboxSectionProps> = ({ pr
   const saveError = useProjectSandboxStore((store) => store.saveErrors[projectId]);
   const loadProjects = useProjectSandboxStore((store) => store.loadProjects);
   const saveProject = useProjectSandboxStore((store) => store.saveProject);
+  const defaults = useProjectSandboxStore((store) => store.defaults);
+  const loadDefaults = useProjectSandboxStore((store) => store.loadDefaults);
 
+  const [unavailable, setUnavailable] = React.useState(false);
+  // The project id a reload was already tried for, so a project the server
+  // does not know cannot loop.
+  const attemptedRef = React.useRef<string | null>(null);
+
+  const reload = React.useCallback(async () => {
+    setUnavailable(false);
+    await loadProjects();
+    const latest = useProjectSandboxStore.getState();
+    if (latest.projectsStatus === 'ready' && !latest.projects[projectId]) setUnavailable(true);
+  }, [loadProjects, projectId]);
+
+  // Reload on every mount so the page never shows a stale copy; the previous
+  // answer stays on screen meanwhile.
   React.useEffect(() => {
-    if (projectsStatus === 'idle') void loadProjects();
-  }, [loadProjects, projectsStatus]);
+    attemptedRef.current = projectId;
+    void reload();
+    void loadDefaults();
+  }, [projectId, reload, loadDefaults]);
+  // A project added after the store loaded has no entry yet: reload once.
+  React.useEffect(() => {
+    if (state) {
+      attemptedRef.current = null;
+      return;
+    }
+    if ((projectsStatus === 'ready' || projectsStatus === 'failed') && attemptedRef.current !== projectId) {
+      attemptedRef.current = projectId;
+      void reload();
+    }
+  }, [state, projectsStatus, projectId, reload]);
 
   const onSave = React.useCallback(async (setting: PiProjectSandboxSetting) => {
     if (!settingDiffers(setting, useProjectSandboxStore.getState().projects[projectId])) return;
@@ -68,10 +101,12 @@ export const ProjectSandboxSection: React.FC<ProjectSandboxSectionProps> = ({ pr
     <ProjectSandboxSectionView
       projectId={projectId}
       state={state}
+      defaults={defaults}
       loadFailed={projectsStatus === 'failed'}
+      unavailable={unavailable}
       saving={saving}
       saveError={saveError}
-      onReload={() => void loadProjects()}
+      onReload={() => void reload()}
       onSave={onSave}
     />
   );
@@ -80,7 +115,11 @@ export const ProjectSandboxSection: React.FC<ProjectSandboxSectionProps> = ({ pr
 interface ProjectSandboxSectionViewProps {
   projectId: string;
   state: PiProjectSandboxState | undefined;
+  /** The server's sandbox default, once loaded. */
+  defaults: PiSandboxDefaults | null;
   loadFailed: boolean;
+  /** A reload finished and the server still has no entry for this project. */
+  unavailable?: boolean;
   saving: boolean;
   saveError: string | undefined;
   onReload: () => void;
@@ -90,7 +129,9 @@ interface ProjectSandboxSectionViewProps {
 export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps> = ({
   projectId,
   state,
+  defaults,
   loadFailed,
+  unavailable: missing = false,
   saving,
   saveError,
   onReload,
@@ -108,14 +149,10 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
   }, [projectId, stateKey]);
 
   const save = React.useCallback(async (next: ProjectSandboxDraft) => {
-    const built = buildSetting(next);
-    if (!built.ok) {
-      setLocalError(built.error);
-      return;
-    }
-    setLocalError(null);
-    await onSave(built.setting);
-  }, [onSave]);
+    const { setting, error } = settingToSave(next, state);
+    setLocalError(error);
+    if (setting) await onSave(setting);
+  }, [onSave, state]);
 
   const update = (patch: Partial<ProjectSandboxDraft>, commit: boolean) => {
     const next = { ...draft, ...patch };
@@ -134,6 +171,17 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
     );
   }
 
+  if (!state && missing) {
+    return (
+      <ProjectSettingsSubsection title="Sandbox" settingsItem="projects.sandbox">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className={SETTINGS_HELPER_CLASS}>The sandbox setting is unavailable for this project.</p>
+          <Button variant="outline" size="xs" onClick={onReload}>Try again</Button>
+        </div>
+      </ProjectSettingsSubsection>
+    );
+  }
+
   if (!state) {
     return (
       <ProjectSettingsSubsection title="Sandbox" settingsItem="projects.sandbox">
@@ -143,18 +191,27 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
   }
 
   const unavailable = state.mode !== 'off' && state.availability.state === 'unavailable';
+  const sandboxed = choiceSandboxes(draft.mode, defaults, state);
+  const defaultLabel = defaults
+    ? `Default (${choiceSandboxes('default', defaults, state) ? 'on' : 'off'})`
+    : 'Default';
+  const sharedHosts = sandboxed ? defaults?.allowHosts ?? [] : [];
 
   return (
     <ProjectSettingsSubsection
       title="Sandbox"
       settingsItem="projects.sandbox"
-      info="Runs every session in this project inside nono, so agents reach only this project's folders, its worktrees, the extra folders below and allowed hosts. Idle sessions switch right away; a session in the middle of a turn switches when the turn ends. The setting stays on this server machine."
+      info="Runs every session in this project inside nono, so agents reach only this project's folders, its worktrees, the extra folders below and allowed hosts. Default follows Sandbox projects by default in Settings, Projects. Idle sessions switch right away; a session in the middle of a turn switches when the turn ends. Turning the sandbox off resets this project's trust, so Pi asks again before it loads the project's extensions. The setting stays on this server machine."
     >
       <div className={SETTINGS_FIELDS_STACK_CLASS}>
         <SettingsChipGroup
           aria-label="Sandbox for this project"
           value={draft.mode}
-          options={MODE_OPTIONS.map((option) => ({ ...option, disabled: saving }))}
+          options={[
+            { value: 'default' as const, label: defaultLabel, disabled: saving },
+            { value: 'nono' as const, label: CHOICE_LABELS.nono, disabled: saving },
+            { value: 'off' as const, label: CHOICE_LABELS.off, disabled: saving },
+          ]}
           onChange={(mode) => update({ mode }, true)}
         />
 
@@ -170,32 +227,34 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
           <p className="typography-meta text-[var(--status-error)]" role="alert">{localError}</p>
         ) : null}
 
-        {draft.mode === 'nono' ? (
+        {sandboxed ? (
           <>
-            <p className={SETTINGS_HELPER_CLASS}>
-              Turning the sandbox off resets this project&apos;s trust, so Pi asks again before it loads the project&apos;s extensions.
-            </p>
 
             <SettingsStackedField
               label="Allowed hosts"
-              info="The model providers you are signed in to are allowed already. Add package registries or APIs the agent needs, one per line. If the agent runs Git fetch or push itself, add the Git host, such as github.com; the agent can use HTTPS remotes only. The Git panel runs outside the sandbox."
-              controlClassName="w-full max-w-[24rem]"
+              info="Hosts this project's agent may reach on top of the hosts for all projects, one per line. The model providers you are signed in to are always allowed. If the agent runs Git fetch or push itself, add the Git host, such as github.com; the agent can use HTTPS remotes only. The Git panel runs outside the sandbox."
+              description={sharedHosts.length > 0
+                ? `Also allowed for all projects: ${sharedHosts.join(', ')}.`
+                : undefined}
+              descriptionPlacement="after"
+              controlClassName={FIELD_CONTROL_CLASS}
             >
               <Textarea
                 value={draft.hostsText}
                 onChange={(event) => update({ hostsText: event.target.value }, false)}
                 onBlur={() => void save(draft)}
-                placeholder="registry.npmjs.org"
+                placeholder="api.example.com"
                 aria-label="Allowed hosts, one per line"
                 rows={3}
+                className="min-h-0 font-mono"
                 disabled={saving}
               />
             </SettingsStackedField>
 
             <SettingsStackedField
               label="Local ports"
-              info="Ports on the server machine the agent may connect to, such as 8080 for a local llama.cpp server. Separate them with commas. Ports 80 and 443 are refused because they would reach any host; add the host above instead."
-              controlClassName="w-full max-w-[24rem]"
+              info="Ports the agent may connect to on any host, not only the server machine, such as 8080 for a local llama.cpp server. Separate them with commas. Ports 80 and 443 are refused because they would reach any host; add the host above instead."
+              controlClassName={FIELD_CONTROL_CLASS}
             >
               <Input
                 value={draft.portsText}
@@ -212,7 +271,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
             <SettingsStackedField
               label="Extra folders"
               info="Folders outside the project the agent may use, such as a shared docs folder. Use full paths on the server machine."
-              controlClassName="w-full max-w-[40rem]"
+              controlClassName="w-full max-w-[32rem]"
             >
               <div className="w-full min-w-0 space-y-2">
                 {draft.folders.map((folder, index) => (
@@ -231,6 +290,7 @@ export const ProjectSandboxSectionView: React.FC<ProjectSandboxSectionViewProps>
                     />
                     <Select
                       value={folder.access}
+                      disabled={saving}
                       onValueChange={(value) => {
                         const access = value as PiSandboxExtraFolder['access'];
                         const folders = draft.folders.map((entry, at) => (at === index ? { ...entry, access } : entry));

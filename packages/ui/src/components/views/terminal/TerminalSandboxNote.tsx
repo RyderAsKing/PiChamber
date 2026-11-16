@@ -30,10 +30,17 @@ export const TerminalSandboxNote: React.FC<{ directory: string }> = ({ directory
   );
 
   const sandbox = project ? sandboxes[project.id] : undefined;
+  if (!sandbox && project && sandboxesStatus === 'failed') {
+    return (
+      <p className="px-4 pt-2 typography-micro text-muted-foreground" role="status">
+        Could not check whether this project is sandboxed. This terminal runs with your normal access either way.
+      </p>
+    );
+  }
   if (!sandbox || sandbox.mode === 'off') return null;
 
   return (
-    <p className="px-4 pt-2 typography-micro text-muted-foreground">
+    <p className="px-4 pt-2 typography-micro text-muted-foreground" role="status">
       This project is sandboxed, but this terminal runs outside the sandbox with your normal access.
     </p>
   );

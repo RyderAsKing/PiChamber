@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import type { PiProjectSandboxState } from '@/lib/pi/protocol';
-import { buildSetting, draftFromState, parseHosts, parsePorts, settingDiffers } from './projectSandboxDraft';
+import { buildSetting, draftFromState, parseHosts, parsePorts, settingDiffers, settingToSave,
+  choiceSandboxes,
+  hasPreset,
+  HOST_PRESETS,
+  withPreset,
+} from './projectSandboxDraft';
 
 const state: PiProjectSandboxState = {
   projectId: 'p1',
@@ -13,6 +18,27 @@ const state: PiProjectSandboxState = {
 };
 
 describe('project sandbox draft', () => {
+  test('a draft with a bad port saves nothing, except that Off saves with the grants the server holds', () => {
+    const draft = { ...draftFromState(state), portsText: '8080, nope' };
+    const refused = settingToSave(draft, state);
+    expect(refused.setting).toBeNull();
+    expect(refused.error).toContain('nope');
+
+    const off = settingToSave({ ...draft, mode: 'off' }, state);
+    expect(off.setting).toEqual({
+      mode: 'off',
+      allowHosts: ['registry.npmjs.org', 'github.com'],
+      allowLocalPorts: [8080],
+      extraFolders: [{ path: '/home/me/docs', access: 'read' }],
+    });
+    // The unfinished grant is still reported.
+    expect(off.error).toContain('nope');
+    // With nothing loaded from the server there are no grants to keep.
+    expect(settingToSave({ ...draft, mode: 'off' }, undefined).setting).toBeNull();
+    // A draft that builds is saved as it is.
+    expect(settingToSave(draftFromState(state), state)).toMatchObject({ setting: { mode: 'nono', allowLocalPorts: [8080] }, error: null });
+  });
+
   test('round-trips the server state without a change', () => {
     const built = buildSetting(draftFromState(state));
     expect(built).toEqual({
@@ -27,8 +53,23 @@ describe('project sandbox draft', () => {
     if (built.ok) expect(settingDiffers(built.setting, state)).toBe(false);
   });
 
-  test('a project without state reads as off with empty lists', () => {
-    expect(draftFromState(undefined)).toEqual({ mode: 'off', hostsText: '', portsText: '', folders: [] });
+  test('a project without state follows the default, with empty lists', () => {
+    expect(draftFromState(undefined)).toEqual({ mode: 'default', hostsText: '', portsText: '', folders: [] });
+  });
+
+  test('Default sandboxes only when the server default is on or unreadable', () => {
+    expect(choiceSandboxes('default', { mode: 'nono', allowHosts: [] }, undefined)).toBe(true);
+    expect(choiceSandboxes('default', { mode: 'off', allowHosts: [] }, undefined)).toBe(false);
+    expect(choiceSandboxes('default', { mode: 'off', allowHosts: [], invalid: true }, undefined)).toBe(true);
+    expect(choiceSandboxes('off', { mode: 'nono', allowHosts: [] }, undefined)).toBe(false);
+  });
+
+  test('a preset adds its hosts once and reads as added only when all are there', () => {
+    const hosts = withPreset(['github.com', 'example.com'], HOST_PRESETS.github);
+    expect(hosts.filter((host) => host === 'github.com')).toHaveLength(1);
+    expect(hosts[1]).toBe('example.com');
+    expect(hasPreset(hosts, HOST_PRESETS.github)).toBe(true);
+    expect(hasPreset(['github.com'], HOST_PRESETS.github)).toBe(false);
   });
 
   test('parses hosts by line, comma or space, without duplicates', () => {

@@ -5,7 +5,10 @@ import { normalizeNetwork } from './launcher.js';
 // A project's sandbox setting (#242 "Settings and storage"). It lives on the
 // project entry in host-local settings (runtime-state.json) and is never
 // portable: a sandbox claimed on one machine means nothing on another.
-const SANDBOX_MODES = ['off', 'nono'];
+// `default` follows the host's sandbox default (`normalizeSandboxDefaults`);
+// a project with no stored setting follows it too.
+const SANDBOX_MODES = ['default', 'off', 'nono'];
+const DEFAULT_MODES = ['off', 'nono'];
 
 const MAX_HOSTS = 64;
 const MAX_PORTS = 32;
@@ -55,6 +58,53 @@ export const normalizeProjectSandboxSetting = (value) => {
     allowLocalPorts: network.allowLocalPorts,
     extraFolders: [...folders.values()],
   };
+};
+
+/**
+ * The host's sandbox default: whether projects that follow it are sandboxed,
+ * and hosts every sandboxed project may reach on top of its own. Host-local,
+ * like project settings. Validated, or `ProjectSandboxSettingError`.
+ */
+const normalizeSandboxDefaults = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !DEFAULT_MODES.includes(value.mode)) {
+    throw new ProjectSandboxSettingError();
+  }
+  const allowHosts = value.allowHosts ?? [];
+  if (!Array.isArray(allowHosts) || allowHosts.length > MAX_HOSTS) throw new ProjectSandboxSettingError();
+  try {
+    return { mode: value.mode, allowHosts: normalizeNetwork({ mode: 'proxy', allowHosts, allowLocalPorts: [] }).allowHosts };
+  } catch {
+    throw new ProjectSandboxSettingError();
+  }
+};
+
+/**
+ * `current` with the fields of `patch` (`mode`, `allowHosts`, or both) laid
+ * over it, validated. A patch with neither field is refused.
+ */
+export const mergeSandboxDefaults = (current, patch) => {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)
+    || (patch.mode === undefined && patch.allowHosts === undefined)) {
+    throw new ProjectSandboxSettingError();
+  }
+  return normalizeSandboxDefaults({
+    mode: patch.mode === undefined ? current.mode : patch.mode,
+    allowHosts: patch.allowHosts === undefined ? [...current.allowHosts] : patch.allowHosts,
+  });
+};
+
+const SANDBOX_DEFAULTS_OFF = Object.freeze({ mode: 'off', allowHosts: Object.freeze([]) });
+
+/** The stored host default, or off when there is none. An unreadable one
+ *  is `invalid`, so projects that follow it fail closed. */
+export const readSandboxDefaults = (settings) => {
+  const value = settings && typeof settings === 'object' ? settings.sandboxDefaults : undefined;
+  if (value === undefined) return { defaults: SANDBOX_DEFAULTS_OFF };
+  try {
+    return { defaults: normalizeSandboxDefaults(value) };
+  } catch {
+    return { defaults: SANDBOX_DEFAULTS_OFF, invalid: true };
+  }
 };
 
 /** The stored setting of a project entry, or null when it has none or it is

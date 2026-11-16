@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { writeFileAtomic } from '../fs/atomic-write.js';
 import { resolvePiChamberDataDir } from '../pichamber-data-dir.js';
 import { withCrossProcessLock } from '../server/cross-process-lock.js';
-import { normalizeProjectSandboxSetting, ProjectSandboxSettingError } from './sandbox/project-sandbox-setting.js';
+import { mergeSandboxDefaults, normalizeProjectSandboxSetting, ProjectSandboxSettingError, readSandboxDefaults } from './sandbox/project-sandbox-setting.js';
 
 const MAX_SETTINGS_BYTES = 2 * 1024 * 1024;
 const PORTABLE_SETTINGS_MARKER = '__pichamberSettingsScope';
@@ -57,7 +57,7 @@ const PORTABLE_FIELDS = new Set([
 // still be consumed by the existing authenticated API without entering the
 // portable file.
 const LOCAL_FIELDS = new Set([
-  'lastDirectory', 'homeDirectory', 'projects', 'activeProjectId',
+  'lastDirectory', 'homeDirectory', 'projects', 'activeProjectId', 'sandboxDefaults',
   'securityScopedBookmarks', 'pinnedDirectories', 'openInAppId',
   'terminalShell', 'terminalLoginShells', 'desktopLanAccessEnabled',
   'desktopKeepAwakeEnabled', 'desktopProcessPerformanceRecordingEnabled',
@@ -210,6 +210,8 @@ export const createPiUiSettingsStore = ({
       };
       // A legacy flat settings.json may have come from another machine; a
       // sandbox setting is only ever made on this host.
+      delete migratedRuntime.sandboxDefaults;
+      if (Object.hasOwn(runtimeRoot, 'sandboxDefaults')) migratedRuntime.sandboxDefaults = runtimeRoot.sandboxDefaults;
       if (Object.hasOwn(selectFields(portableRoot, LOCAL_FIELDS), 'projects')) {
         migratedRuntime.projects = carrySandboxSettings(portableRoot.projects, runtimeRoot.projects);
       }
@@ -270,6 +272,9 @@ export const createPiUiSettingsStore = ({
       if (Object.hasOwn(localChanges, 'projects')) {
         localChanges.projects = carrySandboxSettings(localChanges.projects, current.projects);
       }
+      // Like a project's setting, the sandbox default changes only through
+      // `setSandboxDefaults`.
+      delete localChanges.sandboxDefaults;
       const nextPortable = {
         [PORTABLE_SETTINGS_MARKER]: PORTABLE_SETTINGS_VERSION,
         ...selectFields(current, PORTABLE_FIELDS),
@@ -303,5 +308,23 @@ export const createPiUiSettingsStore = ({
     });
   };
 
-  return { file, runtimeFile, read, write, setProjectSandbox };
+  /**
+   * Save the host's sandbox default (host-local only). `patch` holds `mode`,
+   * `allowHosts`, or both; a field it leaves out keeps the stored value. The
+   * merge happens under the store lock, so a device that only adds a host
+   * cannot undo a mode another device just set.
+   */
+  const setSandboxDefaults = async (patch) => {
+    // Refuse a malformed patch before taking the lock.
+    mergeSandboxDefaults(readSandboxDefaults({}).defaults, patch);
+    return runMutation(async () => {
+      const current = await readLocked();
+      const sandboxDefaults = mergeSandboxDefaults(readSandboxDefaults(current).defaults, patch);
+      const nextRuntime = { ...selectFields(current, LOCAL_FIELDS), sandboxDefaults };
+      await writeRecord(runtimeFile, nextRuntime, fs);
+      return { ...selectFields(current, PORTABLE_FIELDS), ...selectFields(nextRuntime, LOCAL_FIELDS) };
+    });
+  };
+
+  return { file, runtimeFile, read, write, setProjectSandbox, setSandboxDefaults };
 };

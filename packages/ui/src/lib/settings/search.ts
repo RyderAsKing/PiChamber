@@ -472,6 +472,20 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     keywords: ['sandbox', 'nono', 'landlock', 'check again', 'isolation'],
   },
   {
+    id: 'projects.sandbox-default',
+    page: 'projects',
+    title: "Sandbox projects by default",
+    description: "Sandbox every project set to Default, including folders you add later.",
+    keywords: ['sandbox', 'nono', 'default', 'all projects', 'isolation'],
+  },
+  {
+    id: 'projects.sandbox-default-hosts',
+    page: 'projects',
+    title: "Allowed hosts for all projects",
+    description: "Hosts every sandboxed project's agent may reach, with GitHub and package registry presets.",
+    keywords: ['sandbox', 'nono', 'allowed hosts', 'network', 'github', 'npm', 'registry', 'domains'],
+  },
+  {
     id: 'remote-access.client-auth',
     page: 'remote-access',
     title: "Add a device",

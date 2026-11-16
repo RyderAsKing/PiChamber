@@ -19,23 +19,43 @@ Open **Settings → Projects**. The **Sandboxing** section shows whether nono ca
 run on the server machine and, if not, why. After you install or update nono,
 choose **Check again**.
 
+## Turn it on for every project
+
+In **Settings → Projects → Sandboxing**, turn on **Sandbox projects by
+default**. Every project whose **Sandbox** is set to **Default** runs inside
+nono, including folders you add later. Projects set to **On** or **Off** keep
+their own choice.
+
+**Allowed hosts for all projects** lists hosts every sandboxed project's agent
+may reach, one per line. Nothing is allowed by default except the model
+providers you are signed in to, so `npm install` or `git clone` fail until you
+add their hosts. **Add GitHub** and **Add package registries** fill in the
+usual hosts for Git over HTTPS and the npm, PyPI, crates.io, Go, RubyGems,
+Maven and JSR registries. Each host lets the agent send data there, so add
+only what your projects need; `github.com` also accepts uploads, so an agent
+holding any GitHub token could send data there. Hosts must be public host names
+with a dot: `localhost`, IP addresses, single-word names, and wildcards wider
+than `*.example.com` are refused.
+
 ## Turn it on for a project
 
-Open the project in **Settings → Projects** and set **Sandbox** to **nono**.
-The setting applies to every session in the project, including new ones.
+Open the project in **Settings → Projects** and set **Sandbox** to **On**, or
+leave it on **Default** to follow the setting above. The setting applies to
+every session in the project, including new ones.
 
-- **Allowed hosts.** Hosts the agent may reach, one per line. The model
-  providers you are signed in to are allowed already. If the agent runs Git
-  fetch or push itself, add the Git host, such as `github.com`; the agent can
-  use HTTPS remotes only, not SSH.
+- **Allowed hosts.** Hosts this project's agent may reach on top of the hosts
+  for all projects, one per line. If the agent runs Git fetch or push itself,
+  add the Git host, such as `github.com`; the agent can use HTTPS remotes only,
+  not SSH.
 - **Local ports.** Ports on the server machine the agent may connect to, such
-  as a local llama.cpp server.
+  as a local llama.cpp server. A local port lets the agent connect to that port
+  on any host, not only the server machine.
 - **Extra folders.** Folders outside the project the agent may use, read only
   or read and write.
 
 Idle sessions switch right away. A session in the middle of a turn finishes
-that turn first and shows **Switching** until it moves. Sandboxed sessions are
-labelled **Sandboxed** in the session list and the chat header, on every
+that turn first and shows an open lock until it moves. Sandboxed sessions show
+a lock after their title in the session list and the chat header, on every
 device.
 
 Turning the sandbox off resets the project's trust, so Pi asks again before it
@@ -84,6 +104,6 @@ sandbox, those commands run with your access too. Check the repository's
 If nono stops working, for example after it is uninstalled, a sandboxed
 project refuses to run sessions instead of running them unsandboxed. You can
 still list its sessions and read their transcripts, and the Git panel keeps
-working. Its project card in Settings says **Sandbox unavailable**, its
+working. Its project card in Settings shows its lock in red with **Unavailable**, its
 settings say why, and sending a message explains the reason. Fix nono and
 choose **Check again**, or turn the project's sandbox off.

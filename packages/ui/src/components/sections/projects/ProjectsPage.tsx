@@ -7,7 +7,7 @@ import { Icon } from '@/components/icon/Icon';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { sessionEvents } from '@/lib/sessionEvents';
 import { SettingsPageLayout } from '@/components/sections/shared/SettingsPageLayout';
-import { SettingsSection } from '@/components/sections/shared/SettingsSection';
+import { SETTINGS_HELPER_CLASS, SettingsSection } from '@/components/sections/shared/SettingsSection';
 import { ProjectCard } from '@/components/sections/projects/ProjectCard';
 import { ProjectSettingsPanel } from '@/components/sections/projects/ProjectSettingsPanel';
 import { SandboxingSection } from '@/components/sections/projects/SandboxingSection';
@@ -33,6 +33,21 @@ export const ProjectsPage: React.FC = () => {
   React.useEffect(() => {
     if (sandboxesStatus === 'idle') void loadSandboxes();
   }, [loadSandboxes, sandboxesStatus]);
+
+  // A project added after the store loaded has no sandbox state yet: reload
+  // once per set of unknown ids, so one the server never reports cannot loop.
+  const unknownIds = projects.filter((p) => !sandboxes[p.id]).map((p) => p.id).sort().join('\n');
+  const attemptedUnknownRef = React.useRef('');
+  React.useEffect(() => {
+    if (!unknownIds) {
+      attemptedUnknownRef.current = '';
+      return;
+    }
+    if (sandboxesStatus === 'ready' && attemptedUnknownRef.current !== unknownIds) {
+      attemptedUnknownRef.current = unknownIds;
+      void loadSandboxes();
+    }
+  }, [unknownIds, sandboxesStatus, loadSandboxes]);
 
   const handleAddProject = React.useCallback(() => {
     sessionEvents.requestDirectoryDialog();
@@ -176,6 +191,12 @@ export const ProjectsPage: React.FC = () => {
       }
     >
       <SettingsSection divider={false} settingsItem="projects.browse">
+        {sandboxesStatus === 'failed' ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <p className={SETTINGS_HELPER_CLASS}>Sandbox state could not be loaded.</p>
+            <Button variant="outline" size="xs" onClick={() => void loadSandboxes()}>Try again</Button>
+          </div>
+        ) : null}
         {filteredProjects.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
             <p className="typography-meta text-muted-foreground">No projects match “{projectQuery}”.</p>

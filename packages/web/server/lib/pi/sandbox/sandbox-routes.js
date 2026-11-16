@@ -7,6 +7,8 @@
  *   POST /api/pi/sandbox/recheck              probe the launcher again
  *   GET  /api/pi/sandbox/projects             every project's sandbox state
  *   PUT  /api/pi/sandbox/projects/:projectId  save one project's setting
+ *   GET  /api/pi/sandbox/defaults             the host's sandbox default
+ *   PUT  /api/pi/sandbox/defaults             save it and apply it
  */
 export const registerPiSandboxRoutes = (app, { sandboxManager }) => {
   const fail = (res, error) => {
@@ -35,6 +37,23 @@ export const registerPiSandboxRoutes = (app, { sandboxManager }) => {
   app.get('/api/pi/sandbox/projects', async (_req, res) => {
     try {
       res.json({ projects: await sandboxManager.listProjects() });
+    } catch (error) {
+      fail(res, error);
+    }
+  });
+
+  app.get('/api/pi/sandbox/defaults', async (_req, res) => {
+    try {
+      res.json({ defaults: await sandboxManager.sandboxDefaults() });
+    } catch (error) {
+      fail(res, error);
+    }
+  });
+
+  app.put('/api/pi/sandbox/defaults', async (req, res) => {
+    try {
+      const defaults = await sandboxManager.setSandboxDefaults(req.body);
+      res.json({ defaults, projects: await sandboxManager.listProjects() });
     } catch (error) {
       fail(res, error);
     }
