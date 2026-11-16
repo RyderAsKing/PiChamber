@@ -17,6 +17,16 @@ const NATIVE_PLUGIN_UIS: readonly NativePluginUi[] = [
       render_html: React.lazy(() => import('./visuals/VisualsArtifact')),
     },
   },
+  {
+    id: 'subagents',
+    features: [
+      'Shows each sub-agent in the chat as a card with its model and progress',
+      'Opens any sub-agent on its own in the Agents panel, with its steps and answer',
+    ],
+    turnArtifacts: {
+      subagent: React.lazy(() => import('./subagents/SubagentsArtifact')),
+    },
+  },
 ];
 
 const turnArtifactsByTool = new Map<string, React.ComponentType<TurnArtifactProps>>();

@@ -23,6 +23,13 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
   tab is already open. The surface renders only Pi SDK `ctx.ui` widgets;
   statuses stay in the composer strip, and PiChamber-only `pichamber.ui` /
   `pichamber.app` surfaces are intentionally not rendered here yet.
+- `availability: 'agents'` is Agents, the Sub-agents plugin's surface
+  (`plugins/subagents/AgentsSurface.tsx`): on the rail once the selected
+  session's loaded messages hold a `subagent` tool call
+  (`sessionHasSubagentCall` in `plugins/subagents/sessionCalls.ts`), and
+  while an agents tab is open. It never opens the panel by itself; the rail
+  item, a run card in the chat, or the call's "Open in panel" does. See
+  `packages/ui/src/plugins/DOCUMENTATION.md`.
 - `CONTEXT_SURFACE_DEFAULT_WIDTH_FRACTION` is the panel width as a fraction of
   the content area for every surface. A user resize is stored once per
   directory (`contextPanelByDirectory[dir].width`) and applies to every rail
@@ -38,9 +45,10 @@ edge (`components/layout/ContextPanelRail.tsx`) and rendered by
   rail and the global surface-switch shortcut (`switch_context_surface` in
   `lib/shortcuts.ts`): it hides `has-content` surfaces until a tab of their mode exists
   and evaluates `github-repo` against the current directory's scope state
-  (`githubScope`: loading/has-result/has-repo/has-error). Both consumers use
-  it so the digit shown on a rail badge always maps to the same surface the
-  shortcut opens.
+  (`githubScope`: loading/has-result/has-repo/has-error), `extensions`
+  against `hasExtensionContent`, and `agents` against `hasAgentContent`.
+  Both consumers pass the same inputs, so the digit shown on a rail badge
+  always maps to the same surface the shortcut opens.
 
 ## Adding a surface
 
@@ -66,7 +74,7 @@ the `openContext*` actions in `useUIStore`.
 - Multi-instance and stateful surfaces (file/editor, browser, terminal) are
   keep-alive panes in `ContextPanel.tsx`: switching surfaces must not reset
   their state (open tabs, xterm session, scroll positions).
-  Singleton surfaces (git, context, pull-requests, issues, extensions) and preview tabs intentionally
+  Singleton surfaces (git, context, pull-requests, issues, extensions, agents) and preview tabs intentionally
   remount on switch and must restore themselves from their stores/snapshots
   instead. Git embeds a stacked diff list of changed files, collapsed until
   the user expands a file. Pull requests / Issues restore list filters,

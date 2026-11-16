@@ -26,6 +26,7 @@ import { addSelectionToChat } from '@/lib/addSelectionToChat';
 import { cycleDraftFolder, cycleSessionFolder } from '@/lib/folderCycle';
 import { hasOpenDropdown } from './keyboard-shortcut-dom';
 import { getPiSessionStore } from '@/apps/pi-session-store';
+import { sessionHasSubagentCall } from '@/plugins/subagents/sessionCalls';
 import { triggerPromptText } from '@/lib/pi/command-triggers';
 import { focusChatInput } from '@/components/chat/composer/editor/dom';
 import type { CommandTrigger } from '@/lib/pi/command-triggers';
@@ -397,11 +398,17 @@ export const useKeyboardShortcuts = () => {
             hasError: Boolean(scopeEntry.error && !scopeEntry.scope),
           };
         }
+        // And its session-driven surfaces (extension widgets, sub-agent calls).
+        const railSession = currentSessionId
+          ? getPiSessionStore().getState().reducer.bySession.get(currentSessionId)
+          : undefined;
         const visibleSurfaces = getVisibleContextRailSurfaces({
           railOrder: state.contextRailOrder,
           screenWidth: window.innerWidth,
           tabs: panelState?.tabs ?? [],
           githubScope,
+          hasExtensionContent: Boolean(railSession?.extensionWidgets.size),
+          hasAgentContent: sessionHasSubagentCall(railSession),
         });
         const target = visibleSurfaces[switchSurfaceDigit - 1];
         if (!target) {

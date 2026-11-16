@@ -25,6 +25,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { useConfigStore } from '@/stores/useConfigStore';
 import { useSelectionStore } from '@/sync/selection-store';
 import { useSessionMessageRecords } from '@/sync/sync-context';
+import { sessionHasSubagentCall } from '@/plugins/subagents/sessionCalls';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { useSessionUIStore } from '@/sync/session-ui-store';
 import { computeCacheHitRate, computePiContextWindowTokens, extractSessionMessageBreakdown, type PiUsageLike } from '@/stores/utils/tokenUtils';
@@ -486,6 +487,15 @@ export const ContextPanelRail: React.FC = () => {
     lastSeenSig !== extensionSignature
   );
 
+  // The Agents surface comes onto the rail with the session's first
+  // sub-agent call. The answer is kept per tool index, so text and tool
+  // updates do not scan the session's parts again.
+  const hasAgentContent = usePiSessionSnapshot(
+    (state) => (currentSessionId ? sessionHasSubagentCall(state.reducer.bySession.get(currentSessionId)) : false),
+    undefined,
+    currentSessionId ? `session:${currentSessionId}` : 'chrome',
+  );
+
   const githubScopeEntry = useGitHubScopeStore((state) => (directoryKey ? state.entriesByDirectory[directoryKey] ?? null : null));
   const githubScope = React.useMemo(() => {
     if (!githubScopeEntry) return { isLoading: true, hasResult: false, hasGitHubRepo: false, hasError: false };
@@ -505,8 +515,9 @@ export const ContextPanelRail: React.FC = () => {
       tabs,
       githubScope,
       hasExtensionContent,
+      hasAgentContent,
     });
-  }, [contextRailOrder, screenWidth, tabs, githubScope, hasExtensionContent]);
+  }, [contextRailOrder, screenWidth, tabs, githubScope, hasExtensionContent, hasAgentContent]);
 
   const handleDragEnd = React.useCallback((event: DragEndEvent) => {
     const { active, over } = event;
