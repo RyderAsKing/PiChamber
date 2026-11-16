@@ -446,6 +446,41 @@ describe('Pi routes for sandboxed projects', () => {
     expect(await rechecked.json()).toEqual({ launchers: [{ id: 'nono', available: true, version: '0.82.0' }] });
   });
 
+  it('runs no sandbox on a host with limits until its owner accepts them, and retires sandboxes when acceptance is withdrawn', async () => {
+    const ctx = await setup({ probe: { available: true, version: '0.82.0', capabilities: ['landlock-abi-7'], limits: ['UNIX_SOCKETS', 'PROXY_PORT'] } });
+    const prompt = () => ctx.call('/api/pi/sessions/s-1/prompt', { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
+    const saved = await (await ctx.sandboxOn()).json();
+    expect(saved.project.availability).toEqual({ state: 'unavailable', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' });
+    expect(await (await ctx.call('/api/pi/sandbox')).json()).toEqual({
+      launchers: [{ id: 'nono', available: true, version: '0.82.0', limits: ['UNIX_SOCKETS', 'PROXY_PORT'], limitsAccepted: false }],
+    });
+    const refused = await prompt();
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' } });
+    expect(ctx.launched).toEqual([]);
+
+    const put = (body) => ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body });
+    // Every limit must be accepted.
+    const partly = await (await put({ acceptedLimits: ['UNIX_SOCKETS'] })).json();
+    expect(partly.projects[0].availability).toEqual({ state: 'unavailable', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' });
+    expect((await prompt()).status).toBe(503);
+    expect(ctx.launched).toEqual([]);
+    const accepted = await (await put({ acceptedLimits: ['PROXY_PORT', 'UNIX_SOCKETS'] })).json();
+    expect(accepted.defaults).toEqual({ mode: 'off', allowHosts: [], acceptedLimits: ['UNIX_SOCKETS', 'PROXY_PORT'] });
+    expect(accepted.projects[0].availability).toEqual({ state: 'available' });
+    expect((await (await ctx.call('/api/pi/sandbox')).json()).launchers[0].limitsAccepted).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(1);
+
+    // Withdrawn: the running daemon is retired and the next command fails closed.
+    await put({ acceptedLimits: [] });
+    expect(ctx.launched[0].stopped).toBe(true);
+    expect((await prompt()).status).toBe(503);
+    expect(ctx.launched).toHaveLength(1);
+
+    expect((await put({ acceptedLimits: ['EVERYTHING'] })).status).toBe(400);
+  });
+
   it('lists every project\'s sandbox state and refuses invalid settings or unknown projects', async () => {
     const ctx = await setup();
     await ctx.sandboxOn('proj-a');
@@ -466,12 +501,12 @@ describe('Pi routes for sandboxed projects', () => {
 
   it('sandboxes every project that follows the host default, keeps an explicit off off, and adds the shared hosts', async () => {
     const ctx = await setup();
-    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [] } });
+    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [], acceptedLimits: [] } });
     await ctx.call('/api/pi/sandbox/projects/proj-b', { method: 'PUT', body: { mode: 'off' } });
     const saved = await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'nono', allowHosts: ['GitHub.com', 'github.com'] } });
     expect(saved.status).toBe(200);
     const body = await saved.json();
-    expect(body.defaults).toEqual({ mode: 'nono', allowHosts: ['github.com'] });
+    expect(body.defaults).toEqual({ mode: 'nono', allowHosts: ['github.com'], acceptedLimits: [] });
     expect(body.projects.map((p) => [p.projectId, p.mode, p.choice])).toEqual([['proj-a', 'nono', 'default'], ['proj-b', 'off', 'off']]);
     // proj-a has no setting of its own, yet runs sandboxed with the shared host.
     await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
@@ -491,7 +526,7 @@ describe('Pi routes for sandboxed projects', () => {
   it('keeps the default out of ordinary settings writes, so a client cannot change it that way', async () => {
     const ctx = await setup();
     await ctx.uiSettingsStore.write({ sandboxDefaults: { mode: 'nono', allowHosts: [] } });
-    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [] } });
+    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [], acceptedLimits: [] } });
     await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'nono', allowHosts: [] } });
     await ctx.uiSettingsStore.write({ sandboxDefaults: { mode: 'off', allowHosts: [] }, projects: [{ id: 'proj-a', path: ctx.projectA }, { id: 'proj-b', path: ctx.projectB }] });
     expect((await (await ctx.call('/api/pi/sandbox/defaults')).json()).defaults.mode).toBe('nono');
@@ -1212,9 +1247,9 @@ describe('keeping a sandboxed project owned', () => {
     await put({ mode: 'nono', allowHosts: ['github.com'] });
     // A page loaded before the default was turned on adds a host.
     expect((await (await put({ allowHosts: ['github.com', 'registry.npmjs.org'] })).json()).defaults)
-      .toEqual({ mode: 'nono', allowHosts: ['github.com', 'registry.npmjs.org'] });
+      .toEqual({ mode: 'nono', allowHosts: ['github.com', 'registry.npmjs.org'], acceptedLimits: [] });
     expect((await (await put({ mode: 'off' })).json()).defaults)
-      .toEqual({ mode: 'off', allowHosts: ['github.com', 'registry.npmjs.org'] });
+      .toEqual({ mode: 'off', allowHosts: ['github.com', 'registry.npmjs.org'], acceptedLimits: [] });
     expect((await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: undefined })).status).toBe(400);
     expect((await put({ note: 'x' })).status).toBe(400);
     expect((await put({ mode: 'nono', allowHosts: 'github.com' })).status).toBe(400);

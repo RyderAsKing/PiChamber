@@ -195,6 +195,10 @@ export const createProjectSandboxManager = ({
   const drainingKeys = new Map();
   let probe = null;
   let probing = null;
+  // Host limits the owner accepted (`sandboxDefaults.acceptedLimits`), as of
+  // the last reconcile. A launcher reporting a limit not in here starts no
+  // sandbox.
+  let acceptedLimits = new Set();
   let timer = null;
   let drainTimer = null;
   let stopped = false;
@@ -211,7 +215,15 @@ export const createProjectSandboxManager = ({
       probing = launcher.probe()
         .then((result) => {
           probe = result?.available === true
-            ? { available: true, version: typeof result.version === 'string' ? result.version : undefined }
+            ? {
+              available: true,
+              version: typeof result.version === 'string' ? result.version : undefined,
+              // A limit outside the known codes can never be accepted, so the
+              // host stays unavailable rather than run with it unannounced.
+              limits: Array.isArray(result.limits)
+                ? [...new Set(result.limits.map((limit) => (REASON_PATTERN.test(limit ?? '') ? limit : 'UNKNOWN_LIMIT')))]
+                : [],
+            }
             : { available: false, code: REASON_PATTERN.test(result?.code ?? '') ? result.code : 'SETUP_CHECK_FAILED' };
           return probe;
         })
@@ -223,6 +235,9 @@ export const createProjectSandboxManager = ({
     }
     return probing;
   };
+
+  // Limits of a probed host the owner has not accepted.
+  const unacceptedLimits = (status) => (status?.available ? status.limits.filter((limit) => !acceptedLimits.has(limit)) : []);
 
   // Identity of the Pi config files a sandbox pins: a replaced, rewritten,
   // added or removed file changes it.
@@ -457,6 +472,7 @@ export const createProjectSandboxManager = ({
   const launch = async (entry) => {
     const status = await probeLauncher();
     if (!status.available) throw sandboxUnavailable(status.code);
+    if (unacceptedLimits(status).length > 0) throw sandboxUnavailable('SANDBOX_LIMITS_NOT_ACCEPTED');
     if (entry.invalid) throw sandboxUnavailable('INVALID_SANDBOX_SETTING');
     // The setting this launch is built from, taken before anything waits:
     // one saved meanwhile must not be answered by a daemon holding the old
@@ -785,6 +801,13 @@ export const createProjectSandboxManager = ({
     if (stopped) return;
     const settings = await uiSettingsStore.read();
     const stored = Array.isArray(settings.projects) ? settings.projects : [];
+    const { defaults: hostDefaults, invalid: hostDefaultsInvalid } = readSandboxDefaults(settings);
+    acceptedLimits = new Set(hostDefaultsInvalid ? [] : hostDefaults.acceptedLimits);
+    // A start refused for unaccepted limits is not a failure of the project;
+    // availability reports the limits themselves while they still apply.
+    for (const entry of projects.values()) {
+      if (entry.failure === 'SANDBOX_LIMITS_NOT_ACCEPTED') entry.failure = null;
+    }
     const wanted = new Map();
     for (const project of stored) {
       if (!project || typeof project.id !== 'string' || typeof project.path !== 'string' || !isAbsolute(project.path)) continue;
@@ -862,6 +885,10 @@ export const createProjectSandboxManager = ({
       if (created && main) {
         await startDrain({ key: MAIN_DAEMON_KEY, runtime: main, directories, to: 'nono', sandboxed: false });
       } else if (changed && entry.supervisor && entry.launchedKey !== entry.settingKey) {
+        await retire(entry);
+      } else if (entry.supervisor && unacceptedLimits(probe).length > 0) {
+        // The owner withdrew a limit this host has: running turns finish,
+        // then the next command fails closed.
         await retire(entry);
       }
     }
@@ -964,6 +991,7 @@ export const createProjectSandboxManager = ({
     if (!entry) return { state: 'off' };
     if (entry.invalid) return { state: 'unavailable', reason: 'INVALID_SANDBOX_SETTING' };
     if (status && !status.available) return { state: 'unavailable', reason: status.code };
+    if (unacceptedLimits(status).length > 0) return { state: 'unavailable', reason: 'SANDBOX_LIMITS_NOT_ACCEPTED' };
     if (entry.failure) return { state: 'unavailable', reason: entry.failure };
     return { state: 'available' };
   };
@@ -1011,6 +1039,10 @@ export const createProjectSandboxManager = ({
         id: launcher.id,
         available: status.available,
         ...(status.available && status.version ? { version: status.version } : {}),
+        // What this host cannot enforce, and whether the owner accepted it.
+        ...(status.available && status.limits.length > 0
+          ? { limits: [...status.limits], limitsAccepted: unacceptedLimits(status).length === 0 }
+          : {}),
         ...(!status.available ? { reason: status.code } : {}),
       }];
     },
@@ -1025,15 +1057,22 @@ export const createProjectSandboxManager = ({
     /** The host's sandbox default. */
     sandboxDefaults: async () => {
       const { defaults, invalid } = readSandboxDefaults(await uiSettingsStore.read());
-      return { mode: defaults.mode, allowHosts: [...defaults.allowHosts], ...(invalid ? { invalid: true } : {}) };
+      return {
+        mode: defaults.mode,
+        allowHosts: [...defaults.allowHosts],
+        acceptedLimits: [...defaults.acceptedLimits],
+        ...(invalid ? { invalid: true } : {}),
+      };
     },
-    /** Save the host's sandbox default (`mode`, `allowHosts`, or both; a
-     *  field left out keeps its stored value), apply it to every project
-     *  that follows it (and every sandboxed project's hosts), and return it. */
+    /** Save the host's sandbox default (`mode`, `allowHosts`,
+     *  `acceptedLimits`, or several; a field left out keeps its stored
+     *  value), apply it to every project that follows it (and every
+     *  sandboxed project's hosts and the host's accepted limits), and
+     *  return it. */
     setSandboxDefaults: async (patch) => {
       const { defaults } = readSandboxDefaults(await uiSettingsStore.setSandboxDefaults(patch));
       await reconcileAfterSave();
-      return { mode: defaults.mode, allowHosts: [...defaults.allowHosts] };
+      return { mode: defaults.mode, allowHosts: [...defaults.allowHosts], acceptedLimits: [...defaults.acceptedLimits] };
     },
     reconcile,
     /** Whether the last reconcile failed, so the pool cannot be trusted to

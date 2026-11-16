@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { createNonoLauncher, NONO_PROFILE_FILE } from './nono-launcher.js';
+import { createNonoLauncher, NONO_PROFILE_FILE, NONO_PROFILE_FILES } from './nono-launcher.js';
 
 // A fake `nono` that answers `--version` and `setup --check-only` the way the
 // real binary does (output captured from nono 0.82.0 on a Landlock V6 kernel
@@ -76,18 +76,104 @@ describe('nono launcher probe', () => {
     await expect(launcher.probe()).resolves.toEqual({ available: false, code: 'VERSION_UNKNOWN' });
   });
 
-  it('reports macOS, Windows and WSL2 as UNSUPPORTED_PLATFORM without running nono', async () => {
+  it('reports Windows as UNSUPPORTED_PLATFORM without running nono', async () => {
     const command = await writeFakeNono({ setupOutput: LANDLOCK_OK });
-    for (const platform of ['darwin', 'win32']) {
-      const launcher = createNonoLauncher({ command, platform, readProcVersion: async () => '' });
-      await expect(launcher.probe()).resolves.toEqual({ available: false, code: 'UNSUPPORTED_PLATFORM' });
-    }
-    const wsl = createNonoLauncher({
-      command,
-      platform: 'linux',
-      readProcVersion: async () => 'Linux version 6.6.87.2-microsoft-standard-WSL2',
+    const launcher = createNonoLauncher({ command, platform: 'win32', readProcVersion: async () => '' });
+    await expect(launcher.probe()).resolves.toEqual({ available: false, code: 'UNSUPPORTED_PLATFORM' });
+  });
+});
+
+const WSL_KERNEL = 'Linux version 6.18.33.2-microsoft-standard-WSL2';
+// The lines nono 0.82.0 prints on macOS (`test_macos_seatbelt` in its setup.rs).
+const SEATBELT_OK = [
+  '[2/4] Testing sandbox support...',
+  '  * macOS version: 15.5',
+  '  * Seatbelt sandbox support verified',
+  '  * File access restrictions: OK',
+].join('\n');
+
+const profileArg = async (launcher) => {
+  const { args } = await launcher.prepare({ argv: ['node'], grants: [], network: { mode: 'none' }, tmpDir: '/tmp/x' });
+  return args[args.indexOf('--profile') + 1];
+};
+
+describe('nono launcher on WSL2', () => {
+  it('runs with the WSL2 profile and reports its Unix socket and proxy port limits', async () => {
+    const command = await writeFakeNono({ setupOutput: LANDLOCK_OK });
+    const launcher = createNonoLauncher({ command, platform: 'linux', readProcVersion: async () => WSL_KERNEL });
+    await expect(launcher.probe()).resolves.toEqual({
+      available: true,
+      version: '0.82.0',
+      capabilities: ['landlock-abi-6'],
+      limits: ['UNIX_SOCKETS', 'PROXY_PORT'],
     });
-    await expect(wsl.probe()).resolves.toEqual({ available: false, code: 'UNSUPPORTED_PLATFORM' });
+    await expect(profileArg(launcher)).resolves.toBe(NONO_PROFILE_FILES.wsl2);
+  });
+
+  it('maps a WSL2 kernel without Landlock TCP rules (below V4) to WSL_KERNEL_TOO_OLD', async () => {
+    const command = await writeFakeNono({ setupOutput: '  * Landlock enabled (syscall probe)\n  * Landlock V3' });
+    const launcher = createNonoLauncher({ command, platform: 'linux', readProcVersion: async () => 'Linux version 6.6.87.2-microsoft-standard-WSL2' });
+    await expect(launcher.probe()).resolves.toEqual({ available: false, code: 'WSL_KERNEL_TOO_OLD' });
+  });
+
+  it('keeps AF_UNIX mediation in the Linux profile and leaves it out only for WSL2', async () => {
+    const linux = JSON.parse(await readFile(NONO_PROFILE_FILES.linux, 'utf8'));
+    const wsl2 = JSON.parse(await readFile(NONO_PROFILE_FILES.wsl2, 'utf8'));
+    expect(linux.linux).toEqual({ af_unix_mediation: 'pathname' });
+    const { linux: _mediation, ...linuxWithoutMediation } = linux;
+    expect(wsl2).toEqual(linuxWithoutMediation);
+  });
+});
+
+describe('nono launcher on macOS', () => {
+  it('reports a verified Seatbelt sandbox as available and runs with the macOS profile', async () => {
+    const command = await writeFakeNono({ setupOutput: SEATBELT_OK });
+    const launcher = createNonoLauncher({ command, platform: 'darwin' });
+    await expect(launcher.probe()).resolves.toEqual({ available: true, version: '0.82.0', capabilities: ['seatbelt'] });
+    await expect(profileArg(launcher)).resolves.toBe(NONO_PROFILE_FILES.macos);
+  });
+
+  it('maps a failed or unverified Seatbelt check to SETUP_CHECK_FAILED', async () => {
+    for (const run of [
+      { setupOutput: 'Seatbelt sandbox test failed. This may indicate a system configuration issue.', setupCode: 1 },
+      { setupOutput: '  * macOS version: 15.5', setupCode: 0 },
+    ]) {
+      const launcher = createNonoLauncher({ command: await writeFakeNono(run), platform: 'darwin' });
+      await expect(launcher.probe()).resolves.toEqual({ available: false, code: 'SETUP_CHECK_FAILED' });
+    }
+  });
+
+  it('keeps temp folders out of the macOS profile, as the Linux one does', async () => {
+    const macos = JSON.parse(await readFile(NONO_PROFILE_FILES.macos, 'utf8'));
+    // system_write_macos would grant all of /tmp and /var/folders.
+    expect(macos.groups.exclude).toEqual(['system_write_macos']);
+    expect(macos.workdir).toEqual({ access: 'none' });
+    expect(macos.security).toEqual({ signal_mode: 'isolated', capability_elevation: false });
+  });
+
+  it('grants local ports with --open-port, since nono refuses --allow-connect-port on macOS', async () => {
+    const launcher = createNonoLauncher({ command: await writeFakeNono({ setupOutput: SEATBELT_OK }), platform: 'darwin' });
+    await launcher.probe();
+    const networkArgs = async (network) => {
+      const { args } = await launcher.prepare({ argv: ['node'], grants: [], network, tmpDir: '/tmp/x' });
+      return args.slice(args.indexOf('--no-diagnostics') + 1, args.indexOf('--'));
+    };
+    await expect(networkArgs({ mode: 'proxy', allowHosts: ['github.com'], allowLocalPorts: [8080] }))
+      .resolves.toEqual(['--allow-domain', 'github.com', '--open-port', '8080']);
+    // Blocked mode keeps the localhost port rules, so ports alone stay blocked otherwise.
+    await expect(networkArgs({ mode: 'proxy', allowHosts: [], allowLocalPorts: [8080] }))
+      .resolves.toEqual(['--block-net', '--open-port', '8080']);
+    await expect(networkArgs({ mode: 'proxy', allowHosts: [], allowLocalPorts: [] })).resolves.toEqual(['--block-net']);
+    await expect(networkArgs({ mode: 'proxy', allowHosts: [], allowLocalPorts: [443] })).rejects.toMatchObject({ code: 'SANDBOX_PORT_REFUSED' });
+  });
+
+  it('gives the same request a different identity on each host kind', async () => {
+    const request = { grants: [], network: { mode: 'none' } };
+    const linux = createNonoLauncher({ command: await writeFakeNono({ setupOutput: LANDLOCK_OK }), platform: 'linux', readProcVersion: async () => '' });
+    const macos = createNonoLauncher({ command: await writeFakeNono({ setupOutput: SEATBELT_OK }), platform: 'darwin' });
+    await linux.probe();
+    await macos.probe();
+    expect(linux.identity(request)).not.toBe(macos.identity(request));
   });
 });
 
