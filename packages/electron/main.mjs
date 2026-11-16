@@ -1861,6 +1861,12 @@ const navigateWindow = async (browserWindow, url, { allowAbort = false } = {}) =
   }
   try {
     await browserWindow.loadURL(url);
+    // The startup splash, and the app of a runtime switched away from, must
+    // not be reachable with Back (the mouse back button or Back in the menu):
+    // the splash is a dead end that shows its logo forever.
+    if (documentClass === 'application' && !browserWindow.isDestroyed()) {
+      browserWindow.webContents.navigationHistory.clear();
+    }
     if (browserWindow.__ocLabel === 'main') {
       recordElectronStartupPerformance('electron.navigation.ready', {
         documentClass,
