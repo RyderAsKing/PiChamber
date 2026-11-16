@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { createServerBrowserTab, normalizeServerBrowserUrl } from './browser-tab.js';
@@ -61,15 +62,29 @@ export const createServerBrowser = ({
   createGuard = createNetworkGuard,
   // Extra Chrome flags, for tests (such as `--host-resolver-rules`).
   extraChromeArgs = [],
+  // Where downloads wait (a per-run folder is made in it), and where Save to
+  // server copies them.
+  downloadsTmpRoot = os.tmpdir(),
+  serverDownloadsDir = () => path.join(os.homedir(), 'Downloads'),
   log = (message) => console.warn(message),
 }) => {
   const root = path.join(dataDir, 'server-browser');
   const profileDir = path.join(root, 'profile');
   const settingsFile = path.join(root, 'settings.json');
-  const downloads = createDownloadStore({ dir: path.join(root, 'downloads'), log });
+  // Tabs by key; downloads reach a tab's current viewers through it.
+  const tabs = new Map();
+  const downloads = createDownloadStore({
+    broadcast: (key, message) => tabs.get(key)?.tab.broadcast(message),
+    tmpRoot: downloadsTmpRoot,
+    serverDownloadsDir,
+    log,
+  });
   const uploads = createUploadStore();
-  // Uploads were files here before they were held in memory.
-  void fs.promises.rm(path.join(root, 'uploads'), { recursive: true, force: true }).catch(() => {});
+  // Uploads were files here before they were held in memory, and downloads
+  // before they moved to the temp directory.
+  for (const legacy of ['uploads', 'downloads']) {
+    void fs.promises.rm(path.join(root, legacy), { recursive: true, force: true }).catch(() => {});
+  }
 
   let settings = { allowNoSandbox: false, ...(readJson(settingsFile) || {}) };
   const envNoSandbox = env.PICHAMBER_BROWSER_NO_SANDBOX === '1';
@@ -78,8 +93,7 @@ export const createServerBrowser = ({
   let clearing = null;
   let lastFailure = null;
   let browserIdleTimer = null;
-  // Open tabs by key, each with its idle timer.
-  const tabs = new Map();
+  // Each open tab has its idle timer.
   const opening = new Map();
   const lastUrls = new Map();
   // Popups by claim id, until a viewer opens a tab for them.
@@ -344,7 +358,8 @@ export const createServerBrowser = ({
       onEmpty: onTabEmpty,
       onClosed: onTabClosed,
       onPopup,
-      onDownload: (owner, download) => void downloads.add(owner, download),
+      onDownload: (owner, download) => void downloads.add(owner.key, download),
+      onDownloadProgress: (owner, update) => downloads.progress(owner.key, update),
       log,
     });
     const entry = { tab, idleTimer: null };
@@ -415,6 +430,7 @@ export const createServerBrowser = ({
   const shutdown = async () => {
     await stopBrowser('closed');
     uploads.clear();
+    await downloads.dispose();
   };
 
   return {
@@ -426,6 +442,9 @@ export const createServerBrowser = ({
     saveUpload: (upload) => uploads.save(upload),
     takeUploads: (ids) => uploads.take(ids),
     getDownload: (id) => downloads.get(id),
+    cancelDownload: (id) => downloads.cancel(id),
+    saveDownloadToServer: (id) => downloads.saveToServer(id),
+    downloadMessages: (key) => downloads.messagesFor(key),
     shutdown,
   };
 };

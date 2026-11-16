@@ -64,7 +64,7 @@ const navigationError = (error) => {
  *
  * Viewers are `{ sendJson(message), sendFrame(buffer), close(reason) }`.
  */
-export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed, onPopup = () => {}, onDownload = () => {}, log = () => {} }) => {
+export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed, onPopup = () => {}, onDownload = () => {}, onDownloadProgress = () => {}, log = () => {} }) => {
   const viewers = new Set();
   const state = {
     url: 'about:blank',
@@ -312,6 +312,9 @@ export const createServerBrowserTab = ({ key, openPage, guard, onEmpty, onClosed
       if (current()) onClosed?.(tab);
     });
     nextPage.on('download', (download) => onDownload(tab, download));
+    // Chrome reports progress on the page's session; Playwright does not.
+    nextSession.on('Page.downloadWillBegin', ({ guid, url }) => onDownloadProgress(tab, { guid, url }));
+    nextSession.on('Page.downloadProgress', ({ guid, receivedBytes, totalBytes, state }) => onDownloadProgress(tab, { guid, receivedBytes, totalBytes, state }));
     nextPage.on('popup', (popup) => {
       if (current()) onPopup(tab, popup);
       else void popup.close().catch(() => {});

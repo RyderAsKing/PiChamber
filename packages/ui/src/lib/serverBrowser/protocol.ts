@@ -40,12 +40,20 @@ export type ServerBrowserDialog = {
   url: string;
 };
 
-type ServerBrowserDownload = {
+export type ServerBrowserDownload = {
   id: string;
   filename: string;
-  state: 'inProgress' | 'completed' | 'canceled';
+  /** The address the file came from. */
+  url: string;
+  state: 'inProgress' | 'completed' | 'canceled' | 'failed';
   receivedBytes: number;
+  /** 0 while the size is unknown. */
   totalBytes: number;
+  /** Where the finished file waits on the server (its temp directory). */
+  path: string | null;
+  /** Where Save to server put a copy, once it has. */
+  savedPath: string | null;
+  startedAt: number;
 };
 
 export type ServerBrowserScreenshot = {
@@ -74,6 +82,8 @@ export type ServerBrowserMessage =
   /** The page opened a popup for this device to show; claim it with `id`. */
   | { type: 'popup'; id: string }
   | ({ type: 'download' } & ServerBrowserDownload)
+  /** The server dropped this download (only the newest are kept); its file is gone. */
+  | { type: 'download-removed'; id: string }
   | { type: 'inspect-hover'; requestId: number; target: PreviewElementMetadata | null }
   | { type: 'inspect-pick'; requestId: number; target: PreviewElementMetadata | null; screenshot: ServerBrowserScreenshot | null }
   | { type: 'unavailable'; status: ServerBrowserStatus; message?: string };

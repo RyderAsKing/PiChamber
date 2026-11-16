@@ -119,9 +119,22 @@ export const createServerBrowserRuntime = ({
     if (!download) return res.status(404).json({ error: 'Download not found' });
     res.setHeader('Cache-Control', 'no-store');
     res.attachment(download.filename);
+    // The size lets the device show how far its copy has come.
+    try { res.setHeader('Content-Length', String(fs.statSync(download.path).size)); } catch { /* read below fails too */ }
     fs.createReadStream(download.path)
       .on('error', () => { if (!res.headersSent) res.status(404).end(); else res.destroy(); })
       .pipe(res);
+  });
+
+  // Copies a finished download into the server's Downloads folder.
+  app.post('/api/server-browser/downloads/:id/save-to-server', async (req, res) => {
+    try {
+      const saved = await browser.saveDownloadToServer(req.params.id);
+      if (!saved) return res.status(404).json({ error: 'Download not found' });
+      res.json(saved);
+    } catch (error) {
+      res.status(500).json({ error: error?.message || 'Could not save the download on the server' });
+    }
   });
 
   let wsServer = new WebSocketServer({ noServer: true, maxPayload: MAX_CLIENT_MESSAGE_BYTES, perMessageDeflate: false });
@@ -188,6 +201,7 @@ export const createServerBrowserRuntime = ({
         case 'file-chooser':
           await tab.respondFileChooser({ id: message.id, files: browser.takeUploads(message.uploadIds) });
           return;
+        case 'download-cancel': await browser.cancelDownload(String(message.id || '')); return;
         case 'inspect': {
           const target = await tab.inspectAt(message.x, message.y);
           if (message.pick !== true) {
@@ -232,6 +246,8 @@ export const createServerBrowserRuntime = ({
       }
       if (closed) return;
       detach = tab.attachViewer(viewer);
+      // Downloads the tab made before this viewer came.
+      for (const download of browser.downloadMessages(key)) sendJson(download);
       markReady();
     })();
   });
