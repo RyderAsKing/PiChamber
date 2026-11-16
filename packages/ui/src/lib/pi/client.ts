@@ -574,6 +574,20 @@ export class PiService {
     );
   }
 
+  /** Stop a draft session's runtime. Any other session is left alone (`false`). */
+  async discardDraftSession(sessionId: PiSessionId, scope?: PiClientScope): Promise<boolean> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, { discarded?: unknown }>(
+      `/api/pi/sessions/${encodeURIComponent(sessionId)}/discard-draft`,
+      {
+        method: 'POST',
+        ...(scope?.directory ? { query: { directory: scope.directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
+    return result?.discarded === true;
+  }
+
   async deleteSession(input: PiDeleteInput, scope?: PiClientScope): Promise<boolean> {
     assertRuntimeUnchanged(scope);
     try {

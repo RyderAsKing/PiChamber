@@ -153,6 +153,9 @@ export function isLocalSessionDaemonEndpoint(endpoint, platform = process.platfo
 // factory to daemon socket state.
 export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), sessionFile }, hooks) {
   const createRuntime = async ({ cwd: runtimeCwd, agentDir: runtimeAgentDir, sessionManager, sessionStartEvent }) => {
+    // Lets the daemon know a session's id before Pi starts it, so what its
+    // extensions publish at `session_start` can already be attributed.
+    hooks?.beforeSession?.(sessionManager);
     const services = await createAgentSessionServices({
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
@@ -621,15 +624,24 @@ export function createSessionDaemon({
   // The session that most recently produced an event: the carrier for an
   // Open request nobody can attribute (see open-request.js).
   let lastPublishedSession = null;
+  // Sessions started for a new-session draft before its first send (see
+  // `createSession` with `draft: true`). Listings and the pending-input list
+  // leave them out, and their events carry `draft: true`, so no client adds
+  // a sidebar row or transcript for them; only the drafting client uses
+  // them, for the draft's composer controls and model. Sending adopts the
+  // session (`draftSessionId`), which clears the mark.
+  const draftSessionIds = new Set();
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
     const targetDirectory = directory || activeDirectory || cwd;
+    const draft = draftSessionIds.has(sessionId);
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
       event,
       streamEpoch,
       sequence: ++sequence,
+      ...(draft ? { draft: true } : {}),
       payload: {
         sessionId,
         directory: targetDirectory,
@@ -637,7 +649,8 @@ export function createSessionDaemon({
       },
     };
     const line = `${JSON.stringify(message)}\n`;
-    lastPublishedSession = { sessionId, directory: targetDirectory };
+    // A draft is no target for open requests: no client shows it.
+    if (!draft) lastPublishedSession = { sessionId, directory: targetDirectory };
     // Live delivery stays full-fidelity even when the event is too large to
     // retain: retention evicts whole oldest events and never truncates content.
     replayLog.append(message.sequence, sessionId, line);
@@ -657,6 +670,7 @@ export function createSessionDaemon({
       event,
       streamEpoch,
       sequence: ++sequence,
+      ...(draftSessionIds.has(sessionId) ? { draft: true } : {}),
       payload: { sessionId, directory: directory || activeDirectory || cwd, ...payload },
     };
     const line = `${JSON.stringify(message)}\n`;
@@ -830,10 +844,11 @@ export function createSessionDaemon({
   // host factories keep their single-argument contract and ignore the hooks.
   const baseCreateRuntime = injectCreateRuntime
     ?? ((runtimeOptions, runtimeHooks) => createPiSessionRuntime(runtimeOptions, runtimeHooks));
-  const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
+  const createRuntime = (runtimeOptions, extraHooks) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
     pluginExtensionFactories: pluginHost.extensionFactories,
     internalExtensionFactories,
+    ...extraHooks,
   });
 
   const getSessionState = () => runtime
@@ -1062,6 +1077,14 @@ export function createSessionDaemon({
       await runtime?.dispose?.();
     }
     runtime = undefined;
+    // Drafts die with their runtimes. Announce each while it is still marked,
+    // so the event carries `draft: true` and only the drafting client hears
+    // it, then drop the mark: no later id may be taken for a live draft.
+    for (const lease of leased) {
+      if (!draftSessionIds.has(lease.sessionId)) continue;
+      publish('session.deleted', {}, lease.sessionId, lease.cwd);
+      draftSessionIds.delete(lease.sessionId);
+    }
     // Pi defers the JSONL until the first user or assistant message, so the
     // remembered session may never have reached disk (a catalog read on a
     // fresh install, or a new session with nothing sent). Decide that while
@@ -1140,7 +1163,10 @@ export function createSessionDaemon({
     // the active runtime of a different project, whose loaded extensions,
     // skills, prompts, and models would then be reported for the wrong project.
     const resident = runtimeRegistry?.listByDirectory?.(requestedCwd) ?? [];
-    const candidate = resident.includes(runtime) ? runtime : resident[0];
+    // A draft session never answers as a folder's general runtime: its
+    // events are tagged `draft` and only the drafting client reads them.
+    const general = resident.filter((entry) => !draftSessionIds.has(entry?.session?.sessionId));
+    const candidate = general.includes(runtime) ? runtime : general[0];
     if (candidate) return Promise.resolve(candidate);
 
     // Concurrent starts are shared per directory, never across directories.
@@ -1308,6 +1334,10 @@ export function createSessionDaemon({
 
   const isIdleDisposalSafe = (sessionId, targetRuntime) => {
     if (!targetRuntime) return false;
+    // A draft is always disposable: nobody else can see it, so a dialog,
+    // custom() surface, or command left in it would keep it forever.
+    // Disposal ends them (`disposeIdleSessionRuntime`).
+    if (isValidIdleSessionId(sessionId) && draftSessionIds.has(sessionId)) return true;
     // A session blocked on a hosted input request (e.g. an extension dialog
     // opened while idle) must survive the idle timer so a user who walks
     // away finds it still pending later. Deletion and daemon stop still
@@ -1360,6 +1390,13 @@ export function createSessionDaemon({
       }
       const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
       try {
+        if (draftSessionIds.has(sessionId)) {
+          // Forceful for a draft: answer its dialogs, close its surfaces,
+          // stop anything running, and let a control's command settle.
+          clearExtensionState(sessionId);
+          try { await targetRuntime.session?.abort?.(); } catch { /* disposal follows */ }
+          await waitForControlRuns(sessionId);
+        }
         if (targetRuntime === runtime) rememberRuntimeSession();
         // Kept for safety: while a hosted input request is pending the idle
         // guard above refuses disposal, so this cancel path is normally
@@ -1399,6 +1436,8 @@ export function createSessionDaemon({
         publish('session.error', { code: 'RUNTIME_DISPOSAL_FAILED' }, sessionId, targetRuntime.cwd);
       } finally {
         disposingSessionIds.delete(sessionId);
+        // A draft that idled out is gone; its deletion went out marked.
+        if (!runtimeRegistry?.findBySessionId(sessionId)) draftSessionIds.delete(sessionId);
       }
     })();
     disposingSessionPromises.set(sessionId, tracked);
@@ -1551,6 +1590,8 @@ export function createSessionDaemon({
     }
     const extra = [];
     for (const entry of activeEntries) {
+      // A draft's session is listed once a send adopts it.
+      if (draftSessionIds.has(entry?.session?.sessionId)) continue;
       if (entry?.session?.sessionId && !knownIds.has(entry.session.sessionId)) {
         const name = entry.session.sessionManager?.getSessionName?.() || entry.session.title || undefined;
         const messageCount = entry.session.messages?.length || 0;
@@ -1768,6 +1809,9 @@ export function createSessionDaemon({
       try {
         const targetDir = await resolveDirectory(requestedDirectory);
         const existing = runtimeRegistry.get({ cwd: targetDir, sessionId });
+        // A draft answers its own commands but never becomes the active
+        // session: a restart must not try to reopen what was never written.
+        if (existing && draftSessionIds.has(sessionId)) return existing;
         if (existing) {
           runtime = existing;
           activeDirectory = targetDir;
@@ -1776,6 +1820,7 @@ export function createSessionDaemon({
       } catch {}
     }
     const existingAnywhere = runtimeRegistry.findBySessionId(sessionId);
+    if (existingAnywhere && draftSessionIds.has(sessionId)) return existingAnywhere;
     if (existingAnywhere) {
       runtime = existingAnywhere;
       if (existingAnywhere.cwd) activeDirectory = existingAnywhere.cwd;
@@ -2252,6 +2297,86 @@ export function createSessionDaemon({
     };
   };
 
+  /**
+   * Send from a draft: its session becomes the new session, with the title,
+   * model, and thinking the send asked for, so what the draft's controls did
+   * (a mode picked, a toggle flipped) carries over. Returns null when the
+   * draft cannot be used (gone, being disposed, another folder, a fork); the
+   * caller then creates a session as usual and a stale draft is dropped.
+   */
+  const adoptDraftSession = async (payload, targetCwd, parent) => {
+    const sessionId = payload.draftSessionId;
+    if (!draftSessionIds.has(sessionId)) return null;
+    const draftRuntime = runtimeRegistry?.findBySessionId(sessionId);
+    if (!draftRuntime || parent || draftRuntime.cwd !== targetCwd || disposingSessionIds.has(sessionId)) {
+      void discardDraftSession(sessionId).catch(() => {});
+      return null;
+    }
+    // The idle timer stops first: it must not fire during the awaits below.
+    clearIdleDisposal(sessionId);
+    // A control's command still running in the draft lands its effects
+    // before the session is projected for the reply (bounded, in case it
+    // waits on a dialog the user has not answered). The draft keeps its mark
+    // meanwhile, so a turn that command starts is still stopped.
+    await waitForControlRuns(sessionId);
+    // Only one send adopts a draft; another (or a discard during the wait)
+    // leaves this send to create as usual.
+    if (!draftSessionIds.has(sessionId) || runtimeRegistry?.findBySessionId(sessionId) !== draftRuntime
+      || disposingSessionIds.has(sessionId)) {
+      return null;
+    }
+    draftSessionIds.delete(sessionId);
+    try {
+      const current = draftRuntime.session?.model;
+      if (payload.model && !(current?.provider === payload.model.providerId && current?.id === payload.model.modelId)) {
+        await setSessionModel(draftRuntime, payload.model);
+        publishSessionModel(draftRuntime.session, sessionId, targetCwd);
+      }
+      if (payload.thinking !== undefined && draftRuntime.session?.thinkingLevel !== payload.thinking) {
+        applyThinking(draftRuntime, payload.thinking, sessionId, targetCwd);
+      }
+    } catch (error) {
+      // The draft stays a draft, back on its idle lifetime; the send
+      // reports the failure.
+      draftSessionIds.add(sessionId);
+      safeTouchIdleDisposal(sessionId);
+      throw error;
+    }
+    if (payload.title) draftRuntime.session.sessionManager?.appendSessionInfo?.(payload.title.trim());
+    // From here it is an ordinary new session, whose first send arms the
+    // idle lifetime again.
+    runtime = draftRuntime;
+    activeDirectory = targetCwd;
+    rememberRuntimeSession();
+    // Published before the reply is built, so the reply's sequence covers it.
+    // A client never saw the draft's events (they were marked `draft`); if
+    // this event reached it before the reply and the reply were older, it
+    // would keep its own empty copy of the session's controls.
+    const createdTitle = (typeof payload.title === 'string' ? payload.title.trim() : '')
+      || draftRuntime.session?.sessionManager?.getSessionName?.();
+    if (createdTitle) {
+      publish('session.updated', { title: redactAttachmentPaths(createdTitle) }, sessionId, targetCwd);
+    }
+    return projectActiveSession(draftRuntime, targetCwd);
+  };
+
+  /**
+   * Stop a draft's session when the draft closes or moves to another folder.
+   * Only a draft can be discarded this way, and always is: its dialogs are
+   * cancelled, its surfaces closed, and anything running stopped first.
+   */
+  const discardDraftSession = async (sessionId) => {
+    if (!draftSessionIds.has(sessionId)) return { discarded: false };
+    if (!runtimeRegistry?.findBySessionId(sessionId)) {
+      draftSessionIds.delete(sessionId);
+      return { discarded: true };
+    }
+    await disposeIdleSessionRuntime(sessionId);
+    const gone = !runtimeRegistry?.findBySessionId(sessionId);
+    if (gone) draftSessionIds.delete(sessionId);
+    return { discarded: gone };
+  };
+
   const createSession = async (payload) => {
     const explicitRetryLimit = payload && typeof payload === 'object' ? (payload.maxRetries ?? payload.retryLimit ?? payload.defaultRetryLimit) : undefined;
     if (explicitRetryLimit !== undefined && (!Number.isInteger(explicitRetryLimit) || explicitRetryLimit < 0 || explicitRetryLimit > 10)) {
@@ -2261,9 +2386,14 @@ export function createSessionDaemon({
       || (payload.cwd !== undefined && (typeof payload.cwd !== 'string' || payload.cwd.length === 0))
       || (payload.title !== undefined && (typeof payload.title !== 'string' || payload.title.trim().length === 0 || payload.title.length > 256))
       || (payload.thinking !== undefined && !isPiThinkingLevel(payload.thinking))
-      || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))) {
+      || (payload.model !== undefined && (!payload.model || typeof payload.model.providerId !== 'string' || typeof payload.model.modelId !== 'string'))
+      || (payload.draft !== undefined && typeof payload.draft !== 'boolean')
+      || (payload.draftSessionId !== undefined && (typeof payload.draftSessionId !== 'string' || payload.draftSessionId.length === 0 || payload.draftSessionId.length > 128))
+      // A draft has no title, parent, or draft of its own yet.
+      || (payload.draft === true && (payload.title !== undefined || payload.parentId !== undefined || payload.draftSessionId !== undefined))) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The requested session creation options are invalid.');
     }
+    const draft = payload.draft === true;
     try {
       await flushPendingRuntimeRecreation();
     } catch {
@@ -2274,16 +2404,35 @@ export function createSessionDaemon({
     const targetCwd = await resolveDirectory(payload.cwd);
     await validatePiSessionJsonlDirectory({ cwd: targetCwd, agentDir });
     const parent = payload.parentId === undefined ? undefined : (await findPersistedSession(payload.parentId, targetCwd)).target;
+    if (payload.draftSessionId !== undefined) {
+      const adopted = await adoptDraftSession(payload, targetCwd, parent);
+      if (adopted) return adopted;
+    }
     if (!runtimeRegistry) {
       runtimeRegistry = createSessionRuntimeRegistry({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
     }
-    const newRuntime = await createRuntime({
-      cwd: targetCwd,
-      agentDir,
-      ...(parent ? { sessionFile: parent.path } : {}),
-    });
+    // A draft's sessions are marked from the moment Pi assigns their ids:
+    // the runtime's first session (replaced below) and the draft itself.
+    const markedDraftIds = new Set();
+    const markDraft = (manager) => {
+      const id = manager?.getSessionId?.();
+      if (typeof id !== 'string' || id.length === 0) return;
+      markedDraftIds.add(id);
+      draftSessionIds.add(id);
+    };
+    let newRuntime;
+    try {
+      newRuntime = await createRuntime({
+        cwd: targetCwd,
+        agentDir,
+        ...(parent ? { sessionFile: parent.path } : {}),
+      }, draft ? { beforeSession: markDraft } : undefined);
+    } catch (error) {
+      for (const id of markedDraftIds) draftSessionIds.delete(id);
+      throw error;
+    }
     if (!newRuntime.cwd) newRuntime.cwd = targetCwd;
     // Apply default retry limit for new sessions. Explicit per-run overrides win.
     // With no PiChamber override configured, Pi's own retry settings stay
@@ -2313,18 +2462,30 @@ export function createSessionDaemon({
       result = await newRuntime.newSession({
         ...(parent ? { parentSession: parent.path } : {}),
         ...(payload.title ? { setup: async (manager) => manager.appendSessionInfo(payload.title.trim()) } : {}),
+        // An injected runtime factory may not call `beforeSession`.
+        ...(draft ? { setup: async (manager) => markDraft(manager) } : {}),
       });
     } else if (payload.title && newRuntime.session?.sessionManager?.appendSessionInfo) {
       newRuntime.session.sessionManager.appendSessionInfo(payload.title.trim());
     }
     if (result?.cancelled) {
+      // Dispose before unmarking, so what disposal publishes stays `draft`.
       try { await newRuntime.dispose?.(); } catch { /* the cancelled create owns nothing */ }
+      for (const id of markedDraftIds) draftSessionIds.delete(id);
       throw new SessionDaemonProtocolError('SESSION_CREATE_CANCELLED', 'Pi cancelled session creation.');
+    }
+    if (draft) {
+      const draftId = newRuntime.session?.sessionId;
+      // The replaced first session is gone; only the draft keeps its mark.
+      for (const id of markedDraftIds) if (id !== draftId) draftSessionIds.delete(id);
+      if (draftId) draftSessionIds.add(draftId);
     }
     try {
       await acquireResidentLease({ cwd: targetCwd, sessionId: newRuntime.session.sessionId });
     } catch (error) {
+      const failedDraftId = newRuntime.session?.sessionId;
       try { await newRuntime.dispose?.(); } catch { /* the failed create owns nothing */ }
+      draftSessionIds.delete(failedDraftId);
       throw error;
     }
     try {
@@ -2338,9 +2499,13 @@ export function createSessionDaemon({
     } catch (error) {
       const failedSessionId = newRuntime.session?.sessionId;
       const failedCwd = targetCwd;
+      // Unmarked only once disposal is done (or failed), so its events stay
+      // `draft`.
       try {
         await newRuntime.dispose?.();
+        draftSessionIds.delete(failedSessionId);
       } catch {
+        draftSessionIds.delete(failedSessionId);
         // Dispose-first cleanup rejected: retain ownership for a later
         // delete/stop retry. Do not release the lease, install dormant
         // state, or register the runtime. The original model/thinking
@@ -2358,6 +2523,14 @@ export function createSessionDaemon({
       throw error;
     }
     runtimeRegistry.register(newRuntime, { cwd: targetCwd });
+    if (draft) {
+      // A draft is not the daemon's active session and is not remembered
+      // for a restart: nothing has been sent in it. It gets the idle
+      // lifetime of any view-only session, so an abandoned draft goes away.
+      rebuildSessionExtensionState(newRuntime);
+      touchIdleDisposal(newRuntime.session.sessionId);
+      return projectActiveSession(newRuntime, targetCwd);
+    }
     runtime = newRuntime;
     activeDirectory = targetCwd;
     rebuildSessionExtensionState(newRuntime);
@@ -3267,8 +3440,18 @@ export function createSessionDaemon({
     const next = model && (model.reasoning === true || model.thinkingLevelMap)
       ? clampThinkingLevel(getSupportedThinkingLevels(model), thinking)
       : thinking;
+    const previous = runtime.session.thinkingLevel;
     runtime.session.setThinkingLevel(next);
-    publish('session.thinking', { thinking: next }, sessionId, directory);
+    const effective = runtime.session.thinkingLevel ?? next;
+    // Exactly one `session.thinking` per change. Pi emits
+    // `thinking_level_changed` (published by `publishSessionEvent`) when the
+    // level changes on a runtime the registry subscribes to; publish here
+    // only when it will not: an unchanged level (the caller still gets its
+    // echo) or a runtime not yet registered (a session being created).
+    const changed = effective !== previous;
+    const subscribed = runtimeRegistry?.findBySessionId?.(sessionId) === runtime;
+    if (changed && subscribed) return;
+    publish('session.thinking', { thinking: effective }, sessionId, directory);
   };
 
   const validateThinking = (thinking) => {
@@ -4326,6 +4509,18 @@ export function createSessionDaemon({
         clearIdleDisposal(sessionId);
         retryStateBySession.delete(sessionId);
         if (!activeRunStartedAt.has(sessionId)) activeRunStartedAt.set(sessionId, Date.now());
+        // A model turn in a draft (a control's command calling
+        // `sendUserMessage`) ends the draft: Pi has written the session
+        // file with the user message by now, and the turn is real work the
+        // user must be able to see. The session becomes an ordinary one
+        // here, at the first event Pi reports for the turn. The drafting
+        // client hears one last marked event, this busy state without a
+        // `command`, and lets go of the draft; everything after it is
+        // unmarked, so every client lists the session as running.
+        if (draftSessionIds.has(sessionId)) {
+          publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
+          draftSessionIds.delete(sessionId);
+        }
         publish('session.lifecycle', { state: 'busy', runStartedAt: activeRunStartedAt.get(sessionId), serverNow: Date.now() }, sessionId, directory);
         break;
       case 'agent_end': {
@@ -4517,7 +4712,7 @@ export function createSessionDaemon({
               'projects.list', 'projects.select', 'sessions.list', 'sessions.create', 'sessions.open', 'sessions.messages', 'sessions.rename', 'sessions.delete',
               'sessions.tree', 'sessions.navigate', 'sessions.fork', 'sessions.clone', 'sessions.prompt',
               'sessions.steer', 'sessions.followUp', 'sessions.sendReceipt', 'sessions.pendingInput', 'sessions.abort', 'sessions.setModel',
-              'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
+              'sessions.setThinking', 'sessions.discardDraft', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
@@ -4840,15 +5035,20 @@ export function createSessionDaemon({
         const residentRuntimes = new Set();
         if (runtime?.session?.sessionId) residentRuntimes.add(runtime);
         for (const tracked of runtimeRegistry?.listAll?.() ?? []) residentRuntimes.add(tracked);
-        const residents = [...residentRuntimes].map((tracked) => ({
-          sessionId: tracked?.session?.sessionId,
-          directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
-          busy: tracked?.session?.isStreaming === true
-            || tracked?.session?.isCompacting === true
-            || activeSessionInputs.has(tracked),
-        }));
+        // Drafts are no target: no client shows them.
+        const residents = [...residentRuntimes]
+          .filter((tracked) => !draftSessionIds.has(tracked?.session?.sessionId))
+          .map((tracked) => ({
+            sessionId: tracked?.session?.sessionId,
+            directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
+            busy: tracked?.session?.isStreaming === true
+              || tracked?.session?.isCompacting === true
+              || activeSessionInputs.has(tracked),
+          }));
         const target = resolveOpenRequestSession({
-          requestedSessionId: typeof message.payload?.sessionId === 'string' ? message.payload.sessionId : undefined,
+          requestedSessionId: typeof message.payload?.sessionId === 'string' && !draftSessionIds.has(message.payload.sessionId)
+            ? message.payload.sessionId
+            : undefined,
           residents,
           recent: lastPublishedSession,
         });
@@ -4878,7 +5078,7 @@ export function createSessionDaemon({
           protocolVersion: PROTOCOL_VERSION,
           kind: 'response',
           requestId: message.requestId,
-          result: { sessions: pendingInput.list(), sequence, streamEpoch },
+          result: { sessions: pendingInput.list().filter((entry) => !draftSessionIds.has(entry?.sessionId)), sequence, streamEpoch },
         });
         return;
       }
@@ -4932,6 +5132,15 @@ export function createSessionDaemon({
       case 'sessions.rename': {
         await renameSession(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: {} });
+        return;
+      }
+      case 'sessions.discardDraft': {
+        // Not in the session-access guard: holding access would make the
+        // disposal it asks for unsafe.
+        const sessionId = message.payload?.sessionId;
+        if (!isValidIdleSessionId(sessionId)) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The draft session is invalid.');
+        const result = await discardDraftSession(sessionId);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
       case 'sessions.delete': {

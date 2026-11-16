@@ -103,9 +103,48 @@ describe('Pi runtime route', () => {
     })).toMatchObject({ name: 'session.deleted', payload: {} });
   });
 
+  it('passes a draft session\'s mark through and drops any other value', () => {
+    const base = {
+      protocolVersion: 1,
+      kind: 'event',
+      event: 'session.deleted',
+      sequence: 10,
+      payload: { sessionId: 'pi-draft', directory: '/workspace' },
+    };
+    expect(projectEventFrame({ ...base, draft: true })).toMatchObject({ name: 'session.deleted', draft: true });
+    expect(projectEventFrame({ ...base, draft: 'yes' })).not.toHaveProperty('draft');
+    expect(projectEventFrame(base)).not.toHaveProperty('draft');
+  });
+
   afterEach(async () => {
     await close(server);
     server = undefined;
+  });
+
+  it('discards a draft session through its own route', async () => {
+    const calls = [];
+    const runtime = {
+      health: async () => ({ state: 'ready', protocolVersion: 1, capabilities: [] }),
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return { discarded: payload.sessionId === 'pi-draft', private: 'never-expose-this' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) } });
+    server = await listen(app);
+    const base = `http://127.0.0.1:${server.address().port}/api/pi/sessions`;
+
+    const discarded = await fetch(`${base}/pi-draft/discard-draft?directory=%2Fworkspace`, { method: 'POST' });
+    expect(discarded.status).toBe(200);
+    await expect(discarded.json()).resolves.toEqual({ discarded: true });
+    const kept = await fetch(`${base}/pi-session/discard-draft`, { method: 'POST' });
+    await expect(kept.json()).resolves.toEqual({ discarded: false });
+    expect(calls).toEqual([
+      { command: 'sessions.discardDraft', payload: { sessionId: 'pi-draft', directory: '/workspace' } },
+      { command: 'sessions.discardDraft', payload: { sessionId: 'pi-session' } },
+    ]);
   });
 
   it('returns only public daemon health fields and marks an unavailable daemon as a service failure', async () => {

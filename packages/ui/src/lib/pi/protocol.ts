@@ -190,6 +190,17 @@ export interface PiSessionCreateInput {
   thinking?: PiThinkingLevel;
   /** Non-Pi session engine id (`'pi'` forces the built-in runtime). */
   engine?: string;
+  /**
+   * Start a draft session: a runtime for a new-session draft, before anything
+   * is sent, so its extensions can declare composer controls. It is not
+   * listed and its events carry `draft: true`. No title or parent.
+   */
+  draft?: boolean;
+  /**
+   * Adopt this draft session as the new session, keeping what its controls
+   * did. When the draft is gone the daemon creates a session as usual.
+   */
+  draftSessionId?: PiSessionId;
 }
 
 /** A registered non-Pi session engine and the commands it implements. */
@@ -937,6 +948,9 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
    *  different from the client's established epoch means the daemon
    *  restarted: only a snapshot may establish the new baseline. */
   streamEpoch?: string;
+  /** Set on a draft session's events (see `PiSessionCreateInput.draft`):
+   *  only the drafting client uses them; nothing is listed for them. */
+  draft?: true;
 }
 
 export type PiSessionSnapshotEvent = PiEventEnvelope<

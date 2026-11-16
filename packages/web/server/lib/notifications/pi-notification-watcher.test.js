@@ -29,6 +29,16 @@ describe('Pi notification tracker', () => {
     })]);
   });
 
+  it('ignores a draft session, whose only work is its extensions\' control commands', () => {
+    const notifications = [];
+    const tracker = createPiNotificationTracker({ emit: (payload) => notifications.push(payload) });
+
+    tracker.accept({ ...event('session.lifecycle', 1, { state: 'busy' }), draft: true });
+    tracker.accept({ ...event('session.lifecycle', 2, { state: 'idle' }), draft: true });
+
+    expect(notifications).toEqual([]);
+  });
+
   it('collapses message and lifecycle error boundaries into one notification', () => {
     const notifications = [];
     const tracker = createPiNotificationTracker({ emit: (payload) => notifications.push(payload) });

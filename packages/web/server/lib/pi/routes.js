@@ -803,7 +803,13 @@ export const projectEventFrame = (frame) => {
   const streamEpoch = typeof frame.streamEpoch === 'string' && frame.streamEpoch.length > 0 && frame.streamEpoch.length <= 128
     ? frame.streamEpoch
     : undefined;
-  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory, ...(streamEpoch ? { streamEpoch } : {}) };
+  // `draft` marks a draft session's events (a runtime warmed for a
+  // new-session draft): clients keep them out of the session list.
+  const common = {
+    protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory,
+    ...(streamEpoch ? { streamEpoch } : {}),
+    ...(frame.draft === true ? { draft: true } : {}),
+  };
   switch (frame.event) {
     case 'session.input': {
       const pending = projectPendingInputSummary(frame.payload.pending);
@@ -2107,6 +2113,14 @@ export const registerPiRuntimeRoutes = (app, {
     } catch (error) {
       writeDaemonError(res, error);
     }
+  });
+
+  // Stop a draft session's runtime when its draft closes. Only a draft can be
+  // discarded; any other session answers `{ discarded: false }` untouched.
+  app.post('/api/pi/sessions/:sessionId/discard-draft', async (req, res) => {
+    const result = await requestSessionOperation(req, res, getPiSessionDaemonRuntime, 'sessions.discardDraft');
+    if (result === undefined) return;
+    res.json({ discarded: result?.discarded === true });
   });
 
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
