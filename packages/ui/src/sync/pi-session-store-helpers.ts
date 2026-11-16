@@ -252,6 +252,7 @@ export const mergeHydratedSession = (
     ...(preserveExistingExtensionState
       ? {
           extensionStatuses: existing.extensionStatuses,
+          extensionControls: existing.extensionControls,
           extensionWidgets: existing.extensionWidgets,
           extensionDialogs: existing.extensionDialogs,
           extensionPanels: existing.extensionPanels,

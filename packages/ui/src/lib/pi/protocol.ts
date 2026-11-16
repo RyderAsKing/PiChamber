@@ -207,6 +207,7 @@ export interface PiEngineListResponse {
 export interface PiSessionDetailResponse extends Pick<
   PiSessionSnapshot,
   | 'extensionStatuses'
+  | 'extensionControls'
   | 'extensionWidgets'
   | 'extensionDialogs'
   | 'extensionPanels'
@@ -909,6 +910,7 @@ export type PiEventName =
   | 'extension.editor'
   | 'extension.title'
   | 'extension.status'
+  | 'extension.control'
   | 'extension.widget'
   | 'extension.dialog'
   | 'extension.dialog.dismiss'
@@ -1264,6 +1266,35 @@ export type PiExtensionStatusEvent = PiEventEnvelope<
   }
 >;
 
+/**
+ * A composer control a Pi extension declared by emitting `pichamber:composer`
+ * on `pi.events`. Each names the extension's own slash commands; the daemon
+ * runs one for a click (`piClient.runExtensionControl`) and the extension
+ * reports its new value with a new declaration.
+ */
+interface PiComposerControlBase {
+  id: string;
+  label: string;
+  description?: string;
+  /** A sprite icon name; unknown names draw no icon. */
+  icon?: string;
+}
+export interface PiComposerControlOption {
+  value: string;
+  label: string;
+  command: string;
+}
+export type PiComposerControl =
+  | (PiComposerControlBase & { kind: 'toggle'; value: boolean; command: string })
+  | (PiComposerControlBase & { kind: 'cycle'; options: PiComposerControlOption[]; value?: string })
+  | (PiComposerControlBase & { kind: 'action'; command: string });
+
+/** A declared or changed control, or `removed` when it is gone. */
+export type PiExtensionControlEvent = PiEventEnvelope<
+  'extension.control',
+  { control: PiComposerControl; id?: undefined; removed?: undefined } | { id: string; removed: true; control?: undefined }
+>;
+
 /** Widget lines keyed like `ctx.ui.setWidget(key, lines)`; no `lines` clears. */
 export type PiExtensionWidgetEvent = PiEventEnvelope<
   'extension.widget',
@@ -1613,6 +1644,7 @@ export type PiSessionEvent =
   | PiExtensionEditorEvent
   | PiExtensionTitleEvent
   | PiExtensionStatusEvent
+  | PiExtensionControlEvent
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
   | PiExtensionDialogDismissEvent
@@ -1662,6 +1694,7 @@ export const PI_EVENT_KINDS = [
   'extension.editor',
   'extension.title',
   'extension.status',
+  'extension.control',
   'extension.widget',
   'extension.dialog',
   'extension.dialog.dismiss',

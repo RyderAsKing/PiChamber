@@ -17,7 +17,7 @@
  * The shapes are consumed directly by the Pi bootstrap and event reducers.
  */
 
-import type { PiToolRender } from './protocol';
+import type { PiComposerControl, PiToolRender } from './protocol';
 
 /**
  * Stable Pi session identity. Pi persists a unique `sessionId` per agent
@@ -314,6 +314,8 @@ export interface PiSessionSnapshot {
   lifecycle: PiSessionLifecycleState;
   /** Live extension status texts at snapshot time (for reconnect). */
   extensionStatuses?: Array<{ key: string; text: string }>;
+  /** Composer controls extensions declared, at snapshot time. */
+  extensionControls?: PiComposerControl[];
   /** Live extension widgets at snapshot time. */
   extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
   /** Pending blocking extension dialogs at snapshot time. */

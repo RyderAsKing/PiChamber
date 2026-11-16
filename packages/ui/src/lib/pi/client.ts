@@ -1253,6 +1253,24 @@ export class PiService {
   }
 
   /**
+   * Click on a composer control an extension declared: ask for `value` (a
+   * toggle's new boolean, a cycle option's value, nothing for an action).
+   * The daemon runs the extension's own command for it; `ran` is false when
+   * the control is gone or already has that value. The new value arrives as
+   * an `extension.control` event, never in this answer.
+   */
+  async runExtensionControl(
+    input: { sessionId: string; id: string; value?: string | boolean; clientId?: string },
+    scope?: PiClientScope,
+  ): Promise<{ ran: boolean }> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<typeof input, { ran?: unknown }>('/api/pi/extensions/control', {
+      method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return { ran: result?.ran === true };
+  }
+
+  /**
    * Sends one `ctx.ui.custom()` request: keys (`input`), this client's
    * viewport (`viewport`, `claim` makes it drive the size), the host Close
    * button (`close`), or a full-frame refresh after a missed patch

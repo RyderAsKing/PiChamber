@@ -6,6 +6,7 @@ import {
   validateExtensionFormValues,
 } from '../extension-protocol.js';
 import { handleBrowserArguments, isHttpUrl } from '../../open-url/browser-handler.mjs';
+import { createComposerControls } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 
@@ -85,6 +86,10 @@ export const createExtensionBridge = ({
   // into public stream events; blocking dialogs are resolved by the
   // `extensions.respond` daemon command.
   const pendingExtensionDialogs = new Map();
+  // Composer controls extensions declare on `pi.events` (extension-controls.js).
+  const composerControls = createComposerControls({
+    publish: (sessionId, payload) => publishForSession('extension.control', payload, sessionId),
+  });
 
   const cancelPendingExtensionDialogs = (sessionId, reason = 'aborted') => {
     for (const pending of pendingExtensionDialogs.values()) {
@@ -267,6 +272,7 @@ export const createExtensionBridge = ({
     extensionWorkingBySession.delete(sessionId);
     extensionDraftBySession.delete(sessionId);
     extensionDraftTrackedSessions.delete(sessionId);
+    composerControls.clear(sessionId);
     cancelPendingExtensionDialogs(sessionId, 'session-closed');
   };
 
@@ -286,6 +292,7 @@ export const createExtensionBridge = ({
       ...extensionWorkingBySession.keys(),
       ...extensionDraftBySession.keys(),
       ...extensionDraftTrackedSessions.keys(),
+      ...composerControls.sessionIds(),
     ]);
     for (const id of sessionIds) clearOneExtensionState(id);
     cancelPendingExtensionDialogs(undefined, 'daemon-stopped');
@@ -898,8 +905,10 @@ export const createExtensionBridge = ({
     const working = extensionWorkingBySession.get(sessionId);
     const draftTracked = extensionDraftTrackedSessions.has(sessionId);
     const surfaces = customHost?.snapshot(sessionId);
+    const controls = composerControls.snapshot(sessionId);
     return {
       ...(statuses?.size ? { statuses: [...statuses.entries()].map(([key, text]) => ({ key, text })) } : {}),
+      ...(controls ? { controls } : {}),
       ...(widgets?.size ? { widgets: [...widgets.entries()].map(([key, widget]) => ({ key, ...widget })) } : {}),
       ...(dialogs.length ? { dialogs } : {}),
       ...(panels?.size ? { panels: [...panels.values()] } : {}),
@@ -923,5 +932,7 @@ export const createExtensionBridge = ({
     resetExtensionDraft,
     resolveExtensionDialog,
     updateExtensionDraft,
+    setComposerControl: composerControls.set,
+    resolveComposerControl: composerControls.resolve,
   };
 };

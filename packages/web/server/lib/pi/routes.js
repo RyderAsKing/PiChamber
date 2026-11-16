@@ -32,6 +32,7 @@ import { createPiSnippetsStore } from './snippets-store.js';
 import { isValidSendOperationId, isValidStreamEpoch } from './session-daemon/send-operation-registry.js';
 import { ENGINE_HANDLER_COMMANDS, ENGINE_UNSUPPORTED_OPERATION, isValidEngineId } from './session-daemon/session-engines.js';
 import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
+import { MAX_CONTROLS_PER_SESSION, parseComposerControl } from './session-daemon/extension-controls.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -78,7 +79,7 @@ const writeDaemonError = (res, error) => {
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
-        || code === ENGINE_UNSUPPORTED_OPERATION
+        || code === ENGINE_UNSUPPORTED_OPERATION || code === 'CONTROL_UNAVAILABLE'
         ? 409
         : code === 'OPERATION_EXPIRED'
           ? 410
@@ -728,7 +729,16 @@ const projectBashExecutions = (value) => (Array.isArray(value)
   ? value.slice(0, 8).map(projectBashExecution).filter(Boolean)
   : undefined);
 
+// Composer controls are checked again here with the daemon's own parser, so
+// the browser only ever sees the validated shape.
+const projectComposerControls = (value) => {
+  if (!Array.isArray(value)) return undefined;
+  // An empty list stays: it tells the browser the session has none.
+  return value.slice(0, MAX_CONTROLS_PER_SESSION).map(parseComposerControl).filter((control) => control && !control.remove);
+};
+
 function projectExtensionSnapshotState(snapshot) {
+  const extensionControls = projectComposerControls(snapshot.extensionControls);
   const extensionStatuses = Array.isArray(snapshot.extensionStatuses)
     ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
     : undefined;
@@ -769,6 +779,7 @@ function projectExtensionSnapshotState(snapshot) {
     : undefined;
   return {
     ...(extensionStatuses ? { extensionStatuses } : {}),
+    ...(extensionControls ? { extensionControls } : {}),
     ...(extensionWidgets ? { extensionWidgets } : {}),
     ...(extensionDialogs ? { extensionDialogs } : {}),
     ...(extensionPanels ? { extensionPanels } : {}),
@@ -1016,6 +1027,15 @@ export const projectEventFrame = (frame) => {
       if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;
       if (frame.payload.text !== undefined && typeof frame.payload.text !== 'string') return null;
       return { ...common, payload: { key: frame.payload.key.slice(0, 128), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text.slice(0, 1000) } : {}) } };
+    }
+    case 'extension.control': {
+      if (frame.payload.removed === true) {
+        if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 64) return null;
+        return { ...common, payload: { id: frame.payload.id, removed: true } };
+      }
+      const control = parseComposerControl(frame.payload.control);
+      if (!control || control.remove) return null;
+      return { ...common, payload: { control } };
     }
     case 'extension.widget': {
       if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;
@@ -2274,6 +2294,32 @@ export const registerPiRuntimeRoutes = (app, {
         return;
       }
       res.status(204).end();
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // A click on a composer control an extension declared. The daemon picks the
+  // command from its own copy of the control; the browser only names the
+  // control and the value it wants.
+  app.post('/api/pi/extensions/control', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.sessionId !== 'string' || body.sessionId.length === 0 || body.sessionId.length > 256
+      || typeof body.id !== 'string' || body.id.length === 0 || body.id.length > 64
+      || (body.value !== undefined && typeof body.value !== 'boolean' && (typeof body.value !== 'string' || body.value.length > 64))
+      || (body.clientId !== undefined && (typeof body.clientId !== 'string' || body.clientId.length > 128))) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.control', {
+        sessionId: body.sessionId,
+        id: body.id,
+        ...(body.value !== undefined ? { value: body.value } : {}),
+        ...(typeof body.clientId === 'string' && body.clientId.length > 0 ? { clientId: body.clientId } : {}),
+      });
+      res.json({ ran: result?.ran === true });
     } catch (error) {
       writeDaemonError(res, error);
     }

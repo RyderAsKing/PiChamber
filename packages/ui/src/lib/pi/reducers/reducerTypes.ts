@@ -1,6 +1,7 @@
 import { CowMap } from '../cow-map';
 import type {
   PiBashExecution,
+  PiComposerControl,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionPanelPayload,
@@ -149,6 +150,8 @@ export interface PiReducerSessionState {
   queue: { steering: number; followUp: number };
   /** Live extension status texts (`ctx.ui.setStatus`). Key → text. */
   extensionStatuses: Map<string, string>;
+  /** Composer controls extensions declared (`pichamber:composer`). Id → control; absent means none. */
+  extensionControls?: Map<string, PiComposerControl>;
   /** Live extension widgets (`ctx.ui.setWidget`). Key → lines + placement. */
   extensionWidgets: Map<string, { lines: string[]; placement: 'aboveEditor' | 'belowEditor' }>;
   /** Blocking extension dialogs awaiting a user answer, in arrival order. */

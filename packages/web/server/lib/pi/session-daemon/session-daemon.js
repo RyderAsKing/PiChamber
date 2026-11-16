@@ -32,6 +32,7 @@ import {
   isDisplayedExtensionEntryType,
   isIddExtensionEntry,
 } from './extension-bridge.js';
+import { commandName, createComposerControlsExtension, isComposerControlsExtensionPath } from './extension-controls.js';
 import { resolveExtensionName } from './extension-name.js';
 import { createExtensionTheme } from './extension-theme.js';
 import {
@@ -156,10 +157,12 @@ export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), se
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
       resourceLoaderOptions: {
-        // PiChamber plugins load after Pi's built-ins (plugin-host.js).
+        // PiChamber plugins load after Pi's built-ins (plugin-host.js); the
+        // composer-controls listener loads last (extension-controls.js).
         extensionFactories: [
           ...getBuiltinExtensionFactories(),
           ...(hooks?.pluginExtensionFactories?.() ?? []),
+          ...(hooks?.internalExtensionFactories?.() ?? []),
         ],
       },
     });
@@ -611,7 +614,7 @@ export function createSessionDaemon({
     cwd: targetCwd,
     agentDir,
     resourceLoaderOptions: {
-      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories()],
+      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories(), ...internalExtensionFactories()],
     },
   });
 
@@ -746,6 +749,13 @@ export function createSessionDaemon({
     customHost,
     resolveExtensionMode: resolveBindingExtensionMode,
   });
+  // Factories PiChamber itself adds to every runtime, after plugins: the
+  // listener for composer controls extensions declare on `pi.events`.
+  const composerControlsExtension = createComposerControlsExtension(
+    (sessionId, data) => extensionBridge.setComposerControl(sessionId, data),
+  );
+  const internalExtensionFactories = () => [composerControlsExtension];
+
   // `custom()` commands from browsers. Unknown or closed surfaces answer
   // `accepted: false` instead of throwing, like stale dialog responses, so a
   // late key from another device never tears down the daemon socket.
@@ -823,6 +833,7 @@ export function createSessionDaemon({
   const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
     pluginExtensionFactories: pluginHost.extensionFactories,
+    internalExtensionFactories,
   });
 
   const getSessionState = () => runtime
@@ -923,6 +934,9 @@ export function createSessionDaemon({
         serverNow: Date.now(),
         lastSequence: snapshotSequence,
         ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+        // Always sent: an empty list is authoritative (no controls), unlike a
+        // missing field.
+        extensionControls: extensionSnapshot.controls ?? [],
         ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
         ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
         ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
@@ -1473,7 +1487,8 @@ export function createSessionDaemon({
       case 'sessions.bash':
       case 'sessions.abortBash':
       case 'sessions.delete':
-      case 'sessions.rename': {
+      case 'sessions.rename':
+      case 'extensions.control': {
         const candidate = message?.payload?.sessionId;
         return isValidIdleSessionId(candidate) ? candidate : undefined;
       }
@@ -2221,6 +2236,9 @@ export function createSessionDaemon({
       ...(activeRunStartedAt.has(session.sessionId) ? { runStartedAt: activeRunStartedAt.get(session.sessionId) } : {}),
       serverNow: Date.now(),
       ...(extensionSnapshot.statuses ? { extensionStatuses: extensionSnapshot.statuses } : {}),
+      // Always sent: an empty list is authoritative (no controls), unlike a
+      // missing field.
+      extensionControls: extensionSnapshot.controls ?? [],
       ...(extensionSnapshot.widgets ? { extensionWidgets: extensionSnapshot.widgets } : {}),
       ...(extensionSnapshot.dialogs ? { extensionDialogs: extensionSnapshot.dialogs } : {}),
       ...(extensionSnapshot.panels ? { extensionPanels: extensionSnapshot.panels } : {}),
@@ -3572,12 +3590,18 @@ export function createSessionDaemon({
   // idle disposal, which reports the session as deleted when its assigned JSONL
   // is positively absent (see disposeIdleSessionRuntime).
 
-  const runSessionInput = async (payload, delivery) => {
+  // `keepDraft`: a composer control runs a command without sending the
+  // composer, so the extension's view of the draft stays as it is.
+  // `requireExtensionCommand`: the text must be a command the session's
+  // extensions register once the runtime is settled, or nothing runs. A
+  // composer control sets it, so its `/command` never reaches the model as a
+  // prompt when a queued recreation drops the extension behind it.
+  const runSessionInput = async (payload, delivery, { keepDraft = false, requireExtensionCommand = false } = {}) => {
     if (!payload || typeof payload !== 'object' || typeof payload.sessionId !== 'string'
       || typeof payload.text !== 'string' || payload.text.length === 0 || Buffer.byteLength(payload.text) > 64 * 1024) {
       throw new SessionDaemonProtocolError('INVALID_PROMPT', 'The session prompt is invalid.');
     }
-    resetExtensionDraft(payload.sessionId);
+    if (!keepDraft) resetExtensionDraft(payload.sessionId);
     if (payload.thinking !== undefined) validateThinking(payload.thinking);
     // Idle protection is owned by the request-dispatch guard: it holds the
     // session refcount across activation/acceptance, agent_start clears once
@@ -3643,6 +3667,9 @@ export function createSessionDaemon({
       && Array.isArray(registeredExtensionCommands)
       && registeredExtensionCommands.some((command) => command?.invocationName === slashInvocation),
     );
+    if (requireExtensionCommand && !isExtensionCommand) {
+      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+    }
     // Like the Pi CLI, never persist an auto-title. Lists derive the display
     // title from the first user prompt; publish that derived title live (not
     // persisted) so connected surfaces converge without waiting for a list.
@@ -3857,6 +3884,69 @@ export function createSessionDaemon({
       void flushPendingRuntimeRecreation().catch(() => {});
       throw error;
     }
+  };
+
+  /**
+   * A click on a composer control: run the extension command the control
+   * names for the value the client asks for, as if it had been typed. Only a
+   * command the session's extensions registered runs; anything else would
+   * reach the model as a prompt. A stale click (the control is gone, or
+   * already has that value) runs nothing and answers `ran: false`.
+   */
+  // Composer-control commands in flight per session, so adopting a draft
+  // can wait for them (`adoptDraftSession`).
+  const controlRunsBySession = new Map();
+  const CONTROL_RUN_ADOPT_WAIT_MS = 5000;
+  const waitForControlRuns = async (sessionId) => {
+    const runs = controlRunsBySession.get(sessionId);
+    if (!runs || runs.size === 0) return;
+    let timer;
+    await Promise.race([
+      Promise.allSettled([...runs]),
+      new Promise((resolveWait) => { timer = setTimeout(resolveWait, CONTROL_RUN_ADOPT_WAIT_MS); }),
+    ]);
+    clearTimeout(timer);
+  };
+
+  const runComposerControl = async (payload) => {
+    const sessionId = payload?.sessionId;
+    const id = payload?.id;
+    if (typeof sessionId !== 'string' || sessionId.length === 0 || sessionId.length > 256
+      || typeof id !== 'string' || id.length === 0 || id.length > 64) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The control request is invalid.');
+    }
+    const resolved = extensionBridge.resolveComposerControl(sessionId, id, payload.value);
+    if (resolved.error === 'CONTROL_NOT_FOUND') return { ran: false };
+    if (resolved.error) throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The control value is invalid.');
+    if (resolved.command === null) return { ran: false };
+    const target = runtimeRegistry?.findBySessionId(sessionId)
+      || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
+    const registered = target?.session?.extensionRunner?.getRegisteredCommands?.();
+    const name = commandName(resolved.command);
+    if (!Array.isArray(registered) || !registered.some((command) => command?.invocationName === name)) {
+      throw new SessionDaemonProtocolError('CONTROL_UNAVAILABLE', 'The command for this control is not available.');
+    }
+    const clientId = typeof payload.clientId === 'string' && payload.clientId.length > 0 && payload.clientId.length <= 128
+      ? payload.clientId
+      : undefined;
+    // Pi runs extension commands at once, also during a turn; `steer` only
+    // lets the daemon accept the input while the session streams.
+    const run = runSessionInput({
+      sessionId,
+      text: `/${resolved.command}`,
+      directory: target.cwd,
+      ...(clientId ? { clientId } : {}),
+    }, target.session.isStreaming ? 'steer' : undefined, { keepDraft: true, requireExtensionCommand: true });
+    const runs = controlRunsBySession.get(sessionId) ?? new Set();
+    controlRunsBySession.set(sessionId, runs);
+    runs.add(run);
+    try {
+      await run;
+    } finally {
+      runs.delete(run);
+      if (runs.size === 0 && controlRunsBySession.get(sessionId) === runs) controlRunsBySession.delete(sessionId);
+    }
+    return { ran: true };
   };
 
   const treeForSession = async (sessionId, requestedDirectory) => {
@@ -4430,7 +4520,7 @@ export function createSessionDaemon({
               'sessions.setThinking', 'sessions.compact', 'sessions.bash', 'sessions.abortBash', 'engines.list', 'providers.list', 'providers.refresh', 'providers.config.get', 'providers.models.set', 'providers.models.add', 'providers.status', 'providers.login',
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
-              'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
+              'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
               'openUrl.publish', 'archive.publish', 'plugins.configure',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
@@ -4639,6 +4729,11 @@ export function createSessionDaemon({
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: resolution });
         return;
       }
+      case 'extensions.control': {
+        const result = await runComposerControl(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
       case 'extensions.custom.input':
       case 'extensions.custom.viewport':
       case 'extensions.custom.close':
@@ -4692,6 +4787,8 @@ export function createSessionDaemon({
             directory: activeRuntime.cwd,
             extensions: (Array.isArray(extensionPaths) ? extensionPaths : [])
               .filter((extensionPath) => typeof extensionPath === 'string' && extensionPath.length > 0)
+              // PiChamber's own listener is part of the app, not an extension.
+              .filter((extensionPath) => !isComposerControlsExtensionPath(extensionPath))
               // Opaque id only: server filesystem paths must never reach the
               // browser (see DOCUMENTATION.md route invariants).
               .map((extensionPath) => ({

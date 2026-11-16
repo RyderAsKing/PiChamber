@@ -76,6 +76,75 @@ pi.on('session_start', async (_event, ctx) => {
 Keep the check local to your extension. It has no PiChamber runtime dependency,
 so the same extension continues to work in the plain pi CLI.
 
+## Composer controls
+
+An extension can put a switch, a mode picker, or a button in the composer
+footer, beside the model and thinking controls. It emits `pichamber:composer`
+on Pi's shared event bus. The pi CLI has no listener, so the event does
+nothing there and the extension's commands keep working as before.
+
+Each control names the extension's own slash commands. A click in PiChamber
+runs one of them as if you had typed it, and the extension reports its new
+value by emitting again. The extension owns the value: PiChamber only shows
+what was last reported.
+
+```ts
+// Economy → Balance → Premium, one click each.
+const publishMode = (active: string | undefined) => {
+  pi.events.emit('pichamber:composer', {
+    id: 'mode',
+    kind: 'cycle',
+    label: 'Mode',
+    description: 'Model and thinking presets',
+    value: active,
+    options: [
+      { value: 'economy', label: 'Economy', command: 'economy' },
+      { value: 'balance', label: 'Balance', command: 'balance' },
+      { value: 'premium', label: 'Premium', command: 'premium' },
+    ],
+  });
+};
+// Call it at session_start and whenever the mode changes, including from
+// model_select and thinking_level_select when the model changes some other way.
+
+// A toggle: `command` flips it, `value` says whether it is on.
+pi.events.emit('pichamber:composer', { id: 'plan', kind: 'toggle', label: 'Plan', value: planOn, command: 'plan' });
+
+// A button that runs a command.
+pi.events.emit('pichamber:composer', { id: 'review', kind: 'action', label: 'Review', command: 'review --staged' });
+
+// Take a control away.
+pi.events.emit('pichamber:composer', { id: 'plan', remove: true });
+```
+
+- `id`: lowercase letters, digits and dashes, up to 40 characters. Emitting
+  the same id again replaces the control.
+- `kind`: `toggle`, `cycle` (2 to 12 `options`), or `action`.
+- `command`: one of your registered commands, with or without the `/`, and
+  optional arguments. Unregistered commands are refused when clicked.
+- `label` (up to 40 characters) and `description` (up to 200) are optional
+  text for the pill, its tooltip, and the phone sheet. `icon` is drawn only
+  when PiChamber knows the name.
+- A session shows its first 16 controls. Controls clear when the session
+  reloads, so emit them again at `session_start`.
+
+On desktop each control is a pill: a toggle lights up while on, a cycle
+shows its current option and moves to the next on click, an action runs its
+command. On phones they are rows in the composer controls sheet, where a
+cycle shows every option to pick from. A click while the agent works runs
+the command at once, as a typed command would. Clicks never add anything to
+the transcript or the session title.
+
+A new session has its controls before you send anything. When you open one,
+PiChamber starts a session for it in the background, so your extensions load
+and declare their controls as usual. Until that is ready, the composer shows
+the controls the folder had last time. A click made before then waits and
+runs once the session is ready. Your first message goes to that same
+session, so a mode you picked is still picked. If you close the draft or
+pick another folder, the background session ends. Nothing is written to disk
+until you send, and the session list never shows it. Your extension sees an
+ordinary `session_start`, so it needs no changes.
+
 ## The PiChamber GUI protocol
 
 Any extension can emit a UI card by appending a custom entry or sending a custom message whose type is `pichamber.ui`:
