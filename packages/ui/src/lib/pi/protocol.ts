@@ -604,13 +604,21 @@ export type PiSandboxMode = 'off' | 'nono';
 /** A project's own choice: `default` follows the server's sandbox default. */
 export type PiProjectSandboxChoice = 'default' | PiSandboxMode;
 
+/** Something a sandbox cannot enforce on the server machine.
+ *  `UNIX_SOCKETS`: Unix sockets are not mediated (nono on WSL2).
+ *  `PROXY_PORT`: the proxy's port is open to every host (nono on WSL2). */
+export type PiSandboxLimit = string;
+
 /** The server's sandbox default (`GET`/`PUT /api/pi/sandbox/defaults`):
  *  whether projects that follow it are sandboxed, and hosts every sandboxed
  *  project may reach on top of its own. `invalid` means the stored default
- *  is unreadable, so projects that follow it fail closed. */
+ *  is unreadable, so projects that follow it fail closed. `acceptedLimits`
+ *  are the host limits the owner accepted. */
 export interface PiSandboxDefaults {
   mode: PiSandboxMode;
   allowHosts: string[];
+  /** Host limits the owner accepted; absent from older servers. */
+  acceptedLimits?: PiSandboxLimit[];
   invalid?: boolean;
 }
 
@@ -619,16 +627,21 @@ export interface PiSandboxDefaults {
 export interface PiSandboxDefaultsUpdate {
   mode?: PiSandboxMode;
   allowHosts?: string[];
+  acceptedLimits?: PiSandboxLimit[];
 }
 
 /** A sandbox launcher on this server. Unavailable launchers carry a reason
  *  code (`NOT_INSTALLED`, `NO_LANDLOCK`, `TOO_OLD`, `VERSION_UNKNOWN`,
- *  `SETUP_CHECK_FAILED`, `UNSUPPORTED_PLATFORM`). */
+ *  `SETUP_CHECK_FAILED`, `UNSUPPORTED_PLATFORM`, `WSL_KERNEL_TOO_OLD`). An
+ *  available one may name `limits` it cannot enforce on this host; sandboxed
+ *  projects run only once the owner accepted all of them (`limitsAccepted`). */
 export interface PiSandboxLauncherStatus {
   id: string;
   available: boolean;
   version?: string;
   reason?: string;
+  limits?: PiSandboxLimit[];
+  limitsAccepted?: boolean;
 }
 
 /** `GET /api/pi/sandbox` and `POST /api/pi/sandbox/recheck`. */

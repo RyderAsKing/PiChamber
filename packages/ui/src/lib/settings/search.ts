@@ -468,8 +468,8 @@ const SETTINGS_SEARCH_ITEMS: readonly SettingsSearchItem[] = [
     id: 'projects.sandboxing',
     page: 'projects',
     title: "Sandboxing",
-    description: "Whether nono can run on the server machine.",
-    keywords: ['sandbox', 'nono', 'landlock', 'check again', 'isolation'],
+    description: "Whether nono can run on the server machine, and what it cannot enforce there.",
+    keywords: ['sandbox', 'nono', 'landlock', 'seatbelt', 'macos', 'wsl', 'wsl2', 'check again', 'isolation'],
   },
   {
     id: 'projects.sandbox-default',

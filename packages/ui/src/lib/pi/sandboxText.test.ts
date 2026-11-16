@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { PiRequestError } from './client';
-import { describeSandboxSendError, sandboxReasonText, sessionSandboxLabel } from './sandboxText';
+import { describeSandboxSendError, sandboxLimitText, sandboxReasonText, sessionSandboxLabel } from './sandboxText';
 
 describe('sandboxReasonText', () => {
   test('explains each launcher reason code', () => {
@@ -8,12 +8,25 @@ describe('sandboxReasonText', () => {
     expect(sandboxReasonText('NO_LANDLOCK')).toContain('Landlock');
     expect(sandboxReasonText('UNSUPPORTED_PLATFORM')).toContain('Linux');
     expect(sandboxReasonText('PROVIDER_HOSTS_UNAVAILABLE')).toContain('model providers');
+    expect(sandboxReasonText('UNSUPPORTED_PLATFORM')).toContain('macOS');
+    expect(sandboxReasonText('WSL_KERNEL_TOO_OLD')).toContain('wsl --update');
+    expect(sandboxReasonText('SANDBOX_LIMITS_NOT_ACCEPTED')).toContain('Settings, Projects, Sandboxing');
   });
 
   test('falls back to a sentence for unknown or missing codes', () => {
     expect(sandboxReasonText('SOMETHING_NEW')).toBe('The sandbox is unavailable on the server machine.');
     expect(sandboxReasonText(undefined)).toBe('The sandbox is unavailable on the server machine.');
     expect(sandboxReasonText('toString')).toBe('The sandbox is unavailable on the server machine.');
+  });
+});
+
+describe('sandboxLimitText', () => {
+  test('names and explains each host limit, and falls back for unknown codes', () => {
+    expect(sandboxLimitText('UNIX_SOCKETS').title).toBe('Unix sockets are not blocked');
+    expect(sandboxLimitText('PROXY_PORT').text).toContain('any server');
+    const fallback = { title: 'Part of the policy is not enforced', text: 'The sandbox on this server cannot enforce part of its policy.' };
+    expect(sandboxLimitText('SOMETHING_NEW')).toEqual(fallback);
+    expect(sandboxLimitText('toString')).toEqual(fallback);
   });
 });
 
