@@ -122,7 +122,7 @@ a dark logo on a transparent background), a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
 `HOME` whose Pi agent directory holds one demo session (plus a few short
 sessions across the folders, with backdated times and shelf state, for the
-sidebar views) and whose `code/`
+sidebar views, and three global snippets in the data directory) and whose `code/`
 folder gives the Add folder dialog something to list. Start the
 dev server with `HOME=<dir>/home PICHAMBER_DATA_DIR=<dir>/data` so it never
 touches real `~/.pi` or `~/.config/pichamber` state.
@@ -174,6 +174,8 @@ first step, desktop only); `add-folder-browse`, `add-folder-clone`, and
 `add-folder-new` (its three steps, each pointed at the seed's `~/code`,
 desktop only); `settings-appearance` (a dense settings page, desktop only);
 `settings-projects` (project cards with their icons, desktop only);
+`settings-snippets` (the seeded snippet cards and the header's search,
+copy file path, and refresh actions, desktop only);
 `settings-archive` (Sessions settings at Archive and delete, desktop only);
 `settings-sidebar-view` (Appearance at Sidebar view with Legacy views open,
 desktop only); `command-palette` (opened with Ctrl+P, desktop only);

@@ -604,6 +604,12 @@ const PAGES = {
     readyText: ['Appearance'],
     viewports: ['desktop'],
   },
+  'settings-snippets': {
+    // The snippet cards, and the header's search, copy-path, and refresh actions.
+    path: '/?settings=snippets',
+    readyText: ['ask-questions'],
+    viewports: ['desktop'],
+  },
   'settings-projects': {
     // Project rows with icons, paths, and actions.
     path: '/?settings=projects',
@@ -1227,6 +1233,15 @@ const writeShelfSessions = async (home, data, folderPath) => {
   await mkdir(join(data, 'pi'), { recursive: true });
   await writeFile(join(data, 'pi', 'session-shelf.json'), JSON.stringify(shelf));
   await writeFile(join(data, 'pi', 'session-archive.json'), JSON.stringify(archive));
+  // A few global snippets for the Snippets settings page.
+  const snippets = [
+    ['ask-questions', 'Ask questions to reach a shared understanding.', 'Before you start, ask me the questions you need answered.'],
+    ['delegate-exploration', 'Keep context lean. Subagents explore, you verify critical parts.', 'Delegate broad exploration to subagents and verify the critical parts yourself.'],
+    ['review-diff', 'Review the current diff before committing.', 'Review the staged diff for bugs, missing tests, and unclear names.'],
+  ].map(([name, description, content], index) => ({
+    id: `demo-snippet-${index + 1}`, name, description, content, aliases: [], scope: 'global', createdAt: now, updatedAt: now,
+  }));
+  await writeFile(join(data, 'pi', 'snippets.json'), JSON.stringify({ version: 1, snippets }));
 };
 
 // A flat square favicon with one white glyph.
