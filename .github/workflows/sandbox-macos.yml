@@ -65,3 +65,12 @@ jobs:
           # Fail instead of skipping when nono cannot sandbox on the runner.
           PICHAMBER_REQUIRE_NONO_E2E: '1'
         run: bunx vitest run server/lib/pi/session-daemon/supervisor-sandbox-nono.e2e.test.js
+
+      - name: Show the sandbox daemon logs
+        if: failure()
+        run: |
+          find "${TMPDIR:-/tmp}" /tmp -path '*pichamber-nono-e2e-*/logs/*.log' 2>/dev/null | while read -r log; do
+            echo "::group::$log"
+            tail -n 80 "$log"
+            echo "::endgroup::"
+          done
