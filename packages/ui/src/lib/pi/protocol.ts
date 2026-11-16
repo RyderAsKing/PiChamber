@@ -1382,6 +1382,98 @@ export interface PiExtensionListResponse {
     scope?: 'user' | 'project' | 'temporary';
   }>;
 }
+// ---------------------------------------------------------------------------
+// PiChamber plugins (`/api/pi/plugins`)
+//
+// A plugin is a Pi package with a `pichamber` block. Its agent half loads only
+// while it is enabled; its UI half is compiled into the app (native plugins).
+// ---------------------------------------------------------------------------
+
+export type PiPluginStateValue = boolean | string;
+
+export interface PiPluginStateField {
+  type: 'boolean' | 'enum';
+  /** `global` applies everywhere; `project` is set per project directory. */
+  scope: 'global' | 'project';
+  default: PiPluginStateValue;
+  label: string;
+  description?: string;
+  options?: Array<{ value: string; label: string }>;
+}
+
+export interface PiPluginComposerToggle {
+  id: string;
+  /** Boolean state key the toggle flips. */
+  state: string;
+  label: string;
+  /** Sprite icon name; unknown names fall back to a neutral mark. */
+  icon?: string;
+  description?: string;
+}
+
+export interface PiPluginImpact {
+  tools: Array<{ name: string; exposure: string; tokens: number }>;
+  /** Events the agent half hooks that can change the prompt or the request. */
+  hooks: string[];
+  commands: string[];
+}
+
+export interface PiPluginView {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  version: string;
+  bundled: boolean;
+  enabled: boolean;
+  /** Values resolved for the requested directory: project over global over default. */
+  state: Record<string, PiPluginStateValue>;
+  stateSchema: Record<string, PiPluginStateField>;
+  contributes: {
+    composerToggles?: PiPluginComposerToggle[];
+    /** Order of state fields on the Settings page. */
+    settings?: string[];
+    /** Id of the native UI half compiled into the app. */
+    ui?: string;
+  };
+  /** Measured agent cost; `null` when the plugin has no agent half. */
+  impact: PiPluginImpact | null;
+  impactError?: string;
+}
+
+export interface PiPluginListResponse {
+  plugins: PiPluginView[];
+}
+
+/**
+ * One session's own plugin values, set from the composer: `{ [pluginId]:
+ * { [key]: value } }`, only for plugins that have any. Every other value
+ * follows the plugin's settings.
+ */
+export interface PiPluginSessionStateResponse {
+  sessionId: string;
+  overrides: Record<string, Record<string, PiPluginStateValue>>;
+}
+
+/** `value: null` clears the session's own value. */
+export interface PiPluginSessionStateInput {
+  key: string;
+  value: PiPluginStateValue | null;
+}
+
+export interface PiPluginSessionStateUpdate {
+  id: string;
+  sessionId: string;
+  overrides: Record<string, PiPluginStateValue>;
+}
+
+export interface PiPluginStateInput {
+  key: string;
+  value: PiPluginStateValue;
+  /** Required for `project`-scoped keys. */
+  directory?: string;
+}
+
 export type PiExtensionErrorEvent = PiEventEnvelope<
   'extension.error',
   {

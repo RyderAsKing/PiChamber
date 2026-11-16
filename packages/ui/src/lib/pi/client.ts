@@ -76,6 +76,12 @@ import {
   isValidSessionShelfResponse,
   type PiAbortInput,
   type PiExtensionListResponse,
+  type PiPluginListResponse,
+  type PiPluginSessionStateInput,
+  type PiPluginSessionStateResponse,
+  type PiPluginSessionStateUpdate,
+  type PiPluginStateInput,
+  type PiPluginView,
   type PiExtensionPalette,
   type PiTerminalColors,
   type PiExtensionDialogResponseInput,
@@ -1163,6 +1169,56 @@ export class PiService {
       method: 'DELETE',
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  // ----- Plugins ----------------------------------------------------------
+
+  /** Plugins with their state resolved for `directory` (global values when omitted). */
+  async listPlugins(directory?: string, scope?: PiClientScope): Promise<PiPluginListResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiPluginListResponse>('/api/pi/plugins', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Turn a plugin on or off. Its agent half follows at the next safe edge. */
+  async setPluginEnabled(id: string, enabled: boolean, scope?: PiClientScope): Promise<PiPluginView> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<{ enabled: boolean }, PiPluginView>(`/api/pi/plugins/${encodeURIComponent(id)}`, {
+      method: 'PUT', body: { enabled }, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Set one plugin state value; the reply is resolved for `input.directory`. */
+  async setPluginState(id: string, input: PiPluginStateInput, scope?: PiClientScope): Promise<PiPluginView> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiPluginStateInput, PiPluginView>(`/api/pi/plugins/${encodeURIComponent(id)}/state`, {
+      method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** A session's own plugin values (composer switches). */
+  async getPluginSessionState(sessionId: string, scope?: PiClientScope): Promise<PiPluginSessionStateResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiPluginSessionStateResponse>(`/api/pi/plugins/sessions/${encodeURIComponent(sessionId)}`, {
+      method: 'GET', ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /** Set or clear (`value: null`) one session's own plugin value. */
+  async setPluginSessionState(
+    id: string,
+    sessionId: string,
+    input: PiPluginSessionStateInput,
+    scope?: PiClientScope,
+  ): Promise<PiPluginSessionStateUpdate> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiPluginSessionStateInput, PiPluginSessionStateUpdate>(
+      `/api/pi/plugins/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'PUT', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
   }
 
   // ----- Extensions -------------------------------------------------------
