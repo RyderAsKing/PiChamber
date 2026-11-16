@@ -20,7 +20,7 @@ const row = (id: string, extra: Partial<LiveSessionRecord> = {}): LiveSessionRec
 
 const Probe: React.FC<{ id: string }> = ({ id }) => {
   const label = useSessionSandboxLabel(id);
-  return <span>{label ? `${label.short}|${label.long}` : 'none'}</span>;
+  return <span>{label ? `${label.icon}|${label.text}` : 'none'}</span>;
 };
 
 describe('useSessionSandboxLabel', () => {
@@ -35,9 +35,9 @@ describe('useSessionSandboxLabel', () => {
 
   test('reads each session row from the catalog', () => {
     expect(renderToStaticMarkup(<Probe id="plain" />)).toBe('<span>none</span>');
-    expect(renderToStaticMarkup(<Probe id="boxed" />)).toBe('<span>Sandboxed|Sandboxed</span>');
-    expect(renderToStaticMarkup(<Probe id="leaving" />)).toBe('<span>Switching|Leaves the sandbox after this turn</span>');
-    expect(renderToStaticMarkup(<Probe id="entering" />)).toBe('<span>Switching|Moves into the sandbox after this turn</span>');
+    expect(renderToStaticMarkup(<Probe id="boxed" />)).toBe('<span>lock|Sandboxed</span>');
+    expect(renderToStaticMarkup(<Probe id="leaving" />)).toBe('<span>lock-unlock|Leaves the sandbox after this turn</span>');
+    expect(renderToStaticMarkup(<Probe id="entering" />)).toBe('<span>lock-unlock|Moves into the sandbox after this turn</span>');
     expect(renderToStaticMarkup(<Probe id="unknown" />)).toBe('<span>none</span>');
   });
 });

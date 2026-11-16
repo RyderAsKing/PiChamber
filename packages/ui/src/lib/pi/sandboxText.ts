@@ -17,6 +17,7 @@ const REASON_TEXT: Record<string, string> = {
   SANDBOX_NOT_PROBED: 'Sandboxing has not been checked yet.',
   PROVIDER_HOSTS_UNAVAILABLE: 'PiChamber could not read which model providers the sandbox should reach.',
   INVALID_SANDBOX_SETTING: 'This project\'s sandbox setting could not be read. Save it again.',
+  SANDBOX_GRANT_REFUSED: 'This project cannot be sandboxed: its folder or one of its extra folders overlaps PiChamber\'s own data or Pi\'s settings folder.',
   SANDBOX_PROFILE_UNREADABLE: 'nono could not read PiChamber\'s sandbox profile.',
   SANDBOX_LAUNCH_FAILED: 'The sandbox failed to start.',
 };
@@ -35,26 +36,27 @@ interface SessionSandboxState {
 }
 
 export interface SessionSandboxLabel {
-  /** Compact text for dense rows. */
-  short: string;
-  /** Full sentence for headers, tooltips and screen readers. */
-  long: string;
+  /** A closed lock while the session runs sandboxed; an open lock while it
+   *  waits to change, the only time an unlocked state is shown. */
+  icon: 'lock' | 'lock-unlock';
+  /** Tooltip and screen-reader text. */
+  text: string;
 }
 
 /**
- * Label for one session's sandbox state, or null when it runs unsandboxed
+ * Mark for one session's sandbox state, or null when it runs unsandboxed
  * with nothing pending. A pending switch wins: the session still runs the
  * old way until its turn ends.
  */
 export const sessionSandboxLabel = (state: SessionSandboxState): SessionSandboxLabel | null => {
   if (state.pendingSwitch?.to === 'nono') {
-    return { short: 'Switching', long: 'Moves into the sandbox after this turn' };
+    return { icon: 'lock-unlock', text: 'Moves into the sandbox after this turn' };
   }
   if (state.pendingSwitch?.to === 'off') {
-    return { short: 'Switching', long: 'Leaves the sandbox after this turn' };
+    return { icon: 'lock-unlock', text: 'Leaves the sandbox after this turn' };
   }
   if (state.sandboxed) {
-    return { short: 'Sandboxed', long: 'Sandboxed' };
+    return { icon: 'lock', text: 'Sandboxed' };
   }
   return null;
 };

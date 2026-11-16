@@ -23,14 +23,14 @@ describe('sessionSandboxLabel', () => {
   });
 
   test('labels a sandboxed session', () => {
-    expect(sessionSandboxLabel({ sandboxed: true })).toEqual({ short: 'Sandboxed', long: 'Sandboxed' });
+    expect(sessionSandboxLabel({ sandboxed: true })).toEqual({ icon: 'lock', text: 'Sandboxed' });
   });
 
   test('a pending switch wins over the current state, in both directions', () => {
     expect(sessionSandboxLabel({ sandboxed: false, pendingSwitch: { to: 'nono' } }))
-      .toEqual({ short: 'Switching', long: 'Moves into the sandbox after this turn' });
+      .toEqual({ icon: 'lock-unlock', text: 'Moves into the sandbox after this turn' });
     expect(sessionSandboxLabel({ sandboxed: true, pendingSwitch: { to: 'off' } }))
-      .toEqual({ short: 'Switching', long: 'Leaves the sandbox after this turn' });
+      .toEqual({ icon: 'lock-unlock', text: 'Leaves the sandbox after this turn' });
   });
 });
 

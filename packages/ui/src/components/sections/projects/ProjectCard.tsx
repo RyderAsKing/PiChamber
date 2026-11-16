@@ -1,6 +1,7 @@
 import React from 'react';
 import { getProjectDisplayLabel } from '@/lib/projectDisplayLabel';
 
+import { Icon } from '@/components/icon/Icon';
 import { MiddleTruncate } from '@/components/ui/MiddleTruncate';
 import { ProjectIcon } from '@/components/ui/ProjectIcon';
 import { cn, formatPathForDisplay } from '@/lib/utils';
@@ -27,6 +28,7 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, sandbox, onSe
     : sandbox.availability.state === 'unavailable'
       ? 'Sandbox unavailable'
       : 'Sandboxed';
+  const sandboxUnavailable = sandbox?.mode !== 'off' && sandbox?.availability.state === 'unavailable';
 
   return (
     <button
@@ -43,13 +45,18 @@ export const ProjectCard: React.FC<ProjectCardProps> = ({ project, sandbox, onSe
       <div className="flex items-start justify-between gap-2">
         <ProjectIcon directory={project.path} label={label} className="size-8" />
         {sandboxText ? (
+          // A lock for a sandboxed project; when nono cannot run, the lock
+          // turns to the error colour and says so, since its sessions refuse
+          // to start. The card's accessible name carries the same state.
           <span
+            title={sandboxText}
             className={cn(
-              'typography-micro whitespace-nowrap',
-              sandbox?.availability.state === 'unavailable' ? 'text-[var(--status-error)]' : 'text-muted-foreground',
+              'inline-flex items-center gap-1 typography-micro whitespace-nowrap',
+              sandboxUnavailable ? 'text-[var(--status-error)]' : 'text-subtle-foreground',
             )}
           >
-            {sandboxText}
+            <Icon name="lock" className="size-3.5" />
+            {sandboxUnavailable ? 'Unavailable' : null}
           </span>
         ) : null}
       </div>

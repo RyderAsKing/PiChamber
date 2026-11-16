@@ -15,7 +15,8 @@ type ProjectIdentityFieldsProps = {
   form: ProjectIdentityFormState;
 };
 
-const FULL_WIDTH_CONTROL = 'w-full max-w-none';
+// Capped like every settings control; a project name needs no more.
+const FIELD_CONTROL_CLASS = 'w-full max-w-[24rem]';
 
 export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ form }) => {
   const {
@@ -44,7 +45,7 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
         <SettingsStackedField
           label={"Name"}
           settingsItem="projects.name"
-          controlClassName={FULL_WIDTH_CONTROL}
+          controlClassName={FIELD_CONTROL_CLASS}
         >
           <Input
             value={name}
@@ -59,13 +60,13 @@ export const ProjectIdentityFields: React.FC<ProjectIdentityFieldsProps> = ({ fo
           label={"Default model"}
           info={"Used when starting a new chat in this project. Unset keeps the global session default."}
           settingsItem="projects.default-model"
-          controlClassName={FULL_WIDTH_CONTROL}
+          controlClassName={FIELD_CONTROL_CLASS}
         >
           <SettingsModelPicker
             value={parsedDefaultModel}
             noneLabel={"Use global default"}
             ariaLabel={"Default model for new chats"}
-            className={FULL_WIDTH_CONTROL}
+            className={FIELD_CONTROL_CLASS}
             onChange={(model) => {
               if (!model) {
                 handleDefaultModelChange('', '');

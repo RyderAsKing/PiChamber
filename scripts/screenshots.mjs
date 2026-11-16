@@ -635,6 +635,21 @@ const PAGES = {
       return true;
     })()`,
   },
+  'settings-project': {
+    // The seeded Night Shift project's settings page from the top: name,
+    // default model, actions and the start of its Sandbox section.
+    path: '/?settings=projects',
+    readyText: ['Night Shift'],
+    viewports: ['desktop'],
+    settledScript: `(() => {
+      const section = document.querySelector('[data-settings-item="projects.sandbox"]');
+      if (!section) {
+        document.querySelector('button[aria-label^="Night Shift project"]')?.click();
+        return false;
+      }
+      return section.innerText.includes('Default');
+    })()`,
+  },
   'settings-project-sandbox': {
     // The seeded Night Shift project's Sandbox section: nono with an allowed
     // host, a local port and an extra folder, or why it cannot run.
@@ -654,13 +669,13 @@ const PAGES = {
   },
   'session-sandboxed': {
     // A session in the sandboxed Night Shift project: the chat header and its
-    // sidebar row say Sandboxed. Its transcript shows even when the sandbox
+    // sidebar row show a lock named Sandboxed. Its transcript shows even when the sandbox
     // cannot run (read from disk), so wait for the message bubble too.
     path: `/?session=${SHELF_SESSIONS[1].id}`,
     readyText: [SHELF_SESSIONS[1].title],
     settledScript: `(() => {
       const text = document.body.innerText;
-      return /Sandboxed/.test(text) && text.split(${JSON.stringify(SHELF_SESSIONS[1].title)}).length > 3;
+      return document.querySelector('[role="img"][aria-label="Sandboxed"]') && text.split(${JSON.stringify(SHELF_SESSIONS[1].title)}).length > 3;
     })()`,
   },
   'terminal-sandboxed': {
