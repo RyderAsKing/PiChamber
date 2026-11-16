@@ -535,6 +535,16 @@ describe("send retry safety", () => {
     expect(recordedCalls()).toHaveLength(1)
   })
 
+  test("a sandbox that cannot start is a definite rejection that keeps its reason", async () => {
+    installFetchMock(() => jsonResponse({ error: { code: "SANDBOX_UNAVAILABLE", reason: "NO_LANDLOCK" } }, { status: 503 }))
+    const client = new PiService()
+    const error = await client.sendPrompt({ sessionId: "s1", text: "hi", operationId: "op-1" }).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(PiRequestError)
+    expect(error).toMatchObject({ code: "SANDBOX_UNAVAILABLE", status: 503, reason: "NO_LANDLOCK" })
+    // No receipt lookup and no retry: nothing was accepted.
+    expect(recordedCalls()).toHaveLength(1)
+  })
+
   test("operation payload mismatch stays definite", async () => {
     installFetchMock(() => jsonResponse({ error: { code: "OPERATION_PAYLOAD_MISMATCH" } }, { status: 409 }))
     const client = new PiService()

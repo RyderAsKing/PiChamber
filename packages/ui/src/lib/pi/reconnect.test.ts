@@ -291,6 +291,47 @@ describe("reconnectPiSession", () => {
     expect(result.reducerState.bySession.get("s1")?.lastSequence).toBe(900)
   })
 
+  test("a read-only detail (sandbox unavailable) still attaches the stream and keeps the main cursor", async () => {
+    mockFetchPiRuntimeHealth.mockResolvedValueOnce({
+      state: "ready",
+      protocolVersion: 1,
+      capabilities: ["events.streamEpoch"],
+      streamEpoch: "epoch-main",
+    })
+    mockCreatePiEventStream.mockReturnValueOnce({
+      dispose: () => undefined,
+      reconnect: () => undefined,
+      eventsUrl: "ws://test/events",
+    } as never)
+    installFetchMock((call) => {
+      const url = new URL(call.url, "http://localhost")
+      if (url.pathname === "/api/pi/sessions/s1") {
+        return jsonResponse({
+          session: { id: "s1", directory: "/work", sandboxed: true },
+          messages: [],
+          lastSequence: -1,
+          readOnly: true,
+          stream: "box-stream-id-01",
+        })
+      }
+      return jsonResponse({}, { status: 500 })
+    })
+    const { reconnectPiSession } = await import("./reconnect")
+    const result = await reconnectPiSession({
+      directory: "/work",
+      sessionId: "s1",
+      lastKnownSequence: 5,
+      streamEpoch: "epoch-main",
+      onEvent: () => {},
+    }, dependencies)
+    expect(result.phase).toBe("ready")
+    expect(result.readOnlyDetail).toBe(true)
+    expect(result.sessionStream).toBeUndefined()
+    expect(result.lastSequence).toBe(5)
+    expect(mockCreatePiEventStream.mock.calls[0]?.[1]?.fromSequence).toBe(5)
+    expect(result.reducerState.bySession.has("s1")).toBe(true)
+  })
+
   test("returns failed when the session is not indexed", async () => {
     mockFetchPiRuntimeHealth.mockResolvedValueOnce({
       state: "ready",

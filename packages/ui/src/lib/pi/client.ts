@@ -75,6 +75,8 @@ import {
   type PiSandboxStatusResponse,
   type PiProjectSandboxListResponse,
   type PiProjectSandboxSetting,
+  type PiSandboxDefaults,
+  type PiSandboxDefaultsUpdate,
   type PiProjectSandboxState,
   isValidSessionShelfEntry,
   isValidSessionShelfResponse,
@@ -95,6 +97,8 @@ import type {
 import { fetchPiRuntimeHealth, getObservedPiStreamEpoch } from './transport';
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+/** For calls that can start a project's sandbox daemon, which the server allows 45 s. */
+const SANDBOX_START_REQUEST_TIMEOUT_MS = 60_000;
 const MAX_TRANSIENT_RETRIES = 1;
 const TRANSIENT_RETRY_DELAY_MS = 300;
 
@@ -116,6 +120,8 @@ interface JsonRequestInit<TBody> {
    * the default transient retry.
    */
   retry?: boolean;
+  /** Abort after this many ms instead of `DEFAULT_REQUEST_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }
 
 const jsonRequest = async <TBody, TResponse>(
@@ -151,7 +157,7 @@ const jsonRequest = async <TBody, TResponse>(
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), init.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
     const externalSignal = init.signal;
     const onAbort = () => controller.abort();
     if (externalSignal) {
@@ -239,7 +245,9 @@ export class PiRequestError extends Error {
 export class PiSendUnconfirmedError extends Error {
   readonly code: string;
   readonly status?: number;
-  constructor(code: string, message?: string, options?: { status?: number; cause?: unknown }) {
+  /** The server's reason code, carried over from the request error. */
+  readonly reason?: string;
+  constructor(code: string, message?: string, options?: { status?: number; cause?: unknown; reason?: string }) {
     super(
       message ?? `Pi send outcome unknown: ${code}`,
       options?.cause !== undefined ? { cause: options.cause } : undefined,
@@ -247,6 +255,7 @@ export class PiSendUnconfirmedError extends Error {
     this.name = 'PiSendUnconfirmedError';
     this.code = code;
     if (options?.status !== undefined) this.status = options.status;
+    if (typeof options?.reason === 'string') this.reason = options.reason;
     if (options?.cause !== undefined && (this as { cause?: unknown }).cause === undefined) {
       (this as { cause?: unknown }).cause = options.cause;
     }
@@ -287,6 +296,9 @@ const isDefiniteSendRejection = (error: unknown): boolean => {
   if (!(error instanceof PiRequestError)) return false;
   const status = error.status;
   if (typeof status !== 'number' || !Number.isInteger(status)) return false;
+  // The server answers this before any daemon sees the send: the project's
+  // sandbox could not start, so nothing was accepted.
+  if (status === 503 && error.code === 'SANDBOX_UNAVAILABLE') return true;
   if (status < 400 || status > 499) return false;
   if (status === 408) return false;
   if (error.code === 'OPERATION_EXPIRED' || error.code === 'STALE_STREAM_EPOCH') return false;
@@ -296,7 +308,7 @@ const isDefiniteSendRejection = (error: unknown): boolean => {
 const toSendUnconfirmedError = (error: unknown): PiSendUnconfirmedError => {
   if (error instanceof PiSendUnconfirmedError) return error;
   if (error instanceof PiRequestError) {
-    return new PiSendUnconfirmedError(error.code, error.message, { status: error.status, cause: error });
+    return new PiSendUnconfirmedError(error.code, error.message, { status: error.status, cause: error, reason: error.reason });
   }
   if (error instanceof DOMException && error.name === 'AbortError') {
     return new PiSendUnconfirmedError('DAEMON_TIMEOUT', error.message || 'Send timed out', { cause: error });
@@ -530,6 +542,7 @@ export class PiService {
     return jsonRequest<PiSessionCreateInput, PiSessionDetailResponse>('/api/pi/sessions', {
       method: 'POST',
       body: input,
+      timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS,
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
   }
@@ -541,6 +554,7 @@ export class PiService {
       `/api/pi/sessions/${encodeURIComponent(sessionId)}`,
       {
         method: 'GET',
+        timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS,
         ...(directory ? { query: { directory } } : {}),
         ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
       },
@@ -558,6 +572,7 @@ export class PiService {
       `/api/pi/sessions/${encodeURIComponent(sessionId)}/messages`,
       {
         method: 'GET',
+        timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS,
         query: {
           ...(directory ? { directory } : {}),
           ...(input.before ? { before: input.before } : {}),
@@ -673,6 +688,7 @@ export class PiService {
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/fork`,
       {
         method: 'POST',
+        timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS,
         body: {
           sessionId: input.sessionId,
           ...(input.messageId ? { messageId: input.messageId } : {}),
@@ -686,7 +702,7 @@ export class PiService {
     assertRuntimeUnchanged(scope);
     return jsonRequest<PiCloneInput, PiSessionDetailResponse>(
       `/api/pi/sessions/${encodeURIComponent(input.sessionId)}/clone`,
-      { method: 'POST', body: input, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+      { method: 'POST', body: input, timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
     );
   }
 
@@ -791,6 +807,7 @@ export class PiService {
           ...(directory ? { query: { directory } } : {}),
           runtimeKey,
           retry: false,
+          timeoutMs: SANDBOX_START_REQUEST_TIMEOUT_MS,
         },
       );
       if (!isValidPromptResult(result)) {
@@ -1008,6 +1025,27 @@ export class PiService {
       method: 'GET',
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  async getSandboxDefaults(scope?: PiClientScope): Promise<PiSandboxDefaults> {
+    assertRuntimeUnchanged(scope);
+    const result = await jsonRequest<undefined, { defaults: PiSandboxDefaults }>('/api/pi/sandbox/defaults', {
+      method: 'GET',
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+    return result.defaults;
+  }
+
+  /** Save the sandbox default. Send only the fields that changed; the server keeps the rest. Returns it and every project's state after it applied. */
+  async setSandboxDefaults(
+    defaults: PiSandboxDefaultsUpdate,
+    scope?: PiClientScope,
+  ): Promise<{ defaults: PiSandboxDefaults; projects: PiProjectSandboxState[] }> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiSandboxDefaultsUpdate, { defaults: PiSandboxDefaults; projects: PiProjectSandboxState[] }>(
+      '/api/pi/sandbox/defaults',
+      { method: 'PUT', body: defaults, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
   }
 
   /** Replace one project's sandbox setting. Returns its state after the write. */

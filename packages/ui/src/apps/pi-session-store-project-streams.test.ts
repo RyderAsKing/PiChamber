@@ -16,6 +16,14 @@ mock.module('@/lib/pi/reconnect', () => ({
   reconnectPiSession: (options: Record<string, unknown>) => reconnectImpl(options),
 }));
 
+let bootstrapImpl: (options: Record<string, unknown>) => Promise<Record<string, unknown>> = async () => {
+  throw new Error('bootstrapPiDirectory not configured for this test');
+};
+
+mock.module('@/lib/pi/bootstrap', () => ({
+  bootstrapPiDirectory: (options: Record<string, unknown>) => bootstrapImpl(options),
+}));
+
 const storeModule = await import('@/apps/pi-session-store');
 const PiSessionStore = storeModule.PiSessionStore;
 type PiSessionStore = InstanceType<typeof storeModule.PiSessionStore>;
@@ -143,6 +151,7 @@ interface StoreInternal {
   markStreamReconnected: (expected: number, runtimeKey: string, streamGeneration: number) => void;
   reconnect: (sessionId: string, expected: number, runtimeKey: string) => Promise<void>;
   resetForRuntime: () => void;
+  projectStreamBySession: Map<string, string>;
 }
 
 const internal = (store: PiSessionStore): StoreInternal => store as unknown as StoreInternal;
@@ -412,6 +421,67 @@ describe('project daemon streams', () => {
     });
   });
 
+  test('project frames that arrive while the first session loads are checked like live ones', async () => {
+    await withStore(async (store) => {
+      // The first attach: the stream delivers a project daemon's frame
+      // before the selected session's detail has been committed.
+      bootstrapImpl = async (options) => {
+        (options.onEvent as (event: PiSessionEvent) => void)(boxEvent(snapshotEvent('b1', '/box', 3), 'box-1'));
+        return {
+          phase: 'ready',
+          reducerState: {
+            bySession: new Map([['s1', reducerSession('s1', '/repo-a', 10)]]),
+            lastSequence: new Map([['s1', 10]]),
+          },
+          lastSequence: new Map([['s1', 10]]),
+          stream: { dispose: () => undefined },
+          streamEpoch: 'epoch-main',
+          errors: [],
+          health: null,
+        };
+      };
+      const stubs = stubPiClient();
+      try {
+        internal(store).state = { ...store.getState(), directory: '/repo-a' };
+        await store.ensureHydrated('s1');
+        await flushMicrotasks();
+        expect(store.getState().reducer.bySession.get('s1')?.lastSequence).toBe(10);
+        // The frame is bound to its own daemon's stream and epoch, not
+        // taken for a main-daemon position.
+        expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(3);
+        expect(internal(store).projectStreamBySession.get('b1')).toBe(BOX);
+        expect(internal(store).streamEpoch).not.toBe('box-1');
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a detail answered late by the daemon a session left is not committed', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: [], streamEpoch: 'epoch-main' });
+      let answerMain: (value: unknown) => void = () => {};
+      const stubs = stubPiClient({
+        // The main daemon was asked while it still ran the session.
+        getSession: () => new Promise((resolve) => { answerMain = resolve; }),
+      });
+      try {
+        const hydrating = store.ensureHydrated('b1');
+        await flushMicrotasks();
+        // The session moved into its project's daemon, whose frames arrive first.
+        internal(store).commitEvents([boxEvent(snapshotEvent('b1', '/box', 3), 'box-1')]);
+        expect(internal(store).projectStreamBySession.get('b1')).toBe(BOX);
+        answerMain(detail('b1', '/box', 40, 'epoch-main'));
+        await hydrating;
+        await flushMicrotasks();
+        expect(internal(store).projectStreamBySession.get('b1')).toBe(BOX);
+        expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(3);
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
   test('a project list with no daemon running (no epoch) lists its rows as metadata only', async () => {
     await withStore(async (store) => {
       seed(store, { residents: [], streamEpoch: 'epoch-main' });
@@ -506,6 +576,48 @@ describe('project daemon streams', () => {
         expect(internal(store).streamEpoch).toBe('epoch-main');
         expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(30);
         expect(store.getState().reducer.bySession.get('s1')?.lastSequence).toBe(50);
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a reconnect that reads a main-daemon detail for a session last seen on a project daemon moves it back to main', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: ['s1'], cursor: 50, streamEpoch: 'epoch-main' });
+      internal(store).commitEvents([boxEvent(snapshotEvent('b1', '/box', 900), 'box-1')]);
+      expect(internal(store).projectStreamBySession.get('b1')).toBe(BOX);
+      reconnectImpl = async () => readyResult({ epoch: 'epoch-main', reducerState: [reducerSession('b1', '/box', 40)], lastSequence: 50 });
+      const stubs = stubPiClient();
+      try {
+        await internal(store).reconnect('b1', store.getRuntimeGeneration(), getRuntimeKey());
+        // The project daemon's sequence 900 is gone; the main snapshot stands.
+        expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(40);
+        expect(internal(store).projectStreamBySession.has('b1')).toBe(false);
+      } finally {
+        stubs.restore();
+      }
+    });
+  });
+
+  test('a reconnect that reads a read-only detail commits it as history without binding a stream, and never over live project state', async () => {
+    await withStore(async (store) => {
+      seed(store, { residents: ['s1'], cursor: 50, streamEpoch: 'epoch-main' });
+      reconnectImpl = async () => ({
+        ...readyResult({ epoch: 'epoch-main', reducerState: [reducerSession('b1', '/box', -1)], lastSequence: 50 }),
+        readOnlyDetail: true,
+      });
+      const stubs = stubPiClient();
+      try {
+        await internal(store).reconnect('b1', store.getRuntimeGeneration(), getRuntimeKey());
+        expect(store.getState().connection).toBe('ready');
+        expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(-1);
+        expect(internal(store).projectStreamBySession.has('b1')).toBe(false);
+        // Once the project daemon numbers the session, disk history must not
+        // replace its live state.
+        internal(store).commitEvents([boxEvent(snapshotEvent('b1', '/box', 7), 'box-1')]);
+        await internal(store).reconnect('b1', store.getRuntimeGeneration(), getRuntimeKey());
+        expect(store.getState().reducer.bySession.get('b1')?.lastSequence).toBe(7);
       } finally {
         stubs.restore();
       }

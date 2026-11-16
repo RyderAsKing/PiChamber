@@ -403,6 +403,23 @@ export class PiSessionStore {
   /** Project stream each session's live state is numbered by. Absent means
    *  the main daemon. */
   private projectStreamBySession = new Map<PiSessionId, string>();
+  /**
+   * When each session last changed daemons, on a clock that ticks once per
+   * change. A detail asked for before a session's last change may come from
+   * the daemon it left: it is committed only if it names the daemon that
+   * owns the session now (`isResponseEpochCurrent` with `asked`). After a
+   * `session.moved` notice the new owner is not known until the next
+   * observation, so every earlier answer is refused.
+   */
+  private ownershipClock = 0;
+  private sessionOwnerChangedAt = new Map<PiSessionId, number>();
+  private sessionOwnerUnknown = new Set<PiSessionId>();
+  private noteSessionOwnerChange(sessionId: PiSessionId, unknown = false): void {
+    this.ownershipClock += 1;
+    this.sessionOwnerChangedAt.set(sessionId, this.ownershipClock);
+    if (unknown) this.sessionOwnerUnknown.add(sessionId);
+    else this.sessionOwnerUnknown.delete(sessionId);
+  }
   /** Newest opaque project-daemon resume cursor seen on the event stream,
    *  sent back on the next stream so project daemons resume too. */
   private projectEventCursor: string | undefined;
@@ -437,10 +454,17 @@ export class PiSessionStore {
    *  history-page payloads without a stamped epoch still type-check
    *  (unstamped responses are accepted only until an epoch-capable daemon
    *  establishes the first epoch). */
-  private isResponseEpochCurrent(response: unknown): boolean {
+  private isResponseEpochCurrent(response: unknown, asked?: number): boolean {
     const epoch = typeof (response as { streamEpoch?: unknown } | null | undefined)?.streamEpoch === 'string' && ((response as { streamEpoch: string }).streamEpoch.length > 0) ? (response as { streamEpoch: string }).streamEpoch : undefined;
     const stream = projectStreamOf(response);
     const sessionId = (response as { session?: { id?: unknown } } | null | undefined)?.session?.id;
+    // Asked before the session last changed daemons, and not answered by
+    // its current owner: the daemon it left answered late. Committing it
+    // would hand the session back to that daemon.
+    if (asked !== undefined && typeof sessionId === 'string' && (this.sessionOwnerChangedAt.get(sessionId) ?? 0) > asked
+      && (this.sessionOwnerUnknown.has(sessionId) || this.projectStreamBySession.get(sessionId) !== stream)) {
+      return false;
+    }
     // A read-only detail (`readOnly`, a project stream, no epoch) was read
     // from the transcript on disk while that project's daemon cannot run.
     // It is history with no sequence space: committed only while no project
@@ -526,6 +550,7 @@ export class PiSessionStore {
     if (reset) this.finishMovedSessions(this.resetMovedSessionState([sessionId]));
     if (stream === undefined) this.projectStreamBySession.delete(sessionId);
     else this.projectStreamBySession.set(sessionId, stream);
+    this.noteSessionOwnerChange(sessionId);
     return reset;
   }
   /**
@@ -540,6 +565,7 @@ export class PiSessionStore {
     if (this.hasSessionLiveState(sessionId)) return false;
     if (stream === undefined) this.projectStreamBySession.delete(sessionId);
     else this.projectStreamBySession.set(sessionId, stream);
+    this.noteSessionOwnerChange(sessionId);
     return true;
   }
   /**
@@ -1016,6 +1042,7 @@ export class PiSessionStore {
         const directory = this.resolveSessionDirectory(sessionId) ?? this.state.directory ?? undefined;
         if (!directory) return; // obligation retained until the session's directory is known
         try {
+          const asked = this.ownershipClock;
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (!passIsCurrent()) return;
           if (detail.session.id !== sessionId) return;
@@ -1025,7 +1052,7 @@ export class PiSessionStore {
           }
           // A stale-epoch response predates the daemon restart; keep the
           // obligation so the next pass re-reads from the current daemon.
-          if (!this.isResponseEpochCurrent(detail) || !passIsCurrent()) return;
+          if (!this.isResponseEpochCurrent(detail, asked) || !passIsCurrent()) return;
           const current = this.state.reducer.bySession.get(sessionId);
           if (!current || current.lastSequence <= detail.lastSequence) {
             if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
@@ -1426,6 +1453,8 @@ export class PiSessionStore {
     this.retiredStreamEpochs.clear();
     this.projectStreamEpochs.clear();
     this.projectStreamBySession.clear();
+    this.sessionOwnerChangedAt.clear();
+    this.sessionOwnerUnknown.clear();
     this.projectEventCursor = undefined;
     this.lifecycleSequenceById.clear();
     this.pendingInputSequenceById.clear();
@@ -3116,6 +3145,7 @@ export class PiSessionStore {
       || this.state.directory;
     if (!directory) return false;
     try {
+      const asked = this.ownershipClock;
       const detail = await piClient.getSession(sessionId, {
         directory,
         runtimeKey: getRuntimeKey(),
@@ -3129,7 +3159,7 @@ export class PiSessionStore {
       }
       // A daemon restart verified while the read was in flight makes it a
       // retired lifetime's state: never settle or commit it.
-      if (!this.isResponseEpochCurrent(detail)) return false;
+      if (!this.isResponseEpochCurrent(detail, asked)) return false;
       const currentSequence = this.state.reducer.lastSequence.get(sessionId)
         ?? this.state.reducer.bySession.get(sessionId)?.lastSequence
         ?? -1;
@@ -3641,12 +3671,15 @@ export class PiSessionStore {
     const attachedStream = this.stream;
     try {
       if (this.stream) {
+        // A detail handed in was fetched by the caller; only one asked for
+        // here is known to predate a later change of daemon.
+        const asked = known ? undefined : this.ownershipClock;
         const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
         if (expected !== this.runtimeGeneration) return;
         if (detail.session.id !== sessionId) return;
         // A detail generated by a previous daemon process predates the
         // current stream epoch; committing it would write a foreign cursor.
-        if (!this.isResponseEpochCurrent(detail)) return;
+        if (!this.isResponseEpochCurrent(detail, asked)) return;
         // A deletion committed while the detail request was in flight wins
         // over the response; committing here would resurrect the row.
         if (this.isDeleted(sessionId)) return;
@@ -3730,6 +3763,7 @@ export class PiSessionStore {
       }
       if (!hydratedSession) {
         try {
+          const asked = known ? undefined : this.ownershipClock;
           const detail = known ?? await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) {
             bootstrap.stream?.dispose();
@@ -3741,7 +3775,7 @@ export class PiSessionStore {
             return;
           }
           // The detail predates the current stream epoch.
-          if (!this.isResponseEpochCurrent(detail)) {
+          if (!this.isResponseEpochCurrent(detail, asked)) {
             bootstrap.stream?.dispose();
             return;
           }
@@ -3792,7 +3826,13 @@ export class PiSessionStore {
         return;
       }
       this.stream = bootstrap.stream;
-      this.commitHydratedSession(hydratedSession, buffered, hydratedInput, detailSessionForCatalog);
+      // Events that arrived while the detail was loading go through the
+      // same path as live ones, after the detail: applied directly they
+      // would skip project-stream epoch checks, stream ownership and
+      // `session.moved`, and a project daemon's sequence would be taken for
+      // a main-daemon position.
+      this.commitHydratedSession(hydratedSession, [], hydratedInput, detailSessionForCatalog);
+      if (buffered.length > 0) this.commitEvents(buffered);
       ready = true;
     } catch (error) {
       if (expected !== this.runtimeGeneration) return;
@@ -3812,11 +3852,12 @@ export class PiSessionStore {
       }
       if (isSessionRuntimeConflictError(error)) {
         try {
+          const asked = this.ownershipClock;
           const detail = await piClient.getSession(sessionId, { directory, runtimeKey });
           if (expected !== this.runtimeGeneration) return;
           if (detail.session.id !== sessionId) return;
           if (this.isDeleted(sessionId)) return;
-          if (!this.isResponseEpochCurrent(detail)) return;
+          if (!this.isResponseEpochCurrent(detail, asked)) return;
           if ((this.navigationGenerationById.get(sessionId) ?? 0) !== navGenAtStart) return;
           if ((detail.lifecycle === 'busy' || detail.lifecycle === 'retry') && typeof (detail as { runStartedAt?: number }).runStartedAt === 'number') {
             adoptServerRunTiming(detail.session.id, (detail as { runStartedAt: number }).runStartedAt, (detail as { serverNow?: number }).serverNow);
@@ -3961,11 +4002,20 @@ export class PiSessionStore {
         // A selected session on a project daemon was read under that
         // daemon's epoch: merge it only when that epoch is current, after
         // resetting state the session carried from another daemon.
+        // A read-only detail (disk history while the project's sandbox
+        // cannot run) is committed only while no project stream numbers the
+        // session, and binds it to none. A main-daemon detail means the
+        // session's live state is the main daemon's now: state a project
+        // daemon numbered is reset before the merge.
         const sessionStream = result.sessionStream;
-        const rejectedStreamSession = sessionStream && !this.isStreamEpochCurrent(sessionStream.stream, sessionStream.epoch)
+        const rejectedStreamSession = (
+          result.readOnlyDetail
+            ? this.projectStreamBySession.has(sessionId)
+            : sessionStream !== undefined && !this.isStreamEpochCurrent(sessionStream.stream, sessionStream.epoch)
+        )
           ? sessionId
           : null;
-        if (sessionStream && rejectedStreamSession === null) this.moveSessionToStream(sessionId, sessionStream.stream);
+        if (!result.readOnlyDetail && rejectedStreamSession === null) this.moveSessionToStream(sessionId, sessionStream?.stream);
         const reducer: PiReducerState = {
           bySession: new Map(this.state.reducer.bySession),
           lastSequence: new Map(this.state.reducer.lastSequence),
@@ -4308,6 +4358,7 @@ export class PiSessionStore {
         // is numbered by the old owner, so drop it and re-fetch.
         resetInBatch([event.sessionId]);
         this.projectStreamBySession.delete(event.sessionId);
+        this.noteSessionOwnerChange(event.sessionId, true);
         continue;
       }
       const eventEpoch = typeof event.streamEpoch === 'string' && event.streamEpoch.length > 0
@@ -4321,6 +4372,7 @@ export class PiSessionStore {
         if (this.projectStreamBySession.get(event.sessionId) !== eventStream) {
           if (this.hasSessionLiveState(event.sessionId, working)) resetInBatch([event.sessionId]);
           this.projectStreamBySession.set(event.sessionId, eventStream);
+          this.noteSessionOwnerChange(event.sessionId);
         }
       } else {
         // Verified stream-epoch handling. Events stamped with a retired epoch
@@ -4362,6 +4414,7 @@ export class PiSessionStore {
         if (this.projectStreamBySession.has(event.sessionId)) {
           resetInBatch([event.sessionId]);
           this.projectStreamBySession.delete(event.sessionId);
+          this.noteSessionOwnerChange(event.sessionId);
         }
       }
       // Tombstone filter. Once a deletion is committed — by the local
