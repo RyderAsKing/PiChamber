@@ -14,15 +14,16 @@ import {
   fetchServerBrowserStatus,
   forgetServerBrowserSocketToken,
   openServerBrowserSocket,
-  saveServerBrowserDownload,
   uploadServerBrowserFile,
 } from '@/lib/serverBrowser/api';
+import { downloadFromMessage, upsertDownload } from '@/lib/serverBrowser/downloads';
 import { ServerBrowserConnection, type ServerBrowserConnectionPhase } from '@/lib/serverBrowser/connection';
 import {
   fitDeviceViewport,
   MAX_SERVER_BROWSER_UPLOAD_BYTES,
   serverBrowserTabKey,
   type ServerBrowserDialog,
+  type ServerBrowserDownload,
   type ServerBrowserMessage,
   type ServerBrowserPageState,
   type ServerBrowserStatus,
@@ -35,6 +36,7 @@ import type { BrowserRoute } from '@/stores/ui/contextPanel';
 
 import { appendPendingSyntheticText } from './previewShared';
 import { normalizeBrowserUrl, pageHost } from './browserScripts';
+import { ServerBrowserDownloads } from './ServerBrowserDownloads';
 import { ConnectionOverlay, CrashedPage, FileChooserBar, PageDialog } from './ServerBrowserOverlays';
 import { useServerBrowserFrames } from './useServerBrowserFrames';
 import { useServerBrowserInput } from './useServerBrowserInput';
@@ -85,6 +87,10 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
   const [inspecting, setInspecting] = React.useState(false);
   const [hover, setHover] = React.useState<PreviewElementMetadata | null>(null);
   const [area, setArea] = React.useState({ width: 0, height: 0 });
+  const [downloads, setDownloads] = React.useState<ServerBrowserDownload[]>([]);
+  const [downloadsOpen, setDownloadsOpen] = React.useState(false);
+  const downloadsOpenRef = React.useRef(downloadsOpen);
+  downloadsOpenRef.current = downloadsOpen;
   const [documentVisible, setDocumentVisible] = React.useState(() => typeof document === 'undefined' || document.visibilityState === 'visible');
 
   const areaRef = React.useRef<HTMLDivElement | null>(null);
@@ -95,7 +101,8 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
   popupRef.current = popupId;
   const pendingNavigateRef = React.useRef<string | null>(null);
   const editingAddressRef = React.useRef(false);
-  const seenDownloadsRef = React.useRef(new Map<string, string>());
+  // Each download's last state this pane has seen, across reconnects.
+  const seenDownloadsRef = React.useRef(new Map<string, ServerBrowserDownload['state']>());
   const inspectRef = React.useRef<{ seq: number; inFlight: boolean; queued: { x: number; y: number } | null }>({ seq: 0, inFlight: false, queued: null });
   const areaSizeRef = React.useRef(area);
   areaSizeRef.current = area;
@@ -209,23 +216,28 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
         }
         return;
       case 'download': {
+        const download = downloadFromMessage(message);
+        setDownloads((current) => upsertDownload(current, download));
         const seen = seenDownloadsRef.current;
-        if (seen.get(message.id) === message.state) return;
-        seen.set(message.id, message.state);
-        if (message.state === 'completed') {
-          const { id, filename } = message;
-          toast.success(`Downloaded ${filename}`, {
-            action: {
-              label: 'Save',
-              onClick: () => {
-                void saveServerBrowserDownload(id, filename).catch((error: unknown) => {
-                  toast.error(error instanceof Error ? error.message : `Could not download ${filename}`);
-                });
-              },
-            },
+        const previous = seen.get(download.id);
+        seen.set(download.id, download.state);
+        if (previous === download.state) return;
+        // A new download opens the list under the page.
+        if (previous === undefined && download.state === 'inProgress') {
+          // Before the next render: a small file can finish in the same tick.
+          downloadsOpenRef.current = true;
+          setDownloadsOpen(true);
+          return;
+        }
+        // Only a change this pane saw happen is announced, and only when
+        // the list is hidden; a reconnect replays finished downloads quietly.
+        if (previous !== 'inProgress' || downloadsOpenRef.current) return;
+        if (download.state === 'completed') {
+          toast.success(`Downloaded ${download.filename} on the server`, {
+            action: { label: 'Show', onClick: () => setDownloadsOpen(true) },
           });
-        } else if (message.state === 'canceled') {
-          toast.error(`Download of ${message.filename} failed`);
+        } else if (download.state === 'failed') {
+          toast.error(`Download of ${download.filename} failed`);
         }
         return;
       }
@@ -417,6 +429,7 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
   const display = frameSize ? fitDeviceViewport(frameSize, area) : null;
   const hasPage = page.url !== 'about:blank';
   const showBlank = phase === 'open' && !hasPage && !page.loading;
+  const activeDownloads = downloads.filter((download) => download.state === 'inProgress').length;
 
   return (
     <div className="absolute inset-0 flex flex-col bg-background">
@@ -461,6 +474,20 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
         >
           <Icon name="cursor" className="h-3.5 w-3.5" />
         </Button>
+        {downloads.length > 0 ? (
+          <Button
+            type="button"
+            variant={downloadsOpen ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 w-7 p-0"
+            aria-pressed={downloadsOpen}
+            onClick={() => setDownloadsOpen((value) => !value)}
+            title={activeDownloads > 0 ? `Downloads (${activeDownloads} in progress)` : 'Downloads'}
+            aria-label={activeDownloads > 0 ? `Downloads, ${activeDownloads} in progress` : 'Downloads'}
+          >
+            <Icon name="download" className="h-3.5 w-3.5" />
+          </Button>
+        ) : null}
         <Button type="button" variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={!hasPage} onClick={() => void openExternalUrl(page.url)} title="Open in system browser" aria-label="Open in system browser">
           <Icon name="external-link" className="h-3.5 w-3.5" />
         </Button>
@@ -538,6 +565,12 @@ export const ServerBrowserPane: React.FC<Props> = ({ initialUrl, directory, page
           onOpenAddress={navigate}
         />
       </div>
+      <ServerBrowserDownloads
+        downloads={downloads}
+        open={downloadsOpen}
+        onClose={() => setDownloadsOpen(false)}
+        onCancel={(id) => send({ type: 'download-cancel', id })}
+      />
     </div>
   );
 };

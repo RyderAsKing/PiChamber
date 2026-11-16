@@ -155,7 +155,9 @@ buttons, desktop only); `open-request` (an Open request for a
 server-local page arriving in the demo session; set `OPEN_URL_SOCKET` to the
 server's intake socket); `browser-page` (the Browser panel with a server-local
 demo site the script serves on port 4777 typed into its address bar, desktop
-only); `files-panel` (the Files panel beside the demo session with no file
+only); `browser-downloads` (the Server browser's Downloads list under the
+page: the demo site's report finished, with its Save actions, and a dataset
+stuck partway with progress and Cancel, desktop only); `files-panel` (the Files panel beside the demo session with no file
 open: in that narrow panel the tree fills it, with its change marks,
 desktop only);
 `files-panel-file` (the same panel with `billing.ts` open under its path bar,

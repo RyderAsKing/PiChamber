@@ -1,3 +1,4 @@
+import { saveOrShareFile, type NativeFileSaveResult } from '@/lib/nativeFileSave';
 import { openRuntimeWebSocket } from '@/lib/relay/runtime-socket';
 import type { RelayTunnelWebSocket } from '@/lib/relay/tunnel-client';
 import { clearRuntimeUrlAuthToken, refreshRuntimeUrlAuthToken } from '@/lib/runtime-auth';
@@ -92,23 +93,50 @@ export const uploadServerBrowserFile = async (file: File): Promise<string> => {
   return body.id;
 };
 
-/** Saves a finished download from the server to this device. */
-export const saveServerBrowserDownload = async (id: string, filename: string): Promise<void> => {
-  const response = await runtimeFetch(`/api/server-browser/downloads/${encodeURIComponent(id)}`);
+type DownloadProgress = (receivedBytes: number, totalBytes: number) => void;
+
+/**
+ * Copies a finished download from the server to this device: a download
+ * on the web and desktop, the share sheet on mobile. `onProgress` follows
+ * the transfer from the server.
+ */
+export const saveServerBrowserDownload = async (
+  id: string,
+  filename: string,
+  { onProgress, signal }: { onProgress?: DownloadProgress; signal?: AbortSignal } = {},
+): Promise<NativeFileSaveResult> => {
+  // A signal also keeps runtimeFetch from sharing (and so copying) the body.
+  const response = await runtimeFetch(`/api/server-browser/downloads/${encodeURIComponent(id)}`, { signal: signal ?? new AbortController().signal });
   if (!response.ok) throw await readError(response, `Could not download ${filename}`);
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  try {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    link.rel = 'noopener';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const total = Number(response.headers.get('content-length')) || 0;
+  const type = response.headers.get('content-type') || 'application/octet-stream';
+  let blob: Blob;
+  if (response.body && onProgress) {
+    const reader = response.body.getReader();
+    const chunks: BlobPart[] = [];
+    let received = 0;
+    onProgress(0, total);
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      onProgress(received, total);
+    }
+    blob = new Blob(chunks, { type });
+  } else {
+    blob = await response.blob();
   }
+  return saveOrShareFile({ filename, mimeType: type, data: blob });
+};
+
+/** Copies a finished download into the server's Downloads folder; returns where. */
+export const saveServerBrowserDownloadToServer = async (id: string): Promise<string> => {
+  const response = await runtimeFetch(`/api/server-browser/downloads/${encodeURIComponent(id)}/save-to-server`, { method: 'POST' });
+  if (!response.ok) throw await readError(response, 'Could not save the download on the server');
+  const body = await response.json() as { path?: unknown };
+  if (typeof body.path !== 'string') throw new Error('Could not save the download on the server');
+  return body.path;
 };
 
 /** `popup` claims a popup the server offered as this tab's page. */

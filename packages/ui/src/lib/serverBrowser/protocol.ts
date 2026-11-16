@@ -40,12 +40,20 @@ export type ServerBrowserDialog = {
   url: string;
 };
 
-type ServerBrowserDownload = {
+export type ServerBrowserDownload = {
   id: string;
   filename: string;
-  state: 'inProgress' | 'completed' | 'canceled';
+  /** The address the file came from. */
+  url: string;
+  state: 'inProgress' | 'completed' | 'canceled' | 'failed';
   receivedBytes: number;
+  /** 0 while the size is unknown. */
   totalBytes: number;
+  /** Where the finished file waits on the server (its temp directory). */
+  path: string | null;
+  /** Where Save to server put a copy, once it has. */
+  savedPath: string | null;
+  startedAt: number;
 };
 
 export type ServerBrowserScreenshot = {

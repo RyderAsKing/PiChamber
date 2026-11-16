@@ -31,7 +31,7 @@ Environment:
   OPEN_URL_SOCKET  The server's Open request intake (open-request page), e.g.
              $XDG_RUNTIME_DIR/pichamber/pi-daemons/web-dev-p<api port>/open-url.sock
   THEME      light or dark (default: light)
-  DEMO_SITE_PORT  Port of the demo site the browser-page page loads (default: 4777);
+  DEMO_SITE_PORT  Port of the demo site the browser-page and browser-downloads pages load (default: 4777);
              if it cannot start, that page fails and the others still capture
 
 Pages: ${'%PAGES%'}`;
@@ -697,6 +697,48 @@ const PAGES = {
     settledScript: `Boolean(document.querySelector('[aria-label="Web page: ${DEMO_SITE_TITLE}"]')
       || [...document.querySelectorAll('iframe')].some((frame) => frame.src.includes(':${DEMO_SITE_PORT}')))`,
   },
+  'browser-downloads': {
+    path: '/',
+    openSelector: 'nav[aria-label="Panel surfaces"] button[aria-label="Browser"]',
+    viewports: ['desktop'],
+    readyText: [],
+    // On the Server route: the page downloads a finished report and a
+    // dataset still in progress, listed under the page.
+    browserAddress: `http://localhost:${DEMO_SITE_PORT}/exports`,
+    thenBrowserAddresses: [`http://localhost:${DEMO_SITE_PORT}/files/acme-dataset.zip`],
+    // Typed once the report has downloaded (the toast or the list names it).
+    thenWhenScript: `document.body.innerText.includes('acme-report.pdf')`,
+    settledScript: `(() => {
+      const list = document.querySelector('section[aria-label="Downloads"]');
+      return Boolean(list && list.innerText.includes('acme-dataset.zip') && list.innerText.includes('42 MB of 180 MB') && list.innerText.includes('Save to server'));
+    })()`,
+  },
+};
+
+// The demo site's exports page downloads a report that finishes at once;
+// the dataset (typed afterwards: Chrome blocks a page's second automatic
+// download) stops partway, so the Downloads list shows a finished file and
+// one in progress.
+const DEMO_EXPORTS_HTML = `<!doctype html><html><head><title>Acme exports</title></head>
+<body style="margin:0;font:15px system-ui,sans-serif;padding:24px">Your exports are downloading.
+<script>
+const a = document.createElement('a'); a.href = '/files/acme-report.pdf'; a.download = 'acme-report.pdf'; document.body.append(a); a.click();
+</script></body></html>`;
+
+const serveDemoDownload = (req, res) => {
+  if (req.url === '/files/acme-report.pdf') {
+    const body = Buffer.alloc(Math.round(2.4 * 1024 * 1024), 1);
+    res.writeHead(200, { 'content-type': 'application/pdf', 'content-length': body.length, 'content-disposition': 'attachment; filename="acme-report.pdf"' });
+    res.end(body);
+    return true;
+  }
+  if (req.url === '/files/acme-dataset.zip') {
+    // 180 MB promised, 42 MB sent, then the connection stays open.
+    res.writeHead(200, { 'content-type': 'application/zip', 'content-length': 180 * 1024 * 1024, 'content-disposition': 'attachment; filename="acme-dataset.zip"' });
+    res.write(Buffer.alloc(42 * 1024 * 1024, 2));
+    return true;
+  }
+  return false;
 };
 
 const COMPOSER_EDITOR_SELECTOR = [
@@ -950,6 +992,15 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
       await client.send('Input.insertText', { text: page.browserAddress });
       for (const type of ['keyDown', 'keyUp']) {
         await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+      }
+      // More addresses typed after it, as a person would.
+      for (const address of page.thenBrowserAddresses ?? []) {
+        if (page.thenWhenScript) await waitFor(() => client.evaluate(page.thenWhenScript), 30_000, `${pageName} ready for the next address`);
+        await client.evaluate(`(() => { const input = document.querySelector('[aria-label="Browser address"]'); input.focus(); input.select(); })()`);
+        await client.send('Input.insertText', { text: address });
+        for (const type of ['keyDown', 'keyUp']) {
+          await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
+        }
       }
     }
     if (page.openRequest) await sendOpenRequest(page.openRequest);
@@ -1344,9 +1395,10 @@ const main = async () => {
     // (its port is taken), those pages fail and the others still capture.
     let demoSiteError = null;
     if (pageNames.some((name) => PAGES[name].browserAddress)) {
-      demoSite = createHttpServer((_req, res) => {
+      demoSite = createHttpServer((req, res) => {
+        if (serveDemoDownload(req, res)) return;
         res.setHeader('content-type', 'text/html');
-        res.end(DEMO_SITE_HTML);
+        res.end(req.url === '/exports' ? DEMO_EXPORTS_HTML : DEMO_SITE_HTML);
       });
       try {
         await new Promise((resolveListen, reject) => {

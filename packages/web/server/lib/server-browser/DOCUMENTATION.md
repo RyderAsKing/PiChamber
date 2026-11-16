@@ -38,7 +38,8 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
     leave-page dialog, dismissed otherwise);
   - `page-scripts.js`: scripts in an isolated world (copy recording, title
     watching, inspect, cursor).
-- `downloads.js`: finished downloads, on disk.
+- `downloads.js`: downloads: progress, files in the temp directory, cancel,
+  and Save to server.
 - `uploads.js`: files picked for a page's file chooser, in memory until the
   chooser answer takes them.
 - `dev-servers.js`: lists web servers listening on the server's loopback
@@ -49,8 +50,9 @@ preview proxy (`../preview/proxy-runtime.js`); this module does not.
 - `runtime.js`: HTTP routes and the viewer WebSocket.
 
 Files live under `<dataDir>/server-browser/`: `profile/` (cookies, logins,
-site data), `downloads/`, and `settings.json`, all owner-only. An
-`uploads/` directory from older versions is deleted on start.
+site data) and `settings.json`, both owner-only. `uploads/` and `downloads/`
+directories from older versions are deleted on start. Downloads wait in a
+per-run directory in the system temp directory (see Downloads below).
 
 ## Routes
 
@@ -71,7 +73,12 @@ site data), `downloads/`, and `settings.json`, all owner-only. An
   holds the files itself, so a form sent later still has them, and nothing
   is written to the server's disk. A file the page cannot take sends an
   `upload-failed` notice.
-- `GET /api/server-browser/downloads/:id`: a finished download.
+- `GET /api/server-browser/downloads/:id`: a finished download, with its
+  `Content-Length`.
+- `POST /api/server-browser/downloads/:id/save-to-server`: copies a finished
+  download into `~/Downloads` on the server under its own name (`name (1).ext`
+  when taken) and returns `{ path }`; again returns the same copy while it
+  exists.
 - `GET /api/server-browser/dev-servers?directory=`: web servers on the
   server, the project's own first. Each entry has the port, page title,
   process name, and whether the process runs inside `directory`; never
@@ -120,13 +127,13 @@ a desktop browser.
 
 Text messages from the server: `state` (address, title, loading, history,
 crashed), `cursor`, `dialog` / `dialog-closed`, `file-chooser`
-/ `file-chooser-closed`, `download`, `clipboard`, `inspect-hover`,
+/ `file-chooser-closed`, `download` (see Downloads), `clipboard`, `inspect-hover`,
 `inspect-pick`, `notice`, `popup` (`id`, a page opened a popup for this
 device to show), and `unavailable`.
 
 Messages from the viewer: `viewport`, `mouse`, `key`, `text`,
 `navigate`, `back`, `forward`, `reload`, `stop`, `dialog`, `file-chooser`,
-`inspect`, and `ack`. They apply in arrival order; acks skip the queue.
+`download-cancel` (`id`), `inspect`, and `ack`. They apply in arrival order; acks skip the queue.
 Mouse moves and wheel events never wait for Chrome: while one is on its way
 to the page, newer moves replace it and newer wheel movement is added up into
 one event (a change of modifiers starts a new one). Chrome answers a wheel
@@ -227,7 +234,22 @@ reopens the tab at its last address.
   is set. The panel offers it when Chrome refuses its sandbox as root or
   cannot create one (no user namespaces).
 - **Downloads.** Headless Chrome has no PDF viewer, so PDFs arrive as
-  downloads. The newest 50 downloads are kept.
+  downloads. Playwright delivers the file but no progress, so each tab's
+  DevTools session also listens to `Page.downloadWillBegin` and
+  `Page.downloadProgress`; the two are paired by tab and address in the order
+  they arrive (either may come first). A `download` message carries `id`,
+  `filename`, `url`, `state` (`inProgress`, `completed`, `canceled` by a
+  viewer, or `failed`), `receivedBytes`, `totalBytes` (0 while unknown),
+  `path` (once completed), `savedPath` (after Save to server), and
+  `startedAt`. Progress goes out at most four times a second; state changes
+  at once. Messages go to the viewers of the tab the download came from, and
+  a viewer that connects gets the tab's downloads at once. A finished file
+  waits at `<tmp>/pichamber-downloads-<random>/<id>/<filename>` (directories
+  owner-only, the file `0600`), so the path a viewer copies ends in the real
+  name. The temp directory is made on the first download and deleted on
+  shutdown; the index is in memory only. The newest 50 downloads are kept;
+  an older one is canceled or deleted. On Linux `/tmp` is often in memory,
+  so large downloads use RAM until saved elsewhere.
 
 ## Limits
 
