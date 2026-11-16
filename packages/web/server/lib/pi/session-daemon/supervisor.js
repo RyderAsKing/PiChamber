@@ -234,6 +234,10 @@ export const createPiSessionDaemonSupervisor = ({
   port,
   runtime,
   version,
+  // Runs after every successful health probe, before the request it precedes.
+  // `request` talks to that verified daemon directly. Errors are swallowed:
+  // the hook must never fail the caller's request.
+  onDaemonReady,
 } = {}) => {
   const paths = resolvePiSessionDaemonPaths({ env, dataDir, platform, profile, port, runtime, version });
   const serverPid = processLike.pid;
@@ -646,9 +650,24 @@ export const createPiSessionDaemonSupervisor = ({
     return { credential, ready: await probe(credential) };
   };
 
+  const ensureReadyAndNotify = async () => {
+    const ready = await ensureReady();
+    if (typeof onDaemonReady === 'function') {
+      try {
+        await onDaemonReady({
+          health: ready.ready.health,
+          request: (command, payload) => request({ endpoint: paths.endpoint, credential: ready.credential, command, payload }),
+        });
+      } catch {
+        // See onDaemonReady above.
+      }
+    }
+    return ready;
+  };
+
   const requestDaemon = async (command, payload) => {
     try {
-      const { credential } = await ensureReady();
+      const { credential } = await ensureReadyAndNotify();
       return await request({ endpoint: paths.endpoint, credential, command, payload });
     } catch (error) {
       throw new PiSessionDaemonUnavailableError(
@@ -662,7 +681,7 @@ export const createPiSessionDaemonSupervisor = ({
   const subscribe = async ({ sessionId, fromSequence, streamEpoch, onEvent, onError, signal }) => {
     try {
       if (signal?.aborted) return () => {};
-      const { credential } = await ensureReady();
+      const { credential } = await ensureReadyAndNotify();
       if (signal?.aborted) return () => {};
       return await subscribeSessionDaemon({ endpoint: paths.endpoint, credential, sessionId, fromSequence, streamEpoch, onEvent, onError, signal });
     } catch (error) {
@@ -676,7 +695,7 @@ export const createPiSessionDaemonSupervisor = ({
 
   const health = async () => {
     try {
-      const { ready } = await ensureReady();
+      const { ready } = await ensureReadyAndNotify();
       return {
         state: 'ready',
         protocolVersion: PROTOCOL_VERSION,

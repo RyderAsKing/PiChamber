@@ -41,6 +41,7 @@ import {
 import { createExtensionMessageRenderer } from './extension-message-render.js';
 import { normalizeOpenRequestUrl, resolveOpenRequestSession } from './open-request.js';
 import { getBuiltinExtensionFactories } from './builtin-extensions.js';
+import { createPluginHost } from './plugin-host.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
   SESSION_DAEMON_MAX_FRAME_BYTES as MAX_FRAME_BYTES,
@@ -155,7 +156,11 @@ export async function createPiSessionRuntime({ cwd, agentDir = getAgentDir(), se
       cwd: runtimeCwd,
       agentDir: runtimeAgentDir,
       resourceLoaderOptions: {
-        extensionFactories: getBuiltinExtensionFactories(),
+        // PiChamber plugins load after Pi's built-ins (plugin-host.js).
+        extensionFactories: [
+          ...getBuiltinExtensionFactories(),
+          ...(hooks?.pluginExtensionFactories?.() ?? []),
+        ],
       },
     });
 
@@ -236,6 +241,8 @@ export function createSessionDaemon({
   extensionToolRenderer: injectExtensionToolRenderer,
   engines = [],
   extensionMessageRenderer: injectExtensionMessageRenderer,
+  // Configured only by the server through `plugins.configure`.
+  pluginHost = createPluginHost(),
 } = {}) {
   if (!isLocalSessionDaemonEndpoint(endpoint, platform)) {
     throw new SessionDaemonProtocolError('INVALID_ENDPOINT', 'The session daemon endpoint must be local.');
@@ -604,7 +611,7 @@ export function createSessionDaemon({
     cwd: targetCwd,
     agentDir,
     resourceLoaderOptions: {
-      extensionFactories: getBuiltinExtensionFactories(),
+      extensionFactories: [...getBuiltinExtensionFactories(), ...pluginHost.extensionFactories()],
     },
   });
 
@@ -815,6 +822,7 @@ export function createSessionDaemon({
     ?? ((runtimeOptions, runtimeHooks) => createPiSessionRuntime(runtimeOptions, runtimeHooks));
   const createRuntime = (runtimeOptions) => baseCreateRuntime(runtimeOptions, {
     createExtensionBindings: buildExtensionBindings,
+    pluginExtensionFactories: pluginHost.extensionFactories,
   });
 
   const getSessionState = () => runtime
@@ -4423,7 +4431,7 @@ export function createSessionDaemon({
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.draft', 'extensions.palette',
-              'openUrl.publish', 'archive.publish',
+              'openUrl.publish', 'archive.publish', 'plugins.configure',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
             ...(Number.isInteger(healthMetadata.daemonPid) ? { daemonPid: healthMetadata.daemonPid } : {}),
@@ -4590,6 +4598,15 @@ export function createSessionDaemon({
       case 'settings.set': {
         const result = await setPiSettings(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'plugins.configure': {
+        // Private, server-only. A changed enabled set recreates runtimes at
+        // the next safe edge; a state-only change reaches live runtimes
+        // through their `chamber.onStateChange` listeners.
+        const { enabledChanged, plugins } = await pluginHost.configure(message.payload);
+        const deferred = enabledChanged ? await scheduleRuntimeRecreation() : false;
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { plugins, enabledChanged, deferred } });
         return;
       }
       case 'resources.list': {
