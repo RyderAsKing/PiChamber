@@ -275,6 +275,9 @@ export async function startWebUiServer(options = {}) {
   const piRuntimeRoutes = registerPiRuntimeRoutes(app, {
     getPiSessionDaemonRuntime: () => piSessionDaemonRuntime,
     uiSettingsStore,
+    onSessionDeleted: async (sessionId) => {
+      if (await pluginService.forgetSession(sessionId)) pluginDaemonSync.changed();
+    },
   });
   registerPluginRoutes(app, { service: pluginService, onChange: pluginDaemonSync.changed });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).

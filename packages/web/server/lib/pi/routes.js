@@ -1172,6 +1172,9 @@ export const registerPiRuntimeRoutes = (app, {
   smallModelGenerator = async (input) => (await import('./small-model-generation.js')).generateWithSmallModel(input),
   eventHeartbeatMs = 15_000,
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
+  // Called with the id after a session is deleted, for PiChamber state kept
+  // per session elsewhere (plugin switches). Must not throw.
+  onSessionDeleted = () => {},
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
   // Tell every device an archive mark changed (a `session.archive` event on
@@ -2093,6 +2096,11 @@ export const registerPiRuntimeRoutes = (app, {
       await sessionShelfStore.remove(req.params.sessionId);
     } catch (error) {
       console.warn('[pi] could not remove a deleted session from the shelf', error?.code ?? error);
+    }
+    try {
+      await onSessionDeleted(req.params.sessionId);
+    } catch (error) {
+      console.warn('[pi] could not drop a deleted session\'s plugin switches', error?.code ?? error);
     }
     res.status(204).end();
   });

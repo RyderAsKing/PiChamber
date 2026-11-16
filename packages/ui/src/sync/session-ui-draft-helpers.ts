@@ -384,6 +384,18 @@ export async function materializeOpenDraftSession(
     store.setCurrentSession(created.id, createdDirectory);
   }
 
+  // Composer plugin switches flipped in the draft belong to this session.
+  // Awaited, so the first prompt runs with them; a failed write is reported
+  // and the session follows Settings for that switch.
+  if (draft.id) {
+    try {
+      const { applyDraftSwitches } = await import('@/plugins/sessionStore');
+      await applyDraftSwitches(draft.id, created.id);
+    } catch (error) {
+      console.warn('Failed to apply draft plugin switches to new session:', error);
+    }
+  }
+
   if (draftPermissionAutoAcceptEnabled) {
     void import('@/stores/permissionStore')
       .then(({ usePermissionStore }) =>

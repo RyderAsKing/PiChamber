@@ -1637,7 +1637,9 @@ describe('Pi runtime route', () => {
     };
     const app = express();
     app.use(express.json());
-    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) }, sessionShelfStore });
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime, archiveStore: { read: async () => ({}) }, sessionShelfStore,
+      onSessionDeleted: async (sessionId) => { calls.push({ command: 'onSessionDeleted', payload: sessionId }); },
+    });
     server = await listen(app);
     const origin = `http://127.0.0.1:${server.address().port}`;
     const post = (path, body) => fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -1664,6 +1666,7 @@ describe('Pi runtime route', () => {
     ]);
     expect((await fetch(`${origin}/api/pi/sessions/pi-session-7`, { method: 'DELETE' })).status).toBe(204);
     expect(calls).toContainEqual({ command: 'shelf.remove', payload: 'pi-session-7' });
+    expect(calls).toContainEqual({ command: 'onSessionDeleted', payload: 'pi-session-7' });
   });
 
   it('maps a settled shelf write from an older client to an archive, and accepts active or null as no-ops', async () => {
