@@ -53,12 +53,17 @@ const sseReader = (response) => {
   const decoder = new TextDecoder();
   let buffer = '';
   const frames = [];
+  // One read stays pending across timeouts: a read abandoned after a
+  // timeout would still take the next chunk and drop it.
+  let pending = null;
   return {
     frames,
     async until(predicate, limit = 50) {
       for (let i = 0; i < limit && !predicate(frames); i += 1) {
-        const next = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r({ timeout: true }), 200))]);
+        pending ??= reader.read();
+        const next = await Promise.race([pending, new Promise((r) => setTimeout(() => r({ timeout: true }), 200))]);
         if (next.timeout) continue;
+        pending = null;
         if (next.done) break;
         buffer += decoder.decode(next.value);
         let end = buffer.indexOf('\n\n');

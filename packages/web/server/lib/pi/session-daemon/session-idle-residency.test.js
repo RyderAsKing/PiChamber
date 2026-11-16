@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import { createSessionDaemon as createSessionDaemonImpl } from './session-daemon.js';
+import { resolveSessionLeaseFile } from './session-lease.js';
 
 const credential = 'a-private-daemon-credential';
 
@@ -805,6 +806,41 @@ describe('Pi session daemon idle residency', () => {
     const errorFrame = client.waitForMessage((message) => message.kind === 'error');
     client.socket.write(`${JSON.stringify({ protocolVersion: 1, kind: 'request', requestId: 'bad-release', command: 'sessions.release', payload: { directories: ['relative'] } })}\n`);
     await expect(errorFrame).resolves.toMatchObject({ error: { code: 'INVALID_ARGUMENT' } });
+  });
+  it('keeps a released session pending while its lease could not be released', async () => {
+    const root = await createTemporaryRoot('pichamber-pi-daemon-release-lease-');
+    const endpoint = testDaemonEndpoint(root);
+    const file = { id: 'leased-one', path: join(root, 'leased.jsonl'), cwd: root };
+    await writeFile(file.path, createSessionHeaderLine(file.id, file.cwd));
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      idleTimeoutMs: 60_000,
+      profileKey: 'profile-a',
+      daemonId: 'daemon-a',
+      serverInstanceId: 'server-a',
+      listSessions: async () => [file],
+      createRuntime: async () => new FakeRuntime({ cwd: root, session: new FakeSession(file.id, file.path) }),
+    });
+    await daemon.start();
+    const client = await connectAuthenticatedClient(endpoint);
+    await openSession(client, file.id, root);
+    const lease = resolveSessionLeaseFile({ agentDir: root, cwd: root, sessionId: file.id }).file;
+    const held = await readFile(lease, 'utf8');
+
+    // The lease cannot be read, so it cannot be released: the session is
+    // gone from this daemon but no other daemon may take it yet.
+    await writeFile(lease, '{');
+    const first = await client.request('sessions.release', { directories: [root] });
+    expect(first.result).toMatchObject({ released: [], pending: [{ sessionId: file.id, directory: root }] });
+
+    await writeFile(lease, held);
+    const second = await client.request('sessions.release', { directories: [root] });
+    expect(second.result).toMatchObject({ released: [{ sessionId: file.id, directory: root }], pending: [] });
+    await expect(stat(lease)).rejects.toMatchObject({ code: 'ENOENT' });
+    const third = await client.request('sessions.release', { directories: [root] });
+    expect(third.result).toMatchObject({ released: [], pending: [] });
   });
 });
 

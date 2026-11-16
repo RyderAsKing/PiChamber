@@ -44,7 +44,13 @@ export const createTrustAskStore = ({ dataDir, file = trustAskFile(dataDir) }) =
     const run = queue.then(async () => {
       const current = await read();
       const next = change(current);
-      if (next !== current) await write(next.slice(-MAX_DIRECTORIES));
+      if (next === current) return;
+      // A full list refuses new folders instead of forgetting old ones:
+      // a forgotten folder would be trusted again without being asked.
+      if (next.length > MAX_DIRECTORIES && next.length > current.length) {
+        throw Object.assign(new Error('The trust-ask list is full.'), { code: 'TRUST_ASK_FULL' });
+      }
+      await write(next);
     });
     queue = run.catch(() => {});
     return run;

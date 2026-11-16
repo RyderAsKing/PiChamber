@@ -1510,7 +1510,10 @@ const ensurePiChamberProjectId = async (primaryWorktree) => {
   const gitDir = path.join(primaryWorktree, '.git');
   const idFile = path.join(gitDir, 'pichamber');
   const existing = await fsp.readFile(idFile, 'utf8').then((value) => value.trim()).catch(() => '');
-  if (existing) {
+  // The id names a folder under the data directory, and an agent working in
+  // the repository can write this file: only a commit hash is taken from it.
+  // Anything else is replaced by the id derived below.
+  if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(existing)) {
     return existing;
   }
 

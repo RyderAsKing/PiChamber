@@ -14,6 +14,10 @@ import { requestSessionDaemon, SessionDaemonClientError, subscribeSessionDaemon 
 const PROTOCOL_VERSION = 1;
 const OPERATION_TIMEOUT_MS = 5_000;
 const DAEMON_READY_TIMEOUT_MS = 15_000;
+// A sandbox daemon starts the same Node process behind nono's setup and its
+// network proxy. On a slow machine two of them starting together took over
+// 15 s; the start still fails closed, it only waits longer.
+const SANDBOX_DAEMON_READY_TIMEOUT_MS = 45_000;
 const RETRY_DELAY_MS = 100;
 // Linux sun_path holds 108 bytes including the terminating NUL.
 const MAX_UNIX_SOCKET_PATH_BYTES = 107;
@@ -566,6 +570,9 @@ export const createPiSessionDaemonSupervisor = ({
         ...(paths.agentDir ? ['--agent-dir', paths.agentDir] : []),
         ...(leaseAgentDir ? ['--lease-agent-dir', leaseAgentDir] : []),
         ...(paths.openUrlSocket ? ['--open-url-socket', paths.openUrlSocket] : []),
+        // A daemon started without a launcher is the main daemon: it must
+        // stay out of the folders sandbox daemons own.
+        ...(launch ? [] : ['--sandboxed-folders-file', join(paths.piDataDir, 'sandboxed-folders.json')]),
       ];
       let childEnv = buildSessionDaemonChildEnv({
         env,
@@ -777,6 +784,7 @@ export const createSandboxedPiSessionDaemonSupervisor = async ({
   // socket; sandbox daemons always use their own per-profile socket.
   const { PICHAMBER_PI_SESSION_DAEMON_ENDPOINT: _sharedEndpoint, ...ownEnv } = env;
   const supervisor = createPiSessionDaemonSupervisor({
+    daemonReadyTimeoutMs: SANDBOX_DAEMON_READY_TIMEOUT_MS,
     ...options,
     env: { ...ownEnv, PICHAMBER_PI_AGENT_DIR: sandbox.agentDir },
     cwd: sandbox.cwd,

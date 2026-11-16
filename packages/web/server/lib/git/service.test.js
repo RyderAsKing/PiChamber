@@ -622,6 +622,49 @@ describe('worktree root resolution', () => {
 // ---------------------------------------------------------------------------
 
 describe('createWorktree', () => {
+  it('takes only a commit hash from the repository id file, so worktrees stay under the data folder', async () => {
+    if (!canRunGit()) return;
+
+    const previousPiChamberDataDir = process.env.PICHAMBER_DATA_DIR;
+    const dataHome = createTempDir();
+    process.env.PICHAMBER_DATA_DIR = dataHome;
+    try {
+      const repo = createTempDir();
+      runGit(repo, ['init', '-b', 'main']);
+      runGit(repo, ['config', 'user.email', 'test@example.com']);
+      runGit(repo, ['config', 'user.name', 'Test User']);
+      fs.writeFileSync(path.join(repo, 'README.md'), '# Test\n');
+      runGit(repo, ['add', 'README.md']);
+      runGit(repo, ['commit', '-m', 'Initial commit']);
+      const rootCommit = runGit(repo, ['rev-list', '--max-parents=0', 'HEAD']).trim();
+      // Something working in the repository pointed the id out of the data folder.
+      const idFile = path.join(repo, '.git', 'pichamber');
+      fs.writeFileSync(idFile, '../../escape');
+
+      const created = await createWorktree(repo, {
+        mode: 'new',
+        branchName: 'feature/id-check',
+        worktreeName: 'id-check',
+        returnAfterDirectoryCreated: true,
+      });
+
+      const worktreeRoot = path.join(fs.realpathSync(dataHome), 'worktree', rootCommit);
+      expect(fs.realpathSync(created.path).startsWith(`${worktreeRoot}${path.sep}`)).toBe(true);
+      expect(fs.existsSync(path.join(dataHome, 'escape'))).toBe(false);
+      expect(fs.readFileSync(idFile, 'utf8')).toBe(rootCommit);
+      await expect.poll(
+        async () => (await getWorktreeBootstrapStatus(created.path)).phase,
+        { timeout: 5_000 },
+      ).toBe('setup-ready');
+    } finally {
+      if (previousPiChamberDataDir === undefined) {
+        delete process.env.PICHAMBER_DATA_DIR;
+      } else {
+        process.env.PICHAMBER_DATA_DIR = previousPiChamberDataDir;
+      }
+    }
+  });
+
   it('returns ready/setup-ready when no bootstrap state is recorded', async () => {
     const directory = path.join(createTempDir(), 'missing-worktree');
 

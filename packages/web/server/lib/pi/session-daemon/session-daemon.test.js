@@ -1165,6 +1165,83 @@ describe('Pi session daemon spike', () => {
     await client.close();
   });
 
+  it('answers provider questions for sandboxes without starting a runtime in a sandboxed folder', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-exclude-'));
+    const agentDir = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-hosts-agent-'));
+    const endpoint = testDaemonEndpoint(root);
+    const started = [];
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      // The daemon's own folder is a sandboxed project.
+      cwd: root,
+      agentDir,
+      createRuntime: async (options) => {
+        started.push(options.cwd);
+        const session = new FakeSession(`pi-session-${started.length}`);
+        session.modelRuntime.getModels = () => [{ provider: 'anthropic', id: 'a', baseUrl: 'https://api.anthropic.com' }];
+        session.modelRuntime.getProviderAuthStatus = () => ({ configured: true });
+        session.modelRuntime.getProviders = () => [];
+        return new FakeRuntime({ cwd: options.cwd, session });
+      },
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    await expect(client.request('providers.hosts', { exclude: [root] })).resolves.toMatchObject({ result: { hosts: ['api.anthropic.com'] } });
+    await expect(client.request('providers.oauth.refresh', { minValidityMs: 0, exclude: [root] })).resolves.toMatchObject({ result: { checked: 0, failed: [] } });
+    expect(started).toEqual([agentDir]);
+    await client.close();
+  });
+
+  it('never starts a runtime in a folder a sandbox daemon owns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-folder-'));
+    const other = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-other-'));
+    const agentDir = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-sandboxed-agent-'));
+    const endpoint = testDaemonEndpoint(other);
+    const started = [];
+    let sandboxed = false;
+    daemon = createSessionDaemon({
+      endpoint,
+      credential,
+      cwd: root,
+      agentDir,
+      isSandboxedDirectory: (directory) => sandboxed && (directory === root || directory.startsWith(`${root}/`)),
+      createRuntime: async (options) => {
+        started.push(options.cwd);
+        const session = new FakeSession(`pi-session-${started.length}`);
+        session.modelRuntime.getModels = () => [];
+        session.modelRuntime.getProviders = () => [];
+        return new FakeRuntime({ cwd: options.cwd, session });
+      },
+      listSessions: async () => [],
+    });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+    // The user selected the project, then turned its sandbox on.
+    await client.request('projects.select', { directory: root });
+    sandboxed = true;
+    // A request without a folder is answered from outside the project.
+    await client.request('providers.list');
+    await client.request('extensions.list', { directory: root });
+    await client.request('providers.refresh', { directory: root });
+    expect(started).toEqual([agentDir]);
+    // A session in the project is the sandbox daemon's to run.
+    // (The test client drops its connection on an error frame.)
+    await expect(client.request('sessions.create', { cwd: root })).rejects.toThrow('Daemon connection closed');
+    expect(started).toEqual([agentDir]);
+    // Other folders are unaffected, and so is the project once it is off.
+    const next = connectClient(endpoint);
+    await next.authenticate();
+    await next.request('sessions.create', { cwd: other });
+    sandboxed = false;
+    await next.request('sessions.create', { cwd: root });
+    expect(started).toEqual([agentDir, other, root]);
+    await next.close();
+  });
+
   it('refreshes OAuth tokens near expiry for sandbox daemons, reporting only provider ids that failed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-pi-daemon-oauth-'));
     const endpoint = testDaemonEndpoint(root);

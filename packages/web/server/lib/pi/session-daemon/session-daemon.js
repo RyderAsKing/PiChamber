@@ -228,6 +228,9 @@ export function createSessionDaemon({
   // Folders whose trust a server reset to "ask" when their sandbox was
   // turned off (../sandbox/trust-ask.js): never trusted automatically.
   isTrustAskDirectory = createTrustAskReader({ dataDir: resolvePiChamberDataDir() }),
+  // Folders a sandbox daemon owns (../sandbox/sandboxed-folders.js). Only
+  // the main daemon is given the check: it never starts a runtime in one.
+  isSandboxedDirectory = () => false,
   modelConfigStore = createPiModelConfigStore({ file: join(agentDir, 'models.json') }),
   renamePersistedSession = ({ sessionFile, title, cwd: sessionCwd = cwd, agentDir: sessionAgentDir = agentDir }) => {
     const manager = SessionManager.open(sessionFile, getPiSessionDirectory({ cwd: sessionCwd, agentDir: sessionAgentDir }), sessionCwd);
@@ -300,15 +303,24 @@ export function createSessionDaemon({
     if (!result.acquired) {
       throw new SessionDaemonProtocolError('SESSION_IN_USE', 'Another PiChamber instance is currently using this session.');
     }
+    unreleasedLeases.delete(sessionId);
   };
+  // Leases this daemon still holds for sessions it no longer runs, because
+  // releasing them failed. While this daemon lives, such a lease keeps every
+  // other daemon out of the session, so `sessions.release` retries it and
+  // reports the session as pending until it is gone.
+  const unreleasedLeases = new Map();
   const releaseResidentLease = async ({ cwd: leaseCwd, sessionId }) => {
     const owner = leaseOwner();
     if (!owner || typeof sessionId !== 'string' || sessionId.length === 0) return { released: false };
     try {
-      return await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
+      const result = await releaseSessionLease({ agentDir: leaseAgentDir, cwd: leaseCwd, sessionId, owner });
+      unreleasedLeases.delete(sessionId);
+      return result;
     } catch {
       // Lease release is best-effort; a stale lease is reclaimable by the
       // next owner once this daemon pid is dead.
+      unreleasedLeases.set(sessionId, { cwd: leaseCwd, sessionId });
       return { released: false };
     }
   };
@@ -334,6 +346,19 @@ export function createSessionDaemon({
   let stopping = false;
   const knownDirectories = new Set([cwd]);
   let activeDirectory = cwd;
+  // The folder a request without one is answered for. While the active
+  // folder (or the startup folder) belongs to a sandbox daemon, this daemon
+  // answers from a folder outside every sandbox instead: starting a runtime
+  // in the project would load its extensions outside its sandbox.
+  const neutralDirectory = () => [cwd, agentDir].find((directory) => typeof directory === 'string'
+    && directory.length > 0 && !isSandboxedDirectory(directory)) ?? agentDir;
+  const outsideSandbox = (directory) => (isSandboxedDirectory(directory) ? neutralDirectory() : directory);
+  const defaultDirectory = () => outsideSandbox(activeDirectory || cwd);
+  const refuseSandboxedRuntime = (directory) => {
+    if (isSandboxedDirectory(directory)) {
+      throw new SessionDaemonProtocolError('DIRECTORY_SANDBOXED', 'The folder belongs to a sandboxed project.');
+    }
+  };
   const clients = new Set();
   // A reconnect replays only a contiguous retained suffix; otherwise it receives
   // a new authoritative snapshot before later events can arrive. The suffix is
@@ -486,7 +511,7 @@ export function createSessionDaemon({
 
   const skillReadClassifierFor = (activeRuntime, directory) => {
     if (!activeRuntime || typeof activeRuntime !== 'object') return undefined;
-    const classifierCwd = activeRuntime.cwd || directory || activeDirectory || cwd;
+    const classifierCwd = activeRuntime.cwd || directory || defaultDirectory();
     const cached = skillReadClassifierByRuntime.get(activeRuntime);
     if (cached?.cwd === classifierCwd) return cached.classifier;
     const loader = activeRuntime.services?.resourceLoader;
@@ -565,7 +590,7 @@ export function createSessionDaemon({
       } catch {}
       return validated;
     }
-    return activeDirectory || cwd;
+    return defaultDirectory();
   };
 
   // Listing or deleting a folder's sessions reads Pi's session store, not the
@@ -574,7 +599,7 @@ export function createSessionDaemon({
   // still be a directory, and opening or creating a session keeps the strict
   // check in `resolveDirectory`.
   const resolveSessionStoreDirectory = async (requested) => {
-    if (typeof requested !== 'string' || requested.trim().length === 0) return activeDirectory || cwd;
+    if (typeof requested !== 'string' || requested.trim().length === 0) return defaultDirectory();
     const trimmed = requested.trim();
     const normalized = trimmed === '~' ? homedir() : trimmed;
     if (!isAbsolute(normalized)) {
@@ -613,8 +638,8 @@ export function createSessionDaemon({
   // no watchers, intervals, or listeners), so dropping the reference lets GC
   // reclaim it. Retaining them only grew the daemon and fanned provider
   // refreshes out to orphan ModelRuntimes whose catalogs are never read.
-  const createFreshPromptServices = async (targetCwd = activeDirectory || cwd) => injectCreateServices({
-    cwd: targetCwd,
+  const createFreshPromptServices = async (targetCwd = defaultDirectory()) => injectCreateServices({
+    cwd: outsideSandbox(targetCwd),
     agentDir,
     resourceLoaderOptions: {
       extensionFactories: getBuiltinExtensionFactories(),
@@ -626,7 +651,7 @@ export function createSessionDaemon({
   let lastPublishedSession = null;
   const publish = (event, payload, sessionId = runtime?.session?.sessionId, directory) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) return;
-    const targetDirectory = directory || activeDirectory || cwd;
+    const targetDirectory = directory || defaultDirectory();
     const message = {
       protocolVersion: PROTOCOL_VERSION,
       kind: 'event',
@@ -660,7 +685,7 @@ export function createSessionDaemon({
       event,
       streamEpoch,
       sequence: ++sequence,
-      payload: { sessionId, directory: directory || activeDirectory || cwd, ...payload },
+      payload: { sessionId, directory: directory || defaultDirectory(), ...payload },
     };
     const line = `${JSON.stringify(message)}\n`;
     for (const client of clients) writeLine(client, line);
@@ -723,7 +748,7 @@ export function createSessionDaemon({
     pendingInput,
     agentDir,
     theme: extensionTheme,
-    directoryForSession: (sessionId) => findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd,
+    directoryForSession: (sessionId) => findRuntimeForSession(sessionId)?.cwd || defaultDirectory(),
     redactLine: (line) => redactAttachmentPaths(line),
     describeOrigin: describeCustomOrigin,
     openerClientFor: (sessionId) => promptClientBySession.get(sessionId),
@@ -743,7 +768,7 @@ export function createSessionDaemon({
     redactAttachmentValues: (value) => redactAttachmentValues(value),
     findRuntimeBySessionId: (sessionId) => runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined),
-    getDefaultDirectory: () => activeDirectory || cwd,
+    getDefaultDirectory: () => defaultDirectory(),
     getSequence: () => sequence,
     protocolError: (code, message) => new SessionDaemonProtocolError(code, message),
     renderExtensionMessage: (session, message) => extensionMessageRenderer.renderMessage(session, message),
@@ -797,7 +822,7 @@ export function createSessionDaemon({
         event: 'extension.custom.frame',
         streamEpoch,
         sequence: ++sequence,
-        payload: { sessionId, directory: findRuntimeForSession(sessionId)?.cwd || activeDirectory || cwd, ...payload },
+        payload: { sessionId, directory: findRuntimeForSession(sessionId)?.cwd || defaultDirectory(), ...payload },
       });
     }
   };
@@ -864,7 +889,7 @@ export function createSessionDaemon({
     dormantSession = {
       sessionId,
       sessionFile,
-      cwd: runtime.cwd || activeDirectory || cwd,
+      cwd: runtime.cwd || defaultDirectory(),
     };
   };
 
@@ -889,7 +914,7 @@ export function createSessionDaemon({
     const activeSession = targetRuntime?.session || runtime?.session;
     const retry = session.sessionId ? retryStateBySession.get(session.sessionId) : undefined;
     const compaction = compactionStateFor(activeSession);
-    const targetDirectory = targetRuntime?.cwd || activeDirectory || cwd;
+    const targetDirectory = targetRuntime?.cwd || defaultDirectory();
     const lastAssistant = activeSession ? projectLatestAssistantMessage(targetRuntime || runtime) : undefined;
     const model = activeSession?.model;
     const snapshotSequence = ++sequence;
@@ -1006,14 +1031,14 @@ export function createSessionDaemon({
     try {
       for (const tracked of runtimeRegistry?.listAll?.() ?? []) {
         if (typeof tracked?.session?.sessionId === 'string') {
-          leased.push({ cwd: tracked.cwd || activeDirectory || cwd, sessionId: tracked.session.sessionId });
+          leased.push({ cwd: tracked.cwd || defaultDirectory(), sessionId: tracked.session.sessionId });
         }
       }
     } catch {
       // Registry enumeration must never block teardown.
     }
     if (runtime && typeof runtime.session?.sessionId === 'string') {
-      leased.push({ cwd: runtime.cwd || activeDirectory || cwd, sessionId: runtime.session.sessionId });
+      leased.push({ cwd: runtime.cwd || defaultDirectory(), sessionId: runtime.session.sessionId });
     }
     if (runtimeRegistry) {
       const hadTrackedRuntime = runtimeRegistry.size > 0;
@@ -1029,7 +1054,7 @@ export function createSessionDaemon({
     }
   };
 
-  const startRuntime = async ({ cwd: runtimeCwd = activeDirectory || cwd, sessionFile, activate = true } = {}) => {
+  const startRuntime = async ({ cwd: runtimeCwd = defaultDirectory(), sessionFile, activate = true } = {}) => {
     if (sessionFile) await validatePiSessionJsonlFile(sessionFile);
     const canonicalRuntimeCwd = sessionFile && dormantSession?.cwd
       ? dormantSession.cwd
@@ -1039,6 +1064,7 @@ export function createSessionDaemon({
     }
     let newRuntime;
     try {
+      refuseSandboxedRuntime(canonicalRuntimeCwd);
       newRuntime = await createRuntime({ cwd: canonicalRuntimeCwd, agentDir, ...(sessionFile ? { sessionFile } : {}) });
     } catch (error) {
       if (sessionFile && dormantSession?.sessionId) {
@@ -1076,7 +1102,7 @@ export function createSessionDaemon({
     return newRuntime;
   };
 
-  const ensureRuntime = (targetCwd = activeDirectory || cwd) => {
+  const ensureRuntime = (targetCwd = defaultDirectory()) => {
     const requestedCwd = resolve(targetCwd);
     // Runtime state is owned per working directory. A request that names a
     // directory is answered by a runtime resident in that directory, never by
@@ -1102,7 +1128,7 @@ export function createSessionDaemon({
         // runtime, adopts what it starts. After idle disposal clears `runtime`,
         // `activeDirectory` still names the user's project, so reading another
         // project's catalog leaves that project and its dormant session intact.
-        activate: !runtime && requestedCwd === resolve(activeDirectory || cwd),
+        activate: !runtime && requestedCwd === resolve(defaultDirectory()),
       }).finally(() => {
         if (runtimeStartPromises.get(requestedCwd) === pendingStart) {
           runtimeStartPromises.delete(requestedCwd);
@@ -1234,7 +1260,7 @@ export function createSessionDaemon({
         ? (runtimeRegistry?.listAll?.() ?? [])
         : (runtimeRegistry?.listByDirectory?.(targetDir) ?? [])
     );
-    if (runtime && (affectsGlobal || resolve(runtime.cwd || activeDirectory || cwd) === resolve(targetDir))) {
+    if (runtime && (affectsGlobal || resolve(runtime.cwd || defaultDirectory()) === resolve(targetDir))) {
       candidates.add(runtime);
     }
     await Promise.all([...candidates].map(async (targetRuntime) => {
@@ -1301,7 +1327,7 @@ export function createSessionDaemon({
       } catch {
         assignedSessionFile = undefined;
       }
-      const targetCwd = targetRuntime.cwd || activeDirectory || cwd;
+      const targetCwd = targetRuntime.cwd || defaultDirectory();
       try {
         if (targetRuntime === runtime) rememberRuntimeSession();
         // Kept for safety: while a hosted input request is pending the idle
@@ -1388,8 +1414,16 @@ export function createSessionDaemon({
       if (!isValidIdleSessionId(sessionId) || !directory || !owns(directory)) continue;
       releaseRequestedBySession.add(sessionId);
       await disposeIdleSessionRuntime(sessionId);
-      if (runtimeRegistry.findBySessionId(sessionId) === target) pending.push({ sessionId, directory });
+      if (runtimeRegistry.findBySessionId(sessionId) === target || unreleasedLeases.has(sessionId)) pending.push({ sessionId, directory });
       else released.push({ sessionId, directory });
+    }
+    // Sessions disposed earlier whose lease could not be released then.
+    for (const lease of [...unreleasedLeases.values()]) {
+      const directory = typeof lease.cwd === 'string' && lease.cwd.length > 0 ? resolve(lease.cwd) : null;
+      if (!directory || !owns(directory) || runtimeRegistry?.findBySessionId(lease.sessionId)) continue;
+      if (released.some((item) => item.sessionId === lease.sessionId) || pending.some((item) => item.sessionId === lease.sessionId)) continue;
+      await releaseResidentLease(lease);
+      (unreleasedLeases.has(lease.sessionId) ? pending : released).push({ sessionId: lease.sessionId, directory });
     }
     return { released, pending, streamEpoch };
   };
@@ -1609,7 +1643,7 @@ export function createSessionDaemon({
     }
     const sessionId = payload.sessionId;
     const title = payload.title.trim();
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const activeRuntime = runtimeRegistry?.get({ cwd: targetDir, sessionId })
       || runtimeRegistry?.findBySessionId(sessionId)
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
@@ -1636,11 +1670,13 @@ export function createSessionDaemon({
 
   // Deletion passes `allowRemovedDirectory`: a session whose folder has since
   // been removed is still found in the store. Opening keeps the strict check.
-  const findPersistedSession = async (sessionId, requestedDirectory, { allowRemovedDirectory = false } = {}) => {
+  const findPersistedSession = async (sessionId, requestedDirectory, { allowRemovedDirectory = false, readOnly = false } = {}) => {
     if (typeof sessionId !== 'string' || sessionId.length === 0) {
       throw new SessionDaemonProtocolError('INVALID_SESSION', 'The Pi session does not exist.');
     }
-    const resolve = allowRemovedDirectory ? resolveSessionStoreDirectory : resolveDirectory;
+    // A read-only lookup only checks the folder: `resolveDirectory` also
+    // records it and may trust it, which a transcript read must not do.
+    const resolve = allowRemovedDirectory ? resolveSessionStoreDirectory : (readOnly ? validateDirectoryPath : resolveDirectory);
     const candidateDirs = new Set();
     let requestedTargetDirectory;
     if (requestedDirectory) {
@@ -1770,6 +1806,7 @@ export function createSessionDaemon({
     await acquireResidentLease({ cwd: directory, sessionId });
     let newRuntime;
     try {
+      refuseSandboxedRuntime(directory);
       newRuntime = await createRuntime({ cwd: directory, agentDir, sessionFile: target.path });
       if (!newRuntime.cwd) newRuntime.cwd = directory;
       if (newRuntime.session?.sessionId !== sessionId && typeof newRuntime.switchSession === 'function') {
@@ -1877,7 +1914,7 @@ export function createSessionDaemon({
     return undefined;
   };
 
-  const projectMessageEntries = (activeRuntime, targetDir = activeDirectory || cwd) => {
+  const projectMessageEntries = (activeRuntime, targetDir = defaultDirectory()) => {
     const session = activeRuntime?.session;
     // Use the active branch, not the full file. `getEntries()` returns every
     // entry ever written, so a bare `branch()`/`resetLeaf()` would appear to
@@ -2169,7 +2206,7 @@ export function createSessionDaemon({
 
   const projectActiveSession = (
     activeRuntime = runtime,
-    targetDir = activeRuntime?.cwd || activeDirectory || cwd,
+    targetDir = activeRuntime?.cwd || defaultDirectory(),
     pageOptions = {},
   ) => {
     const session = activeRuntime?.session;
@@ -2245,7 +2282,7 @@ export function createSessionDaemon({
    */
   const readPersistedSession = async (payload) => {
     const sessionId = payload?.sessionId;
-    const { target, directory } = await findPersistedSession(sessionId, payload?.directory || payload?.cwd);
+    const { target, directory } = await findPersistedSession(sessionId, payload?.directory || payload?.cwd, { readOnly: true });
     const entries = parseSessionEntries(await readFile(target.path, 'utf8'));
     const header = entries[0];
     const createdAt = Date.parse(header?.timestamp);
@@ -2306,6 +2343,7 @@ export function createSessionDaemon({
         onSessionEvent: ({ cwd: eventCwd, sessionId: eventSessionId }, event) => publishSessionEvent(eventSessionId, event, eventCwd),
       });
     }
+    refuseSandboxedRuntime(targetCwd);
     const newRuntime = await createRuntime({
       cwd: targetCwd,
       agentDir,
@@ -2405,7 +2443,7 @@ export function createSessionDaemon({
     } catch {
       // A failed rebuild stays queued for a later edge; the ensure below retries startup.
     }
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (defaultDirectory());
     const activeRuntime = await ensureRuntime(targetDir);
     const modelRuntime = activeRuntime.session?.modelRuntime;
     const models = modelRuntime?.getModels?.();
@@ -2436,8 +2474,33 @@ export function createSessionDaemon({
   // Host names of signed-in providers' model endpoints: the default network
   // allowlist of a sandboxed project. Loopback hosts are left out; a local
   // model server is allowed per project by port.
-  const listProviderHosts = async () => {
-    const activeRuntime = await ensureRuntime(activeDirectory || cwd);
+  // The runtime that answers a provider question for the server's sandbox
+  // manager. `exclude` names the folders of sandboxed projects: this daemon
+  // must not start (or reopen a dormant session in) a runtime there, since
+  // that would load the project's extensions outside its sandbox. A resident
+  // runtime elsewhere is used as it is; otherwise one starts in the active
+  // folder, or in the agent folder when the active folder is excluded.
+  const providerRuntime = async (exclude) => {
+    if (exclude !== undefined && (!Array.isArray(exclude) || exclude.length > 4096
+      || exclude.some((directory) => typeof directory !== 'string' || !isAbsolute(directory)))) {
+      throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The folders to stay out of are invalid.');
+    }
+    const roots = (exclude ?? []).map((directory) => resolve(directory));
+    if (roots.length === 0) return ensureRuntime(defaultDirectory());
+    const excluded = (directory) => {
+      const target = resolve(directory);
+      return roots.some((root) => target === root || target.startsWith(root.endsWith(sep) ? root : `${root}${sep}`));
+    };
+    const residents = [...(runtime ? [runtime] : []), ...(runtimeRegistry?.listAll?.() ?? [])];
+    const resident = residents.find((candidate) => typeof candidate?.cwd === 'string' && candidate.cwd.length > 0 && !excluded(candidate.cwd));
+    if (resident) return resident;
+    const target = [defaultDirectory(), agentDir].find((directory) => typeof directory === 'string' && directory.length > 0 && !excluded(directory));
+    if (!target) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'No folder outside the sandboxed projects can answer for the providers.');
+    return ensureRuntime(target);
+  };
+
+  const listProviderHosts = async (payload) => {
+    const activeRuntime = await providerRuntime(payload?.exclude);
     const modelRuntime = activeRuntime.session?.modelRuntime;
     const models = modelRuntime?.getModels?.();
     if (!Array.isArray(models)) throw new SessionDaemonProtocolError('PROVIDER_UNAVAILABLE', 'Pi did not provide a model catalog.');
@@ -2473,7 +2536,7 @@ export function createSessionDaemon({
     } catch {
       // A failed rebuild stays queued for a later edge; the catalog refresh below retries startup.
     }
-    const targetDir = resolve(await resolveDirectory(requestedDirectory));
+    const targetDir = outsideSandbox(resolve(await resolveDirectory(requestedDirectory)));
     const existing = refreshProvidersInflight.get(targetDir);
     if (existing) return existing;
     const task = refreshProvidersQueue.then(async () => {
@@ -2700,7 +2763,7 @@ export function createSessionDaemon({
     if (!Number.isSafeInteger(minValidityMs) || minValidityMs < 0 || minValidityMs > 24 * 60 * 60_000) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The OAuth refresh window is invalid.');
     }
-    const activeRuntime = await ensureRuntime();
+    const activeRuntime = await providerRuntime(payload?.exclude);
     const modelRuntime = activeRuntime.session?.modelRuntime;
     const providers = typeof modelRuntime?.getProviders === 'function' ? modelRuntime.getProviders() : [];
     const ids = [...new Set(providers.map((provider) => provider?.id).filter((id) => typeof id === 'string' && id.length > 0))]
@@ -2875,7 +2938,7 @@ export function createSessionDaemon({
   };
 
   const readPiSettings = (requestedDirectory) => {
-    const targetDir = requestedDirectory || activeDirectory || cwd;
+    const targetDir = requestedDirectory || defaultDirectory();
     const trustStore = createTrustStore(agentDir);
     let trust = trustStore.get(targetDir);
     // Auto-trust known PiChamber projects so the skills popup never appears.
@@ -2911,7 +2974,7 @@ export function createSessionDaemon({
     if (!payload || typeof payload !== 'object' || !['global', 'project'].includes(payload.scope)) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi settings request is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const hasModel = Object.hasOwn(payload, 'defaultModel');
     const hasThinking = Object.hasOwn(payload, 'defaultThinking');
     const hasTrust = Object.hasOwn(payload, 'trust');
@@ -2994,7 +3057,8 @@ export function createSessionDaemon({
   }));
 
   const resourceCatalog = async (requestedDirectory) => {
-    const targetDir = requestedDirectory ? await resolveDirectory(requestedDirectory) : (activeDirectory || cwd);
+    // A sandboxed project's own resources are read by its sandbox daemon.
+    const targetDir = outsideSandbox(requestedDirectory ? await resolveDirectory(requestedDirectory) : defaultDirectory());
     // A settings page may be the first caller after a turn settles without a
     // lifecycle event reaching this daemon, so give queued configuration a
     // chance to activate before reading the catalog.
@@ -3129,7 +3193,7 @@ export function createSessionDaemon({
     if (!payload || typeof payload.resourceId !== 'string' || typeof payload.content !== 'string' || payload.content.length > 200_000) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi resource update is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = [...catalog.prompts, ...catalog.agents].find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi resource is not editable.');
@@ -3156,7 +3220,7 @@ export function createSessionDaemon({
     if (payload.location === 'project' && !payload.directory) {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'Project prompt templates require an explicit directory.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const trust = createTrustStore(agentDir).get(targetDir);
     if (payload.location === 'project' && trust !== true) throw new SessionDaemonProtocolError('PROJECT_UNTRUSTED', 'The project is not trusted.');
     const filePath = join(payload.location === 'global' ? agentDir : join(targetDir, '.pi'), 'prompts', `${payload.name}.md`);
@@ -3172,7 +3236,7 @@ export function createSessionDaemon({
 
   const deletePrompt = (payload) => transactResourceMutation(async () => {
     if (!payload || typeof payload.resourceId !== 'string') throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template is invalid.');
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
@@ -3248,7 +3312,7 @@ export function createSessionDaemon({
     if (hasLocation && payload.location !== 'global' && payload.location !== 'project') {
       throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The Pi prompt template location is invalid.');
     }
-    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (activeDirectory || cwd);
+    const targetDir = payload.directory ? await resolveDirectory(payload.directory) : (defaultDirectory());
     const catalog = await resourceCatalog(targetDir);
     const resource = catalog.prompts.find((item) => item.id === payload.resourceId && item.editable === true);
     if (!resource?.filePath) throw new SessionDaemonProtocolError('RESOURCE_NOT_FOUND', 'The requested Pi prompt template is not editable.');
@@ -3988,7 +4052,7 @@ export function createSessionDaemon({
         throw new SessionDaemonProtocolError('RUNTIME_DISPOSAL_FAILED', 'The Pi session runtime could not be disposed.');
       }
       const active = runtimeRegistry?.findBySessionId(sessionId);
-      let targetDir = requestedDirectory ? await resolveSessionStoreDirectory(requestedDirectory) : active?.cwd || activeDirectory || cwd;
+      let targetDir = requestedDirectory ? await resolveSessionStoreDirectory(requestedDirectory) : active?.cwd || defaultDirectory();
       const activeSessionFile = active?.session?.sessionManager?.getSessionFile?.();
       if (active) {
         if (active.session?.isStreaming) await active.session.abort();
@@ -4042,7 +4106,7 @@ export function createSessionDaemon({
     }
   };
 
-  const publishSessionEvent = (sessionId, event, directory = activeDirectory || cwd) => {
+  const publishSessionEvent = (sessionId, event, directory = defaultDirectory()) => {
     const owningRuntime = runtimeRegistry?.get({ cwd: directory, sessionId })
       || (runtime?.session?.sessionId === sessionId ? runtime : undefined);
     switch (event.type) {
@@ -4668,7 +4732,7 @@ export function createSessionDaemon({
         return;
       }
       case 'providers.hosts': {
-        const result = await listProviderHosts();
+        const result = await listProviderHosts(message.payload);
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }
@@ -4767,7 +4831,7 @@ export function createSessionDaemon({
           throw new SessionDaemonProtocolError('INVALID_ARGUMENT', 'The terminal colours are invalid.');
         }
         // Pi's theme setting is global; a project's own setting is not read.
-        const settings = createSettingsManager({ cwd: activeDirectory || cwd, agentDir, projectTrusted: false });
+        const settings = createSettingsManager({ cwd: defaultDirectory(), agentDir, projectTrusted: false });
         // Unreadable settings are a failure, not the system theme: the
         // browser keeps PiChamber's colours instead of caching a wrong answer.
         if (settings.drainErrors().length > 0) throw new SessionDaemonProtocolError('PI_SETTINGS_INVALID', 'Pi settings could not be read.');
@@ -4778,7 +4842,7 @@ export function createSessionDaemon({
       }
       case 'extensions.list': {
         const requestedExtensionsDir = message.payload?.directory || message.payload?.cwd;
-        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? await resolveDirectory(requestedExtensionsDir) : undefined);
+        const activeRuntime = await ensureRuntime(requestedExtensionsDir ? outsideSandbox(await resolveDirectory(requestedExtensionsDir)) : undefined);
         const extensionSession = activeRuntime.session;
         const extensionPaths = typeof extensionSession?.extensionRunner?.getExtensionPaths === 'function'
           ? extensionSession.extensionRunner.getExtensionPaths()
@@ -4847,7 +4911,7 @@ export function createSessionDaemon({
         for (const tracked of runtimeRegistry?.listAll?.() ?? []) residentRuntimes.add(tracked);
         const residents = [...residentRuntimes].map((tracked) => ({
           sessionId: tracked?.session?.sessionId,
-          directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (activeDirectory || cwd),
+          directory: typeof tracked?.cwd === 'string' && tracked.cwd.length > 0 ? tracked.cwd : (defaultDirectory()),
           busy: tracked?.session?.isStreaming === true
             || tracked?.session?.isCompacting === true
             || activeSessionInputs.has(tracked),

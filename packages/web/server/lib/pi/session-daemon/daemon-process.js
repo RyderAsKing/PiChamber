@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createSessionDaemon } from './session-daemon.js';
+import { createSandboxedFoldersReader } from '../sandbox/sandboxed-folders.js';
 import { ensureOpenUrlBrowser, watchOpenUrlBrowser } from '../../open-url/browser-env.js';
 import { sessionEngineFactories } from './engines/index.js';
 
@@ -27,6 +28,7 @@ const daemonId = argument('--daemon-id');
 const daemonRuntime = argument('--runtime');
 const buildId = argument('--build-id');
 const openUrlSocket = argument('--open-url-socket');
+const sandboxedFoldersFile = argument('--sandboxed-folders-file');
 const startedAt = new Date().toISOString();
 
 // Pi's built-in MCP extension resolves mcp.json, mcp-auth.json, and mcp.log
@@ -138,6 +140,9 @@ if (!endpoint || !credentialFile || !stateFile || !cwd || !profileKey || !server
       daemonRuntime: daemonRuntime || 'web',
       buildId: buildId || 'unknown',
       healthMetadata: { daemonPid: process.pid },
+      // Only the main daemon is started with the list of folders that
+      // sandbox daemons own; it never starts a runtime in one.
+      ...(sandboxedFoldersFile ? { isSandboxedDirectory: createSandboxedFoldersReader({ file: sandboxedFoldersFile }) } : {}),
       onOwnershipClaim: ({ serverInstanceId: nextServerInstanceId, serverPid: nextServerPid }) => writeReadyState({
         ownerServerInstanceId: nextServerInstanceId,
         ownerServerPid: nextServerPid,

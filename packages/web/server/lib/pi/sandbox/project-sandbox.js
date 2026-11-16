@@ -113,7 +113,25 @@ export const prepareProjectSandbox = async ({
     if (typeof extra?.path !== 'string' || !isAbsolute(extra.path) || !['read', 'readWrite'].includes(extra.access)) {
       throw new SandboxLaunchError('SANDBOX_INVALID_GRANT');
     }
-    if (overlaps(extra.path, dataDir) || overlaps(extra.path, agentDir)) {
+  }
+  // PiChamber's data folder and the Pi agent folder hold credentials, other
+  // projects' state and code the server runs. Nothing granted may reach
+  // them, by name or through a symlink: a grant follows links, and the
+  // agent can replace a folder inside its project with one.
+  const protectedDirs = [...new Set([dataDir, agentDir].flatMap((path) => [resolve(path), realpathOr(path)]))];
+  const spellings = (path) => [...new Set([resolve(path), realpathOr(path)])];
+  for (const extra of extraFolders) {
+    if (spellings(extra.path).some((path) => protectedDirs.some((dir) => overlaps(path, dir)))) {
+      throw new SandboxLaunchError('SANDBOX_GRANT_REFUSED');
+    }
+  }
+  // The project folder is granted read-write as a whole, so it must not
+  // hold either folder (a home folder as a project would), nor sit inside
+  // one, except as a PiChamber worktree.
+  const worktreeBases = spellings(join(dataDir, 'worktree'));
+  for (const root of spellings(projectRoot)) {
+    const inWorktrees = worktreeBases.some((base) => isWithin(base, root) && root !== base);
+    if (protectedDirs.some((dir) => isWithin(root, dir) || (isWithin(dir, root) && !inWorktrees))) {
       throw new SandboxLaunchError('SANDBOX_GRANT_REFUSED');
     }
   }

@@ -55,9 +55,10 @@ const ASAR_SEGMENT = /[\\/][^\\/]+\.asar(?:[\\/]|$)/i;
  */
 const createProfileResolver = ({ profileFile, profileContent, profileHash, stageDir }) => {
   if (!ASAR_SEGMENT.test(profileFile)) return async () => profileFile;
-  let staged = null;
-  return async () => {
-    if (staged) return staged;
+  // One staging at a time: concurrent first launches would share the
+  // temporary file and the second rename would fail. A failure is retried.
+  let staging = null;
+  const stage = async () => {
     if (typeof stageDir !== 'string' || !stageDir.startsWith('/')) {
       throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
     }
@@ -68,11 +69,17 @@ const createProfileResolver = ({ profileFile, profileContent, profileHash, stage
       await writeFile(temporary, profileContent, { mode: 0o600 });
       await chmod(temporary, 0o600);
       await rename(temporary, target);
-      staged = target;
-      return staged;
+      return target;
     } catch {
       throw new SandboxLaunchError('SANDBOX_PROFILE_UNREADABLE');
     }
+  };
+  return () => {
+    staging ??= stage().catch((error) => {
+      staging = null;
+      throw error;
+    });
+    return staging;
   };
 };
 

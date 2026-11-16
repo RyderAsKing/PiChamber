@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import express from 'express';
-import { mkdir, mkdtemp, realpath, rename, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -10,6 +10,8 @@ import { createPiDaemonPool, publicDaemonStreamId } from './session-daemon/daemo
 import { createPiUiSettingsStore } from './ui-settings-store.js';
 import { createProjectSandboxManager } from './sandbox/project-sandbox-manager.js';
 import { createTrustAskStore } from './sandbox/trust-ask.js';
+import { sandboxedFoldersFile } from './sandbox/sandboxed-folders.js';
+import { worktreeIdsFile } from './sandbox/worktree-ids.js';
 import { getPiSessionDirectory } from './session-daemon/session-jsonl.js';
 
 const listen = (app) => new Promise((resolve, reject) => {
@@ -106,7 +108,7 @@ const PI_RUNNING = [
   ['GET', '/api/pi/resources?directory=DIR'],
 ];
 
-const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, idleStopMs = 60_000, agentFiles = {} } = {}) => {
+const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, onStart, idleStopMs = 60_000, agentFiles = {} } = {}) => {
   const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
   const dataDir = join(root, 'data');
   const agentDir = join(root, 'agent');
@@ -160,7 +162,10 @@ const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}
       daemon.sandbox = sandbox;
       daemon.stopped = false;
       daemon.paths = { openUrlSocket: join(root, 'run', `${launched.length}`, 'open-url.sock') };
-      daemon.start = async () => { if (startError) throw daemonError(startError); };
+      daemon.start = async () => {
+        if (startError) throw daemonError(startError);
+        await onStart?.(daemon);
+      };
       daemon.stop = async () => { daemon.stopped = true; };
       launched.push(daemon);
       return daemon;
@@ -236,6 +241,7 @@ describe('Pi routes for sandboxed projects', () => {
         mode: 'nono',
         launcher: 'nono',
         availability: { state: 'available' },
+        choice: 'nono',
         allowHosts: ['registry.npmjs.org'],
         allowLocalPorts: [8080],
         extraFolders: [{ path: join(ctx.root, 'docs'), access: 'read' }],
@@ -381,6 +387,27 @@ describe('Pi routes for sandboxed projects', () => {
     expect(ctx.main.commands()).toEqual(['sessions.release', 'sessions.readPersisted']);
   });
 
+  it('routes by the transcript\'s folder even when the request names another folder, so a wrong hint cannot unsandbox a session', async () => {
+    // The UI sends its current folder; a deep link opened while another
+    // folder is selected names the wrong one. The main daemon would find the
+    // session by id anyway and run its agent outside the sandbox.
+    const ctx = await setup({
+      probe: { available: false, code: 'NOT_INSTALLED' },
+      mainAnswers: { 'sessions.readPersisted': (p) => ({ ...detail(p.sessionId, ctx.projectA), lastSequence: -1, readOnly: true }) },
+    });
+    await ctx.sandboxOn();
+    const sessions = getPiSessionDirectory({ cwd: ctx.projectA, agentDir: ctx.agentDir });
+    await mkdir(sessions, { recursive: true });
+    await writeFile(join(sessions, '2026-01-01_s-9.jsonl'), `${JSON.stringify({ type: 'session', id: 's-9', cwd: ctx.projectA, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+
+    const prompt = await ctx.call(`/api/pi/sessions/s-9/prompt`, { method: 'POST', body: { directory: ctx.projectB, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(prompt.status).toBe(503);
+    expect(await prompt.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'NOT_INSTALLED' } });
+    const opened = await ctx.call(`/api/pi/sessions/s-9?directory=${ctx.projectB}`);
+    expect(await opened.json()).toMatchObject({ readOnly: true, stream: publicDaemonStreamId('sandbox:proj-a') });
+    for (const command of ['sessions.prompt', 'sessions.open']) expect(ctx.main.commands()).not.toContain(command);
+  });
+
   it('stamps a session read routed by its transcript with the sandbox daemon\'s stream', async () => {
     // A daemon answers a directory-less read with the session's own folder.
     let sessionFolder;
@@ -396,6 +423,17 @@ describe('Pi routes for sandboxed projects', () => {
     // Its sequences belong to the sandbox daemon's stream, not the main one.
     expect((await response.json()).stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
     expect(ctx.main.commands()).not.toContain('sessions.open');
+  });
+
+  it('forgets a failed start on Check again, so the project is not left unavailable for a one-off timeout', async () => {
+    const ctx = await setup({ startError: 'DAEMON_START_TIMEOUT' });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
+    const before = await (await ctx.call('/api/pi/sandbox/projects')).json();
+    expect(before.projects[0].availability).toEqual({ state: 'unavailable', reason: 'DAEMON_START_TIMEOUT' });
+    await ctx.call('/api/pi/sandbox/recheck', { method: 'POST' });
+    const after = await (await ctx.call('/api/pi/sandbox/projects')).json();
+    expect(after.projects[0].availability).toEqual({ state: 'available' });
   });
 
   it('reports the launcher status and re-checks it on request, without paths or raw nono output', async () => {
@@ -414,8 +452,8 @@ describe('Pi routes for sandboxed projects', () => {
     const listed = await (await ctx.call('/api/pi/sandbox/projects')).json();
     expect(listed).toEqual({
       projects: [
-        { projectId: 'proj-a', mode: 'nono', launcher: 'nono', availability: { state: 'available' }, allowHosts: [], allowLocalPorts: [], extraFolders: [] },
-        { projectId: 'proj-b', mode: 'off', launcher: null, availability: { state: 'off' }, allowHosts: [], allowLocalPorts: [], extraFolders: [] },
+        { projectId: 'proj-a', mode: 'nono', launcher: 'nono', availability: { state: 'available' }, choice: 'nono', allowHosts: [], allowLocalPorts: [], extraFolders: [] },
+        { projectId: 'proj-b', mode: 'off', launcher: null, availability: { state: 'off' }, choice: 'default', allowHosts: [], allowLocalPorts: [], extraFolders: [] },
       ],
     });
     const body = JSON.stringify(listed);
@@ -424,6 +462,39 @@ describe('Pi routes for sandboxed projects', () => {
     expect((await ctx.sandboxOn('proj-a', { allowLocalPorts: [443] })).status).toBe(400);
     expect((await ctx.sandboxOn('proj-a', { mode: 'docker' })).status).toBe(400);
     expect((await ctx.sandboxOn('missing')).status).toBe(404);
+  });
+
+  it('sandboxes every project that follows the host default, keeps an explicit off off, and adds the shared hosts', async () => {
+    const ctx = await setup();
+    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [] } });
+    await ctx.call('/api/pi/sandbox/projects/proj-b', { method: 'PUT', body: { mode: 'off' } });
+    const saved = await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'nono', allowHosts: ['GitHub.com', 'github.com'] } });
+    expect(saved.status).toBe(200);
+    const body = await saved.json();
+    expect(body.defaults).toEqual({ mode: 'nono', allowHosts: ['github.com'] });
+    expect(body.projects.map((p) => [p.projectId, p.mode, p.choice])).toEqual([['proj-a', 'nono', 'default'], ['proj-b', 'off', 'off']]);
+    // proj-a has no setting of its own, yet runs sandboxed with the shared host.
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.launched).toHaveLength(1);
+    expect(ctx.launched[0].sandbox.network.allowHosts).toContain('github.com');
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    // The project's own hosts add to the shared ones.
+    await ctx.call('/api/pi/sandbox/projects/proj-a', { method: 'PUT', body: { mode: 'default', allowHosts: ['registry.npmjs.org'] } });
+    expect((await (await ctx.call('/api/pi/sandbox/projects')).json()).projects[0]).toMatchObject({ mode: 'nono', choice: 'default', allowHosts: ['registry.npmjs.org'] });
+
+    // Turning the default off unsandboxes only the projects that follow it.
+    await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'off', allowHosts: [] } });
+    expect((await (await ctx.call('/api/pi/sandbox/projects')).json()).projects.map((p) => p.mode)).toEqual(['off', 'off']);
+    expect((await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'default' } })).status).toBe(400);
+  });
+
+  it('keeps the default out of ordinary settings writes, so a client cannot change it that way', async () => {
+    const ctx = await setup();
+    await ctx.uiSettingsStore.write({ sandboxDefaults: { mode: 'nono', allowHosts: [] } });
+    expect(await (await ctx.call('/api/pi/sandbox/defaults')).json()).toEqual({ defaults: { mode: 'off', allowHosts: [] } });
+    await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body: { mode: 'nono', allowHosts: [] } });
+    await ctx.uiSettingsStore.write({ sandboxDefaults: { mode: 'off', allowHosts: [] }, projects: [{ id: 'proj-a', path: ctx.projectA }, { id: 'proj-b', path: ctx.projectB }] });
+    expect((await (await ctx.call('/api/pi/sandbox/defaults')).json()).defaults.mode).toBe('nono');
   });
 
   it('turning a project off routes it back to the main daemon and stops its sandbox daemon', async () => {
@@ -489,11 +560,17 @@ describe('Pi routes for sandboxed projects', () => {
     const reader = events.body.getReader();
     const decoder = new TextDecoder();
     let text = '';
+    // One read stays pending across timeouts, so no chunk is taken by an
+    // abandoned read and lost.
+    let pendingRead = null;
     const readUntil = async (predicate) => {
       for (let i = 0; i < 50 && !predicate(text); i += 1) {
-        const next = await Promise.race([reader.read(), new Promise((r) => setTimeout(() => r({ timeout: true }), 100))]);
+        pendingRead ??= reader.read();
+        const next = await Promise.race([pendingRead, new Promise((r) => setTimeout(() => r({ timeout: true }), 100))]);
+        if (next.timeout) continue;
+        pendingRead = null;
         if (next.done) break;
-        if (!next.timeout) text += decoder.decode(next.value);
+        text += decoder.decode(next.value);
       }
       return text;
     };
@@ -523,6 +600,13 @@ describe('Pi routes for sandboxed projects', () => {
     // The main daemon's subscription is untouched.
     expect(ctx.main.subscriptions.filter((item) => !item.closed)).toHaveLength(1);
     await reader.cancel();
+  });
+
+  it('leaves a provider on the server machine or local network out of the allowed hosts instead of failing the start', async () => {
+    const ctx = await setup({ mainAnswers: { 'providers.hosts': { hosts: ['api.anthropic.com', 'ollama', 'nas.local'] } } });
+    await ctx.sandboxOn();
+    expect((await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`)).status).toBe(200);
+    expect(ctx.launched[0].sandbox.network.allowHosts).toEqual(['api.anthropic.com']);
   });
 
   it('fails a sandbox start closed when the main daemon cannot name the provider hosts', async () => {
@@ -665,6 +749,69 @@ describe('switching a project between daemons', () => {
     expect(moved.session.pendingSwitch).toBeUndefined();
   });
 
+  it('records the trust reset on a later check when the first write fails, without unsetting trust again', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const add = ctx.trustAsk.add;
+    ctx.trustAsk.add = async () => {
+      ctx.trustAsk.add = add;
+      throw new Error('disk full');
+    };
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    expect(await ctx.trustAsk.list()).toEqual([]);
+    const resets = () => ctx.main.calls.filter((c) => c.command === 'settings.set').length;
+    expect(resets()).toBe(2);
+    await ctx.tick(1_000);
+    expect(await ctx.trustAsk.list()).toEqual([ctx.projectA, ctx.worktree]);
+    expect(resets()).toBe(2);
+  });
+
+  it('keeps a draining daemon that holds a busy session through a few failed checks', async () => {
+    let answer = 'busy';
+    const ctx = await setup({
+      sandboxAnswers: {
+        'sessions.release': (p) => {
+          if (answer === 'fail') throw daemonError('DAEMON_TIMEOUT');
+          return answer === 'busy'
+            ? { released: [], pending: [{ sessionId: 's-1', directory: p.directories[0] }], streamEpoch: 'epoch-box' }
+            : { released: [{ sessionId: 's-1', directory: p.directories[0] }], pending: [], streamEpoch: 'epoch-box' };
+        },
+      },
+    });
+    await ctx.sandboxOn();
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    const [box] = ctx.launched;
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    answer = 'fail';
+    for (let i = 0; i < 5; i += 1) await ctx.tick(1_000);
+    expect(box.stopped).toBe(false);
+    answer = 'done';
+    await ctx.tick(1_000);
+    expect(box.stopped).toBe(true);
+  });
+
+  it('refuses a daemon whose setting changed while it was starting, so removed access is not kept', async () => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    let starts = 0;
+    const ctx = await setup({ onStart: () => { starts += 1; return starts === 1 ? gate : undefined; } });
+    await ctx.sandboxOn('proj-a', { allowHosts: ['registry.npmjs.org'] });
+    const first = ctx.call(`/api/pi/sessions/s-1/tree?directory=${ctx.projectA}`);
+    for (let i = 0; i < 100 && starts === 0; i += 1) await new Promise((r) => setTimeout(r, 5));
+    expect(starts).toBe(1);
+    // The host is removed while the daemon that was granted it still starts.
+    await ctx.sandboxOn('proj-a', { allowHosts: [] });
+    release();
+    const refused = await first;
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'SANDBOX_SETTING_CHANGED' } });
+    expect(ctx.launched[0].stopped).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
+    expect(ctx.launched).toHaveLength(2);
+    expect(ctx.launched[1].sandbox.network.allowHosts).toEqual(['api.anthropic.com']);
+    expect(ctx.launched[1].stopped).toBe(false);
+  });
+
   it('an explicit trust decision clears the recorded reset', async () => {
     const ctx = await setup({ mainAnswers: { 'settings.set': { global: {}, project: { trusted: true } } } });
     await ctx.sandboxOn();
@@ -777,9 +924,17 @@ describe('switching a project between daemons', () => {
     await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectA}`);
     expect(ctx.main.commands().filter((c) => ['providers.oauth.refresh', 'providers.hosts'].includes(c)))
       .toEqual(['providers.oauth.refresh', 'providers.hosts']);
-    expect(ctx.main.calls.find((c) => c.command === 'providers.oauth.refresh').payload).toEqual({ minValidityMs: 30 * 60_000 });
+    // Both name the sandboxed folders, so the main daemon starts no runtime there to answer.
+    const exclude = [ctx.projectA, join(ctx.dataDir, 'worktree', ctx.gitId)];
+    // The main daemon also reads them from the server's record before it starts any runtime.
+    expect(JSON.parse(await readFile(sandboxedFoldersFile(ctx.dataDir), 'utf8')).directories).toEqual([...exclude].sort());
+    expect(ctx.main.calls.find((c) => c.command === 'providers.oauth.refresh').payload).toEqual({ minValidityMs: 30 * 60_000, exclude });
+    expect(ctx.main.calls.find((c) => c.command === 'providers.hosts').payload).toEqual({ exclude });
     await ctx.tick(60_000);
     expect(ctx.launched[0].stopped).toBe(false);
+    // Turned off, the project is the main daemon's again.
+    await ctx.sandboxOn('proj-a', { mode: 'off' });
+    expect(JSON.parse(await readFile(sandboxedFoldersFile(ctx.dataDir), 'utf8')).directories).toEqual([]);
   });
 
   it('starts the sandbox anyway when the main daemon cannot refresh OAuth tokens', async () => {
@@ -904,5 +1059,164 @@ describe('switching a project between daemons', () => {
     });
     expect(await response.json()).toEqual({ status: 'accepted', receipt: { messageId: 'm-1' } });
     expect(ctx.launched).toEqual([]);
+  });
+});
+
+describe('keeping a sandboxed project owned', () => {
+  let server;
+  let manager;
+  afterEach(async () => {
+    await manager?.stop();
+    manager = undefined;
+    await close(server);
+    server = undefined;
+  });
+
+  const setup = async (options = {}) => {
+    const built = await buildSandboxRoutes(options);
+    server = built.server;
+    manager = built.manager;
+    return built;
+  };
+
+  const transcript = async (ctx, storedFor, id, headerCwd) => {
+    const sessions = getPiSessionDirectory({ cwd: storedFor, agentDir: ctx.agentDir });
+    await mkdir(sessions, { recursive: true });
+    await writeFile(join(sessions, `2026-01-01_${id}.jsonl`), `${JSON.stringify({ type: 'session', id, cwd: headerCwd, timestamp: '2026-01-01T00:00:00.000Z' })}\n`);
+  };
+
+  it('two saves applied at once leave the project owned by its sandbox', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    // Off then on, overlapping: the last stored setting is on.
+    const [off, on] = await Promise.all([ctx.sandboxOn('proj-a', { mode: 'off' }), ctx.sandboxOn()]);
+    expect([off.status, on.status]).toEqual([200, 200]);
+    expect(ctx.manager.sandboxFor(ctx.projectA)).toEqual({ launcher: 'nono' });
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    expect(ctx.launched.at(-1).commands()).toContain('sessions.prompt');
+  });
+
+  it('routes a transcript stored in a sandboxed project\'s folder to its sandbox even when its header names another folder', async () => {
+    const ctx = await setup({ probe: { available: false, code: 'NOT_INSTALLED' } });
+    await ctx.sandboxOn();
+    // The sandboxed agent can rewrite the header of its own transcript.
+    await transcript(ctx, ctx.projectA, 's-9', ctx.projectB);
+    for (const body of [{ text: 'hi', streamEpoch: 'epoch-1' }, { directory: ctx.projectB, text: 'hi', streamEpoch: 'epoch-1' }]) {
+      const response = await ctx.call('/api/pi/sessions/s-9/prompt', { method: 'POST', body });
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'NOT_INSTALLED' } });
+    }
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+  });
+
+  it('routes a folder spelled with spaces or through a symlink to the project\'s sandbox', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const link = join(ctx.root, 'link-to-a');
+    await symlink(ctx.projectA, link);
+    await ctx.call('/api/pi/sessions', { method: 'POST', body: { cwd: `  ${ctx.projectA}  ` } });
+    await ctx.call('/api/pi/sessions', { method: 'POST', body: { cwd: link } });
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ` ${ctx.projectA}`, text: 'hi', streamEpoch: 'epoch-1' } });
+    const listed = await (await ctx.call(`/api/pi/sessions?directory=${encodeURIComponent(link)}`)).json();
+    // The answer names the sandbox daemon's stream, not the main one.
+    expect(listed.stream).toBe(publicDaemonStreamId('sandbox:proj-a'));
+    await ctx.call(`/api/pi/resources?directory=${encodeURIComponent(`${ctx.projectA} `)}`);
+    for (const command of ['sessions.create', 'sessions.prompt', 'sessions.list', 'resources.list']) {
+      expect(ctx.main.commands()).not.toContain(command);
+    }
+    expect(ctx.launched).toHaveLength(1);
+    expect(ctx.launched[0].commands().filter((command) => command === 'sessions.create')).toHaveLength(2);
+  });
+
+  it('refuses a folder that is not an absolute path while a project is sandboxed', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const created = await ctx.call('/api/pi/sessions', { method: 'POST', body: { cwd: 'code/a' } });
+    expect(created.status).toBe(400);
+    const prompted = await ctx.call('/api/pi/sessions/s-1/prompt', { method: 'POST', body: { directory: './a', text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(prompted.status).toBe(400);
+    expect(ctx.main.commands()).toEqual(['sessions.release']);
+    expect(ctx.launched).toEqual([]);
+  });
+
+  it('takes in the worktrees of a project that had none when it was sandboxed', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn('proj-b');
+    // The Git panel writes the id with the project's first worktree.
+    const id = 'e'.repeat(40);
+    await mkdir(join(ctx.projectB, '.git'), { recursive: true });
+    await writeFile(join(ctx.projectB, '.git', 'pichamber'), id);
+    const added = join(ctx.dataDir, 'worktree', id, 'feature');
+    await mkdir(added, { recursive: true });
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: added, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    expect(ctx.launched).toHaveLength(1);
+    expect(ctx.launched[0].sandbox.grants).toEqual(expect.arrayContaining([{ kind: 'readWrite', path: join(ctx.dataDir, 'worktree', id) }]));
+  });
+
+  it('keeps a project\'s worktrees when its id file is rewritten or deleted', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const other = 'a'.repeat(40);
+    const foreign = join(ctx.dataDir, 'worktree', other, 'x');
+    await mkdir(foreign, { recursive: true });
+    for (const change of [() => writeFile(join(ctx.projectA, '.git', 'pichamber'), other), () => rm(join(ctx.projectA, '.git', 'pichamber'))]) {
+      await change();
+      await ctx.manager.reconcile();
+      expect(ctx.manager.sandboxFor(ctx.worktree)).toEqual({ launcher: 'nono' });
+      // The rewritten id names another project's worktrees; they are not taken.
+      expect(ctx.manager.sandboxFor(foreign)).toBeNull();
+    }
+    // A restart reads the remembered id, not the file.
+    expect(JSON.parse(await readFile(worktreeIdsFile(ctx.dataDir), 'utf8')).projects).toEqual({ [ctx.projectA]: ctx.gitId });
+  });
+
+  it('refuses Pi-running commands while the stored settings could not be applied, and recovers on the next request', async () => {
+    const ctx = await setup();
+    await ctx.sandboxOn();
+    const read = ctx.uiSettingsStore.read;
+    ctx.uiSettingsStore.read = async () => { throw new Error('unreadable'); };
+    await expect(ctx.manager.reconcile()).rejects.toThrow();
+    const refused = await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectB, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toEqual({ error: { code: 'SANDBOX_UNAVAILABLE', reason: 'SANDBOX_SETTINGS_UNREADABLE' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    // The sandbox pages stay reachable so the cause can be seen and fixed.
+    expect((await ctx.call('/api/pi/sandbox')).status).toBe(200);
+
+    ctx.uiSettingsStore.read = read;
+    const served = await ctx.call(`/api/pi/sessions/s-1?directory=${ctx.projectB}`);
+    expect(served.status).toBe(200);
+    expect(ctx.manager.needsReconcile()).toBe(false);
+  });
+
+  it('answers a stored save as saved when applying it fails, and applies it before the next Pi command', async () => {
+    const ctx = await setup();
+    const register = ctx.pool.register;
+    ctx.pool.register = () => {
+      ctx.pool.register = register;
+      throw new Error('register failed');
+    };
+    const saved = await ctx.sandboxOn();
+    expect(saved.status).toBe(200);
+    expect(ctx.manager.needsReconcile()).toBe(true);
+    await ctx.call(`/api/pi/sessions/s-1/prompt`, { method: 'POST', body: { directory: ctx.projectA, text: 'hi', streamEpoch: 'epoch-1' } });
+    expect(ctx.main.commands()).not.toContain('sessions.prompt');
+    expect(ctx.launched).toHaveLength(1);
+  });
+
+  it('changes only the fields a default save names', async () => {
+    const ctx = await setup();
+    const put = (body) => ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', body });
+    await put({ mode: 'nono', allowHosts: ['github.com'] });
+    // A page loaded before the default was turned on adds a host.
+    expect((await (await put({ allowHosts: ['github.com', 'registry.npmjs.org'] })).json()).defaults)
+      .toEqual({ mode: 'nono', allowHosts: ['github.com', 'registry.npmjs.org'] });
+    expect((await (await put({ mode: 'off' })).json()).defaults)
+      .toEqual({ mode: 'off', allowHosts: ['github.com', 'registry.npmjs.org'] });
+    expect((await ctx.call('/api/pi/sandbox/defaults', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: undefined })).status).toBe(400);
+    expect((await put({ note: 'x' })).status).toBe(400);
+    expect((await put({ mode: 'nono', allowHosts: 'github.com' })).status).toBe(400);
   });
 });

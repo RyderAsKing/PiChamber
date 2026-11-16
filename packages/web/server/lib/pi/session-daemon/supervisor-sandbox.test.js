@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chmod, mkdir, mkdtemp, readFile, readlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readlink, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -230,6 +230,29 @@ describe('sandboxed Pi session daemon supervisor', () => {
       await expect(prepareProjectSandbox({ ...ctx.sandboxOptions, extraFolders: [{ path, access: 'read' }] }))
         .rejects.toMatchObject({ code: 'SANDBOX_GRANT_REFUSED' });
     }
+  });
+
+  it('refuses an extra folder that reaches PiChamber data or Pi config through a symlink', async () => {
+    const ctx = await setup();
+    const toData = join(ctx.root, 'code', 'projA', 'shared');
+    const toAgent = join(ctx.root, 'alias-agent');
+    await symlink(ctx.dataDir, toData);
+    await symlink(join(ctx.agentDir, 'extensions'), toAgent);
+    for (const path of [toData, toAgent]) {
+      await expect(prepareProjectSandbox({ ...ctx.sandboxOptions, extraFolders: [{ path, access: 'read' }] }))
+        .rejects.toMatchObject({ code: 'SANDBOX_GRANT_REFUSED' });
+    }
+  });
+
+  it('refuses a project folder that holds or sits inside PiChamber data or Pi config, except a PiChamber worktree', async () => {
+    const ctx = await setup();
+    const alias = join(ctx.root, 'alias-root');
+    await symlink(ctx.root, alias);
+    for (const projectRoot of [ctx.root, alias, join(ctx.root, 'home'), ctx.dataDir, join(ctx.dataDir, 'pi'), join(ctx.agentDir, 'extensions')]) {
+      await expect(prepareProjectSandbox({ ...ctx.sandboxOptions, projectRoot }))
+        .rejects.toMatchObject({ code: 'SANDBOX_GRANT_REFUSED' });
+    }
+    await expect(prepareProjectSandbox({ ...ctx.sandboxOptions, projectRoot: ctx.worktree })).resolves.toMatchObject({ cwd: ctx.worktree });
   });
 
   it('fails closed with the launcher reason and never spawns when nono cannot sandbox', async () => {

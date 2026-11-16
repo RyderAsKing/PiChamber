@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+
+import { hasTrustRequiringProjectResources } from '@earendil-works/pi-coding-agent';
 
 import { createSessionDaemon } from './session-daemon.js';
 
@@ -75,7 +77,7 @@ describe('sessions.readPersisted', () => {
     for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
   });
 
-  const start = async () => {
+  const start = async (daemonOptions = {}) => {
     const root = await mkdtemp(join(tmpdir(), 'pichamber-read-persisted-'));
     roots.push(root);
     const sessionFile = join(root, 'session.jsonl');
@@ -96,6 +98,7 @@ describe('sessions.readPersisted', () => {
         createdRuntimes.push(options);
         throw new Error('a read must not start a Pi runtime');
       },
+      ...daemonOptions,
     });
     await daemon.start();
     client = connect(endpointFor(root));
@@ -135,6 +138,22 @@ describe('sessions.readPersisted', () => {
     });
     expect(older.result.messages.map((item) => item.message.id)).toEqual(['u1', 'a1']);
     expect(older.result.hasMoreBefore).toBe(false);
+  });
+
+  it('does not trust the folder it reads from', async () => {
+    const trustWrites = [];
+    const { root } = await start({
+      createTrustStore: () => ({ get: () => null, set: (directory, value) => { trustWrites.push([directory, value]); } }),
+    });
+    // A project extension is what makes Pi ask for trust.
+    await mkdir(join(root, '.pi', 'extensions'), { recursive: true });
+    await writeFile(join(root, '.pi', 'extensions', 'demo.ts'), 'export default () => {};\n');
+    expect(hasTrustRequiringProjectResources(root)).toBe(true);
+
+    const response = await client.request('sessions.readPersisted', { sessionId: 'read-only-session', directory: root });
+
+    expect(response.kind).toBe('response');
+    expect(trustWrites).toEqual([]);
   });
 
   it('answers INVALID_SESSION for an unknown session', async () => {
