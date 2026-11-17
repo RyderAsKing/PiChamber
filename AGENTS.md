@@ -117,7 +117,7 @@ Set `BASE_URL` (default `http://127.0.0.1:5180`, the `bun run dev` UI),
 
 Demo data: `bun run screenshots --seed <dir>` recreates a synthetic git repo in
 `<dir>/repo` (on a long branch, with a favicon and an unchanged `src/` folder), more folders in
-`<dir>/folders` (one with a favicon, a monorepo, one without an icon, one with
+`<dir>/folders` (one with a favicon and its own scripted model extension, a monorepo, one without an icon, one with
 a dark logo on a transparent background and its own `subagent` extension),
 a data
 directory in `<dir>/data` that opens them all, and `<dir>/home`, a throwaway
@@ -208,6 +208,16 @@ session, whose folder has its own `subagent` extension: a warning callout
 names it and offers to turn it off in that project, desktop only);
 `visuals-page` (a `render_html` page in its frame between the turn's
 activity and its reply, with the Sub-agents toggle in the composer);
+`visuals-choices` (an answered `render_choices` call: three variants, one
+at a time at full width, opened on the chosen one with its switcher button
+marked and the note under the frame); `visuals-choices-pending` (a
+`render_choices` call that waits: the Acme Web folder's own extension is a
+scripted model that answers the message with the call, so the shown variant
+has a Choose button and the question sits folded above the composer; the page closes the question when it is
+done, which adds a turn to that session, so re-seed for a clean capture);
+`visuals-choices-switch` (the same waiting question after its second
+switcher button, so variant B is in the frame; the page presses Choose B
+when it is done, which also adds a turn);
 `composer-plugin-sheet` (on a phone, the plugin button beside Send opened
 to its sheet of switches, mobile only);
 `composer-controls` (the demo session's footer with the seed's demo

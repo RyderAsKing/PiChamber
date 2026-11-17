@@ -110,6 +110,84 @@ const SHELF_SESSIONS = [
   { id: '0193f6a0-0005-7000-8000-000000000005', folder: 'dotfiles', title: 'Draft the release notes', hoursAgo: 5 * 24, archived: true },
 ];
 const SHELF_SESSION_PATH = `/?session=${SHELF_SESSIONS[0].id}`;
+// Visuals' render_choices. One session in the demo repo holds an answered
+// call. Another, in Acme Web, has nothing but its name: that folder's own
+// extension is a scripted model (no provider, no network) that answers any
+// message with a render_choices call, so a capture can send one and get a
+// question that waits.
+const CHOICES_SESSION_ID = '0193f6a0-5b1e-7c2d-9e3f-4a5b6c7d8ea3';
+const CHOICES_SESSION_PATH = `/?session=${CHOICES_SESSION_ID}`;
+const CHOICES_LIVE_SESSION = { id: '0193f6a0-0006-7000-8000-000000000006', folder: 'acme-web', title: 'Pick a header for the pricing page', hoursAgo: 3 };
+const CHOICES_LIVE_SESSION_PATH = `/?session=${CHOICES_LIVE_SESSION.id}`;
+const CHOICES_PROMPT = 'Mock up three headers for the pricing page.';
+const CHOICES_TITLE = 'Which pricing header?';
+const CHOICES_REPLY = 'Going with the split header.';
+const CHOICES_NOTE = 'Keep the yearly toggle from A.';
+const choicePage = (body) => `<style>
+.h{display:grid;gap:10px}
+.h h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.01em}
+.h p{margin:0;color:var(--pc-muted);font-size:12px;line-height:1.45}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{font-size:12px;font-weight:500;border-radius:8px;padding:6px 10px;border:1px solid var(--pc-border)}
+.btn.main{background:var(--pc-fg);color:var(--pc-bg);border-color:var(--pc-fg)}
+.tag{font-size:11px;color:var(--pc-muted);border:1px solid var(--pc-border);border-radius:999px;padding:2px 8px}
+.seg{display:inline-flex;border:1px solid var(--pc-border);border-radius:8px;overflow:hidden;font-size:11px}
+.seg span{padding:4px 9px}
+.seg .on{background:var(--pc-surface);font-weight:500}
+.box{border:1px solid var(--pc-border);border-radius:10px;padding:10px 12px;display:grid;gap:4px}
+.box strong{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.box span{font-size:11px;color:var(--pc-muted)}
+</style>
+<div class="h">${body}</div>`;
+const CHOICES_OPTIONS = [
+  {
+    label: 'Centered',
+    description: 'Headline, billing toggle, one button',
+    html: choicePage('<div style="text-align:center;display:grid;gap:10px;justify-items:center"><span class="tag">Pricing</span><h1>Simple plans for every team</h1><p>Start free. Upgrade when you need more seats.</p><div class="seg"><span class="on">Monthly</span><span>Yearly</span></div><span class="btn main">Start free</span></div>'),
+  },
+  {
+    label: 'Split',
+    description: 'Copy on the left, the popular plan on the right',
+    html: choicePage('<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:12px;align-items:center"><div style="display:grid;gap:8px"><h1>Simple plans for every team</h1><p>Start free. Upgrade when you need more seats.</p><div class="row"><span class="btn main">Start free</span><span class="btn">Compare plans</span></div></div><div class="box"><span>Team, most popular</span><strong>$12</strong><span>per seat, each month</span></div></div>'),
+  },
+  {
+    label: 'Compact',
+    description: 'One line, for a page that leads with the table',
+    html: choicePage('<div class="row" style="justify-content:space-between"><h1>Pricing</h1><div class="row"><div class="seg"><span class="on">Monthly</span><span>Yearly</span></div><span class="btn main">Start free</span></div></div><p>Every plan includes unlimited projects.</p>'),
+  },
+];
+// The details render_choices records: its options lettered in order.
+const CHOICES_DETAILS = {
+  title: CHOICES_TITLE,
+  options: CHOICES_OPTIONS.map((option, index) => ({ id: String.fromCharCode(97 + index), ...option })),
+};
+// The options have drawn. They share one cell, so their frames mount
+// together once it nears the viewport; each has fitted to its page.
+const CHOICES_DRAWN = `(() => {
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const pages = [...(artifacts[artifacts.length - 1]?.querySelectorAll('[data-choice-page]') ?? [])].filter((page) => page.querySelector('iframe'));
+  return pages.length > 0 && pages.every((page) => page.dataset.choicePage === 'fitted');
+})()`;
+// The question waits and its options have drawn. On a used seed the session
+// has earlier turns and a phone can open above the newest one, so bring that
+// one into view first.
+const CHOICES_WAITING = `(() => {
+  if (!document.querySelector('[role="dialog"][aria-label="${CHOICES_TITLE}"]')) return false;
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const last = artifacts[artifacts.length - 1];
+  if (!last || !/Choose [A-F]/.test(last.innerText)) return false;
+  if (last.getBoundingClientRect().bottom > window.innerHeight) last.scrollIntoView({ block: 'end' });
+  return ${CHOICES_DRAWN};
+})()`;
+// The same waiting question with the second variant switched to.
+const CHOICES_SWITCHED = `(() => {
+  if (!${CHOICES_WAITING}) return false;
+  const artifacts = document.querySelectorAll('[data-plugin-artifact="visuals-choices"]');
+  const last = artifacts[artifacts.length - 1];
+  const second = last.querySelector('[data-choice-tab="b"]');
+  if (second?.getAttribute('aria-pressed') !== 'true') { second?.click(); return false; }
+  return last.innerText.includes('Choose B');
+})()`;
 // Opens the row menu of the 5-day-old archived session, picks Unarchive, and
 // settles once the list has had time to regroup.
 const TIMELINE_UNARCHIVE = `(() => {
@@ -810,6 +888,37 @@ const PAGES = {
       return Boolean(frame) && frame.getBoundingClientRect().height > 0 && frame.getBoundingClientRect().height !== 240;
     })()`,
   },
+  'visuals-choices': {
+    // An answered render_choices call: one variant at a time at full width,
+    // opened on the chosen one, the note under the frame.
+    path: CHOICES_SESSION_PATH,
+    readyText: [CHOICES_TITLE, CHOICES_REPLY, 'You chose B'],
+    settledScript: CHOICES_DRAWN,
+  },
+  'visuals-choices-pending': {
+    // A render_choices call that waits. Acme Web's scripted model answers the
+    // message with the call; the shown variant has a Choose button and the
+    // same question sits above the composer. The question stays open for the next
+    // viewport and theme, then this page closes it, which adds a turn to the
+    // session: re-seed for a clean capture.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [CHOICES_PROMPT],
+    submitComposer: true,
+    settledScript: CHOICES_WAITING,
+    dismissAfter: '[role="dialog"] button[aria-label="Dismiss extension dialog"]',
+  },
+  'visuals-choices-switch': {
+    // The same waiting question after its second switcher button: variant B
+    // is in the frame with its own Choose button. When done, this page
+    // presses Choose B, which answers the question and adds a turn.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [CHOICES_PROMPT],
+    submitComposer: true,
+    settledScript: CHOICES_SWITCHED,
+    dismissAfter: '[data-plugin-artifact="visuals-choices"] figcaption button',
+  },
   'composer-plugin-sheet': {
     // Phones: the plugin button beside Send pressed, opening the sheet with a
     // switch per composer toggle (only Sub-agents declares one).
@@ -1314,6 +1423,32 @@ const PROJECT_SUBAGENT_EXTENSION = `export default function (pi) {
 }
 `;
 
+// Acme Web's own extension: a model that runs in the daemon and answers from
+// this script, so the pending render_choices capture needs no provider. A
+// message gets the call; its result gets one line back.
+const PROJECT_SCRIPTED_MODEL_EXTENSION = `import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
+
+const CALL = ${JSON.stringify({ title: CHOICES_TITLE, options: CHOICES_OPTIONS })};
+
+export default function (pi) {
+  const faux = fauxProvider({
+    provider: 'demo',
+    models: [{ id: 'demo-model', name: 'Demo Model', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 }],
+    tokensPerSecond: 400,
+  });
+  const respond = (context) => {
+    const last = context.messages.at(-1);
+    if (last?.role !== 'toolResult') {
+      return fauxAssistantMessage([fauxToolCall('render_choices', CALL)], { stopReason: 'toolUse' });
+    }
+    const text = (last.content ?? []).map((part) => part.text ?? '').join('');
+    return fauxAssistantMessage(text.includes('chose') ? ${JSON.stringify(CHOICES_REPLY)} : 'No problem. Tell me which one you want when you are ready.');
+  };
+  faux.setResponses(Array.from({ length: 200 }, () => respond));
+  pi.registerProvider(faux.provider);
+}
+`;
+
 // A local Pi package for Settings → Extensions & Plugins to list: two
 // extensions that do nothing, one turned off in Pi's settings. It sits in a
 // hidden folder so the Add folder dialog's view of home stays the same.
@@ -1536,6 +1671,14 @@ const writePluginSessions = async (home, data, repo) => {
     assistant([{ type: 'text', text: `${VISUALS_REPLY} Most of the early failures were the settings test, fixed on Thursday.` }]),
   ]);
 
+  const answered = { ...CHOICES_DETAILS, answer: { id: 'b', note: CHOICES_NOTE } };
+  await writeSessionFile(home, repo, CHOICES_SESSION_ID, Date.parse('2026-10-20T09:30:00.000Z'), [
+    { role: 'user', content: CHOICES_PROMPT },
+    assistant([{ type: 'toolCall', id: 'call_choices_1', name: 'render_choices', arguments: { title: CHOICES_TITLE, options: CHOICES_OPTIONS } }]),
+    result('call_choices_1', 'render_choices', `The user chose B: "Split". Their note: ${JSON.stringify(CHOICES_NOTE)}`, answered),
+    assistant([{ type: 'text', text: `${CHOICES_REPLY} I will carry the yearly toggle over from the centered one.` }]),
+  ]);
+
   // Each run names its provider so its card shows that provider's logo.
   const run = (agent, task, step, activity, output, turns, input, out, model) => ({
     agent, agentSource: 'bundled', task, step, status: 'done', model,
@@ -1588,7 +1731,7 @@ const writeShelfSessions = async (home, data, folderPath) => {
   const now = Date.now();
   const shelf = {};
   const archive = {};
-  for (const session of SHELF_SESSIONS) {
+  for (const session of [...SHELF_SESSIONS, CHOICES_LIVE_SESSION]) {
     const cwd = folderPath(session.folder);
     const sessionDir = join(home, '.pi', 'agent', 'sessions', encodePiSessionCwd(cwd));
     await mkdir(sessionDir, { recursive: true });
@@ -1691,7 +1834,12 @@ const seed = async (dir) => {
   git('add', 'retry.ts');
 
   const extraFolders = [
-    { name: 'acme-web', label: 'Acme Web', files: { 'public/favicon.svg': demoIcon('#e5484d', 'M9 22V10h8a4 4 0 0 1 0 8h-4v4z') } },
+    // Its own extension is the scripted model behind the pending
+    // render_choices capture; only this folder's sessions have a model.
+    { name: 'acme-web', label: 'Acme Web', files: {
+      'public/favicon.svg': demoIcon('#e5484d', 'M9 22V10h8a4 4 0 0 1 0 8h-4v4z'),
+      '.pi/extensions/scripted-model.ts': PROJECT_SCRIPTED_MODEL_EXTENSION,
+    } },
     { name: 'chamber-mono', label: 'Chamber Mono', files: {
       'packages/docs/README.md': '# docs\n',
       'packages/web/public/favicon.svg': demoIcon('#30a46c', 'M16 8l8 8-8 8-8-8z'),
