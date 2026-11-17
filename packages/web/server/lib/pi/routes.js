@@ -1838,6 +1838,8 @@ export const registerPiRuntimeRoutes = (app, {
           ...(Number.isSafeInteger(snippet.updatedAt) ? { updatedAt: snippet.updatedAt } : {}),
         };
       }),
+      // Where the server keeps every snippet, so a user can point an agent at it.
+      ...(typeof snippetsStore.file === 'string' && snippetsStore.file.length > 0 ? { file: snippetsStore.file } : {}),
     };
   };
 

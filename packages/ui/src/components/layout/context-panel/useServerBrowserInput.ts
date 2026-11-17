@@ -76,6 +76,8 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
       return;
     }
     if (event.button === 3 || event.button === 4) {
+      // The page goes back or forward; PiChamber itself must not.
+      event.preventDefault();
       send({ type: event.button === 3 ? 'back' : 'forward' });
       return;
     }
@@ -136,7 +138,11 @@ export const useServerBrowserInput = ({ send, canvasRef, headerRef, areaHeight, 
       send({ type: 'mouse', action: 'up', ...point, button: 'left', buttons: 0, clickCount: 1 });
       return;
     }
-    if (inspecting || event.button === 3 || event.button === 4) return;
+    if (event.button === 3 || event.button === 4) {
+      event.preventDefault();
+      return;
+    }
+    if (inspecting) return;
     if (pressRef.current?.id === event.pointerId) pressRef.current = null;
     const button = BUTTON_NAMES[event.button] ?? 'left';
     send({ type: 'mouse', action: 'up', ...point, button, buttons: event.buttons, clickCount: clickRef.current.count || 1, modifiers: modifiersOf(event) });

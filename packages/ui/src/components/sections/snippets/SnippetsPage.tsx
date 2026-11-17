@@ -17,6 +17,7 @@ import {
 import { SettingsPageLayout } from "@/components/sections/shared/SettingsPageLayout";
 import { Icon } from "@/components/icon/Icon";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { useDeviceInfo } from "@/lib/device";
 import { useSnippetsStore, type SnippetScope } from "@/stores/useSnippetsStore";
 import { useEffectiveDirectory } from "@/hooks/useEffectiveDirectory";
@@ -285,6 +286,29 @@ export const SnippetsPage: React.FC = () => {
     });
     setSelectedSnippet(null);
   }, [setSelectedSnippet, setSnippetDraft, snippets]);
+
+  const snippetsFile = useSnippetsStore((state) => state.snippetsFile);
+  const handleCopyFilePath = React.useCallback(async () => {
+    if (!snippetsFile) return;
+    const result = await copyTextToClipboard(snippetsFile);
+    if (result.ok) {
+      toast.success("Snippets file path copied");
+    } else {
+      toast.error("Could not copy the path");
+    }
+  }, [snippetsFile]);
+
+  const copyFilePathButton = snippetsFile ? (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => void handleCopyFilePath()}
+      aria-label="Copy snippets file path"
+      title={`Copy snippets file path: ${snippetsFile}`}
+    >
+      <Icon name="file-copy" className="size-4" />
+    </Button>
+  ) : null;
 
   if (selectedId !== null || draft) {
     if (!selected && !isNew) {
@@ -581,6 +605,7 @@ export const SnippetsPage: React.FC = () => {
         }
         headerEnd={
           <div className="flex flex-wrap items-center gap-2">
+            {copyFilePathButton}
             <Button
               variant="ghost"
               size="icon"
@@ -633,7 +658,7 @@ export const SnippetsPage: React.FC = () => {
               onChange={(event) => setSnippetQuery(event.target.value)}
               placeholder="Search snippets"
               aria-label="Search snippets"
-              className="h-9 w-[18rem] max-w-full pl-8"
+              className="h-9 w-[15rem] max-w-full pl-8"
             />
             {snippetQuery ? (
               <button
@@ -646,6 +671,7 @@ export const SnippetsPage: React.FC = () => {
               </button>
             ) : null}
           </div>
+          {copyFilePathButton}
           <Button
             variant="ghost"
             size="icon"

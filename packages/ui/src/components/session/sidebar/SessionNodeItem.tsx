@@ -486,7 +486,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 }}
                 className={cn(
                   'group relative flex cursor-pointer items-start px-3 transition-colors',
-                  isTree ? treeRowSpacingClassName : 'my-0.5 rounded-xl py-2',
+                  isTree ? treeRowSpacingClassName : 'my-1 rounded-xl py-2.5',
                   !rowBackground && depth > 0
                     ? 'bg-secondary/30 hover:bg-interactive-hover'
                     : !rowBackground
@@ -575,7 +575,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     e.stopPropagation();
                     handleSessionDoubleClick(session.id, sessionTitle);
                   }}
-                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
+                  className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 overflow-hidden text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 text-foreground select-none"
                 >
                   <div className={cn('flex w-full min-w-0 flex-1 gap-1.5 overflow-hidden', isTree ? 'items-center' : 'items-start')}>
                     <div
@@ -676,7 +676,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                 'absolute right-3 flex h-5 min-w-6 items-center justify-end',
                 // A tree row is one line, so its trailing status centers on the row; this also
                 // holds when touch layouts set the row's height (see mobile.css).
-                isTree ? 'top-1/2 -translate-y-1/2' : 'top-2',
+                isTree ? 'top-1/2 -translate-y-1/2' : 'top-2.5',
                 editingId === session.id && 'hidden',
               )}
             >
@@ -777,7 +777,7 @@ function SessionNodeItemComponent(props: SessionNodeItemProps): React.ReactNode 
                     timestamp is, the turn time where the details line ends. The
                     needs-input dot takes the spinner's place, in a box its size,
                     so the turn time under it stays put. */}
-                <span className="relative flex flex-col items-end gap-1">
+                <span className="relative flex flex-col items-end gap-1.5">
                   <span className="flex h-5 items-center">
                     {showNeedsInput ? (
                       <span className="inline-flex size-3 shrink-0 items-center justify-center">
