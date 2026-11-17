@@ -692,7 +692,11 @@ export function createSessionDaemon({
   const userBash = createUserBash({
     publish,
     redact: (value) => redactAttachmentPaths(value),
-    onSettled: (sessionId) => safeTouchIdleDisposal(sessionId),
+    onSettled: (sessionId) => {
+      safeTouchIdleDisposal(sessionId);
+      // A settings change that waited for this command can apply now.
+      void flushPendingRuntimeRecreation().catch(() => {});
+    },
   });
   // What opened a `custom()` surface, for its header: the running top-level
   // tool, else the extension command being run. Pi's ctx.ui is shared per
@@ -1208,12 +1212,20 @@ export function createSessionDaemon({
     else activeSessionInputs.delete(targetRuntime);
   };
 
+  // Recreating runtimes disposes every one of them, so it waits for work
+  // that ends by itself: a turn, a compaction, an input being accepted, a
+  // user shell command (`!cmd`, live from acceptance, before Pi reports
+  // `isBashRunning`). A dialog or custom() surface left open does not hold
+  // it back, since nothing says when that ends; recreation cancels it, as a
+  // daemon restart does.
   const isRuntimeReloadSafe = (targetRuntime) => {
     const session = targetRuntime?.session;
     return Boolean(
       session?.sessionId
       && session.isStreaming !== true
       && session.isCompacting !== true
+      && session.isBashRunning !== true
+      && !userBash.isActive(session.sessionId)
       && !activeSessionInputs.has(targetRuntime)
     );
   };

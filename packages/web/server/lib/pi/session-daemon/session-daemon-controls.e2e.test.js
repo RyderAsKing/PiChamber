@@ -162,4 +162,44 @@ describe('session daemon composer controls end-to-end with real SDK', () => {
     await failing({ sessionId, id: 'ghost' }, 'CONTROL_UNAVAILABLE');
     expect(globalThis.__controlsE2eRuns).toBe(1);
   }, 60_000);
+
+  it('holds a settings change until a running shell command ends, then drops the control', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'pichamber-controls-e2e-'));
+    const projectDir = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    await mkdir(projectDir, { recursive: true });
+    await mkdir(join(agentDir, 'extensions'), { recursive: true });
+    await writeFile(join(agentDir, 'extensions', 'modes.ts'), MODES_EXTENSION);
+    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\pichamber-controls-e2e-${Date.now()}` : join(root, 'daemon.sock');
+
+    daemon = createSessionDaemon({ endpoint, credential, cwd: projectDir, agentDir });
+    await daemon.start();
+    const client = connectClient(endpoint);
+    await client.authenticate();
+
+    const created = await client.request('sessions.create', { cwd: projectDir });
+    const sessionId = created.session.id;
+    await client.request('sessions.open', { sessionId });
+    const modes = (await client.request('extensions.config.list', {})).extensions.find((entry) => entry.name === 'modes.ts');
+
+    const sequence = client.lastSequence();
+    const started = await client.request('sessions.bash', { sessionId, command: 'sleep 1 && echo held' });
+    // Turning the extension off recreates every runtime, which would end the command.
+    const off = await client.request('extensions.config.set', { id: modes.id, scope: 'global', enabled: false });
+    expect(off.deferred).toBe(true);
+    const recorded = await client.next((message) => message.sequence > sequence
+      && message.event === 'session.bash.recorded' && message.payload?.id === started.id);
+    expect(recorded.payload.message.details).toMatchObject({ output: 'held\n', exitCode: 0 });
+
+    // The change applies once the command has ended.
+    const loaded = (await client.request('extensions.list', { directory: projectDir })).extensions.map((entry) => entry.name);
+    expect(loaded).not.toContain('modes.ts');
+    await client.close();
+
+    // The control went with its extension: a late click runs nothing.
+    const late = connectClient(endpoint);
+    await late.authenticate();
+    await late.request('extensions.control', { sessionId, id: 'mode', value: 'balance' }).catch(() => {});
+    expect(globalThis.__controlsE2eRuns).toBeUndefined();
+  }, 60_000);
 });
