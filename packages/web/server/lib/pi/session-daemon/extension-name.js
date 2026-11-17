@@ -6,6 +6,9 @@ import { basename, dirname, resolve } from 'node:path';
 
 const GENERIC_NAMES = new Set(['src', 'dist', 'lib', 'build', 'out', 'extensions']);
 const SCRIPT_EXTENSION_PATTERN = /\.[cm]?[jt]sx?$/;
+// Pi labels inline factories `<inline:name>`. PiChamber plugins are inline
+// factories named `pichamber:<id>`; show them like Pi's `builtin:<name>`.
+const PLUGIN_FACTORY_PATTERN = /^<inline:(pichamber:[a-z0-9-]+)>$/;
 
 /**
  * Derives a path-free human-readable display name for an extension.
@@ -19,6 +22,9 @@ export const deriveExtensionName = (extensionPath, sourceInfo) => {
   if (typeof extensionPath !== 'string' || extensionPath.length === 0) {
     return 'unknown';
   }
+
+  const plugin = PLUGIN_FACTORY_PATTERN.exec(extensionPath);
+  if (plugin) return plugin[1];
 
   const base = basename(extensionPath);
   const stem = base.replace(SCRIPT_EXTENSION_PATTERN, '');

@@ -21,6 +21,9 @@ export const createPiNotificationTracker = ({ emit }) => {
 
   const accept = (event) => {
     if (!event || typeof event.sessionId !== 'string') return;
+    // A draft session (warmed for a new-session draft, nothing sent yet)
+    // only runs its extensions' control commands; that is not work to report.
+    if (event.draft === true) return;
     if (event.name === 'session.snapshot') {
       const snapshot = event.payload?.snapshot;
       if (typeof snapshot?.title === 'string' && snapshot.title.trim()) {

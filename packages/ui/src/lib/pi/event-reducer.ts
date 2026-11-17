@@ -76,6 +76,7 @@ import {
   reduceExtensionMessage,
   reduceExtensionNotify,
   reduceExtensionStatus,
+  reduceExtensionControl,
   reduceExtensionTitle,
   reduceExtensionUi,
   reduceExtensionWidget,
@@ -197,6 +198,7 @@ export const applyPiEvent = (
         streamingMessages: new Set(),
         queue: { steering: 0, followUp: 0 },
         extensionStatuses: new Map(),
+        extensionControls: new Map(),
         extensionWidgets: new Map(),
         extensionDialogs: [],
         extensionNotices: [],
@@ -218,6 +220,10 @@ export const applyPiEvent = (
         // that reconnected late still sees approval prompts and sub-agent panels.
         if (Array.isArray(event.payload.snapshot.extensionStatuses)) {
           session.extensionStatuses = new Map(event.payload.snapshot.extensionStatuses.map((entry) => [entry.key, entry.text]));
+        }
+        // A list (even empty) is the whole set; no field leaves them as they are.
+        if (Array.isArray(event.payload.snapshot.extensionControls)) {
+          session.extensionControls = new Map(event.payload.snapshot.extensionControls.map((control) => [control.id, control]));
         }
         if (Array.isArray(event.payload.snapshot.extensionWidgets)) {
           session.extensionWidgets = new Map(event.payload.snapshot.extensionWidgets.map((entry) => [entry.key, { lines: entry.lines, placement: entry.placement === 'belowEditor' ? 'belowEditor' : 'aboveEditor' }]));
@@ -430,6 +436,9 @@ export const applyPiEvent = (
       break;
     case 'extension.status':
       reduceExtensionStatus(session, event.payload);
+      break;
+    case 'extension.control':
+      reduceExtensionControl(session, event.payload);
       break;
     case 'extension.widget':
       reduceExtensionWidget(session, event.payload);

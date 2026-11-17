@@ -98,6 +98,47 @@ describe('ExtensionPromptDock', () => {
     expect(markup.match(/role="option"[^>]*tabindex="-1"/g)?.length).toBe(2);
   });
 
+  test('renders a choose dialog with descriptions, quick keys and a note field', () => {
+    const session = createTestSession('sess-1', '/repo');
+    session.extensionDialogs = [
+      {
+        requestId: 'req-choose',
+        method: 'choose',
+        title: 'Which header?',
+        choices: [
+          { id: 'a', label: 'A: Compact' },
+          { id: 'b', label: 'B: Tall', description: 'More room for the logo' },
+        ],
+        allowNote: true,
+        toolCallId: 'call-1',
+      },
+    ];
+    store.getState().reducer.bySession.set('sess-1', session);
+
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-1" />);
+    expect(markup).toContain('role="dialog" aria-label="Which header?"');
+    expect(markup).toContain('role="listbox" aria-label="Which header?"');
+    expect(markup).toContain('A: Compact');
+    expect(markup).toContain('More room for the logo');
+    expect(markup.match(/role="option"/g)?.length).toBe(2);
+    expect(markup.match(/role="option"[^>]*tabindex="0"/g)?.length).toBe(1);
+    expect(markup.match(/<kbd/g)?.length).toBe(2);
+    expect(markup).toContain('placeholder="Add a note (optional)"');
+    expect(markup).toContain('maxLength="2000"');
+  });
+
+  test('a choose dialog that takes no note has no note field', () => {
+    const session = createTestSession('sess-1', '/repo');
+    session.extensionDialogs = [
+      { requestId: 'req-choose', method: 'choose', title: 'Which one?', choices: [{ id: 'x', label: 'X' }, { id: 'y', label: 'Y' }] },
+    ];
+    store.getState().reducer.bySession.set('sess-1', session);
+
+    const markup = renderToStaticMarkup(<ExtensionPromptDock sessionId="sess-1" />);
+    expect(markup.match(/role="option"/g)?.length).toBe(2);
+    expect(markup).not.toContain('Add a note');
+  });
+
   test('splits a multi-line title into a label and the full request text', () => {
     const session = createTestSession('sess-1', '/repo');
     const command = 'git log --oneline && echo hello && ls -la /tmp/project | head -5';

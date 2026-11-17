@@ -207,6 +207,17 @@ export interface PiSessionCreateInput {
   thinking?: PiThinkingLevel;
   /** Non-Pi session engine id (`'pi'` forces the built-in runtime). */
   engine?: string;
+  /**
+   * Start a draft session: a runtime for a new-session draft, before anything
+   * is sent, so its extensions can declare composer controls. It is not
+   * listed and its events carry `draft: true`. No title or parent.
+   */
+  draft?: boolean;
+  /**
+   * Adopt this draft session as the new session, keeping what its controls
+   * did. When the draft is gone the daemon creates a session as usual.
+   */
+  draftSessionId?: PiSessionId;
 }
 
 /** A registered non-Pi session engine and the commands it implements. */
@@ -224,6 +235,7 @@ export interface PiEngineListResponse {
 export interface PiSessionDetailResponse extends Pick<
   PiSessionSnapshot,
   | 'extensionStatuses'
+  | 'extensionControls'
   | 'extensionWidgets'
   | 'extensionDialogs'
   | 'extensionPanels'
@@ -968,6 +980,8 @@ export interface PiSnippet {
 
 export interface PiSnippetListResponse {
   snippets: PiSnippet[];
+  /** Absolute path of the server file holding global and project snippets; absent from older servers. */
+  file?: string;
 }
 
 export interface PiSnippetCreateInput {
@@ -1059,6 +1073,7 @@ export type PiEventName =
   | 'extension.editor'
   | 'extension.title'
   | 'extension.status'
+  | 'extension.control'
   | 'extension.widget'
   | 'extension.dialog'
   | 'extension.dialog.dismiss'
@@ -1093,6 +1108,9 @@ export interface PiEventEnvelope<TName extends PiEventName, TPayload> {
    *  client sends the newest one back as the `cursor` subscribe parameter
    *  next to its main `fromSequence`/`streamEpoch`. */
   cursor?: string;
+  /** Set on a draft session's events (see `PiSessionCreateInput.draft`):
+   *  only the drafting client uses them; nothing is listed for them. */
+  draft?: true;
 }
 
 export type PiSessionSnapshotEvent = PiEventEnvelope<
@@ -1431,6 +1449,35 @@ export type PiExtensionStatusEvent = PiEventEnvelope<
   }
 >;
 
+/**
+ * A composer control a Pi extension declared by emitting `pichamber:composer`
+ * on `pi.events`. Each names the extension's own slash commands; the daemon
+ * runs one for a click (`piClient.runExtensionControl`) and the extension
+ * reports its new value with a new declaration.
+ */
+interface PiComposerControlBase {
+  id: string;
+  label: string;
+  description?: string;
+  /** A sprite icon name; unknown names draw no icon. */
+  icon?: string;
+}
+export interface PiComposerControlOption {
+  value: string;
+  label: string;
+  command: string;
+}
+export type PiComposerControl =
+  | (PiComposerControlBase & { kind: 'toggle'; value: boolean; command: string })
+  | (PiComposerControlBase & { kind: 'cycle'; options: PiComposerControlOption[]; value?: string })
+  | (PiComposerControlBase & { kind: 'action'; command: string });
+
+/** A declared or changed control, or `removed` when it is gone. */
+export type PiExtensionControlEvent = PiEventEnvelope<
+  'extension.control',
+  { control: PiComposerControl; id?: undefined; removed?: undefined } | { id: string; removed: true; control?: undefined }
+>;
+
 /** Widget lines keyed like `ctx.ui.setWidget(key, lines)`; no `lines` clears. */
 export type PiExtensionWidgetEvent = PiEventEnvelope<
   'extension.widget',
@@ -1441,7 +1488,7 @@ export type PiExtensionWidgetEvent = PiEventEnvelope<
   }
 >;
 
-/** One typed input of a `form` dialog (`ctx.ui.form`). */
+/** One typed input of a `form` dialog (`pichamber.ui.form`). */
 export interface PiExtensionFormField {
   id: string;
   label: string;
@@ -1456,9 +1503,16 @@ export interface PiExtensionFormField {
   max?: number;
 }
 
+/** One choice of a `choose` dialog (`pichamber.ui.choose`). */
+export interface PiExtensionChoice {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface PiExtensionDialogPayload {
   requestId: string;
-  method: 'select' | 'confirm' | 'input' | 'editor' | 'form';
+  method: 'select' | 'confirm' | 'input' | 'editor' | 'form' | 'choose';
   title: string;
   /** Confirm/dialog body text. */
   message?: string;
@@ -1470,6 +1524,12 @@ export interface PiExtensionDialogPayload {
   prefill?: string;
   /** Form dialog inputs. */
   fields?: PiExtensionFormField[];
+  /** `choose` choices; the answer is one of their ids. */
+  choices?: PiExtensionChoice[];
+  /** `choose`: the answer may carry a free-text note. */
+  allowNote?: boolean;
+  /** `choose`: the tool call that asks, when a tool does. */
+  toolCallId?: string;
   /** When present, the dialog auto-cancels after this many milliseconds. */
   timeoutMs?: number;
 }
@@ -1490,8 +1550,10 @@ export interface PiExtensionDialogResponseInput {
   cancelled?: boolean;
   /** Confirm-dialog acceptance; absent/`false` declines. */
   confirmed?: boolean;
-  /** Select choice, input text, or editor content. */
+  /** Select choice, input text, editor content, or the id of a `choose` choice. */
   value?: string;
+  /** A note with a `choose` answer, when the dialog allows one. */
+  note?: string;
   /** Form dialog answers keyed by field id. */
   values?: Record<string, string>;
 }
@@ -1549,6 +1611,181 @@ export interface PiExtensionListResponse {
     scope?: 'user' | 'project' | 'temporary';
   }>;
 }
+// ---------------------------------------------------------------------------
+// Pi extension configuration (`/api/pi/extensions/config`)
+//
+// What `pi config`, `pi list`, and `pi remove` do, for a directory: which
+// extensions and packages Pi knows, whether each loads globally and in this
+// project, and removing a package. IDs are opaque; server paths never cross
+// the API.
+// ---------------------------------------------------------------------------
+
+/** A project's own choice for an extension: follow the global setting, or load / leave it out here. */
+export type PiExtensionOverrideState = 'inherit' | 'load' | 'unload';
+
+export interface PiExtensionConfigPackage {
+  id: string;
+  /** As written in settings for npm and git sources; the folder name for a local one. */
+  source: string;
+  scope: 'user' | 'project';
+  kind: 'npm' | 'git' | 'local';
+  installed: boolean;
+  /** The settings entry narrows what the package loads. */
+  filtered: boolean;
+}
+
+export interface PiExtensionConfigItem {
+  id: string;
+  /** Display name; never a path. */
+  name: string;
+  /** `package`: from an installed package. `auto`: found in an extensions folder. `settings`: listed in settings. `builtin`: ships with Pi. */
+  group: 'package' | 'auto' | 'settings' | 'builtin';
+  /** Set when `group` is `package`. */
+  packageId?: string;
+  /** Where it is declared. */
+  scope: 'user' | 'project';
+  /** On or off in global settings. Absent for an extension a project declares. */
+  global?: boolean;
+  /** Present only when a trusted project directory was given. */
+  project?: {
+    /** The project's own override. */
+    state: PiExtensionOverrideState;
+    /** What it would be with `inherit`. */
+    inherited: boolean;
+    /** Whether it loads in this project. */
+    enabled: boolean;
+  };
+}
+
+/**
+ * A plugin or built-in that is on but that Pi left out of a live session,
+ * because another extension registers the same tool, command, or flag.
+ */
+export interface PiExtensionReplacement {
+  kind: 'plugin' | 'builtin';
+  /** The plugin id, or the built-in's id in `extensions`. */
+  id: string;
+  /** The name both register, without `/` or `--`. */
+  registers?: { kind: 'tool' | 'command' | 'flag'; name: string };
+  /** The extension Pi loaded instead; `id` when `extensions` lists it. */
+  by?: { id?: string; name: string };
+}
+
+export interface PiExtensionConfigResponse {
+  directory?: string;
+  /** `available`: a directory was given. `trusted`: its project scope can be read and written. */
+  project: { available: boolean; trusted: boolean };
+  packages: PiExtensionConfigPackage[];
+  extensions: PiExtensionConfigItem[];
+  /** Packages Pi could not resolve; the rest of the list is still complete. */
+  installFailures: Array<{ source: string; message: string }>;
+  /**
+   * What a live session in this folder left out. Absent when no session is
+   * running there, which means unknown, not none.
+   */
+  replaced?: PiExtensionReplacement[];
+  /** On a write: the change waits for a busy session before it applies. */
+  deferred?: boolean;
+}
+
+export type PiExtensionConfigWrite =
+  | { scope: 'global'; enabled: boolean }
+  | { scope: 'project'; state: PiExtensionOverrideState; directory: string }
+  /** On or off in this project; the server keeps no override when the project would get that anyway. */
+  | { scope: 'project'; enabled: boolean; directory: string };
+
+// ---------------------------------------------------------------------------
+// PiChamber plugins (`/api/pi/plugins`)
+//
+// A plugin is a Pi package with a `pichamber` block. Its agent half loads only
+// while it is enabled; its UI half is compiled into the app (native plugins).
+// ---------------------------------------------------------------------------
+
+export type PiPluginStateValue = boolean | string;
+
+export interface PiPluginStateField {
+  type: 'boolean' | 'enum';
+  /** `global` applies everywhere; `project` is set per project directory. */
+  scope: 'global' | 'project';
+  default: PiPluginStateValue;
+  label: string;
+  description?: string;
+  options?: Array<{ value: string; label: string }>;
+}
+
+export interface PiPluginComposerToggle {
+  id: string;
+  /** Boolean state key the toggle flips. */
+  state: string;
+  label: string;
+  /** Sprite icon name; unknown names fall back to a neutral mark. */
+  icon?: string;
+  description?: string;
+}
+
+export interface PiPluginImpact {
+  tools: Array<{ name: string; exposure: string; tokens: number }>;
+  /** Events the agent half hooks that can change the prompt or the request. */
+  hooks: string[];
+  commands: string[];
+}
+
+export interface PiPluginView {
+  id: string;
+  name: string;
+  description: string;
+  icon?: string;
+  version: string;
+  bundled: boolean;
+  enabled: boolean;
+  /** Values resolved for the requested directory: project over global over default. */
+  state: Record<string, PiPluginStateValue>;
+  stateSchema: Record<string, PiPluginStateField>;
+  contributes: {
+    composerToggles?: PiPluginComposerToggle[];
+    /** Order of state fields on the Settings page. */
+    settings?: string[];
+    /** Id of the native UI half compiled into the app. */
+    ui?: string;
+  };
+  /** Measured agent cost; `null` when the plugin has no agent half. */
+  impact: PiPluginImpact | null;
+  impactError?: string;
+}
+
+export interface PiPluginListResponse {
+  plugins: PiPluginView[];
+}
+
+/**
+ * One session's own plugin values, set from the composer: `{ [pluginId]:
+ * { [key]: value } }`, only for plugins that have any. Every other value
+ * follows the plugin's settings.
+ */
+export interface PiPluginSessionStateResponse {
+  sessionId: string;
+  overrides: Record<string, Record<string, PiPluginStateValue>>;
+}
+
+/** `value: null` clears the session's own value. */
+export interface PiPluginSessionStateInput {
+  key: string;
+  value: PiPluginStateValue | null;
+}
+
+export interface PiPluginSessionStateUpdate {
+  id: string;
+  sessionId: string;
+  overrides: Record<string, PiPluginStateValue>;
+}
+
+export interface PiPluginStateInput {
+  key: string;
+  value: PiPluginStateValue;
+  /** Required for `project`-scoped keys. */
+  directory?: string;
+}
+
 export type PiExtensionErrorEvent = PiEventEnvelope<
   'extension.error',
   {
@@ -1689,6 +1926,7 @@ export type PiSessionEvent =
   | PiExtensionEditorEvent
   | PiExtensionTitleEvent
   | PiExtensionStatusEvent
+  | PiExtensionControlEvent
   | PiExtensionWidgetEvent
   | PiExtensionDialogEvent
   | PiExtensionDialogDismissEvent
@@ -1739,6 +1977,7 @@ export const PI_EVENT_KINDS = [
   'extension.editor',
   'extension.title',
   'extension.status',
+  'extension.control',
   'extension.widget',
   'extension.dialog',
   'extension.dialog.dismiss',

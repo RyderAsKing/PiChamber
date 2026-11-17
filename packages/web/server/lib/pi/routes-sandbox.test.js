@@ -123,9 +123,12 @@ const PI_RUNNING = [
   ['POST', '/api/pi/sessions/s-1/thinking', { directory: 'DIR', level: 'low' }],
   ['POST', '/api/pi/extensions/respond', { requestId: 'r-1', directory: 'DIR', cancelled: true }],
   ['GET', '/api/pi/resources?directory=DIR'],
+  ['POST', '/api/pi/extensions/control', { sessionId: 's-1', id: 'mode', directory: 'DIR' }],
+  ['POST', '/api/pi/sessions/s-1/discard-draft?directory=DIR'],
+  ['GET', '/api/pi/extensions/config?directory=DIR'],
 ];
 
-const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, onStart, idleStopMs = 60_000, agentFiles = {}, beforeReconcile } = {}) => {
+const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}, startError, onStart, idleStopMs = 60_000, agentFiles = {}, beforeReconcile, supervisorOptions } = {}) => {
   const root = await mkdtemp(join(tmpdir(), 'pichamber-routes-sandbox-'));
   const dataDir = join(root, 'data');
   const agentDir = join(root, 'agent');
@@ -164,6 +167,7 @@ const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}
     clearInterval: () => {},
     idleStopMs,
     trustAsk,
+    ...(supervisorOptions ? { supervisorOptions } : {}),
     createIntake: ({ socketPath, publish }) => {
       const intake = { socketPath, publish, started: false, stopped: false };
       intakes.push(intake);
@@ -172,11 +176,12 @@ const buildSandboxRoutes = async ({ probe, mainAnswers = {}, sandboxAnswers = {}
         stop: async () => { intake.stopped = true; },
       };
     },
-    createSupervisor: async ({ sandbox, launcher: used }) => {
+    createSupervisor: async ({ sandbox, launcher: used, ...options }) => {
       const probed = await used.probe();
       if (!probed.available) throw Object.assign(daemonError('SANDBOX_UNAVAILABLE'), { reason: probed.code });
       const daemon = fakeDaemon(`sandbox-${launched.length}`, daemonAnswers(sandboxAnswers));
       daemon.sandbox = sandbox;
+      daemon.options = options;
       daemon.stopped = false;
       daemon.paths = { openUrlSocket: join(root, 'run', `${launched.length}`, 'open-url.sock') };
       daemon.start = async () => {
@@ -295,6 +300,43 @@ describe('Pi routes for sandboxed projects', () => {
     expect(ctx.intakes[0]).toMatchObject({ socketPath: daemon.paths.openUrlSocket, started: true });
     await ctx.intakes[0].publish({ url: 'https://example.test' });
     expect(daemon.calls.at(-1)).toEqual({ command: 'openUrl.publish', payload: { url: 'https://example.test' } });
+  });
+
+  it('routes composer controls, draft discards and project extension config to the sandbox, and gives it only its own folders\' plugin config', async () => {
+    const configResult = { project: { available: true, trusted: true }, packages: [], extensions: [], installFailures: [] };
+    const ctx = await setup({
+      supervisorOptions: ({ roots } = {}) => ({ port: 3000, roots }),
+      mainAnswers: { 'extensions.config.set': configResult, 'extensions.packages.remove': configResult },
+      sandboxAnswers: { 'extensions.control': { ran: true }, 'sessions.discardDraft': { discarded: true }, 'extensions.config.list': configResult, 'extensions.config.set': configResult },
+    });
+    await ctx.sandboxOn();
+
+    // A draft has no transcript yet, so the folder the client names decides.
+    const control = await ctx.call('/api/pi/extensions/control', { method: 'POST', body: { sessionId: 's-draft', id: 'mode', value: 'fast', directory: ctx.projectA } });
+    expect(await control.json()).toEqual({ ran: true });
+    const discarded = await ctx.call(`/api/pi/sessions/s-draft/discard-draft?directory=${ctx.projectA}`, { method: 'POST' });
+    expect(await discarded.json()).toEqual({ discarded: true });
+    expect((await ctx.call(`/api/pi/extensions/config?directory=${ctx.projectA}`)).status).toBe(200);
+    const id = 'a'.repeat(43);
+    const projectSet = await ctx.call(`/api/pi/extensions/config/${id}`, { method: 'PUT', body: { scope: 'project', state: 'unload', directory: ctx.projectA } });
+    expect(projectSet.status).toBe(200);
+    // Pi's agent folder is read-only in a sandbox: global choices and package
+    // removal stay with the main daemon.
+    const globalSet = await ctx.call(`/api/pi/extensions/config/${id}`, { method: 'PUT', body: { scope: 'global', enabled: false, directory: ctx.projectA } });
+    expect(globalSet.status).toBe(200);
+    expect((await ctx.call(`/api/pi/extensions/packages/${id}?directory=${ctx.projectA}`, { method: 'DELETE' })).status).toBe(200);
+
+    expect(ctx.launched).toHaveLength(1);
+    const [daemon] = ctx.launched;
+    expect(daemon.commands()).toEqual(['extensions.control', 'sessions.discardDraft', 'extensions.config.list', 'extensions.config.set']);
+    expect(daemon.calls[0].payload).toEqual({ sessionId: 's-draft', id: 'mode', value: 'fast' });
+    expect(ctx.main.commands().filter((command) => command.startsWith('extensions.') || command === 'sessions.discardDraft'))
+      .toEqual(['extensions.config.set', 'extensions.packages.remove']);
+    // Per-daemon options (the plugin config) are built for the folders the
+    // daemon owns.
+    expect(daemon.options.port).toBe(3000);
+    expect(daemon.options.roots).toEqual(expect.arrayContaining([ctx.projectA, join(ctx.dataDir, 'worktree', ctx.gitId)]));
+    expect(daemon.options.roots.some((root) => root.startsWith(ctx.projectB))).toBe(false);
   });
 
   it('marks sandboxed sessions in lists, details and creation, and leaves other projects\' rows unchanged', async () => {

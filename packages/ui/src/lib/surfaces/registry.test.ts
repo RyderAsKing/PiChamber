@@ -42,6 +42,19 @@ describe('getVisibleContextRailSurfaces', () => {
     expect(getVisibleContextRailSurfaces({ ...baseOptions, tabs: [{ mode: ext.mode }] }).some((s) => s.id === 'extensions')).toBe(true);
   });
 
+  test('hides the agents surface until hasAgentContent or a matching tab exists', () => {
+    const agents = CONTEXT_SURFACES.find((surface) => surface.id === 'agents');
+    if (!agents) {
+      throw new Error('agents surface missing from registry');
+    }
+    expect(agents.availability).toBe('agents');
+    expect(getVisibleContextRailSurfaces(baseOptions).some((s) => s.id === 'agents')).toBe(false);
+    // Another surface's content does not bring it out.
+    expect(getVisibleContextRailSurfaces({ ...baseOptions, hasExtensionContent: true }).some((s) => s.id === 'agents')).toBe(false);
+    expect(getVisibleContextRailSurfaces({ ...baseOptions, hasAgentContent: true }).some((s) => s.id === 'agents')).toBe(true);
+    expect(getVisibleContextRailSurfaces({ ...baseOptions, tabs: [{ mode: agents.mode }] }).some((s) => s.id === 'agents')).toBe(true);
+  });
+
   test('respects the persisted user rail order', () => {
     const surfaces = getVisibleContextRailSurfaces({ ...baseOptions, railOrder: ['git', 'context'] });
     expect(surfaces.slice(0, 2).map((surface) => surface.id)).toEqual(['git', 'context']);

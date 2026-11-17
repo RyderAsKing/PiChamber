@@ -1,6 +1,7 @@
 import React from 'react';
 import { BehaviorPage } from '@/components/sections/behavior/BehaviorPage';
 import { SkillsPage } from '@/components/sections/skills/SkillsPage';
+import { PluginsPage } from '@/components/sections/plugins/PluginsPage';
 import { ProjectsPage } from '@/components/sections/projects/ProjectsPage';
 import { RemoteAccessPage } from '@/components/sections/remote-access/RemoteAccessPage';
 import { ServersPage } from '@/components/sections/servers/ServersPage';
@@ -71,6 +72,8 @@ export function SettingsPageContent({
       return <BehaviorPage />;
     case 'skills.installed':
       return <SkillsPage />;
+    case 'plugins':
+      return <PluginsPage />;
     case 'providers':
       return <ProvidersPage />;
     case 'about':

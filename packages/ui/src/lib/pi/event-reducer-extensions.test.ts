@@ -45,6 +45,7 @@ describe("extension event protocol", () => {
       baseEvent("extension.editor.track", 14, { enabled: true }),
       baseEvent("extension.error", 15, { source: "/ext.ts", message: "boom" }),
       baseEvent("session.tree.updated", 16, {}),
+      baseEvent("extension.control", 17, { id: "mode", removed: true }),
     ]
     for (const event of events) expect(isPiEvent(event)).toBe(true)
   })
@@ -183,6 +184,55 @@ describe("extension event reduction", () => {
     expect(session.extensionNotices.at(0)?.message).toBe("n5")
     expect(session.extensionNotices.at(-1)?.message).toBe("n54")
     expect(session.extensionErrors).toHaveLength(1)
+  })
+})
+
+describe("composer controls", () => {
+  const mode = (value: string) => ({
+    id: "mode",
+    kind: "cycle" as const,
+    label: "Mode",
+    value,
+    options: [
+      { value: "economy", label: "Economy", command: "economy" },
+      { value: "balance", label: "Balance", command: "balance" },
+    ],
+  })
+  const plan = { id: "plan", kind: "toggle" as const, label: "Plan", value: false, command: "plan" }
+  const snapshot = (sequence: number, extra: Record<string, unknown>) => baseEvent("session.snapshot", sequence, {
+    snapshot: {
+      sessionId: "sess-1",
+      directory: "/work",
+      isStreaming: false,
+      lifecycle: "idle",
+      queue: { steering: 0, followUp: 0 },
+      lastSequence: sequence,
+      ...extra,
+    },
+  } as never)
+  const ids = (state: ReturnType<typeof createReducerState>) => [...(state.bySession.get("sess-1")!.extensionControls?.values() ?? [])]
+
+  test("an event sets, replaces, and removes a control by id", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.control", 1, { control: mode("economy") })).state
+    state = applyPiEvent(state, baseEvent("extension.control", 2, { control: plan })).state
+    state = applyPiEvent(state, baseEvent("extension.control", 3, { control: mode("balance") })).state
+    expect(ids(state).map((control) => [control.id, control.kind === "action" ? null : control.value])).toEqual([
+      ["mode", "balance"],
+      ["plan", false],
+    ])
+    state = applyPiEvent(state, baseEvent("extension.control", 4, { id: "plan", removed: true })).state
+    state = applyPiEvent(state, baseEvent("extension.control", 5, { id: "never-there", removed: true })).state
+    expect(ids(state).map((control) => control.id)).toEqual(["mode"])
+  })
+
+  test("a snapshot list is the whole set, and a snapshot without one keeps the controls", () => {
+    let state = applyPiEvent(createReducerState(), baseEvent("extension.control", 1, { control: plan })).state
+    state = applyPiEvent(state, snapshot(2, { extensionControls: [mode("economy")] })).state
+    expect(ids(state).map((control) => control.id)).toEqual(["mode"])
+    state = applyPiEvent(state, snapshot(3, {})).state
+    expect(ids(state).map((control) => control.id)).toEqual(["mode"])
+    state = applyPiEvent(state, snapshot(4, { extensionControls: [] })).state
+    expect(ids(state)).toEqual([])
   })
 })
 

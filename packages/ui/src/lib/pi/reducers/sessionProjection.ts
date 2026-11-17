@@ -1,5 +1,6 @@
 import type {
   PiBashExecution,
+  PiComposerControl,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionSurfaceSnapshot,
@@ -293,6 +294,7 @@ export const hydrateSessionFromDetail = (
     serverNow?: number;
     compaction?: PiCompactionInfo;
     extensionStatuses?: Array<{ key: string; text: string }>;
+    extensionControls?: PiComposerControl[];
     extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
     extensionDialogs?: PiExtensionDialogPayload[];
     extensionPanels?: PiExtensionPanelPayload[];
@@ -351,6 +353,10 @@ export const hydrateSessionFromDetail = (
     : undefined;
   if (Array.isArray(detail.extensionStatuses)) {
     session.extensionStatuses = new Map(detail.extensionStatuses.map((entry) => [entry.key, entry.text]));
+  }
+  // A list (even empty) is the whole set; no field leaves them as they are.
+  if (Array.isArray(detail.extensionControls)) {
+    session.extensionControls = new Map(detail.extensionControls.map((control) => [control.id, control]));
   }
   if (Array.isArray(detail.extensionWidgets)) {
     session.extensionWidgets = new Map(detail.extensionWidgets.map((entry) => [

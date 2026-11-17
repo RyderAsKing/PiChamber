@@ -85,7 +85,12 @@ class FakeSession {
 
   async setModel(model) { this.model = model; }
 
-  setThinkingLevel(thinking) { this.thinkingLevel = thinking; }
+  setThinkingLevel(thinking) {
+    // Like Pi: an actual change emits `thinking_level_changed`.
+    const changed = this.thinkingLevel !== thinking;
+    this.thinkingLevel = thinking;
+    if (changed) this.emit({ type: 'thinking_level_changed', level: thinking });
+  }
 
   async abort() { this.aborted += 1; this.isStreaming = false; }
 

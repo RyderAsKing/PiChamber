@@ -303,6 +303,13 @@ export const createSessionEngineRouter = ({
     const createPayload = message?.payload;
     const owner = resolveCreateOwner(createPayload);
     if (!owner) return false;
+    // Draft sessions are Pi-native (`sessions.create` with `draft` or
+    // `draftSessionId`); an engine knows nothing of them and would create a
+    // visible session. Refuse rather than route.
+    if (createPayload && typeof createPayload === 'object'
+      && (createPayload.draft === true || createPayload.draftSessionId !== undefined)) {
+      return fail(ENGINE_UNSUPPORTED_OPERATION, 'The session engine does not support draft sessions.');
+    }
     if (!createPayload || typeof createPayload !== 'object') {
       return invalidArgument(createError, 'The requested session creation options are invalid.');
     }

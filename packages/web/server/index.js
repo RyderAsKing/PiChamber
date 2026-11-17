@@ -18,6 +18,9 @@ import { createServerIdResolver } from './lib/relay/server-id.js';
 import { registerTailscaleRoutes } from './lib/tailscale/routes.js';
 import { registerPiRuntimeRoutes } from './lib/pi/routes.js';
 import { createPiDaemonPool } from './lib/pi/session-daemon/daemon-pool.js';
+import { createPluginService } from './lib/plugins/service.js';
+import { createPluginDaemonSync } from './lib/plugins/daemon-sync.js';
+import { registerPluginRoutes } from './lib/plugins/routes.js';
 import { createDockerInitialLocalSettings, createPiUiSettingsStore } from './lib/pi/ui-settings-store.js';
 import { detectLinuxDistribution } from './lib/server/linux-distribution.js';
 import { createPiNotificationWatcher } from './lib/notifications/pi-notification-watcher.js';
@@ -258,6 +261,15 @@ export async function startWebUiServer(options = {}) {
     getServerId: serverIdResolver.getServerId,
     getServerLabel: () => os.hostname() || 'PiChamber',
   });
+  // Plugins: the server owns manifests and state and pushes the enabled set
+  // to every daemon (lib/plugins/DOCUMENTATION.md). A health probe runs the
+  // supervisor's onDaemonReady hook, which pushes. A sandboxed project's
+  // daemon gets a config trimmed to its own folders.
+  const pluginService = createPluginService();
+  const pluginDaemonSync = createPluginDaemonSync({
+    buildConfig: (scope) => pluginService.daemonConfig(scope),
+    refresh: () => piSessionDaemonRuntime?.health(),
+  });
   // The main daemon is today's supervisor; project daemons register here.
   const piDaemonPool = createPiDaemonPool({ getMainRuntime: () => piSessionDaemonRuntime });
   // Sandboxed projects get their own daemon, started through nono on first
@@ -284,14 +296,22 @@ export async function startWebUiServer(options = {}) {
     hasConnectedDevices: () => piRuntimeRoutes?.hasLiveEventStreams() ?? false,
     // The same port and version as the main daemon, so sandbox profile keys
     // extend the main daemon's.
-    supervisorOptions: () => ({ port: boundPort() ?? port, version: PICHAMBER_VERSION }),
+    supervisorOptions: ({ roots } = {}) => ({
+      port: boundPort() ?? port,
+      version: PICHAMBER_VERSION,
+      onDaemonReady: pluginDaemonSync.onDaemonReadyFor({ roots }),
+    }),
   });
   piRuntimeRoutes = registerPiRuntimeRoutes(app, {
     daemonPool: piDaemonPool,
     sandboxManager: piSandboxManager,
     trustAsk: piTrustAsk,
     uiSettingsStore,
+    onSessionDeleted: async (sessionId) => {
+      if (await pluginService.forgetSession(sessionId)) pluginDaemonSync.changed();
+    },
   });
+  registerPluginRoutes(app, { service: pluginService, onChange: pluginDaemonSync.changed });
   // Cloudflare Tunnel external access (managed-remote and managed-local modes).
   const requireTunnelAuth = (req, res, next) => uiAuthController.requireAuth(req, res, next);
   app.get('/api/pichamber/tunnel/status', requireTunnelAuth, async (_req, res) => {
@@ -335,6 +355,7 @@ export async function startWebUiServer(options = {}) {
     dataDir: PICHAMBER_DATA_DIR,
     port: typeof resolvedPort === 'number' ? resolvedPort : port,
     version: PICHAMBER_VERSION,
+    onDaemonReady: pluginDaemonSync.onDaemonReady,
   });
   if (typeof resolvedPort === 'number') {
     process.send?.({
@@ -375,6 +396,10 @@ export async function startWebUiServer(options = {}) {
     console.warn(`[pi-sandbox] Could not load project sandbox settings: ${error?.code ?? error?.message ?? 'UNKNOWN'}`);
   }
   void piSessionDaemonRuntime.start()
+    .then(() => {
+      // Configure plugins on the started daemon; later requests re-check.
+      if (!stopped) void piSessionDaemonRuntime.health();
+    })
     .catch((error) => {
       console.warn(`[PiSessionDaemon] unavailable: ${error?.code ?? 'DAEMON_UNAVAILABLE'}`);
     })

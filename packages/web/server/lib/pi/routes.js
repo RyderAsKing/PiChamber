@@ -25,6 +25,9 @@ import {
   projectCustomFrame,
   projectCustomSurface,
   projectCustomSurfaces,
+  MAX_EXTENSION_CHOICE_ID_CHARS,
+  MAX_EXTENSION_CHOICE_NOTE_CHARS,
+  projectExtensionChooseFields,
   sanitizeExtensionFormFields,
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
@@ -35,6 +38,7 @@ import { normalizeOpenRequestUrl } from './session-daemon/open-request.js';
 import { createPiDaemonPool, MAIN_DAEMON_KEY, publicDaemonStreamId } from './session-daemon/daemon-pool.js';
 import { decodePiEventCursor, subscribeMergedPiEvents } from './merged-event-stream.js';
 import { registerPiSandboxRoutes } from './sandbox/sandbox-routes.js';
+import { MAX_CONTROLS_PER_SESSION, parseComposerControl } from './session-daemon/extension-controls.js';
 import {
   DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   createPiEventStreamRegistry,
@@ -82,7 +86,7 @@ const writeDaemonError = (res, error) => {
     : code === 'INVALID_SESSION'
       ? 404
       : code === 'SESSION_IN_USE' || code === 'OPERATION_PAYLOAD_MISMATCH' || code === 'STALE_STREAM_EPOCH'
-        || code === ENGINE_UNSUPPORTED_OPERATION
+        || code === ENGINE_UNSUPPORTED_OPERATION || code === 'CONTROL_UNAVAILABLE'
         ? 409
         : code === 'OPERATION_EXPIRED'
           ? 410
@@ -748,6 +752,96 @@ export const projectExtensionList = (result) => {
   return { directory: result.directory, extensions, commands };
 };
 
+// `pi config` / `pi list` for extensions (session-daemon/extension-config.js).
+// Ids are opaque sha256 base64url; names and sources are display forms the
+// daemon already made path-free, re-checked here so nothing path-like or
+// unexpected crosses.
+const EXTENSION_CONFIG_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const EXTENSION_CONFIG_OVERRIDE_STATES = new Set(['inherit', 'load', 'unload']);
+const EXTENSION_CONFIG_GROUPS = new Set(['package', 'auto', 'settings', 'builtin']);
+const EXTENSION_CONFIG_SCOPES = new Set(['user', 'project']);
+const EXTENSION_CONFIG_PACKAGE_KINDS = new Set(['npm', 'git', 'local']);
+
+const isDisplayText = (value, max = 256) => typeof value === 'string' && value.length > 0 && value.length <= max
+  && !value.includes('\\') && !value.startsWith('/') && !value.startsWith('~') && !/^[A-Za-z]:/.test(value);
+
+// `replaced`: plugins and built-ins a live runtime left out because another
+// extension took their tool, command, or flag. Present (even empty) only when
+// the daemon answered from a live runtime. A bad entry is dropped; a bad
+// optional part (`registers`, `by`) is left out of an otherwise good entry.
+const EXTENSION_CONFIG_REPLACED_KINDS = new Set(['plugin', 'builtin']);
+const EXTENSION_CONFIG_REGISTER_KINDS = new Set(['tool', 'command', 'flag']);
+const PLUGIN_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const projectReplacedExtensions = (replaced) => {
+  if (!Array.isArray(replaced)) return undefined;
+  return replaced.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || !EXTENSION_CONFIG_REPLACED_KINDS.has(entry.kind) || typeof entry.id !== 'string'
+      || !(entry.kind === 'plugin' ? entry.id.length <= 40 && PLUGIN_ID_PATTERN.test(entry.id) : EXTENSION_CONFIG_ID_PATTERN.test(entry.id))) return [];
+    const registers = entry.registers;
+    const by = entry.by;
+    const validRegisters = registers && typeof registers === 'object' && EXTENSION_CONFIG_REGISTER_KINDS.has(registers.kind)
+      && isDisplayText(registers.name) && !registers.name.startsWith('--');
+    const validBy = by && typeof by === 'object' && isDisplayText(by.name);
+    return [{
+      kind: entry.kind,
+      id: entry.id,
+      ...(validRegisters ? { registers: { kind: registers.kind, name: registers.name } } : {}),
+      ...(validBy ? {
+        by: {
+          ...(typeof by.id === 'string' && EXTENSION_CONFIG_ID_PATTERN.test(by.id) ? { id: by.id } : {}),
+          name: by.name,
+        },
+      } : {}),
+    }];
+  });
+};
+
+const projectExtensionConfig = (result) => {
+  if (!result || typeof result !== 'object' || !result.project || typeof result.project !== 'object'
+    || !Array.isArray(result.packages) || !Array.isArray(result.extensions) || !Array.isArray(result.installFailures)
+    || (result.directory !== undefined && typeof result.directory !== 'string')) throw protocolMismatch();
+  const trusted = result.project.trusted === true;
+  const packages = result.packages.map((pkg) => {
+    if (!pkg || typeof pkg !== 'object' || typeof pkg.id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(pkg.id)
+      || !EXTENSION_CONFIG_SCOPES.has(pkg.scope) || !EXTENSION_CONFIG_PACKAGE_KINDS.has(pkg.kind)
+      || (pkg.kind === 'local' ? !isDisplayText(pkg.source) || pkg.source.includes('/') : !isDisplayText(pkg.source))) throw protocolMismatch();
+    return { id: pkg.id, source: pkg.source, scope: pkg.scope, kind: pkg.kind, installed: pkg.installed === true, filtered: pkg.filtered === true };
+  });
+  const packageIds = new Set(packages.map((pkg) => pkg.id));
+  const extensions = result.extensions.map((extension) => {
+    if (!extension || typeof extension !== 'object' || typeof extension.id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(extension.id)
+      || !isDisplayText(extension.name) || !EXTENSION_CONFIG_GROUPS.has(extension.group) || !EXTENSION_CONFIG_SCOPES.has(extension.scope)
+      || (extension.global !== undefined && typeof extension.global !== 'boolean')) throw protocolMismatch();
+    const project = extension.project;
+    if (project !== undefined && (!trusted || !project || typeof project !== 'object' || !EXTENSION_CONFIG_OVERRIDE_STATES.has(project.state)
+      || typeof project.inherited !== 'boolean' || typeof project.enabled !== 'boolean')) throw protocolMismatch();
+    return {
+      id: extension.id,
+      name: extension.name,
+      group: extension.group,
+      ...(extension.group === 'package' && packageIds.has(extension.packageId) ? { packageId: extension.packageId } : {}),
+      scope: extension.scope,
+      ...(typeof extension.global === 'boolean' ? { global: extension.global } : {}),
+      ...(project ? { project: { state: project.state, inherited: project.inherited, enabled: project.enabled } } : {}),
+    };
+  });
+  const installFailures = result.installFailures.flatMap((failure) => (
+    failure && typeof failure === 'object' && isDisplayText(failure.source) && typeof failure.message === 'string'
+      ? [{ source: failure.source, message: failure.message.slice(0, 300) }]
+      : []
+  ));
+  return {
+    ...(typeof result.directory === 'string' && result.directory.length > 0 ? { directory: result.directory } : {}),
+    project: { available: result.project.available === true, trusted },
+    packages,
+    extensions,
+    installFailures,
+    ...(Array.isArray(result.replaced) ? { replaced: projectReplacedExtensions(result.replaced) } : {}),
+    ...(result.deferred === true ? { deferred: true } : {}),
+  };
+};
+
 // User shell commands (`!cmd`). Command text is user-authored; output is a
 // bounded tail. Field caps mirror the daemon's live/recorded limits.
 const BASH_COMMAND_MAX_CHARS = 100_000;
@@ -776,7 +870,16 @@ const projectBashExecutions = (value) => (Array.isArray(value)
   ? value.slice(0, 8).map(projectBashExecution).filter(Boolean)
   : undefined);
 
+// Composer controls are checked again here with the daemon's own parser, so
+// the browser only ever sees the validated shape.
+const projectComposerControls = (value) => {
+  if (!Array.isArray(value)) return undefined;
+  // An empty list stays: it tells the browser the session has none.
+  return value.slice(0, MAX_CONTROLS_PER_SESSION).map(parseComposerControl).filter((control) => control && !control.remove);
+};
+
 function projectExtensionSnapshotState(snapshot) {
+  const extensionControls = projectComposerControls(snapshot.extensionControls);
   const extensionStatuses = Array.isArray(snapshot.extensionStatuses)
     ? snapshot.extensionStatuses.filter((entry) => entry && typeof entry.key === 'string' && typeof entry.text === 'string' && entry.key.length > 0 && entry.key.length <= 128 && entry.text.length <= 1000).slice(0, 50).map((entry) => ({ key: entry.key.slice(0, 128), text: entry.text.slice(0, 1000) }))
     : undefined;
@@ -790,8 +893,9 @@ function projectExtensionSnapshotState(snapshot) {
   const extensionDialogs = Array.isArray(snapshot.extensionDialogs)
     ? snapshot.extensionDialogs.filter((entry) => entry && typeof entry.requestId === 'string' && typeof entry.method === 'string' && typeof entry.title === 'string').slice(0, 20).map((entry) => ({
         requestId: entry.requestId.slice(0, 512),
-        method: ['select', 'confirm', 'input', 'editor', 'form'].includes(entry.method) ? entry.method : 'confirm',
+        method: ['select', 'confirm', 'input', 'editor', 'form', 'choose'].includes(entry.method) ? entry.method : 'confirm',
         title: entry.title.slice(0, 512),
+        ...(entry.method === 'choose' ? projectExtensionChooseFields(entry) : {}),
         ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 2000) } : {}),
         ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
         ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
@@ -817,6 +921,7 @@ function projectExtensionSnapshotState(snapshot) {
     : undefined;
   return {
     ...(extensionStatuses ? { extensionStatuses } : {}),
+    ...(extensionControls ? { extensionControls } : {}),
     ...(extensionWidgets ? { extensionWidgets } : {}),
     ...(extensionDialogs ? { extensionDialogs } : {}),
     ...(extensionPanels ? { extensionPanels } : {}),
@@ -840,7 +945,13 @@ export const projectEventFrame = (frame) => {
   const streamEpoch = typeof frame.streamEpoch === 'string' && frame.streamEpoch.length > 0 && frame.streamEpoch.length <= 128
     ? frame.streamEpoch
     : undefined;
-  const common = { protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory, ...(streamEpoch ? { streamEpoch } : {}) };
+  // `draft` marks a draft session's events (a runtime warmed for a
+  // new-session draft): clients keep them out of the session list.
+  const common = {
+    protocolVersion: 1, kind: 'event', name: frame.event, sequence: frame.sequence, sessionId, directory,
+    ...(streamEpoch ? { streamEpoch } : {}),
+    ...(frame.draft === true ? { draft: true } : {}),
+  };
   switch (frame.event) {
     case 'session.input': {
       const pending = projectPendingInputSummary(frame.payload.pending);
@@ -1065,6 +1176,15 @@ export const projectEventFrame = (frame) => {
       if (frame.payload.text !== undefined && typeof frame.payload.text !== 'string') return null;
       return { ...common, payload: { key: frame.payload.key.slice(0, 128), ...(typeof frame.payload.text === 'string' ? { text: frame.payload.text.slice(0, 1000) } : {}) } };
     }
+    case 'extension.control': {
+      if (frame.payload.removed === true) {
+        if (typeof frame.payload.id !== 'string' || frame.payload.id.length === 0 || frame.payload.id.length > 64) return null;
+        return { ...common, payload: { id: frame.payload.id, removed: true } };
+      }
+      const control = parseComposerControl(frame.payload.control);
+      if (!control || control.remove) return null;
+      return { ...common, payload: { control } };
+    }
     case 'extension.widget': {
       if (typeof frame.payload.key !== 'string' || frame.payload.key.length === 0 || frame.payload.key.length > 128) return null;
       if (frame.payload.lines !== undefined) {
@@ -1084,14 +1204,18 @@ export const projectEventFrame = (frame) => {
     }
     case 'extension.dialog': {
       if (typeof frame.payload.requestId !== 'string' || frame.payload.requestId.length === 0 || frame.payload.requestId.length > 512) return null;
-      if (!['select', 'confirm', 'input', 'editor', 'form'].includes(frame.payload.method)) return null;
+      if (!['select', 'confirm', 'input', 'editor', 'form', 'choose'].includes(frame.payload.method)) return null;
       if (typeof frame.payload.title !== 'string' || frame.payload.title.length === 0 || frame.payload.title.length > 512) return null;
+      const chooseFields = frame.payload.method === 'choose' ? projectExtensionChooseFields(frame.payload) : null;
+      // A question nobody could answer is dropped, like any malformed event.
+      if (chooseFields && chooseFields.choices.length === 0) return null;
       return {
         ...common,
         payload: {
           requestId: frame.payload.requestId.slice(0, 512),
           method: frame.payload.method,
           title: frame.payload.title.slice(0, 512),
+          ...(chooseFields ?? {}),
           ...(typeof frame.payload.message === 'string' ? { message: frame.payload.message.slice(0, 2000) } : {}),
           ...(Array.isArray(frame.payload.options) ? { options: frame.payload.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
           ...(typeof frame.payload.placeholder === 'string' ? { placeholder: frame.payload.placeholder.slice(0, 512) } : {}),
@@ -1190,7 +1314,7 @@ const sessionRouteDirectory = (req, res) => res.locals?.piRouteDirectory ?? sess
 // old daemon, so it is refused until the session has moved.
 const DRAINING_SESSION_COMMANDS = new Set([
   'sessions.open', 'sessions.messages', 'sessions.tree', 'sessions.abort', 'sessions.abortBash', 'sessions.steer',
-  'sessions.sendReceipt', 'extensions.draft',
+  'sessions.sendReceipt', 'extensions.draft', 'sessions.discardDraft',
   'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
 ]);
 
@@ -1289,6 +1413,9 @@ export const registerPiRuntimeRoutes = (app, {
   eventHeartbeatMs = 15_000,
   eventStreamMaxBufferedBytes = DEFAULT_EVENT_STREAM_MAX_BUFFERED_BYTES,
   eventStreamRetryBaseMs,
+  // Called with the id after a session is deleted, for PiChamber state kept
+  // per session elsewhere (plugin switches). Must not throw.
+  onSessionDeleted = () => {},
 }) => {
   const eventStreamRegistry = createPiEventStreamRegistry();
   // Directory-less commands (providers, settings, projects, engines,
@@ -1916,6 +2043,8 @@ export const registerPiRuntimeRoutes = (app, {
           ...(Number.isSafeInteger(snippet.updatedAt) ? { updatedAt: snippet.updatedAt } : {}),
         };
       }),
+      // Where the server keeps every snippet, so a user can point an agent at it.
+      ...(typeof snippetsStore.file === 'string' && snippetsStore.file.length > 0 ? { file: snippetsStore.file } : {}),
     };
   };
 
@@ -2373,6 +2502,14 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  // Stop a draft session's runtime when its draft closes. Only a draft can be
+  // discarded; any other session answers `{ discarded: false }` untouched.
+  app.post('/api/pi/sessions/:sessionId/discard-draft', async (req, res) => {
+    const result = await requestSessionOperation(req, res, daemonPool, 'sessions.discardDraft', {}, sandboxManager);
+    if (result === undefined) return;
+    res.json({ discarded: result?.discarded === true });
+  });
+
   app.delete('/api/pi/sessions/:sessionId', async (req, res) => {
     const result = await requestSessionOperation(req, res, daemonPool, 'sessions.delete', {}, sandboxManager);
     if (result === undefined) return;
@@ -2380,6 +2517,11 @@ export const registerPiRuntimeRoutes = (app, {
       await sessionShelfStore.remove(req.params.sessionId);
     } catch (error) {
       console.warn('[pi] could not remove a deleted session from the shelf', error?.code ?? error);
+    }
+    try {
+      await onSessionDeleted(req.params.sessionId);
+    } catch (error) {
+      console.warn('[pi] could not drop a deleted session\'s plugin switches', error?.code ?? error);
     }
     res.status(204).end();
   });
@@ -2495,6 +2637,86 @@ export const registerPiRuntimeRoutes = (app, {
     }
   });
 
+  // Extension config (`pi config`, `pi list`, `pi remove`). Toggles and
+  // removal change what code runs on this server; the daemon re-resolves
+  // every id and enforces trust (session-daemon/extension-config.js).
+  // Like resources, a project's own view and choices go to the daemon that
+  // runs the project, so a sandboxed project is read by its sandbox daemon
+  // and the main daemon never resolves it. Global choices and package removal
+  // write Pi's agent folder, which a sandbox cannot write, so they stay with
+  // the main daemon.
+  const extensionConfigDirectory = (value) => {
+    if (value === undefined) return { ok: true };
+    if (typeof value !== 'string' || value.length > 4096) return { ok: false };
+    return { ok: true, ...(value.length > 0 ? { directory: value } : {}) };
+  };
+
+  app.get('/api/pi/extensions/config', async (req, res) => {
+    const target = extensionConfigDirectory(req.query?.directory);
+    if (!target.ok) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const daemon = target.directory ? await daemonForClientDirectory(target.directory) : mainDaemon();
+      const result = await daemon.request('extensions.config.list', {
+        ...(target.directory ? { directory: target.directory } : {}),
+      });
+      res.json(projectExtensionConfig(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/extensions/config/:id', async (req, res) => {
+    const id = req.params.id;
+    const body = req.body;
+    let payload = null;
+    if (typeof id === 'string' && EXTENSION_CONFIG_ID_PATTERN.test(id) && body && typeof body === 'object' && !Array.isArray(body)) {
+      const keys = Object.keys(body);
+      if (body.scope === 'global' && typeof body.enabled === 'boolean'
+        && keys.every((key) => ['scope', 'enabled', 'directory'].includes(key))) {
+        const target = extensionConfigDirectory(body.directory);
+        if (target.ok) payload = { id, scope: 'global', enabled: body.enabled, ...(target.directory ? { directory: target.directory } : {}) };
+      } else if (body.scope === 'project'
+        && typeof body.directory === 'string' && body.directory.length > 0 && body.directory.length <= 4096) {
+        // The override itself, or on/off for the daemon to turn into one.
+        if (EXTENSION_CONFIG_OVERRIDE_STATES.has(body.state) && keys.every((key) => ['scope', 'state', 'directory'].includes(key))) {
+          payload = { id, scope: 'project', state: body.state, directory: body.directory };
+        } else if (typeof body.enabled === 'boolean' && keys.every((key) => ['scope', 'enabled', 'directory'].includes(key))) {
+          payload = { id, scope: 'project', enabled: body.enabled, directory: body.directory };
+        }
+      }
+    }
+    if (!payload) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const daemon = payload.scope === 'project' ? await daemonForClientDirectory(payload.directory) : mainDaemon();
+      res.json(projectExtensionConfig(await daemon.request('extensions.config.set', payload)));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.delete('/api/pi/extensions/packages/:id', async (req, res) => {
+    const id = req.params.id;
+    const target = extensionConfigDirectory(req.query?.directory);
+    if (typeof id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(id) || !target.ok) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectExtensionConfig(await mainDaemon().request('extensions.packages.remove', {
+        id,
+        ...(target.directory ? { directory: target.directory } : {}),
+      })));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
   // Pi's colours for extension surfaces drawn with the given terminal
   // colours (session-daemon/extension-palette.js).
   app.post('/api/pi/extensions/palette', async (req, res) => {
@@ -2520,7 +2742,10 @@ export const registerPiRuntimeRoutes = (app, {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || typeof body.requestId !== 'string' || body.requestId.length === 0
-      || (body.directory !== undefined && typeof body.directory !== 'string')) {
+      || (body.directory !== undefined && typeof body.directory !== 'string')
+      // A `choose` answer: the choice id travels as `value`, with an optional note.
+      || (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > MAX_EXTENSION_CHOICE_NOTE_CHARS
+        || typeof body.value !== 'string' || body.value.length > MAX_EXTENSION_CHOICE_ID_CHARS))) {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
@@ -2546,6 +2771,7 @@ export const registerPiRuntimeRoutes = (app, {
         ...(body.cancelled === true ? { cancelled: true } : {}),
         ...(body.confirmed === true ? { confirmed: true } : {}),
         ...(typeof body.value === 'string' ? { value: body.value } : {}),
+        ...(typeof body.note === 'string' ? { note: body.note } : {}),
         ...(values ? { values } : {}),
       };
       // A dialog from a session still finishing its turn in a daemon that
@@ -2566,6 +2792,40 @@ export const registerPiRuntimeRoutes = (app, {
         return;
       }
       res.status(204).end();
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // A click on a composer control an extension declared. The daemon picks the
+  // command from its own copy of the control; the browser only names the
+  // control and the value it wants.
+  app.post('/api/pi/extensions/control', async (req, res) => {
+    const body = req.body;
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.sessionId !== 'string' || body.sessionId.length === 0 || body.sessionId.length > 256
+      || typeof body.id !== 'string' || body.id.length === 0 || body.id.length > 64
+      || (body.value !== undefined && typeof body.value !== 'boolean' && (typeof body.value !== 'string' || body.value.length > 64))
+      || (body.clientId !== undefined && (typeof body.clientId !== 'string' || body.clientId.length > 128))
+      || (body.directory !== undefined && (typeof body.directory !== 'string' || body.directory.length > 4096))) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      // Routed like any session operation: by the transcript's folder, or
+      // for a draft (nothing on disk yet) by the folder the client names.
+      // A control runs a command, so a session waiting to switch daemons
+      // refuses it until it has moved.
+      drainingSessionRuntime(res, sandboxManager, body.sessionId, 'extensions.control');
+      const directory = typeof body.directory === 'string' && body.directory.length > 0 ? body.directory : undefined;
+      const routeDirectory = await sessionDaemonDirectory(res, sandboxManager, body.sessionId, directory);
+      const result = await daemonFor(routeDirectory).request('extensions.control', {
+        sessionId: body.sessionId,
+        id: body.id,
+        ...(body.value !== undefined ? { value: body.value } : {}),
+        ...(typeof body.clientId === 'string' && body.clientId.length > 0 ? { clientId: body.clientId } : {}),
+      });
+      res.json({ ran: result?.ran === true });
     } catch (error) {
       writeDaemonError(res, error);
     }

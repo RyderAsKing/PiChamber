@@ -1,0 +1,32 @@
+{
+  "name": "@pi-chamber/plugin-visuals",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lets the agent draw HTML pages in the chat.",
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./extension.js"]
+  },
+  "pichamber": {
+    "apiVersion": 1,
+    "id": "visuals",
+    "name": "Visuals",
+    "description": "Lets the agent show charts, diagrams, tables and mockups as HTML pages in the chat.",
+    "icon": "artboard",
+    "defaultEnabled": false,
+    "state": {
+      "allowNetwork": {
+        "type": "boolean",
+        "scope": "global",
+        "default": false,
+        "label": "Let pages load from the network",
+        "description": "Off: pages can only use what they contain."
+      }
+    },
+    "contributes": {
+      "settings": ["allowNetwork"],
+      "ui": "visuals"
+    }
+  }
+}

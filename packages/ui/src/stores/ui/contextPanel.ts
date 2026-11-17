@@ -4,7 +4,7 @@ import { createBrowserPages, sanitizeBrowserPages, type BrowserPages } from './b
 
 export type MainTab = 'chat' | 'git' | 'diff' | 'terminal' | 'files' | 'context' | 'diagram';
 export type PendingDiffScope = 'all' | 'working' | 'staged' | 'turn' | 'branch';
-export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'terminal' | 'pull-requests' | 'issues' | 'extensions';
+export type ContextPanelMode = 'diff' | 'file' | 'context' | 'preview' | 'browser' | 'git' | 'terminal' | 'pull-requests' | 'issues' | 'extensions' | 'agents';
 // Where a PiChamber browser page runs: in the server's Chrome, streamed to
 // the device, or on the device itself (a webview or iframe).
 export type BrowserRoute = 'server' | 'device';
@@ -66,6 +66,7 @@ export const CONTEXT_PANEL_SHARED_WIDTH_FALLBACK_MODES: ContextPanelMode[] = [
   'pull-requests',
   'issues',
   'extensions',
+  'agents',
 ];
 
 // Shared with rail/panel consumers so contextPanelByDirectory lookups agree on keys.
@@ -289,7 +290,8 @@ export const sanitizeContextPanelTabs = (tabs: unknown): ContextPanelTab[] => {
       candidate.mode !== 'terminal' &&
       candidate.mode !== 'pull-requests' &&
       candidate.mode !== 'issues' &&
-      candidate.mode !== 'extensions'
+      candidate.mode !== 'extensions' &&
+      candidate.mode !== 'agents'
     ) {
       continue;
     }

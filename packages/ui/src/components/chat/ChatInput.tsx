@@ -162,6 +162,10 @@ import { DraftBranchCheckoutDialog } from "./composer/ui/DraftBranchCheckoutDial
 import { ComposerAutocompletePopups } from "./composer/ui/ComposerAutocompletePopups";
 import { useExtensionOverlayDims } from "./extension/custom/useOverlayDims";
 import { ComposerFooter } from "./composer/ui/ComposerFooter";
+import { ComposerPluginToggles } from "./composer/ui/ComposerPluginToggles";
+import type { ComposerTarget } from "@/plugins/sessionStore";
+import { useDraftComposerControls, useDraftRuntime } from "@/plugins/useDraftRuntime";
+import { useHasComposerToggles } from "@/plugins/composerToggles";
 import { RevertedMessageDock } from "./composer/ui/RevertedMessageDock";
 import { ComposerDragOverlay } from "./composer/ui/ComposerDragOverlay";
 import { ComposerAttachmentPickerInput } from "./composer/ui/ComposerAttachmentPickerInput";
@@ -454,6 +458,29 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
     ),
   );
   const activeRuntimeKey = getRuntimeKey();
+  const hasPluginToggles = useHasComposerToggles(
+    currentSessionDirectoryForSync ?? currentDirectory,
+  );
+  // Controls the session's Pi extensions declared share the same footer slot.
+  const hasExtensionControls = usePiSessionSnapshot(
+    (state) => Boolean(
+      currentSessionId &&
+        state.reducer.bySession.get(currentSessionId)?.extensionControls?.size,
+    ),
+    undefined,
+    currentSessionId ? `session:${currentSessionId}` : "chrome",
+    currentSessionId ?? "",
+  );
+  // A new-session draft starts a draft session for its extensions' controls,
+  // and draws the folder's remembered ones until that reports.
+  useDraftRuntime();
+  const draftControlsId = useSessionUIStore((s) =>
+    !currentSessionId && s.newSessionDraft?.open ? s.newSessionDraft.id : null,
+  );
+  const hasDraftControls =
+    useDraftComposerControls(draftControlsId).controls.length > 0;
+  const hasComposerToggles =
+    hasPluginToggles || hasExtensionControls || hasDraftControls;
 
   useExtensionDraftSync({
     sessionId: currentSessionId,
@@ -494,6 +521,13 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
   );
   const newSessionDraft = useSessionUIStore((s) => s.newSessionDraft);
   const newSessionDraftOpen = Boolean(newSessionDraft?.open);
+  // Composer plugin switches change the open session, or the draft until it
+  // becomes a session.
+  const pluginToggleTarget: ComposerTarget = currentSessionId
+    ? { kind: "session", sessionId: currentSessionId }
+    : newSessionDraftOpen && newSessionDraft?.id
+      ? { kind: "draft", draftId: newSessionDraft.id }
+      : { kind: "none" };
   const sendingNewSessionDraftId = useSessionUIStore((s) => s.sendingNewSessionDraftId);
   const isSendingNewSession = isNewSessionDraftSendPending(
     newSessionDraft,
@@ -2739,12 +2773,26 @@ const ChatInputComponent: React.FC<ChatInputProps> = ({
                   leadingExtra={
                     inputMode !== "shell" && (isDesktopStackedComposer || isMobile) ? (
                       <MemoModelControls
-                        keepLabels
-                        className="w-max shrink-0"
+                        // Phones with a plugin button beside Send let the model and
+                        // thinking labels shrink to fit instead of being clipped.
+                        keepLabels={!(isMobile && hasComposerToggles)}
+                        className={isMobile && hasComposerToggles ? "min-w-0" : "w-max shrink-0"}
                         mobilePanel={isMobile ? mobileControlsPanel : undefined}
                         onMobilePanelChange={
                           isMobile ? setMobileControlsPanel : undefined
                         }
+                      />
+                    ) : null
+                  }
+                  pluginToggles={
+                    inputMode !== "shell" && (isDesktopStackedComposer || isMobile) ? (
+                      <ComposerPluginToggles
+                        directory={currentSessionDirectoryForSync ?? currentDirectory}
+                        target={pluginToggleTarget}
+                        isMobile={isMobile}
+                        className={cn(isSendingNewSession && "pointer-events-none opacity-60")}
+                        iconButtonClassName={footerIconButtonClass}
+                        iconClassName={iconSizeClass}
                       />
                     ) : null
                   }

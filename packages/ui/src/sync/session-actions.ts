@@ -20,10 +20,13 @@ export async function createSession(
     model?: { providerId: string; modelId: string };
     thinking?: PiThinkingLevel;
     select?: boolean;
+    /** The draft session to adopt (see `plugins/draftRuntime.ts`). */
+    draftSessionId?: string;
   }
 ): Promise<Session | null> {
   void _parentID;
   const newId = await store().create(title, {
+    ...(creationOptions?.draftSessionId ? { draftSessionId: creationOptions.draftSessionId } : {}),
     ...(directoryOverride ? { directory: directoryOverride } : {}),
     ...(creationOptions?.model ? { model: creationOptions.model } : {}),
     ...(creationOptions?.thinking ? { thinking: creationOptions.thinking } : {}),

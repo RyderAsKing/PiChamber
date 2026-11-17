@@ -846,11 +846,11 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     expect(removal.payload.appId).toBe('board');
   });
 
-  it('bridges ctx.ui.form to a form dialog and resolves with a values object', async () => {
+  it('bridges pichamber.ui.form to a form dialog and resolves with a values object', async () => {
     const { client, session, endpoint } = await startWithExtensibleSession();
-    const ui = session.boundBindings.uiContext;
+    const ctx = { ui: session.boundBindings.uiContext };
 
-    const pending = ui.form('Spawn agent', [
+    const pending = globalThis.pichamber.ui.form(ctx, 'Spawn agent', [
       { id: 'name', label: 'Name', type: 'text', required: true },
       { id: 'level', label: 'Level', type: 'select', options: ['low', 'high'], initial: 'high' },
       { id: 'workers', label: 'Workers', type: 'number', min: 1, max: 4 },
@@ -880,6 +880,97 @@ describe('Pi session daemon extension panels, apps, and forms', () => {
     });
     validClient.close();
     expect(await pending).toEqual({ name: 'research', level: 'high', workers: '4' });
+  });
+
+  it('bridges pichamber.ui.choose to a choose dialog tied to its tool call', async () => {
+    const { client, session, endpoint } = await startWithExtensibleSession();
+    const ctx = { ui: session.boundBindings.uiContext };
+    const { pichamber } = globalThis;
+    // PiChamber's own calls are not on Pi's `ctx.ui` under a string name.
+    expect(ctx.ui).not.toHaveProperty('choose');
+    const choices = [
+      { id: 'a', label: 'A: Compact', description: 'One row' },
+      { id: 'b', label: 'B: Tall' },
+      { id: 'a', label: 'A again' },
+      { label: 'no id' },
+    ];
+
+    const pending = pichamber.ui.choose(ctx, 'Which header?', choices, { toolCallId: 'call-7', allowNote: true });
+    const request = await client.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
+    expect(request.payload).toMatchObject({
+      method: 'choose',
+      title: 'Which header?',
+      choices: [{ id: 'a', label: 'A: Compact', description: 'One row' }, { id: 'b', label: 'B: Tall' }],
+      allowNote: true,
+      toolCallId: 'call-7',
+    });
+    // The session counts as waiting on the user, like any dialog.
+    const waiting = await client.request('sessions.pendingInput', {});
+    expect(waiting.result.sessions).toEqual([expect.objectContaining({ sessionId: session.sessionId })]);
+
+    // An id the question never offered is a bad request and leaves it open.
+    await expect(client.request('extensions.respond', {
+      requestId: request.payload.requestId,
+      value: 'z',
+    })).rejects.toThrow('Daemon connection closed');
+
+    const answering = connectClient(endpoint);
+    await answering.authenticate();
+    await answering.request('extensions.respond', {
+      requestId: request.payload.requestId,
+      value: 'b',
+      note: '  darker header  ',
+    });
+    expect(await pending).toEqual({ id: 'b', note: 'darker header' });
+
+    // A note for a question that takes none is refused; dismissing resolves undefined.
+    const plain = pichamber.ui.choose(ctx, 'Pick', [{ id: 'x', label: 'X' }]);
+    const plainRequest = await answering.next((message) => message.kind === 'event' && message.event === 'extension.dialog');
+    expect(plainRequest.payload).not.toHaveProperty('allowNote');
+    expect(plainRequest.payload).not.toHaveProperty('toolCallId');
+    await expect(answering.request('extensions.respond', {
+      requestId: plainRequest.payload.requestId,
+      value: 'x',
+      note: 'not asked for',
+    })).rejects.toThrow('Daemon connection closed');
+    const dismissing = connectClient(endpoint);
+    await dismissing.authenticate();
+    await dismissing.request('extensions.respond', { requestId: plainRequest.payload.requestId, cancelled: true });
+    dismissing.close();
+    expect(await plain).toBeUndefined();
+
+    // Nothing to choose, or no title: nothing is shown and the call fails.
+    await expect(pichamber.ui.choose(ctx, 'Pick', [{ label: 'no id' }])).rejects.toThrow(/at least one choice/);
+    await expect(pichamber.ui.choose(ctx, '', [{ id: 'x', label: 'X' }])).rejects.toThrow(/title/);
+  });
+
+  it('exposes globalThis.pichamber with ui, and keeps the released markers', () => {
+    expect(Object.isFrozen(globalThis.pichamber)).toBe(true);
+    expect(globalThis.pichamber.version).toBe(1);
+    expect(Object.keys(globalThis.pichamber.ui).sort()).toEqual(['choose', 'form', 'openUrl']);
+    expect(globalThis.__PICHAMBER__.version).toBe(1);
+    expect(process.env.PICHAMBER).toBe('1');
+  });
+
+  it('keeps form and openUrl off ctx.ui, and refuses a URL that is not http(s)', async () => {
+    const { session } = await startWithExtensibleSession();
+    const ctx = { ui: session.boundBindings.uiContext };
+
+    // PiChamber's own calls are not on Pi's `ctx.ui` under a string name.
+    expect(ctx.ui).not.toHaveProperty('form');
+    expect(ctx.ui).not.toHaveProperty('openUrl');
+    await expect(globalThis.pichamber.ui.openUrl(ctx, 'file:///etc/passwd')).resolves.toBe(false);
+  });
+
+  it('rejects a pichamber.ui call without a PiChamber ctx, never synchronously', async () => {
+    const { pichamber } = globalThis;
+    for (const name of ['choose', 'form', 'openUrl']) {
+      let promise;
+      expect(() => { promise = pichamber.ui[name](undefined, 'T', []); }).not.toThrow();
+      await expect(promise).rejects.toBeInstanceOf(TypeError);
+      await expect(promise).rejects.toThrow(/ctx/);
+      await expect(pichamber.ui[name]({ ui: { select: async () => undefined } }, 'T', [])).rejects.toBeInstanceOf(TypeError);
+    }
   });
 
   it('lists extensions with opaque ids and never leaks server paths', async () => {

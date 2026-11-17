@@ -575,7 +575,11 @@ export const createProjectSandboxManager = ({
         allowHosts: [...providerHosts, ...setting.allowHosts],
         allowLocalPorts: setting.allowLocalPorts,
       });
-      const options = typeof supervisorOptions === 'function' ? supervisorOptions() : supervisorOptions;
+      // The folders this daemon owns, so per-daemon options (the plugin
+      // config) can leave out every other project.
+      const options = typeof supervisorOptions === 'function'
+        ? supervisorOptions({ roots: [...entry.directories] })
+        : supervisorOptions;
       supervisor = await createSupervisor({ ...options, dataDir, launcher, sandbox });
     } catch (error) {
       throw sandboxUnavailable(reasonOf(error));

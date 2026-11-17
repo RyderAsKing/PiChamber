@@ -29,6 +29,49 @@ Lines an extension draws with Pi's theme (`theme.fg("accent", ...)` and the like
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
 
+## Turning extensions on and off
+
+**Settings → Extensions & Plugins → Pi extensions** lists what Pi loads, the
+same list `pi config` shows in a terminal. It reads and writes Pi's own
+settings files, so a change made here applies in the pi CLI too, and a change
+made in the CLI shows up here.
+
+- **Global** has a switch per extension. Off means Pi stops loading it in
+  every project.
+- **This project** appears when a folder is open. Each extension has a
+  switch for that project only. An extension you switch away from its global
+  setting says "On in this project only" or "Off in this project only".
+  Switch it back and the project follows the global setting again. Pi must
+  trust the project first; until then the page shows the global list without
+  controls.
+- **Packages** installed with `pi install` are listed with their extensions.
+  Remove deletes a package the way `pi remove` does: an npm or git package's
+  files are deleted, a local folder is only dropped from settings and stays
+  on disk. A global package is removed from Global, a project's package from
+  This project.
+- **Built into Pi** lists the extensions that ship with Pi (`mcp`,
+  `codemode`, `tool-search`). Pi's llama.cpp provider is not offered because
+  PiChamber does not load it.
+
+Running sessions pick a change up when they are idle. The page changes Pi on
+the machine that runs the PiChamber server, also when you open it from a
+phone or another computer. Installing packages still happens in a terminal
+with `pi install`. Skills, prompt templates, and themes from packages keep
+their own pages.
+
+### When your extension replaces a plugin
+
+Pi loads only one extension for each tool, command, or flag name. PiChamber's
+plugins and Pi's built-ins step aside for your own extension, so a plugin can
+be switched on and still not be loaded. For example, your own `subagent`
+extension takes the place of the Sub-agents plugin.
+
+When a session is running in the folder, the page shows it. The plugin's row
+says "Not loaded" and names the extension, and the plugin's own page has a
+button that turns that extension off. The extension's row says what it was
+loaded in place of. With no session running there is nothing to compare, so
+no notice shows.
+
 ## Extension interface
 
 **Settings → Sessions → Extension interface** chooses what extensions are told
@@ -75,6 +118,88 @@ pi.on('session_start', async (_event, ctx) => {
 
 Keep the check local to your extension. It has no PiChamber runtime dependency,
 so the same extension continues to work in the plain pi CLI.
+
+PiChamber's own calls live on `globalThis.pichamber`, a frozen object with
+`version` and `ui`. They are not on pi's `ctx.ui`: if pi later adds a method
+with the same name and another shape, ours would shadow it. Each call takes the
+tool or handler `ctx` first, which tells PiChamber the session.
+
+```ts
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) await pichamber.ui.openUrl(ctx, "http://localhost:3000");
+```
+
+Without `ctx`, or with a `ctx` from outside a PiChamber session, a call rejects
+with a `TypeError`.
+
+## Composer controls
+
+An extension can put a switch, a mode picker, or a button in the composer
+footer, beside the model and thinking controls. It emits `pichamber:composer`
+on Pi's shared event bus. The pi CLI has no listener, so the event does
+nothing there and the extension's commands keep working as before.
+
+Each control names the extension's own slash commands. A click in PiChamber
+runs one of them as if you had typed it, and the extension reports its new
+value by emitting again. The extension owns the value: PiChamber only shows
+what was last reported.
+
+```ts
+// Economy → Balance → Premium, one click each.
+const publishMode = (active: string | undefined) => {
+  pi.events.emit('pichamber:composer', {
+    id: 'mode',
+    kind: 'cycle',
+    label: 'Mode',
+    description: 'Model and thinking presets',
+    value: active,
+    options: [
+      { value: 'economy', label: 'Economy', command: 'economy' },
+      { value: 'balance', label: 'Balance', command: 'balance' },
+      { value: 'premium', label: 'Premium', command: 'premium' },
+    ],
+  });
+};
+// Call it at session_start and whenever the mode changes, including from
+// model_select and thinking_level_select when the model changes some other way.
+
+// A toggle: `command` flips it, `value` says whether it is on.
+pi.events.emit('pichamber:composer', { id: 'plan', kind: 'toggle', label: 'Plan', value: planOn, command: 'plan' });
+
+// A button that runs a command.
+pi.events.emit('pichamber:composer', { id: 'review', kind: 'action', label: 'Review', command: 'review --staged' });
+
+// Take a control away.
+pi.events.emit('pichamber:composer', { id: 'plan', remove: true });
+```
+
+- `id`: lowercase letters, digits and dashes, up to 40 characters. Emitting
+  the same id again replaces the control.
+- `kind`: `toggle`, `cycle` (2 to 12 `options`), or `action`.
+- `command`: one of your registered commands, with or without the `/`, and
+  optional arguments. Unregistered commands are refused when clicked.
+- `label` (up to 40 characters) and `description` (up to 200) are optional
+  text for the pill, its tooltip, and the phone sheet. `icon` is drawn only
+  when PiChamber knows the name.
+- A session shows its first 16 controls. Controls clear when the session
+  reloads, so emit them again at `session_start`.
+
+On desktop each control is a pill: a toggle lights up while on, a cycle
+shows its current option and moves to the next on click, an action runs its
+command. On phones they are rows in the composer controls sheet, where a
+cycle shows every option to pick from. A click while the agent works runs
+the command at once, as a typed command would. Clicks never add anything to
+the transcript or the session title.
+
+A new session has its controls before you send anything. When you open one,
+PiChamber starts a session for it in the background, so your extensions load
+and declare their controls as usual. Until that is ready, the composer shows
+the controls the folder had last time. A click made before then waits and
+runs once the session is ready. Your first message goes to that same
+session, so a mode you picked is still picked. If you close the draft or
+pick another folder, the background session ends. Nothing is written to disk
+until you send, and the session list never shows it. Your extension sees an
+ordinary `session_start`, so it needs no changes.
 
 ## The PiChamber GUI protocol
 
@@ -194,24 +319,61 @@ returns the current text, including an empty string. Cancel returns
 
 ### Structured form dialogs
 
-PiChamber extends pi's UI bridge with `ctx.ui.form(title, fields)` (gate with
-`isPiChamber()`; plain pi has no `form` method):
+`pichamber.ui.form(ctx, title, fields)` asks for several typed inputs at once
+(plain pi has no such call, so check that `pichamber` exists first):
 
 ```ts
-const values = await (ctx.ui as any).form("Spawn agent", [
-  { id: "name", label: "Name", type: "text", required: true },
-  { id: "task", label: "Task", type: "textarea" },
-  { id: "priority", label: "Priority", type: "select", options: ["low", "high"], initial: "normal" },
-  { id: "dryRun", label: "Dry run", type: "checkbox", initial: "true" },
-]);
-// values: Record<fieldId, string> — or undefined when cancelled/timed out.
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) {
+  const values = await pichamber.ui.form(ctx, "Spawn agent", [
+    { id: "name", label: "Name", type: "text", required: true },
+    { id: "task", label: "Task", type: "textarea" },
+    { id: "priority", label: "Priority", type: "select", options: ["low", "high"], initial: "normal" },
+    { id: "dryRun", label: "Dry run", type: "checkbox", initial: "true" },
+  ]);
+  // values: Record<fieldId, string>, or undefined when cancelled or timed out.
+}
 ```
+
+Releases up to 1.0.7 had these two calls as `ctx.ui.form(title, fields)` and
+`ctx.ui.openUrl(url)`. Both are removed. Call `pichamber.ui.form(ctx, title,
+fields)` and `pichamber.ui.openUrl(ctx, url)` instead.
 
 Field types: `text`, `textarea`, `number`, `select`, `checkbox`. The dialog is
 blocking like `ctx.ui.input` and resolves with a values object keyed by field
 id. The daemon validates required fields, number bounds, select options, and
 checkbox values before resolving the extension. Fields are capped at 12;
 options at 20.
+
+### Choice dialogs
+
+`pichamber.ui.choose(ctx, title, choices, options)` asks the user to pick one of
+a few choices, each with a short description, and can take a note with the
+answer (plain pi has no such call, so check that `pichamber` exists and fall
+back to `select`):
+
+```ts
+const pichamber = (globalThis as any).pichamber;
+if (pichamber) {
+  const answer = await pichamber.ui.choose(ctx, "Which layout?", [
+    { id: "grid", label: "Grid", description: "Cards in three columns" },
+    { id: "list", label: "List", description: "One row per item" },
+  ], { allowNote: true });
+  // answer: { id: "grid", note?: "..." }, or undefined when closed or timed out.
+}
+```
+
+Up to 12 choices. `options` takes `message` (a line under the title),
+`allowNote`, and the `signal` and `timeout` every dialog takes. The daemon
+only accepts an answer whose id is one of the choices. PiChamber's bundled
+plugins also pass `toolCallId` from a tool's `execute`, which lets their own
+chat components show the question beside what it is about; for other
+extensions the question appears above the composer like any dialog.
+
+The bundled Visuals plugin builds on this: its `render_choices` tool shows a
+few page or image variants in the chat, one at a time at full width with
+buttons to switch between them, and returns the one you picked, with your
+note.
 
 ### Sandboxed app surfaces
 

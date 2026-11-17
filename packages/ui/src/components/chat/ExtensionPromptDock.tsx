@@ -1,6 +1,5 @@
 import * as React from 'react';
 
-import { getPiSessionStore } from '@/apps/pi-session-store';
 import { usePiSessionSnapshot } from '@/sync/pi-session-context';
 import { liveSessionRecordToUiSession, selectSessionsNeedingInput } from '@/sync/pi-session-catalog';
 import { useSessionUIStore } from '@/sync/session-ui-store';
@@ -8,8 +7,6 @@ import { getSessionDisplayTitle } from '@/lib/chat/sessionTitle';
 import { SessionNeedsInputIndicator } from '@/components/session/sidebar/SessionNeedsInputIndicator';
 import { formatNeedsInputLabel } from '@/components/session/sidebar/sessionAttention';
 import type { PiExtensionDialogPayload, PiPendingInputSummary } from '@/lib/pi/protocol';
-import { PiRequestError, piClient } from '@/lib/pi/client';
-import { getRuntimeKey } from '@/lib/runtime-switch';
 import { stripAnsi } from '@/lib/pi/ansi';
 import { AnsiText } from '@/components/chat/AnsiText';
 import { Button } from '@/components/ui/button';
@@ -19,38 +16,24 @@ import { Kbd } from '@/components/ui/KeyHints';
 import { cn } from '@/lib/utils';
 import { resolveSelectKeyAction } from './extensionPromptKeys';
 import { firstPlainLine, splitDialogTitle } from './extensionDialogTitle';
+import { useQuestionDrawn } from '@/plugins/questions';
+import {
+  MAX_CHOICE_NOTE_CHARS,
+  choiceAnswer,
+  respondToExtensionDialog,
+  type DialogAnswer,
+} from './extensionDialogRespond';
 
 /**
- * Blocking pi extension dialogs (ctx.ui.select / confirm / input / editor / form).
+ * Blocking pi extension dialogs (ctx.ui.select / confirm / input / editor / form / choose).
  * Rendered as an inline docked prompt card above the composer in the chat column.
  */
 
-type DialogAnswer = {
-  cancelled?: boolean;
-  confirmed?: boolean;
-  value?: string;
-  values?: Record<string, string>;
-};
-
-const respond = async (
+const respond = (
   sessionId: string,
   request: PiExtensionDialogPayload,
   answer: DialogAnswer,
-): Promise<void> => {
-  try {
-    await piClient.respondToExtensionDialog(
-      { requestId: request.requestId, ...answer },
-      { runtimeKey: getRuntimeKey() },
-    );
-    getPiSessionStore().dismissExtensionDialog(sessionId, request.requestId);
-  } catch (error) {
-    if (error instanceof PiRequestError && error.code === 'EXTENSION_DIALOG_NOT_PENDING') {
-      getPiSessionStore().dismissExtensionDialog(sessionId, request.requestId);
-      return;
-    }
-    throw error;
-  }
-};
+): Promise<void> => respondToExtensionDialog(sessionId, request.requestId, answer);
 
 const returnFocusToComposer = (): void => {
   requestAnimationFrame(() => {
@@ -177,6 +160,97 @@ const SelectBody: React.FC<SelectBodyProps> = ({
           );
         })}
       </div>
+    </div>
+  );
+};
+
+interface ChooseBodyProps {
+  request: PiExtensionDialogPayload;
+  onChoose: (choiceId: string) => void;
+  messageId: string;
+  name: string;
+  highlightedIndex: number;
+  setHighlightedIndex: React.Dispatch<React.SetStateAction<number>>;
+  note: string;
+  setNote: (note: string) => void;
+}
+
+/** `pichamber.ui.choose`: choices with a description each, and a note when allowed. */
+const ChooseBody: React.FC<ChooseBodyProps> = ({
+  request,
+  onChoose,
+  messageId,
+  name,
+  highlightedIndex,
+  setHighlightedIndex,
+  note,
+  setNote,
+}) => {
+  const choices = request.choices ?? [];
+
+  return (
+    <div>
+      {request.message && (
+        <p id={messageId} className="mb-2 text-sm text-muted-foreground"><AnsiText text={request.message} /></p>
+      )}
+      <div
+        className="-mx-2 flex max-h-60 flex-col overflow-y-auto"
+        role="listbox"
+        aria-label={name}
+      >
+        {choices.map((choice, index) => {
+          const isHighlighted = index === highlightedIndex;
+          const quickKey = index < 9 ? index + 1 : undefined;
+
+          return (
+            <button
+              key={choice.id}
+              type="button"
+              role="option"
+              aria-selected={isHighlighted}
+              tabIndex={isHighlighted ? 0 : -1}
+              onMouseEnter={() => setHighlightedIndex(index)}
+              onFocus={() => setHighlightedIndex(index)}
+              onClick={() => onChoose(choice.id)}
+              className={cn(
+                'flex w-full items-start gap-2.5 rounded-xl px-2 py-1.5 text-left outline-none',
+                'focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-interactive-focusRing',
+                isHighlighted && 'bg-interactive-hover',
+              )}
+            >
+              <span className="flex h-5 shrink-0 items-center">
+                <Radio checked={isHighlighted} onChange={ignoreRadioChange} decorative />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words typography-ui-label text-foreground">
+                  <AnsiText text={choice.label} />
+                </span>
+                {choice.description ? (
+                  <span className="block break-words typography-meta text-muted-foreground">
+                    <AnsiText text={choice.description} />
+                  </span>
+                ) : null}
+              </span>
+              {quickKey !== undefined && (
+                <span className="flex h-5 shrink-0 items-center">
+                  <Kbd>{quickKey}</Kbd>
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {request.allowNote ? (
+        <input
+          type="text"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Add a note (optional)"
+          aria-label="Note to send with your choice"
+          maxLength={MAX_CHOICE_NOTE_CHARS}
+          className="mt-2 w-full rounded-md border bg-transparent px-2.5 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-interactive-focusRing"
+        />
+      ) : null}
     </div>
   );
 };
@@ -607,6 +681,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
   const [responseError, setResponseError] = React.useState(false);
   const [highlightedIndex, setHighlightedIndex] = React.useState(0);
   const [collapsed, setCollapsed] = React.useState(false);
+  const [note, setNote] = React.useState('');
   const respondingRef = React.useRef(false);
 
   const dockRef = React.useRef<HTMLDivElement | null>(null);
@@ -625,6 +700,7 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     setResponseError(false);
     setHighlightedIndex(0);
     setCollapsed(false);
+    setNote('');
 
     // Autofocus dock on appearance if not already focused inside and not typing in an editable element
     if (
@@ -636,6 +712,14 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
       dockRef.current.focus();
     }
   }, [targetKey]);
+
+  // A plugin component in the chat draws this question beside what it is
+  // about: fold to one line so the two do not repeat each other. Unfolds if
+  // that component goes away; the header still opens the full question.
+  const drawnInChat = useQuestionDrawn(target?.request.requestId);
+  React.useEffect(() => {
+    setCollapsed(drawnInChat);
+  }, [drawnInChat, targetKey]);
 
   const remainingSeconds = useCountdown(target?.request.timeoutMs, target?.request.requestId);
 
@@ -659,6 +743,10 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
     },
     [responding, target],
   );
+
+  const choose = (choiceId: string) => {
+    submit(choiceAnswer(choiceId, target?.request.allowNote ? note : ''));
+  };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
@@ -684,9 +772,12 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
       }
     }
 
-    if (target.request.method === 'select') {
-      const options = target.request.options ?? [];
-      const action = resolveSelectKeyAction(event.key, highlightedIndex, options.length);
+    if (target.request.method === 'select' || target.request.method === 'choose') {
+      const isChoose = target.request.method === 'choose';
+      // Keys typed into the note are text, not shortcuts.
+      if (isChoose && event.target instanceof HTMLInputElement) return;
+      const optionCount = isChoose ? (target.request.choices ?? []).length : (target.request.options ?? []).length;
+      const action = resolveSelectKeyAction(event.key, highlightedIndex, optionCount);
       if (!action) return;
 
       const eventTarget = event.target instanceof HTMLElement ? event.target : null;
@@ -707,7 +798,14 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
       const isActivationKey = event.key === 'Enter' || event.key === ' ';
       if (isActivationKey && !isOptionTarget && event.target !== event.currentTarget) return;
 
-      const selected = options[action.index];
+      if (isChoose) {
+        const choice = target.request.choices?.[action.index];
+        if (!choice) return;
+        event.preventDefault();
+        choose(choice.id);
+        return;
+      }
+      const selected = target.request.options?.[action.index];
       if (selected === undefined) return;
       event.preventDefault();
       submit({ value: selected });
@@ -757,10 +855,10 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
             <span
               className={cn(
                 'min-w-0 truncate typography-meta text-muted-foreground',
-                collapsed && text && label ? 'max-w-[50%] shrink-0' : 'flex-1',
+                collapsed && text ? 'max-w-[50%] shrink-0' : 'flex-1',
               )}
             >
-              <AnsiText text={label ?? 'Extension'} />
+              <AnsiText text={label ?? (drawnInChat && collapsed ? 'Choose above' : 'Extension')} />
             </span>
             {collapsed && text ? (
               <>
@@ -831,6 +929,18 @@ export const ExtensionPromptDock: React.FC<ExtensionPromptDockProps> = ({ sessio
                 name={name}
                 highlightedIndex={highlightedIndex}
                 setHighlightedIndex={setHighlightedIndex}
+              />
+            )}
+            {target.request.method === 'choose' && (
+              <ChooseBody
+                request={target.request}
+                onChoose={choose}
+                messageId={messageId}
+                name={name}
+                highlightedIndex={highlightedIndex}
+                setHighlightedIndex={setHighlightedIndex}
+                note={note}
+                setNote={setNote}
               />
             )}
             {target.request.method === 'confirm' && (

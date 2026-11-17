@@ -1,4 +1,5 @@
 import type {
+  PiComposerControl,
   PiExtensionAppPayload,
   PiExtensionDialogPayload,
   PiExtensionEntryEvent,
@@ -80,6 +81,18 @@ export const reduceExtensionStatus = (
   } else {
     session.extensionStatuses.delete(payload.key);
   }
+};
+
+export const reduceExtensionControl = (
+  session: PiReducerSessionState,
+  payload: { control?: PiComposerControl; id?: string; removed?: true },
+): void => {
+  const id = payload.control?.id ?? payload.id;
+  if (!id) return;
+  if (!payload.control && !session.extensionControls?.has(id)) return;
+  session.extensionControls = new Map(session.extensionControls);
+  if (payload.control) session.extensionControls.set(id, payload.control);
+  else session.extensionControls.delete(id);
 };
 
 export const reduceExtensionWidget = (

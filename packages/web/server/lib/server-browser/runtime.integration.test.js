@@ -87,6 +87,18 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       if (req.url === '/second') { res.setHeader('content-type', 'text/html'); res.end('<title>Second</title><h1>second</h1>'); return; }
       if (req.url === '/alert') { res.setHeader('content-type', 'text/html'); res.end('<script>setTimeout(() => { alert("hello there"); fetch("/after-alert"); }, 50)</script>'); return; }
       if (req.url === '/download') { res.setHeader('content-disposition', 'attachment; filename="notes.txt"'); res.end('downloaded body'); return; }
+      if (req.url === '/slow-download') {
+        // Four chunks a quarter second apart, so progress shows between them.
+        res.setHeader('content-disposition', 'attachment; filename="slow.bin"');
+        res.setHeader('content-length', String(4 * 64 * 1024));
+        let sent = 0;
+        const timer = setInterval(() => {
+          res.write(Buffer.alloc(64 * 1024, 7));
+          sent += 1;
+          if (sent === 4) { clearInterval(timer); res.end(); }
+        }, 250);
+        return;
+      }
       if (req.url === '/popup-to-local') { res.setHeader('content-type', 'text/html'); res.end(`<a href="http://127.0.0.1:${upstreamPort}/popup-secret" target="_blank" style="position:absolute;left:0;top:0;width:300px;height:100px">open</a>`); return; }
       if (req.url === '/frame-public') { res.setHeader('content-type', 'text/html'); res.end(`<iframe src="http://public.example:${upstreamPort}/to-local"></iframe>`); return; }
       if (req.url === '/to-local') { res.statusCode = 302; res.setHeader('location', `http://127.0.0.1:${upstreamPort}/secret`); res.end(); return; }
@@ -113,6 +125,8 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
       env: { ...process.env, PICHAMBER_BROWSER_NO_SANDBOX: isRoot ? '1' : (process.env.PICHAMBER_BROWSER_NO_SANDBOX ?? '') },
       // Public-looking names for this machine, to test public pages.
       extraChromeArgs: ['--host-resolver-rules=MAP *.example 127.0.0.1'],
+      downloadsTmpRoot: dataDir,
+      serverDownloadsDir: () => path.join(dataDir, 'Downloads'),
       // The rule's own lookup sees them as public addresses.
       createGuard: (options) => createNetworkGuard({ ...options, lookup: async () => [{ address: '93.184.216.34', family: 4 }] }),
       log: (message) => logs.push(message),
@@ -286,6 +300,39 @@ describe.skipIf(!chrome?.path)('server browser over its WebSocket', () => {
     const response = await fetch(`http://${base}/api/server-browser/downloads/${done.id}`);
     expect(await response.text()).toBe('downloaded body');
     expect(response.headers.get('content-disposition')).toContain('notes.txt');
+    expect(response.headers.get('content-length')).toBe(String('downloaded body'.length));
+    // The file waits under its own name in the per-run temp folder.
+    expect(path.basename(done.path)).toBe('notes.txt');
+    expect(done.path.startsWith(dataDir)).toBe(true);
+
+    const saved = await fetch(`http://${base}/api/server-browser/downloads/${done.id}/save-to-server`, { method: 'POST' }).then((r) => r.json());
+    expect(saved.path).toBe(path.join(dataDir, 'Downloads', 'notes.txt'));
+    expect(fs.readFileSync(saved.path, 'utf8')).toBe('downloaded body');
+    await page.waitFor((m) => m.type === 'download' && m.id === done.id && m.savedPath === saved.path, 'saved path');
+
+    // A viewer that comes later is told about the tab's downloads.
+    const later = connect('popup', '');
+    await later.waitFor((m) => m.type === 'download' && m.id === done.id && m.state === 'completed', 'replayed download');
+    later.socket.close();
+    page.socket.close();
+  }, 30_000);
+
+  it('reports download progress and cancels downloads', async () => {
+    const page = connect('slow-download', `http://127.0.0.1:${upstreamPort}/`);
+    await page.open;
+    page.send({ type: 'viewport', width: 600, height: 400, dpr: 1 });
+    await page.waitFor((m) => m.type === 'state' && m.title === 'Test page' && !m.loading, 'title');
+    page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/slow-download` });
+    const partway = await page.waitFor((m) => m.type === 'download' && m.state === 'inProgress' && m.receivedBytes > 0 && m.receivedBytes < m.totalBytes, 'progress');
+    expect(partway.totalBytes).toBe(4 * 64 * 1024);
+    const done = await page.waitFor((m) => m.type === 'download' && m.id === partway.id && m.state === 'completed', 'slow download');
+    expect(done.receivedBytes).toBe(4 * 64 * 1024);
+
+    page.send({ type: 'navigate', url: `http://127.0.0.1:${upstreamPort}/slow-download` });
+    const started = await page.waitFor((m) => m.type === 'download' && m.id !== partway.id && m.state === 'inProgress', 'second download');
+    page.send({ type: 'download-cancel', id: started.id });
+    const canceled = await page.waitFor((m) => m.type === 'download' && m.id === started.id && m.state !== 'inProgress', 'canceled');
+    expect(canceled.state).toBe('canceled');
     page.socket.close();
   }, 30_000);
 
