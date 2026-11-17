@@ -29,6 +29,49 @@ Lines an extension draws with Pi's theme (`theme.fg("accent", ...)` and the like
 
 Extension errors don't abort your session — they surface as an error entry so you can see what failed.
 
+## Turning extensions on and off
+
+**Settings → Extensions & Plugins → Pi extensions** lists what Pi loads, the
+same list `pi config` shows in a terminal. It reads and writes Pi's own
+settings files, so a change made here applies in the pi CLI too, and a change
+made in the CLI shows up here.
+
+- **Global** has a switch per extension. Off means Pi stops loading it in
+  every project.
+- **This project** appears when a folder is open. Each extension has a
+  switch for that project only. An extension you switch away from its global
+  setting says "On in this project only" or "Off in this project only".
+  Switch it back and the project follows the global setting again. Pi must
+  trust the project first; until then the page shows the global list without
+  controls.
+- **Packages** installed with `pi install` are listed with their extensions.
+  Remove deletes a package the way `pi remove` does: an npm or git package's
+  files are deleted, a local folder is only dropped from settings and stays
+  on disk. A global package is removed from Global, a project's package from
+  This project.
+- **Built into Pi** lists the extensions that ship with Pi (`mcp`,
+  `codemode`, `tool-search`). Pi's llama.cpp provider is not offered because
+  PiChamber does not load it.
+
+Running sessions pick a change up when they are idle. The page changes Pi on
+the machine that runs the PiChamber server, also when you open it from a
+phone or another computer. Installing packages still happens in a terminal
+with `pi install`. Skills, prompt templates, and themes from packages keep
+their own pages.
+
+### When your extension replaces a plugin
+
+Pi loads only one extension for each tool, command, or flag name. PiChamber's
+plugins and Pi's built-ins step aside for your own extension, so a plugin can
+be switched on and still not be loaded. For example, your own `subagent`
+extension takes the place of the Sub-agents plugin.
+
+When a session is running in the folder, the page shows it. The plugin's row
+says "Not loaded" and names the extension, and the plugin's own page has a
+button that turns that extension off. The extension's row says what it was
+loaded in place of. With no session running there is nothing to compare, so
+no notice shows.
+
 ## Extension interface
 
 **Settings → Sessions → Extension interface** chooses what extensions are told

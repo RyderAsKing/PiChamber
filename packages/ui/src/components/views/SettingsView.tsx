@@ -209,6 +209,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         return "Behavior";
       case "skills.installed":
         return "Skills";
+      case "plugins":
+        return "Extensions & Plugins";
       case "git":
         return "Git";
       case "appearance":
