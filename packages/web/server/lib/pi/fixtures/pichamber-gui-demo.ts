@@ -168,21 +168,20 @@ export default function (pi: ExtensionAPI): void {
 
   // Structured multi-input dialog. PiChamber renders a native form and
   // resolves with a values object; plain pi falls back to sequential prompts.
+  type PichamberHandle = {
+    ui: { form: (ctx: unknown, title: string, fields: Array<Record<string, unknown>>) => Promise<Record<string, string> | undefined> };
+  };
   type FormCtx = Parameters<NonNullable<Parameters<ExtensionAPI['registerCommand']>[1]['handler']>>[1];
   const askAgent = async (ctx: FormCtx): Promise<{ name: string; task: string } | undefined> => {
-    if (isPiChamber(ctx)) {
-      const uiWithForm = ctx.ui as typeof ctx.ui & {
-        form?: (title: string, fields: Array<Record<string, unknown>>, opts?: Record<string, unknown>) => Promise<Record<string, string> | undefined>;
-      };
-      if (typeof uiWithForm.form === 'function') {
-        const values = await uiWithForm.form('Spawn sub-agent', [
-          { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'research' },
-          { id: 'task', label: 'Task', type: 'textarea', required: true },
-          { id: 'priority', label: 'Priority', type: 'select', options: ['low', 'normal', 'high'], initial: 'normal' },
-        ]);
-        if (!values?.name || !values.task) return undefined;
-        return { name: values.name, task: values.task };
-      }
+    const pichamber = (globalThis as { pichamber?: PichamberHandle }).pichamber;
+    if (isPiChamber(ctx) && pichamber) {
+      const values = await pichamber.ui.form(ctx, 'Spawn sub-agent', [
+        { id: 'name', label: 'Name', type: 'text', required: true, placeholder: 'research' },
+        { id: 'task', label: 'Task', type: 'textarea', required: true },
+        { id: 'priority', label: 'Priority', type: 'select', options: ['low', 'normal', 'high'], initial: 'normal' },
+      ]);
+      if (!values?.name || !values.task) return undefined;
+      return { name: values.name, task: values.task };
     }
     const name = await ctx.ui.input('Sub-agent name');
     if (!name) return undefined;

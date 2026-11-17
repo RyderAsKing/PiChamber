@@ -20,8 +20,9 @@ const fixture = async (source) => {
 describe('plugin impact', () => {
   it('records tools, prompt-affecting hooks and commands', async () => {
     const manifest = await fixture(`
-      export default function (pi, chamber) {
-        if (chamber.state().on !== true) throw new Error('defaults missing');
+      export default function (pi, pichamber) {
+        if (pichamber.state().on !== true) throw new Error('defaults missing');
+        pichamber.ui.choose({}, 'T', []).then(() => {});
         pi.registerTool({ name: 'a_tool', description: 'Does a.', parameters: { type: 'object' } });
         pi.registerTool({ name: 'b_tool', description: 'Does b.', parameters: { type: 'object' }, exposure: 'deferred' });
         pi.on('before_agent_start', () => {});
@@ -60,8 +61,12 @@ describe('plugin impact', () => {
   it('measures the bundled Visuals plugin', async () => {
     const entry = new URL('../../../plugins/visuals/extension.js', import.meta.url).pathname;
     const { impact } = await measurePluginImpact({ id: 'visuals', version: '1.0.0', entry, stateSchema: {} });
-    expect(impact.tools).toEqual([{ name: 'render_html', exposure: 'direct', tokens: expect.any(Number) }]);
+    expect(impact.tools).toEqual([
+      { name: 'render_html', exposure: 'direct', tokens: expect.any(Number) },
+      { name: 'render_choices', exposure: 'direct', tokens: expect.any(Number) },
+    ]);
     expect(impact.tools[0].tokens).toBeLessThan(260);
+    expect(impact.tools[1].tokens).toBeLessThan(400);
     expect(impact.hooks).toEqual([]);
     expect(impact.commands).toEqual([]);
   });

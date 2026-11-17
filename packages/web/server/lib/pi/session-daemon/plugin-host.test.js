@@ -34,8 +34,8 @@ describe('daemon plugin host', () => {
     expect(createPluginHost().extensionFactories()).toEqual([]);
   });
 
-  it('builds named factories that receive chamber with resolved state', async () => {
-    const root = await pluginsRoot({ demo: 'export default function (pi, chamber) { globalThis.__pluginHostDemo = { pi, chamber }; }' });
+  it('builds named factories that receive pichamber with resolved state', async () => {
+    const root = await pluginsRoot({ demo: 'export default function (pi, pichamber) { globalThis.__pluginHostDemo = { pi, pichamber }; }' });
     const host = createPluginHost({ pluginsRoot: root });
     const result = await host.configure({
       plugins: [{ ...plugin(root, 'demo', { global: { on: true, mode: 'a' }, projects: { '/p': { mode: 'b' } } }), replaceable: true }],
@@ -45,17 +45,19 @@ describe('daemon plugin host', () => {
     expect(factories).toEqual([{ name: 'pichamber:demo', replaceable: true, factory: expect.any(Function) }]);
     const pi = fakePi();
     await factories[0].factory(pi);
-    const { chamber } = globalThis.__pluginHostDemo;
-    expect(chamber.id).toBe('demo');
-    expect(chamber.state('/p')).toEqual({ on: true, mode: 'b' });
-    expect(chamber.state('/p/')).toEqual({ on: true, mode: 'b' });
-    expect(chamber.state('/q')).toEqual({ on: true, mode: 'a' });
-    expect(chamber.state()).toEqual({ on: true, mode: 'a' });
+    const { pichamber } = globalThis.__pluginHostDemo;
+    expect(pichamber.id).toBe('demo');
+    expect(Object.keys(pichamber.ui).sort()).toEqual(['choose', 'form', 'openUrl']);
+    await expect(pichamber.ui.choose(undefined, 'T', [])).rejects.toBeInstanceOf(TypeError);
+    expect(pichamber.state('/p')).toEqual({ on: true, mode: 'b' });
+    expect(pichamber.state('/p/')).toEqual({ on: true, mode: 'b' });
+    expect(pichamber.state('/q')).toEqual({ on: true, mode: 'a' });
+    expect(pichamber.state()).toEqual({ on: true, mode: 'a' });
     delete globalThis.__pluginHostDemo;
   });
 
   it('resolves a session value over the project and global values', async () => {
-    const root = await pluginsRoot({ demo: 'export default function (pi, chamber) { globalThis.__pluginHostSession = chamber; }' });
+    const root = await pluginsRoot({ demo: 'export default function (pi, pichamber) { globalThis.__pluginHostSession = pichamber; }' });
     const host = createPluginHost({ pluginsRoot: root });
     await host.configure({
       plugins: [plugin(root, 'demo', {
@@ -65,15 +67,15 @@ describe('daemon plugin host', () => {
       })],
     });
     await host.extensionFactories()[0].factory(fakePi());
-    const chamber = globalThis.__pluginHostSession;
-    expect(chamber.state('/p', 's1')).toEqual({ on: false, mode: 'b' });
-    expect(chamber.state('/p', 's2')).toEqual({ on: true, mode: 'b' });
-    expect(chamber.state(undefined, 's1')).toEqual({ on: false, mode: 'a' });
+    const pichamber = globalThis.__pluginHostSession;
+    expect(pichamber.state('/p', 's1')).toEqual({ on: false, mode: 'b' });
+    expect(pichamber.state('/p', 's2')).toEqual({ on: true, mode: 'b' });
+    expect(pichamber.state(undefined, 's1')).toEqual({ on: false, mode: 'a' });
     delete globalThis.__pluginHostSession;
   });
 
   it('calls state listeners when only a session value changes', async () => {
-    const root = await pluginsRoot({ demo: 'export default function (pi, chamber) { chamber.onStateChange(() => globalThis.__pluginHostSessionSeen.push(chamber.state(undefined, \'s1\').on)); }' });
+    const root = await pluginsRoot({ demo: 'export default function (pi, pichamber) { pichamber.onStateChange(() => globalThis.__pluginHostSessionSeen.push(pichamber.state(undefined, \'s1\').on)); }' });
     globalThis.__pluginHostSessionSeen = [];
     const host = createPluginHost({ pluginsRoot: root });
     await host.configure({ plugins: [plugin(root, 'demo', { global: { on: true } })] });
@@ -97,7 +99,7 @@ describe('daemon plugin host', () => {
   });
 
   it('calls state listeners on a state-only change and drops them at session shutdown', async () => {
-    const root = await pluginsRoot({ demo: 'export default function (pi, chamber) { chamber.onStateChange(() => globalThis.__pluginHostSeen.push(chamber.state().on)); }' });
+    const root = await pluginsRoot({ demo: 'export default function (pi, pichamber) { pichamber.onStateChange(() => globalThis.__pluginHostSeen.push(pichamber.state().on)); }' });
     globalThis.__pluginHostSeen = [];
     const host = createPluginHost({ pluginsRoot: root });
     await host.configure({ plugins: [plugin(root, 'demo', { global: { on: true } })] });
@@ -156,11 +158,11 @@ describe('daemon plugin host', () => {
 
   it('records the names a plugin registers and still runs its factory through the wrapper', async () => {
     const root = await pluginsRoot({
-      demo: `export default function (pi, chamber) {
+      demo: `export default function (pi, pichamber) {
         pi.registerTool({ name: 'demo_tool', parameters: {} });
         pi.registerCommand('demo-cmd', { handler() {} });
         pi.registerFlag('demo-flag', { type: 'boolean' });
-        globalThis.__pluginHostWrapped = { returned: pi.on('session_start', () => {}), id: chamber.id };
+        globalThis.__pluginHostWrapped = { returned: pi.on('session_start', () => {}), id: pichamber.id };
       }`,
       quiet: 'export default function () {}',
     });

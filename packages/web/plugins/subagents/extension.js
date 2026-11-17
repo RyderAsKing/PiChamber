@@ -6,7 +6,7 @@
 // (examples/extensions/subagent), MIT License, Copyright (c) Mario Zechner.
 // See ./LICENSE.
 //
-// `chamber` is PiChamber's handle ({ id, state(directory, sessionId),
+// `pichamber` is PiChamber's handle ({ id, state(directory, sessionId),
 // onStateChange }).
 // The Pi CLI passes none, so the manifest defaults apply (tool on).
 
@@ -447,12 +447,12 @@ export const createSubagentsExtension = ({
     }
   };
 
-  return function subagents(pi, chamber) {
+  return function subagents(pi, pichamber) {
     let sessionCwd;
     // A composer switch can turn a plugin off for one session only.
     let sessionId;
     const isOn = () => {
-      const state = chamber ? { ...DEFAULT_STATE, ...chamber.state(sessionCwd, sessionId) } : DEFAULT_STATE;
+      const state = pichamber ? { ...DEFAULT_STATE, ...pichamber.state(sessionCwd, sessionId) } : DEFAULT_STATE;
       return state.on !== false;
     };
 
@@ -624,7 +624,7 @@ export const createSubagentsExtension = ({
       sessionId = sessionIdOf(ctx);
       applyActive({ force: true });
     });
-    chamber?.onStateChange(() => applyActive());
+    pichamber?.onStateChange(() => applyActive());
   };
 };
 

@@ -83,6 +83,7 @@ import { createSessionEngineRouter } from './session-engine-router.js';
 import { createPendingInputIndex } from './pending-input.js';
 import { createExtensionCustomHost } from './extension-custom-host.js';
 import { resolveExtensionMode } from './extension-ui-mode.js';
+import { createPichamberUi } from './pichamber-ui.js';
 import { createExtensionPaletteResolver, isTerminalColors } from './extension-palette.js';
 
 const textFromContent = (content) => (
@@ -93,8 +94,10 @@ const textFromContent = (content) => (
 
 // Marker so pi extensions can detect PiChamber without an extra dependency.
 // Extensions should use optional detection, e.g.:
-//   const chamber = (globalThis as any).__PICHAMBER__;
+//   const marker = (globalThis as any).__PICHAMBER__;
 // or `process.env.PICHAMBER === "1"`. The object is frozen and versioned.
+// `globalThis.pichamber` holds PiChamber's own dialog calls (`pichamber.ui`),
+// kept off Pi's `ctx.ui` so a method Pi adds later cannot be shadowed.
 if (!globalThis.__PICHAMBER__) {
   try {
     globalThis.__PICHAMBER__ = Object.freeze({
@@ -106,6 +109,11 @@ if (!globalThis.__PICHAMBER__) {
         return resolveExtensionMode({ dataDir: resolvePiChamberDataDir() });
       },
     });
+  } catch {}
+}
+if (!globalThis.pichamber) {
+  try {
+    globalThis.pichamber = Object.freeze({ version: 1, ui: createPichamberUi() });
   } catch {}
 }
 if (!process.env.PICHAMBER) {
@@ -511,10 +519,34 @@ export function createSessionDaemon({
   const getToolInput = (sessionId, toolCallId) => toolInputBySession.get(sessionId)?.get(toolCallId);
 
   const forgetToolInput = (sessionId, toolCallId) => {
+    forgetToolPartial(sessionId, toolCallId);
     const inputs = toolInputBySession.get(sessionId);
     if (!inputs) return;
     inputs.delete(toolCallId);
     if (inputs.size === 0) toolInputBySession.delete(sessionId);
+  };
+
+  // The latest partial result of each running tool. A client that opens the
+  // session mid-call gets it on the running part, as live clients did from
+  // `session.tool.update`: a tool that reports once and then waits (a Visuals
+  // question showing its options) would otherwise stay blank there. Dropped
+  // when the tool ends, the run settles, or the session closes.
+  const toolPartialBySession = new Map();
+
+  const rememberToolPartial = (sessionId, toolCallId, projected) => {
+    if (projected.output === undefined && projected.metadata === undefined) return;
+    const partials = toolPartialBySession.get(sessionId) ?? new Map();
+    partials.set(toolCallId, projected);
+    toolPartialBySession.set(sessionId, partials);
+  };
+
+  const getToolPartial = (sessionId, toolCallId) => toolPartialBySession.get(sessionId)?.get(toolCallId);
+
+  const forgetToolPartial = (sessionId, toolCallId) => {
+    const partials = toolPartialBySession.get(sessionId);
+    if (!partials) return;
+    partials.delete(toolCallId);
+    if (partials.size === 0) toolPartialBySession.delete(sessionId);
   };
 
   const mergeToolPresentationMetadata = (metadata, activeRuntime, directory, toolName, args) => {
@@ -2088,7 +2120,8 @@ export function createSessionDaemon({
           const startedAt = activeStartedAt ?? completedTiming?.startedAt;
           const running = streaming && !result;
           const interrupted = !running && !result;
-          const metadata = mergeToolPresentationMetadata(result?.metadata, activeRuntime, targetDir, part.name, part.arguments);
+          const partial = running ? getToolPartial(session.sessionId, part.id) : undefined;
+          const metadata = mergeToolPresentationMetadata(result?.metadata ?? partial?.metadata, activeRuntime, targetDir, part.name, part.arguments);
           let resolveRender;
           if (running) {
             const liveRender = extensionToolRenderer.getLiveRender?.(session.sessionId, part.id);
@@ -2114,7 +2147,7 @@ export function createSessionDaemon({
             name: part.name,
             input: redactAttachmentValues(part.arguments),
             state: result?.isError || interrupted ? 'error' : running ? 'running' : 'completed',
-            ...(result?.output ? { output: result.output } : {}),
+            ...(result?.output ? { output: result.output } : partial?.output ? { output: partial.output } : {}),
             ...(result?.error
               ? { error: result.error }
               : interrupted
@@ -4265,6 +4298,7 @@ export function createSessionDaemon({
       latestUserMessageIds.delete(sessionId);
       latestAssistantMessageIds.delete(sessionId);
       toolInputBySession.delete(sessionId);
+      toolPartialBySession.delete(sessionId);
       clearToolTimingsForSession(sessionId);
       extensionToolRenderer.clearSession(sessionId);
       // Explicit typed deletion: every connected and replaying client drops
@@ -4458,6 +4492,7 @@ export function createSessionDaemon({
         const activeRuntime = runtimeRegistry?.get({ cwd: directory, sessionId }) || runtime;
         const toolArgs = event.args ?? getToolInput(sessionId, event.toolCallId);
         const projected = projectToolResult(event.partialResult, false);
+        rememberToolPartial(sessionId, event.toolCallId, projected);
         const metadata = mergeToolPresentationMetadata(projected.metadata, activeRuntime, directory, event.toolName, toolArgs);
         const definition = extensionToolRenderer.resolve(activeRuntime?.session, event.toolName);
         let render;
@@ -4616,6 +4651,7 @@ export function createSessionDaemon({
         latestUserMessageIds.delete(sessionId);
         latestAssistantMessageIds.delete(sessionId);
         toolInputBySession.delete(sessionId);
+        toolPartialBySession.delete(sessionId);
         clearToolTimingsForSession(sessionId, { keepCompleted: true });
         extensionToolRenderer.clearSession(sessionId);
         // A missed tool_execution_end must not title later surfaces.
@@ -4952,7 +4988,7 @@ export function createSessionDaemon({
       case 'plugins.configure': {
         // Private, server-only. A changed enabled set recreates runtimes at
         // the next safe edge; a state-only change reaches live runtimes
-        // through their `chamber.onStateChange` listeners.
+        // through their `pichamber.onStateChange` listeners.
         const { enabledChanged, plugins } = await pluginHost.configure(message.payload);
         const deferred = enabledChanged ? await scheduleRuntimeRecreation() : false;
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result: { plugins, enabledChanged, deferred } });
@@ -5613,6 +5649,7 @@ export function createSessionDaemon({
       compactionStateBySession.clear();
       activeRunStartedAt.clear();
       toolStartedAt.clear();
+      toolPartialBySession.clear();
       completedToolTimings.clear();
       shutdownRequestedBySession.clear();
       sendGenerationBySession.clear();

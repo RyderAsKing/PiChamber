@@ -628,6 +628,37 @@ describe('Pi runtime route', () => {
     ]);
   });
 
+  it('forwards a choose answer with its note and refuses a note without a choice', async () => {
+    const calls = [];
+    const runtime = {
+      request: async (command, payload) => {
+        calls.push({ command, payload });
+        return { resolved: payload.requestId !== 'gone' };
+      },
+    };
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, { getPiSessionDaemonRuntime: () => runtime });
+    server = await listen(app);
+    const respond = (body) => fetch(`http://127.0.0.1:${server.address().port}/api/pi/extensions/respond`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+
+    expect((await respond({ requestId: 'r1', value: 'b', note: 'darker header' })).status).toBe(204);
+    expect((await respond({ requestId: 'r1', value: 'b' })).status).toBe(204);
+    expect((await respond({ requestId: 'r1', note: 'no choice' })).status).toBe(400);
+    expect((await respond({ requestId: 'r1', value: 'b', note: 7 })).status).toBe(400);
+    expect((await respond({ requestId: 'r1', value: 'b', note: 'x'.repeat(2001) })).status).toBe(400);
+    const gone = await respond({ requestId: 'gone', value: 'b' });
+    expect(gone.status).toBe(404);
+    await expect(gone.json()).resolves.toEqual({ error: { code: 'EXTENSION_DIALOG_NOT_PENDING' } });
+    expect(calls).toEqual([
+      { command: 'extensions.respond', payload: { requestId: 'r1', value: 'b', note: 'darker header' } },
+      { command: 'extensions.respond', payload: { requestId: 'r1', value: 'b' } },
+      { command: 'extensions.respond', payload: { requestId: 'gone', value: 'b' } },
+    ]);
+  });
+
   it('keeps Pi-owned settings and PiChamber defaults distinct', async () => {
     const settingsStore = {
       read: async () => ({ version: 1, defaultModel: { providerId: 'pichamber', modelId: 'default' } }),

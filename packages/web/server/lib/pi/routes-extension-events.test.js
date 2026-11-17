@@ -139,6 +139,52 @@ describe('extension public projections', () => {
     }))).toBeNull();
   });
 
+  it('projects choose dialogs with cleaned choices and drops one with nothing to choose', () => {
+    const projected = projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-1',
+      method: 'choose',
+      title: 'Which header?',
+      choices: [
+        { id: 'a', label: 'A: Compact', description: 'One row', path: '/secret/a.html' },
+        { id: 'b', label: ' B: Tall ' },
+        { id: 'a', label: 'Same id again' },
+        { id: 'c' },
+        null,
+      ],
+      allowNote: true,
+      toolCallId: 'call-7',
+      html: '<p>never public</p>',
+    }));
+    expect(projected?.payload).toEqual({
+      requestId: 'choose-1',
+      method: 'choose',
+      title: 'Which header?',
+      choices: [
+        { id: 'a', label: 'A: Compact', description: 'One row' },
+        { id: 'b', label: 'B: Tall' },
+      ],
+      allowNote: true,
+      toolCallId: 'call-7',
+    });
+
+    // No note unless asked for, and an oversized tool call id is left out.
+    expect(projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-2',
+      method: 'choose',
+      title: 'Pick',
+      choices: [{ id: 'x', label: 'X' }],
+      allowNote: 'yes',
+      toolCallId: 'c'.repeat(300),
+    }))?.payload).toEqual({ requestId: 'choose-2', method: 'choose', title: 'Pick', choices: [{ id: 'x', label: 'X' }] });
+
+    expect(projectEventFrame(frame('extension.dialog', {
+      requestId: 'choose-3',
+      method: 'choose',
+      title: 'Pick',
+      choices: [{ label: 'no id' }],
+    }))).toBeNull();
+  });
+
   it('projects extension.working events and sanitizes/bounds payloads', () => {
     expect(projectEventFrame(frame('extension.working', { message: 'Thinking\u0000 deeply', visible: true }))).toMatchObject({
       name: 'extension.working',

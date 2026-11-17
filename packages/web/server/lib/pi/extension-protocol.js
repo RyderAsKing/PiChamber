@@ -61,6 +61,60 @@ export const validateExtensionFormValues = (fields, values) => {
   return true;
 };
 
+// ---------------------------------------------------------------- choose()
+//
+// `pichamber.ui.choose(ctx, title, choices, opts)`: one question, a short list of
+// choices that each have an id, a label and an optional description, and an
+// optional free-text note. A tool can name its own call (`toolCallId`), so a
+// plugin's chat component can draw the question beside what the call shows.
+
+const MAX_EXTENSION_CHOICES = 12;
+export const MAX_EXTENSION_CHOICE_ID_CHARS = 64;
+export const MAX_EXTENSION_CHOICE_NOTE_CHARS = 2_000;
+const MAX_EXTENSION_TOOL_CALL_ID_CHARS = 256;
+
+/** Choices with a usable id and label, first of each id, at most 12. */
+const sanitizeExtensionChoices = (choices) => {
+  if (!Array.isArray(choices)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const choice of choices) {
+    if (out.length >= MAX_EXTENSION_CHOICES) break;
+    if (!choice || typeof choice !== 'object') continue;
+    const id = typeof choice.id === 'string' ? choice.id : '';
+    const label = typeof choice.label === 'string' ? choice.label.trim().slice(0, 256) : '';
+    if (!id || id.length > MAX_EXTENSION_CHOICE_ID_CHARS || !label || seen.has(id)) continue;
+    seen.add(id);
+    const description = typeof choice.description === 'string' ? choice.description.trim().slice(0, 512) : '';
+    out.push({ id, label, ...(description ? { description } : {}) });
+  }
+  return out;
+};
+
+/** The fields a `choose` dialog adds to the dialog payload, cleaned. */
+export const projectExtensionChooseFields = (payload) => ({
+  choices: sanitizeExtensionChoices(payload?.choices),
+  ...(payload?.allowNote === true ? { allowNote: true } : {}),
+  ...(typeof payload?.toolCallId === 'string' && payload.toolCallId.length > 0
+    && payload.toolCallId.length <= MAX_EXTENSION_TOOL_CALL_ID_CHARS
+    ? { toolCallId: payload.toolCallId }
+    : {}),
+});
+
+/**
+ * Check a `choose` answer against the dialog that was sent. Answers
+ * `{ id, note? }`, or `null` when the id is not one of its choices or a note
+ * came for a dialog that takes none.
+ */
+export const validateExtensionChoiceAnswer = (dialog, value, note) => {
+  if (typeof value !== 'string' || !Array.isArray(dialog?.choices)) return null;
+  if (!dialog.choices.some((choice) => choice.id === value)) return null;
+  if (note === undefined) return { id: value };
+  if (typeof note !== 'string' || note.length > MAX_EXTENSION_CHOICE_NOTE_CHARS || dialog.allowNote !== true) return null;
+  const trimmed = note.trim();
+  return { id: value, ...(trimmed ? { note: trimmed } : {}) };
+};
+
 // ---------------------------------------------------------------- custom()
 //
 // Public shapes for `ctx.ui.custom()` surfaces (extension-custom-host.js).

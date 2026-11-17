@@ -25,6 +25,9 @@ import {
   projectCustomFrame,
   projectCustomSurface,
   projectCustomSurfaces,
+  MAX_EXTENSION_CHOICE_ID_CHARS,
+  MAX_EXTENSION_CHOICE_NOTE_CHARS,
+  projectExtensionChooseFields,
   sanitizeExtensionFormFields,
 } from './extension-protocol.js';
 import { createPiUiSettingsStore } from './ui-settings-store.js';
@@ -842,8 +845,9 @@ function projectExtensionSnapshotState(snapshot) {
   const extensionDialogs = Array.isArray(snapshot.extensionDialogs)
     ? snapshot.extensionDialogs.filter((entry) => entry && typeof entry.requestId === 'string' && typeof entry.method === 'string' && typeof entry.title === 'string').slice(0, 20).map((entry) => ({
         requestId: entry.requestId.slice(0, 512),
-        method: ['select', 'confirm', 'input', 'editor', 'form'].includes(entry.method) ? entry.method : 'confirm',
+        method: ['select', 'confirm', 'input', 'editor', 'form', 'choose'].includes(entry.method) ? entry.method : 'confirm',
         title: entry.title.slice(0, 512),
+        ...(entry.method === 'choose' ? projectExtensionChooseFields(entry) : {}),
         ...(typeof entry.message === 'string' ? { message: entry.message.slice(0, 2000) } : {}),
         ...(Array.isArray(entry.options) ? { options: entry.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
         ...(typeof entry.placeholder === 'string' ? { placeholder: entry.placeholder.slice(0, 512) } : {}),
@@ -1152,14 +1156,18 @@ export const projectEventFrame = (frame) => {
     }
     case 'extension.dialog': {
       if (typeof frame.payload.requestId !== 'string' || frame.payload.requestId.length === 0 || frame.payload.requestId.length > 512) return null;
-      if (!['select', 'confirm', 'input', 'editor', 'form'].includes(frame.payload.method)) return null;
+      if (!['select', 'confirm', 'input', 'editor', 'form', 'choose'].includes(frame.payload.method)) return null;
       if (typeof frame.payload.title !== 'string' || frame.payload.title.length === 0 || frame.payload.title.length > 512) return null;
+      const chooseFields = frame.payload.method === 'choose' ? projectExtensionChooseFields(frame.payload) : null;
+      // A question nobody could answer is dropped, like any malformed event.
+      if (chooseFields && chooseFields.choices.length === 0) return null;
       return {
         ...common,
         payload: {
           requestId: frame.payload.requestId.slice(0, 512),
           method: frame.payload.method,
           title: frame.payload.title.slice(0, 512),
+          ...(chooseFields ?? {}),
           ...(typeof frame.payload.message === 'string' ? { message: frame.payload.message.slice(0, 2000) } : {}),
           ...(Array.isArray(frame.payload.options) ? { options: frame.payload.options.filter((option) => typeof option === 'string').map((option) => option.slice(0, 256)).slice(0, 20) } : {}),
           ...(typeof frame.payload.placeholder === 'string' ? { placeholder: frame.payload.placeholder.slice(0, 512) } : {}),
@@ -2440,7 +2448,10 @@ export const registerPiRuntimeRoutes = (app, {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)
       || typeof body.requestId !== 'string' || body.requestId.length === 0
-      || (body.directory !== undefined && typeof body.directory !== 'string')) {
+      || (body.directory !== undefined && typeof body.directory !== 'string')
+      // A `choose` answer: the choice id travels as `value`, with an optional note.
+      || (body.note !== undefined && (typeof body.note !== 'string' || body.note.length > MAX_EXTENSION_CHOICE_NOTE_CHARS
+        || typeof body.value !== 'string' || body.value.length > MAX_EXTENSION_CHOICE_ID_CHARS))) {
       res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
       return;
     }
@@ -2466,6 +2477,7 @@ export const registerPiRuntimeRoutes = (app, {
         ...(body.cancelled === true ? { cancelled: true } : {}),
         ...(body.confirmed === true ? { confirmed: true } : {}),
         ...(typeof body.value === 'string' ? { value: body.value } : {}),
+        ...(typeof body.note === 'string' ? { note: body.note } : {}),
         ...(values ? { values } : {}),
       });
       if (!result || typeof result !== 'object' || result.resolved !== true) {

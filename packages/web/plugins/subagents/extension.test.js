@@ -96,7 +96,7 @@ const fakePi = (activeTools = ['read', 'bash']) => {
   return pi;
 };
 
-const fakeChamber = (initial) => {
+const fakePichamber = (initial) => {
   let values = { ...initial };
   const listeners = new Set();
   return {
@@ -120,7 +120,7 @@ const setup = async (scriptFor, options = {}) => {
     killDelayMs: options.killDelayMs ?? 20,
   });
   const pi = fakePi();
-  extension(pi, options.chamber);
+  extension(pi, options.pichamber);
   pi.start(dirs.project);
   const tool = pi.tools[0];
   const updates = [];
@@ -256,25 +256,25 @@ describe('subagents extension', () => {
   });
 
   it('adds and removes only its own tool from the active set as the state changes', async () => {
-    const chamber = fakeChamber({ on: false });
-    const { pi, tool } = await setup(() => ({}), { chamber });
+    const pichamber = fakePichamber({ on: false });
+    const { pi, tool } = await setup(() => ({}), { pichamber });
     expect(pi.active).toEqual(['read', 'bash']);
-    chamber.set({ on: true });
+    pichamber.set({ on: true });
     expect(pi.active).toEqual(['read', 'bash', TOOL_NAME]);
-    chamber.set({ on: false });
+    pichamber.set({ on: false });
     expect(pi.active).toEqual(['read', 'bash']);
     await expect(tool.execute('c', { agent: 'scout', task: 't' }, undefined, undefined, {})).rejects.toThrow(/off/);
   });
 
   it('leaves a tool list the user changed alone until its switch flips or the session starts', async () => {
-    const chamber = fakeChamber({ on: true });
-    const { pi, dirs } = await setup(() => ({}), { chamber });
+    const pichamber = fakePichamber({ on: true });
+    const { pi, dirs } = await setup(() => ({}), { pichamber });
     expect(pi.active).toEqual(['read', 'bash', TOOL_NAME]);
     pi.active = ['read'];
-    chamber.set({ unrelated: 1 });
+    pichamber.set({ unrelated: 1 });
     expect(pi.active).toEqual(['read']);
-    chamber.set({ on: false });
-    chamber.set({ on: true });
+    pichamber.set({ on: false });
+    pichamber.set({ on: true });
     expect(pi.active).toEqual(['read', TOOL_NAME]);
     pi.active = ['read'];
     pi.start(dirs.project);
