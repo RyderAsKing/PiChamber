@@ -7,6 +7,7 @@ import TurnActivityRail from './TurnActivityRail';
 import TurnAssistantBlock from './TurnAssistantBlock';
 import TurnPluginArtifacts from './TurnPluginArtifacts';
 import TurnWorkingHeader from './TurnWorkingHeader';
+import { partitionTurnNotices } from '../lib/turns/placeTurnNotices';
 import { resolveTurnActivityDisclosure } from './turnActivityDisclosure';
 
 interface TurnItemProps {
@@ -114,6 +115,23 @@ const TurnItem: React.FC<TurnItemProps> = ({
     }, [onActivityContentChange]);
 
     const shouldShowWorkingHeader = turn.assistantMessages.length > 0 || showWorkingStatus || isAwaitingRecovery;
+    // Live notices render where they arrived: among the open rail's rows or
+    // among the response messages (see placeTurnNotices).
+    const finalAnswerMessageId = hasFinalText ? turn.summary.sourceMessageId : undefined;
+    const noticePartition = React.useMemo(() => partitionTurnNotices({
+        notices: turn.notices,
+        activityParts: turn.activityParts,
+        assistantMessages: turn.assistantMessages,
+        railOpen: hasActivity && isActivityExpanded,
+        finalAnswerMessageId,
+    }), [
+        finalAnswerMessageId,
+        hasActivity,
+        isActivityExpanded,
+        turn.activityParts,
+        turn.assistantMessages,
+        turn.notices,
+    ]);
     const activityPartIds = React.useMemo(
         () => new Set(turn.activityParts.map((activity) => activity.id)),
         [turn.activityParts],
@@ -130,14 +148,6 @@ const TurnItem: React.FC<TurnItemProps> = ({
                 userMessage={turn.userMessage}
                 renderMessage={renderMessage}
             />
-
-            {turn.notices.length > 0 ? (
-                turn.notices.map((notice) => (
-                    <React.Fragment key={notice.info.id}>
-                        {renderMessage(notice)}
-                    </React.Fragment>
-                ))
-            ) : null}
 
             {shouldShowWorkingHeader ? (
                 <TurnWorkingHeader
@@ -160,6 +170,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                 <TurnActivityRail
                     key={turn.turnId}
                     turn={turn}
+                    notices={noticePartition.rail}
                     isExpanded={isActivityExpanded}
                     isLiveTurn={showWorkingStatus}
                     activeStreamingMessageId={activeStreamingMessageId}
@@ -176,6 +187,7 @@ const TurnItem: React.FC<TurnItemProps> = ({
                 renderMessage={renderMessage}
                 deferEarlierMessages={deferEarlierAssistantMessages}
                 activityPartIds={activityPartIds}
+                notices={noticePartition.response}
             />
         </section>
     );

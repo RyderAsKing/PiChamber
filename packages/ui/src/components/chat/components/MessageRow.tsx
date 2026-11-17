@@ -6,7 +6,7 @@ import { ExtensionMessageCard } from '../message/parts/extension/ExtensionMessag
 import { ExtensionNoteRow } from '../message/parts/extension/ExtensionNoteRow';
 import { ExtensionNoticeRow } from '../message/parts/extension/ExtensionNoticeRow';
 import { BashExecutionRow } from '../message/parts/extension/BashExecutionRow';
-import { EXTENSION_NOTICE_CUSTOM_TYPE } from '../lib/turns/applyExtensionNoticeOverlay';
+import { readExtensionNotice } from '../lib/turns/applyExtensionNoticeOverlay';
 import { parseExtensionChatItem } from '@/lib/pi/extension-ui';
 import { PI_BASH_CUSTOM_TYPE, type PiBashExecution, type PiBashRecordedDetails } from '@/lib/pi/protocol';
 import type { PiExtensionMessageRender } from '@/lib/pi/types';
@@ -60,15 +60,14 @@ export const MessageRow = React.memo<MessageRowProps>(
     // Live extension notices (`ctx.ui.notify`) render as inline rows, before
     // the generic extension handling: their reserved custom type never
     // carries card descriptors or JSON details.
-    if (info.role === 'extension' && info.customType === EXTENSION_NOTICE_CUSTOM_TYPE) {
-      const rawLevel = (info as { noticeLevel?: unknown }).noticeLevel;
-      const level = rawLevel === 'warning' || rawLevel === 'error' ? rawLevel : 'info';
+    const notice = readExtensionNotice(message);
+    if (notice) {
       return (
         <div className="chat-message-column">
           <ExtensionNoticeRow
             messageId={message.info.id}
-            level={level}
-            message={typeof info.text === 'string' ? info.text : ''}
+            level={notice.level}
+            message={notice.text}
           />
         </div>
       );

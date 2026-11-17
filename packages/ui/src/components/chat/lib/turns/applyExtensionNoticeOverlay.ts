@@ -13,8 +13,9 @@ import type { ChatMessageEntry } from './types';
  * - Each notice becomes an `extension`-role entry with the reserved
  *   `pichamber.notice` custom type, so `MessageRow` routes it to
  *   `ExtensionNoticeRow` before the generic extension handling.
- *   `projectTurnRecords` attaches mid-turn notices to their running turn
- *   (rendered inside `TurnItem` before the reply); notices outside a
+ *   `projectTurnRecords` attaches mid-turn notices to their running turn,
+ *   where `placeTurnNotices` puts them among the turn's tool rows and
+ *   reply by time; notices outside a
  *   running turn stay ungrouped via `buildStaticRenderEntries` /
  *   `UngroupedMessageRow`.
  * - Placement follows daemon-clock `createdAt`: a notice inserts after the
@@ -29,6 +30,16 @@ import type { ChatMessageEntry } from './types';
 
 /** Reserved custom type marking an overlay-projected notice row. */
 export const EXTENSION_NOTICE_CUSTOM_TYPE = 'pichamber.notice' as const;
+
+/** Level and text of a projected notice row, or null for any other entry. */
+export const readExtensionNotice = (
+  message: ChatMessageEntry,
+): { level: PiExtensionNotice['level']; text: string } | null => {
+  const info = message.info as { role?: unknown; customType?: unknown; noticeLevel?: unknown; text?: unknown };
+  if (info.role !== 'extension' || info.customType !== EXTENSION_NOTICE_CUSTOM_TYPE) return null;
+  const level = info.noticeLevel === 'warning' || info.noticeLevel === 'error' ? info.noticeLevel : 'info';
+  return { level, text: typeof info.text === 'string' ? info.text : '' };
+};
 
 const messageCreatedAt = (message: ChatMessageEntry): number | undefined => {
   const created = (message.info as { time?: { created?: unknown } }).time?.created;
