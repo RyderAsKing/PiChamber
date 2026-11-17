@@ -72,6 +72,10 @@ const resolveDaemonReadRoots = ({
   return [...new Set(roots)];
 };
 
+// Points `linkPath` at `target`. Only the last name is read, removed or
+// created, and none of those follow a link, so the caller must own the
+// folder that holds it: the shadow folder itself (which sandboxed code can
+// fill but never replace) or a folder the sandbox cannot write.
 const ensureSymlink = async (linkPath, target) => {
   try {
     const info = await lstat(linkPath);
@@ -82,7 +86,6 @@ const ensureSymlink = async (linkPath, target) => {
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
-  await mkdir(dirname(linkPath), { recursive: true, mode: 0o700 });
   await symlink(target, linkPath);
 };
 
@@ -140,6 +143,14 @@ export const prepareProjectSandbox = async ({
   const projectKey = sandboxProjectKey(projectRoot);
   const sandboxRoot = join(dataDir, 'pi', 'sandbox', projectKey);
   const shadowDir = join(sandboxRoot, 'agent');
+  // The links to this project's real session folders. They sit beside the
+  // shadow, not in it: everything below the shadow is writable from inside
+  // the sandbox, so any folder there may have been swapped for a link, and
+  // the server, which runs with the user's access, would create whatever it
+  // puts in that folder wherever the link points (Pi's real extensions
+  // folder, for one). The shadow's own `sessions` entry is a link to here,
+  // and the sandbox may only read here.
+  const sessionLinksDir = join(sandboxRoot, 'sessions');
   const tmpDir = join(sandboxRoot, 'tmp');
   // A cache of its own: the user's cache folders hold code that tools
   // outside the sandbox run later (browser builds, package managers), so
@@ -148,7 +159,7 @@ export const prepareProjectSandbox = async ({
   // The project's own lease folder. The shared one holds every other
   // project's live sessions and is not granted.
   const leaseDir = scopedLeaseDir(agentDir, projectKey);
-  await Promise.all([shadowDir, tmpDir, cacheDir, leaseDir].map((path) => mkdir(path, { recursive: true, mode: 0o700 })));
+  await Promise.all([shadowDir, sessionLinksDir, tmpDir, cacheDir, leaseDir].map((path) => mkdir(path, { recursive: true, mode: 0o700 })));
 
   const grants = [
     { kind: 'readWrite', path: projectRoot },
@@ -156,9 +167,10 @@ export const prepareProjectSandbox = async ({
     { kind: 'readWrite', path: tmpDir },
     { kind: 'readWrite', path: cacheDir },
     { kind: 'readWrite', path: leaseDir },
+    { kind: 'read', path: sessionLinksDir },
     ...readRoots.map((path) => ({ kind: 'read', path })),
   ];
-  await ensureSymlink(join(shadowDir, '.pichamber', 'locks', 'sessions'), leaseDir);
+  await ensureSymlink(join(shadowDir, 'sessions'), sessionLinksDir);
 
   if (typeof projectId === 'string' && /^[A-Za-z0-9_-]+$/.test(projectId)) {
     const worktreeRoot = join(dataDir, 'worktree', projectId);
@@ -170,7 +182,9 @@ export const prepareProjectSandbox = async ({
   for (const cwd of [projectRoot, ...worktreeDirs]) {
     const real = getPiSessionDirectory({ cwd, agentDir });
     await mkdir(real, { recursive: true, mode: 0o700 });
-    await ensureSymlink(getPiSessionDirectory({ cwd, agentDir: shadowDir }), real);
+    // `<sandboxRoot>/sessions/<encoded cwd>`, the same name Pi looks up
+    // below the shadow.
+    await ensureSymlink(getPiSessionDirectory({ cwd, agentDir: sandboxRoot }), real);
     grants.push({ kind: 'readWrite', path: real });
   }
 

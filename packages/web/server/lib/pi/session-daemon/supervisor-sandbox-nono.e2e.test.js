@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
@@ -187,6 +187,9 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
       check('otherProject', `ls ${otherProject}`),
       check('piSettings', `echo pwn >> ${join(agentDir, 'settings.json')}`),
       check('piExtensions', `mkdir ${join(agentDir, 'extensions', 'evil')}`),
+      // The session links the server makes: readable through the shadow,
+      // never changed from inside.
+      check('sessionLinks', `ln -s ${outside} ${join(dataDir, 'pi', 'sandbox', sandbox.projectKey, 'sessions', 'planted')}`),
       check('mainCredential', `cat ${mainCredential}`),
       // Its own credential is the server's file: readable (the daemon
       // started on it), never writable or replaceable.
@@ -218,6 +221,7 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     expect(text).toContain('otherProject=denied');
     expect(text).toContain('piSettings=denied');
     expect(text).toContain('piExtensions=denied');
+    expect(text).toContain('sessionLinks=denied');
     expect(text).toContain('mainCredential=denied');
     expect(text).toContain('ownCredentialWrite=denied');
     expect(text).toContain('ownCredentialReplace=denied');
@@ -230,6 +234,17 @@ describe.skipIf(!probe.available)('sandboxed daemon under real nono', () => {
     // The limit a WSL2 owner accepts: the socket is reachable there.
     expect(text).toContain(unixSocketsMediated ? 'unixOutside=denied' : 'unixOutside=allowed');
     await expect(readFile(join(agentDir, 'settings.json'), 'utf8')).resolves.toBe(settings);
+    // The transcript, written through the shadow's links, is in Pi's real
+    // session folder.
+    const realSessions = getPiSessionDirectory({ cwd: project, agentDir });
+    const deadline = Date.now() + 30_000;
+    let transcripts = [];
+    while (Date.now() < deadline) {
+      transcripts = (await readdir(realSessions)).filter((name) => name.endsWith('.jsonl'));
+      if (transcripts.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    expect(transcripts).toHaveLength(1);
   }, 120_000);
 
   it('keys its session lease on the real agent folder and reaches its own Open request intake', async () => {

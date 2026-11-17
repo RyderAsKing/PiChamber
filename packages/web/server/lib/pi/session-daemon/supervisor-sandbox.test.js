@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, readlink, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -125,10 +125,15 @@ describe('sandboxed Pi session daemon supervisor', () => {
     expect(command).toBe(ctx.nono);
     expect(args).toEqual([
       'run', '-s', '--profile', NONO_PROFILE_FILE, '--no-rollback', '--no-audit', '--no-diagnostics',
-      '--read', '/opt/node',
-      '--read', '/opt/pichamber',
-      '--read', join(ctx.agentDir, 'extensions'),
-      '--read', ctx.shared,
+      ...[
+        '/opt/node',
+        '/opt/pichamber',
+        join(ctx.agentDir, 'extensions'),
+        // The links to the session folders, kept where the sandbox cannot
+        // write (see the shadow folder tests below).
+        join(ctx.dataDir, 'pi', 'sandbox', sandbox.projectKey, 'sessions'),
+        ctx.shared,
+      ].sort().flatMap((path) => ['--read', path]),
       // The credential, in the server's own launcher folder: readable, not
       // replaceable.
       '--read-file', join(ctx.dataDir, 'pi', 'launchers', paths.profileKey, 'session-daemon.key'),
@@ -237,7 +242,7 @@ describe('sandboxed Pi session daemon supervisor', () => {
     await expect(supervisor.request('sessions.list', {})).rejects.toMatchObject({ code: expect.stringMatching(/^DAEMON_/) });
   });
 
-  it('builds a shadow agent folder that links to the real Pi config, resources, session and lease folders', async () => {
+  it('builds a shadow agent folder that links to the real Pi config, resources and session folders', async () => {
     const ctx = await setup();
     const sandbox = await prepareProjectSandbox(ctx.sandboxOptions);
     const shadow = sandbox.agentDir;
@@ -250,11 +255,34 @@ describe('sandboxed Pi session daemon supervisor', () => {
       .resolves.toBe(getPiSessionDirectory({ cwd: ctx.project, agentDir: ctx.agentDir }));
     await expect(readlink(getPiSessionDirectory({ cwd: ctx.worktree, agentDir: shadow })))
       .resolves.toBe(getPiSessionDirectory({ cwd: ctx.worktree, agentDir: ctx.agentDir }));
-    await expect(readlink(join(shadow, '.pichamber', 'locks', 'sessions')))
-      .resolves.toBe(join(ctx.agentDir, '.pichamber', 'locks', 'sandbox-sessions', sandbox.projectKey));
+    // The shadow's `sessions` is itself a link, to a folder beside the shadow
+    // that the sandbox can only read; the session links are made there.
+    await expect(readlink(join(shadow, 'sessions')))
+      .resolves.toBe(join(ctx.dataDir, 'pi', 'sandbox', sandbox.projectKey, 'sessions'));
 
     // Preparing again (for example after a new worktree) keeps the folder valid.
     await expect(prepareProjectSandbox(ctx.sandboxOptions)).resolves.toMatchObject({ agentDir: shadow });
+  });
+
+  it('creates nothing outside the shadow when sandboxed code swapped its folders for links', async () => {
+    const ctx = await setup();
+    const first = await prepareProjectSandbox(ctx.sandboxOptions);
+    const shadow = first.agentDir;
+    const extensions = join(ctx.agentDir, 'extensions');
+
+    // What code inside the sandbox can do: the shadow is writable, so any
+    // folder in it can become a link to Pi's real extensions folder.
+    await rm(join(shadow, 'sessions'), { recursive: true, force: true });
+    await symlink(extensions, join(shadow, 'sessions'));
+    await rm(join(shadow, '.pichamber'), { recursive: true, force: true });
+    await symlink(extensions, join(shadow, '.pichamber'));
+
+    await prepareProjectSandbox(ctx.sandboxOptions);
+
+    // The unsandboxed main daemon loads every folder in here.
+    await expect(readdir(extensions)).resolves.toEqual([]);
+    await expect(readlink(getPiSessionDirectory({ cwd: ctx.project, agentDir: shadow })))
+      .resolves.toBe(getPiSessionDirectory({ cwd: ctx.project, agentDir: ctx.agentDir }));
   });
 
   it('reuses the profile key for the same launch and uses a new one when the identity changes', async () => {
