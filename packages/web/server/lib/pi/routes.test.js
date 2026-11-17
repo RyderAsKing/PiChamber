@@ -2602,3 +2602,160 @@ describe('Pi runtime route', () => {
     expect(commandsAfterDelete.commands.map((c) => c.name)).not.toContain('second');
   });
 });
+
+describe('Pi extension config routes', () => {
+  let server;
+  afterEach(async () => {
+    await close(server);
+    server = undefined;
+  });
+
+  const ID = 'a'.repeat(43);
+  const PKG = 'b'.repeat(43);
+  const daemonList = (extra = {}) => ({
+    directory: '/work',
+    project: { available: true, trusted: true, extra: 'dropped' },
+    packages: [{ id: PKG, source: 'npm:pi-btw@0.8.1', scope: 'user', kind: 'npm', installed: true, filtered: false, installedPath: '/agent/npm/x' }],
+    extensions: [{
+      id: ID, name: 'tidy/index.ts', group: 'package', packageId: PKG, scope: 'user', global: true,
+      project: { state: 'unload', inherited: true, enabled: false, path: '/x' }, path: '/agent/x.ts',
+    }],
+    installFailures: [{ source: 'npm:gone', message: 'not found', scope: 'user' }],
+    ...extra,
+  });
+
+  const start = async (request) => {
+    const calls = [];
+    const app = express();
+    app.use(express.json());
+    registerPiRuntimeRoutes(app, {
+      getPiSessionDaemonRuntime: () => ({
+        request: async (command, payload) => {
+          calls.push({ command, payload });
+          return request(command, payload);
+        },
+      }),
+    });
+    server = await listen(app);
+    return { calls, api: `http://127.0.0.1:${server.address().port}/api/pi/extensions` };
+  };
+
+  it('lists through a whitelist and passes the directory', async () => {
+    const { calls, api } = await start(async () => daemonList());
+    const response = await fetch(`${api}/config?directory=${encodeURIComponent('/work')}`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      directory: '/work',
+      project: { available: true, trusted: true },
+      packages: [{ id: PKG, source: 'npm:pi-btw@0.8.1', scope: 'user', kind: 'npm', installed: true, filtered: false }],
+      extensions: [{
+        id: ID, name: 'tidy/index.ts', group: 'package', packageId: PKG, scope: 'user', global: true,
+        project: { state: 'unload', inherited: true, enabled: false },
+      }],
+      installFailures: [{ source: 'npm:gone', message: 'not found' }],
+    });
+    expect(calls).toEqual([{ command: 'extensions.config.list', payload: { directory: '/work' } }]);
+    await fetch(`${api}/config`);
+    expect(calls[1]).toEqual({ command: 'extensions.config.list', payload: {} });
+  });
+
+  it('passes a valid replaced list and drops malformed entries and unknown keys', async () => {
+    const replaced = [
+      { kind: 'plugin', id: 'subagents', registers: { kind: 'tool', name: 'subagent' }, by: { id: ID, name: 'subagent/index.ts' }, path: '/agent/x.ts' },
+      { kind: 'builtin', id: PKG, registers: { kind: 'command', name: 'mcp' }, by: { name: 'mcp-pro' } },
+      { kind: 'plugin', id: 'visuals' },
+      { kind: 'plugin', id: 'visuals2', registers: { kind: 'event', name: 'x' }, by: { name: '/agent/ext.ts' } },
+      { kind: 'plugin', id: 'Bad Id' },
+      { kind: 'builtin', id: 'short' },
+      { kind: 'other', id: 'subagents' },
+      { kind: 'plugin', id: 'flagged', registers: { kind: 'flag', name: '--oops' }, by: { id: 'nope', name: 'ok' } },
+      null,
+      'text',
+    ];
+    let answer = daemonList({ replaced });
+    const { calls, api } = await start(async () => answer);
+    const body = await (await fetch(`${api}/config`)).json();
+    expect(body.replaced).toEqual([
+      { kind: 'plugin', id: 'subagents', registers: { kind: 'tool', name: 'subagent' }, by: { id: ID, name: 'subagent/index.ts' } },
+      { kind: 'builtin', id: PKG, registers: { kind: 'command', name: 'mcp' }, by: { name: 'mcp-pro' } },
+      { kind: 'plugin', id: 'visuals' },
+      { kind: 'plugin', id: 'visuals2' },
+      { kind: 'plugin', id: 'flagged', by: { name: 'ok' } },
+    ]);
+    expect(JSON.stringify(body)).not.toContain('/agent');
+    expect(calls).toHaveLength(1);
+
+    // An empty list stays present; a missing or non-array field stays absent.
+    answer = daemonList({ replaced: [] });
+    expect((await (await fetch(`${api}/config`)).json()).replaced).toEqual([]);
+    answer = daemonList();
+    expect('replaced' in await (await fetch(`${api}/config`)).json()).toBe(false);
+    answer = daemonList({ replaced: 'yes' });
+    expect('replaced' in await (await fetch(`${api}/config`)).json()).toBe(false);
+  });
+
+  it('rejects daemon answers that carry paths or unknown shapes', async () => {
+    const bad = [
+      daemonList({ extensions: [{ id: ID, name: '/agent/extensions/x.ts', group: 'auto', scope: 'user', global: true }] }),
+      daemonList({ packages: [{ id: PKG, source: '/home/me/pkg', scope: 'user', kind: 'local', installed: true, filtered: false }] }),
+      daemonList({ packages: [{ id: PKG, source: 'code/pkg', scope: 'user', kind: 'local', installed: true, filtered: false }] }),
+      daemonList({ extensions: [{ id: 'short', name: 'x', group: 'auto', scope: 'user' }] }),
+      daemonList({ project: { available: true, trusted: false } }),
+    ];
+    let index = 0;
+    const { api } = await start(async () => bad[index++]);
+    for (let i = 0; i < bad.length; i += 1) {
+      const response = await fetch(`${api}/config`);
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: { code: 'DAEMON_PROTOCOL_MISMATCH' } });
+    }
+  });
+
+  it('validates toggle bodies strictly and forwards global and project writes', async () => {
+    const { calls, api } = await start(async () => daemonList({ deferred: true }));
+    const put = (id, body) => fetch(`${api}/config/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    for (const [id, body] of [
+      [ID, { scope: 'global' }],
+      [ID, { scope: 'global', enabled: 'yes' }],
+      [ID, { scope: 'global', enabled: true, state: 'load' }],
+      [ID, { scope: 'project', state: 'load' }],
+      [ID, { scope: 'project', state: 'on', directory: '/work' }],
+      [ID, { scope: 'project', state: 'load', directory: '/work', enabled: true }],
+      [ID, { scope: 'other', enabled: true }],
+      ['not-an-id', { scope: 'global', enabled: true }],
+    ]) {
+      expect((await put(id, body)).status).toBe(400);
+    }
+    expect(calls).toEqual([]);
+    const global = await put(ID, { scope: 'global', enabled: false });
+    expect(global.status).toBe(200);
+    expect((await global.json()).deferred).toBe(true);
+    await put(ID, { scope: 'project', state: 'inherit', directory: '/work' });
+    expect(calls).toEqual([
+      { command: 'extensions.config.set', payload: { id: ID, scope: 'global', enabled: false } },
+      { command: 'extensions.config.set', payload: { id: ID, scope: 'project', state: 'inherit', directory: '/work' } },
+    ]);
+  });
+
+  it('removes a package by id and maps daemon errors', async () => {
+    let fail = null;
+    const { calls, api } = await start(async () => {
+      if (fail) {
+        const error = new Error('x');
+        error.code = fail;
+        throw error;
+      }
+      return daemonList();
+    });
+    expect((await fetch(`${api}/packages/nope`, { method: 'DELETE' })).status).toBe(400);
+    const removed = await fetch(`${api}/packages/${PKG}?directory=${encodeURIComponent('/work')}`, { method: 'DELETE' });
+    expect(removed.status).toBe(200);
+    expect(calls).toEqual([{ command: 'extensions.packages.remove', payload: { id: PKG, directory: '/work' } }]);
+    for (const code of ['RESOURCE_NOT_FOUND', 'PROJECT_UNTRUSTED', 'PACKAGE_REMOVE_FAILED', 'PACKAGE_NOT_CONFIGURED', 'PI_SETTINGS_INVALID']) {
+      fail = code;
+      const response = await fetch(`${api}/packages/${PKG}`, { method: 'DELETE' });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ error: { code } });
+    }
+  });
+});

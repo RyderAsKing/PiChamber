@@ -701,6 +701,96 @@ export const projectExtensionList = (result) => {
   return { directory: result.directory, extensions, commands };
 };
 
+// `pi config` / `pi list` for extensions (session-daemon/extension-config.js).
+// Ids are opaque sha256 base64url; names and sources are display forms the
+// daemon already made path-free, re-checked here so nothing path-like or
+// unexpected crosses.
+const EXTENSION_CONFIG_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const EXTENSION_CONFIG_OVERRIDE_STATES = new Set(['inherit', 'load', 'unload']);
+const EXTENSION_CONFIG_GROUPS = new Set(['package', 'auto', 'settings', 'builtin']);
+const EXTENSION_CONFIG_SCOPES = new Set(['user', 'project']);
+const EXTENSION_CONFIG_PACKAGE_KINDS = new Set(['npm', 'git', 'local']);
+
+const isDisplayText = (value, max = 256) => typeof value === 'string' && value.length > 0 && value.length <= max
+  && !value.includes('\\') && !value.startsWith('/') && !value.startsWith('~') && !/^[A-Za-z]:/.test(value);
+
+// `replaced`: plugins and built-ins a live runtime left out because another
+// extension took their tool, command, or flag. Present (even empty) only when
+// the daemon answered from a live runtime. A bad entry is dropped; a bad
+// optional part (`registers`, `by`) is left out of an otherwise good entry.
+const EXTENSION_CONFIG_REPLACED_KINDS = new Set(['plugin', 'builtin']);
+const EXTENSION_CONFIG_REGISTER_KINDS = new Set(['tool', 'command', 'flag']);
+const PLUGIN_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+
+const projectReplacedExtensions = (replaced) => {
+  if (!Array.isArray(replaced)) return undefined;
+  return replaced.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object' || !EXTENSION_CONFIG_REPLACED_KINDS.has(entry.kind) || typeof entry.id !== 'string'
+      || !(entry.kind === 'plugin' ? entry.id.length <= 40 && PLUGIN_ID_PATTERN.test(entry.id) : EXTENSION_CONFIG_ID_PATTERN.test(entry.id))) return [];
+    const registers = entry.registers;
+    const by = entry.by;
+    const validRegisters = registers && typeof registers === 'object' && EXTENSION_CONFIG_REGISTER_KINDS.has(registers.kind)
+      && isDisplayText(registers.name) && !registers.name.startsWith('--');
+    const validBy = by && typeof by === 'object' && isDisplayText(by.name);
+    return [{
+      kind: entry.kind,
+      id: entry.id,
+      ...(validRegisters ? { registers: { kind: registers.kind, name: registers.name } } : {}),
+      ...(validBy ? {
+        by: {
+          ...(typeof by.id === 'string' && EXTENSION_CONFIG_ID_PATTERN.test(by.id) ? { id: by.id } : {}),
+          name: by.name,
+        },
+      } : {}),
+    }];
+  });
+};
+
+const projectExtensionConfig = (result) => {
+  if (!result || typeof result !== 'object' || !result.project || typeof result.project !== 'object'
+    || !Array.isArray(result.packages) || !Array.isArray(result.extensions) || !Array.isArray(result.installFailures)
+    || (result.directory !== undefined && typeof result.directory !== 'string')) throw protocolMismatch();
+  const trusted = result.project.trusted === true;
+  const packages = result.packages.map((pkg) => {
+    if (!pkg || typeof pkg !== 'object' || typeof pkg.id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(pkg.id)
+      || !EXTENSION_CONFIG_SCOPES.has(pkg.scope) || !EXTENSION_CONFIG_PACKAGE_KINDS.has(pkg.kind)
+      || (pkg.kind === 'local' ? !isDisplayText(pkg.source) || pkg.source.includes('/') : !isDisplayText(pkg.source))) throw protocolMismatch();
+    return { id: pkg.id, source: pkg.source, scope: pkg.scope, kind: pkg.kind, installed: pkg.installed === true, filtered: pkg.filtered === true };
+  });
+  const packageIds = new Set(packages.map((pkg) => pkg.id));
+  const extensions = result.extensions.map((extension) => {
+    if (!extension || typeof extension !== 'object' || typeof extension.id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(extension.id)
+      || !isDisplayText(extension.name) || !EXTENSION_CONFIG_GROUPS.has(extension.group) || !EXTENSION_CONFIG_SCOPES.has(extension.scope)
+      || (extension.global !== undefined && typeof extension.global !== 'boolean')) throw protocolMismatch();
+    const project = extension.project;
+    if (project !== undefined && (!trusted || !project || typeof project !== 'object' || !EXTENSION_CONFIG_OVERRIDE_STATES.has(project.state)
+      || typeof project.inherited !== 'boolean' || typeof project.enabled !== 'boolean')) throw protocolMismatch();
+    return {
+      id: extension.id,
+      name: extension.name,
+      group: extension.group,
+      ...(extension.group === 'package' && packageIds.has(extension.packageId) ? { packageId: extension.packageId } : {}),
+      scope: extension.scope,
+      ...(typeof extension.global === 'boolean' ? { global: extension.global } : {}),
+      ...(project ? { project: { state: project.state, inherited: project.inherited, enabled: project.enabled } } : {}),
+    };
+  });
+  const installFailures = result.installFailures.flatMap((failure) => (
+    failure && typeof failure === 'object' && isDisplayText(failure.source) && typeof failure.message === 'string'
+      ? [{ source: failure.source, message: failure.message.slice(0, 300) }]
+      : []
+  ));
+  return {
+    ...(typeof result.directory === 'string' && result.directory.length > 0 ? { directory: result.directory } : {}),
+    project: { available: result.project.available === true, trusted },
+    packages,
+    extensions,
+    installFailures,
+    ...(Array.isArray(result.replaced) ? { replaced: projectReplacedExtensions(result.replaced) } : {}),
+    ...(result.deferred === true ? { deferred: true } : {}),
+  };
+};
+
 // User shell commands (`!cmd`). Command text is user-authored; output is a
 // bounded tail. Field caps mirror the daemon's live/recorded limits.
 const BASH_COMMAND_MAX_CHARS = 100_000;
@@ -2245,6 +2335,79 @@ export const registerPiRuntimeRoutes = (app, {
         ...(typeof directory === 'string' && directory.length > 0 ? { directory } : {}),
       });
       res.json(projectExtensionList(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  // Extension config (`pi config`, `pi list`, `pi remove`). Toggles and
+  // removal change what code runs on this server; the daemon re-resolves
+  // every id and enforces trust (session-daemon/extension-config.js).
+  const extensionConfigDirectory = (value) => {
+    if (value === undefined) return { ok: true };
+    if (typeof value !== 'string' || value.length > 4096) return { ok: false };
+    return { ok: true, ...(value.length > 0 ? { directory: value } : {}) };
+  };
+
+  app.get('/api/pi/extensions/config', async (req, res) => {
+    const target = extensionConfigDirectory(req.query?.directory);
+    if (!target.ok) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      const result = await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.config.list', {
+        ...(target.directory ? { directory: target.directory } : {}),
+      });
+      res.json(projectExtensionConfig(result));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.put('/api/pi/extensions/config/:id', async (req, res) => {
+    const id = req.params.id;
+    const body = req.body;
+    let payload = null;
+    if (typeof id === 'string' && EXTENSION_CONFIG_ID_PATTERN.test(id) && body && typeof body === 'object' && !Array.isArray(body)) {
+      const keys = Object.keys(body);
+      if (body.scope === 'global' && typeof body.enabled === 'boolean'
+        && keys.every((key) => ['scope', 'enabled', 'directory'].includes(key))) {
+        const target = extensionConfigDirectory(body.directory);
+        if (target.ok) payload = { id, scope: 'global', enabled: body.enabled, ...(target.directory ? { directory: target.directory } : {}) };
+      } else if (body.scope === 'project'
+        && typeof body.directory === 'string' && body.directory.length > 0 && body.directory.length <= 4096) {
+        // The override itself, or on/off for the daemon to turn into one.
+        if (EXTENSION_CONFIG_OVERRIDE_STATES.has(body.state) && keys.every((key) => ['scope', 'state', 'directory'].includes(key))) {
+          payload = { id, scope: 'project', state: body.state, directory: body.directory };
+        } else if (typeof body.enabled === 'boolean' && keys.every((key) => ['scope', 'enabled', 'directory'].includes(key))) {
+          payload = { id, scope: 'project', enabled: body.enabled, directory: body.directory };
+        }
+      }
+    }
+    if (!payload) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectExtensionConfig(await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.config.set', payload)));
+    } catch (error) {
+      writeDaemonError(res, error);
+    }
+  });
+
+  app.delete('/api/pi/extensions/packages/:id', async (req, res) => {
+    const id = req.params.id;
+    const target = extensionConfigDirectory(req.query?.directory);
+    if (typeof id !== 'string' || !EXTENSION_CONFIG_ID_PATTERN.test(id) || !target.ok) {
+      res.status(400).json({ error: { code: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    try {
+      res.json(projectExtensionConfig(await getDaemonRuntime(getPiSessionDaemonRuntime).request('extensions.packages.remove', {
+        id,
+        ...(target.directory ? { directory: target.directory } : {}),
+      })));
     } catch (error) {
       writeDaemonError(res, error);
     }

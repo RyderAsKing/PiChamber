@@ -1428,6 +1428,89 @@ export interface PiExtensionListResponse {
   }>;
 }
 // ---------------------------------------------------------------------------
+// Pi extension configuration (`/api/pi/extensions/config`)
+//
+// What `pi config`, `pi list`, and `pi remove` do, for a directory: which
+// extensions and packages Pi knows, whether each loads globally and in this
+// project, and removing a package. IDs are opaque; server paths never cross
+// the API.
+// ---------------------------------------------------------------------------
+
+/** A project's own choice for an extension: follow the global setting, or load / leave it out here. */
+export type PiExtensionOverrideState = 'inherit' | 'load' | 'unload';
+
+export interface PiExtensionConfigPackage {
+  id: string;
+  /** As written in settings for npm and git sources; the folder name for a local one. */
+  source: string;
+  scope: 'user' | 'project';
+  kind: 'npm' | 'git' | 'local';
+  installed: boolean;
+  /** The settings entry narrows what the package loads. */
+  filtered: boolean;
+}
+
+export interface PiExtensionConfigItem {
+  id: string;
+  /** Display name; never a path. */
+  name: string;
+  /** `package`: from an installed package. `auto`: found in an extensions folder. `settings`: listed in settings. `builtin`: ships with Pi. */
+  group: 'package' | 'auto' | 'settings' | 'builtin';
+  /** Set when `group` is `package`. */
+  packageId?: string;
+  /** Where it is declared. */
+  scope: 'user' | 'project';
+  /** On or off in global settings. Absent for an extension a project declares. */
+  global?: boolean;
+  /** Present only when a trusted project directory was given. */
+  project?: {
+    /** The project's own override. */
+    state: PiExtensionOverrideState;
+    /** What it would be with `inherit`. */
+    inherited: boolean;
+    /** Whether it loads in this project. */
+    enabled: boolean;
+  };
+}
+
+/**
+ * A plugin or built-in that is on but that Pi left out of a live session,
+ * because another extension registers the same tool, command, or flag.
+ */
+export interface PiExtensionReplacement {
+  kind: 'plugin' | 'builtin';
+  /** The plugin id, or the built-in's id in `extensions`. */
+  id: string;
+  /** The name both register, without `/` or `--`. */
+  registers?: { kind: 'tool' | 'command' | 'flag'; name: string };
+  /** The extension Pi loaded instead; `id` when `extensions` lists it. */
+  by?: { id?: string; name: string };
+}
+
+export interface PiExtensionConfigResponse {
+  directory?: string;
+  /** `available`: a directory was given. `trusted`: its project scope can be read and written. */
+  project: { available: boolean; trusted: boolean };
+  packages: PiExtensionConfigPackage[];
+  extensions: PiExtensionConfigItem[];
+  /** Packages Pi could not resolve; the rest of the list is still complete. */
+  installFailures: Array<{ source: string; message: string }>;
+  /**
+   * What a live session in this folder left out. Absent when no session is
+   * running there, which means unknown, not none.
+   */
+  replaced?: PiExtensionReplacement[];
+  /** On a write: the change waits for a busy session before it applies. */
+  deferred?: boolean;
+}
+
+export type PiExtensionConfigWrite =
+  | { scope: 'global'; enabled: boolean }
+  | { scope: 'project'; state: PiExtensionOverrideState; directory: string }
+  /** On or off in this project; the server keeps no override when the project would get that anyway. */
+  | { scope: 'project'; enabled: boolean; directory: string };
+
+// ---------------------------------------------------------------------------
 // PiChamber plugins (`/api/pi/plugins`)
 //
 // A plugin is a Pi package with a `pichamber` block. Its agent half loads only

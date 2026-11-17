@@ -42,6 +42,8 @@ import {
 import { createExtensionMessageRenderer } from './extension-message-render.js';
 import { normalizeOpenRequestUrl, resolveOpenRequestSession } from './open-request.js';
 import { getBuiltinExtensionFactories } from './builtin-extensions.js';
+import { createExtensionConfig } from './extension-config.js';
+import { describeRuntimeReplacements } from './extension-replacements.js';
 import { createPluginHost } from './plugin-host.js';
 import {
   SESSION_DAEMON_DEFAULT_MESSAGE_PAGE_LIMIT,
@@ -3064,6 +3066,55 @@ export function createSessionDaemon({
     };
   };
 
+  // `pi config` / `pi list` / `pi remove` for extensions (extension-config.js).
+  // Writes share the resource mutation queue and the shared Pi config lock,
+  // read trust inside the lock, and recreate resident runtimes afterwards.
+  const extensionConfigService = createExtensionConfig({ agentDir, createSettingsManager });
+  const extensionConfigTarget = async (payload) => {
+    const directory = typeof payload?.directory === 'string' && payload.directory.trim().length > 0
+      ? await resolveDirectory(payload.directory)
+      : undefined;
+    // Pi's own rule (`resolveProjectTrusted`): a saved decision wins, and a
+    // project with nothing that needs trust counts as trusted, as it does for
+    // `pi config -l`. `resolveDirectory` has already saved trust for a folder
+    // that has project resources, so only a denied project is left out.
+    const decision = directory ? createTrustStore(agentDir).get(directory) : null;
+    return {
+      cwd: activeDirectory || cwd,
+      directory,
+      trusted: directory ? decision ?? !hasTrustRequiringProjectResources(directory) : false,
+    };
+  };
+  // What a live runtime left out because another extension took its names.
+  // Never starts a runtime: with none resident, or one that predates a queued
+  // recreation, the answer is unknown and the field is left out.
+  const liveExtensionReplacements = (target) => {
+    if (pendingRuntimeRecreation) return undefined;
+    const resident = (runtimeRegistry?.listByDirectory?.(resolve(target.directory ?? target.cwd)) ?? [])
+      .filter((entry) => !draftSessionIds.has(entry?.session?.sessionId));
+    const entry = resident.includes(runtime) ? runtime : resident[0];
+    if (!entry) return undefined;
+    return describeRuntimeReplacements({
+      session: entry.session,
+      configuredPluginIds: pluginHost.configuredIds(),
+      registeredNames: pluginHost.registeredNames(),
+    });
+  };
+  const listExtensionConfig = async (payload) => {
+    const target = await extensionConfigTarget(payload);
+    return extensionConfigService.list(target, liveExtensionReplacements(target));
+  };
+  const mutateExtensionConfig = (payload, write) => transactResourceMutation(async () => {
+    const target = await withSharedPiConfigLock(async () => {
+      const resolved = await extensionConfigTarget(payload);
+      await write(resolved);
+      return resolved;
+    });
+    const deferred = activeRuntimes().length > 0 ? await scheduleRuntimeRecreation() : false;
+    const result = await extensionConfigService.list(target, liveExtensionReplacements(target));
+    return deferred ? { ...result, deferred: true } : result;
+  });
+
   const resourceId = (kind, filePath) => `${kind}:${createHash('sha256').update(filePath).digest('base64url')}`;
 
   const isPathInside = (parent, candidate) => {
@@ -4716,6 +4767,7 @@ export function createSessionDaemon({
               'providers.login.respond', 'providers.login.status', 'providers.logout', 'settings.get', 'settings.set',
               'resources.list', 'resources.update', 'resources.prompts.create', 'resources.prompts.update', 'resources.prompts.delete',
               'extensions.list', 'extensions.respond', 'extensions.control', 'extensions.draft', 'extensions.palette',
+              'extensions.config.list', 'extensions.config.set', 'extensions.packages.remove',
               'openUrl.publish', 'archive.publish', 'plugins.configure',
               'extensions.custom.input', 'extensions.custom.viewport', 'extensions.custom.close', 'extensions.custom.focus', 'extensions.custom.refresh',
             ],
@@ -4916,6 +4968,21 @@ export function createSessionDaemon({
       }
       case 'resources.prompts.delete': {
         const result = await deletePrompt(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.config.list': {
+        const result = await listExtensionConfig(message.payload);
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.config.set': {
+        const result = await mutateExtensionConfig(message.payload, (target) => extensionConfigService.set(target, message.payload));
+        writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
+        return;
+      }
+      case 'extensions.packages.remove': {
+        const result = await mutateExtensionConfig(message.payload, (target) => extensionConfigService.removePackage(target, message.payload));
         writeFrame(socket, { protocolVersion: PROTOCOL_VERSION, kind: 'response', requestId: message.requestId, result });
         return;
       }

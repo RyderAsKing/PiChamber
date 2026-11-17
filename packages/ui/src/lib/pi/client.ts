@@ -75,6 +75,8 @@ import {
   isValidSessionShelfEntry,
   isValidSessionShelfResponse,
   type PiAbortInput,
+  type PiExtensionConfigResponse,
+  type PiExtensionConfigWrite,
   type PiExtensionListResponse,
   type PiPluginListResponse,
   type PiPluginSessionStateInput,
@@ -1245,6 +1247,56 @@ export class PiService {
       ...(directory ? { query: { directory } } : {}),
       ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
     });
+  }
+
+  /**
+   * Extensions and packages Pi knows for `directory` (global only when
+   * omitted), with whether each loads. Reading never installs anything.
+   */
+  async getExtensionConfig(directory?: string, scope?: PiClientScope): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionConfigResponse>('/api/pi/extensions/config', {
+      method: 'GET',
+      ...(directory ? { query: { directory } } : {}),
+      ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+    });
+  }
+
+  /**
+   * Turn an extension on or off globally, or set a project's override. The
+   * answer is the fresh list; `deferred` when a busy session delays it.
+   */
+  async setExtensionConfig(
+    id: string,
+    input: PiExtensionConfigWrite,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<PiExtensionConfigWrite, PiExtensionConfigResponse>(
+      `/api/pi/extensions/config/${encodeURIComponent(id)}`,
+      { method: 'PUT', body: input, retry: false, ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}) },
+    );
+  }
+
+  /**
+   * Remove an installed package (what `pi remove` does). A project package
+   * needs its `directory`. The answer is the fresh list.
+   */
+  async removeExtensionPackage(
+    id: string,
+    directory?: string,
+    scope?: PiClientScope,
+  ): Promise<PiExtensionConfigResponse> {
+    assertRuntimeUnchanged(scope);
+    return jsonRequest<undefined, PiExtensionConfigResponse>(
+      `/api/pi/extensions/packages/${encodeURIComponent(id)}`,
+      {
+        method: 'DELETE',
+        retry: false,
+        ...(directory ? { query: { directory } } : {}),
+        ...(scope?.runtimeKey ? { runtimeKey: scope.runtimeKey } : {}),
+      },
+    );
   }
 
   /**
