@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- **Extension notices appear where they arrived (#259).** A notice an extension raised while the agent was working was drawn above everything the turn had produced, right under your message, so new notices piled up above the work instead of at the bottom of the feed. Each notice now sits between the tool steps it arrived between, or among the replies, and later output appears below it. When the turn's activity is collapsed, its notices show just below it. Notices raised while nothing runs are unchanged (`placeTurnNotices`).
+
 - **Plugins: Visuals and Sub-agents (#258).** PiChamber can now ship features of its own to the agent as plugins, which are Pi packages bundled with the app. Two come with it, both off until you turn them on in Settings → Extensions & Plugins, so a default install adds nothing to the prompt. Visuals lets the agent answer with an HTML page drawn in the chat (`render_html`), and show two to six variants for you to pick from (`render_choices`): you see one variant at a time at the chat's full width, switch between them, choose one and can add a note. Sub-agents lets the agent hand tasks to separate Pi runs, each shown as a card that opens the run on its own, with a switch in the composer to turn it off for one session. Each plugin's page lists the tools it adds and what they cost in tokens.
 
 - **Turn Pi extensions on and off in Settings (#258).** Settings → Extensions & Plugins lists your Pi packages and extensions, Global and for This project, with a switch for each and a Remove action for packages. It does what `pi config`, `pi list` and `pi remove` do, and writes the same Pi settings files.
