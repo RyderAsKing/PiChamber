@@ -326,6 +326,173 @@ export const SettingsFieldRow: React.FC<SettingsFieldRowProps> = ({
   );
 };
 
+/** Second line of a `SettingsListRow`, and text values at its end. */
+export const SETTINGS_LIST_DETAIL_CLASS = 'typography-meta text-muted-foreground';
+
+interface SettingsListProps {
+  children: React.ReactNode;
+  className?: string;
+  'aria-label'?: string;
+}
+
+/**
+ * A bordered group of rows for things the user has rather than values they
+ * set: plugins, extensions, packages, the facts about one of them. Use
+ * `SettingsFieldRow` for a setting; use this when the row is the thing.
+ */
+export const SettingsList: React.FC<SettingsListProps> = ({ children, className, 'aria-label': ariaLabel }) => (
+  <ul
+    aria-label={ariaLabel}
+    className={cn(
+      'divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60 bg-[var(--surface-elevated)]',
+      className,
+    )}
+  >
+    {children}
+  </ul>
+);
+
+interface SettingsListRowProps {
+  /** A string gets the row title style; pass a node for a title that is a button. */
+  title: React.ReactNode;
+  /** Badge or count beside the title. */
+  titleAccessory?: React.ReactNode;
+  /** Before the title: an icon tile. */
+  leading?: React.ReactNode;
+  /** Under the title. A string gets `SETTINGS_LIST_DETAIL_CLASS` on up to two lines. */
+  detail?: React.ReactNode;
+  /** At the end of the row: a switch, a choice, a value, an action. */
+  trailing?: React.ReactNode;
+  /** Draw a string title as code: a tool, command, or file name. */
+  mono?: boolean;
+  /** Quiet a string title: the thing is off. */
+  dimmed?: boolean;
+  /** Let a string title wrap instead of truncating: a sentence, not a name. */
+  wrap?: boolean;
+  /** The first row of a list that names what the rows under it belong to. */
+  heading?: boolean;
+  /** Hover fill, for a row that opens something. */
+  interactive?: boolean;
+  /** Below `@xl`, put `trailing` under the title instead of beside it. */
+  stackTrailing?: boolean;
+  className?: string;
+  settingsItem?: string;
+}
+
+/**
+ * One row of a `SettingsList`. Beside `trailing` the title keeps one line; the
+ * detail goes under both below `@xl`, so a narrow pane does not cut it short.
+ */
+export const SettingsListRow: React.FC<SettingsListRowProps> = ({
+  title,
+  titleAccessory,
+  leading,
+  detail,
+  trailing,
+  mono = false,
+  dimmed = false,
+  wrap = false,
+  heading = false,
+  interactive = false,
+  stackTrailing = false,
+  className,
+  settingsItem,
+}) => {
+  const hasDetail = detail != null && detail !== false;
+  const hasTrailing = trailing != null && trailing !== false;
+  return (
+    <li
+      data-settings-item={settingsItem}
+      className={cn(
+        'relative flex min-w-0 items-center gap-x-3 px-3.5 py-2.5',
+        heading && 'bg-muted/50',
+        interactive && 'transition-colors hover:bg-interactive-hover/60',
+        className,
+      )}
+    >
+      {leading}
+      <div
+        className={cn(
+          'grid min-w-0 flex-1 items-center gap-x-3 gap-y-0.5',
+          hasTrailing && !stackTrailing ? 'grid-cols-[minmax(0,1fr)_auto]' : 'grid-cols-1',
+          hasTrailing && stackTrailing && '@xl:grid-cols-[minmax(0,1fr)_auto]',
+        )}
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          {typeof title === 'string' || typeof title === 'number' ? (
+            <span
+              className={cn(
+                'min-w-0',
+                wrap ? 'text-pretty' : 'truncate',
+                mono ? 'font-mono typography-code' : 'typography-ui-label',
+                heading && 'font-medium',
+                dimmed ? 'text-muted-foreground' : 'text-foreground',
+              )}
+            >
+              {title}
+            </span>
+          ) : (
+            title
+          )}
+          {titleAccessory}
+        </div>
+        {hasTrailing ? (
+          <div
+            className={cn(
+              'flex min-w-0 items-center gap-2',
+              stackTrailing
+                ? 'order-last mt-1 @xl:order-none @xl:mt-0 @xl:justify-self-end'
+                : 'justify-self-end',
+              hasDetail && '@xl:row-span-2',
+            )}
+          >
+            {trailing}
+          </div>
+        ) : null}
+        {hasDetail ? (
+          <div className={cn('min-w-0 space-y-0.5', hasTrailing && !stackTrailing && 'col-span-2 @xl:col-span-1')}>
+            {typeof detail === 'string' || typeof detail === 'number' ? (
+              <p className={cn(SETTINGS_LIST_DETAIL_CLASS, 'line-clamp-2 text-pretty')}>{detail}</p>
+            ) : (
+              detail
+            )}
+          </div>
+        ) : null}
+      </div>
+    </li>
+  );
+};
+
+interface SettingsCalloutProps {
+  /** What is wrong, in a few words. */
+  title?: React.ReactNode;
+  children?: React.ReactNode;
+  /** A button that fixes it, at the end on wide panes and below on narrow ones. */
+  action?: React.ReactNode;
+  className?: string;
+}
+
+/**
+ * A warning that must stay visible: something is not as its switch says, or
+ * a list is incomplete. Tinted, so it reads as status and not as a section.
+ */
+export const SettingsCallout: React.FC<SettingsCalloutProps> = ({ title, children, action, className }) => (
+  <div
+    role="status"
+    className={cn(
+      'flex flex-col gap-x-4 gap-y-2.5 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-background)] px-3.5 py-3',
+      '@xl:flex-row @xl:items-center @xl:justify-between',
+      className,
+    )}
+  >
+    <div className="min-w-0 space-y-0.5">
+      {title != null ? <p className={SETTINGS_CALLOUT_TITLE_CLASS}>{title}</p> : null}
+      {children != null ? <p className="typography-meta text-pretty text-foreground">{children}</p> : null}
+    </div>
+    {action != null ? <div className="shrink-0">{action}</div> : null}
+  </div>
+);
+
 interface SettingsInsetProps {
   children: React.ReactNode;
   className?: string;
