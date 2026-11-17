@@ -1,6 +1,6 @@
-import { usePluginsStore } from '@/plugins/store';
 import type { TurnArtifactProps } from '@/plugins/types';
 import { parseVisualDetails } from './document';
+import { useAllowNetwork } from './useAllowNetwork';
 import { VisualDrawing, VisualFrame } from './VisualFrame';
 
 /**
@@ -10,10 +10,7 @@ import { VisualDrawing, VisualFrame } from './VisualFrame';
  * part of the session.
  */
 export default function VisualsArtifact({ part, directory }: TurnArtifactProps) {
-  const allowNetwork = usePluginsStore((state) => {
-    const plugins = state.entries[directory?.trim() ?? '']?.plugins ?? state.entries['']?.plugins;
-    return plugins?.find((plugin) => plugin.id === 'visuals')?.state.allowNetwork === true;
-  });
+  const allowNetwork = useAllowNetwork(directory);
   const status = part.state?.status;
   if (status === 'pending' || status === 'running') {
     const input = (part.state?.input ?? {}) as { title?: unknown; html?: unknown };

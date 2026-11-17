@@ -11,25 +11,21 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { openChatLink } from '@/components/chat/openRequestActions';
-import { useThemeSystem } from '@/contexts/useThemeSystem';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { saveOrShareFile } from '@/lib/nativeFileSave';
 import { cn } from '@/lib/utils';
 import {
   VISUAL_MESSAGE_KEY,
-  buildVisualDocument,
   canOpenLink,
-  readVisualTheme,
   visualFileName,
   type VisualDetails,
 } from './document';
+import { useNearViewport, usePageDocument } from './frameHooks';
 
 /** Inline frames fit their page up to this height, then scroll. */
 const INLINE_MAX_HEIGHT = 560;
 const MIN_HEIGHT = 80;
 const PLACEHOLDER_HEIGHT = 240;
-/** Mount the frame a little before it scrolls into view. */
-const MOUNT_MARGIN = '600px 0px';
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -38,23 +34,11 @@ interface VisualFrameProps {
   allowNetwork: boolean;
 }
 
-function usePageDocument(html: string, allowNetwork: boolean): string {
-  const { currentTheme } = useThemeSystem();
-  const variant = currentTheme.metadata.variant;
-  const themeId = currentTheme.metadata.id;
-  return React.useMemo(() => {
-    // Read after the theme's CSS variables are applied for `themeId`.
-    void themeId;
-    const theme = readVisualTheme(document.documentElement, variant);
-    return buildVisualDocument({ html, theme, allowNetwork });
-  }, [allowNetwork, html, themeId, variant]);
-}
-
 /**
  * One sandboxed page. Listens for its own frame's height and link messages
  * only (`event.source` must be this frame's window).
  */
-function PageFrame({
+export function PageFrame({
   title,
   srcDoc,
   className,
@@ -114,7 +98,7 @@ function PageFrame({
   );
 }
 
-type FrameView = 'page' | 'code';
+export type FrameView = 'page' | 'code';
 
 function ViewSwitch({ view, onChange }: { view: FrameView; onChange: (view: FrameView) => void }) {
   return (
@@ -194,11 +178,54 @@ function PageCode({ html, className, style }: { html: string; className?: string
   );
 }
 
+/** A page in a full-window dialog, with the Page/Code switch and its actions. */
+export function VisualExpandDialog({
+  details,
+  srcDoc,
+  open,
+  onOpenChange,
+  view,
+  onViewChange,
+}: {
+  details: VisualDetails;
+  srcDoc: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  view: FrameView;
+  onViewChange: (view: FrameView) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden bg-background p-0"
+      >
+        <div className="@container flex h-11 shrink-0 items-center gap-2 border-b border-border/60 pl-4 pr-2">
+          <DialogTitle className="min-w-0 flex-1 truncate typography-ui-header font-medium leading-normal">
+            {details.title}
+          </DialogTitle>
+          <ViewSwitch view={view} onChange={onViewChange} />
+          <span aria-hidden="true" className="mx-1 h-4 w-px bg-border/60" />
+          <FrameActions details={details} />
+          <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => onOpenChange(false)} aria-label="Close" title="Close">
+            <Icon name="close" className="size-3.5" />
+          </Button>
+        </div>
+        {!open ? null : view === 'code' ? (
+          <PageCode html={details.html} className="min-h-0 flex-1" />
+        ) : (
+          <PageFrame title={details.title} srcDoc={srcDoc} className="min-h-0 flex-1" />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 const FIGURE_CLASS = 'my-3 overflow-hidden rounded-xl border border-border/60 bg-background';
 const HEADER_CLASS = '@container flex h-10 items-center gap-2 border-b border-border/60 pl-3.5 pr-1.5';
 
 /** A `render_html` call still being written: its title and how much page so far. */
-export function VisualDrawing({ title, size }: { title?: string; size: number }) {
+export function VisualDrawing({ title, size, label = 'Drawing page' }: { title?: string; size: number; label?: string }) {
   return (
     <figure className={FIGURE_CLASS} data-plugin-artifact="visuals" aria-busy="true">
       <figcaption className={HEADER_CLASS}>
@@ -209,7 +236,7 @@ export function VisualDrawing({ title, size }: { title?: string; size: number })
       <div className="flex h-40 flex-col items-center justify-center gap-1.5 text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 typography-meta">
           <Icon name="loader-4" aria-hidden="true" className="size-3.5 animate-spin" />
-          {'Drawing page'}
+          {label}
         </span>
         {size > 0 ? (
           <span className="typography-micro tabular-nums text-subtle-foreground">
@@ -231,25 +258,8 @@ export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
   const [fittedHeight, setFittedHeight] = React.useState<number | null>(null);
   const [expanded, setExpanded] = React.useState(false);
   const [view, setView] = React.useState<FrameView>('page');
-  const [mounted, setMounted] = React.useState(false);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
-
-  React.useEffect(() => {
-    const host = hostRef.current;
-    if (mounted || !host) return;
-    if (typeof IntersectionObserver !== 'function') {
-      setMounted(true);
-      return;
-    }
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setMounted(true);
-        observer.disconnect();
-      }
-    }, { rootMargin: MOUNT_MARGIN });
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, [mounted]);
+  const mounted = useNearViewport(hostRef);
 
   const handleHeight = React.useCallback((height: number) => {
     setFittedHeight(clamp(height, MIN_HEIGHT, INLINE_MAX_HEIGHT));
@@ -280,29 +290,14 @@ export function VisualFrame({ details, allowNetwork }: VisualFrameProps) {
         ) : null}
       </div>
 
-      <Dialog open={expanded} onOpenChange={setExpanded}>
-        <DialogContent
-          showCloseButton={false}
-          className="h-[calc(100dvh-2rem)] w-[min(1200px,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden bg-background p-0"
-        >
-          <div className="@container flex h-11 shrink-0 items-center gap-2 border-b border-border/60 pl-4 pr-2">
-            <DialogTitle className="min-w-0 flex-1 truncate typography-ui-header font-medium leading-normal">
-              {details.title}
-            </DialogTitle>
-            <ViewSwitch view={view} onChange={setView} />
-            <span aria-hidden="true" className="mx-1 h-4 w-px bg-border/60" />
-            <FrameActions details={details} />
-            <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setExpanded(false)} aria-label="Close" title="Close">
-              <Icon name="close" className="size-3.5" />
-            </Button>
-          </div>
-          {!expanded ? null : view === 'code' ? (
-            <PageCode html={details.html} className="min-h-0 flex-1" />
-          ) : (
-            <PageFrame title={details.title} srcDoc={srcDoc} className="min-h-0 flex-1" />
-          )}
-        </DialogContent>
-      </Dialog>
+      <VisualExpandDialog
+        details={details}
+        srcDoc={srcDoc}
+        open={expanded}
+        onOpenChange={setExpanded}
+        view={view}
+        onViewChange={setView}
+      />
     </figure>
   );
 }

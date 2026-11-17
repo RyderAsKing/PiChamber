@@ -12,9 +12,11 @@ const NATIVE_PLUGIN_UIS: readonly NativePluginUi[] = [
     features: [
       'Draws each page in the chat, between the agent\'s steps and its reply',
       'Page and code views, with copy, download, and full-window view',
+      'Shows variants at full width, one at a time, when the agent asks you to pick one, with a note for your choice',
     ],
     turnArtifacts: {
       render_html: React.lazy(() => import('./visuals/VisualsArtifact')),
+      render_choices: React.lazy(() => import('./visuals/ChoicesArtifact')),
     },
   },
   {

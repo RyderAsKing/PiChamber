@@ -9,7 +9,9 @@ import { createSessionDaemon } from './session-daemon.js';
 
 // Real SDK: the bundled plugins load through `plugins.configure`, which
 // recreates the runtime. Visuals has no switch: `render_html` is declared and
-// runs while the plugin is configured. Sub-agents follows its `on` state: a
+// runs while the plugin is configured, and `render_choices` shows its options,
+// asks through `pichamber.ui.choose` tied to its tool call, and returns the answer.
+// Sub-agents follows its `on` state: a
 // state-only change removes `subagent` from the declared tools without
 // recreation, and a session's own value (its composer switch) applies to
 // that session only.
@@ -54,6 +56,11 @@ export default function (pi) {
     () => fauxAssistantMessage('third'),
     () => fauxAssistantMessage('fourth'),
     () => fauxAssistantMessage('fifth'),
+    () => fauxAssistantMessage([fauxToolCall('render_choices', { title: 'Which header?', options: [
+      { label: 'Compact', html: '<p>compact</p>' },
+      { label: 'Tall', description: 'More room for the logo', html: '<p>tall</p>' },
+    ] }, { id: 'call-choices-1' })], { stopReason: 'toolUse' }),
+    () => fauxAssistantMessage('picked'),
   ];
   const respond = (context) => {
     record(context);
@@ -207,6 +214,58 @@ describe('session daemon plugins end-to-end with real SDK', () => {
     await client.request('plugins.configure', plugins({ on: false }, { [sessionId]: { on: true } }));
     await prompt('five');
     expect(globalThis.__pluginsE2eDeclared.at(-1)).toEqual(both);
+
+    // `render_choices`: the options reach the client first, then a question
+    // tied to the tool call. The call waits until a client answers it.
+    const options = [
+      { id: 'a', label: 'Compact', html: '<p>compact</p>' },
+      { id: 'b', label: 'Tall', description: 'More room for the logo', html: '<p>tall</p>' },
+    ];
+    const asked = client.lastSequence();
+    const settled = client.next((message) => message.sequence > asked && message.event === 'session.lifecycle' && message.payload?.state === 'idle');
+    await client.request('sessions.prompt', { sessionId, text: 'choose' });
+    const shown = await client.next((message) => message.sequence > asked && message.event === 'session.tool.update' && message.payload?.toolCallId === 'call-choices-1');
+    expect(shown.payload.metadata).toEqual({ title: 'Which header?', options });
+    const question = await client.next((message) => message.sequence > asked && message.event === 'extension.dialog' && message.payload?.method === 'choose');
+    expect(question.payload).toMatchObject({
+      sessionId,
+      title: 'Which header?',
+      toolCallId: 'call-choices-1',
+      allowNote: true,
+      choices: [
+        { id: 'a', label: 'A: Compact' },
+        { id: 'b', label: 'B: Tall', description: 'More room for the logo' },
+      ],
+    });
+    expect(question.sequence).toBeGreaterThan(shown.sequence);
+    // A session opened now gets the question and what the call has shown.
+    const waiting = await client.request('sessions.open', { sessionId });
+    expect(waiting.messages.at(-1).parts).toEqual([expect.objectContaining({
+      toolCallId: 'call-choices-1',
+      state: 'running',
+      output: 'Waiting for the user to choose.',
+      metadata: { title: 'Which header?', options },
+    })]);
+    expect(waiting.extensionDialogs).toEqual([expect.objectContaining({ requestId: question.payload.requestId, method: 'choose', toolCallId: 'call-choices-1' })]);
+
+    await client.request('extensions.respond', { sessionId, requestId: question.payload.requestId, value: 'b', note: 'but with the smaller logo' });
+    const chosen = await client.next((message) => message.sequence > asked && message.event === 'session.tool.end' && message.payload?.toolCallId === 'call-choices-1');
+    expect(chosen.payload).toMatchObject({
+      toolName: 'render_choices',
+      state: 'completed',
+      output: 'The user chose B: "Tall". Their note: "but with the smaller logo"',
+      metadata: { title: 'Which header?', options, answer: { id: 'b', note: 'but with the smaller logo' } },
+    });
+    await client.next((message) => message.sequence > asked && message.event === 'extension.dialog.dismiss' && message.payload?.requestId === question.payload.requestId);
+    await settled;
+    // The answer replaces the partial result on the finished call.
+    const answered = await client.request('sessions.open', { sessionId });
+    expect(answered.extensionDialogs ?? []).toEqual([]);
+    expect(answered.messages.find((entry) => entry.parts.some((part) => part.toolCallId === 'call-choices-1')).parts[0]).toMatchObject({
+      state: 'completed',
+      output: 'The user chose B: "Tall". Their note: "but with the smaller logo"',
+      metadata: { answer: { id: 'b', note: 'but with the smaller logo' } },
+    });
 
     await client.close();
   }, 60_000);

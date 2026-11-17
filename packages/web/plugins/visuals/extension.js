@@ -1,19 +1,21 @@
 // Visuals: the agent half. Registers `render_html`, which shows a finished
-// HTML page in the chat. PiChamber draws the page from the result's
-// `details`; this module only validates and returns it.
+// HTML page in the chat, and `render_choices` (choices.js), which shows a
+// few variants and waits for the user to pick one. PiChamber draws both from
+// the result's `details`; this module only validates and returns them.
 //
-// It has no switch of its own: while the plugin is on in Settings, the tool
-// is there in every session. PiChamber's `chamber` handle is not needed.
+// It has no switch of its own: while the plugin is on in Settings, the tools
+// are there in every session. PiChamber's `pichamber` handle is used only to ask
+// `render_choices` questions; plain Pi passes none and gets a text list.
 
-import { readFile, realpath, stat } from 'node:fs/promises';
-import { extname, isAbsolute, relative, resolve } from 'node:path';
+import { CHOICES_TOOL_NAME, registerChoicesTool } from './choices.js';
+import { MAX_PAGE_CHARS, readPage } from './files.js';
 
+export { MAX_PAGE_CHARS };
 export const TOOL_NAME = 'render_html';
-export const MAX_PAGE_CHARS = 512_000;
+export const TOOL_NAMES = [TOOL_NAME, CHOICES_TOOL_NAME];
 export const MAX_TITLE_CHARS = 120;
 export const MIN_HEIGHT = 120;
 export const MAX_HEIGHT = 2_000;
-const PAGE_EXTENSIONS = new Set(['.html', '.htm']);
 
 const DESCRIPTION = 'Show a finished, self-contained HTML page (chart, diagram, table, mockup) in the chat above your reply. '
   + 'Inline all CSS and JS; network requests are blocked. About 760px wide, narrower on phones, so let it reflow. '
@@ -32,31 +34,6 @@ const PARAMETERS = {
   },
   required: ['title'],
   additionalProperties: false,
-};
-
-const isInside = (root, target) => {
-  const fromRoot = relative(root, target);
-  return fromRoot.length > 0 && !fromRoot.startsWith('..') && !isAbsolute(fromRoot);
-};
-
-const readPage = async (cwd, path) => {
-  if (typeof cwd !== 'string' || cwd.length === 0) throw new Error('No project folder to read the page from.');
-  if (typeof path !== 'string' || path.trim().length === 0) throw new Error('path is empty.');
-  let root;
-  let file;
-  try {
-    root = await realpath(cwd);
-    file = await realpath(resolve(root, path.trim()));
-  } catch {
-    throw new Error('The page file was not found.');
-  }
-  if (!isInside(root, file)) throw new Error('The page file must be inside the project folder.');
-  if (!PAGE_EXTENSIONS.has(extname(file).toLowerCase())) throw new Error('The page file must be .html or .htm.');
-  const info = await stat(file);
-  if (!info.isFile()) throw new Error('The page path is not a file.');
-  // A UTF-8 character is at most 4 bytes; skip reading what cannot fit.
-  if (info.size > MAX_PAGE_CHARS * 4) throw new Error(`The page is longer than ${MAX_PAGE_CHARS} characters.`);
-  return readFile(file, 'utf8');
 };
 
 /** Validate the call and produce the page. Exported for tests. */
@@ -81,7 +58,7 @@ export const renderHtml = async (params, { cwd } = {}) => {
   };
 };
 
-export default function visuals(pi) {
+export default function visuals(pi, pichamber) {
   let cwd;
 
   pi.registerTool({
@@ -94,12 +71,15 @@ export default function visuals(pi) {
     },
   });
 
+  registerChoicesTool(pi, () => cwd, pichamber);
+
   // Keep the rest of the active tools as they are; only add ours.
   pi.on('session_start', (_event, ctx) => {
     cwd = ctx?.cwd;
     try {
       const active = pi.getActiveTools();
-      if (!active.includes(TOOL_NAME)) pi.setActiveTools([...active, TOOL_NAME]);
+      const missing = TOOL_NAMES.filter((name) => !active.includes(name));
+      if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
     } catch {
       // A runtime that is shutting down has no tools to change.
     }

@@ -85,7 +85,7 @@ describe('plugin routes', () => {
       id: 'visuals',
       name: 'Visuals',
       icon: 'artboard',
-      version: '1.0.0',
+      version: '1.1.0',
       bundled: true,
       enabled: false,
       state: { allowNetwork: false },
@@ -94,7 +94,14 @@ describe('plugin routes', () => {
         settings: ['allowNetwork'],
         ui: 'visuals',
       },
-      impact: { tools: [{ name: 'render_html', exposure: 'direct', tokens: expect.any(Number) }], hooks: [], commands: [] },
+      impact: {
+        tools: [
+          { name: 'render_html', exposure: 'direct', tokens: expect.any(Number) },
+          { name: 'render_choices', exposure: 'direct', tokens: expect.any(Number) },
+        ],
+        hooks: [],
+        commands: [],
+      },
     });
     expect(body.plugins[0]).not.toHaveProperty('entry');
     expect(body.plugins[0]).not.toHaveProperty('packageDir');
