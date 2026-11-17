@@ -1321,7 +1321,7 @@ export type PiExtensionWidgetEvent = PiEventEnvelope<
   }
 >;
 
-/** One typed input of a `form` dialog (`ctx.ui.form`). */
+/** One typed input of a `form` dialog (`pichamber.ui.form`). */
 export interface PiExtensionFormField {
   id: string;
   label: string;
@@ -1336,9 +1336,16 @@ export interface PiExtensionFormField {
   max?: number;
 }
 
+/** One choice of a `choose` dialog (`pichamber.ui.choose`). */
+export interface PiExtensionChoice {
+  id: string;
+  label: string;
+  description?: string;
+}
+
 export interface PiExtensionDialogPayload {
   requestId: string;
-  method: 'select' | 'confirm' | 'input' | 'editor' | 'form';
+  method: 'select' | 'confirm' | 'input' | 'editor' | 'form' | 'choose';
   title: string;
   /** Confirm/dialog body text. */
   message?: string;
@@ -1350,6 +1357,12 @@ export interface PiExtensionDialogPayload {
   prefill?: string;
   /** Form dialog inputs. */
   fields?: PiExtensionFormField[];
+  /** `choose` choices; the answer is one of their ids. */
+  choices?: PiExtensionChoice[];
+  /** `choose`: the answer may carry a free-text note. */
+  allowNote?: boolean;
+  /** `choose`: the tool call that asks, when a tool does. */
+  toolCallId?: string;
   /** When present, the dialog auto-cancels after this many milliseconds. */
   timeoutMs?: number;
 }
@@ -1370,8 +1383,10 @@ export interface PiExtensionDialogResponseInput {
   cancelled?: boolean;
   /** Confirm-dialog acceptance; absent/`false` declines. */
   confirmed?: boolean;
-  /** Select choice, input text, or editor content. */
+  /** Select choice, input text, editor content, or the id of a `choose` choice. */
   value?: string;
+  /** A note with a `choose` answer, when the dialog allows one. */
+  note?: string;
   /** Form dialog answers keyed by field id. */
   values?: Record<string, string>;
 }

@@ -319,7 +319,7 @@ export interface PiSessionSnapshot {
   /** Live extension widgets at snapshot time. */
   extensionWidgets?: Array<{ key: string; lines: string[]; placement?: 'aboveEditor' | 'belowEditor' }>;
   /** Pending blocking extension dialogs at snapshot time. */
-  extensionDialogs?: Array<{ requestId: string; method: 'select' | 'confirm' | 'input' | 'editor' | 'form'; title: string; message?: string; options?: string[]; placeholder?: string; prefill?: string; fields?: import('./protocol').PiExtensionFormField[]; timeoutMs?: number }>;
+  extensionDialogs?: import('./protocol').PiExtensionDialogPayload[];
   /** Live declarative GUI panels (latest-wins per id) at snapshot time. */
   extensionPanels?: Array<import('./protocol').PiExtensionPanelPayload>;
   /** Registered sandboxed extension app surfaces at snapshot time. */
