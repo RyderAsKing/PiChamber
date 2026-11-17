@@ -4,6 +4,7 @@ import { Icon } from '@/components/icon/Icon';
 import { Button } from '@/components/ui/button';
 import { subscribeToTurnAssistantRevealRequests } from '../lib/turns/turnAssistantReveal';
 import type { ChatMessageEntry } from '../lib/turns/types';
+import { getEntryCreatedAt, splitNoticesByAnchors } from '../lib/turns/placeTurnNotices';
 import { getAssistantError } from '../message/chatMessageTextContent';
 import {
     filterAssistantFinalParts,
@@ -20,7 +21,13 @@ interface TurnAssistantBlockProps {
      * only records with final response content; activity records are owned by
      * TurnActivityRail. */
     activityPartIds: ReadonlySet<string>;
+    /** Notices placed among the response by `partitionTurnNotices`, in
+     * arrival order. Each renders before the first shown message created at
+     * or after it. */
+    notices?: ChatMessageEntry[];
 }
+
+const EMPTY_BLOCK_NOTICES: ChatMessageEntry[] = [];
 
 const hasFinalResponseContent = (
     message: ChatMessageEntry,
@@ -49,6 +56,7 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
     renderMessage,
     deferEarlierMessages,
     activityPartIds,
+    notices = EMPTY_BLOCK_NOTICES,
 }) => {
     const [revealedCount, setRevealedCount] = React.useState(INITIAL_ASSISTANT_MESSAGE_COUNT);
     const firstMessage = assistantMessages[0];
@@ -101,19 +109,41 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
         setRevealedCount(finalTailMessages.length + 1);
     }, [finalTailMessages.length]);
 
-    const renderSlot = React.useCallback((message: ChatMessageEntry) => (
-        <AssistantSlot
-            key={message.info.id}
-            message={message}
-            renderMessage={renderMessage}
-        />
-    ), [renderMessage]);
+    const isDeferring = shouldDefer && hiddenFinalCount > 0;
+    const shownTail = isDeferring ? visibleTail : finalTailMessages;
+    // Notices split over the shown messages only, so one that belongs among
+    // deferred messages shows before the first shown later one.
+    const noticeSplit = React.useMemo(() => {
+        if (notices.length === 0) return null;
+        const shown = firstMessage ? [firstMessage, ...shownTail] : shownTail;
+        return splitNoticesByAnchors(notices, shown.map((message) => ({
+            id: message.info.id,
+            createdAt: getEntryCreatedAt(message),
+        })));
+    }, [firstMessage, notices, shownTail]);
 
-    if (!shouldDefer || hiddenFinalCount === 0) {
+    // Notices and messages share one keyed list (see TurnActivityRail), so a
+    // notice keeps its row as later messages arrive below it.
+    const renderSlots = (messages: readonly ChatMessageEntry[], withTrailing: boolean): React.ReactNode[] => {
+        const rows: React.ReactNode[] = [];
+        for (const message of messages) {
+            noticeSplit?.beforeById.get(message.info.id)?.forEach((notice) => {
+                rows.push(<AssistantSlot key={notice.info.id} message={notice} renderMessage={renderMessage} />);
+            });
+            rows.push(<AssistantSlot key={message.info.id} message={message} renderMessage={renderMessage} />);
+        }
+        if (withTrailing) {
+            noticeSplit?.trailing.forEach((notice) => {
+                rows.push(<AssistantSlot key={notice.info.id} message={notice} renderMessage={renderMessage} />);
+            });
+        }
+        return rows;
+    };
+
+    if (!isDeferring) {
         return (
             <div className="relative z-0">
-                {firstMessage ? renderSlot(firstMessage) : null}
-                {finalTailMessages.map(renderSlot)}
+                {renderSlots(firstMessage ? [firstMessage, ...finalTailMessages] : finalTailMessages, true)}
             </div>
         );
     }
@@ -122,7 +152,7 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
 
     return (
         <div className="relative z-0">
-            {firstMessage ? renderSlot(firstMessage) : null}
+            {renderSlots(firstMessage ? [firstMessage] : [], false)}
             <div className="chat-message-column flex flex-wrap items-center justify-center gap-2 py-3">
                 <Button
                     type="button"
@@ -148,7 +178,7 @@ const TurnAssistantBlock: React.FC<TurnAssistantBlockProps> = ({
                     </Button>
                 ) : null}
             </div>
-            {visibleTail.map(renderSlot)}
+            {renderSlots(visibleTail, true)}
         </div>
     );
 };

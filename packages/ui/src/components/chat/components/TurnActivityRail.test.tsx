@@ -12,6 +12,7 @@ mock.module('@/components/chat/markdown/markdown-worker', () => ({
 }));
 
 const { default: TurnActivityRail } = await import('./TurnActivityRail');
+const { EXTENSION_NOTICE_CUSTOM_TYPE } = await import('../lib/turns/applyExtensionNoticeOverlay');
 
 const makeTurn = (activities: TurnRecord['activityParts']): TurnRecord => ({
     turnId: 'turn-1',
@@ -96,5 +97,37 @@ describe('TurnActivityRail', () => {
 
         expect(markup).toContain('data-turn-activity-expanded="false"');
         expect(markup).not.toContain('Load earlier activity');
+    });
+
+    test('places a notice between the tool rounds it arrived between', () => {
+        const turn = {
+            ...makeTurn([makeReadActivity(0, 'skill'), makeReadActivity(1, 'read')]),
+            assistantMessages: [0, 1].map((index) => ({
+                info: { id: `assistant-${index}`, role: 'assistant', time: { created: 100 + index * 100 } } as Message,
+                parts: [] as Part[],
+            })),
+        };
+        const noticeEntry = {
+            info: {
+                id: 'notice:n1',
+                role: 'extension',
+                customType: EXTENSION_NOTICE_CUSTOM_TYPE,
+                text: 'Mode balance active',
+                noticeLevel: 'info',
+                time: { created: 150, completed: 150 },
+            } as unknown as Message,
+            parts: [] as Part[],
+        };
+        const markup = renderToStaticMarkup(
+            <TurnActivityRail turn={turn} notices={[noticeEntry]} isExpanded isLiveTurn={false} />,
+        );
+
+        const skillIndex = markup.indexOf('title="Skill"');
+        const noticeIndex = markup.indexOf('Mode balance active');
+        const readIndex = markup.indexOf('title="Read file"');
+        expect(skillIndex).toBeGreaterThanOrEqual(0);
+        expect(readIndex).toBeGreaterThanOrEqual(0);
+        expect(skillIndex).toBeLessThan(noticeIndex);
+        expect(noticeIndex).toBeLessThan(readIndex);
     });
 });

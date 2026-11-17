@@ -123,6 +123,25 @@ const CHOICES_PROMPT = 'Mock up three headers for the pricing page.';
 const CHOICES_TITLE = 'Which pricing header?';
 const CHOICES_REPLY = 'Going with the split header.';
 const CHOICES_NOTE = 'Keep the yearly toggle from A.';
+// The same session's scripted model answers this prompt with three
+// run_check tool rounds; the extension raises a notice as each check passes,
+// and the last check keeps running so the capture shows the turn mid-way.
+const NOTICES_PROMPT = 'Run the release checks.';
+const NOTICES_CHECKS = [
+  { name: 'lint', ms: 300, notice: 'lint passed: 0 warnings' },
+  { name: 'unit tests', ms: 300, notice: 'unit tests passed: 214 of 214' },
+  { name: 'e2e', ms: 120_000, notice: 'e2e passed' },
+];
+// The same scripted model answers this prompt at once; its extension raises
+// a notice shortly after the turn ends, while nothing runs.
+const IDLE_PROMPT = 'Start the nightly backup.';
+const IDLE_REPLY = 'Started the nightly backup. I will report when it finishes.';
+const IDLE_NOTICE = 'Nightly backup finished: 3 projects, 0 errors';
+const NOTICES_RUNNING = `(() => {
+  const text = document.body?.innerText ?? '';
+  return ${JSON.stringify(NOTICES_CHECKS.slice(0, 2).map((check) => check.notice))}.every((t) => text.includes(t))
+    && Boolean(document.querySelector('button[aria-label="Stop generating"]'));
+})()`;
 const choicePage = (body) => `<style>
 .h{display:grid;gap:10px}
 .h h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-0.01em}
@@ -919,6 +938,44 @@ const PAGES = {
     settledScript: CHOICES_SWITCHED,
     dismissAfter: '[data-plugin-artifact="visuals-choices"] figcaption button',
   },
+  'notices-mid-turn': {
+    // Notices raised between tool rounds of a running turn (Acme Web's
+    // scripted model and run_check tool): each sits where it arrived, with
+    // later rounds below it. Notices are live-only, so a reload drops them:
+    // each viewport is its own page and stops its turn when done, which adds
+    // a turn to the session. Desktop only.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [NOTICES_PROMPT],
+    submitComposer: true,
+    settledScript: NOTICES_RUNNING,
+    dismissAfter: 'button[aria-label="Stop generating"]',
+    viewports: ['desktop'],
+  },
+  'notices-idle': {
+    // A notice raised after the turn ended (Acme Web's scripted model and
+    // extension): its own row below the finished turn. Each capture adds a
+    // turn to the session.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [IDLE_PROMPT],
+    submitComposer: true,
+    settledScript: `(() => {
+      const text = document.body?.innerText ?? '';
+      return text.includes(${JSON.stringify(IDLE_NOTICE)}) && text.includes(${JSON.stringify(IDLE_REPLY)})
+        && !document.querySelector('button[aria-label="Stop generating"]');
+    })()`,
+  },
+  'notices-mid-turn-mobile': {
+    // The same on a phone, mobile only.
+    path: CHOICES_LIVE_SESSION_PATH,
+    readyText: [CHOICES_LIVE_SESSION.title],
+    typeIntoComposer: [NOTICES_PROMPT],
+    submitComposer: true,
+    settledScript: NOTICES_RUNNING,
+    dismissAfter: 'button[aria-label="Stop generating"]',
+    viewports: ['mobile'],
+  },
   'composer-plugin-sheet': {
     // Phones: the plugin button beside Send pressed, opening the sheet with a
     // switch per composer toggle (only Sub-agents declares one).
@@ -1365,6 +1422,11 @@ const capture = async (client, network, baseUrl, pageName, page, viewport, theme
         for (const type of ['keyDown', 'keyUp']) {
           await client.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, ...(type === 'keyDown' ? { text: '\r' } : {}) });
         }
+        // A phone composer takes Enter as a new line; send with its button.
+        if (viewport.mobile) {
+          await wait(300);
+          await client.evaluate(`document.querySelector('button[aria-label="Send message"]')?.click()`);
+        }
         if (page.settledScript) await waitForSettled(client, page, network, `${pageName} settled after send`);
       }
     }
@@ -1429,8 +1491,32 @@ const PROJECT_SUBAGENT_EXTENSION = `export default function (pi) {
 const PROJECT_SCRIPTED_MODEL_EXTENSION = `import { fauxProvider, fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai';
 
 const CALL = ${JSON.stringify({ title: CHOICES_TITLE, options: CHOICES_OPTIONS })};
+const CHECKS = ${JSON.stringify(NOTICES_CHECKS)};
+const textOf = (message) => (typeof message.content === 'string'
+  ? message.content
+  : (message.content ?? []).map((part) => part.text ?? '').join(''));
 
 export default function (pi) {
+  pi.on('agent_end', async (event, ctx) => {
+    const prompt = (event.messages ?? []).find((message) => message.role === 'user');
+    if (!prompt || !textOf(prompt).includes(${JSON.stringify(IDLE_PROMPT)})) return;
+    setTimeout(() => ctx.ui.notify(${JSON.stringify(IDLE_NOTICE)}, 'info'), 1500);
+  });
+  pi.registerTool({
+    name: 'run_check',
+    label: 'Run check',
+    description: 'Run one release check.',
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    execute: async (toolCallId, params, signal, onUpdate, ctx) => {
+      const check = CHECKS.find((candidate) => candidate.name === params.name) ?? CHECKS[0];
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, check.ms);
+        signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+      });
+      if (!signal?.aborted) ctx.ui.notify(check.notice, 'info');
+      return { content: [{ type: 'text', text: check.notice }], details: {} };
+    },
+  });
   const faux = fauxProvider({
     provider: 'demo',
     models: [{ id: 'demo-model', name: 'Demo Model', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 8192 }],
@@ -1438,6 +1524,17 @@ export default function (pi) {
   });
   const respond = (context) => {
     const last = context.messages.at(-1);
+    const userIndex = context.messages.findLastIndex((message) => message.role === 'user');
+    if (userIndex >= 0 && textOf(context.messages[userIndex]).includes(${JSON.stringify(NOTICES_PROMPT)})) {
+      const done = context.messages.slice(userIndex).filter((message) => message.role === 'toolResult').length;
+      if (done < CHECKS.length) {
+        return fauxAssistantMessage([fauxToolCall('run_check', { name: CHECKS[done].name })], { stopReason: 'toolUse' });
+      }
+      return fauxAssistantMessage('All release checks passed.');
+    }
+    if (userIndex >= 0 && textOf(context.messages[userIndex]).includes(${JSON.stringify(IDLE_PROMPT)})) {
+      return fauxAssistantMessage(${JSON.stringify(IDLE_REPLY)});
+    }
     if (last?.role !== 'toolResult') {
       return fauxAssistantMessage([fauxToolCall('render_choices', CALL)], { stopReason: 'toolUse' });
     }
